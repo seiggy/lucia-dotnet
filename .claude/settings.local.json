@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet add:*)"
+    ],
+    "deny": []
+  },
+  "enabledMcpjsonServers": [
+    "sequential-thinking",
+    "context7",
+    "memory"
+  ]
+}
