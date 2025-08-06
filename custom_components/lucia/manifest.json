@@ -1,0 +1,20 @@
+﻿{
+  "domain": "lucia",
+  "name": "Lucia Home Agent",
+  "after_dependencies": ["assist_pipeline", "intent"],
+  "codeowners": [
+    "@seiggy"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "conversation"
+  ],
+  "documentation": "https://github.com/seiggy/lucia-dotnet",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/seiggy/lucia-dotnet/issues",
+  "requirements": [
+    "openai~=1.3.8"
+  ],
+  "version": "2025.08.01"
+}
