@@ -1,46 +1,64 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System.Text;
 
 namespace lucia.HomeAssistant.SourceGenerator;
 
 [Generator]
-public class HomeAssistantApiGenerator : ISourceGenerator
+public class HomeAssistantApiGenerator : IIncrementalGenerator
 {
-    public void Initialize(GeneratorInitializationContext context)
+    public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        context.RegisterForSyntaxNotifications(() => new SyntaxReceiver());
+        // Register the syntax provider to find candidate classes with attributes
+        IncrementalValuesProvider<ClassDeclarationSyntax> classDeclarations = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: static (s, _) => IsSyntaxTargetForGeneration(s),
+                transform: static (ctx, _) => GetClassDeclaration(ctx))
+            .Where(static m => m is not null)!;
+
+        // Register source output action
+        context.RegisterSourceOutput(
+            classDeclarations.Combine(context.CompilationProvider),
+            static (spc, source) => Execute(source.Left, source.Right, spc));
     }
 
-    public void Execute(GeneratorExecutionContext context)
+    private static bool IsSyntaxTargetForGeneration(SyntaxNode node)
     {
-        if (context.SyntaxReceiver is not SyntaxReceiver receiver)
+        // Only consider class declarations with attributes
+        return node is ClassDeclarationSyntax classDecl && classDecl.AttributeLists.Count > 0;
+    }
+
+    private static ClassDeclarationSyntax GetClassDeclaration(GeneratorSyntaxContext context)
+    {
+        var classDeclaration = (ClassDeclarationSyntax)context.Node;
+        return classDeclaration;
+    }
+
+    private static void Execute(ClassDeclarationSyntax classDeclaration, Compilation compilation, SourceProductionContext context)
+    {
+        // Get the semantic model for the class declaration
+        var semanticModel = compilation.GetSemanticModel(classDeclaration.SyntaxTree);
+        var classSymbol = semanticModel.GetDeclaredSymbol(classDeclaration) as INamedTypeSymbol;
+        
+        if (classSymbol == null)
             return;
 
-        foreach (var candidateClass in receiver.CandidateClasses)
-        {
-            var model = context.Compilation.GetSemanticModel(candidateClass.SyntaxTree);
-            var classSymbol = model.GetDeclaredSymbol(candidateClass);
-            
-            if (classSymbol == null)
-                continue;
+        var attribute = classSymbol.GetAttributes()
+            .FirstOrDefault(a => a.AttributeClass?.Name == "HomeAssistantApiAttribute" || 
+                               a.AttributeClass?.ToDisplayString().Contains("HomeAssistantApiAttribute") == true);
 
-            var attribute = classSymbol.GetAttributes()
-                .FirstOrDefault(a => a.AttributeClass?.Name == "HomeAssistantApiAttribute" || 
-                                   a.AttributeClass?.ToDisplayString().Contains("HomeAssistantApiAttribute") == true);
+        if (attribute == null)
+            return;
 
-            if (attribute == null)
-                continue;
+        var namespaceName = classSymbol.ContainingNamespace.ToDisplayString();
+        var className = classSymbol.Name;
 
-            var namespaceName = classSymbol.ContainingNamespace.ToDisplayString();
-            var className = classSymbol.Name;
-
-            var source = GenerateApiClient(namespaceName, className, attribute);
-            context.AddSource($"{className}.g.cs", source);
-        }
+        var source = GenerateApiClient(namespaceName, className, attribute);
+        context.AddSource($"{className}.g.cs", source);
     }
 
-    private string GenerateApiClient(string namespaceName, string className, AttributeData attribute)
+    private static string GenerateApiClient(string namespaceName, string className, AttributeData attribute)
     {
         var configSectionName = GetAttributeValue(attribute, "ConfigSectionName", "HomeAssistant");
         var endpoints = HomeAssistantEndpoints.GetEndpoints();
@@ -108,7 +126,7 @@ namespace {namespaceName}
         return source;
     }
 
-    private string GenerateEndpointMethods(List<OpenApiEndpoint> endpoints)
+    private static string GenerateEndpointMethods(List<OpenApiEndpoint> endpoints)
     {
         var methods = new StringBuilder();
         
@@ -120,7 +138,7 @@ namespace {namespaceName}
         return methods.ToString();
     }
 
-    private string GenerateEndpointMethod(OpenApiEndpoint endpoint)
+    private static string GenerateEndpointMethod(OpenApiEndpoint endpoint)
     {
         var methodName = endpoint.OperationId;
         var pathParams = endpoint.Parameters.Where(p => p.Location == "path").ToList();
@@ -195,7 +213,7 @@ namespace {namespaceName}
         }}";
     }
 
-    private string GenerateGetMethodBody(OpenApiEndpoint endpoint, string path, bool hasQueryParams)
+    private static string GenerateGetMethodBody(OpenApiEndpoint endpoint, string path, bool hasQueryParams)
     {
         var url = hasQueryParams ? $"$\"{path}\" + queryString" : $"$\"{path}\"";
         
@@ -240,7 +258,7 @@ namespace {namespaceName}
         }
     }
 
-    private string GeneratePostMethodBody(OpenApiEndpoint endpoint, string path, bool hasRequestBody, bool hasQueryParams)
+    private static string GeneratePostMethodBody(OpenApiEndpoint endpoint, string path, bool hasRequestBody, bool hasQueryParams)
     {
         var url = hasQueryParams ? $"$\"{path}\" + queryString" : $"$\"{path}\"";
         
@@ -267,7 +285,7 @@ namespace {namespaceName}
         }
     }
 
-    private string GetCSharpType(string type)
+    private static string GetCSharpType(string type)
     {
         return type switch
         {
@@ -282,7 +300,7 @@ namespace {namespaceName}
         };
     }
 
-    private string GetAttributeValue(AttributeData attribute, string propertyName, string defaultValue)
+    private static string GetAttributeValue(AttributeData attribute, string propertyName, string defaultValue)
     {
         var namedArg = attribute.NamedArguments.FirstOrDefault(na => na.Key == propertyName);
         return namedArg.Value.Value?.ToString() ?? defaultValue;

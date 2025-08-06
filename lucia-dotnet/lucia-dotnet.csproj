@@ -6,11 +6,13 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <RootNamespace>lucia_dotnet</RootNamespace>
         <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+        <UserSecretsId>dc5fc0d0-8bd3-4e4f-af6b-5812f48d13db</UserSecretsId>
     </PropertyGroup>
 
     <ItemGroup>
         <PackageReference Include="Asp.Versioning.Http" Version="8.1.0" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.8" />
+        <PackageReference Include="Scalar.AspNetCore" Version="2.6.8" />
     </ItemGroup>
 
     <ItemGroup>

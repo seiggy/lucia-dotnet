@@ -63,20 +63,23 @@ public static class ServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection AddLuciaAgents(
         this IServiceCollection services,
-        string openAiApiKey,
+        string openAiApiKey = "no-key-provided",
         string chatModelId = "gpt-4o",
         string embeddingModelId = "text-embedding-3-small",
         int maxTokens = 8000)
     {
+        services.AddOpenAIChatCompletion(chatModelId, openAiApiKey);
+        services.AddOpenAIEmbeddingGenerator(modelId: embeddingModelId, apiKey: openAiApiKey);
+        
         return services.AddLuciaAgents(serviceProvider =>
         {
             var kernelBuilder = Kernel.CreateBuilder();
             
             // Add chat completion service
-            kernelBuilder.AddOpenAIChatCompletion(chatModelId, openAiApiKey);
+            kernelBuilder.Services.AddOpenAIChatCompletion(chatModelId, openAiApiKey);
             
             // Add embedding service
-            kernelBuilder.AddOpenAIEmbeddingGenerator(modelId: embeddingModelId, apiKey: openAiApiKey);
+            kernelBuilder.Services.AddOpenAIEmbeddingGenerator(modelId: embeddingModelId, apiKey: openAiApiKey);
             
             // Add logging
             kernelBuilder.Services.AddLogging();

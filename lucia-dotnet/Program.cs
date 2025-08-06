@@ -2,15 +2,18 @@ using lucia_dotnet.APIs;
 using lucia.Agents.A2A.Services;
 using lucia.Agents.Extensions;
 using lucia.HomeAssistant.Extensions;
+using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.AddServiceDefaults();
 
-builder.Services.AddControllers();
+builder.Services.AddApiVersioning();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
+builder.Services.AddAuthorization();
+builder.Services.AddOutputCache();
 
 // Add Home Assistant integration
 builder.Services.AddHomeAssistant(options =>
@@ -39,8 +42,10 @@ app.UseOutputCache();
 app.MapOpenApi()
     .CacheOutput();
 
+app.MapScalarApiReference();
+
 app.UseHttpsRedirection();
-app.UseCors();
+
 app.UseAuthorization();
 
 app.UseRouting();
