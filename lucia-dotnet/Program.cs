@@ -1,15 +1,26 @@
 using lucia_dotnet.APIs;
-using lucia.Agents.A2A.Services;
+using lucia.Agents.Services;
 using lucia.Agents.Extensions;
 using lucia.HomeAssistant.Extensions;
 using Scalar.AspNetCore;
+using Microsoft.AspNetCore.Mvc;
+using Asp.Versioning;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 builder.AddServiceDefaults();
 
-builder.Services.AddApiVersioning();
+builder.Services.AddApiVersioning(options =>
+{
+    options.DefaultApiVersion = new ApiVersion(1, 0);
+    options.AssumeDefaultVersionWhenUnspecified = true;
+    options.ApiVersionReader = ApiVersionReader.Combine(
+        new QueryStringApiVersionReader("api-version"),
+        new HeaderApiVersionReader("api-version"),
+        new UrlSegmentApiVersionReader()
+    );
+});
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 builder.Services.AddAuthorization();
@@ -24,7 +35,7 @@ builder.Services.AddHomeAssistant(options =>
     options.ValidateSSL = false;
 });
 
-builder.Services.AddTransient<IA2AService, A2AService>();
+// A2A service registration is now handled in AddLuciaAgents
 
 // Add Lucia multi-agent system
 var openAiApiKey = builder.Configuration["OpenAI:ApiKey"] ?? throw new InvalidOperationException("OpenAI:ApiKey is required");
@@ -50,5 +61,6 @@ app.UseAuthorization();
 
 app.UseRouting();
 app.MapAgentRegistryApiV1();
+app.MapA2AJsonRpcApiV1();
 
 app.Run();

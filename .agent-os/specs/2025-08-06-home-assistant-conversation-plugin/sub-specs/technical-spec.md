@@ -56,6 +56,11 @@ This is the technical specification for the spec detailed in @.agent-os/specs/20
 
 ## External Dependencies
 
+### .NET Packages (Backend Migration)
+- **A2A** (0.1.0-preview.2) - Official A2A protocol implementation
+  - **Justification:** Replace custom A2A implementation with official package for better maintainability and standards compliance
+  - **Impact:** Remove custom A2A classes from lucia.Agents project
+
 ### Python Packages
 - **aiohttp** (>=3.9.0) - Async HTTP client for API communication
   - **Justification:** Home Assistant's standard async HTTP client
@@ -101,3 +106,42 @@ CONFIG_SCHEMA = {
 - Sanitize user input before sending to Lucia API
 - Never log sensitive information like API keys
 - Use Home Assistant's built-in authentication for the integration itself
+
+# A2A Compliance (from A2A v0.3.0 spec)
+For an agent to be considered A2A-compliant, it MUST:
+
+### 11.1.1. Transport Support Requirements
+- Support at least one transport: Agents MUST implement at least one transport protocols as defined in Section 3.2.
+- Expose Agent Card: MUST provide a valid AgentCard document as defined in Section 5.
+- Declare transport capabilities: MUST accurately declare all supported transports in the AgentCard using preferredTransport and additionalInterfaces fields following the requirements in Section 5.6.
+
+### 11.1.2. Core Method Implementation
+MUST implement all of the following core methods via at least one supported transport:
+
+* `message/send` - Send messages and initiate tasks
+* `tasks/get` - Retrieve task status and results
+* `tasks/cancel` - Request task cancellation
+
+### 11.1.3. Optional Method Implementation
+MAY implement the following optional methods:
+
+- `message/stream` - Streaming message interaction (requires capabilities.streaming: true)
+- `tasks/resubscribe` - Resume streaming for existing tasks (requires capabilities.streaming: true)
+- `tasks/pushNotificationConfig/set` - Configure push notifications (requires capabilities.pushNotifications: true)
+- `tasks/pushNotificationConfig/get` - Retrieve push notification config (requires capabilities.pushNotifications: true)
+- `tasks/pushNotificationConfig/list` - List push notification configs (requires capabilities.pushNotifications: true)
+- `tasks/pushNotificationConfig/delete` - Delete push notification config (requires capabilities.pushNotifications: true)
+- `agent/authenticatedExtendedCard` - Retrieve authenticated agent card (requires supportsAuthenticatedExtendedCard: true)
+
+### 11.1.4. Multi-Transport Compliance
+If an agent supports additional transports (gRPC, HTTP+JSON), it MUST:
+
+- **Functional equivalence:** Provide identical functionality across all supported transports.
+- **Consistent behavior:** Return semantically equivalent results for the same operations.
+- **Transport-specific requirements:** Conform to all requirements defined in Section 3.2 for each supported transport.
+- **Method mapping compliance:** Use the standard method mappings defined in Section 3.5 for all supported transports.
+
+### 11.1.5. Data Format Compliance¶
+- **JSON-RPC structure:** MUST use valid JSON-RPC 2.0 request/response objects as defined in Section 6.11.
+- **A2A data objects:** MUST use the data structures defined in Section 6 for all protocol entities.
+- **Error handling:** MUST use the error codes defined in Section 8.
