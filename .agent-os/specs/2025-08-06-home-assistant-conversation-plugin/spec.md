@@ -35,6 +35,7 @@ The user initiates a conversation like "what's the temperature in the bedroom?" 
 3. **A2A Protocol Client** - Python implementation of the A2A protocol for agent communication
 4. **Error Handling & Notifications** - Robust error handling with persistent notifications for connection issues
 5. **Agent Registry Integration** - Fetch and validate available agents from the Lucia registry
+6. **A2A Package Migration** - Migrate lucia.Agents from custom A2A implementation to official A2A NuGet package v0.1.0-preview.2
 
 ## Out of Scope
 
@@ -48,3 +49,11 @@ The user initiates a conversation like "what's the temperature in the bedroom?" 
 1. A functional Home Assistant custom component installable via HACS or manual installation that appears in the integrations list
 2. Users can successfully configure the Lucia API endpoint, authenticate, and select an orchestration agent
 3. Natural language commands sent through Home Assistant's conversation interface are processed by Lucia agents and return appropriate responses
+
+## Spec Documentation
+
+- Tasks: @.agent-os/specs/2025-08-06-home-assistant-conversation-plugin/tasks.md
+- Technical Specification: @.agent-os/specs/2025-08-06-home-assistant-conversation-plugin/sub-specs/technical-spec.md
+- API Specification: @.agent-os/specs/2025-08-06-home-assistant-conversation-plugin/sub-specs/api-spec.md
+- A2A Migration Guide: @.agent-os/specs/2025-08-06-home-assistant-conversation-plugin/sub-specs/a2a-migration.md
+- Tests Specification: @.agent-os/specs/2025-08-06-home-assistant-conversation-plugin/sub-specs/tests.md

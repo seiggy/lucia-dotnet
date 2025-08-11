@@ -1,6 +1,6 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
-using lucia.Agents.A2A;
+using A2A;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.Agents;
 using System.Runtime.CompilerServices;
@@ -62,7 +62,7 @@ public class A2AClientAgent : Agent
             throw new ArgumentException("Messages collection cannot be null or empty.", nameof(messages));
         }
         
-        var agentUri = new Uri(_agentCard.Uri);
+        var agentUri = new Uri(_agentCard.Url);
         
         if (agentUri == null)
         {
@@ -98,7 +98,7 @@ public class A2AClientAgent : Agent
         AgentInvokeOptions? options = null, 
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var agentUri = new Uri(_agentCard.Uri);
+        var agentUri = new Uri(_agentCard.Url);
         
         if (agentUri == null)
         {

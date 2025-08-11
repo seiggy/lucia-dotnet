@@ -1,4 +1,4 @@
-﻿using lucia.Agents.A2A;
+﻿using A2A;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.Agents;
 

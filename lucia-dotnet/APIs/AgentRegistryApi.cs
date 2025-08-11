@@ -1,6 +1,6 @@
-﻿using lucia.Agents.A2A;
-using lucia.Agents.A2A.Services;
+﻿using A2A;
 using lucia.Agents.Registry;
+using lucia.Agents.Services;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 
@@ -38,7 +38,7 @@ public static class AgentRegistryApi
 
     private static async Task<Results<Ok, BadRequest<string>, ProblemHttpResult>> UpdateAgent(
         [FromServices] IAgentRegistry agentRegistry,
-        [FromServices] IA2AService a2aService,
+        [FromServices] IA2AClientService a2aService,
         [FromRoute] string agentUri,
         CancellationToken cancellationToken = default)
     {
@@ -72,7 +72,7 @@ public static class AgentRegistryApi
     
     public static async Task<Results<Created, BadRequest<string>, ProblemHttpResult>> RegisterAgent(
         [FromServices] IAgentRegistry agentRegistry,
-        [FromServices] IA2AService a2aService,
+        [FromServices] IA2AClientService a2aService,
         [FromForm] string agentUri,
         CancellationToken cancellationToken = default)
     {

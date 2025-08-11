@@ -1,4 +1,4 @@
-using lucia.Agents.A2A;
+using A2A;
 
 namespace lucia.Agents.Registry;
 

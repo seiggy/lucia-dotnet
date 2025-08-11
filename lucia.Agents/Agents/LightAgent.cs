@@ -1,4 +1,4 @@
-using lucia.Agents.A2A;
+using A2A;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.Agents;
 using Microsoft.Extensions.Logging;
@@ -27,7 +27,7 @@ public class LightAgent
         // Create the agent card for registration
         _agent = new AgentCard
         {
-            Uri = "lucia://light-agent",
+            Url = "lucia://light-agent",
             Name = "LightAgent",
             Description = "Agent for controlling lights and lighting in Home Assistant",
             Capabilities = new AgentCapabilities
@@ -36,7 +36,7 @@ public class LightAgent
                 StateTransitionHistory = false,
                 Streaming = false,
             },
-            version = "1.0.0",
+            Version = "1.0.0",
         };
         
         // Create the internal ChatCompletionAgent

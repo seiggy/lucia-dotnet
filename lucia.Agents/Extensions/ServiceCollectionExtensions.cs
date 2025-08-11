@@ -7,6 +7,7 @@ using lucia.Agents.Orchestration;
 using lucia.Agents.Plugins;
 using lucia.Agents.Agents;
 using lucia.Agents.Reducers;
+using lucia.Agents.Services;
 
 namespace lucia.Agents.Extensions;
 
@@ -22,6 +23,10 @@ public static class ServiceCollectionExtensions
     {
         // Register core services
         services.AddSingleton<IAgentRegistry, AgentRegistry>();
+        
+        // Register A2A services
+        services.AddHttpClient<IA2AClientService, A2AClientService>();
+        services.AddTransient<IA2AClientService, A2AClientService>();
         
         // Register the kernel
         services.AddSingleton(kernelFactory);

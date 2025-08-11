@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
-using lucia.Agents.A2A;
+using A2A;
 
 namespace lucia.Agents.Registry;
 
@@ -20,8 +20,8 @@ public class AgentRegistry : IAgentRegistry
 
     public Task RegisterAgentAsync(AgentCard agent, CancellationToken cancellationToken = default)
     {
-        _agents.AddOrUpdate(agent.Uri, agent, (key, existing) => agent);
-        _logger.LogInformation("Agent {AgentId} ({AgentName}) registered successfully", agent.Uri, agent.Name);
+        _agents.AddOrUpdate(agent.Url, agent, (key, existing) => agent);
+        _logger.LogInformation("Agent {AgentId} ({AgentName}) registered successfully", agent.Url, agent.Name);
         return Task.CompletedTask;
     }
 
