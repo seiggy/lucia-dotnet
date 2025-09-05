@@ -8,8 +8,8 @@
     <UserSecretsId>dd99e9ff-e233-4d7f-99b9-8c04beabcc9f</UserSecretsId>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Aspire.Hosting.AppHost" Version="9.4.0" />
-    <PackageReference Include="Scalar.Aspire" Version="0.3.2" />
+    <PackageReference Include="Aspire.Hosting.AppHost" Version="9.4.2" />
+    <PackageReference Include="Scalar.Aspire" Version="0.4.2" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\lucia-dotnet\lucia-dotnet.csproj" />

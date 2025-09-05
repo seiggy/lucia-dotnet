@@ -8,14 +8,14 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="A2A" Version="0.1.0-preview.2" />
+    <PackageReference Include="A2A" Version="0.3.1-preview" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.8" />
     <PackageReference Include="Microsoft.Extensions.VectorData.Abstractions" Version="9.7.0" />
-    <PackageReference Include="Microsoft.ML.Tokenizers" Version="2.0.0-preview.1.25127.4" />
-    <PackageReference Include="Microsoft.SemanticKernel" Version="1.61.0" />
-    <PackageReference Include="Microsoft.SemanticKernel.Agents.Core" Version="1.61.0" />
-    <PackageReference Include="Microsoft.SemanticKernel.Agents.Magentic" Version="1.60.0-preview" />
-    <PackageReference Include="Microsoft.SemanticKernel.Agents.Runtime.InProcess" Version="1.60.0-preview" />
+    <PackageReference Include="Microsoft.ML.Tokenizers" Version="2.0.0-preview.25373.1" />
+    <PackageReference Include="Microsoft.SemanticKernel" Version="1.64.0" />
+    <PackageReference Include="Microsoft.SemanticKernel.Agents.Core" Version="1.64.0" />
+    <PackageReference Include="Microsoft.SemanticKernel.Agents.Magentic" Version="1.64.0-preview" />
+    <PackageReference Include="Microsoft.SemanticKernel.Agents.Runtime.InProcess" Version="1.64.0-preview" />
   </ItemGroup>
 
   <ItemGroup>

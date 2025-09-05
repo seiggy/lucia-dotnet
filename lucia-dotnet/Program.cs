@@ -35,7 +35,7 @@ builder.Services.AddHomeAssistant(options =>
     options.ValidateSSL = false;
 });
 
-// A2A service registration is now handled in AddLuciaAgents
+// A2A service registration is handled in AddLuciaAgents
 
 // Add Lucia multi-agent system
 var openAiApiKey = builder.Configuration["OpenAI:ApiKey"] ?? throw new InvalidOperationException("OpenAI:ApiKey is required");
