@@ -1,0 +1,43 @@
+{
+    "chat.modeFilesLocations": {
+        "chatmodes": true
+    },
+    "chat.promptFilesLocations": {
+        "prompts": true
+    },
+    "chat.instructionsFilesLocations": {
+        "instructions": true
+    },
+    "github.copilot.chat.codeGeneration.useInstructionFiles": true,
+    "files.insertFinalNewline": true,
+    "files.trimTrailingWhitespace": true,
+    "[markdown]": {
+        "files.trimTrailingWhitespace": false,
+        "editor.formatOnSave": false
+    },
+    "editor.rulers": [
+        100
+    ],
+    "files.associations": {
+        "*.chatmode.md": "markdown",
+        "*.instructions.md": "markdown",
+        "*.prompt.md": "markdown",
+    },
+    "github.copilot.chat.codesearch.enabled": true,
+    "github.copilot.chat.agent.thinkingTool": true,
+    "github.copilot.chat.editor.temporalContext.enabled": true,
+    "github.copilot.chat.edits.temporalContext.enabled": true,
+    "github.copilot.chat.generateTests.codeLens": true,
+    "chat.promptFiles": true,
+    "chat.mcp.serverSampling": {
+        "AI-Assisted-Coding/.vscode/mcp.json: playwright": {
+            "allowedModels": [
+                "copilot/gpt-4.1",
+                "copilot/claude-sonnet-4",
+                "copilot/gpt-5",
+                "copilot/gpt-5-mini",
+                "copilot/o4-mini"
+            ]
+        }
+    }
+}
