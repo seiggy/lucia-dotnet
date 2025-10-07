@@ -1,0 +1,9 @@
+{
+  "configProperties": {
+    "System.Runtime.Loader.UseRidGraph": true
+  },
+  "runtimeOptions": {
+    "rollForward": "LatestMajor",
+    "additionalProbingPaths": []
+  }
+}

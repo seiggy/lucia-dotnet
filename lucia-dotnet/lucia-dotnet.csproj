@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <RootNamespace>lucia_dotnet</RootNamespace>
+        <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+        <UserSecretsId>dc5fc0d0-8bd3-4e4f-af6b-5812f48d13db</UserSecretsId>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Asp.Versioning.Http" Version="8.1.0" />
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.0-rc.1.25451.107" />
+        <PackageReference Include="Microsoft.Agents.AI.Hosting" Version="1.0.0-preview.251002.1" />
+        <PackageReference Include="Scalar.AspNetCore" Version="2.8.10" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Content Include="..\.dockerignore">
+        <Link>.dockerignore</Link>
+      </Content>
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\lucia.ServiceDefaults\lucia.ServiceDefaults.csproj" />
+      <ProjectReference Include="..\lucia.Agents\lucia.Agents.csproj" />
+    </ItemGroup>
+
+</Project>

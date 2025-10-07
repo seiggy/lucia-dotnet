@@ -1,0 +1,18 @@
+{
+  "domain": "lucia",
+  "name": "Lucia Home Agent",
+  "after_dependencies": ["assist_pipeline", "intent", "conversation"],
+  "codeowners": [
+    "@seiggy"
+  ],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/seiggy/lucia-dotnet",
+  "integration_type": "service",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/seiggy/lucia-dotnet/issues",
+  "requirements": [
+    "a2a==0.2.0"
+  ],
+  "version": "2025.9.5"
+}

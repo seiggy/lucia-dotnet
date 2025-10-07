@@ -1,0 +1,6 @@
+@lucia.AgentHost_HostAddress = http://localhost:5151
+
+GET {{lucia.AgentHost_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
