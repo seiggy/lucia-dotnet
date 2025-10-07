@@ -1,7 +1,7 @@
 # Lucia - Autonomous Home Assistant AI
 
 
-[![.NET](https://img.shields.io/badge/.NET-10.0-rc1-512BD4)](https://dotnet.microsoft.com/)
+[![.NET](https://img.shields.io/badge/10.0%20rc1-grey?logo=dotnet&labelColor=512BD4)](https://dotnet.microsoft.com/)
 [![Agent Framework](https://img.shields.io/badge/Agent%20Framework-1.0.0-blue)](https://github.com/microsoft/semantic-kernel)
 [![License](https://img.shields.io/github/license/seiggy/lucia-dotnet)](LICENSE)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Compatible-41BDF5)](https://www.home-assistant.io/)
