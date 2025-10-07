@@ -14,6 +14,7 @@ CONF_PROMPT = "prompt"
 CONF_MAX_TOKENS = "max_tokens"
 CONF_TEMPERATURE = "temperature"
 CONF_TOP_P = "top_p"
+UNIQUE_ID = "unique_id"
 
 # Defaults
 DEFAULT_NAME = "Lucia A2A Agent"
