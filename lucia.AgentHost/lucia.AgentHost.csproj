@@ -11,10 +11,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Agents.AI.Abstractions" Version="1.0.0-preview.251002.1" />
-    <PackageReference Include="Microsoft.Agents.AI.AzureAI" Version="1.0.0-preview.251002.1" />
-    <PackageReference Include="Microsoft.Agents.AI.Workflows" Version="1.0.0-preview.251002.1" />
-    <PackageReference Include="Microsoft.Agents.AI.A2A" Version="1.0.0-preview.251002.1" />
     <PackageReference Include="A2A" Version="0.3.1-preview" />
     <PackageReference Include="A2A.AspNetCore" Version="0.3.1-preview" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.0-rc.1.25451.107" />
@@ -22,6 +18,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\agent-framework\dotnet\src\Microsoft.Agents.AI.A2A\Microsoft.Agents.AI.A2A.csproj" />
+    <ProjectReference Include="..\agent-framework\dotnet\src\Microsoft.Agents.AI.Abstractions\Microsoft.Agents.AI.Abstractions.csproj" />
+    <ProjectReference Include="..\agent-framework\dotnet\src\Microsoft.Agents.AI.AzureAI\Microsoft.Agents.AI.AzureAI.csproj" />
+    <ProjectReference Include="..\agent-framework\dotnet\src\Microsoft.Agents.AI.Workflows\Microsoft.Agents.AI.Workflows.csproj" />
     <ProjectReference Include="..\lucia.Agents\lucia.Agents.csproj" />
     <ProjectReference Include="..\lucia.ServiceDefaults\lucia.ServiceDefaults.csproj" />
   </ItemGroup>
