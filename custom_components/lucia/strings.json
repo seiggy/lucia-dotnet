@@ -2,9 +2,15 @@
   "config": {
     "step": {
       "user": {
+        "title": "Set up Lucia Agent",
+        "description": "Connect to your Lucia A2A agent",
         "data": {
-          "api_key": "[%key:common::config_flow::data::api_key%]",
-          "api_base": "[%key:common::config_flow::data::api_base%]"
+          "repository": "Agent Repository URL",
+          "api_key": "[%key:common::config_flow::data::api_key%]"
+        },
+        "data_description": {
+          "repository": "The base URL of your Lucia agent (e.g., http://localhost:5000)",
+          "api_key": "The API key to authenticate with your agent"
         }
       }
     },
@@ -12,6 +18,9 @@
       "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
       "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
       "unknown": "[%key:common::config_flow::error::unknown%]"
+    },
+    "abort": {
+      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]"
     }
   },
   "options": {
