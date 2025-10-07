@@ -1,0 +1,61 @@
+---
+config:
+  theme: dark
+---
+%% Container Diagram - Lucia Platform Components
+%% Audience: Engineering teams | Purpose: Show major services, libraries, and dependencies
+flowchart LR
+  classDef ha fill:#1f77b4,color:#ffffff,stroke:#85c0f9,stroke-width:2px;
+  classDef lucia fill:#2ca02c,color:#0a0a0a,stroke:#98df8a,stroke-width:2px;
+  classDef runtime fill:#9467bd,color:#ffffff,stroke:#c5b0d5,stroke-width:2px;
+  classDef infra fill:#17becf,color:#0a0a0a,stroke:#9edae5,stroke-width:2px;
+  classDef ai fill:#ff7f0e,color:#0a0a0a,stroke:#ffbb78,stroke-width:2px;
+  classDef optional stroke-dasharray: 6 3,stroke:#f7f7f7,color:#f7f7f7;
+
+  subgraph HA_ENV["Home Assistant Environment"]
+    haPlugin["Lucia Conversation Plugin\n(custom component)"]:::ha
+    haApis["Home Assistant Core APIs"]:::ha
+  end
+
+  subgraph LUCIA_SERVICES["Lucia .NET Services"]
+    luciaApi["lucia-dotnet API Service"]:::lucia
+    agentGateway["Agent Registry API\n& A2A JSON-RPC"]:::lucia
+    appHost["lucia.AppHost (.NET Aspire)"]:::lucia
+    homeAssistantSdk["lucia.HomeAssistant SDK"]:::lucia
+  end
+
+  subgraph AGENT_RUNTIME["Agent Runtime Libraries"]
+    agentsLib["lucia.Agents\n(Semantic Kernel)"]:::runtime
+    agentHost["lucia.AgentHost Worker"]:::runtime
+  end
+
+  subgraph SHARED_INFRA["Shared Infrastructure & Tooling"]
+    serviceDefaults["lucia.ServiceDefaults"]:::infra
+    sourceGenerator["Home Assistant\nSource Generator"]:::infra
+    futureDb["PostgreSQL 17+ (planned)"]:::infra
+    futureCache["Redis Cache (planned)"]:::infra
+    class futureDb,futureCache optional
+  end
+
+  subgraph AI_PROVIDERS["External AI Providers"]
+    openAi["OpenAI GPT-4o"]:::ai
+    gemini["Google Gemini"]:::ai
+    claude["Anthropic Claude"]:::ai
+  end
+
+  haPlugin --> haApis
+  haApis --> luciaApi
+  luciaApi --> agentGateway
+  luciaApi --> homeAssistantSdk
+  agentGateway --> agentsLib
+  agentsLib --> agentHost
+  appHost --> luciaApi
+  appHost --> agentHost
+  serviceDefaults --> luciaApi
+  serviceDefaults --> agentHost
+  sourceGenerator --> homeAssistantSdk
+  luciaApi -.-> futureDb
+  agentHost -.-> futureCache
+  agentsLib -.-> openAi
+  agentsLib -.-> gemini
+  agentsLib -.-> claude

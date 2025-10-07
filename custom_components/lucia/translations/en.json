@@ -1,0 +1,62 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Lucia Agent",
+        "description": "Enter the connection details for your Lucia agent.",
+        "data": {
+          "repository": "Agent Repository URL",
+          "api_key": "API Key"
+        },
+        "data_description": {
+          "repository": "The URL of your Lucia agent (e.g., http://localhost:5000)",
+          "api_key": "The API key for authenticating with your Lucia agent"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the Lucia agent. Please check the URL and API key.",
+      "unknown": "Unexpected error occurred. Please try again."
+    },
+    "abort": {
+      "already_configured": "This Lucia agent is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Configure Lucia Agent",
+        "description": "Configure how Lucia processes conversations.",
+        "data": {
+          "prompt": "System Prompt Template",
+          "max_tokens": "Maximum Response Tokens"
+        },
+        "data_description": {
+          "prompt": "Template for the system prompt. Available variables: {{ha_name}}, {{user_name}}, {{language}}",
+          "max_tokens": "Maximum number of tokens in the response (10-4000)"
+        }
+      }
+    }
+  },
+  "conversation": {
+    "agent": {
+      "done": "Done"
+    }
+  },
+  "services": {
+    "send_message": {
+      "name": "Send Message",
+      "description": "Send a message to the Lucia agent.",
+      "fields": {
+        "message": {
+          "name": "Message",
+          "description": "The message to send to the agent."
+        },
+        "agent_id": {
+          "name": "Agent ID",
+          "description": "The ID of the specific agent to send the message to."
+        }
+      }
+    }
+  }
+}

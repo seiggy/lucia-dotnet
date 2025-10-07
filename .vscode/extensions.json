@@ -1,0 +1,9 @@
+{
+    "recommendations": [
+        "github.copilot",
+        "github.copilot-chat",
+        "mermaidchart.vscode-mermaid-chart",
+        "ms-vscode.vscode-websearchforcopilot",
+        "ms-vscode.copilot-mermaid-diagram"
+    ]
+}
