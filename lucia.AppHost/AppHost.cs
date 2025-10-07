@@ -23,7 +23,8 @@ var lucia = builder.AddProject<lucia_dotnet>("lucia-dotnet")
         {
             url.DisplayText = "Scalar (HTTPS)";
             url.Url = "/scalar";
-        });
+        })
+    .WithExternalHttpEndpoints();
 
 builder.AddProject<Projects.lucia_AgentHost>("lucia-agenthost")
     .WithReference(embeddings)

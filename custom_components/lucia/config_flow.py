@@ -43,15 +43,23 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
     Data has the keys from STEP_USER_DATA_SCHEMA with values provided by the user.
     """
     # Import here to avoid circular imports
+    import httpx
     from a2a.client import A2ACardResolver
 
-    client = A2ACardResolver(
-        httpx_client=get_async_client(hass),
-        base_url=data[CONF_REPOSITORY],
-        api_key=data[CONF_API_KEY],
-    )
+    # Create a dedicated HTTP client for the A2A repository with API key header
+    headers = {}
+    if data.get(CONF_API_KEY):
+        headers["X-Api-Key"] = data[CONF_API_KEY]
+
+    httpx_client = httpx.AsyncClient(headers=headers)
 
     try:
+        # Create resolver with base URL
+        client = A2ACardResolver(
+            httpx_client=httpx_client,
+            base_url=data[CONF_REPOSITORY],
+        )
+
         _LOGGER.info("Resolving agent card from %s", data[CONF_REPOSITORY])
         agent_card = await hass.async_add_executor_job(client.get_agent_card)
 
@@ -70,6 +78,9 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
             exc_info=True,
         )
         raise ValueError("Invalid repository or API key") from err
+    finally:
+        # Clean up the HTTP client
+        await httpx_client.aclose()
 
 class LuciaConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Lucia."""
