@@ -1,5 +1,6 @@
 ﻿{
-  "name": "lucia",
+  "name": "lucia AI",
   "render_readme": true,
-  "homeassistant": "2024.1.0b0"
+  "homeassistant": "2024.5.3",
+  "version": "2025.10.01"
 }
