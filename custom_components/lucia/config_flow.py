@@ -1,59 +1,30 @@
 ﻿"""Config flow for Lucia integration."""
 from __future__ import annotations
-from collections.abc import Mapping
-import json
+
 import logging
-from types import MappingProxyType
 from typing import Any
-import uuid
 
 import voluptuous as vol
 
-from a2a.client import A2ACardResolver, A2AClient
-from a2a.types import (
-    AgentCard,
-    MessageSendParams,
-    SendMessageRequest,
-    SendStreamingMessageRequest,
-)
-from a2a.utils.constants import (
-    AGENT_CARD_WELL_KNOWN_PATH,
-    EXTENDED_AGENT_CARD_PATH
-)
-
-from homeassistant.components.zone import ENTITY_ID_HOME
 from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
     OptionsFlow,
 )
-from homeassistant.const import (
-    ATTR_LATITUDE,
-    ATTR_LONGITUDE,
-    CONF_REPOSITORY,
-    CONF_API_KEY,
-)
-
+from homeassistant.const import CONF_API_KEY
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
-    SelectOptionDict,
-    SelectSelector,
-    SelectSelectorConfig,
-    SelectSelectorMode,
     TemplateSelector,
 )
-from homeassistant.helpers.typing import VolDictType
 
 from .const import (
-    CONF_API_KEY,
     CONF_MAX_TOKENS,
     CONF_PROMPT,
     CONF_REPOSITORY,
-    UNIQUE_ID,
     DOMAIN,
 )
 
@@ -71,27 +42,26 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
 
     Data has the keys from STEP_USER_DATA_SCHEMA with values provided by the user.
     """
+    # Import here to avoid circular imports
+    from a2a.client import A2ACardResolver
+
     client = A2ACardResolver(
         httpx_client=get_async_client(hass),
         base_url=data[CONF_REPOSITORY],
         api_key=data[CONF_API_KEY],
     )
 
-    agent_card: AgentCard | None = None
-
     try:
         _LOGGER.info("Resolving agent card from %s", data[CONF_REPOSITORY])
-        agent_card = await hass.async_add_executor_job(
-            client.get_agent_card
-        )
+        agent_card = await hass.async_add_executor_job(client.get_agent_card)
 
         if not agent_card:
             raise ValueError("Failed to retrieve agent card")
 
         # Return info to store in config entry
         return {
-            "title": agent_card.name if hasattr(agent_card, 'name') else "Lucia Agent",
-            "agent_id": agent_card.id if hasattr(agent_card, 'id') else "lucia",
+            "title": agent_card.name if hasattr(agent_card, "name") else "Lucia Agent",
+            "agent_id": agent_card.id if hasattr(agent_card, "id") else "lucia",
         }
     except Exception as err:
         _LOGGER.error(
@@ -100,9 +70,6 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
             exc_info=True,
         )
         raise ValueError("Invalid repository or API key") from err
-
-def generate_entry_id() -> str:
-    return str(uuid.uuid4())
 
 class LuciaConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Lucia."""
@@ -119,16 +86,15 @@ class LuciaConfigFlow(ConfigFlow, domain=DOMAIN):
             try:
                 info = await validate_input(self.hass, user_input)
 
-                # Create unique ID
-                entry_id = generate_entry_id()
-                user_input[UNIQUE_ID] = entry_id
-                await self.async_set_unique_id(entry_id)
-
+                # Set unique ID based on repository URL to prevent duplicates
+                await self.async_set_unique_id(user_input[CONF_REPOSITORY])
+                self._abort_if_unique_id_configured()
 
                 return self.async_create_entry(
                     title=info["title"],
                     data={
-                        **user_input,
+                        CONF_REPOSITORY: user_input[CONF_REPOSITORY],
+                        CONF_API_KEY: user_input[CONF_API_KEY],
                         "agent_id": info["agent_id"],
                     },
                 )
