@@ -1,8 +1,9 @@
 # Lucia - Autonomous Home Assistant AI
 
+
 [![.NET](https://img.shields.io/badge/.NET-9.0-512BD4)](https://dotnet.microsoft.com/)
-[![Semantic Kernel](https://img.shields.io/badge/Semantic%20Kernel-1.61.0-blue)](https://github.com/microsoft/semantic-kernel)
-[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+[![Agent Framework](https://img.shields.io/badge/Agent%20Framework-1.0.0-blue)](https://github.com/microsoft/semantic-kernel)
+[![License](https://img.shields.io/github/license/seiggy/lucia-dotnet)](LICENSE)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Compatible-41BDF5)](https://www.home-assistant.io/)
 
 Lucia is an open-source, privacy-focused AI assistant that serves as a complete replacement for Amazon Alexa and Google Home. Built on Microsoft Semantic Kernel with a multi-agent architecture, Lucia provides autonomous whole-home automation management through deep integration with Home Assistant.
