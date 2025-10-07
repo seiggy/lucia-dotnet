@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import httpx
 from a2a.client import A2ACardResolver, A2AClient
 from a2a.types import AgentCard
 
@@ -12,7 +13,6 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
@@ -38,64 +38,68 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Lucia from a config entry."""
     hass.data.setdefault(DOMAIN, {})
-    
+
     # Get configuration from the config entry
     repository = entry.data.get(CONF_REPOSITORY)
     api_key = entry.data.get(CONF_API_KEY)
-    
+
     if not repository or not api_key:
         _LOGGER.error("Missing required configuration: repository or API key")
         return False
-    
+
     # Initialize the A2A client
     try:
+        # Create HTTP client with X-Api-Key authentication header
+        headers = {"X-Api-Key": api_key}
+        httpx_client = httpx.AsyncClient(headers=headers)
+
         # Create the A2A card resolver
         resolver = A2ACardResolver(
-            httpx_client=get_async_client(hass),
+            httpx_client=httpx_client,
             base_url=repository,
-            api_key=api_key,
         )
-        
+
         # Get the agent card to verify connection
         agent_card = await hass.async_add_executor_job(resolver.get_agent_card)
-        
+
         if not agent_card:
             _LOGGER.error("Failed to retrieve agent card from %s", repository)
+            await httpx_client.aclose()
             raise ConfigEntryNotReady(f"Could not connect to Lucia agent at {repository}")
-        
-        # Create the A2A client
+
+        # Create the A2A client with the same httpx client
         client = A2AClient(
-            httpx_client=get_async_client(hass),
+            httpx_client=httpx_client,
             base_url=repository,
-            api_key=api_key,
         )
-        
-        # Store the client and agent card in hass.data
+
+        # Store the client, httpx_client, agent card, and resolver in hass.data
         hass.data[DOMAIN][entry.entry_id] = {
             "client": client,
             "agent_card": agent_card,
             "resolver": resolver,
+            "httpx_client": httpx_client,  # Store for cleanup
         }
-        
+
         _LOGGER.info(
             "Successfully connected to Lucia agent: %s (version: %s)",
             agent_card.name,
             agent_card.version if hasattr(agent_card, 'version') else "unknown"
         )
-        
+
     except Exception as err:
         _LOGGER.error("Failed to set up Lucia integration: %s", err)
         raise ConfigEntryNotReady(f"Error connecting to Lucia agent: {err}") from err
-    
+
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    
+
     # Register services
     await async_register_services(hass, entry)
-    
+
     # Set up WebSocket API if needed
     await async_setup_websocket_api(hass, entry)
-    
+
     return True
 
 
@@ -103,33 +107,38 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     # Unload platforms
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    
+
     if unload_ok:
+        # Clean up the httpx client
+        entry_data = hass.data[DOMAIN].get(entry.entry_id)
+        if entry_data and "httpx_client" in entry_data:
+            await entry_data["httpx_client"].aclose()
+
         # Clean up stored data
         hass.data[DOMAIN].pop(entry.entry_id, None)
-        
+
         # Unregister services if this was the last entry
         if not hass.data[DOMAIN]:
             await async_unregister_services(hass)
-    
+
     return unload_ok
 
 
 async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Register Lucia services."""
-    
+
     async def handle_send_message(call):
         """Handle the send_message service."""
         message = call.data.get("message")
         agent_id = call.data.get("agent_id")
-        
+
         client_data = hass.data[DOMAIN].get(entry.entry_id)
         if not client_data:
             _LOGGER.error("No client available for service call")
             return
-        
+
         client = client_data["client"]
-        
+
         try:
             response = await hass.async_add_executor_job(
                 client.send_message,
@@ -141,7 +150,7 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> No
         except Exception as err:
             _LOGGER.error("Failed to send message: %s", err)
             raise
-    
+
     # Register service only if not already registered
     if not hass.services.has_service(DOMAIN, "send_message"):
         hass.services.async_register(
