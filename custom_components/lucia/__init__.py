@@ -80,7 +80,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # Check if user has selected a specific agent in options
             options = entry.options or {}
             selected_agent_name = options.get(CONF_AGENT_NAME)
-            
+
             # Find the selected agent, or use first agent as default
             agent_card = None
             if selected_agent_name:
@@ -90,13 +90,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         agent_card = agent
                         _LOGGER.info("Using user-selected agent: %s", selected_agent_name)
                         break
-                
+
                 if not agent_card:
                     _LOGGER.warning(
                         "Selected agent '%s' not found in catalog, using first agent",
                         selected_agent_name
                     )
-            
+
             # Fall back to first agent if no selection or not found
             if not agent_card:
                 if not agents:
@@ -153,7 +153,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Set up WebSocket API if needed
     await async_setup_websocket_api(hass, entry)
-    
+
     # Register options update listener to reload when agent selection changes
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 

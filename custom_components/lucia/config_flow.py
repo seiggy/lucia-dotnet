@@ -154,7 +154,7 @@ class LuciaOptionsFlow(OptionsFlow):
         # Get the agent catalog from hass.data
         entry_data = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id, {})
         catalog = entry_data.get("catalog", [])
-        
+
         # Build agent selection options
         agent_options = []
         for agent in catalog:
@@ -168,14 +168,14 @@ class LuciaOptionsFlow(OptionsFlow):
                 "value": agent_name,
                 "label": label
             })
-        
+
         # If no agents found in catalog, show error
         if not agent_options:
             _LOGGER.warning("No agents available in catalog for options flow")
             agent_options = [{"value": "none", "label": "No agents available"}]
-        
+
         options = self.config_entry.options or {}
-        
+
         # Get current agent name, default to first agent in catalog
         current_agent = options.get(CONF_AGENT_NAME)
         if not current_agent and catalog:
