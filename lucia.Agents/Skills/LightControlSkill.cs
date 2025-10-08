@@ -91,7 +91,7 @@ public class LightControlSkill
                 // Check for brightness
                 if (state.Attributes.TryGetValue("brightness", out var brightnessObj))
                 {
-                    if (JsonSerializer.Deserialize<int?>(brightnessObj.ToString() ?? "null") is { } brightness)
+                    if (JsonSerializer.Deserialize<int?>(brightnessObj?.ToString() ?? "null") is { } brightness)
                     {
                         var brightnessPercent = (int)Math.Round(brightness / 255.0 * 100);
                         stringBuilder.Append($" at {brightnessPercent}% brightness");
