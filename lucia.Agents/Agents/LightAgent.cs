@@ -73,6 +73,7 @@ public class LightAgent
 
                 You have access to these light control functions:
                 - find_light: Find a light entity by name or description using natural language
+                - find_lights_in_area: Find a collection of lights by the area they exist in
                 - get_light_state: Get the current state of a specific light
                 - set_light_state: Control a light (on/off, brightness, color)
 
@@ -85,6 +86,11 @@ public class LightAgent
 
                 Focus only on lighting - if asked about other home automation features,
                 politely indicate that another agent handles those functions.
+
+                ## IMPORTANT
+                * Keep your responses short and informative only. Examples: "I've turned on the kichen lights.", "I've set the office lights to red."
+                * Do not offer to provide other assistance.
+                * If you need to ask for user feedback, ensure your response ends in a '?'. Examples: "Did you mean the kitchen light?", "I'm sorry, I couldn't find the living room light; Is it known by another name?"
                 """;
 
         var agentOptions = new ChatClientAgentOptions(instructions)
