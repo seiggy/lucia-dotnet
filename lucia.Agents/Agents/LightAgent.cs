@@ -1,8 +1,12 @@
 using A2A;
-using Microsoft.Extensions.Logging;
 using lucia.Agents.Skills;
-using Microsoft.Extensions.AI;
 using Microsoft.Agents.AI;
+using Microsoft.Agents.AI.A2A;
+using Microsoft.Agents.AI.Hosting;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace lucia.Agents.Agents;
 
@@ -43,8 +47,8 @@ public class LightAgent
         // Create the agent card for registration
         _agent = new AgentCard
         {
-            Url = "/light-agent",
-            Name = "LightAgent",
+            Url = "/a2a/light-agent",
+            Name = "light-agent",
             Description = "Agent for controlling lights and lighting in Home Assistant",
             Capabilities = new AgentCapabilities
             {
@@ -86,8 +90,12 @@ public class LightAgent
         var agentOptions = new ChatClientAgentOptions(instructions)
         {
             Id = "light-agent",
-            Name = "Light Control Agent",
-            Description = "Agent for controlling lights in Home Assistant"
+            Name = "light-agent",
+            Description = "Agent for controlling lights in Home Assistant",
+            ChatOptions = new()
+            {
+                Tools = _lightPlugin.GetTools()
+            }
         };
 
         _aiAgent = new ChatClientAgent(chatClient, agentOptions, loggerFactory);

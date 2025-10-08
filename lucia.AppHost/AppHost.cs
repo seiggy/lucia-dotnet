@@ -9,7 +9,7 @@ var azOpenAiResource = builder.AddParameterFromConfiguration("AzureOpenAIName", 
 var azOpenAiResourceGroup = builder.AddParameterFromConfiguration("AzureOpenAIResourceGroup", "AzureOpenAI:ResourceGroup");
 
 var openAi = builder.AddAIModel("chat-model")
-    .AsAzureOpenAI("gpt-5-mini", o => o.AsExisting(azOpenAiResource, azOpenAiResourceGroup));
+    .AsAzureOpenAI("gpt-4.1-nano", o => o.AsExisting(azOpenAiResource, azOpenAiResourceGroup));
 
 var embeddings = builder.AddAIModel("embeddings-model")
     .AsAzureOpenAI("text-embedding-3-small", o => o.AsExisting(azOpenAiResource, azOpenAiResourceGroup));

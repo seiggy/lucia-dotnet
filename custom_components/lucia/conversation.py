@@ -1,16 +1,11 @@
 """Conversation platform for Lucia integration."""
 from __future__ import annotations
 
+import json
 import logging
+import uuid
 from datetime import datetime
 from typing import Any, Literal
-
-from a2a.client import A2AClient
-from a2a.types import (
-    MessageSendParams,
-    SendMessageRequest,
-    SendStreamingMessageRequest,
-)
 
 from homeassistant.components import conversation
 from homeassistant.components.conversation import ConversationResult
@@ -74,7 +69,7 @@ class LuciaConversationEntity(conversation.ConversationEntity):
     ) -> conversation.ConversationResult:
         """Process a conversation turn."""
         client_data = self.hass.data[DOMAIN].get(self.entry.entry_id)
-        
+
         if not client_data:
             _LOGGER.error("No client data found for conversation processing")
             return conversation.ConversationResult(
@@ -84,108 +79,148 @@ class LuciaConversationEntity(conversation.ConversationEntity):
                     speech="I'm sorry, but I'm not properly configured. Please check the integration settings.",
                 )
             )
-        
-        client: A2AClient = client_data["client"]
-        agent_card = client_data["agent_card"]
-        
+
+        agent_card = client_data.get("agent_card")
+        httpx_client = client_data.get("httpx_client")
+        agent_url = client_data.get("agent_url")
+
+        if not agent_url or not httpx_client:
+            _LOGGER.error("Missing agent URL or HTTP client")
+            return conversation.ConversationResult(
+                response=conversation.ConversationResponse(
+                    language=user_input.language,
+                    response_type=conversation.ConversationResponseType.ERROR,
+                    speech="Agent configuration is incomplete.",
+                )
+            )
+
         # Get configuration options
         options = self.entry.options or self.entry.data
-        max_tokens = options.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS)
-        temperature = options.get(CONF_TEMPERATURE, DEFAULT_TEMPERATURE)
-        top_p = options.get(CONF_TOP_P, DEFAULT_TOP_P)
         prompt_template = options.get(CONF_PROMPT, DEFAULT_PROMPT)
-        
+
         # Process the prompt template if it exists
         try:
             if prompt_template:
-                prompt = self._render_template(prompt_template, user_input)
+                system_prompt = self._render_template(prompt_template, user_input)
             else:
-                prompt = DEFAULT_PROMPT
+                system_prompt = DEFAULT_PROMPT
         except TemplateError as err:
             _LOGGER.error("Error rendering prompt template: %s", err)
-            prompt = DEFAULT_PROMPT
-        
-        # Build the conversation context
-        messages = []
-        
-        # Add system prompt
-        messages.append({
-            "role": "system",
-            "content": prompt,
-        })
-        
-        # Add conversation history if available
+            system_prompt = DEFAULT_PROMPT
+
+        # Generate IDs for message tracking
+        message_id = str(uuid.uuid4())
+
+        # Use conversation_id as context_id for threading
         if user_input.conversation_id:
-            # In a real implementation, we would fetch conversation history
-            # from storage and add it to the messages
-            pass
-        
-        # Add the current user input
-        messages.append({
+            context_id = user_input.conversation_id
+        else:
+            context_id = str(uuid.uuid4())
+
+        # Build the message content (combining system prompt + user input)
+        message_text = f"{system_prompt}\n\nUser: {user_input.text}"
+
+        # Create the message structure (without taskId - not supported)
+        message = {
+            "kind": "message",
             "role": "user",
-            "content": user_input.text,
-        })
-        
-        # Build the request to send to the Lucia agent
-        request_params = MessageSendParams(
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            stream=False,  # We'll use non-streaming for now
-        )
-        
+            "parts": [
+                {
+                    "kind": "text",
+                    "text": message_text,
+                    "metadata": None
+                }
+            ],
+            "messageId": message_id,
+            "contextId": context_id,
+            "taskId": None,  # Task management not supported by Agent Framework
+            "metadata": None,
+            "referenceTaskIds": [],
+            "extensions": []
+        }
+
+        # Create JSON-RPC 2.0 request
+        jsonrpc_request = {
+            "jsonrpc": "2.0",
+            "method": "message/send",
+            "params": {
+                "message": message
+            },
+            "id": 1
+        }
+
         try:
-            # Send the message to the Lucia agent
-            _LOGGER.debug("Sending message to Lucia agent: %s", user_input.text)
-            
-            # Create a proper request object
-            request = SendMessageRequest(
-                content=user_input.text,
-                thread_id=user_input.conversation_id or ulid.ulid(),
-                params=request_params,
+            _LOGGER.debug("Sending message to agent at %s: %s", agent_url, user_input.text)
+
+            # Send JSON-RPC request to agent
+            response = await httpx_client.post(
+                agent_url,
+                json=jsonrpc_request,
+                timeout=30.0
             )
-            
-            # Send the request to the agent
-            response = await self.hass.async_add_executor_job(
-                client.send_message,
-                agent_card.id if hasattr(agent_card, 'id') else "lucia",
-                request,
-            )
-            
-            # Process the response
-            if response and hasattr(response, 'content'):
-                response_text = response.content
-            elif response and isinstance(response, dict) and 'content' in response:
-                response_text = response['content']
-            else:
-                response_text = str(response)
-            
-            _LOGGER.debug("Received response from Lucia: %s", response_text)
-            
+
+            if response.status_code != 200:
+                _LOGGER.error("Agent returned status %s: %s", response.status_code, response.text[:200])
+                return conversation.ConversationResult(
+                    response=conversation.ConversationResponse(
+                        language=user_input.language,
+                        response_type=conversation.ConversationResponseType.ERROR,
+                        speech="The agent is not responding. Please try again later.",
+                    )
+                )
+
+            # Parse JSON-RPC response
+            result = response.json()
+
+            # Check for JSON-RPC error
+            if "error" in result:
+                error_msg = result["error"].get("message", "Unknown error")
+                _LOGGER.error("Agent returned error: %s", error_msg)
+                return conversation.ConversationResult(
+                    response=conversation.ConversationResponse(
+                        language=user_input.language,
+                        response_type=conversation.ConversationResponseType.ERROR,
+                        speech=f"Agent error: {error_msg}",
+                    )
+                )
+
+            # Extract response text from result
+            response_text = ""
+            if "result" in result and isinstance(result["result"], dict):
+                agent_message = result["result"]
+                if "parts" in agent_message:
+                    for part in agent_message["parts"]:
+                        if part.get("kind") == "text":
+                            response_text += part.get("text", "")
+
+            if not response_text:
+                response_text = "I received your message but didn't generate a response."
+
+            _LOGGER.debug("Received response from agent: %s", response_text[:100])
+
             # Create the conversation result
             conversation_response = conversation.ConversationResponse(
                 language=user_input.language,
                 response_type=conversation.ConversationResponseType.ACTION_DONE,
                 speech=response_text,
             )
-            
+
             return conversation.ConversationResult(
                 response=conversation_response,
-                conversation_id=user_input.conversation_id or ulid.ulid(),
+                conversation_id=context_id,  # Return the context_id for threading
             )
-            
+
         except Exception as err:
-            _LOGGER.error("Error processing conversation with Lucia: %s", err, exc_info=True)
-            
+            _LOGGER.error("Error processing conversation with agent: %s", err, exc_info=True)
+
             return conversation.ConversationResult(
                 response=conversation.ConversationResponse(
                     language=user_input.language,
                     response_type=conversation.ConversationResponseType.ERROR,
-                    speech=f"I encountered an error while processing your request. Please try again later.",
+                    speech=f"I encountered an error while processing your request: {str(err)}",
                 )
             )
-    
+
     def _render_template(
         self,
         prompt_template: str,
@@ -193,16 +228,16 @@ class LuciaConversationEntity(conversation.ConversationEntity):
     ) -> str:
         """Render a template with the current context."""
         raw_prompt = template.Template(prompt_template, self.hass)
-        
+
         # Get exposed entities for conversation
         exposed_entities = self._get_exposed_entities(user_input)
-        
+
         # Get device context from the conversation input
         device_id = None
         device_area = "unknown"
         device_type = "unknown"
         device_capabilities = []
-        
+
         # Extract device information from conversation input
         if hasattr(user_input, 'device_id') and user_input.device_id:
             device_id = user_input.device_id
@@ -218,13 +253,13 @@ class LuciaConversationEntity(conversation.ConversationEntity):
                             area = area_reg.async_get_area(device.area_id)
                             if area:
                                 device_area = area.name
-                    
+
                     # Determine device type and capabilities
                     if device.model:
                         device_type = device.model
                     elif device.name:
                         device_type = device.name
-                    
+
                     # Check for device capabilities based on integrations
                     if "esphome" in device.identifiers:
                         device_capabilities.append("microphone")
@@ -232,7 +267,7 @@ class LuciaConversationEntity(conversation.ConversationEntity):
                     if "assist_satellite" in device.identifiers:
                         device_capabilities.append("voice_assistant")
                     # Add more capability detection as needed
-        
+
         # Build template variables with full context including device info
         template_vars = {
             "ha_name": self.hass.config.location_name or "Home",
@@ -246,24 +281,24 @@ class LuciaConversationEntity(conversation.ConversationEntity):
             "device_capabilities": device_capabilities,
             "entity_area": lambda entity_id: self._get_entity_area(entity_id),
         }
-        
+
         return raw_prompt.async_render(template_vars, parse_result=False)
-    
+
     def _get_exposed_entities(
         self, user_input: conversation.ConversationInput
     ) -> list[dict[str, Any]]:
         """Get all entities exposed to the conversation agent."""
         entities = []
-        
+
         # Get all entities that should be exposed to the assistant
         # This follows Home Assistant's conversation entity exposure logic
         ent_reg = entity_registry.async_get(self.hass)
-        
+
         for state in self.hass.states.async_all():
             # Check if entity should be exposed to conversation
             if not self._should_expose_entity(state.entity_id):
                 continue
-            
+
             # Get entity info
             entity_info = {
                 "entity_id": state.entity_id,
@@ -272,28 +307,28 @@ class LuciaConversationEntity(conversation.ConversationEntity):
                 "attributes": state.attributes,
                 "aliases": [],  # Would come from entity registry if available
             }
-            
+
             # Add entity registry aliases if available
             if ent_reg:
                 entry = ent_reg.async_get(state.entity_id)
                 if entry and entry.aliases:
                     entity_info["aliases"] = list(entry.aliases)
-            
+
             entities.append(entity_info)
-        
+
         return entities
-    
+
     def _should_expose_entity(self, entity_id: str) -> bool:
         """Determine if an entity should be exposed to conversation."""
         # Get the entity state
         state = self.hass.states.get(entity_id)
         if not state:
             return False
-        
+
         # Check if entity is hidden
         if state.attributes.get("hidden"):
             return False
-        
+
         # Check conversation exposure settings
         # By default, expose common domains
         domain = entity_id.split(".")[0]
@@ -304,39 +339,39 @@ class LuciaConversationEntity(conversation.ConversationEntity):
             "weather", "alarm_control_panel", "humidifier", "input_boolean",
             "input_number", "input_select", "input_text", "timer", "counter"
         ]
-        
+
         return domain in exposed_domains
-    
+
     def _get_areas(self) -> list[str]:
         """Get all areas in Home Assistant."""
         area_reg = area_registry.async_get(self.hass)
         if not area_reg:
             return []
-        
+
         areas = []
         for area in area_reg.async_list_areas():
             areas.append(area.name)
-        
+
         return areas
-    
+
     def _get_entity_area(self, entity_id: str) -> str | None:
         """Get the area of an entity."""
         ent_reg = entity_registry.async_get(self.hass)
         area_reg = area_registry.async_get(self.hass)
-        
+
         if not ent_reg or not area_reg:
             return None
-        
+
         entity = ent_reg.async_get(entity_id)
         if not entity:
             return None
-        
+
         # Check if entity has direct area assignment
         if entity.area_id:
             area = area_reg.async_get_area(entity.area_id)
             if area:
                 return area.name
-        
+
         # Check if entity's device has area assignment
         if entity.device_id:
             dev_reg = device_registry.async_get(self.hass)
@@ -346,22 +381,22 @@ class LuciaConversationEntity(conversation.ConversationEntity):
                     area = area_reg.async_get_area(device.area_id)
                     if area:
                         return area.name
-        
+
         return None
-    
+
     async def async_added_to_hass(self) -> None:
         """When entity is added to Home Assistant."""
         await super().async_added_to_hass()
-        
+
         # Register the conversation agent
         conversation.async_set_agent(
             self.hass,
             self.entry,
             self,
         )
-        
+
         _LOGGER.info("Lucia conversation agent registered")
-    
+
     async def async_will_remove_from_hass(self) -> None:
         """When entity will be removed from Home Assistant."""
         conversation.async_unset_agent(self.hass, self.entry)

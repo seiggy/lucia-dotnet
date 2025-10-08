@@ -35,12 +35,12 @@ public class AgentInitializationService : BackgroundService
             _logger.LogInformation("Starting agent initialization...");
 
             // Initialize agents (cache and warm-up)
-            await _lightAgent.InitializeAsync(stoppingToken);
-            await _musicAgent.InitializeAsync(stoppingToken);
+            await _lightAgent.InitializeAsync(stoppingToken).ConfigureAwait(false);
+            await _musicAgent.InitializeAsync(stoppingToken).ConfigureAwait(false);
 
             // Register available agents with the registry
-            await _agentRegistry.RegisterAgentAsync(_lightAgent.GetAgentCard(), stoppingToken);
-            await _agentRegistry.RegisterAgentAsync(_musicAgent.GetAgentCard(), stoppingToken);
+            await _agentRegistry.RegisterAgentAsync(_lightAgent.GetAgentCard(), stoppingToken).ConfigureAwait(false);
+            await _agentRegistry.RegisterAgentAsync(_musicAgent.GetAgentCard(), stoppingToken).ConfigureAwait(false);
 
             _logger.LogInformation("Agent initialization completed successfully");
         }

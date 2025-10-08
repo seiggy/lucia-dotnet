@@ -41,7 +41,8 @@ public class MusicPlaybackSkill
             AIFunctionFactory.Create(PlayAlbumAsync),
             AIFunctionFactory.Create(PlaySongAsync),
             AIFunctionFactory.Create(PlayGenreAsync),
-            AIFunctionFactory.Create(PlayShuffleAsync)
+            AIFunctionFactory.Create(PlayShuffleAsync),
+            AIFunctionFactory.Create(StopMusicAsync)
         ];
     }
 
@@ -51,6 +52,22 @@ public class MusicPlaybackSkill
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         await RefreshPlayerCacheAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    [Description("Stops music on the identified player")]
+    public async Task<string> StopMusicAsync(
+        [Description("Satellite player name (e.g. 'Satellite1 Loft')")]
+        string playerName)
+    {
+        var player = await ResolvePlayerAsync(playerName).ConfigureAwait(false);
+
+        if (player is null)
+        {
+            return $"I couldn't find a Satellite player that matches '{playerName}.";
+        }
+
+        await _homeAssistantClient.CallServiceAsync("media_player", "media_stop", new ServiceCallRequest { EntityId = player.EntityId }, CancellationToken.None).ConfigureAwait(false);
+        return string.Empty;
     }
 
     [Description("Find a Music Assistant Satellite endpoint by friendly name and return its entity id.")]
@@ -263,7 +280,10 @@ public class MusicPlaybackSkill
 
         if (!_cachedPlayers.Any())
         {
-            return null;
+            await RefreshPlayerCacheAsync(CancellationToken.None)
+                .ConfigureAwait(false);
+            if (!_cachedPlayers.Any())
+                return null;
         }
 
         if (string.IsNullOrWhiteSpace(playerName))
@@ -486,6 +506,12 @@ public class MusicPlaybackSkill
         }
 
         if (state.EntityId.Contains("ma_", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (state.Attributes.TryGetValue("app_id", out var appId) &&
+            appId?.ToString()?.Contains("music_assistant", StringComparison.OrdinalIgnoreCase) == true)
         {
             return true;
         }

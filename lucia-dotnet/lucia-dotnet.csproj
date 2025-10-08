@@ -11,8 +11,9 @@
 
     <ItemGroup>
         <PackageReference Include="Asp.Versioning.Http" Version="8.1.0" />
+        <PackageReference Include="Microsoft.Agents.AI.Hosting.A2A.AspNetCore" Version="1.0.0-preview.251007.1" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.0-rc.1.25451.107" />
-        <PackageReference Include="Microsoft.Agents.AI.Hosting" Version="1.0.0-preview.251002.1" />
+        <PackageReference Include="Microsoft.Agents.AI.Hosting" Version="1.0.0-preview.251007.1" />
         <PackageReference Include="Scalar.AspNetCore" Version="2.8.10" />
     </ItemGroup>
 
