@@ -75,7 +75,8 @@ public class MusicAgent
             - Stay focused on music playback. For other smart home tasks, politely route to the appropriate specialist agent.
 
             When users refer to a Satellite speaker (e.g. "Satellite1 kitchen", "satellite loft"), locate the best matching endpoint before invoking any action.
-            Use the FindPlayerAsync tool to find the device the user requested to have the music played on.
+            If the user refers to a location (e.g. "Office"), use the FindPlayer tool to search for a player that may be in that location.
+            Use the FindPlayer tool to find the device the user requested to have the music played on.
             If you are unsure which endpoint to use, ask a clarifying question before starting playback. If you are at least 50% sure, just choose the endpoint you think is correct.
             """;
 
