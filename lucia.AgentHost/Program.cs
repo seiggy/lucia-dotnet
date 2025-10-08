@@ -1,10 +1,14 @@
+using Asp.Versioning;
 using lucia.AgentHost;
 using lucia.AgentHost.Extensions;
 using lucia.Agents.Agents;
 using lucia.Agents.Extensions;
 using lucia.Agents.Skills;
 using lucia.HomeAssistant.Configuration;
+using Microsoft.Agents.AI.A2A;
+using Microsoft.Agents.AI.Hosting;
 using Microsoft.Agents.AI.Hosting.A2A.AspNetCore;
+using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -18,18 +22,32 @@ builder.Services.Configure<HomeAssistantOptions>(
 builder.AddChatClient("chat-model");
 
 // Add Lucia multi-agent system
-builder.Services.AddLuciaAgents();
+builder.AddLuciaAgents();
+
 builder.Services.AddProblemDetails();
+
+builder.Services.AddApiVersioning(options =>
+{
+    options.DefaultApiVersion = new ApiVersion(1, 0);
+    options.AssumeDefaultVersionWhenUnspecified = true;
+    options.ReportApiVersions = true;
+    options.ApiVersionReader = ApiVersionReader.Combine(
+        new QueryStringApiVersionReader("api-version"),
+        new HeaderApiVersionReader("api-version"),
+        new UrlSegmentApiVersionReader()
+    );
+});
+
+builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
 app.MapDefaultEndpoints();
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
-}
+app.MapOpenApi()
+    .CacheOutput();
+
+app.MapScalarApiReference();
 
 app.UseHttpsRedirection();
 

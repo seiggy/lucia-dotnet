@@ -10,6 +10,7 @@ using Microsoft.Extensions.Configuration;
 using Azure;
 using Azure.AI.Inference;
 using lucia.HomeAssistant.Services;
+using Microsoft.Agents.AI.Hosting;
 using OllamaSharp;
 
 namespace lucia.Agents.Extensions;
@@ -158,30 +159,42 @@ public static class ServiceCollectionExtensions
     /// <summary>
     /// Add the Lucia multi-agent system to the service collection
     /// </summary>
-    public static IServiceCollection AddLuciaAgents(
-        this IServiceCollection services)
+    public static void AddLuciaAgents(
+        this IHostApplicationBuilder builder)
     {
-        services.AddTransient<IHomeAssistantClient, GeneratedHomeAssistantClient>();
+        builder.Services.AddTransient<IHomeAssistantClient, GeneratedHomeAssistantClient>();
         // Register core services
-        services.AddSingleton<AgentRegistry, LocalAgentRegistry>();
+        builder.Services.AddSingleton<AgentRegistry, LocalAgentRegistry>();
 
         // Register A2A services
-        services.AddHttpClient<IA2AClientService, A2AClientService>();
+        builder.Services.AddHttpClient<IA2AClientService, A2AClientService>();
 
         // Register orchestrator
-        services.AddSingleton<LuciaOrchestrator>();
+        builder.Services.AddSingleton<LuciaOrchestrator>();
 
         // Register plugins as singletons (for caching)
-        services.AddSingleton<LightControlSkill>();
-        services.AddSingleton<MusicPlaybackSkill>();
+        builder.Services.AddSingleton<LightControlSkill>();
+        builder.Services.AddSingleton<MusicPlaybackSkill>();
 
         // Register agents
-        services.AddTransient<LightAgent>();
-        services.AddTransient<MusicAgent>();
+        builder.Services.AddSingleton<LightAgent>();
+        builder.Services.AddSingleton<MusicAgent>();
+
+        builder.AddAIAgent("light-agent", (sp, name) =>
+        {
+            var lightAgent = sp.GetRequiredService<LightAgent>();
+            lightAgent.InitializeAsync().GetAwaiter().GetResult();
+            return lightAgent.GetAIAgent();
+        });
+
+        builder.AddAIAgent("music-agent", (sp, name) =>
+        {
+            var lightAgent = sp.GetRequiredService<MusicAgent>();
+            lightAgent.InitializeAsync().GetAwaiter().GetResult();
+            return lightAgent.GetAIAgent();
+        });
 
         // Register the agent initialization service
-        services.AddSingleton<IHostedService, AgentInitializationService>();
-
-        return services;
+        builder.Services.AddSingleton<IHostedService, AgentInitializationService>();
     }
 }

@@ -49,8 +49,8 @@ public class MusicAgent
 
         _agent = new AgentCard
         {
-            Url = "/music-agent",
-            Name = "MusicAgent",
+            Url = "/a2a/music-agent",
+            Name = "music-agent",
             Description = "Agent that orchestrates Music Assistant playback on Satellite1 endpoints",
             Capabilities = new AgentCapabilities
             {
@@ -68,21 +68,26 @@ public class MusicAgent
             You are Lucia's dedicated Music Playback Agent for Satellite1 speakers powered by Home Assistant's Music Assistant integration.
 
             Responsibilities:
-            - Resolve Satellite1 speaker endpoints by friendly name or description.
+            - Resolve media speaker endpoints by friendly name or description.
             - Play music by artist, album, genre, or specific song requests.
             - Offer shuffle and radio mixes when users ask to "just shuffle" or "play something fitting".
             - Confirm the selected device, the requested media, and whether shuffle/radio mode is enabled.
             - Stay focused on music playback. For other smart home tasks, politely route to the appropriate specialist agent.
 
             When users refer to a Satellite speaker (e.g. "Satellite1 kitchen", "satellite loft"), locate the best matching endpoint before invoking any action.
-            If you are unsure which endpoint to use, ask a clarifying question before starting playback.
+            Use the FindPlayerAsync tool to find the device the user requested to have the music played on.
+            If you are unsure which endpoint to use, ask a clarifying question before starting playback. If you are at least 50% sure, just choose the endpoint you think is correct.
             """;
 
         var agentOptions = new ChatClientAgentOptions(instructions)
         {
             Id = "music-agent",
-            Name = "Satellite Music Agent",
-            Description = "Handles music playback for Satellite1 speakers"
+            Name = "music-agent",
+            Description = "Handles music playback for Satellite1 speakers",
+            ChatOptions = new()
+            {
+                Tools = _musicSkill.GetTools()
+            }
         };
 
         _aiAgent = new ChatClientAgent(chatClient, agentOptions, loggerFactory);

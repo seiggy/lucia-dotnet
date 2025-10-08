@@ -18,10 +18,14 @@ from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
     TemplateSelector,
 )
 
 from .const import (
+    CONF_AGENT_NAME,
     CONF_MAX_TOKENS,
     CONF_PROMPT,
     CONF_REPOSITORY,
@@ -147,11 +151,48 @@ class LuciaOptionsFlow(OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
+        # Get the agent catalog from hass.data
+        entry_data = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id, {})
+        catalog = entry_data.get("catalog", [])
+        
+        # Build agent selection options
+        agent_options = []
+        for agent in catalog:
+            agent_name = agent.get("name", "unknown")
+            agent_description = agent.get("description", "")
+            # Create display label with name and description
+            label = f"{agent_name}"
+            if agent_description:
+                label = f"{agent_name} - {agent_description}"
+            agent_options.append({
+                "value": agent_name,
+                "label": label
+            })
+        
+        # If no agents found in catalog, show error
+        if not agent_options:
+            _LOGGER.warning("No agents available in catalog for options flow")
+            agent_options = [{"value": "none", "label": "No agents available"}]
+        
         options = self.config_entry.options or {}
+        
+        # Get current agent name, default to first agent in catalog
+        current_agent = options.get(CONF_AGENT_NAME)
+        if not current_agent and catalog:
+            current_agent = catalog[0].get("name", "")
 
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema({
+                vol.Optional(
+                    CONF_AGENT_NAME,
+                    default=current_agent,
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=agent_options,
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
+                ),
                 vol.Optional(
                     CONF_PROMPT,
                     default=options.get(CONF_PROMPT, ""),

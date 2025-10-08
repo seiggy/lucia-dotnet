@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using System.ComponentModel;
+using System.Text;
 using System.Text.Json;
 using lucia.HomeAssistant.Services;
 using lucia.HomeAssistant.Models;
@@ -83,7 +84,27 @@ public class LightControlSkill
                     bestMatch.Light.EntityId, bestMatch.Light.FriendlyName, bestMatch.Similarity);
 
                 var capabilities = GetCapabilityDescription(bestMatch.Light);
-                return $"Found light: {bestMatch.Light.FriendlyName} (Entity ID: {bestMatch.Light.EntityId}){capabilities}";
+                var state = await _homeAssistantClient.GetStateAsync(bestMatch.Light.EntityId);
+                var stringBuilder = new StringBuilder();
+                stringBuilder.Append($"Found light: {bestMatch.Light.FriendlyName} (Entity ID: {bestMatch.Light.EntityId}){capabilities}, State: {state.State}");
+
+                // Check for brightness
+                if (state.Attributes.TryGetValue("brightness", out var brightnessObj))
+                {
+                    if (JsonSerializer.Deserialize<int?>(brightnessObj.ToString() ?? "null") is { } brightness)
+                    {
+                        var brightnessPercent = (int)Math.Round(brightness / 255.0 * 100);
+                        stringBuilder.Append($" at {brightnessPercent}% brightness");
+                    }
+                }
+
+                // Check for color temperature
+                if (state.Attributes.TryGetValue("color_temp", out var colorTempObj))
+                {
+                    stringBuilder.Append($" with color temperature {colorTempObj}");
+                }
+
+                return stringBuilder.ToString();
             }
 
             return $"No light found matching '{searchTerm}'. Available lights: {string.Join(", ", _cachedLights.Take(5).Select(l => l.FriendlyName))}";
