@@ -135,7 +135,7 @@ graph TB
 3. **Agent Discovery** → Fetches available agents from `/agents` endpoint
 4. **Agent Selection** → User-configured agent or automatic routing
 5. **JSON-RPC Request** → Sends message to agent with `taskId: null` and `contextId` for threading
-6. **LLM Processing** → Agent uses Semantic Kernel with configured LLM provider
+6. **LLM Processing** → Agent uses Agent Framework with configured LLM provider
 7. **Response** → Agent returns structured response via JSON-RPC
 8. **Speech Output** → Home Assistant speaks the response via IntentResponse
 
@@ -161,7 +161,7 @@ lucia-dotnet/
 │   ├── Orchestration/         # Agent coordination logic
 │   ├── Registry/              # Agent discovery and registration
 │   ├── Services/              # Core agent services
-│   └── Skills/                # Semantic Kernel skills/plugins
+│   └── Skills/                # Agent skills/tools
 ├── lucia.AppHost/             # .NET Aspire orchestrator
 │   ├── AppHost.cs            # Service orchestration
 │   └── ModelExtensions.cs    # Model configuration
@@ -198,7 +198,7 @@ Configure agents in `appsettings.Development.json`:
     "LogLevel": {
       "Default": "Information",
       "Microsoft.AspNetCore": "Warning",
-      "Microsoft.SemanticKernel": "Information"
+      "Microsoft.Agents": "Information"
     }
   },
   "HomeAssistant": {
@@ -739,10 +739,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 Lucia wouldn't be possible without these amazing projects and communities:
 
-- **[Microsoft Agent Framework](https://github.com/microsoft/semantic-kernel)** - AI orchestration framework powering our agents (Public Preview)
+- **[Microsoft Agent Framework](https://github.com/microsoft/agent-framework)** - AI orchestration framework powering our agents (Public Preview)
 - **[Home Assistant](https://www.home-assistant.io/)** - The world's best open-source home automation platform
 - **[.NET Aspire](https://learn.microsoft.com/en-us/dotnet/aspire/)** - Cloud-native app development stack
-- **[A2A Protocol](https://github.com/microsoft/agent-protocol)** - Standardized agent communication protocol
+- **[A2A Protocol](https://github.com/a2aproject/A2A)** - Standardized agent communication protocol
 - **[Music Assistant](https://music-assistant.io/)** - Universal music library and playback system
 
 Special thanks to the Home Assistant community for inspiration and the countless developers building the open-source smart home ecosystem.

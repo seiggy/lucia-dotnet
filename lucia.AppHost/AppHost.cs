@@ -30,6 +30,12 @@ builder.AddProject<Projects.lucia_AgentHost>("lucia-agenthost")
     .WithReference(embeddings)
     .WithReference(openAi)
     .WaitFor(embeddings)
-    .WaitFor(openAi);
+    .WaitFor(openAi)
+    .WithUrlForEndpoint("https", url =>
+    {
+        url.DisplayText = "Scalar (HTTPS)";
+        url.Url = "/scalar";
+    })
+    .WithExternalHttpEndpoints();
 
 builder.Build().Run();

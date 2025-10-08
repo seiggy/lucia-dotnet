@@ -1,5 +1,15 @@
-using Microsoft.Extensions.Logging;
+using A2A;
 using lucia.Agents.Registry;
+using lucia.Agents.Skills;
+using Microsoft.Agents.AI;
+using Microsoft.Agents.AI.A2A;
+using Microsoft.Agents.AI.Hosting;
+using Microsoft.Agents.AI.Workflows;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using System.Text;
 
 namespace lucia.Agents.Orchestration;
 
@@ -8,20 +18,83 @@ namespace lucia.Agents.Orchestration;
 /// </summary>
 public class LuciaOrchestrator
 {
+    private readonly AgentCard _agent;
     private readonly AgentRegistry _agentRegistry;
     private readonly ILogger<LuciaOrchestrator> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly TaskManager _taskManager;
+    private readonly AIAgent _aiAgent;
+    private readonly Workflow<List<ChatMessage>> _workflow;
+    private readonly AIAgent _workflowAgent;
 
     public LuciaOrchestrator(
+        IChatClient chatClient,
         AgentRegistry agentRegistry,
+        AgentCatalog agentCatalog,
         IHttpClientFactory httpClientFactory,
         ILogger<LuciaOrchestrator> logger)
     {
         _agentRegistry = agentRegistry;
         _logger = logger;
         _httpClientFactory = httpClientFactory;
+
+        _agent = new AgentCard
+        {
+            Url = "/a2a/lucia-orchestrator",
+            Name = "lucia-orchestrator",
+            Description = "Agent responsible for orchestrating workflow with multiple agents.",
+            Capabilities = new AgentCapabilities
+            {
+                PushNotifications = true,
+                StateTransitionHistory = true,
+                Streaming = true
+            },
+            DefaultInputModes = ["text"],
+            DefaultOutputModes = ["text"],
+            Version = "1.0.0",
+        };
+
+        var instructions = $"""
+            You are a smart home manager who has a collection of agents that can help you control and manage a connected smart home.
+            I will provide you information about my smart home below, and a collection of available agents with their abilities, 
+            use this information to answer the user's question or perform actions requested by the user.
+
+            Current Date and Time: {DateTimeOffset.Now.ToString("G")}
+
+            Available Agents:
+            | agent_name | description | url |
+            | ---------- | ----------- | --- |
+            {RenderAgentMarkdownTable(CancellationToken.None).GetAwaiter().GetResult()}
+
+            ## Rules:
+            * Do not tell me what you're thinking about doing, just do it.
+            * If I ask you about the current state of the home, or many devices I have, or how many devices are in a specific state, 
+                use the available agents to get states of the respective devices before answering.
+            * If I ask you what time or date it is be sure to respond in a format 
+                that will work best for text-to-speech engines such as Piper.
+            * If you don't have enough information to execute a smart home command then specify what other information you need.
+            * You can ask the user for more information by ending your response with a '?'. If you end your response with any other punctuation,
+                the Home Assistant solution will assume you have completed the request. Keep this in mind when responding.
+            """;
+
+        _aiAgent = chatClient.CreateAIAgent(
+            instructions: instructions, name: "lucia-orchestrator");
+        var luciaExecutor = new LuciaExecutor(_aiAgent);
+
+        var agents = agentRegistry.GetAgentsAsync().ToListAsync().GetAwaiter().GetResult();
+
+        var aiAgents = agentCatalog.GetAgentsAsync().ToListAsync().GetAwaiter().GetResult();
+
+
+        var agentOptions = new ChatClientAgentOptions(instructions)
+        {
+            Id = "lucia-orchestrator",
+            Name = "lucia-orchestrator",
+            Description = "Agent responsible for orchestrating workflow with multiple agents.",
+        };
+
         
-        // Use the provided chat history reducer for automatic token management
+        _taskManager = new TaskManager();
     }
 
     /// <summary>
@@ -86,5 +159,19 @@ public class LuciaOrchestrator
     {
         _logger.LogInformation("Chat history cleared");
         throw new NotImplementedException("Chat history management not implemented yet");
+    }
+
+
+    private async Task<string> RenderAgentMarkdownTable(CancellationToken cancellationToken)
+    {
+        var agents = _agentRegistry.GetAgentsAsync(cancellationToken).ConfigureAwait(false);
+
+        var sb = new StringBuilder();
+
+        await foreach (var agent in agents)
+        {
+            sb.Append($"|{agent.Name}|{agent.Description}|{agent.Url}|");
+        }
+        return sb.ToString();
     }
 }
