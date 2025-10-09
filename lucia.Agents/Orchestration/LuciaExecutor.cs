@@ -33,15 +33,4 @@ namespace lucia.Agents.Orchestration
         }
     }
 
-    public sealed class AgentChoiceResult
-    {
-        [JsonPropertyName("agentId")]
-        public string AgentId { get; set; }
-
-        /// <summary>
-        /// Used for debugging and tracing, not for programmatic use.
-        /// </summary>
-        [JsonPropertyName("reasoning")]
-        public string Reasoning { get; set; }
-    }
 }

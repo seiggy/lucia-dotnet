@@ -12,12 +12,12 @@ This is the implementation task list for the spec detailed in @.docs/specs/2025-
 ### Tasks
 
 1. **LUCIA-ORCH-001.1 – RouterExecutor Foundation**
-   - [ ] Scaffold executor with Microsoft Agent Framework workflow primitives.
-   - [ ] Implement `ReflectingExecutor<RouterExecutor>`
-   - [ ] Add `IMessageHandler<ChatMessage, AgentChoiceResult>`
-   - [ ] Integrate `IChatClient` prompt construction and structured JSON output handling.
-   - [ ] Implement retry and fallback semantics for malformed or low-confidence responses.
-   - [ ] Unit tests covering lighting, music, ambiguous, and failure scenarios.
+   - [x] Scaffold executor with Microsoft Agent Framework workflow primitives. *(RouterExecutor derives from `ReflectingExecutor<RouterExecutor>` and implements message handler, 2025-10-09)*
+   - [x] Implement `ReflectingExecutor<RouterExecutor>` *(see `lucia.Agents/Orchestration/RouterExecutor.cs`, 2025-10-09)*
+   - [x] Add `IMessageHandler<ChatMessage, AgentChoiceResult>` *(RouterExecutor implements required interface, 2025-10-09)*
+   - [x] Integrate `IChatClient` prompt construction and structured JSON output handling. *(Prompt builder and schema-based parsing complete, 2025-10-09)*
+   - [x] Implement retry and fallback semantics for malformed or low-confidence responses. *(MaxAttempts loop, clarification/fallback paths verified by tests, 2025-10-09)*
+   - [x] Unit tests covering lighting, music, ambiguous, and failure scenarios. *(2025-10-09: `dotnet test lucia-dotnet.sln` passing)*
 
 2. **LUCIA-ORCH-001.2 – AgentExecutorWrapper Library**
    - [ ] Implement `ReflectingExecutor<AgentExecutorWrapper>`
