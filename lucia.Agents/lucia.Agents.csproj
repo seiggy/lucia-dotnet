@@ -14,12 +14,12 @@
     <PackageReference Include="A2A.AspNetCore" Version="0.3.1-preview" />
     <PackageReference Include="Aspire.Azure.AI.OpenAI" Version="9.5.1-preview.1.25502.11" />
     <PackageReference Include="Aspire.Hosting.Azure.CognitiveServices" Version="9.5.1" />
-    <PackageReference Include="Microsoft.Agents.AI" Version="1.0.0-preview.251007.1" />
-    <PackageReference Include="Microsoft.Agents.AI.A2A" Version="1.0.0-preview.251007.1" />
-    <PackageReference Include="Microsoft.Agents.AI.Abstractions" Version="1.0.0-preview.251007.1" />
-    <PackageReference Include="Microsoft.Agents.AI.AzureAI" Version="1.0.0-preview.251007.1" />
-    <PackageReference Include="Microsoft.Agents.AI.Hosting" Version="1.0.0-preview.251007.1" />
-    <PackageReference Include="Microsoft.Agents.AI.Workflows" Version="1.0.0-preview.251007.1" />
+    <PackageReference Include="Microsoft.Agents.AI" Version="1.0.0-preview.251009.1" />
+    <PackageReference Include="Microsoft.Agents.AI.A2A" Version="1.0.0-preview.251009.1" />
+    <PackageReference Include="Microsoft.Agents.AI.Abstractions" Version="1.0.0-preview.251009.1" />
+    <PackageReference Include="Microsoft.Agents.AI.AzureAI" Version="1.0.0-preview.251009.1" />
+    <PackageReference Include="Microsoft.Agents.AI.Hosting" Version="1.0.0-preview.251009.1" />
+    <PackageReference Include="Microsoft.Agents.AI.Workflows" Version="1.0.0-preview.251009.1" />
 	  
     <PackageReference Include="Microsoft.Extensions.AI" Version="9.9.1" />
     <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="9.9.1" />
