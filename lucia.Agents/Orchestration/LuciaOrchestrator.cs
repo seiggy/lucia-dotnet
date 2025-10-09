@@ -24,8 +24,8 @@ public class LuciaOrchestrator
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly TaskManager _taskManager;
     private readonly AIAgent _aiAgent;
-    private readonly Workflow<List<ChatMessage>> _workflow;
-    private readonly AIAgent _workflowAgent;
+    private readonly Workflow<List<ChatMessage>>? _workflow;
+    private readonly AIAgent? _workflowAgent;
 
     public LuciaOrchestrator(
         IChatClient chatClient,
@@ -56,7 +56,7 @@ public class LuciaOrchestrator
 
         var instructions = $"""
             You are a smart home manager who has a collection of agents that can help you control and manage a connected smart home.
-            I will provide you information about my smart home below, and a collection of available agents with their abilities, 
+            I will provide you information about my smart home below, and a collection of available agents with their abilities,
             use this information to answer the user's question or perform actions requested by the user.
 
             Current Date and Time: {DateTimeOffset.Now.ToString("G")}
@@ -68,9 +68,9 @@ public class LuciaOrchestrator
 
             ## Rules:
             * Do not tell me what you're thinking about doing, just do it.
-            * If I ask you about the current state of the home, or many devices I have, or how many devices are in a specific state, 
+            * If I ask you about the current state of the home, or many devices I have, or how many devices are in a specific state,
                 use the available agents to get states of the respective devices before answering.
-            * If I ask you what time or date it is be sure to respond in a format 
+            * If I ask you what time or date it is be sure to respond in a format
                 that will work best for text-to-speech engines such as Piper.
             * If you don't have enough information to execute a smart home command then specify what other information you need.
             * You can ask the user for more information by ending your response with a '?'. If you end your response with any other punctuation,
@@ -79,8 +79,6 @@ public class LuciaOrchestrator
 
         _aiAgent = chatClient.CreateAIAgent(
             instructions: instructions, name: "lucia-orchestrator");
-        var luciaExecutor = new LuciaExecutor(_aiAgent);
-
         var agents = agentRegistry.GetAgentsAsync().ToListAsync().GetAwaiter().GetResult();
 
         var aiAgents = agentCatalog.GetAgentsAsync().ToListAsync().GetAwaiter().GetResult();
@@ -93,7 +91,7 @@ public class LuciaOrchestrator
             Description = "Agent responsible for orchestrating workflow with multiple agents.",
         };
 
-        
+
         _taskManager = new TaskManager();
     }
 
@@ -103,7 +101,7 @@ public class LuciaOrchestrator
     public async Task<string> ProcessRequestAsync(string userRequest, CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Processing user request: {Request}", userRequest);
-        
+
         try
         {
             // Get available agents from registry
@@ -117,13 +115,13 @@ public class LuciaOrchestrator
             }
 
             // Create MagenticOne orchestration with available agents
-            
+
             // Add user request to history
-            
+
             // start the runtime
 
             // Invoke the orchestration with the user request
-            
+
             throw new NotImplementedException("Orchestration logic not implemented yet");
         }
         catch (Exception ex)
@@ -143,7 +141,7 @@ public class LuciaOrchestrator
     public async Task<OrchestratorStatus> GetStatusAsync(CancellationToken cancellationToken = default)
     {
         var agents = _agentRegistry.GetAgentsAsync(cancellationToken);
-        
+
         return new OrchestratorStatus
         {
             IsReady = await agents.AnyAsync(cancellationToken),
