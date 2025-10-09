@@ -20,21 +20,21 @@ This is the implementation task list for the spec detailed in @.docs/specs/2025-
    - [x] Unit tests covering lighting, music, ambiguous, and failure scenarios. *(2025-10-09: `dotnet test lucia-dotnet.sln` passing)*
 
 2. **LUCIA-ORCH-001.2 – AgentExecutorWrapper Library**
-   - [ ] Implement `ReflectingExecutor<AgentExecutorWrapper>`
-   - [ ] Add `IMessageHandler<ChatMessage, AgentResponse>`
-   - [ ] Create A2A Agent Execution Wrapper that can handle `AIAgent` execution, or A2A remote execution calls using JSON-RPC.
-   - [ ] Add timeout and cancellation support
-   - [ ] Emit workflow events for observability
-   - [ ] Handle agent-specific errors gracefully
-   - [ ] Unit tests for wrapper functionality
-   - [ ] Verify thread state management via automated tests.
+   - [x] Implement `ReflectingExecutor<AgentExecutorWrapper>` *(Wrapper added in `lucia.Agents/Orchestration/AgentExecutorWrapper.cs`, 2025-10-09)*
+   - [x] Add `IMessageHandler<ChatMessage, AgentResponse>` *(Wrapper now handles workflow messages returning `AgentResponse`, 2025-10-09)*
+   - [x] Create A2A Agent Execution Wrapper that can handle `AIAgent` execution, or A2A remote execution calls using JSON-RPC. *(Local thread reuse plus remote `ITaskManager.SendMessageAsync` integration implemented, 2025-10-09)*
+   - [x] Add timeout and cancellation support *(Linked CTS with configurable timeout enforced; timeout path verified by tests, 2025-10-09)*
+   - [x] Emit workflow events for observability *(Invoker now records invoked/completed/failed events on `IWorkflowContext`, 2025-10-09)*
+   - [x] Handle agent-specific errors gracefully *(Graceful failure responses with logging and error propagation, 2025-10-09)*
+   - [x] Unit tests for wrapper functionality *(See `lucia.Tests/AgentExecutorWrapperTests.cs`; suite passing via `dotnet test`, 2025-10-09)*
+   - [x] Verify thread state management via automated tests. *(Thread reuse and recreation covered in tests; execution logs confirmed via `RecordingWorkflowContext`, 2025-10-09)*
 
 3. **LUCIA-ORCH-001.3 – Result Aggregator**
-   - [ ] Implement `ReflectingExecutor<ResultAggregatorExecutor>`
-   - [ ] Add `IMessageHandler<AgentResponse, string>`
-   - [ ] Format natural language responses
-   - [ ] Handle error responses
-   - [ ] Unit tests for aggregation
+   - [x] Implement `ReflectingExecutor<ResultAggregatorExecutor>` *(see `lucia.Agents/Orchestration/ResultAggregatorExecutor.cs`, 2025-10-09)*
+   - [x] Add `IMessageHandler<AgentResponse, string>` *(Result aggregator now handles workflow outputs, 2025-10-09)*
+   - [x] Format natural language responses *(Success messages prioritized with configurable ordering, 2025-10-09)*
+   - [x] Handle error responses *(Partial failures appended with telemetry + events, 2025-10-09)*
+   - [x] Unit tests for aggregation *(See `lucia.Tests/ResultAggregatorExecutorTests.cs`; `dotnet test` passing 2025-10-09)*
 
 4. **LUCIA-ORCH-001.4 – LuciaOrchestrator Workflow Assembly**
    - [ ] Remove NotImplementedException placeholders
