@@ -1,178 +1,111 @@
-# CLAUDE.md
+# Copilot Agent Guide
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Welcome! This guide explains how GitHub Copilot agents should operate inside the `lucia-dotnet` repository. Read it fully before making changes so you can follow the house rules, leverage the documentation, and ship updates safely.
 
-## Project Purpose
+## 1. Product & Repository Snapshot
 
-Lucia is a Agent Framework-based agentic solution that serves as an autonomous whole-home automation manager for Home Assistant. The application acts as an intelligent assistant that integrates with Home Assistant Core APIs to provide automated home management capabilities.
+- **Mission:** Lucia delivers a privacy-first, multi-agent assistant that orchestrates Home Assistant automations locally using Microsoft Semantic Kernel.
+- **Primary Projects:**
+  - `lucia.AgentHost` – ASP.NET Core Web API hosting the orchestrated AI agents and A2A integration.
+  - `lucia.AppHost` – .NET Aspire host for service discovery, local orchestration, and observability.
+  - `lucia.ServiceDefaults` – Shared resilience, telemetry, and health-check extensions.
+  - `lucia.HomeAssistant` / `lucia.HomeAssistant.SourceGenerator` - Home Assistant API w/ Source Generator
+  - `custom_components/lucia` – Python custom component for Home Assistant integration.
+  - `lucia.Agents` – Domain-specific agent implementations, skills, and registry support.
+  - `lucia.Tests` - XUnit tests for the app
 
-### Home Assistant Integration Points
+## 2. What lives in `.docs/`
 
-The application integrates with Home Assistant through:
+The `.docs` directory is the single source of truth for product and engineering direction. Copilot agents must reference it before writing code or documentation.
 
-- **LLM API**: Primary integration point for AI-powered responses and automation decisions
-  - Documentation: https://developers.home-assistant.io/docs/core/llm/
-- **Conversation API**: Handles natural language interactions and intent processing
-  - Documentation: https://developers.home-assistant.io/docs/intent_conversation_api
-- **WebSocket API**: Real-time event streaming and state updates from Home Assistant
-- **REST API**: Direct access to Home Assistant entities, services, and configuration
-
-The system operates as an autonomous assistant that can understand natural language commands, monitor home state, and execute automation decisions through Home Assistant's various APIs.
-
-## Architecture Overview
-
-This is a .NET 10 + Aspire application with the following structure:
-
-- **lucia.AgentHost**: Main Web API application (ASP.NET Core) that hosts and runs the AIAgents
-- **lucia.AppHost**: .NET Aspire orchestrator for development. Gives telemetry, and debugging views and tools during development.
-- **lucia.ServiceDefaults**: Shared library containing common services (OpenTelemetry, health checks, service discovery, resilience)
-- **lucia.Tests**: Integration test project using xUnit and Aspire.Hosting.Testing
-
-The application uses .NET Aspire for cloud-native development with built-in observability, service discovery, and resilience patterns. The ServiceDefaults project includes OpenTelemetry tracing/metrics, health checks, and HTTP client configurations with resilience handlers.
-
-## Key Technologies
-
-- .NET 9 with C# nullable reference types enabled
-- ASP.NET Core Web API with OpenAPI/Swagger
-- .NET Aspire for orchestration and service defaults
-- **Microsoft Semantic Kernel**: Core AI framework for agentic behaviors and LLM integration
-- **Multi-LLM Support**: Support for both online and offline LLMs through Semantic Kernel:
-  - **Online**: OpenAI, Google Gemini, Anthropic Claude
-  - **Offline/Local**: LLaMa and other local models
-- **Home Assistant APIs**: WebSocket and REST API integration for home automation
-- **C# Roslyn Code Generators**: Generate strongly-typed API clients for Home Assistant REST API
-- xUnit for testing with FakeItEasy for mocking
-- OpenTelemetry for observability
-- Docker support with Linux containers
-
-## Common Commands
-
-### Build and Run
-```bash
-# Build the entire solution
-dotnet build
-
-# Run the main application directly
-dotnet run --project lucia-dotnet
-
-# Run via Aspire AppHost (recommended for development)
-dotnet run --project lucia.AppHost
+```
+.docs/
+├─ architecture/
+│  └─ 2025-10-02-lucia-platform-architecture/
+│     ├─ diagram-plan.md            (rationale for diagrams)
+│     ├─ diagram-index.md           (Mermaid previews + links)
+│     ├─ integration.md             (where to link diagrams in other docs)
+│     └─ diagrams/*.mmd             (Mermaid sources – use validator & preview tools)
+├─ product/
+│  ├─ mission.md                    (mission, personas, differentiators)
+│  ├─ roadmap.md                    (phase progress, upcoming priorities)
+│  ├─ tech-stack.md                 (authoritative stack + versions)
+│  └─ decisions.md                  (decision log – overrides conflicting guidance)
+├─ reports/                         (status reports & historical summaries)
+└─ specs/
+  ├─ 2025-01-07-multi-agent-orchestration/
+  │  ├─ feature-request.md         (high-level need & use cases)
+  │  ├─ spec.md                    (spec requirements document)
+  │  ├─ tech-specs.md              (technical design + diagrams)
+  │  ├─ tasks.md                   (implementation task list)
+  │  └─ sub-specs/                 (api-spec.md, tests.md, etc.)
+  └─ 2025-08-06-home-assistant-conversation-plugin/
+    └─ ...                        (earlier completed spec for reference)
 ```
 
-### Testing
-```bash
-# Run all tests
-dotnet test
+## 3. Updated Tech Stack Overview (2025-08-06)
 
-# Run tests with coverage
-dotnet test --collect:"XPlat Code Coverage"
+- **Backend:** ASP.NET Core Web API (.NET 9 / C# 13) orchestrated with .NET Aspire 9.4.0.
+- **AI Runtime:** Microsoft Semantic Kernel 1.61.0, MagenticOne multi-agent orchestration patterns, OpenAI GPT-4o (primary), Gemini & Claude optional, LLaMa/local models planned.
+- **Data & State:** In-memory defaults with planned PostgreSQL 17+, Redis 7.x for task persistence (per latest spec), configuration via ASP.NET Core config + Secrets/K8s secrets.
+- **Home Assistant Integration:** REST + Conversation + LLM APIs today, WebSocket streaming upcoming; Python custom component built on aiohttp 3.x.
+- **Infrastructure:** Docker containers, Kubernetes deployment target, optional Istio service mesh; Observability powered by OpenTelemetry (traces/metrics/logging).
+- **Testing:** xUnit + FakeItEasy; Aspire.Hosting.Testing for integration. Use `dotnet test` from repo root or target projects explicitly.
 
-# Run specific test project
-dotnet test lucia.Tests
-```
+Refer to `.docs/product/tech-stack.md` for deeper detail and version updates before modifying dependencies.
 
-### Development
-```bash
-# Restore packages
-dotnet restore
+## 4. Required Workflows for Copilot Agents
 
-# Clean solution
-dotnet clean
+1. **Check existing tasks:** Use the `todo-md` MCP tool to review or add work items in `tasks.md` for the active spec. Keep todo status in sync with progress.
+2. **Read the spec:** For feature work, open the active spec folder in `.docs/specs/…` and confirm requirements, technical notes, and testing expectations.
+3. **Follow instruction files:**
+  - Planning/spec creation → `.github/prompts/create-spec.prompt.md` and `.github/instructions/create-spec.instructions.md`
+  - Implementation → `.github/instructions/execute-tasks.instructions.md`
+  - Architecture diagrams → `.github/instructions/architecture-diagrams.instructions.md`
+4. **Use required tools:**
+  - `context7` for third-party library documentation.
+  - `microsoft.docs` for Microsoft stack references.
+  - `mermaid-diagram-validator` (and preview) for every Mermaid edit.
+  - `todo-md` to record progress and blocking items.
+5. **TDD expectation:** Write or update tests before implementing public behavior changes. Never merge failing tests.
+6. **Telemetry alignment:** Maintain OpenTelemetry span/metric naming consistent with existing conventions when adding instrumentation.
 
-# Watch for changes (main app)
-dotnet watch --project lucia-dotnet
+## 5. Development Quick Reference
 
-# Watch for changes (AppHost)
-dotnet watch --project lucia.AppHost
-```
+- **Restore & Build:** `dotnet restore`, `dotnet build lucia-dotnet.sln`
+- **Run AppHost:** `dotnet run --project lucia.AppHost`
+- **Run Tests:** `dotnet test` (or target a project like `dotnet test lucia.Tests`)
+- **Python component:** Lives under `custom_components/lucia`; follow Home Assistant custom component guidelines when editing.
 
-## Service Endpoints
+Always confirm commands in the repo root PowerShell environment before execution. Document any manual steps you perform in the completion summary.
 
-When running via AppHost, the application will be available at:
-- HTTP: http://localhost:5211
-- HTTPS: https://localhost:7000
+## 6. Do’s & Don’ts for AI Agents
 
-Health check endpoints (development only):
-- `/health` - Overall health status
-- `/alive` - Liveness check
+### ✅ Do’s
 
-## Configuration
+- **Read the spec and decision log first** so changes align with current priorities and architectural direction.
+- **Update the todo list** (`todo-md`) before starting work and as you progress through tasks.
+- **Reference `.docs/product/tech-stack.md`** when touching dependencies to ensure versions remain aligned.
+- **Validate Mermaid diagrams** with the provided validator before committing diagram changes.
+- **Use Context7/Microsoft Docs tooling** prior to coding against third-party or Microsoft APIs.
+- **Write tests and run `dotnet test`** (or relevant suites) after making executable code changes.
+- **Document assumptions** and call out blockers in the completion summary when requirements are unclear.
+- **Respect feature flags and configuration** defaults described in specs when adding new functionality.
 
-The application uses standard ASP.NET Core configuration with:
-- `appsettings.json` and `appsettings.Development.json`
-- Environment variables
-- User secrets (configured for AppHost project)
+### ❌ Don’ts
 
-## Important Notes
+- **Don’t bypass instruction files** (`create-spec`, `execute-tasks`, architecture rules) even for minor tweaks.
+- **Don’t edit `.docs/product/decisions.md`** unless you have explicit approval to log a new decision.
+- **Don’t introduce new dependencies** without updating the tech stack documentation and explaining the rationale.
+- **Don’t skip todo status updates**—work is considered incomplete if the task tracker is stale.
+- **Don’t leave Mermaid or markdown lint issues**; validate diagrams and keep docs consistent with templates.
+- **Don’t push code without tests**—failing or missing tests block acceptance.
+- **Don’t remove or disable telemetry** without replacing it or documenting the change in the spec/tasks.
 
-- The main web API currently has an empty Controllers folder - controllers need to be implemented for Home Assistant integration endpoints
-- Integration tests are set up but commented out - uncomment and update the template code when ready to use
-- OpenTelemetry is configured but requires `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable for external exporters
-- Docker support is included with Linux target OS
-- The application uses implicit usings and nullable reference types throughout
+## 7. Need Help?
 
-## Home Assistant Integration Requirements
+- Review `.docs/product/mission.md` and `roadmap.md` for context if a requirement seems ambiguous.
+- Check prior specs in `.docs/specs/` for patterns to emulate.
+- Surface open questions in the completion summary so maintainers can clarify next steps.
 
-When implementing Home Assistant integration:
-
-1. **LLM API Integration**: Implement endpoints that conform to Home Assistant's LLM API specification for AI-powered responses
-2. **Conversation API**: Handle natural language processing and intent recognition for home automation commands
-3. **WebSocket Client**: Establish persistent connection to Home Assistant for real-time event monitoring and state updates
-4. **REST API Client**: Generate strongly-typed API client using C# Roslyn code generators
-   - REST API Documentation: https://developers.home-assistant.io/docs/api/rest
-   - Use source generators to create type-safe clients from OpenAPI specifications
-5. **Authentication**: Support Home Assistant's long-lived access tokens for API authentication
-6. **State Management**: Maintain synchronized state between Lucia and Home Assistant entities
-7. **Event Processing**: Process and respond to Home Assistant events autonomously using Semantic Kernel agents
-
-## LLM Provider Configuration
-
-The application should support multiple LLM providers through Semantic Kernel's standardized interfaces:
-
-### Online LLM Providers
-- **OpenAI**: GPT-4, GPT-3.5-turbo, and other OpenAI models
-- **Google Gemini**: Gemini Pro and other Google AI models  
-- **Anthropic Claude**: Claude 3 and other Anthropic models
-
-### Offline/Local LLM Support
-- **LLaMa**: Local LLaMa model variants
-- **Other Local Models**: Any model compatible with Semantic Kernel's local inference capabilities
-
-### Configuration Requirements
-- Support for API key management and secure credential storage
-- Model selection and fallback mechanisms
-- Performance optimization for local vs. remote inference
-- Cost management and usage monitoring for cloud providers
-
-## Agent OS Documentation
-
-### Product Context
-- **Mission & Vision:** @.agent-os/product/mission.md
-- **Technical Architecture:** @.agent-os/product/tech-stack.md
-- **Development Roadmap:** @.agent-os/product/roadmap.md
-- **Decision History:** @.agent-os/product/decisions.md
-
-### Development Standards
-- **Code Style:** @~/.agent-os/standards/code-style.md
-- **Best Practices:** @~/.agent-os/standards/best-practices.md
-
-### Project Management
-- **Active Specs:** @.agent-os/specs/
-- **Spec Planning:** Use `@~/.agent-os/instructions/create-spec.md`
-- **Tasks Execution:** Use `@~/.agent-os/instructions/execute-tasks.md`
-
-## Workflow Instructions
-
-When asked to work on this codebase:
-
-1. **First**, check @.agent-os/product/roadmap.md for current priorities
-2. **Then**, follow the appropriate instruction file:
-   - For new features: @.agent-os/instructions/create-spec.md
-   - For tasks execution: @.agent-os/instructions/execute-tasks.md
-3. **Always**, adhere to the standards in the files listed above
-
-## Important Notes
-
-- Product-specific files in `.agent-os/product/` override any global standards
-- User's specific instructions override (or amend) instructions found in `.agent-os/specs/...`
-- Always adhere to established patterns, code style, and best practices documented above
+By following this guide, Copilot agents will stay aligned with Lucia’s roadmap, keep documentation authoritative, and ship reliable updates without surprises.
