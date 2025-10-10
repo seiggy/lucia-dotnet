@@ -109,3 +109,5 @@ Always confirm commands in the repo root PowerShell environment before execution
 - Surface open questions in the completion summary so maintainers can clarify next steps.
 
 By following this guide, Copilot agents will stay aligned with Lucia’s roadmap, keep documentation authoritative, and ship reliable updates without surprises.
+
+***IMPORTANT***: ONLY ONE CLASS PER FILE!!! NEVER PUT MORE THAN ONE CLASS IN A FILE !!!IMPORTANT!!!

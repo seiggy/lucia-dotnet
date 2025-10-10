@@ -44,7 +44,7 @@ public class RouterExecutorTests
 
         var executor = CreateExecutor(chatClient);
 
-        var result = await executor.HandleAsync(message, new NoopWorkflowContext());
+        var result = await executor.HandleAsync(message, new RecordingWorkflowContext());
 
         Assert.Equal(LightAgent.Name, result.AgentId);
         Assert.True(result.Confidence > 0.9);
@@ -69,7 +69,7 @@ public class RouterExecutorTests
 
         var executor = CreateExecutor(chatClient);
 
-        var result = await executor.HandleAsync(message, new NoopWorkflowContext());
+        var result = await executor.HandleAsync(message, new RecordingWorkflowContext());
 
         Assert.Equal(MusicAgent.Name, result.AgentId);
         Assert.InRange(result.Confidence, 0.8, 1.0);
@@ -97,7 +97,7 @@ public class RouterExecutorTests
 
         var executor = CreateExecutor(chatClient, options);
 
-        var result = await executor.HandleAsync(message, new NoopWorkflowContext());
+        var result = await executor.HandleAsync(message, new RecordingWorkflowContext());
 
         Assert.Equal(options.Value.ClarificationAgentId, result.AgentId);
         Assert.Equal(response.Confidence, result.Confidence, 3);
@@ -125,7 +125,7 @@ public class RouterExecutorTests
             MaxAttempts = 2
         }));
 
-        var result = await executor.HandleAsync(message, new NoopWorkflowContext());
+        var result = await executor.HandleAsync(message, new RecordingWorkflowContext());
 
         Assert.Equal(LightAgent.Name, result.AgentId);
         Assert.Equal(2, chatClient.InvocationCount);
@@ -149,7 +149,7 @@ public class RouterExecutorTests
 
         var executor = CreateExecutor(chatClient, options);
 
-        var result = await executor.HandleAsync(message, new NoopWorkflowContext());
+        var result = await executor.HandleAsync(message, new RecordingWorkflowContext());
 
     Assert.Equal(options.Value.FallbackAgentId, result.AgentId);
     Assert.Equal(0, result.Confidence);
@@ -171,7 +171,7 @@ public class RouterExecutorTests
 
         var executor = CreateExecutor(chatClient);
 
-        var result = await executor.HandleAsync(message, new NoopWorkflowContext());
+        var result = await executor.HandleAsync(message, new RecordingWorkflowContext());
 
         Assert.Equal(RouterExecutorOptions.DefaultFallbackAgentId, result.AgentId);
         Assert.Equal(0, result.Confidence);

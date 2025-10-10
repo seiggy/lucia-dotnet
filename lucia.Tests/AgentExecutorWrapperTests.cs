@@ -145,15 +145,23 @@ public class AgentExecutorWrapperTests
         StubTaskManager? taskManager = null,
         IOptions<AgentExecutorWrapperOptions>? options = null)
     {
-        agent ??= new StubAIAgent();
+        if (agent is null && agentCard is null)
+        {
+            agent = new StubAIAgent();
+        }
+
         options ??= Options.Create(new AgentExecutorWrapperOptions());
-        var services = new ServiceCollection()
-            .AddSingleton<AIAgent>(agent)
-            .BuildServiceProvider();
+
+        var services = new ServiceCollection();
+        if (agent is not null)
+        {
+            services.AddSingleton<AIAgent>(agent);
+        }
+        var provider = services.BuildServiceProvider();
 
         return new AgentExecutorWrapper(
             agentId,
-            services,
+            provider,
             NullLogger<AgentExecutorWrapper>.Instance,
             options,
             agent,
