@@ -1,3 +1,4 @@
+using System;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using lucia.Agents.Registry;
@@ -168,6 +169,11 @@ public static class ServiceCollectionExtensions
 
         // Register A2A services
         builder.Services.AddHttpClient<IA2AClientService, A2AClientService>();
+
+    builder.Services.AddOptions<RouterExecutorOptions>();
+    builder.Services.AddOptions<AgentExecutorWrapperOptions>();
+    builder.Services.AddOptions<ResultAggregatorOptions>();
+    builder.Services.AddSingleton(TimeProvider.System);
 
         // Register orchestrator
         builder.Services.AddSingleton<LuciaOrchestrator>();

@@ -21,7 +21,7 @@ internal sealed class StubTaskManager : ITaskManager
         }));
     }
 
-    public List<MessageSendParams> CapturedSendMessageParams { get; } = [];
+    public List<MessageSendParams> CapturedSendMessageParams { get; private set; } = [];
 
     public MessageSendParams? LastSendMessageParams => CapturedSendMessageParams.LastOrDefault();
 

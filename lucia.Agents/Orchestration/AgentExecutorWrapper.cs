@@ -84,7 +84,7 @@ public sealed class AgentExecutorWrapper : ReflectingExecutor<AgentExecutorWrapp
         {
             (bool success, string content, string? error) result;
 
-            if (_agentCard is not null)
+            if (_agent is null && _agentCard is not null)
             {
                 result = await InvokeRemoteAsync(message, conversationId, taskId, linkedCts.Token).ConfigureAwait(false);
             }

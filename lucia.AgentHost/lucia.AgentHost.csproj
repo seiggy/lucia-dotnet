@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>915ebad4-9a45-47d0-82ba-2ebc1c4ffe6c</UserSecretsId>
+    <PreviewFeatures>enable</PreviewFeatures>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
