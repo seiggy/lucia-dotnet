@@ -214,13 +214,20 @@ public enum TaskState
 // appsettings.json
 {
   "ConnectionStrings": {
-    "router-client": "Endpoint=http://localhost:11434;Model=phi3:mini;Provider=ollama",
-    // OR for remote: "Endpoint=https://api.openai.com;AccessKey=sk-...;Model=gpt-4o-mini;Provider=openai"
+    "ollama-phi3-mini": "Endpoint=http://localhost:11434;Model=phi3:mini;Provider=ollama",
+    "openai-gpt4o-mini": "Endpoint=https://api.openai.com;AccessKey=sk-...;Model=gpt-4o-mini;Provider=openai",
+    "azureai-phi3": "Endpoint=https://models.inference.ai.azure.com;AccessKey=...;Model=Phi-3-mini-4k-instruct;Provider=azureaiinference"
   },
   "RouterExecutor": {
-    "ChatClientKey": "router-client",  // Maps to keyed IChatClient instance
+    "ChatClientKey": "ollama-phi3-mini",  // Maps to keyed IChatClient instance
     "ConfidenceThreshold": 0.7,
     "MaxAttempts": 3
+  },
+  "LightAgent": {
+    "ChatClientKey": "ollama-phi3-mini"  // Agents can share or use unique instances
+  },
+  "MusicAgent": {
+    "ChatClientKey": "openai-gpt4o-mini"  // Different agent can use different model
   }
 }
 ```
@@ -230,11 +237,18 @@ public enum TaskState
 // ServiceCollectionExtensions.cs - AddLuciaAgents method
 public static void AddLuciaAgents(this IHostApplicationBuilder builder)
 {
-    // Register keyed IChatClient for router
-    var routerClientKey = builder.Configuration["RouterExecutor:ChatClientKey"] ?? "router-client";
+    // Register keyed IChatClient instances (shared across agents)
+    var routerClientKey = builder.Configuration["RouterExecutor:ChatClientKey"] ?? "ollama-phi3-mini";
     builder.AddKeyedChatClient(routerClientKey); // Uses ChatClientConnectionInfo parsing
     
-    // RouterExecutor will resolve keyed IChatClient via [FromKeyedServices]
+    // Agents can reference same or different keyed instances
+    var lightAgentKey = builder.Configuration["LightAgent:ChatClientKey"] ?? routerClientKey;
+    if (lightAgentKey != routerClientKey)
+    {
+        builder.AddKeyedChatClient(lightAgentKey);
+    }
+    
+    // RouterExecutor resolves its configured keyed IChatClient
     builder.Services.AddSingleton<RouterExecutor>(sp =>
     {
         var chatClient = sp.GetRequiredKeyedService<IChatClient>(routerClientKey);
@@ -246,10 +260,14 @@ public static void AddLuciaAgents(this IHostApplicationBuilder builder)
 }
 ```
 
-**Supported Configurations**:
-- **Local SLM (Default)**: Ollama with Phi-3 Mini or LLaMa 3.2 3B (<100ms latency, privacy-first)
-- **Remote Lightweight LLM**: OpenAI GPT-4o-mini or Azure AI Inference (better accuracy, ~300-500ms latency)
-- **Local Full LLM**: Ollama with larger models if hardware supports (e.g., LLaMa 3.1 8B)
+**Supported Configurations** (via ConnectionStrings):
+- **ollama-phi3-mini**: Local SLM, privacy-first, <100ms latency (default)
+- **ollama-llama-3-2-3b**: Local SLM alternative, privacy-first
+- **openai-gpt4o-mini**: Remote lightweight LLM, better accuracy, ~300-500ms latency
+- **azureai-phi3**: Azure AI Inference with Phi-3, serverless
+- **azureopenai-gpt4o**: Azure OpenAI deployment (enterprise scenarios)
+
+Connection string naming pattern: `{provider}-{model-identifier}` enables agents to share or use unique IChatClient instances based on user needs
 
 **Clarification Impact**:
 - Updated FR-001 to specify "user-configurable IChatClient via keyed service registration"

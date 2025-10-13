@@ -540,21 +540,29 @@ public class LuciaOrchestrator
 
 **Configuration Pattern**:
 ```json
-// appsettings.json - Local SLM (default, privacy-first)
+// appsettings.json - Define reusable IChatClient instances
 {
   "ConnectionStrings": {
-    "router-client": "Endpoint=http://localhost:11434;Model=phi3:mini;Provider=ollama"
+    "ollama-phi3-mini": "Endpoint=http://localhost:11434;Model=phi3:mini;Provider=ollama",
+    "openai-gpt4o-mini": "Endpoint=https://api.openai.com;AccessKey=sk-...;Model=gpt-4o-mini;Provider=openai",
+    "azureai-phi3": "Endpoint=https://models.inference.ai.azure.com;AccessKey=...;Model=Phi-3-mini-4k-instruct;Provider=azureaiinference"
   },
   "RouterExecutor": {
-    "ChatClientKey": "router-client",
+    "ChatClientKey": "ollama-phi3-mini",  // References connection string by name
     "ConfidenceThreshold": 0.7
+  },
+  "LightAgent": {
+    "ChatClientKey": "ollama-phi3-mini"  // Multiple agents can share same instance
+  },
+  "MusicAgent": {
+    "ChatClientKey": "openai-gpt4o-mini"  // Or use different instance per agent
   }
 }
 
-// appsettings.Production.json - Remote LLM (if needed)
+// appsettings.Production.json - Override for remote deployment
 {
-  "ConnectionStrings": {
-    "router-client": "Endpoint=https://api.openai.com;AccessKey=sk-...;Model=gpt-4o-mini;Provider=openai"
+  "RouterExecutor": {
+    "ChatClientKey": "openai-gpt4o-mini"  // Switch to remote without changing code
   }
 }
 ```
@@ -562,8 +570,8 @@ public class LuciaOrchestrator
 **Implementation**:
 ```csharp
 // ServiceCollectionExtensions.AddLuciaAgents
-var routerClientKey = builder.Configuration["RouterExecutor:ChatClientKey"] ?? "router-client";
-builder.AddKeyedChatClient(routerClientKey); // Parses ChatClientConnectionInfo
+var routerClientKey = builder.Configuration["RouterExecutor:ChatClientKey"] ?? "ollama-phi3-mini";
+builder.AddKeyedChatClient(routerClientKey); // Parses ChatClientConnectionInfo from connection string
 
 builder.Services.AddSingleton<RouterExecutor>(sp =>
 {
@@ -574,6 +582,11 @@ builder.Services.AddSingleton<RouterExecutor>(sp =>
     return new RouterExecutor(chatClient, registry, logger, options);
 });
 ```
+
+**Connection String Naming Convention**: `{provider}-{model-identifier}`
+- Examples: `ollama-phi3-mini`, `openai-gpt4o-mini`, `azureai-phi3`, `azureopenai-gpt4o`
+- Enables agents to share IChatClient instances (cost/resource efficiency)
+- Allows per-agent configuration for specialized needs (e.g., music agent uses better reasoning model)
 
 **Supported Providers**:
 - **Ollama (local)**: Phi-3 Mini, LLaMa 3.2 3B, LLaMa 3.1 8B
