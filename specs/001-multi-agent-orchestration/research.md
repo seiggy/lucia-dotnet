@@ -523,51 +523,85 @@ public class LuciaOrchestrator
 
 ## Open Questions
 
-### Question 1: SLM vs LLM for RouterExecutor
+### Question 1: IChatClient Configuration for RouterExecutor
 
-**Status**: Requires performance/cost decision
+**Status**: ✅ RESOLVED - User-configurable approach selected
 
 **Context**: RouterExecutor needs fast, reliable routing based on agent capabilities
 
-**Options**:
-1. **Small Language Model (SLM)** - Phi-3 Mini, LLaMa 3.2 3B (local)
-   - Pros: Low latency (<100ms), privacy-first (local), no API costs
-   - Cons: Lower reasoning capability, may struggle with complex ambiguous requests
-   
-2. **Lightweight Cloud LLM** - GPT-4o-mini, Claude 3.5 Haiku
-   - Pros: Better reasoning, handles ambiguity well, structured output support
-   - Cons: Network latency (~300-500ms), API costs, privacy concerns
-   
-3. **Hybrid Approach** - SLM with LLM fallback
-   - Pros: Fast for clear requests, accurate for ambiguous ones
-   - Cons: Added complexity, confidence threshold tuning needed
-
-**Recommendation**: Option 1 (SLM) for MVP with Option 3 (hybrid) as future enhancement
+**Decision**: **User-configurable keyed IChatClient via ChatClientConnectionInfo** (Option D enhanced)
 
 **Rationale**:
-- Aligns with Constitution Principle IV (Privacy-First Architecture)
-- Agent capabilities should be clear enough for SLM to route correctly
-- Can measure routing accuracy and upgrade to hybrid if needed
-- Phi-3 Mini or LLaMa 3.2 3B can run locally on home lab hardware
+- Aligns with Constitution Principle IV (Privacy-First Architecture) by defaulting to local SLM
+- Supports users without local hardware via remote LLM configuration
+- No code changes required to switch between providers (configuration-driven)
+- Existing `AddKeyedChatClient` infrastructure supports Ollama, OpenAI, Azure AI Inference
+- Meets SC-010 (<500ms routing latency) with local SLM, allows remote fallback for accuracy
+
+**Configuration Pattern**:
+```json
+// appsettings.json - Local SLM (default, privacy-first)
+{
+  "ConnectionStrings": {
+    "router-client": "Endpoint=http://localhost:11434;Model=phi3:mini;Provider=ollama"
+  },
+  "RouterExecutor": {
+    "ChatClientKey": "router-client",
+    "ConfidenceThreshold": 0.7
+  }
+}
+
+// appsettings.Production.json - Remote LLM (if needed)
+{
+  "ConnectionStrings": {
+    "router-client": "Endpoint=https://api.openai.com;AccessKey=sk-...;Model=gpt-4o-mini;Provider=openai"
+  }
+}
+```
+
+**Implementation**:
+```csharp
+// ServiceCollectionExtensions.AddLuciaAgents
+var routerClientKey = builder.Configuration["RouterExecutor:ChatClientKey"] ?? "router-client";
+builder.AddKeyedChatClient(routerClientKey); // Parses ChatClientConnectionInfo
+
+builder.Services.AddSingleton<RouterExecutor>(sp =>
+{
+    var chatClient = sp.GetRequiredKeyedService<IChatClient>(routerClientKey);
+    var registry = sp.GetRequiredService<AgentRegistry>();
+    var logger = sp.GetRequiredService<ILogger<RouterExecutor>>();
+    var options = sp.GetRequiredService<IOptions<RouterExecutorOptions>>();
+    return new RouterExecutor(chatClient, registry, logger, options);
+});
+```
+
+**Supported Providers**:
+- **Ollama (local)**: Phi-3 Mini, LLaMa 3.2 3B, LLaMa 3.1 8B
+- **OpenAI**: GPT-4o-mini, GPT-4o
+- **Azure OpenAI**: GPT-4o-mini deployment
+- **Azure AI Inference**: GitHub Models, serverless endpoints
 
 **Next Steps**: 
 - Define `AgentCard.Capabilities` format for optimal SLM parsing in data-model.md
 - Create RouterExecutor prompt template with few-shot examples in contracts/RouterExecutor.md
+- Add `ChatClientKey` property to RouterExecutorOptions class
+- Document configuration examples in quickstart.md
 
 ---
 
 ### Question 2: Agent Registry Integration
 
-**Status**: Requires architecture clarification
+**Status**: ✅ RESOLVED - DI injection with existing AgentRegistry
 
 **Context**: RouterExecutor needs to query AgentRegistry for available agents and capabilities
 
-**Options**:
-1. **Direct DI injection** of `IAgentCatalog` into RouterExecutor
-2. **HTTP call** to Agent Registry API (distributed)
-3. **Shared state** via workflow configuration
+**Decision**: Direct DI injection of `AgentRegistry` into RouterExecutor constructor
 
-**Recommendation**: Option 1 for MVP (local deployment), design for Option 2 (distributed agents in Phase 4)
+**Rationale**:
+- AgentRegistry is already registered as singleton in ServiceCollectionExtensions.AddLuciaAgents
+- RouterExecutor already accepts AgentRegistry in constructor (see existing implementation)
+- Supports dynamic agent discovery at runtime (agents register/deregister via A2A protocol)
+- Local deployment pattern (MVP), designed for distributed agents in future phases
 
 **Next Steps**: Document RouterExecutor constructor dependencies in contracts/RouterExecutor.md
 
