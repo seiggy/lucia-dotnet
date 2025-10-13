@@ -85,29 +85,33 @@ As the operator of Lucia, I need long-running orchestrated conversations to surv
 
 ### Functional Requirements
 
-- **FR-001**: System MUST implement a RouterExecutor that analyzes user requests using an LLM and returns a structured AgentChoiceResult containing agent ID, confidence score, and reasoning
+- **FR-001**: System MUST implement a RouterExecutor that analyzes user requests using an IChatClient (configurable LLM/SLM) and returns a structured AgentChoiceResult containing agent ID, confidence score, and reasoning
 - **FR-002**: System MUST query the AgentRegistry for available agents and their capabilities when making routing decisions
-- **FR-003**: System MUST route requests to the selected agent using workflow conditional edges based on the agent ID
+- **FR-003**: System MUST route requests to the selected agent using workflow conditional edges based on the agent ID returned from RouterExecutor
 - **FR-004**: System MUST wrap all agents in AgentExecutorWrapper components that handle context propagation, telemetry, and error handling
 - **FR-005**: System MUST preserve conversation context across agent boundaries using taskId as the conversation identifier
-- **FR-006**: System MUST aggregate responses from one or more agents and format them into natural language confirmations
+- **FR-006**: System MUST aggregate responses from one or more agents and format them into natural language confirmations via ResultAggregatorExecutor
 - **FR-007**: System MUST persist task context to Redis with a configurable TTL for durable conversation state
 - **FR-008**: System MUST restore task context from Redis when processing follow-up requests with an existing taskId
-- **FR-009**: System MUST implement a task-aware host service that integrates A2A message delivery with the workflow TaskManager
+- **FR-009**: System MUST implement LuciaOrchestrator as an A2A-compliant agent that exposes itself through the AgentRegistry and integrates A2A message delivery with the workflow TaskManager
 - **FR-010**: System MUST provide an AgentCard resolver that checks the local AgentCatalog before creating remote A2A clients
 - **FR-011**: System MUST emit OpenTelemetry spans, metrics, and structured logs for all orchestration operations
 - **FR-012**: System MUST handle agent execution timeouts gracefully with configurable timeout thresholds
-- **FR-013**: System MUST provide graceful fallback responses when no suitable agent is available
-- **FR-014**: System MUST support both single-agent and multi-agent execution patterns through the workflow engine
+- **FR-013**: System MUST provide graceful fallback responses when no suitable agent is available (RouterExecutor returns fallback AgentChoiceResult when confidence is below threshold or no agents match)
+- **FR-014**: System MUST support both single-agent and multi-agent execution patterns through the workflow engine (AgentDispatchExecutor handles sequential execution of primary agent plus optional additional agents)
 - **FR-015**: System MUST expose configuration for enabling/disabling orchestration features via feature flags
 
 ### Key Entities
 
-- **AgentChoiceResult**: Router output containing selected agent ID, confidence score, and reasoning explanation
-- **TaskContext**: Serializable conversation state including message history, agent selections, and metadata
+- **AgentChoiceResult**: Router output containing selected agent ID, confidence score, reasoning explanation, and optional additional agents for multi-agent coordination
+- **RouterExecutor**: Workflow executor that invokes IChatClient to analyze user requests and produce AgentChoiceResult using structured JSON output
+- **LuciaOrchestrator**: Main orchestrator class that builds and executes the workflow (RouterExecutor → AgentDispatchExecutor → ResultAggregatorExecutor) and exposes itself as an A2A-compliant agent
+- **AgentDispatchExecutor**: Workflow executor that receives AgentChoiceResult, resolves agent wrappers, and invokes agents sequentially (primary agent first, then additional agents if specified)
+- **AgentExecutorWrapper**: Wraps AIAgent instances to handle A2A message delivery, telemetry, timeout handling, and error management
+- **ResultAggregatorExecutor**: Workflow executor that collects AgentResponse messages and formats them into natural language confirmation strings
+- **TaskContext**: Serializable conversation state including message history, agent selections, and metadata (stored in Redis with configurable TTL)
 - **WorkflowState**: Execution state for the orchestration workflow including current executor and pending operations
-- **AgentResponse**: Structured response from an agent execution containing success status, content, and error details
-- **RoutingDecision**: Record of why a particular agent was selected for observability and debugging
+- **AgentResponse**: Structured response from an agent execution containing success status, content, error details, and execution time
 
 ## Success Criteria *(mandatory)*
 
@@ -123,3 +127,26 @@ As the operator of Lucia, I need long-running orchestrated conversations to surv
 - **SC-008**: Agent execution failures result in graceful error messages rather than system crashes or silent failures
 - **SC-009**: All orchestration operations emit telemetry data enabling monitoring of routing confidence, agent latency, and failure rates
 - **SC-010**: Routing decisions complete in under 500 milliseconds (95th percentile) to maintain responsive user experience
+
+## Clarifications *(optional)*
+
+### Session 2025-10-13
+
+**Q1: Terminology Alignment** - The spec referenced "RouterExecutor" throughout but research.md and plan.md described a "CoordinatorAgent" architecture. Which terminology is correct for the dynamic agent registry pattern?
+
+**A1**: RouterExecutor is the correct terminology. It is already partially implemented in `lucia.Agents/Orchestration/RouterExecutor.cs` as a workflow executor that:
+- Queries AgentRegistry for available agents dynamically at runtime
+- Invokes an IChatClient (configurable LLM/SLM) to analyze user requests
+- Returns structured AgentChoiceResult with agent ID, confidence score, reasoning, and optional additional agents
+- Handles fallback/clarification logic when confidence is below threshold or no agents match
+
+**Clarification Impact**:
+- Updated FR-001 to specify RouterExecutor uses IChatClient (not just "an LLM")
+- Updated FR-003 to clarify routing uses workflow conditional edges based on RouterExecutor output
+- Updated FR-006 to specify ResultAggregatorExecutor for response aggregation
+- Updated FR-009 to clarify LuciaOrchestrator (not generic "task-aware host service") must expose itself as A2A-compliant agent
+- Updated FR-013 to specify RouterExecutor handles fallback logic via confidence threshold
+- Updated FR-014 to clarify AgentDispatchExecutor handles sequential execution pattern
+- Expanded Key Entities section to document actual implementation components: RouterExecutor, LuciaOrchestrator, AgentDispatchExecutor, AgentExecutorWrapper, ResultAggregatorExecutor
+
+---

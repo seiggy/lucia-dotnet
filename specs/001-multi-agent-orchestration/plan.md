@@ -7,7 +7,7 @@
 
 ## Summary
 
-Implement workflow-based multi-agent orchestration using Microsoft Agent Framework 1.0 with a **CoordinatorAgent** that dynamically queries the AgentRegistry for available agents and their capabilities. The coordinator uses an SLM (Small Language Model) or lightweight LLM to make fast routing decisions based on runtime agent availability, enabling seamless agent registration/deregistration without workflow rebuild. TaskContext is persisted in Redis for durable conversation state across process restarts, with comprehensive OpenTelemetry instrumentation for observability.
+Implement workflow-based multi-agent orchestration using Microsoft Agent Framework 1.0 with a **RouterExecutor** that dynamically queries the AgentRegistry for available agents and their capabilities. RouterExecutor uses an IChatClient (configurable LLM/SLM) to make fast routing decisions based on runtime agent availability, enabling seamless agent registration/deregistration without workflow rebuild. **LuciaOrchestrator** orchestrates the complete workflow (RouterExecutor → AgentDispatchExecutor → ResultAggregatorExecutor) and exposes itself as an A2A-compliant agent for integration with the Lucia agent ecosystem. TaskContext is persisted in Redis for durable conversation state across process restarts, with comprehensive OpenTelemetry instrumentation for observability.
 
 ## Technical Context
 
@@ -110,40 +110,40 @@ specs/001-multi-agent-orchestration/
 ```
 lucia.Agents/
 ├── Orchestration/
-│   ├── CoordinatorAgent.cs            # NEW: Workflow executor for dynamic agent routing via AgentRegistry
-│   ├── DynamicAgentExecutor.cs        # NEW: Resolves and executes agents from registry at runtime
-│   ├── FallbackExecutor.cs            # NEW: Handles requests when no suitable agent found
-│   ├── TaskContext.cs                 # NEW: Serializable conversation state model
-│   ├── AgentChoiceResult.cs           # NEW: Coordinator output (agent ID, confidence, reasoning)
-│   ├── WorkflowState.cs               # NEW: Workflow execution state
-│   ├── AgentResponse.cs               # NEW: Structured agent execution response
-│   └── RoutingDecision.cs             # NEW: Observability record for routing choices
+│   ├── RouterExecutor.cs                  # EXISTING (partial): Workflow executor for dynamic agent routing via AgentRegistry + IChatClient
+│   ├── LuciaOrchestrator.cs               # EXISTING (partial): Main orchestrator building workflow graph, exposes as A2A agent
+│   ├── AgentExecutorWrapper.cs            # EXISTING: Wraps AIAgent instances with telemetry, timeout, A2A integration
+│   ├── ResultAggregatorExecutor.cs        # EXISTING: Aggregates AgentResponse into natural language strings
+│   ├── TaskContext.cs                     # NEW: Serializable conversation state model (for Redis)
+│   ├── AgentChoiceResult.cs               # EXISTING: RouterExecutor output (agent ID, confidence, reasoning, additional agents)
+│   ├── WorkflowState.cs                   # NEW: Workflow execution state
+│   └── AgentResponse.cs                   # EXISTING: Structured agent execution response
 ├── Services/
-│   ├── LuciaTaskManager.cs         # NEW: Task-aware host service integrating A2A with TaskManager
-│   └── AgentCardResolver.cs        # MODIFY: Check local catalog before creating A2A clients
+│   ├── LuciaTaskManager.cs                # NEW: Task-aware host service integrating A2A with TaskManager
+│   └── AgentCardResolver.cs               # MODIFY: Check local catalog before creating A2A clients
 └── Extensions/
-    └── OrchestrationExtensions.cs  # NEW: DI registration for orchestration components
+    └── OrchestrationExtensions.cs         # NEW: DI registration for orchestration components
 
 lucia.AgentHost/
 ├── Extensions/
-│   └── RedisExtensions.cs          # NEW: Redis configuration and connection management
-└── Program.cs                      # MODIFY: Register orchestration services
+│   └── RedisExtensions.cs                 # NEW: Redis configuration and connection management
+└── Program.cs                             # MODIFY: Register orchestration services
 
 lucia.AppHost/
-└── AppHost.cs                      # MODIFY: Add Redis container resource
+└── AppHost.cs                             # MODIFY: Add Redis container resource
 
 lucia.Tests/
 ├── Orchestration/
-│   ├── CoordinatorAgentTests.cs         # NEW: Unit tests for routing logic
-│   ├── DynamicAgentExecutorTests.cs     # NEW: Unit tests for agent resolution
-│   ├── FallbackExecutorTests.cs         # NEW: Unit tests for fallback handling
-│   ├── TaskContextTests.cs              # NEW: Unit tests for context serialization
-│   └── LuciaTaskManagerTests.cs         # NEW: Integration tests for task management
+│   ├── RouterExecutorTests.cs             # NEW: Unit tests for routing logic
+│   ├── AgentExecutorWrapperTests.cs       # EXISTING: Unit tests for wrapper functionality
+│   ├── ResultAggregatorTests.cs           # NEW: Unit tests for response aggregation
+│   ├── TaskContextTests.cs                # NEW: Unit tests for context serialization
+│   └── LuciaTaskManagerTests.cs           # NEW: Integration tests for task management
 └── Integration/
-    └── MultiAgentOrchestrationTests.cs  # NEW: End-to-end orchestration tests
+    └── MultiAgentOrchestrationTests.cs    # NEW: End-to-end orchestration tests
 ```
 
-**Structure Decision**: This feature extends the existing distributed multi-project solution architecture. The `lucia.Agents` library receives the core orchestration components (executors, state models) following the existing pattern where agent-related logic lives in the Agents project. The `lucia.AgentHost` Web API is modified to register Redis persistence and orchestration services. Integration tests in `lucia.Tests` verify the complete workflow. This structure maintains separation of concerns: orchestration logic separate from host infrastructure, testable components, and clear boundaries aligned with One Class Per File principle.
+**Structure Decision**: This feature extends the existing distributed multi-project solution architecture. RouterExecutor, LuciaOrchestrator, AgentExecutorWrapper, ResultAggregatorExecutor, and AgentChoiceResult are already partially implemented in `lucia.Agents/Orchestration/`. The implementation work focuses on completing missing functionality (TaskContext persistence, Redis integration, A2A agent exposure for LuciaOrchestrator), filling gaps in existing executors, and ensuring test coverage meets requirements. The `lucia.Agents` library receives the core orchestration components (executors, state models) following the existing pattern where agent-related logic lives in the Agents project. The `lucia.AgentHost` Web API is modified to register Redis persistence and orchestration services. Integration tests in `lucia.Tests` verify the complete workflow. This structure maintains separation of concerns: orchestration logic separate from host infrastructure, testable components, and clear boundaries aligned with One Class Per File principle.
 
 ## Complexity Tracking
 

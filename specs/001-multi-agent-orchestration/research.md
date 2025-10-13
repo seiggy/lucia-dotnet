@@ -17,81 +17,109 @@
 - **Pregel-Style Execution**: Superstep-based processing where all executors in a superstep run concurrently
 - **Message-Based Flow**: Executors process messages and emit results that flow through edges
 
-#### Coordinator Agent Pattern (Lucia-Specific)
+#### Coordinator Agent Pattern (Lucia-Specific) → **RouterExecutor Pattern (Actual Implementation)**
 
 **Critical Requirement**: Lucia supports **runtime agent registration** with A2A protocol. Agents can register/deregister dynamically, so we **cannot use static conditional edges** or switch-case patterns for routing.
 
 **Architecture**:
 ```csharp
-// Coordinator Agent queries AgentRegistry at runtime
-public class CoordinatorAgent : IWorkflowExecutor
+// RouterExecutor queries AgentRegistry at runtime
+public class RouterExecutor : ReflectingExecutor<RouterExecutor>, 
+    IMessageHandler<ChatMessage, AgentChoiceResult>
 {
-    private readonly IAgentRegistry _agentRegistry;
-    private readonly IChatClient _slm; // Small Language Model for fast routing
+    private readonly IChatClient _chatClient; // Configurable LLM/SLM
+    private readonly AgentRegistry _agentRegistry;
     
-    public async Task<AgentChoiceResult> ExecuteAsync(ChatMessage message)
+    public async ValueTask<AgentChoiceResult> HandleAsync(
+        ChatMessage message, 
+        IWorkflowContext context, 
+        CancellationToken cancellationToken)
     {
         // 1. Query AgentRegistry for currently available agents
-        var availableAgents = await _agentRegistry.GetAvailableAgentsAsync();
+        var availableAgents = await FetchAgentsAsync(cancellationToken);
         
         // 2. Build dynamic prompt with agent capabilities
-        string agentCapabilities = string.Join("\n", 
-            availableAgents.Select(a => $"- {a.Id}: {a.Capabilities}"));
+        string agentCatalog = BuildAgentCatalog(availableAgents);
         
-        // 3. Use SLM/LLM to select appropriate agent based on capabilities
-        var prompt = $@"
-Available agents and their capabilities:
-{agentCapabilities}
-
-User request: {message.Content}
-
-Which agent should handle this request? Respond with agent ID and confidence.";
+        // 3. Use IChatClient (SLM/LLM) to select appropriate agent
+        var chatMessages = BuildChatMessages(userRequest, availableAgents);
+        var chatOptions = BuildChatOptions(); // Structured JSON output
         
         // 4. Get structured output (AgentChoiceResult)
-        var result = await _slm.GetStructuredOutputAsync<AgentChoiceResult>(prompt);
+        var response = await _chatClient.GetResponseAsync(
+            chatMessages, 
+            chatOptions, 
+            cancellationToken);
         
-        return result;
+        var parsed = DeserializeChoice(ExtractAssistantResponse(response));
+        
+        // 5. Validate confidence threshold and return clarification if needed
+        if (parsed.Confidence < _options.ConfidenceThreshold)
+        {
+            return CreateClarificationResult(parsed, availableAgents, userRequest);
+        }
+        
+        return parsed;
     }
 }
 ```
 
-**Dynamic Routing Pattern**:
+**LuciaOrchestrator Pattern**:
 ```csharp
-// Workflow uses a SINGLE conditional edge that checks if agent exists in registry
-builder.AddEdge(
-    source: coordinatorAgent,
-    target: dynamicAgentExecutor,
-    condition: result => result is AgentChoiceResult choice 
-        && _agentRegistry.HasAgent(choice.AgentId)
-);
-
-// Fallback for unknown agents
-builder.AddEdge(
-    source: coordinatorAgent,
-    target: fallbackExecutor,
-    condition: result => result is AgentChoiceResult choice 
-        && !_agentRegistry.HasAgent(choice.AgentId)
-);
+public class LuciaOrchestrator
+{
+    public async Task<string> ProcessRequestAsync(string userRequest)
+    {
+        // 1. Build workflow executors
+        var router = new RouterExecutor(_chatClient, _agentRegistry, _logger, _options);
+        var dispatch = new AgentDispatchExecutor(wrappers, _logger);
+        var aggregator = new ResultAggregatorExecutor(_logger, _options);
+        
+        // 2. Build workflow graph
+        var workflow = new WorkflowBuilder(router)
+            .WithName("LuciaOrchestratorWorkflow")
+            .AddEdge(router, dispatch)        // ChatMessage → AgentChoiceResult
+            .AddEdge(dispatch, aggregator)    // AgentChoiceResult → AgentResponse
+            .WithOutputFrom(aggregator)       // AgentResponse → string
+            .Build();
+        
+        // 3. Execute workflow
+        var chatMessage = new ChatMessage(ChatRole.User, userRequest);
+        var result = await ExecuteWorkflowAsync(workflow, chatMessage, cancellationToken);
+        
+        return result ?? fallbackMessage;
+    }
+}
 ```
 
-**DynamicAgentExecutor Pattern**:
+**AgentDispatchExecutor Pattern** (nested in LuciaOrchestrator):
 ```csharp
-public class DynamicAgentExecutor : IWorkflowExecutor
+private sealed class AgentDispatchExecutor : ReflectingExecutor<AgentDispatchExecutor>,
+    IMessageHandler<AgentChoiceResult, AgentResponse>
 {
-    private readonly IAgentRegistry _agentRegistry;
+    private readonly IReadOnlyDictionary<string, AgentExecutorWrapper> _wrappers;
     
-    public async Task<AgentResponse> ExecuteAsync(AgentChoiceResult choice)
+    public async ValueTask<AgentResponse> HandleAsync(
+        AgentChoiceResult message, 
+        IWorkflowContext context, 
+        CancellationToken cancellationToken)
     {
-        // Resolve agent from registry at runtime
-        var agent = await _agentRegistry.GetAgentAsync(choice.AgentId);
+        // Build execution order: primary agent + additional agents (if multi-agent)
+        var executionOrder = BuildExecutionOrder(message); // [primaryAgentId, additionalAgent1, ...]
         
-        if (agent == null)
+        AgentResponse? primaryResponse = null;
+        
+        // Execute agents sequentially
+        foreach (var agentId in executionOrder)
         {
-            return AgentResponse.NotFound(choice.AgentId);
+            var response = await InvokeAgentAsync(agentId, _userMessage, context, cancellationToken);
+            if (primaryResponse is null)
+                primaryResponse = response; // First is primary
+            else
+                await context.SendMessageAsync(response, cancellationToken); // Others sent as events
         }
         
-        // Execute the dynamically resolved agent
-        return await agent.ExecuteAsync(choice.Message);
+        return primaryResponse ?? CreateFailureResponse(message.AgentId, "No agents dispatched.");
     }
 }
 ```
@@ -103,13 +131,14 @@ public class DynamicAgentExecutor : IWorkflowExecutor
 - **Validation**: Type compatibility, graph connectivity, executor binding checked at build time
 
 **Implications for Lucia**:
-- ✅ CoordinatorAgent queries AgentRegistry dynamically (no static agent list)
-- ✅ Uses SLM/lightweight LLM for fast routing based on advertised capabilities
-- ✅ Returns `AgentChoiceResult` with agent ID, confidence, reasoning
-- ✅ DynamicAgentExecutor resolves agent from registry at execution time
+- ✅ RouterExecutor queries AgentRegistry dynamically (no static agent list)
+- ✅ Uses IChatClient (configurable LLM/SLM) for fast routing based on advertised capabilities
+- ✅ Returns `AgentChoiceResult` with agent ID, confidence, reasoning, optional additional agents
+- ✅ AgentDispatchExecutor resolves agents from AgentExecutorWrapper dictionary at execution time
 - ✅ Supports agent registration/deregistration without workflow rebuild
 - ✅ Workflow validates type flow: `ChatMessage` → `AgentChoiceResult` → `AgentResponse` → `string`
-- ⚠️ Conditional edge only validates agent existence, not static routing logic
+- ✅ LuciaOrchestrator builds workflow graph: RouterExecutor → AgentDispatchExecutor → ResultAggregatorExecutor
+- ⚠️ Workflow uses simple edges (no conditionals), AgentDispatchExecutor handles agent resolution internally
 
 ---
 
@@ -388,44 +417,48 @@ internal static partial class OrchestrationLoggerExtensions
 
 ## Technical Decisions
 
-### Decision 1: Coordinator Agent with Dynamic Routing
+### Decision 1: RouterExecutor with Dynamic Agent Resolution
 
-**Choice**: Use CoordinatorAgent that queries AgentRegistry at runtime for available agents
+**Choice**: Use RouterExecutor that queries AgentRegistry at runtime for available agents, with AgentDispatchExecutor handling agent wrapper resolution
 
 **Rationale**:
 - Lucia supports runtime agent registration/deregistration via A2A protocol
-- Static conditional edges or switch-case patterns would require workflow rebuild when agents change
-- CoordinatorAgent queries AgentRegistry dynamically to discover available agents and their capabilities
-- SLM/lightweight LLM makes routing decisions based on current agent capabilities
-- DynamicAgentExecutor resolves and invokes agents from registry at execution time
+- RouterExecutor queries AgentRegistry dynamically to discover available agents and their capabilities
+- IChatClient (configurable LLM/SLM) makes routing decisions based on current agent capabilities
+- AgentDispatchExecutor resolves AgentExecutorWrapper instances and invokes agents sequentially
+- LuciaOrchestrator orchestrates the complete workflow and exposes itself as an A2A-compliant agent
 
 **Implementation**:
 ```csharp
-// Workflow with dynamic agent resolution
-var coordinatorAgent = new CoordinatorAgent(agentRegistry, slmClient);
-var dynamicExecutor = new DynamicAgentExecutor(agentRegistry);
-var fallbackExecutor = new FallbackExecutor();
-
-var workflow = new WorkflowBuilder()
-    .SetStart(coordinatorAgent)
-    .AddEdge(
-        coordinatorAgent, 
-        dynamicExecutor,
-        condition: result => result is AgentChoiceResult choice 
-            && agentRegistry.HasAgent(choice.AgentId))
-    .AddEdge(
-        coordinatorAgent,
-        fallbackExecutor,
-        condition: result => result is AgentChoiceResult choice 
-            && !agentRegistry.HasAgent(choice.AgentId))
-    .Build<ChatMessage>();
+// Workflow with RouterExecutor → AgentDispatchExecutor → ResultAggregatorExecutor
+public class LuciaOrchestrator
+{
+    public async Task<string> ProcessRequestAsync(string userRequest)
+    {
+        var router = new RouterExecutor(_chatClient, _agentRegistry, _logger, _routerOptions);
+        var dispatch = new AgentDispatchExecutor(wrappers, _dispatchLogger);
+        var aggregator = new ResultAggregatorExecutor(_aggregatorLogger, _aggregatorOptions);
+        
+        var workflow = new WorkflowBuilder(router)
+            .WithName("LuciaOrchestratorWorkflow")
+            .AddEdge(router, dispatch)        // ChatMessage → AgentChoiceResult
+            .AddEdge(dispatch, aggregator)    // AgentChoiceResult → AgentResponse
+            .WithOutputFrom(aggregator)       // AgentResponse → string
+            .Build();
+        
+        var chatMessage = new ChatMessage(ChatRole.User, userRequest);
+        return await ExecuteWorkflowAsync(workflow, chatMessage, cancellationToken) 
+            ?? _aggregatorOptions.Value.DefaultFallbackMessage;
+    }
+}
 ```
 
 **Benefits**:
 - ✅ No workflow rebuild when agents register/deregister
 - ✅ Agent capabilities advertised through AgentCard metadata
-- ✅ SLM can be faster/cheaper than full LLM (e.g., Phi-3, LLaMa 3.2 3B)
-- ✅ Fallback path handles unknown/unavailable agents gracefully
+- ✅ IChatClient can be SLM (fast/cheap) or full LLM (more accurate)
+- ✅ AgentDispatchExecutor handles sequential multi-agent execution internally
+- ✅ LuciaOrchestrator exposes as A2A-compliant agent for integration
 
 ---
 
@@ -466,11 +499,11 @@ var workflow = new WorkflowBuilder()
 
 ## Open Questions
 
-### Question 1: SLM vs LLM for Coordinator Agent
+### Question 1: SLM vs LLM for RouterExecutor
 
 **Status**: Requires performance/cost decision
 
-**Context**: CoordinatorAgent needs fast, reliable routing based on agent capabilities
+**Context**: RouterExecutor needs fast, reliable routing based on agent capabilities
 
 **Options**:
 1. **Small Language Model (SLM)** - Phi-3 Mini, LLaMa 3.2 3B (local)
@@ -495,7 +528,7 @@ var workflow = new WorkflowBuilder()
 
 **Next Steps**: 
 - Define `AgentCard.Capabilities` format for optimal SLM parsing in data-model.md
-- Create coordinator prompt template with few-shot examples in contracts/CoordinatorAgent.md
+- Create RouterExecutor prompt template with few-shot examples in contracts/RouterExecutor.md
 
 ---
 
