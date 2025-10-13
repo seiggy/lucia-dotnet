@@ -79,7 +79,23 @@ Refer to `.docs/product/tech-stack.md` for deeper detail and version updates bef
 
 Always confirm commands in the repo root PowerShell environment before execution. Document any manual steps you perform in the completion summary.
 
-## 6. Do’s & Don’ts for AI Agents
+## 6. Constitutional Governance
+
+**All development must comply with the [Lucia Constitution](.specify/memory/constitution.md)**, which establishes the authoritative governance framework for the project.
+
+### Non-Negotiable Principles
+
+The constitution defines five core principles that MUST be followed:
+
+1. **One Class Per File** - Each `.cs` file contains exactly one class definition
+2. **Test-First Development (TDD)** - Tests written and verified to fail before implementation
+3. **Documentation-First Research** - Context7/Microsoft.docs MUST be used before coding with libraries/APIs
+4. **Privacy-First Architecture** - Local processing by default, cloud services optional
+5. **Observability & Telemetry** - OpenTelemetry instrumentation for all agents and services
+
+Review the full constitution before making changes to understand governance rules, enforcement mechanisms, and quality standards.
+
+## 7. Do's & Don'ts for AI Agents
 
 ### ✅ Do’s
 
@@ -100,9 +116,9 @@ Always confirm commands in the repo root PowerShell environment before execution
 - **Don’t skip todo status updates**—work is considered incomplete if the task tracker is stale.
 - **Don’t leave Mermaid or markdown lint issues**; validate diagrams and keep docs consistent with templates.
 - **Don’t push code without tests**—failing or missing tests block acceptance.
-- **Don’t remove or disable telemetry** without replacing it or documenting the change in the spec/tasks.
+- **Don't remove or disable telemetry** without replacing it or documenting the change in the spec/tasks.
 
-## 7. Need Help?
+## 8. Need Help?
 
 - Review `.docs/product/mission.md` and `roadmap.md` for context if a requirement seems ambiguous.
 - Check prior specs in `.docs/specs/` for patterns to emulate.
