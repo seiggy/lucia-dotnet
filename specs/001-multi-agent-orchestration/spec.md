@@ -109,7 +109,9 @@ As the operator of Lucia, I need long-running orchestrated conversations to surv
 - **AgentDispatchExecutor**: Workflow executor that receives AgentChoiceResult, resolves agent wrappers, and invokes agents sequentially (primary agent first, then additional agents if specified)
 - **AgentExecutorWrapper**: Wraps AIAgent instances to handle A2A message delivery, telemetry, timeout handling, and error management
 - **ResultAggregatorExecutor**: Workflow executor that collects AgentResponse messages and formats them into natural language confirmation strings
-- **TaskContext**: Serializable conversation state including message history, agent selections, and metadata (stored in Redis with configurable TTL)
+- **TaskContext**: A2A-compliant Task model containing id, sessionId, status (TaskStatus), history (Message[]), artifacts (Artifact[]), and metadata; serialized to Redis for durable conversation state
+- **TaskStatus**: A2A-compliant status model containing state (TaskState enum), optional message (Message), and ISO timestamp
+- **TaskState**: A2A-compliant enum (Submitted, Working, InputRequired, Completed, Canceled, Failed, Unknown)
 - **WorkflowState**: Execution state for the orchestration workflow including current executor and pending operations
 - **AgentResponse**: Structured response from an agent execution containing success status, content, error details, and execution time
 
@@ -148,5 +150,57 @@ As the operator of Lucia, I need long-running orchestrated conversations to surv
 - Updated FR-013 to specify RouterExecutor handles fallback logic via confidence threshold
 - Updated FR-014 to clarify AgentDispatchExecutor handles sequential execution pattern
 - Expanded Key Entities section to document actual implementation components: RouterExecutor, LuciaOrchestrator, AgentDispatchExecutor, AgentExecutorWrapper, ResultAggregatorExecutor
+
+---
+
+**Q2: TaskContext JSON Schema** - What is the exact JSON schema for TaskContext used for Redis persistence?
+
+**A2**: TaskContext MUST follow the A2A-compliant Task schema as defined in the A2A Protocol specification:
+
+```csharp
+// TaskContext aligns with A2A Task interface
+public class TaskContext
+{
+    public string Id { get; set; }              // Task ID (A2A: id)
+    public string SessionId { get; set; }        // Client session ID (A2A: sessionId)
+    public TaskStatus Status { get; set; }       // Current status (A2A: status)
+    public List<Message>? History { get; set; }  // Message history (A2A: history)
+    public List<Artifact>? Artifacts { get; set; } // Artifacts (A2A: artifacts)
+    public Dictionary<string, object>? Metadata { get; set; } // Extended metadata (A2A: metadata)
+}
+
+public class TaskStatus
+{
+    public TaskState State { get; set; }         // Current state
+    public Message? Message { get; set; }         // Status update message
+    public string? Timestamp { get; set; }        // ISO datetime
+}
+
+public enum TaskState
+{
+    Submitted,
+    Working,
+    InputRequired,
+    Completed,
+    Canceled,
+    Failed,
+    Unknown
+}
+```
+
+**Redis Storage Strategy**:
+- Key pattern: `task:{taskId}` 
+- Value: JSON serialized TaskContext with System.Text.Json
+- TTL: 24 hours (configurable via `appsettings.json`)
+- History management: Store full history (A2A compliance), consider pruning strategy after N messages (e.g., 50+)
+- Metadata usage: Store agent selections (`agentSelections: string[]`), routing decisions, location context
+
+**Clarification Impact**:
+- Updated TaskContext entity definition to match A2A Task schema exactly
+- Added TaskStatus and TaskState entities to Key Entities section
+- FR-007 persistence must serialize complete A2A-compliant Task structure
+- FR-008 restoration must reconstruct TaskContext from Redis with full A2A compliance
+- Message history preserved in `History` field (not custom `messageHistory` or `conversationSummary`)
+- Agent selections tracked in `Metadata["agentSelections"]` for routing context
 
 ---
