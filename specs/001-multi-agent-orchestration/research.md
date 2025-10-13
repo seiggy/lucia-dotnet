@@ -174,13 +174,33 @@ IDatabase db = connection.GetDatabase();
 
 #### Serialization & Storage
 ```csharp
-// TaskContext serialization approach
+// TaskContext follows A2A-compliant Task schema
 public class TaskContext
 {
-    public string TaskId { get; set; }
-    public List<ChatMessage> MessageHistory { get; set; }
-    public List<string> AgentSelections { get; set; }
-    public Dictionary<string, string> Metadata { get; set; }
+    public string Id { get; set; }                           // Task ID
+    public string SessionId { get; set; }                     // Client session ID
+    public TaskStatus Status { get; set; }                    // Current status
+    public List<Message>? History { get; set; }              // Message history
+    public List<Artifact>? Artifacts { get; set; }           // Artifacts
+    public Dictionary<string, object>? Metadata { get; set; } // Extended metadata (e.g., agentSelections)
+}
+
+public class TaskStatus
+{
+    public TaskState State { get; set; }      // Current state
+    public Message? Message { get; set; }      // Status update message
+    public string? Timestamp { get; set; }     // ISO datetime
+}
+
+public enum TaskState
+{
+    Submitted,
+    Working,
+    InputRequired,
+    Completed,
+    Canceled,
+    Failed,
+    Unknown
 }
 
 // Store with TTL
@@ -229,10 +249,14 @@ connection.ConnectionRestored += (sender, e) =>
 
 **Implications for Lucia**:
 - Use `System.Text.Json` for `TaskContext` serialization (fastest, most compatible with .NET 10)
+- TaskContext MUST follow A2A-compliant Task schema (id, sessionId, status, history, artifacts, metadata)
 - Implement singleton `IConnectionMultiplexer` registered in DI
 - Configure 24-hour TTL (user-configurable via `appsettings.json`)
 - Wire connection events to OpenTelemetry metrics for observability
 - Use `task:{taskId}` key pattern with proper cleanup on context expiry
+- Store agent selections in `Metadata["agentSelections"]` as string array
+- Preserve full message history in `History` field for A2A compliance
+- Consider history pruning strategy for conversations exceeding 50+ messages
 
 ---
 
