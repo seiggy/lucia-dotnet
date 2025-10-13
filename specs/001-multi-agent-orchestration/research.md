@@ -17,42 +17,83 @@
 - **Pregel-Style Execution**: Superstep-based processing where all executors in a superstep run concurrently
 - **Message-Based Flow**: Executors process messages and emit results that flow through edges
 
-#### RouterExecutor & Conditional Edges
+#### Coordinator Agent Pattern (Lucia-Specific)
+
+**Critical Requirement**: Lucia supports **runtime agent registration** with A2A protocol. Agents can register/deregister dynamically, so we **cannot use static conditional edges** or switch-case patterns for routing.
+
+**Architecture**:
 ```csharp
-// Conditional routing example from Microsoft docs
+// Coordinator Agent queries AgentRegistry at runtime
+public class CoordinatorAgent : IWorkflowExecutor
+{
+    private readonly IAgentRegistry _agentRegistry;
+    private readonly IChatClient _slm; // Small Language Model for fast routing
+    
+    public async Task<AgentChoiceResult> ExecuteAsync(ChatMessage message)
+    {
+        // 1. Query AgentRegistry for currently available agents
+        var availableAgents = await _agentRegistry.GetAvailableAgentsAsync();
+        
+        // 2. Build dynamic prompt with agent capabilities
+        string agentCapabilities = string.Join("\n", 
+            availableAgents.Select(a => $"- {a.Id}: {a.Capabilities}"));
+        
+        // 3. Use SLM/LLM to select appropriate agent based on capabilities
+        var prompt = $@"
+Available agents and their capabilities:
+{agentCapabilities}
+
+User request: {message.Content}
+
+Which agent should handle this request? Respond with agent ID and confidence.";
+        
+        // 4. Get structured output (AgentChoiceResult)
+        var result = await _slm.GetStructuredOutputAsync<AgentChoiceResult>(prompt);
+        
+        return result;
+    }
+}
+```
+
+**Dynamic Routing Pattern**:
+```csharp
+// Workflow uses a SINGLE conditional edge that checks if agent exists in registry
 builder.AddEdge(
-    source: spamDetector,
-    target: emailProcessor,
-    condition: result => result is SpamResult spam && !spam.IsSpam
+    source: coordinatorAgent,
+    target: dynamicAgentExecutor,
+    condition: result => result is AgentChoiceResult choice 
+        && _agentRegistry.HasAgent(choice.AgentId)
 );
 
+// Fallback for unknown agents
 builder.AddEdge(
-    source: spamDetector,
-    target: spamHandler,
-    condition: result => result is SpamResult spam && spam.IsSpam
+    source: coordinatorAgent,
+    target: fallbackExecutor,
+    condition: result => result is AgentChoiceResult choice 
+        && !_agentRegistry.HasAgent(choice.AgentId)
 );
 ```
 
-**Key Patterns**:
-- **Condition Functions**: `Func<object?, bool>` that examine message content
-- **Switch-Case Edges**: Cleaner alternative for 3+ routing paths using `SwitchBuilder`
-- **Type-Safe Conditions**: Conditions validate message types before routing
-- **Multiple Paths**: Single executor can have multiple outgoing edges with different conditions
-
-#### Switch-Case Pattern (Recommended for 3+ Routes)
+**DynamicAgentExecutor Pattern**:
 ```csharp
-builder.AddSwitch(routerExecutor, switchBuilder =>
-    switchBuilder
-        .AddCase(
-            message => message.Priority < Priority.Normal,
-            executorA
-        )
-        .AddCase(
-            message => message.Priority < Priority.High,
-            executorB
-        )
-        .SetDefault(executorC)
-);
+public class DynamicAgentExecutor : IWorkflowExecutor
+{
+    private readonly IAgentRegistry _agentRegistry;
+    
+    public async Task<AgentResponse> ExecuteAsync(AgentChoiceResult choice)
+    {
+        // Resolve agent from registry at runtime
+        var agent = await _agentRegistry.GetAgentAsync(choice.AgentId);
+        
+        if (agent == null)
+        {
+            return AgentResponse.NotFound(choice.AgentId);
+        }
+        
+        // Execute the dynamically resolved agent
+        return await agent.ExecuteAsync(choice.Message);
+    }
+}
 ```
 
 #### Workflow Execution Model
@@ -62,10 +103,13 @@ builder.AddSwitch(routerExecutor, switchBuilder =>
 - **Validation**: Type compatibility, graph connectivity, executor binding checked at build time
 
 **Implications for Lucia**:
-- RouterExecutor will return `AgentChoiceResult` containing agent ID, confidence, reasoning
-- Conditional edges will route based on `result.AgentId` to appropriate `AgentExecutorWrapper`
-- Switch-case pattern ideal for 3-5 specialized agents
-- Workflow validates type flow: `ChatMessage` → `AgentChoiceResult` → `AgentResponse` → `string`
+- ✅ CoordinatorAgent queries AgentRegistry dynamically (no static agent list)
+- ✅ Uses SLM/lightweight LLM for fast routing based on advertised capabilities
+- ✅ Returns `AgentChoiceResult` with agent ID, confidence, reasoning
+- ✅ DynamicAgentExecutor resolves agent from registry at execution time
+- ✅ Supports agent registration/deregistration without workflow rebuild
+- ✅ Workflow validates type flow: `ChatMessage` → `AgentChoiceResult` → `AgentResponse` → `string`
+- ⚠️ Conditional edge only validates agent existence, not static routing logic
 
 ---
 
@@ -344,35 +388,44 @@ internal static partial class OrchestrationLoggerExtensions
 
 ## Technical Decisions
 
-### Decision 1: Workflow Structure
+### Decision 1: Coordinator Agent with Dynamic Routing
 
-**Choice**: Use switch-case edges with RouterExecutor for 3-5 specialized agents
+**Choice**: Use CoordinatorAgent that queries AgentRegistry at runtime for available agents
 
 **Rationale**:
-- Microsoft Agent Framework docs recommend switch-case for 3+ routing paths (cleaner than multiple conditional edges)
-- Explicit default case ensures no dead-ends (routes to fallback response)
-- Type-safe conditions prevent runtime routing errors
-- Ordered case evaluation (first match wins) provides predictable behavior
+- Lucia supports runtime agent registration/deregistration via A2A protocol
+- Static conditional edges or switch-case patterns would require workflow rebuild when agents change
+- CoordinatorAgent queries AgentRegistry dynamically to discover available agents and their capabilities
+- SLM/lightweight LLM makes routing decisions based on current agent capabilities
+- DynamicAgentExecutor resolves and invokes agents from registry at execution time
 
 **Implementation**:
 ```csharp
-builder.AddSwitch(routerExecutor, switchBuilder =>
-    switchBuilder
-        .AddCase(
-            result => result is AgentChoiceResult choice && choice.AgentId == "light-agent",
-            lightAgentWrapper
-        )
-        .AddCase(
-            result => result is AgentChoiceResult choice && choice.AgentId == "music-agent",
-            musicAgentWrapper
-        )
-        .AddCase(
-            result => result is AgentChoiceResult choice && choice.AgentId == "climate-agent",
-            climateAgentWrapper
-        )
-        .SetDefault(resultAggregatorExecutor) // Handles "no suitable agent" case
-);
+// Workflow with dynamic agent resolution
+var coordinatorAgent = new CoordinatorAgent(agentRegistry, slmClient);
+var dynamicExecutor = new DynamicAgentExecutor(agentRegistry);
+var fallbackExecutor = new FallbackExecutor();
+
+var workflow = new WorkflowBuilder()
+    .SetStart(coordinatorAgent)
+    .AddEdge(
+        coordinatorAgent, 
+        dynamicExecutor,
+        condition: result => result is AgentChoiceResult choice 
+            && agentRegistry.HasAgent(choice.AgentId))
+    .AddEdge(
+        coordinatorAgent,
+        fallbackExecutor,
+        condition: result => result is AgentChoiceResult choice 
+            && !agentRegistry.HasAgent(choice.AgentId))
+    .Build<ChatMessage>();
 ```
+
+**Benefits**:
+- ✅ No workflow rebuild when agents register/deregister
+- ✅ Agent capabilities advertised through AgentCard metadata
+- ✅ SLM can be faster/cheaper than full LLM (e.g., Phi-3, LLaMa 3.2 3B)
+- ✅ Fallback path handles unknown/unavailable agents gracefully
 
 ---
 
@@ -413,20 +466,36 @@ builder.AddSwitch(routerExecutor, switchBuilder =>
 
 ## Open Questions
 
-### Question 1: LLM Routing Prompt Template
+### Question 1: SLM vs LLM for Coordinator Agent
 
-**Status**: Requires design decision
+**Status**: Requires performance/cost decision
 
-**Context**: RouterExecutor needs LLM prompt to analyze user intent and select agent
+**Context**: CoordinatorAgent needs fast, reliable routing based on agent capabilities
 
 **Options**:
-1. **Handlebars template** (Microsoft.SemanticKernel.PromptTemplates.Handlebars)
-2. **Inline C# string template** with string interpolation
-3. **Structured output** with OpenAI function calling
+1. **Small Language Model (SLM)** - Phi-3 Mini, LLaMa 3.2 3B (local)
+   - Pros: Low latency (<100ms), privacy-first (local), no API costs
+   - Cons: Lower reasoning capability, may struggle with complex ambiguous requests
+   
+2. **Lightweight Cloud LLM** - GPT-4o-mini, Claude 3.5 Haiku
+   - Pros: Better reasoning, handles ambiguity well, structured output support
+   - Cons: Network latency (~300-500ms), API costs, privacy concerns
+   
+3. **Hybrid Approach** - SLM with LLM fallback
+   - Pros: Fast for clear requests, accurate for ambiguous ones
+   - Cons: Added complexity, confidence threshold tuning needed
 
-**Recommendation**: Option 3 (structured output) - Agent Framework docs show pattern for structured `DetectionResult` with function calling, ensuring reliable JSON parsing
+**Recommendation**: Option 1 (SLM) for MVP with Option 3 (hybrid) as future enhancement
 
-**Next Steps**: Define `AgentChoiceResult` schema for LLM structured output in data-model.md
+**Rationale**:
+- Aligns with Constitution Principle IV (Privacy-First Architecture)
+- Agent capabilities should be clear enough for SLM to route correctly
+- Can measure routing accuracy and upgrade to hybrid if needed
+- Phi-3 Mini or LLaMa 3.2 3B can run locally on home lab hardware
+
+**Next Steps**: 
+- Define `AgentCard.Capabilities` format for optimal SLM parsing in data-model.md
+- Create coordinator prompt template with few-shot examples in contracts/CoordinatorAgent.md
 
 ---
 

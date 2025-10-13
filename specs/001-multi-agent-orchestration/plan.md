@@ -7,7 +7,7 @@
 
 ## Summary
 
-Implement workflow-based multi-agent orchestration using Microsoft Agent Framework 1.0 to enable automatic agent routing, context-preserving conversation handoffs, multi-domain coordination, and durable task persistence with Redis. This replaces the current manual agent selection model with intelligent routing that analyzes user intent and coordinates multiple specialized agents through workflow conditional edges, while maintaining conversation state across process restarts.
+Implement workflow-based multi-agent orchestration using Microsoft Agent Framework 1.0 with a **CoordinatorAgent** that dynamically queries the AgentRegistry for available agents and their capabilities. The coordinator uses an SLM (Small Language Model) or lightweight LLM to make fast routing decisions based on runtime agent availability, enabling seamless agent registration/deregistration without workflow rebuild. TaskContext is persisted in Redis for durable conversation state across process restarts, with comprehensive OpenTelemetry instrumentation for observability.
 
 ## Technical Context
 
@@ -110,14 +110,14 @@ specs/001-multi-agent-orchestration/
 ```
 lucia.Agents/
 ├── Orchestration/
-│   ├── RouterExecutor.cs           # NEW: Workflow executor for agent routing decisions
-│   ├── AgentExecutorWrapper.cs     # NEW: Wrapper for agent execution with context propagation
-│   ├── ResultAggregatorExecutor.cs # NEW: Aggregates responses from multiple agents
-│   ├── TaskContext.cs              # NEW: Serializable conversation state model
-│   ├── AgentChoiceResult.cs        # NEW: Router output (agent ID, confidence, reasoning)
-│   ├── WorkflowState.cs            # NEW: Workflow execution state
-│   ├── AgentResponse.cs            # NEW: Structured agent execution response
-│   └── RoutingDecision.cs          # NEW: Observability record for routing choices
+│   ├── CoordinatorAgent.cs            # NEW: Workflow executor for dynamic agent routing via AgentRegistry
+│   ├── DynamicAgentExecutor.cs        # NEW: Resolves and executes agents from registry at runtime
+│   ├── FallbackExecutor.cs            # NEW: Handles requests when no suitable agent found
+│   ├── TaskContext.cs                 # NEW: Serializable conversation state model
+│   ├── AgentChoiceResult.cs           # NEW: Coordinator output (agent ID, confidence, reasoning)
+│   ├── WorkflowState.cs               # NEW: Workflow execution state
+│   ├── AgentResponse.cs               # NEW: Structured agent execution response
+│   └── RoutingDecision.cs             # NEW: Observability record for routing choices
 ├── Services/
 │   ├── LuciaTaskManager.cs         # NEW: Task-aware host service integrating A2A with TaskManager
 │   └── AgentCardResolver.cs        # MODIFY: Check local catalog before creating A2A clients
@@ -134,9 +134,9 @@ lucia.AppHost/
 
 lucia.Tests/
 ├── Orchestration/
-│   ├── RouterExecutorTests.cs           # NEW: Unit tests for routing logic
-│   ├── AgentExecutorWrapperTests.cs     # NEW: Unit tests for agent wrapper
-│   ├── ResultAggregatorExecutorTests.cs # NEW: Unit tests for result aggregation
+│   ├── CoordinatorAgentTests.cs         # NEW: Unit tests for routing logic
+│   ├── DynamicAgentExecutorTests.cs     # NEW: Unit tests for agent resolution
+│   ├── FallbackExecutorTests.cs         # NEW: Unit tests for fallback handling
 │   ├── TaskContextTests.cs              # NEW: Unit tests for context serialization
 │   └── LuciaTaskManagerTests.cs         # NEW: Integration tests for task management
 └── Integration/
