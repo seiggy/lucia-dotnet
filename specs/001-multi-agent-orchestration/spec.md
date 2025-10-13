@@ -85,7 +85,7 @@ As the operator of Lucia, I need long-running orchestrated conversations to surv
 
 ### Functional Requirements
 
-- **FR-001**: System MUST implement a RouterExecutor that analyzes user requests using an IChatClient (configurable LLM/SLM) and returns a structured AgentChoiceResult containing agent ID, confidence score, and reasoning
+- **FR-001**: System MUST implement a RouterExecutor that analyzes user requests using a user-configurable keyed IChatClient (supporting local SLMs via Ollama or remote LLMs via OpenAI/Azure) and returns a structured AgentChoiceResult containing agent ID, confidence score, and reasoning
 - **FR-002**: System MUST query the AgentRegistry for available agents and their capabilities when making routing decisions
 - **FR-003**: System MUST route requests to the selected agent using workflow conditional edges based on the agent ID returned from RouterExecutor
 - **FR-004**: System MUST wrap all agents in AgentExecutorWrapper components that handle context propagation, telemetry, and error handling
@@ -202,5 +202,62 @@ public enum TaskState
 - FR-008 restoration must reconstruct TaskContext from Redis with full A2A compliance
 - Message history preserved in `History` field (not custom `messageHistory` or `conversationSummary`)
 - Agent selections tracked in `Metadata["agentSelections"]` for routing context
+
+---
+
+**Q3: IChatClient Configuration for RouterExecutor** - Which LLM/SLM model should RouterExecutor use for routing decisions to balance privacy, latency, and accuracy?
+
+**A3**: RouterExecutor MUST use a **user-configurable keyed IChatClient** instance registered via `ChatClientConnectionInfo`, allowing deployment with either local LLMs (privacy-first, low-latency) or remote LLMs (higher accuracy) based on available hardware and user preference.
+
+**Configuration Strategy**:
+```json
+// appsettings.json
+{
+  "ConnectionStrings": {
+    "router-client": "Endpoint=http://localhost:11434;Model=phi3:mini;Provider=ollama",
+    // OR for remote: "Endpoint=https://api.openai.com;AccessKey=sk-...;Model=gpt-4o-mini;Provider=openai"
+  },
+  "RouterExecutor": {
+    "ChatClientKey": "router-client",  // Maps to keyed IChatClient instance
+    "ConfidenceThreshold": 0.7,
+    "MaxAttempts": 3
+  }
+}
+```
+
+**DI Registration Pattern**:
+```csharp
+// ServiceCollectionExtensions.cs - AddLuciaAgents method
+public static void AddLuciaAgents(this IHostApplicationBuilder builder)
+{
+    // Register keyed IChatClient for router
+    var routerClientKey = builder.Configuration["RouterExecutor:ChatClientKey"] ?? "router-client";
+    builder.AddKeyedChatClient(routerClientKey); // Uses ChatClientConnectionInfo parsing
+    
+    // RouterExecutor will resolve keyed IChatClient via [FromKeyedServices]
+    builder.Services.AddSingleton<RouterExecutor>(sp =>
+    {
+        var chatClient = sp.GetRequiredKeyedService<IChatClient>(routerClientKey);
+        var registry = sp.GetRequiredService<AgentRegistry>();
+        var logger = sp.GetRequiredService<ILogger<RouterExecutor>>();
+        var options = sp.GetRequiredService<IOptions<RouterExecutorOptions>>();
+        return new RouterExecutor(chatClient, registry, logger, options);
+    });
+}
+```
+
+**Supported Configurations**:
+- **Local SLM (Default)**: Ollama with Phi-3 Mini or LLaMa 3.2 3B (<100ms latency, privacy-first)
+- **Remote Lightweight LLM**: OpenAI GPT-4o-mini or Azure AI Inference (better accuracy, ~300-500ms latency)
+- **Local Full LLM**: Ollama with larger models if hardware supports (e.g., LLaMa 3.1 8B)
+
+**Clarification Impact**:
+- Updated FR-001 to specify "user-configurable IChatClient via keyed service registration"
+- RouterExecutorOptions must include `ChatClientKey` property for configuration binding
+- ServiceCollectionExtensions.AddLuciaAgents must register keyed IChatClient and resolve for RouterExecutor
+- Default configuration uses Ollama + Phi-3 Mini (aligns with Constitution Principle IV: Privacy-First)
+- Users with insufficient hardware can configure remote LLM without code changes
+- Meets SC-010 (<500ms routing latency) with local SLM default, supports remote fallback
+- LuciaOrchestrator remains provider-agnostic, configuration drives behavior
 
 ---
