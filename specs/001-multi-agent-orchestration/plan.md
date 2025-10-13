@@ -1,152 +1,116 @@
-# Implementation Plan: Multi-Agent Orchestration
+# Implementation Plan: [FEATURE]
 
-**Branch**: `001-multi-agent-orchestration` | **Date**: 2025-10-13 | **Spec**: [spec.md](./spec.md)
-**Input**: Feature specification from `/specs/001-multi-agent-orchestration/spec.md`
+**Branch**: `[###-feature-name]` | **Date**: [DATE] | **Spec**: [link]
+**Input**: Feature specification from `/specs/[###-feature-name]/spec.md`
 
 **Note**: This template is filled in by the `/speckit.plan` command. See `.specify/templates/commands/plan.md` for the execution workflow.
 
 ## Summary
 
-Implement workflow-based multi-agent orchestration using Microsoft Agent Framework 1.0 with a **RouterExecutor** that dynamically queries the AgentRegistry for available agents and their capabilities. RouterExecutor uses an IChatClient (configurable LLM/SLM) to make fast routing decisions based on runtime agent availability, enabling seamless agent registration/deregistration without workflow rebuild. **LuciaOrchestrator** orchestrates the complete workflow (RouterExecutor → AgentDispatchExecutor → ResultAggregatorExecutor) and exposes itself as an A2A-compliant agent for integration with the Lucia agent ecosystem. TaskContext is persisted in Redis for durable conversation state across process restarts, with comprehensive OpenTelemetry instrumentation for observability.
+[Extract from feature spec: primary requirement + technical approach from research]
 
 ## Technical Context
 
-**Language/Version**: C# 13 with nullable reference types enabled (targeting .NET 10 RC1, upgrading to RTM when available)  
-**Primary Dependencies**: 
-- Microsoft.Agents.AI.Workflows 1.0 (workflow engine with RouterExecutor, conditional edges)
-- Microsoft.SemanticKernel 1.61.0 (LLM integration for routing decisions)
-- StackExchange.Redis 2.x (task persistence layer)
-- Microsoft.Extensions.AI (abstractions for AI services)
-- OpenTelemetry.Exporter.* (tracing, metrics, logging)
-
-**Storage**: Redis 7.x for TaskContext persistence (conversation state, agent selections, message history)  
-**Testing**: xUnit + FakeItEasy (unit tests), Aspire.Hosting.Testing (integration tests), test coverage expected >80% for business logic  
-**Target Platform**: Linux containers on Docker, Kubernetes deployment, .NET Aspire 9.4.0 orchestration for service discovery  
-**Project Type**: Distributed multi-project solution (lucia.AgentHost Web API + lucia.Agents library + lucia.AppHost Aspire orchestrator)  
-**Performance Goals**: 
-- Routing decisions: <500ms p95
-- Single-domain requests: <2s p95 end-to-end
-- Concurrent orchestrations: 10+ without degradation
-- Routing accuracy: 95%+ for unambiguous requests
-
-**Constraints**: 
-- Privacy-first: Local processing default, cloud LLMs optional
-- A2A Protocol v0.3.0 compliance (JSON-RPC 2.0, taskId=null limitation)
-- Home Assistant API rate limits respected
-- OpenTelemetry instrumentation required for all operations
-- No PII in logs/traces
-
-**Scale/Scope**: 
-- 3-5 specialized agents initially (light, music, climate, security, scene)
-- Support 5+ conversation turns with context preservation
-- Handle multi-domain coordination (2-3 agents per request)
-- Production deployment on home lab Kubernetes with 10+ concurrent users
+**Language/Version**: C# 13 / .NET 10 RC1  
+**Primary Dependencies**: Microsoft.Agents.AI.Workflows 1.0, StackExchange.Redis 2.8.16, OpenTelemetry.NET 1.10  
+**Storage**: Redis 7.x (task persistence with 24h TTL)  
+**Testing**: xUnit 2.9, FakeItEasy 8.3, Aspire.Hosting.Testing 9.4  
+**Target Platform**: Docker containers, Kubernetes deployment, .NET Aspire orchestration  
+**Project Type**: Multi-project solution (lucia.Agents library, lucia.AgentHost service)  
+**Performance Goals**: <500ms p95 latency for RouterExecutor, 10+ concurrent workflow executions  
+**Constraints**: Privacy-first local LLM support (Ollama), optional cloud LLM providers (OpenAI, Azure, Gemini), A2A protocol compliance  
+**Scale/Scope**: 10+ registered agents, 100+ concurrent user sessions, distributed agent deployment
 
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-### I. One Class Per File ✅ PASS
-- **Status**: COMPLIANT - Standard practice, no concerns anticipated
-- **Plan**: Each executor (RouterExecutor, AgentExecutorWrapper, ResultAggregatorExecutor), TaskContext, AgentChoiceResult, WorkflowState will be in separate files
-- **Verification**: Code review will verify filename matches class name, no multiple public classes per file
+### Initial Check (Pre-Phase 0): ✅ PASSED
 
-### II. Test-First Development (TDD) ✅ PASS
-- **Status**: COMPLIANT - TDD workflow mandated
-- **Plan**: Write failing tests first for routing logic, context persistence, workflow state transitions before implementation
-- **Verification**: PR will include test files with timestamps showing tests written before implementation code
+All 5 non-negotiable principles compliant:
+1. **One Class Per File**: ✅ Enforced in implementation phase
+2. **Test-First Development (TDD)**: ✅ Research.md references xUnit, testing strategies documented in contracts
+3. **Documentation-First Research**: ✅ Phase 0 research completed for Agent Framework, Redis, OpenTelemetry
+4. **Privacy-First Architecture**: ✅ Local LLM support (Ollama) with optional cloud providers
+5. **Observability & Telemetry**: ✅ OpenTelemetry instrumentation documented in research.md and contract documents
 
-### III. Documentation-First Research ✅ COMPLETE
-- **Status**: PASSED - Documentation gathered and analyzed
-- **Research Completed**:
-  - ✅ Microsoft.Agents.AI.Workflows 1.0 via `microsoft.docs` MCP (conditional edges, switch-case pattern, workflow execution)
-  - ✅ StackExchange.Redis via `context7` MCP (connection management, TTL strategy, resilience patterns)
-  - ✅ Microsoft.SemanticKernel 1.61.0 via `microsoft.docs` MCP (structured output with function calling)
-  - ✅ OpenTelemetry .NET via `context7` MCP (ActivitySource, Meter, compile-time logging)
-- **Findings**: Documented in [research.md](./research.md) with code examples and architectural decisions
+### Phase 1 Re-Evaluation (Post-Design): ✅ PASSED
 
-### IV. Privacy-First Architecture ✅ PASS
-- **Status**: COMPLIANT by design
-- **Plan**: 
-  - TaskContext stored in local Redis (user-controlled infrastructure)
-  - LLM routing uses configured provider (local models supported)
-  - No PII in telemetry (contextId hashed, content redacted)
-  - Home Assistant tokens in secure config only
-- **Verification**: Security review will verify no unintended data exfiltration, telemetry redaction correct
+All 5 principles remain compliant after design phase:
+1. **One Class Per File**: ✅ No code generated in Phase 1 (design artifacts only); principle enforcement planned for Phase 2
+2. **Test-First Development (TDD)**: ✅ Testing strategies documented in all contract documents (RouterExecutor.md, AgentExecutorWrapper.md, ResultAggregatorExecutor.md, TaskManager.md)
+3. **Documentation-First Research**: ✅ Maintained - all designs reference research.md findings
+4. **Privacy-First Architecture**: ✅ Design specifies user-configurable IChatClient with local (Ollama) and remote (OpenAI, Azure, Gemini) provider support via connection strings
+5. **Observability & Telemetry**: ✅ Every contract document includes detailed telemetry sections with OpenTelemetry spans, metrics, and [LoggerMessage] attributes
 
-### V. Observability & Telemetry ✅ PASS
-- **Status**: COMPLIANT - Instrumentation planned
-- **Plan**: 
-  - OpenTelemetry spans for routing, agent execution, Redis operations
-  - Metrics for routing confidence, agent latency, error rates
-  - Structured logging with appropriate levels (Error/Warning/Info/Debug)
-  - Correlation IDs propagated across distributed calls
-- **Verification**: Integration tests will verify span creation, metric emission, log output
-
-### Constitution Gate Status
-- **Overall**: ✅ PASSED - All principles compliant, ready for Phase 1 (Design & Contracts)
-- **Phase 0 Complete**: Research findings documented with validated code patterns from official sources
+**Conclusion**: No constitutional violations. Proceed to Phase 2 (Task Breakdown).
 
 ## Project Structure
 
 ### Documentation (this feature)
 
 ```
-specs/001-multi-agent-orchestration/
+specs/[###-feature]/
 ├── plan.md              # This file (/speckit.plan command output)
 ├── research.md          # Phase 0 output (/speckit.plan command)
 ├── data-model.md        # Phase 1 output (/speckit.plan command)
 ├── quickstart.md        # Phase 1 output (/speckit.plan command)
 ├── contracts/           # Phase 1 output (/speckit.plan command)
-│   ├── RouterExecutor.md
-│   ├── AgentExecutorWrapper.md
-│   ├── ResultAggregatorExecutor.md
-│   └── TaskManager.md
 └── tasks.md             # Phase 2 output (/speckit.tasks command - NOT created by /speckit.plan)
 ```
 
 ### Source Code (repository root)
+<!--
+  ACTION REQUIRED: Replace the placeholder tree below with the concrete layout
+  for this feature. Delete unused options and expand the chosen structure with
+  real paths (e.g., apps/admin, packages/something). The delivered plan must
+  not include Option labels.
+-->
 
 ```
-lucia.Agents/
-├── Orchestration/
-│   ├── RouterExecutor.cs                  # EXISTING (partial): Workflow executor for dynamic agent routing via AgentRegistry + IChatClient
-│   ├── LuciaOrchestrator.cs               # EXISTING (partial): Main orchestrator building workflow graph, exposes as A2A agent
-│   ├── AgentExecutorWrapper.cs            # EXISTING: Wraps AIAgent instances with telemetry, timeout, A2A integration
-│   ├── ResultAggregatorExecutor.cs        # EXISTING: Aggregates AgentResponse into natural language strings
-│   ├── TaskContext.cs                     # NEW: Serializable conversation state model (for Redis)
-│   ├── AgentChoiceResult.cs               # EXISTING: RouterExecutor output (agent ID, confidence, reasoning, additional agents)
-│   ├── WorkflowState.cs                   # NEW: Workflow execution state
-│   └── AgentResponse.cs                   # EXISTING: Structured agent execution response
-├── Services/
-│   ├── LuciaTaskManager.cs                # NEW: Task-aware host service integrating A2A with TaskManager
-│   └── AgentCardResolver.cs               # MODIFY: Check local catalog before creating A2A clients
-└── Extensions/
-    └── OrchestrationExtensions.cs         # NEW: DI registration for orchestration components
+# [REMOVE IF UNUSED] Option 1: Single project (DEFAULT)
+src/
+├── models/
+├── services/
+├── cli/
+└── lib/
 
-lucia.AgentHost/
-├── Extensions/
-│   └── RedisExtensions.cs                 # NEW: Redis configuration and connection management
-└── Program.cs                             # MODIFY: Register orchestration services
+tests/
+├── contract/
+├── integration/
+└── unit/
 
-lucia.AppHost/
-└── AppHost.cs                             # MODIFY: Add Redis container resource
+# [REMOVE IF UNUSED] Option 2: Web application (when "frontend" + "backend" detected)
+backend/
+├── src/
+│   ├── models/
+│   ├── services/
+│   └── api/
+└── tests/
 
-lucia.Tests/
-├── Orchestration/
-│   ├── RouterExecutorTests.cs             # NEW: Unit tests for routing logic
-│   ├── AgentExecutorWrapperTests.cs       # EXISTING: Unit tests for wrapper functionality
-│   ├── ResultAggregatorTests.cs           # NEW: Unit tests for response aggregation
-│   ├── TaskContextTests.cs                # NEW: Unit tests for context serialization
-│   └── LuciaTaskManagerTests.cs           # NEW: Integration tests for task management
-└── Integration/
-    └── MultiAgentOrchestrationTests.cs    # NEW: End-to-end orchestration tests
+frontend/
+├── src/
+│   ├── components/
+│   ├── pages/
+│   └── services/
+└── tests/
+
+# [REMOVE IF UNUSED] Option 3: Mobile + API (when "iOS/Android" detected)
+api/
+└── [same as backend above]
+
+ios/ or android/
+└── [platform-specific structure: feature modules, UI flows, platform tests]
 ```
 
-**Structure Decision**: This feature extends the existing distributed multi-project solution architecture. RouterExecutor, LuciaOrchestrator, AgentExecutorWrapper, ResultAggregatorExecutor, and AgentChoiceResult are already partially implemented in `lucia.Agents/Orchestration/`. The implementation work focuses on completing missing functionality (TaskContext persistence, Redis integration, A2A agent exposure for LuciaOrchestrator), filling gaps in existing executors, and ensuring test coverage meets requirements. The `lucia.Agents` library receives the core orchestration components (executors, state models) following the existing pattern where agent-related logic lives in the Agents project. The `lucia.AgentHost` Web API is modified to register Redis persistence and orchestration services. Integration tests in `lucia.Tests` verify the complete workflow. This structure maintains separation of concerns: orchestration logic separate from host infrastructure, testable components, and clear boundaries aligned with One Class Per File principle.
+**Structure Decision**: [Document the selected structure and reference the real
+directories captured above]
 
 ## Complexity Tracking
 
 *Fill ONLY if Constitution Check has violations that must be justified*
 
-**No constitutional violations detected.** All principles compliant or pending documentation research gate (Principle III). No complexity justifications required at this stage.
+| Violation | Why Needed | Simpler Alternative Rejected Because |
+|-----------|------------|-------------------------------------|
+| [e.g., 4th project] | [current need] | [why 3 projects insufficient] |
+| [e.g., Repository pattern] | [specific problem] | [why direct DB access insufficient] |
