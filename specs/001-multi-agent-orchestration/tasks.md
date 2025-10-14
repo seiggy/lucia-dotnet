@@ -666,6 +666,102 @@ OrchestratorAgent (wrapper)
 
 ---
 
+### T028.2 - [US1] Cleanup Orchestration Namespace Organization [CLEANUP]
+**Phase**: 3 (US1 - Automatic Agent Routing)  
+**Status**: ✅ **COMPLETE**  
+**Completed**: 2025-10-13  
+**User Story**: US1 - Automatic Agent Routing (Architectural Hygiene)  
+**Type**: Code Organization / Technical Debt Reduction  
+**Files**:
+- **DELETED** (unused dead code):
+  * `lucia.Agents/Orchestration/LuciaExecutor.cs` (4 self-references only)
+  * `lucia.Agents/Orchestration/OrchestrationThread.cs` (3 self-references only)
+  * `lucia.Tests/LuciaOrchestratorTests.cs` (duplicate root-level file)
+
+- **MOVED** to `lucia.Agents/Orchestration/Models/`:
+  * `AgentChoiceResult.cs` (namespace: lucia.Agents.Orchestration.Models)
+  * `AgentResponse.cs` (namespace: lucia.Agents.Orchestration.Models)
+  * `AggregatedFailure.cs` (namespace: lucia.Agents.Orchestration.Models)
+  * `AggregationResult.cs` (namespace: lucia.Agents.Orchestration.Models)
+  * `ResultAggregationState.cs` (namespace: lucia.Agents.Orchestration.Models)
+  * `OrchestratorStatus.cs` (namespace: lucia.Agents.Orchestration.Models)
+
+- **MOVED** to `lucia.Agents/Integration/`:
+  * `OrchestratorAIAgent.cs` (namespace: lucia.Agents.Integration)
+  * `IAgentThreadFactory.cs` (namespace: lucia.Agents.Integration)
+  * `InMemoryThreadFactory.cs` (namespace: lucia.Agents.Integration)
+  * `OrchestratorInMemoryThread.cs` (namespace: lucia.Agents.Integration)
+
+- **REMAIN** in `lucia.Agents/Orchestration/`:
+  * `LuciaOrchestrator.cs` (workflow orchestration)
+  * `RouterExecutor.cs` + `RouterExecutorOptions.cs` (routing logic)
+  * `AgentExecutorWrapper.cs` + `AgentExecutorWrapperOptions.cs` (execution wrapper)
+  * `ResultAggregatorExecutor.cs` + `ResultAggregatorOptions.cs` (aggregation logic)
+  * `OrchestrationContext.cs` (workflow state - actively used by AgentExecutorWrapper)
+  * `OrchestrationLogMessages.cs` (logging infrastructure)
+  * `OrchestrationTelemetry.cs` (telemetry infrastructure)
+
+**Description**: Cleaned up Orchestration namespace organization after T028.1 completion. Removed unused dead code (LuciaExecutor, OrchestrationThread), organized data structures into Models subdirectory, and moved AIAgent bridging classes to new Integration directory.
+
+**Final Namespace Architecture**:
+```
+lucia.Agents/
+├─ Orchestration/              (workflow execution logic)
+│  ├─ Models/                  (data structures & DTOs)
+│  │  ├─ AgentChoiceResult.cs
+│  │  ├─ AgentResponse.cs
+│  │  ├─ AggregatedFailure.cs
+│  │  ├─ AggregationResult.cs
+│  │  ├─ ResultAggregationState.cs
+│  │  └─ OrchestratorStatus.cs
+│  ├─ LuciaOrchestrator.cs
+│  ├─ RouterExecutor.cs
+│  ├─ AgentExecutorWrapper.cs
+│  ├─ ResultAggregatorExecutor.cs
+│  ├─ OrchestrationContext.cs
+│  ├─ OrchestrationLogMessages.cs
+│  └─ OrchestrationTelemetry.cs
+└─ Integration/                (Agent Framework bridging)
+   ├─ OrchestratorAIAgent.cs
+   ├─ IAgentThreadFactory.cs
+   ├─ InMemoryThreadFactory.cs
+   └─ OrchestratorInMemoryThread.cs
+```
+
+**Namespace Imports Updated** (19 files):
+- Test Builders: `AgentResponseBuilder.cs`, `AgentChoiceResultBuilder.cs`
+- Model Tests: `AgentResponseTests.cs`, `AgentChoiceResultTests.cs`
+- Executor Tests: `RouterExecutorTests.cs`, `ResultAggregatorExecutorTests.cs`, `AgentExecutorWrapperTests.cs`, `LuciaOrchestratorTests.cs` (Orchestration subfolder)
+- AIAgent Tests: `OrchestratorAgentTests.cs`
+- Old Test File: `LuciaOrchestratorTests.cs` (root level - deleted after import update)
+- Orchestration Core: `RouterExecutor.cs`, `LuciaOrchestrator.cs`, `ResultAggregatorExecutor.cs`, `AgentExecutorWrapper.cs`
+- Agents: `OrchestratorAgent.cs`
+- Extensions: `ServiceCollectionExtensions.cs`
+- APIs: `AgentRegistryApi.cs` (lucia-dotnet project)
+
+**Test Coverage**: ✅ All 107 tests passing (60 orchestration + 47 other)
+- No test changes needed (behavior preserved)
+- Only namespace imports updated
+
+**Acceptance Criteria**:
+- ✅ Build succeeds with 0 errors
+- ✅ All 107 tests pass (orchestration: 60, other: 47)
+- ✅ Clean namespace organization with logical grouping
+- ✅ Dead code removed (LuciaExecutor, OrchestrationThread)
+- ✅ Duplicate test file removed (root-level LuciaOrchestratorTests)
+- ✅ All namespace imports updated correctly
+- ✅ Constitutional compliance maintained (one class per file)
+
+**Rationale**: Before proceeding to T029 (DI registration), the Orchestration namespace had accumulated unused files and lacked clear organization. This cleanup:
+1. **Removed technical debt**: Eliminated unused experiments (LuciaExecutor) and obsolete patterns (OrchestrationThread)
+2. **Improved navigability**: Models in dedicated subdirectory, AIAgent bridging in separate Integration namespace
+3. **Clarified architecture**: Orchestration contains ONLY workflow execution logic
+4. **Prevents future confusion**: Clear separation between workflow engine (Orchestration), data contracts (Models), and Agent Framework integration (Integration)
+
+This architectural hygiene ensures T029 (DI registration) works with a clean, well-organized codebase.
+
+---
+
 ✅ **Checkpoint**: US1 Complete - Users can issue single-domain commands and receive natural language responses (MVP ACHIEVED)
 
 ---
