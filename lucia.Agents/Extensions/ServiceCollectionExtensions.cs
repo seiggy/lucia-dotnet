@@ -179,8 +179,22 @@ public static class ServiceCollectionExtensions
         builder.Services.AddOptions<ResultAggregatorOptions>();
         builder.Services.AddSingleton(TimeProvider.System);
 
-        // Register orchestrator
+        // Register orchestration executors
+        builder.Services.AddSingleton<RouterExecutor>();
+        builder.Services.AddSingleton<AgentExecutorWrapper>(sp =>
+        {
+            // AgentExecutorWrapper requires agentId - using factory pattern
+            // Individual wrappers will be created as needed by LuciaOrchestrator
+            throw new InvalidOperationException("AgentExecutorWrapper should not be resolved directly. It's created by LuciaOrchestrator.");
+        });
+        builder.Services.AddSingleton<ResultAggregatorExecutor>();
+
+        // Register thread factory for orchestrator
+        builder.Services.AddSingleton<IAgentThreadFactory, InMemoryThreadFactory>();
+
+        // Register orchestrator and orchestrator agent
         builder.Services.AddSingleton<LuciaOrchestrator>();
+        builder.Services.AddSingleton<OrchestratorAgent>();
 
         // Register plugins as singletons (for caching)
         builder.Services.AddSingleton<LightControlSkill>();
@@ -199,9 +213,16 @@ public static class ServiceCollectionExtensions
 
         builder.AddAIAgent("music-agent", (sp, name) =>
         {
-            var lightAgent = sp.GetRequiredService<MusicAgent>();
-            lightAgent.InitializeAsync().GetAwaiter().GetResult();
-            return lightAgent.GetAIAgent();
+            var musicAgent = sp.GetRequiredService<MusicAgent>();
+            musicAgent.InitializeAsync().GetAwaiter().GetResult();
+            return musicAgent.GetAIAgent();
+        });
+
+        builder.AddAIAgent("orchestrator", (sp, name) =>
+        {
+            var orchestratorAgent = sp.GetRequiredService<OrchestratorAgent>();
+            orchestratorAgent.InitializeAsync().GetAwaiter().GetResult();
+            return orchestratorAgent.GetAIAgent();
         });
 
         // Register the agent initialization service
