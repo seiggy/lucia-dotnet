@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using FakeItEasy;
 using lucia.Agents.Orchestration;
+using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Registry;
 using lucia.Tests.TestDoubles;
 using Microsoft.Agents.AI.Workflows;

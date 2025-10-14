@@ -1,6 +1,6 @@
 using A2A;
 
-namespace lucia.Agents.Orchestration;
+namespace lucia.Agents.Orchestration.Models;
 
 /// <summary>
 /// Status information for the orchestrator

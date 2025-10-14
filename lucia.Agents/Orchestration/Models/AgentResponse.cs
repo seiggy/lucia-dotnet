@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace lucia.Agents.Orchestration;
+namespace lucia.Agents.Orchestration.Models;
 
 /// <summary>
 /// Response from an agent executor wrapper.

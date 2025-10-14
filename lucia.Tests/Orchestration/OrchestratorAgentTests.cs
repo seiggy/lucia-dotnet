@@ -1,5 +1,6 @@
 using FakeItEasy;
 using lucia.Agents.Agents;
+using lucia.Agents.Integration;
 using lucia.Agents.Orchestration;
 using lucia.Tests.TestDoubles;
 using Microsoft.Extensions.Logging;

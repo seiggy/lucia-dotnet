@@ -1,4 +1,4 @@
-namespace lucia.Agents.Orchestration;
+namespace lucia.Agents.Orchestration.Models;
 
 /// <summary>
 /// State persisted between aggregator invocations.

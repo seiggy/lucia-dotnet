@@ -2,6 +2,7 @@ using System;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using lucia.Agents.Registry;
+using lucia.Agents.Integration;
 using lucia.Agents.Orchestration;
 using lucia.Agents.Skills;
 using lucia.Agents.Agents;

@@ -1,5 +1,6 @@
 using System.Linq;
 using lucia.Agents.Orchestration;
+using lucia.Agents.Orchestration.Models;
 using lucia.Tests.TestDoubles;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.Extensions.Logging.Abstractions;

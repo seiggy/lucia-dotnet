@@ -1,4 +1,5 @@
 using A2A;
+using lucia.Agents.Integration;
 using lucia.Agents.Orchestration;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.A2A;

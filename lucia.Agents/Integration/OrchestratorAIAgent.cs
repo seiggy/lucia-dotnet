@@ -5,7 +5,7 @@ using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
-namespace lucia.Agents.Orchestration;
+namespace lucia.Agents.Integration;
 
 /// <summary>
 /// Custom AIAgent implementation that delegates message processing to LuciaOrchestrator.

@@ -1,5 +1,6 @@
 ﻿using A2A;
 using lucia.Agents.Orchestration;
+using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Registry;
 using lucia.Agents.Services;
 using Microsoft.AspNetCore.Http.HttpResults;

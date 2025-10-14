@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using A2A;
 using lucia.Agents.Orchestration;
+using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Registry;
 using lucia.Tests.TestDoubles;
 using Microsoft.Agents.AI;

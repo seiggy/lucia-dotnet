@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Microsoft.Agents.AI;
 
-namespace lucia.Agents.Orchestration;
+namespace lucia.Agents.Integration;
 
 /// <summary>
 /// Default in-memory thread factory for testing and Phase 3 MVP.
