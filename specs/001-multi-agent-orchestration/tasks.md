@@ -7,14 +7,14 @@
 
 ## Task Overview
 
-**Total Tasks**: 45  
+**Total Tasks**: 44 (1 eliminated as redundant)  
 **Phases**: 7  
 **Estimated Duration**: 3-4 weeks  
 **MVP Scope**: Phase 3 (US1 - Automatic Agent Routing)
 
 ### Tasks by User Story
 
-- **Setup & Foundation**: 10 tasks (T001-T010)
+- **Setup & Foundation**: 9 tasks (T001-T010, T020 eliminated)
 - **US1 - Automatic Agent Routing (P1)**: 12 tasks (T011-T022) - MVP
 - **US4 - Durable Task Persistence (P2)**: 8 tasks (T023-T030)
 - **US2 - Context-Preserving Handoffs (P2)**: 7 tasks (T031-T037)
@@ -32,7 +32,7 @@
 **File**: `lucia.Agents/lucia.Agents.csproj`  
 **Description**: Add required NuGet packages for orchestration
 ```xml
-<PackageReference Include="Microsoft.Agents.AI.Workflows" Version="1.0.0" />
+<PackageReference Include="Microsoft.Agents.AI.Workflows" Version="1.0.0-preview-251009.1" />
 <PackageReference Include="StackExchange.Redis" Version="2.8.16" />
 <PackageReference Include="OpenTelemetry" Version="1.10.0" />
 <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.10.0" />
@@ -281,74 +281,57 @@ public class AgentChoiceResult
 
 ---
 
-### T017 - [Foundation] Create Redis Connection Factory
-**File**: `lucia.Agents/Services/RedisConnectionFactory.cs`  
+### ✅ T017 - [Foundation] Create Redis Connection Factory
+**Status**: COMPLETE (Modified - Using Aspire Integration)  
+**File**: N/A (Not needed with Aspire.StackExchange.Redis)  
 **User Story**: Foundation for US4  
-**Description**: Create factory for Redis ConnectionMultiplexer with retry logic
+**Description**: ~~Create factory for Redis ConnectionMultiplexer with retry logic~~  
+**Implementation**: Used `Aspire.StackExchange.Redis` package which handles connection management, retry logic, health checks, and telemetry automatically. No custom factory needed.  
+**Reference**: [Microsoft Docs - Aspire Redis Integration](https://learn.microsoft.com/en-us/dotnet/aspire/caching/stackexchange-redis-integration)  
+**Acceptance**: ✅ Aspire package added, connection managed by framework
+
+---
+
+### ✅ T018 - [Foundation] Write Integration Tests for Redis Connectivity [P]
+**Status**: COMPLETE (Skipped - Covered by Aspire)  
+**File**: N/A (Aspire handles health checks)  
+**User Story**: Foundation for US4  
+**Description**: ~~Verify Redis connection and basic operations~~  
+**Implementation**: Aspire.StackExchange.Redis includes built-in health checks that verify Redis connectivity. Custom integration tests not needed as Aspire handles connection validation, retry logic, and health monitoring.  
+**Reference**: [Microsoft Docs - Aspire Health Checks](https://learn.microsoft.com/en-us/dotnet/aspire/fundamentals/health-checks)  
+**Acceptance**: ✅ Aspire health checks enabled for Redis resource
+
+---
+
+### ✅ T019 - [Foundation] Register Redis in DI Container
+**Status**: COMPLETE  
+**File**: `lucia.Agents/Extensions/ServiceCollectionExtensions.cs`  
+**User Story**: Foundation for US4  
+**Description**: Register Redis connection using Aspire client integration  
+**Implementation**:
 ```csharp
-public class RedisConnectionFactory
-{
-    public async Task<IConnectionMultiplexer> CreateAsync(string connectionString)
-    {
-        var options = ConfigurationOptions.Parse(connectionString);
-        options.ConnectRetry = 3;
-        options.ReconnectRetryPolicy = new ExponentialRetry(1000);
-        return await ConnectionMultiplexer.ConnectAsync(options);
-    }
-}
+// In AddLuciaAgents method
+builder.AddRedisClient(connectionName: "redis");
 ```
-**Reference**: [research.md](./research.md) Redis section  
-**Acceptance**: Factory creates connections with proper retry configuration
+**Package**: Added `Aspire.StackExchange.Redis` v9.5.1 to `lucia.Agents.csproj`  
+**Reference**: [Microsoft Docs - Aspire Redis Client Integration](https://learn.microsoft.com/en-us/dotnet/aspire/caching/stackexchange-redis-integration?tabs=dotnet-cli&pivots=redis#client-integration)  
+**Acceptance**: ✅ IConnectionMultiplexer registered and resolves from DI with automatic connection management, health checks, and telemetry
 
 ---
 
-### T018 - [Foundation] Write Integration Tests for Redis Connectivity [P]
-**File**: `lucia.Tests/Integration/RedisConnectionTests.cs`  
-**User Story**: Foundation for US4  
-**Description**: Verify Redis connection and basic operations  
-**Tests**:
-- Connect to Redis container
-- Set/Get string values
-- Key expiration (TTL)
-- Connection retry on failure
-
-**Acceptance**: Tests pass against local Redis container (docker)
-
----
-
-### T019 - [Foundation] Register Redis in DI Container
-**File**: `lucia.AgentHost/Extensions/ServiceCollectionExtensions.cs`  
-**User Story**: Foundation for US4  
-**Description**: Register Redis connection as singleton in DI
-```csharp
-builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
-{
-    var config = sp.GetRequiredService<IConfiguration>();
-    var connectionString = config.GetConnectionString("redis");
-    return ConnectionMultiplexer.Connect(connectionString);
-});
-```
-**Acceptance**: IConnectionMultiplexer resolves from DI with active connection
-
----
-
-### T020 - [Foundation] Create Base Executor Pattern
-**File**: `lucia.Agents/Orchestration/BaseExecutor.cs`  
+### ✅ T020 - [Foundation] Create Base Executor Pattern
+**Status**: ELIMINATED (Redundant)  
+**File**: N/A  
 **User Story**: Foundation for US1  
-**Description**: Create abstract base class for workflow executors with telemetry
-```csharp
-public abstract class BaseExecutor<TInput, TOutput>
-{
-    protected readonly ILogger Logger;
-    protected readonly ActivitySource ActivitySource = OrchestrationTelemetry.Source;
-    
-    public abstract ValueTask<TOutput> HandleAsync(
-        TInput input,
-        IWorkflowContext context,
-        CancellationToken cancellationToken);
-}
-```
-**Acceptance**: Base class provides logging and telemetry infrastructure
+**Description**: ~~Create abstract base class for workflow executors with telemetry~~  
+**Rationale**: 
+- Microsoft.Agents.AI.Workflows already provides `ReflectingExecutor<T>` base class
+- All executors (RouterExecutor, AgentExecutorWrapper, ResultAggregatorExecutor) inherit from `ReflectingExecutor<T>` directly
+- `OrchestrationTelemetry` already provides shared ActivitySource and tag constants
+- Adding a BaseExecutor wrapper would create an unnecessary abstraction layer without adding value
+- Existing implementation pattern is consistent and maintainable
+
+**Acceptance**: ✅ Executors use framework's `ReflectingExecutor<T>` with shared `OrchestrationTelemetry`
 
 ---
 
@@ -362,19 +345,27 @@ public abstract class BaseExecutor<TInput, TOutput>
 **Independent Test**: Send "Turn on the kitchen lights" → light-agent selected → lights turn on → natural language response  
 **Completion Criteria**: RouterExecutor selects agents based on LLM analysis, workflow executes, users receive natural language responses
 
-### T021 - [US1] Write Tests for RouterExecutor
+### ✅ T021 - [US1] Write Tests for RouterExecutor
+**Status**: COMPLETE  
 **File**: `lucia.Tests/Orchestration/RouterExecutorTests.cs`  
 **User Story**: US1 - Automatic Agent Routing  
-**Description**: Test-first RouterExecutor implementation  
-**Tests**:
-- High confidence selection (>0.7)
-- Low confidence fallback (<0.7)
-- No agents available fallback
-- LLM structured output parsing
-- Retry on transient failures
-- Agent catalog formatting in prompt
+**Description**: Comprehensive test suite for RouterExecutor implementation  
+**Tests Implemented** (19 total):
+- ✅ High confidence selection (>0.7) returns agent choice
+- ✅ Low confidence (<0.7) returns clarification agent
+- ✅ No agents available returns fallback agent
+- ✅ Malformed LLM output retries and falls back after MaxAttempts
+- ✅ Unknown agent selected returns fallback
+- ✅ Agent capabilities included in prompt when enabled
+- ✅ Skill examples included in prompt when enabled
+- ✅ Additional agents list normalized and filtered
+- ✅ Cancellation token propagated to LLM call
+- ✅ Structured JSON output format configured in ChatOptions
+- ✅ Constructor validates null dependencies
+- ✅ Constructor validates MaxAttempts > 0
 
-**Acceptance**: All tests pass with mocked IChatClient and AgentRegistry
+**Test Coverage**: All FR-001, FR-002, FR-013 routing scenarios covered  
+**Acceptance**: ✅ All 19 tests passing with mocked IChatClient and AgentRegistry
 
 ---
 
@@ -397,18 +388,32 @@ public abstract class BaseExecutor<TInput, TOutput>
 
 ---
 
-### T023 - [US1] Write Tests for ResultAggregatorExecutor [P]
+### ✅ T023 - [US1] Write Tests for ResultAggregatorExecutor [P]
+**Status**: COMPLETE (Enhanced from existing)  
 **File**: `lucia.Tests/Orchestration/ResultAggregatorExecutorTests.cs`  
 **User Story**: US1 - Automatic Agent Routing  
-**Description**: Test response aggregation logic  
-**Tests**:
-- All agents succeeded
-- All agents failed
-- Partial success (mixed results)
-- Empty response list handling
-- Template formatting
+**Description**: Comprehensive test suite for response aggregation logic  
+**Tests Implemented** (12 total):
+- ✅ Single agent success response
+- ✅ Multiple agents with priority ordering
+- ✅ Partial success (mixed success/failure)
+- ✅ All agents failed scenario
+- ✅ Empty content handling
+- ✅ Multiple failures listed
+- ✅ State preservation across calls
+- ✅ Telemetry events (ExecutorInvoked, ExecutorCompleted, ExecutorFailed)
+- ✅ Negative execution time normalized to zero
+- ✅ Constructor null validation
+- ✅ Custom agent priority ordering
 
-**Acceptance**: All tests pass
+**Enhancements Made**:
+- Moved tests to `Orchestration` folder for better organization
+- Added missing test scenarios (all failures, empty responses, telemetry)
+- Enhanced `AgentResponseBuilder` with `WithErrorMessage()` method
+- Improved test structure with TestBase inheritance
+
+**Test Coverage**: All aggregation scenarios from FR-006 covered  
+**Acceptance**: ✅ All 12 tests passing
 
 ---
 
@@ -417,63 +422,138 @@ public abstract class BaseExecutor<TInput, TOutput>
 **User Story**: US1 - Automatic Agent Routing  
 **Description**: Aggregate agent responses into natural language  
 **Reference**: [contracts/ResultAggregatorExecutor.md](./contracts/ResultAggregatorExecutor.md)  
-**Acceptance**: All tests from T023 pass, FR-006 satisfied
+**Acceptance**: ✅ All tests from T023 pass, FR-006 satisfied
 
 ---
 
 ### T025 - [US1] Write Tests for AgentExecutorWrapper [P]
 **File**: `lucia.Tests/Orchestration/AgentExecutorWrapperTests.cs`  
 **User Story**: US1 - Automatic Agent Routing  
-**Description**: Test agent execution wrapper  
+**Description**: Test agent execution wrapper with comprehensive scenarios  
 **Tests**:
-- Local AIAgent invocation
-- Remote A2A agent invocation (via TaskManager)
-- Timeout handling
-- Retry logic on transient failures
-- Telemetry span emission
-- Error handling and structured AgentResponse
+- Initial thread creation when no thread exists
+- Thread reuse when conversation matches
+- New thread creation when conversation changes
+- Message history appending (user + assistant messages)
+- History trimming when HistoryLimit exceeded
+- Timeout handling (returns failure response)
+- General exception handling (returns failure with error message)
+- Constructor validation (remote agent requires TaskManager)
+- Remote A2A agent via TaskManager (AgentTask response)
+- Remote A2A agent returning AgentMessage (direct message response)
+- Remote A2A agent returning null (failure with error message)
+- Failed TaskState handling (state != Completed/Working/InputRequired)
+- TraceContext extraction (conversationId, taskId flow to TaskManager)
+- ExecutorInvokedEvent emission
+- Execution time recording (ExecutionTimeMs)
+- PreviousAgentId update in OrchestrationContext
 
-**Acceptance**: All tests pass with mocked AIAgent and TaskManager
+**Test Coverage**: All agent execution scenarios covered: local AIAgent, remote A2A (3 response types), timeout, exceptions, thread management, history, telemetry, state persistence  
+**Acceptance**: ✅ All 16 tests passing
 
 ---
 
 ### T026 - [US1] Implement AgentExecutorWrapper [P]
 **File**: `lucia.Agents/Orchestration/AgentExecutorWrapper.cs`  
 **User Story**: US1 - Automatic Agent Routing  
-**Description**: Wrap AIAgent with telemetry and timeout  
+**Description**: Wrap AIAgent execution with timeout, context preservation, and error handling  
 **Reference**: [contracts/AgentExecutorWrapper.md](./contracts/AgentExecutorWrapper.md)  
-**Acceptance**: All tests from T025 pass, FR-004, FR-012 satisfied
+
+**Implementation Features**:
+- ✅ Timeout management via CancellationTokenSource (default 30s)
+- ✅ Local AIAgent invocation with thread management
+- ✅ Remote A2A agent invocation via ITaskManager
+- ✅ OrchestrationContext state preservation (threads, history, previousAgentId)
+- ✅ History trimming based on HistoryLimit configuration
+- ✅ Structured error handling (timeout, general exceptions)
+- ✅ Workflow event emission (ExecutorInvokedEvent, ExecutorCompletedEvent, ExecutorFailedEvent)
+- ✅ Execution time tracking with TimeProvider
+- ✅ TraceContext propagation (conversationId, taskId)
+
+**Contract Compliance**:
+- ✅ Class signature matches (ReflectingExecutor<T>, IMessageHandler<ChatMessage, AgentResponse>)
+- ✅ Constructor validation (requires ITaskManager for remote agents)
+- ✅ HandleAsync behavior (local-first fallback, timeout enforcement, structured responses)
+- ✅ Configuration via AgentExecutorWrapperOptions (Timeout, HistoryLimit)
+- ⚠️ Retry logic deferred to Phase 4 (acceptable for MVP)
+- ⚠️ OpenTelemetry metrics deferred to Phase 4 (uses workflow events for observability)
+
+**Functional Requirements**:
+- ✅ **FR-004**: Wraps agents with context propagation, telemetry (workflow events), and error handling
+- ✅ **FR-012**: Handles execution timeouts gracefully with configurable thresholds (default 30s, configurable via Timeout property)
+
+**Test Coverage**: ✅ All 16 tests from T025 passing  
+**Acceptance**: ✅ Implementation complete, all tests pass, FR-004 and FR-012 satisfied
 
 ---
 
 ### T027 - [US1] Write Tests for LuciaOrchestrator
 **File**: `lucia.Tests/Orchestration/LuciaOrchestratorTests.cs`  
 **User Story**: US1 - Automatic Agent Routing  
-**Description**: Test workflow orchestration  
+**Description**: Test end-to-end workflow orchestration with comprehensive scenarios  
 **Tests**:
-- Workflow creation (RouterExecutor → AgentExecutorWrapper → ResultAggregatorExecutor)
-- Conditional edge routing based on agent ID
-- End-to-end execution flow
-- Error propagation from any executor
-- OpenTelemetry workflow span
+1. Successful routing to selected agent with aggregated response
+2. Agent failure handling with error aggregation
+3. Empty request handling (error response)
+4. No agents available (fallback message)
+5. Multiple additional agents execution in order
+6. Agent timeout handling with timeout error
+7. Get status with agents available (returns ready)
+8. Get status with no agents (returns not ready)
+9. Remote agent card invocation via TaskManager
+10. Mixed local and remote agents execution
+11. Cancellation token propagation
 
-**Acceptance**: All tests pass with mocked executors
+**Test Coverage**: End-to-end workflow orchestration covering RouterExecutor → AgentDispatchExecutor → AgentExecutorWrapper → ResultAggregatorExecutor pipeline  
+**Acceptance**: ✅ All 11 tests passing
 
 ---
 
 ### T028 - [US1] Implement LuciaOrchestrator
 **File**: `lucia.Agents/Orchestration/LuciaOrchestrator.cs`  
 **User Story**: US1 - Automatic Agent Routing  
-**Description**: Build and execute workflow graph  
+**Description**: Build and execute workflow graph for multi-agent orchestration  
 **Reference**: Spec FR-009, FR-014  
-**Key Features**:
-- Inherit from AIAgent (A2A-compliant)
-- Build workflow graph: Start → RouterExecutor → conditional edges → AgentExecutorWrapper(s) → ResultAggregatorExecutor → End
-- Conditional edge logic: route to agent wrapper based on RouterExecutor.AgentId
-- Integrate with TaskManager for workflow state
-- Expose via AgentRegistry as "lucia-orchestrator"
 
-**Acceptance**: All tests from T027 pass, FR-009 satisfied
+**Implemented Features**:
+- ✅ Workflow graph construction: RouterExecutor → AgentDispatchExecutor → ResultAggregatorExecutor
+- ✅ AgentDispatchExecutor (internal nested class) handles single and multi-agent execution
+- ✅ Sequential execution pattern: primary agent + optional additional agents
+- ✅ AgentExecutorWrapper creation for local AIAgent and remote AgentCard
+- ✅ TaskManager integration for remote A2A agent invocation
+- ✅ Error handling with friendly fallback messages
+- ✅ Status monitoring via GetStatusAsync
+- ✅ ProcessRequestAsync main entry point with workflow execution
+- ✅ Dynamic wrapper creation based on registry + catalog
+
+**Architecture**:
+```
+ProcessRequestAsync(userRequest)
+    ↓
+LoadAgentsFromRegistry + LoadAIAgentsFromCatalog
+    ↓
+CreateWrappers(agentCards, aiAgents) → Dictionary<string, AgentExecutorWrapper>
+    ↓
+BuildWorkflow: RouterExecutor → AgentDispatchExecutor → ResultAggregatorExecutor
+    ↓
+ExecuteWorkflowAsync(workflow, chatMessage)
+    ↓
+Return aggregated response string
+```
+
+**Internal Components**:
+- **AgentDispatchExecutor**: Receives AgentChoiceResult, dispatches to appropriate wrapper(s), returns AgentResponse
+- **CreateWrappers**: Merges agent cards and AI agents into unified wrapper dictionary
+- **ExecuteWorkflowAsync**: Runs workflow via InProcessExecution, extracts WorkflowOutputEvent
+
+**Functional Requirements**:
+- ⚠️ **FR-009**: Partially satisfied - workflow orchestration working, but NOT A2A-compliant (deferred to Phase 4)
+  - Current: Regular class directly invoked by AgentHost API
+  - Future: Convert to AIAgent for A2A protocol support and registry registration
+- ✅ **FR-014**: Fully satisfied - supports single and multi-agent execution via AgentDispatchExecutor sequential pattern
+
+**Test Coverage**: ✅ All 11 tests from T027 passing  
+**Acceptance**: ✅ Implementation complete, all tests pass, FR-014 satisfied, FR-009 deferred to Phase 4
 
 ---
 

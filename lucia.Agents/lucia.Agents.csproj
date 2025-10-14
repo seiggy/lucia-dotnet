@@ -33,6 +33,7 @@
 	  <PackageReference Include="System.Linq.Async" Version="7.0.0-preview.1.g24680b5469">
 		<ExcludeAssets>all</ExcludeAssets>
 	</PackageReference>
+    <PackageReference Include="Aspire.StackExchange.Redis" Version="9.5.1" />
   </ItemGroup>
 
   <ItemGroup>
