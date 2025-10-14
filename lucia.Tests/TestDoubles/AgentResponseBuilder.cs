@@ -1,4 +1,4 @@
-using lucia.Agents.Orchestration;
+using lucia.Agents.Orchestration.Models;
 
 namespace lucia.Tests.TestDoubles;
 

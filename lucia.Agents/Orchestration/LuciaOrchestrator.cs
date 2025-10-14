@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using A2A;
+using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Registry;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Hosting;

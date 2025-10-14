@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using A2A;
 using lucia.Agents.Orchestration;
+using lucia.Agents.Orchestration.Models;
 using lucia.Tests.TestDoubles;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Workflows;

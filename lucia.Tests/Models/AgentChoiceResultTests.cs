@@ -1,5 +1,5 @@
 using System.Text.Json;
-using lucia.Agents.Orchestration;
+using lucia.Agents.Orchestration.Models;
 using lucia.Tests.TestDoubles;
 using Xunit;
 

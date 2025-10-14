@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Microsoft.Agents.AI;
 
-namespace lucia.Agents.Orchestration;
+namespace lucia.Agents.Integration;
 
 /// <summary>
 /// In-memory thread implementation for orchestrator agent.

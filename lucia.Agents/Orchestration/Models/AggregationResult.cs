@@ -1,4 +1,4 @@
-namespace lucia.Agents.Orchestration;
+namespace lucia.Agents.Orchestration.Models;
 
 /// <summary>
 /// Aggregation telemetry emitted to workflow context subscribers.

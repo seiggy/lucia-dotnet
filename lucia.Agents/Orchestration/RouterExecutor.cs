@@ -9,6 +9,7 @@ using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using AgentCard = A2A.AgentCard;
+using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Registry;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.Agents.AI.Workflows.Reflection;

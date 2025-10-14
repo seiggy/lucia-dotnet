@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
-namespace lucia.Agents.Orchestration;
+namespace lucia.Agents.Orchestration.Models;
 
 /// <summary>
 /// Result emitted by <see cref="RouterExecutor"/> describing which agent to invoke next.
