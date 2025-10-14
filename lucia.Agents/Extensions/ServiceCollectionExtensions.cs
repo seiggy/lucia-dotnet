@@ -170,10 +170,13 @@ public static class ServiceCollectionExtensions
         // Register A2A services
         builder.Services.AddHttpClient<IA2AClientService, A2AClientService>();
 
-    builder.Services.AddOptions<RouterExecutorOptions>();
-    builder.Services.AddOptions<AgentExecutorWrapperOptions>();
-    builder.Services.AddOptions<ResultAggregatorOptions>();
-    builder.Services.AddSingleton(TimeProvider.System);
+        // Register Redis using Aspire client integration
+        builder.AddRedisClient(connectionName: "redis");
+
+        builder.Services.AddOptions<RouterExecutorOptions>();
+        builder.Services.AddOptions<AgentExecutorWrapperOptions>();
+        builder.Services.AddOptions<ResultAggregatorOptions>();
+        builder.Services.AddSingleton(TimeProvider.System);
 
         // Register orchestrator
         builder.Services.AddSingleton<LuciaOrchestrator>();
