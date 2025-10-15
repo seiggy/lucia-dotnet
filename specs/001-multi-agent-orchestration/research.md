@@ -1,0 +1,700 @@
+# Research: Multi-Agent Orchestration
+
+**Feature Branch**: `001-multi-agent-orchestration`  
+**Date**: 2025-10-13  
+**Status**: Phase 0 Complete
+
+## Research Questions
+
+### 1. Microsoft.Agents.AI.Workflows 1.0 - Workflow Engine Capabilities
+
+**Question**: How do RouterExecutor, conditional edges, and the TaskManager work in Agent Framework workflows?
+
+**Findings**:
+
+#### Workflow Architecture
+- **WorkflowBuilder Pattern**: Fluent API for defining workflow structure with `AddEdge()`, `SetStart()`, `Build<T>()`
+- **Pregel-Style Execution**: Superstep-based processing where all executors in a superstep run concurrently
+- **Message-Based Flow**: Executors process messages and emit results that flow through edges
+
+#### Coordinator Agent Pattern (Lucia-Specific) → **RouterExecutor Pattern (Actual Implementation)**
+
+**Critical Requirement**: Lucia supports **runtime agent registration** with A2A protocol. Agents can register/deregister dynamically, so we **cannot use static conditional edges** or switch-case patterns for routing.
+
+**Architecture**:
+```csharp
+// RouterExecutor queries AgentRegistry at runtime
+public class RouterExecutor : ReflectingExecutor<RouterExecutor>, 
+    IMessageHandler<ChatMessage, AgentChoiceResult>
+{
+    private readonly IChatClient _chatClient; // Configurable LLM/SLM
+    private readonly AgentRegistry _agentRegistry;
+    
+    public async ValueTask<AgentChoiceResult> HandleAsync(
+        ChatMessage message, 
+        IWorkflowContext context, 
+        CancellationToken cancellationToken)
+    {
+        // 1. Query AgentRegistry for currently available agents
+        var availableAgents = await FetchAgentsAsync(cancellationToken);
+        
+        // 2. Build dynamic prompt with agent capabilities
+        string agentCatalog = BuildAgentCatalog(availableAgents);
+        
+        // 3. Use IChatClient (SLM/LLM) to select appropriate agent
+        var chatMessages = BuildChatMessages(userRequest, availableAgents);
+        var chatOptions = BuildChatOptions(); // Structured JSON output
+        
+        // 4. Get structured output (AgentChoiceResult)
+        var response = await _chatClient.GetResponseAsync(
+            chatMessages, 
+            chatOptions, 
+            cancellationToken);
+        
+        var parsed = DeserializeChoice(ExtractAssistantResponse(response));
+        
+        // 5. Validate confidence threshold and return clarification if needed
+        if (parsed.Confidence < _options.ConfidenceThreshold)
+        {
+            return CreateClarificationResult(parsed, availableAgents, userRequest);
+        }
+        
+        return parsed;
+    }
+}
+```
+
+**LuciaOrchestrator Pattern**:
+```csharp
+public class LuciaOrchestrator
+{
+    public async Task<string> ProcessRequestAsync(string userRequest)
+    {
+        // 1. Build workflow executors
+        var router = new RouterExecutor(_chatClient, _agentRegistry, _logger, _options);
+        var dispatch = new AgentDispatchExecutor(wrappers, _logger);
+        var aggregator = new ResultAggregatorExecutor(_logger, _options);
+        
+        // 2. Build workflow graph
+        var workflow = new WorkflowBuilder(router)
+            .WithName("LuciaOrchestratorWorkflow")
+            .AddEdge(router, dispatch)        // ChatMessage → AgentChoiceResult
+            .AddEdge(dispatch, aggregator)    // AgentChoiceResult → AgentResponse
+            .WithOutputFrom(aggregator)       // AgentResponse → string
+            .Build();
+        
+        // 3. Execute workflow
+        var chatMessage = new ChatMessage(ChatRole.User, userRequest);
+        var result = await ExecuteWorkflowAsync(workflow, chatMessage, cancellationToken);
+        
+        return result ?? fallbackMessage;
+    }
+}
+```
+
+**AgentDispatchExecutor Pattern** (nested in LuciaOrchestrator):
+```csharp
+private sealed class AgentDispatchExecutor : ReflectingExecutor<AgentDispatchExecutor>,
+    IMessageHandler<AgentChoiceResult, AgentResponse>
+{
+    private readonly IReadOnlyDictionary<string, AgentExecutorWrapper> _wrappers;
+    
+    public async ValueTask<AgentResponse> HandleAsync(
+        AgentChoiceResult message, 
+        IWorkflowContext context, 
+        CancellationToken cancellationToken)
+    {
+        // Build execution order: primary agent + additional agents (if multi-agent)
+        var executionOrder = BuildExecutionOrder(message); // [primaryAgentId, additionalAgent1, ...]
+        
+        AgentResponse? primaryResponse = null;
+        
+        // Execute agents sequentially
+        foreach (var agentId in executionOrder)
+        {
+            var response = await InvokeAgentAsync(agentId, _userMessage, context, cancellationToken);
+            if (primaryResponse is null)
+                primaryResponse = response; // First is primary
+            else
+                await context.SendMessageAsync(response, cancellationToken); // Others sent as events
+        }
+        
+        return primaryResponse ?? CreateFailureResponse(message.AgentId, "No agents dispatched.");
+    }
+}
+```
+
+#### Workflow Execution Model
+- **Streaming**: `await workflow.run_stream(input)` - real-time events
+- **Batch**: `await workflow.run(input)` - wait for completion
+- **Event Types**: `WorkflowCompletedEvent`, executor completion events
+- **Validation**: Type compatibility, graph connectivity, executor binding checked at build time
+
+**Implications for Lucia**:
+- ✅ RouterExecutor queries AgentRegistry dynamically (no static agent list)
+- ✅ Uses IChatClient (configurable LLM/SLM) for fast routing based on advertised capabilities
+- ✅ Returns `AgentChoiceResult` with agent ID, confidence, reasoning, optional additional agents
+- ✅ AgentDispatchExecutor resolves agents from AgentExecutorWrapper dictionary at execution time
+- ✅ Supports agent registration/deregistration without workflow rebuild
+- ✅ Workflow validates type flow: `ChatMessage` → `AgentChoiceResult` → `AgentResponse` → `string`
+- ✅ LuciaOrchestrator builds workflow graph: RouterExecutor → AgentDispatchExecutor → ResultAggregatorExecutor
+- ⚠️ Workflow uses simple edges (no conditionals), AgentDispatchExecutor handles agent resolution internally
+
+---
+
+### 2. StackExchange.Redis - Task Persistence Strategy
+
+**Question**: How should we serialize TaskContext, configure TTL, and handle connection resilience?
+
+**Findings**:
+
+#### Connection Management
+```csharp
+// Connection configuration
+ConfigurationOptions config = new ConfigurationOptions
+{
+    EndPoints = { { "localhost", 6379 } },
+    ConnectRetry = 3,
+    ConnectTimeout = 5000,
+    SyncTimeout = 5000,
+    KeepAlive = 180,
+    ReconnectRetryPolicy = new ExponentialRetry(5000), // maxDeltaBackoff 10000ms
+    AbortOnConnectFail = false
+};
+
+ConnectionMultiplexer connection = await ConnectionMultiplexer.ConnectAsync(config);
+IDatabase db = connection.GetDatabase();
+```
+
+**Connection Patterns**:
+- **Singleton Pattern**: `ConnectionMultiplexer` should be shared across application (not per-request)
+- **ExponentialRetry**: Default retry policy with configurable seed and max backoff
+- **LinearRetry**: Alternative for fixed retry intervals
+- **KeepAlive**: Defaults to 60s, helps prevent connection drops
+
+#### Serialization & Storage
+```csharp
+// TaskContext follows A2A-compliant Task schema
+public class TaskContext
+{
+    public string Id { get; set; }                           // Task ID
+    public string SessionId { get; set; }                     // Client session ID
+    public TaskStatus Status { get; set; }                    // Current status
+    public List<Message>? History { get; set; }              // Message history
+    public List<Artifact>? Artifacts { get; set; }           // Artifacts
+    public Dictionary<string, object>? Metadata { get; set; } // Extended metadata (e.g., agentSelections)
+}
+
+public class TaskStatus
+{
+    public TaskState State { get; set; }      // Current state
+    public Message? Message { get; set; }      // Status update message
+    public string? Timestamp { get; set; }     // ISO datetime
+}
+
+public enum TaskState
+{
+    Submitted,
+    Working,
+    InputRequired,
+    Completed,
+    Canceled,
+    Failed,
+    Unknown
+}
+
+// Store with TTL
+string serialized = JsonSerializer.Serialize(taskContext);
+await db.StringSetAsync(
+    $"task:{taskId}", 
+    serialized, 
+    expiry: TimeSpan.FromHours(24) // configurable TTL
+);
+
+// Retrieve
+string? stored = await db.StringGetAsync($"task:{taskId}");
+if (stored != null)
+{
+    TaskContext restored = JsonSerializer.Deserialize<TaskContext>(stored);
+}
+```
+
+#### TTL & Expiration Strategy
+- **ConfigCheckSeconds**: Default 60s for configuration checks (heartbeat)
+- **Recommended TTL**: 24 hours for conversation persistence (configurable)
+- **Key Pattern**: `task:{taskId}` for namespacing
+- **Expiry Handling**: Check for null on retrieval, start fresh conversation if expired
+
+#### Resilience & Error Handling
+```csharp
+// ConnectionFailed and ConnectionRestored events
+connection.ConnectionFailed += (sender, e) =>
+{
+    // Log connection failure, emit telemetry
+    logger.LogWarning(e.Exception, "Redis connection failed: {FailureType}", e.FailureType);
+};
+
+connection.ConnectionRestored += (sender, e) =>
+{
+    // Log restoration, emit telemetry
+    logger.LogInformation("Redis connection restored: {ConnectionType}", e.ConnectionType);
+};
+```
+
+**Resilience Features**:
+- **Automatic Reconnection**: Handled by `ReconnectRetryPolicy`
+- **Command Timeout**: `SyncTimeout` for sync ops, `AsyncTimeout` for async
+- **HighIntegrity Mode**: Optional sequence checking (incurs overhead)
+- **HeartbeatInterval**: Default 1000ms for keepalive checks
+
+**Implications for Lucia**:
+- Use `System.Text.Json` for `TaskContext` serialization (fastest, most compatible with .NET 10)
+- TaskContext MUST follow A2A-compliant Task schema (id, sessionId, status, history, artifacts, metadata)
+- Implement singleton `IConnectionMultiplexer` registered in DI
+- Configure 24-hour TTL (user-configurable via `appsettings.json`)
+- Wire connection events to OpenTelemetry metrics for observability
+- Use `task:{taskId}` key pattern with proper cleanup on context expiry
+- Store agent selections in `Metadata["agentSelections"]` as string array
+- Preserve full message history in `History` field for A2A compliance
+- Consider history pruning strategy for conversations exceeding 50+ messages
+
+---
+
+### 3. OpenTelemetry .NET - Instrumentation Patterns
+
+**Question**: How do we instrument RouterExecutor, AgentExecutorWrapper, and Redis operations with spans, metrics, and structured logging?
+
+**Findings**:
+
+#### ASP.NET Core Integration
+```csharp
+// Program.cs registration
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(resource => resource
+        .AddService(serviceName: "lucia.AgentHost"))
+    .WithTracing(tracing => tracing
+        .AddAspNetCoreInstrumentation() // Automatic HTTP instrumentation
+        .AddSource("lucia.Agents.Orchestration") // Custom activity source
+        .AddConsoleExporter()) // Development exporter
+    .WithMetrics(metrics => metrics
+        .AddAspNetCoreInstrumentation() // HTTP metrics
+        .AddMeter("lucia.Agents.Orchestration") // Custom meter
+        .AddConsoleExporter());
+```
+
+#### Span Creation for Orchestration
+```csharp
+using System.Diagnostics;
+
+public class RouterExecutor : IWorkflowExecutor
+{
+    private static readonly ActivitySource ActivitySource = 
+        new("lucia.Agents.Orchestration", "1.0.0");
+    
+    public async Task<AgentChoiceResult> ExecuteAsync(ChatMessage message)
+    {
+        using var activity = ActivitySource.StartActivity(
+            "RouterExecutor.Route",
+            ActivityKind.Internal,
+            parentContext: Activity.Current?.Context ?? default,
+            tags: new ActivityTagsCollection
+            {
+                { "messaging.operation", "route" },
+                { "messaging.message.type", "ChatMessage" }
+            }
+        );
+        
+        try
+        {
+            // LLM routing logic
+            var result = await PerformRoutingAsync(message);
+            
+            // Add result tags
+            activity?.SetTag("agent.selected", result.AgentId);
+            activity?.SetTag("agent.confidence", result.Confidence);
+            activity?.SetStatus(ActivityStatusCode.Ok);
+            
+            return result;
+        }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            activity?.RecordException(ex);
+            throw;
+        }
+    }
+}
+```
+
+**Span Best Practices**:
+- **Activity Source**: Create once per namespace, reuse across classes
+- **Parent Context**: Preserve Activity.Current for distributed tracing
+- **Initial Tags**: Add tags at creation for sampler access
+- **Status Codes**: Set `Ok` or `Error` with descriptions
+- **Exception Recording**: Use `RecordException()` for structured exception data
+
+#### Metrics for Routing & Execution
+```csharp
+using System.Diagnostics.Metrics;
+
+public class OrchestrationMetrics
+{
+    private static readonly Meter Meter = 
+        new("lucia.Agents.Orchestration", "1.0.0");
+    
+    private static readonly Counter<long> RoutingDecisions = 
+        Meter.CreateCounter<long>(
+            "orchestration.routing.decisions",
+            description: "Number of routing decisions made");
+    
+    private static readonly Histogram<double> RoutingLatency = 
+        Meter.CreateHistogram<double>(
+            "orchestration.routing.duration",
+            unit: "ms",
+            description: "Routing decision latency");
+    
+    private static readonly Histogram<double> AgentExecutionLatency = 
+        Meter.CreateHistogram<double>(
+            "orchestration.agent.execution.duration",
+            unit: "ms",
+            description: "Agent execution time");
+    
+    public void RecordRoutingDecision(string agentId, double confidence, long durationMs)
+    {
+        RoutingDecisions.Add(1, 
+            new("agent.id", agentId),
+            new("confidence.bucket", GetConfidenceBucket(confidence)));
+        
+        RoutingLatency.Record(durationMs,
+            new("agent.id", agentId));
+    }
+    
+    private string GetConfidenceBucket(double confidence) => confidence switch
+    {
+        >= 0.9 => "high",
+        >= 0.7 => "medium",
+        _ => "low"
+    };
+}
+```
+
+**Metrics Patterns**:
+- **Counter**: Monotonically increasing (routing decisions, error counts)
+- **Histogram**: Distribution tracking (latency, confidence scores)
+- **ObservableGauge**: Snapshot values (active conversations, cache size)
+- **TagList**: Use for 4-8 tags to minimize allocations
+- **Consistent Tag Order**: Critical for performance
+
+#### Structured Logging
+```csharp
+// LoggerMessage source generation (compile-time)
+internal static partial class OrchestrationLoggerExtensions
+{
+    [LoggerMessage(
+        EventId = 1001,
+        Level = LogLevel.Information,
+        Message = "Routing decision: selected agent '{AgentId}' with confidence {Confidence:F2}")]
+    public static partial void LogRoutingDecision(
+        this ILogger logger, 
+        string agentId, 
+        double confidence);
+    
+    [LoggerMessage(
+        EventId = 1002,
+        Level = LogLevel.Warning,
+        Message = "Low confidence routing: selected agent '{AgentId}' with confidence {Confidence:F2}, reason: {Reasoning}")]
+    public static partial void LogLowConfidenceRouting(
+        this ILogger logger, 
+        string agentId, 
+        double confidence, 
+        string reasoning);
+    
+    [LoggerMessage(
+        EventId = 1003,
+        Level = LogLevel.Error,
+        Message = "Agent execution failed: agent '{AgentId}', task '{TaskId}'")]
+    public static partial void LogAgentExecutionFailure(
+        this ILogger logger, 
+        Exception ex,
+        string agentId, 
+        string taskId);
+}
+```
+
+**Logging Best Practices**:
+- **Compile-Time Generation**: Use `[LoggerMessage]` for performance
+- **Structured Parameters**: Named parameters for indexing/filtering
+- **Event IDs**: Consistent numbering for observability dashboards
+- **Appropriate Levels**: Error (failures), Warning (degraded), Info (key events), Debug (verbose)
+- **No PII**: Redact/hash contextId, never log message content
+
+**Implications for Lucia**:
+- Create `ActivitySource` for "lucia.Agents.Orchestration" namespace
+- Create `Meter` for "lucia.Agents.Orchestration" metrics
+- Instrument RouterExecutor with spans (routing latency, confidence scores)
+- Instrument AgentExecutorWrapper with spans (agent execution time, success/failure)
+- Instrument Redis operations (persistence latency, cache hits/misses)
+- Use compile-time logging with `[LoggerMessage]` for all orchestration logs
+- Configure Prometheus/Grafana-compatible exporters for home lab Kubernetes
+
+---
+
+## Technical Decisions
+
+### Decision 1: RouterExecutor with Dynamic Agent Resolution
+
+**Choice**: Use RouterExecutor that queries AgentRegistry at runtime for available agents, with AgentDispatchExecutor handling agent wrapper resolution
+
+**Rationale**:
+- Lucia supports runtime agent registration/deregistration via A2A protocol
+- RouterExecutor queries AgentRegistry dynamically to discover available agents and their capabilities
+- IChatClient (configurable LLM/SLM) makes routing decisions based on current agent capabilities
+- AgentDispatchExecutor resolves AgentExecutorWrapper instances and invokes agents sequentially
+- LuciaOrchestrator orchestrates the complete workflow and exposes itself as an A2A-compliant agent
+
+**Implementation**:
+```csharp
+// Workflow with RouterExecutor → AgentDispatchExecutor → ResultAggregatorExecutor
+public class LuciaOrchestrator
+{
+    public async Task<string> ProcessRequestAsync(string userRequest)
+    {
+        var router = new RouterExecutor(_chatClient, _agentRegistry, _logger, _routerOptions);
+        var dispatch = new AgentDispatchExecutor(wrappers, _dispatchLogger);
+        var aggregator = new ResultAggregatorExecutor(_aggregatorLogger, _aggregatorOptions);
+        
+        var workflow = new WorkflowBuilder(router)
+            .WithName("LuciaOrchestratorWorkflow")
+            .AddEdge(router, dispatch)        // ChatMessage → AgentChoiceResult
+            .AddEdge(dispatch, aggregator)    // AgentChoiceResult → AgentResponse
+            .WithOutputFrom(aggregator)       // AgentResponse → string
+            .Build();
+        
+        var chatMessage = new ChatMessage(ChatRole.User, userRequest);
+        return await ExecuteWorkflowAsync(workflow, chatMessage, cancellationToken) 
+            ?? _aggregatorOptions.Value.DefaultFallbackMessage;
+    }
+}
+```
+
+**Benefits**:
+- ✅ No workflow rebuild when agents register/deregister
+- ✅ Agent capabilities advertised through AgentCard metadata
+- ✅ IChatClient can be SLM (fast/cheap) or full LLM (more accurate)
+- ✅ AgentDispatchExecutor handles sequential multi-agent execution internally
+- ✅ LuciaOrchestrator exposes as A2A-compliant agent for integration
+
+---
+
+### Decision 2: TaskContext Persistence
+
+**Choice**: Use StackExchange.Redis with System.Text.Json serialization, 24-hour TTL
+
+**Rationale**:
+- StackExchange.Redis is the de facto standard for .NET Redis clients (272 code snippets in Context7)
+- System.Text.Json is fastest serializer in .NET 10, AOT-compatible, minimal dependencies
+- 24-hour TTL balances conversation continuity with memory management
+- Singleton ConnectionMultiplexer pattern prevents connection exhaustion
+
+**Configuration**:
+- Redis endpoint: `localhost:6379` (dev), K8s service (prod)
+- Connection timeout: 5000ms
+- Reconnect policy: ExponentialRetry(5000ms seed, 10000ms max)
+- Key pattern: `task:{taskId}` with configurable TTL
+
+---
+
+### Decision 3: Observability Strategy
+
+**Choice**: OpenTelemetry with compile-time logging, custom ActivitySource/Meter, Prometheus exporter
+
+**Rationale**:
+- OpenTelemetry is vendor-neutral, works with Prometheus/Grafana in home lab K8s
+- Compile-time logging (`[LoggerMessage]`) avoids boxing, provides best performance
+- Custom ActivitySource/Meter allows granular control over span/metric emission
+- ASP.NET Core auto-instrumentation covers HTTP layer, custom spans for orchestration
+
+**Instrumentation Points**:
+- **Spans**: RouterExecutor.Route, AgentExecutorWrapper.Execute, Redis.Get/Set
+- **Metrics**: routing_decisions (counter), routing_latency (histogram), agent_execution_duration (histogram)
+- **Logs**: Routing decisions, agent failures, Redis connection events
+
+---
+
+## Open Questions
+
+### Question 1: IChatClient Configuration for RouterExecutor
+
+**Status**: ✅ RESOLVED - User-configurable approach selected
+
+**Context**: RouterExecutor needs fast, reliable routing based on agent capabilities
+
+**Decision**: **User-configurable keyed IChatClient via ChatClientConnectionInfo** (Option D enhanced)
+
+**Rationale**:
+- Aligns with Constitution Principle IV (Privacy-First Architecture) by defaulting to local SLM
+- Supports users without local hardware via remote LLM configuration
+- No code changes required to switch between providers (configuration-driven)
+- Existing `AddKeyedChatClient` infrastructure supports Ollama, OpenAI, Azure AI Inference
+- Meets SC-010 (<500ms routing latency) with local SLM, allows remote fallback for accuracy
+
+**Configuration Pattern**:
+```json
+// appsettings.json - Define reusable IChatClient instances
+{
+  "ConnectionStrings": {
+    "ollama-phi3-mini": "Endpoint=http://localhost:11434;Model=phi3:mini;Provider=ollama",
+    "openai-gpt4o-mini": "Endpoint=https://api.openai.com;AccessKey=sk-...;Model=gpt-4o-mini;Provider=openai",
+    "azureai-phi3": "Endpoint=https://models.inference.ai.azure.com;AccessKey=...;Model=Phi-3-mini-4k-instruct;Provider=azureaiinference"
+  },
+  "RouterExecutor": {
+    "ChatClientKey": "ollama-phi3-mini",  // References connection string by name
+    "ConfidenceThreshold": 0.7
+  },
+  "LightAgent": {
+    "ChatClientKey": "ollama-phi3-mini"  // Multiple agents can share same instance
+  },
+  "MusicAgent": {
+    "ChatClientKey": "openai-gpt4o-mini"  // Or use different instance per agent
+  }
+}
+
+// appsettings.Production.json - Override for remote deployment
+{
+  "RouterExecutor": {
+    "ChatClientKey": "openai-gpt4o-mini"  // Switch to remote without changing code
+  }
+}
+```
+
+**Implementation**:
+```csharp
+// ServiceCollectionExtensions.AddLuciaAgents
+var routerClientKey = builder.Configuration["RouterExecutor:ChatClientKey"] ?? "ollama-phi3-mini";
+builder.AddKeyedChatClient(routerClientKey); // Parses ChatClientConnectionInfo from connection string
+
+builder.Services.AddSingleton<RouterExecutor>(sp =>
+{
+    var chatClient = sp.GetRequiredKeyedService<IChatClient>(routerClientKey);
+    var registry = sp.GetRequiredService<AgentRegistry>();
+    var logger = sp.GetRequiredService<ILogger<RouterExecutor>>();
+    var options = sp.GetRequiredService<IOptions<RouterExecutorOptions>>();
+    return new RouterExecutor(chatClient, registry, logger, options);
+});
+```
+
+**Connection String Naming Convention**: `{provider}-{model-identifier}`
+- Examples: `ollama-phi3-mini`, `openai-gpt4o-mini`, `azureai-phi3`, `azureopenai-gpt4o`
+- Enables agents to share IChatClient instances (cost/resource efficiency)
+- Allows per-agent configuration for specialized needs (e.g., music agent uses better reasoning model)
+
+**Supported Providers**:
+- **Ollama (local)**: Phi-3 Mini, LLaMa 3.2 3B, LLaMa 3.1 8B
+- **OpenAI**: GPT-4o-mini, GPT-4o
+- **Azure OpenAI**: GPT-4o-mini deployment
+- **Azure AI Inference**: GitHub Models, serverless endpoints
+
+**Next Steps**: 
+- Define `AgentCard.Capabilities` format for optimal SLM parsing in data-model.md
+- Create RouterExecutor prompt template with few-shot examples in contracts/RouterExecutor.md
+- Add `ChatClientKey` property to RouterExecutorOptions class
+- Document configuration examples in quickstart.md
+
+---
+
+### Question 2: Agent Registry Integration
+
+**Status**: ✅ RESOLVED - DI injection with existing AgentRegistry
+
+**Context**: RouterExecutor needs to query AgentRegistry for available agents and capabilities
+
+**Decision**: Direct DI injection of `AgentRegistry` into RouterExecutor constructor
+
+**Rationale**:
+- AgentRegistry is already registered as singleton in ServiceCollectionExtensions.AddLuciaAgents
+- RouterExecutor already accepts AgentRegistry in constructor (see existing implementation)
+- Supports dynamic agent discovery at runtime (agents register/deregister via A2A protocol)
+- Local deployment pattern (MVP), designed for distributed agents in future phases
+
+**Next Steps**: Document RouterExecutor constructor dependencies in contracts/RouterExecutor.md
+
+---
+
+### Question 3: Multi-Agent Coordination Pattern
+
+**Status**: Deferred to P3 (not MVP)
+
+**Context**: User Story 3 requires orchestrating multiple agents (e.g., "dim lights and play jazz")
+
+**Complexity**: 
+- Fan-out edges to multiple agents
+- Result aggregation from parallel execution
+- Unified response composition
+
+**Recommendation**: Implement P1 (single-agent routing) and P2 (context handoffs) first, defer P3 multi-agent until workflow is stable
+
+**Next Steps**: Create sub-spec for multi-agent coordination if prioritized in future sprint
+
+---
+
+## Dependencies Confirmed
+
+### NuGet Packages Required
+
+```xml
+<!-- Workflow engine -->
+<PackageReference Include="Microsoft.Agents.AI.Workflows" Version="1.0.0" />
+
+<!-- Redis client -->
+<PackageReference Include="StackExchange.Redis" Version="2.8.16" />
+
+<!-- OpenTelemetry -->
+<PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.9.0" />
+<PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.9.0" />
+<PackageReference Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" Version="1.9.0" />
+<PackageReference Include="OpenTelemetry.Exporter.Console" Version="1.9.0" /> <!-- Dev only -->
+```
+
+### External Services Required
+
+- **Redis 7.x**: Task persistence (Docker container in dev, K8s StatefulSet in prod)
+- **OpenTelemetry Collector**: Metrics/traces aggregation (optional, can export directly to Prometheus)
+
+---
+
+## Constitution Compliance Update
+
+### Principle III: Documentation-First Research ✅ COMPLETE
+
+**Evidence**:
+- Microsoft.Agents.AI.Workflows documentation gathered and analyzed
+- StackExchange.Redis patterns and configuration reviewed
+- OpenTelemetry instrumentation examples studied
+- All code snippets validated against official documentation
+
+**Gate Status**: ✅ PASSED - Ready to proceed to Phase 1 (Design & Contracts)
+
+---
+
+## Next Steps
+
+1. **Phase 1: Design & Contracts**
+   - Create `data-model.md` with `TaskContext`, `AgentChoiceResult`, `WorkflowState` schemas
+   - Create `contracts/RouterExecutor.md` with API contract and LLM prompt template
+   - Create `contracts/AgentExecutorWrapper.md` with wrapper interface and context propagation
+   - Create `contracts/ResultAggregatorExecutor.md` with response aggregation logic
+   - Create `contracts/LuciaTaskManager.md` with A2A + TaskManager integration
+   - Create `quickstart.md` with developer onboarding guide
+
+2. **Update AGENTS.md**
+   - Run `update-agent-context.ps1` to add Agent Framework workflows, Redis, OpenTelemetry patterns
+
+3. **Re-evaluate Constitution Check**
+   - Verify no principle violations introduced by design decisions
+   - Document any complexity justifications in plan.md
+
+---
+
+**Research Completed**: 2025-10-13  
+**Documentation Sources**: Microsoft Learn, Context7 (StackExchange.Redis, OpenTelemetry.NET)  
+**Constitution Gate**: PASSED (Principle III)

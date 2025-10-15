@@ -1,6 +1,8 @@
+using System;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using lucia.Agents.Registry;
+using lucia.Agents.Integration;
 using lucia.Agents.Orchestration;
 using lucia.Agents.Skills;
 using lucia.Agents.Agents;
@@ -169,8 +171,30 @@ public static class ServiceCollectionExtensions
         // Register A2A services
         builder.Services.AddHttpClient<IA2AClientService, A2AClientService>();
 
-        // Register orchestrator
+        // Register Redis using Aspire client integration
+        builder.AddRedisClient(connectionName: "redis");
+
+        builder.Services.AddOptions<RouterExecutorOptions>();
+        builder.Services.AddOptions<AgentExecutorWrapperOptions>();
+        builder.Services.AddOptions<ResultAggregatorOptions>();
+        builder.Services.AddSingleton(TimeProvider.System);
+
+        // Register orchestration executors
+        builder.Services.AddSingleton<RouterExecutor>();
+        builder.Services.AddSingleton<AgentExecutorWrapper>(sp =>
+        {
+            // AgentExecutorWrapper requires agentId - using factory pattern
+            // Individual wrappers will be created as needed by LuciaOrchestrator
+            throw new InvalidOperationException("AgentExecutorWrapper should not be resolved directly. It's created by LuciaOrchestrator.");
+        });
+        builder.Services.AddSingleton<ResultAggregatorExecutor>();
+
+        // Register thread factory for orchestrator
+        builder.Services.AddSingleton<IAgentThreadFactory, InMemoryThreadFactory>();
+
+        // Register orchestrator and orchestrator agent
         builder.Services.AddSingleton<LuciaOrchestrator>();
+        builder.Services.AddSingleton<OrchestratorAgent>();
 
         // Register plugins as singletons (for caching)
         builder.Services.AddSingleton<LightControlSkill>();
@@ -189,9 +213,16 @@ public static class ServiceCollectionExtensions
 
         builder.AddAIAgent("music-agent", (sp, name) =>
         {
-            var lightAgent = sp.GetRequiredService<MusicAgent>();
-            lightAgent.InitializeAsync().GetAwaiter().GetResult();
-            return lightAgent.GetAIAgent();
+            var musicAgent = sp.GetRequiredService<MusicAgent>();
+            musicAgent.InitializeAsync().GetAwaiter().GetResult();
+            return musicAgent.GetAIAgent();
+        });
+
+        builder.AddAIAgent("orchestrator", (sp, name) =>
+        {
+            var orchestratorAgent = sp.GetRequiredService<OrchestratorAgent>();
+            orchestratorAgent.InitializeAsync().GetAwaiter().GetResult();
+            return orchestratorAgent.GetAIAgent();
         });
 
         // Register the agent initialization service
