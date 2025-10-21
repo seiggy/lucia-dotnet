@@ -842,87 +842,111 @@ This architectural hygiene ensures T029 (DI registration) works with a clean, we
 **Independent Test**: Start conversation → create taskId → restart host → send follow-up → context restored  
 **Completion Criteria**: TaskContext persists to Redis, workflow resumes after restart
 
-### T033 - [US4] Write Tests for TaskContext Model
-**File**: `lucia.Tests/Models/TaskContextTests.cs`  
-**User Story**: US4 - Durable Task Persistence  
-**Description**: Test A2A-compliant TaskContext serialization  
-**Tests**:
-- JSON serialization with System.Text.Json
-- Required fields validation (id, sessionId, status)
-- TaskStatus and TaskState enum serialization
-- History array handling
-- Artifacts array handling
-- Metadata dictionary serialization
-
-**Acceptance**: All tests pass, A2A schema compliance validated
+### ~~T033 - [US4] Write Tests for TaskContext Model~~ [ELIMINATED]
+**Status**: ELIMINATED  
+**Reason**: A2A package provides `AgentTask`, `AgentTaskStatus`, `TaskState`, and `Artifact` models - no custom models needed
 
 ---
 
-### T034 - [US4] Implement TaskContext and Related Models [P]
-**Files**:
-- `lucia.Agents/Models/TaskContext.cs`
-- `lucia.Agents/Models/TaskStatus.cs`
-- `lucia.Agents/Models/TaskState.cs`
-
-**User Story**: US4 - Durable Task Persistence  
-**Description**: Create A2A-compliant models per data-model.md  
-**Reference**: [data-model.md](./data-model.md) TaskContext, TaskStatus, TaskState sections  
-**Acceptance**: All tests from T033 pass, A2A compliance verified
+### ~~T034 - [US4] Implement TaskContext and Related Models~~ [ELIMINATED]
+**Status**: ELIMINATED  
+**Reason**: Using A2A package's built-in models (`AgentTask`, `AgentTaskStatus`, `TaskState`, `Artifact`) instead of creating custom duplicates
 
 ---
 
-### T035 - [US4] Write Tests for TaskManager
-**File**: `lucia.Tests/Services/TaskManagerTests.cs`  
+### ✅ T035 - [US4] Write Tests for RedisTaskStore
+**Status**: COMPLETE  
+**Completed**: 2025-10-15  
+**File**: `lucia.Tests/Services/RedisTaskStoreTests.cs`  
 **User Story**: US4 - Durable Task Persistence  
-**Description**: Test Redis-based task persistence  
-**Tests**:
-- Save TaskContext to Redis with TTL
-- Load TaskContext from Redis by taskId
-- Update existing TaskContext
-- Handle non-existent taskId (return null)
-- Handle Redis connection failures
-- TTL expiration behavior
+**Description**: Comprehensive test suite for Redis implementation of A2A's ITaskStore interface  
+**Tests Implemented** (14 total):
+- ✅ GetTaskAsync - retrieve AgentTask from Redis (exists & not exists)
+- ✅ SetTaskAsync - persist AgentTask with 24h TTL
+- ✅ UpdateStatusAsync - update task status and message (success & task not found exception)
+- ✅ GetPushNotificationAsync - retrieve notification config (exists & not exists)
+- ✅ SetPushNotificationConfigAsync - persist notification config with TTL
+- ✅ GetPushNotificationsAsync - retrieve multiple notification configs (multiple & none)
+- ✅ Redis key pattern verification (`lucia:task:{taskId}`)
+- ✅ Constructor null validation
+- ✅ CamelCase JSON serialization verification
+- ✅ Timestamp updates on status changes
 
-**Acceptance**: All tests pass with Redis container
+**Test Coverage**: All ITaskStore interface methods covered with A2A models  
+**Acceptance**: ✅ All 14 tests passing with mocked Redis
 
 ---
 
-### T036 - [US4] Implement TaskManager
-**File**: `lucia.Agents/Services/TaskManager.cs`  
+### ✅ T036 - [US4] Implement RedisTaskStore
+**Status**: COMPLETE  
+**Completed**: 2025-10-15  
+**File**: `lucia.Agents/Services/RedisTaskStore.cs`  
 **User Story**: US4 - Durable Task Persistence  
-**Description**: Implement Redis-based task persistence service  
-**Reference**: [contracts/TaskManager.md](./contracts/TaskManager.md)  
+**Description**: Implemented A2A's `ITaskStore` interface with Redis backend using A2A package types  
 **Key Features**:
-- Save/Load/Update/Delete task operations
-- Key pattern: `task:{taskId}`
-- TTL: 24 hours (configurable)
-- System.Text.Json serialization
-- OpenTelemetry spans for Redis operations
+- ✅ Implements `ITaskStore` from A2A package (all 6 methods)
+- ✅ Redis key patterns: `lucia:task:{taskId}`, `lucia:task:{taskId}:notification:{id}`
+- ✅ 24-hour TTL for task persistence (per spec requirements)
+- ✅ System.Text.Json serialization with camelCase naming
+- ✅ OpenTelemetry ActivitySource spans for all Redis operations
+- ✅ Full A2A protocol compliance (uses `AgentTask`, `AgentTaskStatus`, `TaskState`, `Artifact`)
+- ✅ Proper error handling with A2AException (TaskNotFound)
 
-**Acceptance**: All tests from T035 pass, FR-007, FR-008 satisfied
+**Architecture**:
+- Uses A2A's built-in models instead of custom duplicates
+- Follows constitutional requirement: one class per file
+- OpenTelemetry spans track: GetTask, SetTask, UpdateStatus, GetPushNotification, SetPushNotificationConfig, GetPushNotifications
+
+**Acceptance**: ✅ All tests from T035 pass, implements all ITaskStore methods correctly, A2A protocol compliant
 
 ---
 
-### T037 - [US4] Register TaskManager in DI [P]
-**File**: `lucia.AgentHost/Extensions/ServiceCollectionExtensions.cs`  
+### T037 - [US4] Register TaskManager and RedisTaskStore in DI [P] ✅ COMPLETE
+**File**: `lucia.Agents/Extensions/ServiceCollectionExtensions.cs`  
 **User Story**: US4 - Durable Task Persistence  
-**Description**: Register TaskManager as singleton  
-**Acceptance**: TaskManager resolves from DI with Redis connection
+**Description**: Register A2A's TaskManager with RedisTaskStore implementation  
+**Registration**:
+```csharp
+// Register Redis task store
+services.AddSingleton<ITaskStore, RedisTaskStore>();
+
+// Register A2A TaskManager (from A2A package)
+services.AddSingleton<ITaskManager>(sp => 
+{
+    var taskStore = sp.GetRequiredService<ITaskStore>();
+    var httpClient = sp.GetRequiredService<IHttpClientFactory>().CreateClient("task-callbacks");
+    return new TaskManager(httpClient, taskStore);
+});
+```
+**Dependencies**: A2A package's `ITaskManager` and `TaskManager` classes  
+**Acceptance**: ✅ Both `ITaskStore` and `ITaskManager` resolve from DI with Redis connection  
+**Completed**: Registered in `AddLuciaAgents` method (lines 180-190)
 
 ---
 
-### T038 - [US4] Integrate TaskManager with LuciaOrchestrator
-**File**: `lucia.Agents/Orchestration/LuciaOrchestrator.cs` (modify)  
+### ✅ T038 - [US4] Integrate A2A TaskManager with LuciaOrchestrator
+**Status**: COMPLETE  
+**File**: `lucia.Agents/Orchestration/LuciaOrchestrator.cs` (modified)  
 **User Story**: US4 - Durable Task Persistence  
-**Description**: Add task persistence to orchestration workflow  
-**Changes**:
-- Load TaskContext at workflow start (if taskId provided)
-- Create new TaskContext if not exists
-- Update TaskContext.History with messages
-- Update TaskContext.Status on completion
-- Save TaskContext after workflow execution
+**Description**: Use A2A's TaskManager for task persistence in orchestration workflow  
+**Changes Implemented**:
+- ✅ Injected `ITaskManager` into LuciaOrchestrator constructor
+- ✅ Modified `ProcessRequestAsync` to accept optional `taskId` and `sessionId` parameters
+- ✅ Load/Create `AgentTask` at workflow start (uses `CreateTaskAsync` if no taskId provided, `GetTaskAsync` if taskId exists)
+- ✅ Add user message to `AgentTask.History` at workflow start
+- ✅ Update `AgentTask.Status` to `Working` when processing begins
+- ✅ Add assistant response to `AgentTask.History` on completion
+- ✅ Update `AgentTask.Status` to `Completed` on successful workflow execution
+- ✅ Update `AgentTask.Status` to `Failed` on error conditions (no agents, wrapper failure, exceptions)
+- ✅ Use `TaskManager` methods: `GetTaskAsync`, `CreateTaskAsync`, `UpdateStatusAsync`
 
-**Acceptance**: TaskContext persists and restores correctly during orchestration
+**A2A Integration**:
+- ✅ Uses A2A's `AgentTask` model for conversation state
+- ✅ Leverages A2A's built-in task lifecycle management (Submitted → Working → Completed/Failed)
+- ✅ Maintains A2A protocol compliance with proper message history tracking
+- ✅ Uses A2A's `AgentMessage` for history entries with role, content, and timestamp
+
+**Acceptance**: ✅ `AgentTask` persists and restores correctly during orchestration, maintains A2A protocol compliance, conversation continuity enabled via taskId parameter
 
 ---
 

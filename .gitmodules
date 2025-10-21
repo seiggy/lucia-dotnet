@@ -1,3 +1,6 @@
 [submodule "agent-framework"]
 	path = agent-framework
 	url = https://github.com/microsoft/agent-framework
+[submodule "a2a-dotnet"]
+	path = a2a-dotnet
+	url = https://github.com/a2aproject/a2a-dotnet.git

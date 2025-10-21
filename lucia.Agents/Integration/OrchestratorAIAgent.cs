@@ -61,6 +61,8 @@ internal sealed class OrchestratorAIAgent : AIAgent
         // Process through orchestrator
         var responseText = await _orchestrator.ProcessRequestAsync(
             userMessage.Text,
+            taskId: null,
+            sessionId: null,
             cancellationToken);
 
         // Create response message
@@ -103,6 +105,8 @@ internal sealed class OrchestratorAIAgent : AIAgent
         // TODO: Phase 4 - Implement true streaming through workflow pipeline
         var responseText = await _orchestrator.ProcessRequestAsync(
             userMessage.Text,
+            taskId: null,
+            sessionId: null,
             cancellationToken);
 
         // Create response message

@@ -14,6 +14,7 @@ using Azure.AI.Inference;
 using lucia.HomeAssistant.Services;
 using Microsoft.Agents.AI.Hosting;
 using OllamaSharp;
+using A2A;
 
 namespace lucia.Agents.Extensions;
 
@@ -173,6 +174,18 @@ public static class ServiceCollectionExtensions
 
         // Register Redis using Aspire client integration
         builder.AddRedisClient(connectionName: "redis");
+
+        // Register Redis task store (T037)
+        builder.Services.AddSingleton<ITaskStore, RedisTaskStore>();
+
+        // Register A2A TaskManager (T037)
+        builder.Services.AddSingleton<ITaskManager>(sp => 
+        {
+            var taskStore = sp.GetRequiredService<ITaskStore>();
+            var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
+            var httpClient = httpClientFactory.CreateClient("task-callbacks");
+            return new TaskManager(httpClient, taskStore);
+        });
 
         builder.Services.AddOptions<RouterExecutorOptions>();
         builder.Services.AddOptions<AgentExecutorWrapperOptions>();
