@@ -16,13 +16,16 @@ var embeddings = builder.AddAIModel("embeddings-model")
 
 var redis = builder.AddRedis("redis")
     .WithDataVolume()
-    .WithLifetime(ContainerLifetime.Persistent);
+    .WithLifetime(ContainerLifetime.Persistent)
+    .WithRedisInsight()
+    .WithContainerName("redis");
 
 var lucia = builder.AddProject<lucia_dotnet>("lucia-dotnet")
     .WithReference(embeddings)
     .WithReference(openAi)
     .WaitFor(embeddings)
     .WaitFor(openAi)
+    .WaitFor(redis)
     .WithUrlForEndpoint("https", url =>
         {
             url.DisplayText = "Scalar (HTTPS)";

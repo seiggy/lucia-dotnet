@@ -15,11 +15,51 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.DependencyInjection;
 using System.Runtime.CompilerServices;
+using StackExchange.Redis;
+using Testcontainers.Redis;
+using Xunit;
 
 namespace lucia.Tests.Orchestration;
 
-public sealed class LuciaOrchestratorTests : TestBase
+public sealed class LuciaOrchestratorTests : TestBase, IAsyncLifetime
 {
+    private RedisContainer? _redisContainer;
+    private IConnectionMultiplexer? _redis;
+    private ITaskManager _taskManager = null!;
+
+    public async Task InitializeAsync()
+    {
+        // Start Redis container using Testcontainers
+        _redisContainer = new RedisBuilder()
+            .WithImage("redis:7-alpine")
+            .Build();
+
+        await _redisContainer.StartAsync();
+
+        // Connect to the containerized Redis instance
+        var connectionString = _redisContainer.GetConnectionString();
+        _redis = await ConnectionMultiplexer.ConnectAsync(connectionString);
+
+        // Create real TaskStore and A2A's TaskManager for integration testing
+        var taskStore = new lucia.Agents.Services.RedisTaskStore(_redis);
+        var httpClient = new HttpClient();
+        _taskManager = new TaskManager(httpClient, taskStore);
+    }
+
+    public async Task DisposeAsync()
+    {
+        if (_redis != null)
+        {
+            await _redis.CloseAsync();
+            _redis.Dispose();
+        }
+
+        if (_redisContainer != null)
+        {
+            await _redisContainer.DisposeAsync();
+        }
+    }
+
     [Fact]
     public async Task ProcessRequestAsync_RoutesToSelectedAgentAndReturnsAggregatedResponse()
     {
@@ -71,7 +111,7 @@ public sealed class LuciaOrchestratorTests : TestBase
             TimeProvider.System);
 
         // Act
-        var response = await orchestrator.ProcessRequestAsync(userRequest, CancellationToken.None);
+        var response = await orchestrator.ProcessRequestAsync(userRequest, cancellationToken: CancellationToken.None);
 
         // Assert
         Assert.Equal(agentResponseText, response);
@@ -132,7 +172,7 @@ public sealed class LuciaOrchestratorTests : TestBase
             TimeProvider.System);
 
         // Act
-        var response = await orchestrator.ProcessRequestAsync("Play some jazz", CancellationToken.None);
+        var response = await orchestrator.ProcessRequestAsync("Play some jazz", cancellationToken: CancellationToken.None);
 
         // Assert
         Assert.Contains(fallbackMessagePrefix, response, StringComparison.OrdinalIgnoreCase);
@@ -158,7 +198,7 @@ public sealed class LuciaOrchestratorTests : TestBase
             TimeProvider.System);
 
         // Act & Assert
-        var response = await orchestrator.ProcessRequestAsync("", CancellationToken.None);
+        var response = await orchestrator.ProcessRequestAsync("", cancellationToken: CancellationToken.None);
         Assert.Contains("error", response, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -181,7 +221,7 @@ public sealed class LuciaOrchestratorTests : TestBase
             TimeProvider.System);
 
         // Act
-        var response = await orchestrator.ProcessRequestAsync("Do something", CancellationToken.None);
+        var response = await orchestrator.ProcessRequestAsync("Do something", cancellationToken: CancellationToken.None);
 
         // Assert
         Assert.Contains("don't have any specialized agents available", response, StringComparison.OrdinalIgnoreCase);
@@ -244,7 +284,7 @@ public sealed class LuciaOrchestratorTests : TestBase
             TimeProvider.System);
 
         // Act
-        var response = await orchestrator.ProcessRequestAsync("Set up the room", CancellationToken.None);
+        var response = await orchestrator.ProcessRequestAsync("Set up the room", cancellationToken: CancellationToken.None);
 
         // Assert
         Assert.Contains("Lights adjusted", response, StringComparison.OrdinalIgnoreCase);
@@ -296,7 +336,7 @@ public sealed class LuciaOrchestratorTests : TestBase
             TimeProvider.System);
 
         // Act
-        var response = await orchestrator.ProcessRequestAsync("Take your time", CancellationToken.None);
+        var response = await orchestrator.ProcessRequestAsync("Take your time", cancellationToken: CancellationToken.None);
 
         // Assert
         Assert.Contains("timed out", response, StringComparison.OrdinalIgnoreCase);
@@ -400,7 +440,7 @@ public sealed class LuciaOrchestratorTests : TestBase
             TimeProvider.System);
 
         // Act
-        var response = await orchestrator.ProcessRequestAsync("Check security system", CancellationToken.None);
+        var response = await orchestrator.ProcessRequestAsync("Check security system", cancellationToken: CancellationToken.None);
 
         // Assert
         // Should not throw - TaskManager will handle the remote call
@@ -452,7 +492,7 @@ public sealed class LuciaOrchestratorTests : TestBase
             TimeProvider.System);
 
         // Act
-        var response = await orchestrator.ProcessRequestAsync("Adjust room settings", CancellationToken.None);
+        var response = await orchestrator.ProcessRequestAsync("Adjust room settings", cancellationToken: CancellationToken.None);
 
         // Assert
         Assert.Contains("Lights controlled locally", response, StringComparison.OrdinalIgnoreCase);
@@ -506,13 +546,13 @@ public sealed class LuciaOrchestratorTests : TestBase
             TimeProvider.System);
 
         // Act
-        var response = await orchestrator.ProcessRequestAsync("Test request", cts.Token);
+        var response = await orchestrator.ProcessRequestAsync("Test request", cancellationToken: cts.Token);
 
         // Assert
         Assert.Contains("error", response, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static LuciaOrchestrator CreateOrchestrator(
+    private LuciaOrchestrator CreateOrchestrator(
         IChatClient chatClient,
         AgentRegistry registry,
         AgentCatalog agentCatalog,
@@ -536,6 +576,11 @@ public sealed class LuciaOrchestratorTests : TestBase
 
         var provider = services.BuildServiceProvider();
 
+        // Create real TaskStore and A2A's TaskManager using the Testcontainers Redis instance
+        var taskStore = new lucia.Agents.Services.RedisTaskStore(_redis!);
+        var httpClient = new HttpClient();
+        var taskManager = new TaskManager(httpClient, taskStore);
+
         return new LuciaOrchestrator(
             chatClient,
             registry,
@@ -547,7 +592,8 @@ public sealed class LuciaOrchestratorTests : TestBase
             routerOptions,
             wrapperOptions,
             aggregatorOptions,
-            timeProvider);
+            timeProvider,
+            taskManager);
     }
 
     private static ChatResponse CreateRouterResponse(AgentChoiceResult choice)

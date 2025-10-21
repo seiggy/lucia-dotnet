@@ -32,7 +32,7 @@ public class LuciaOrchestrator
     private readonly IOptions<AgentExecutorWrapperOptions> _wrapperOptions;
     private readonly IOptions<ResultAggregatorOptions> _aggregatorOptions;
     private readonly TimeProvider _timeProvider;
-    private readonly TaskManager _taskManager;
+    private readonly ITaskManager _taskManager;
 
     public LuciaOrchestrator(
         IChatClient chatClient,
@@ -45,7 +45,8 @@ public class LuciaOrchestrator
         IOptions<RouterExecutorOptions> routerOptions,
         IOptions<AgentExecutorWrapperOptions> wrapperOptions,
         IOptions<ResultAggregatorOptions> aggregatorOptions,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        ITaskManager taskManager)
     {
         _chatClient = chatClient ?? throw new ArgumentNullException(nameof(chatClient));
         _agentRegistry = agentRegistry;
@@ -58,7 +59,7 @@ public class LuciaOrchestrator
         _wrapperOptions = wrapperOptions ?? throw new ArgumentNullException(nameof(wrapperOptions));
         _aggregatorOptions = aggregatorOptions ?? throw new ArgumentNullException(nameof(aggregatorOptions));
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
-        _taskManager = new TaskManager();
+        _taskManager = taskManager ?? throw new ArgumentNullException(nameof(taskManager));
 
         _httpClientFactory = httpClientFactory;
     }
@@ -66,9 +67,19 @@ public class LuciaOrchestrator
     /// <summary>
     /// Process a user request through the MagenticOne multi-agent system
     /// </summary>
-    public async Task<string> ProcessRequestAsync(string userRequest, CancellationToken cancellationToken = default)
+    /// <param name="userRequest">The user's request message</param>
+    /// <param name="taskId">Optional task ID for conversation continuity</param>
+    /// <param name="sessionId">Optional session ID for grouping related tasks</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>The orchestrated response from the agent system</returns>
+    public async Task<string> ProcessRequestAsync(
+        string userRequest, 
+        string? taskId = null,
+        string? sessionId = null,
+        CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Processing user request: {Request}", userRequest);
+        _logger.LogInformation("Processing user request: {Request} (TaskId: {TaskId}, SessionId: {SessionId})", 
+            userRequest, taskId ?? "new", sessionId ?? "new");
 
         try
         {
@@ -76,6 +87,54 @@ public class LuciaOrchestrator
             {
                 throw new ArgumentException("User request cannot be empty.", nameof(userRequest));
             }
+
+            // Load or create AgentTask for durable persistence (T038 - US4)
+            AgentTask agentTask;
+            if (!string.IsNullOrWhiteSpace(taskId))
+            {
+                var taskQueryParams = new TaskQueryParams { Id = taskId };
+                var existingTask = await _taskManager.GetTaskAsync(taskQueryParams, cancellationToken).ConfigureAwait(false);
+                
+                if (existingTask != null)
+                {
+                    _logger.LogInformation("Loaded existing task {TaskId} with {HistoryCount} history items", 
+                        existingTask.Id, existingTask.History?.Count ?? 0);
+                    agentTask = existingTask;
+                }
+                else
+                {
+                    _logger.LogWarning("Task {TaskId} not found, creating new task", taskId);
+                    agentTask = await _taskManager.CreateTaskAsync(sessionId, taskId, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            else
+            {
+                // Create new task
+                agentTask = await _taskManager.CreateTaskAsync(sessionId, taskId: null, cancellationToken).ConfigureAwait(false);
+                _logger.LogInformation("Created new task {TaskId} with context {ContextId}", 
+                    agentTask.Id, agentTask.ContextId);
+            }
+
+            // Add user message to task history
+            var userMessage = new AgentMessage
+            {
+                Role = MessageRole.User,
+                MessageId = Guid.NewGuid().ToString("N"),
+                TaskId = agentTask.Id,
+                ContextId = agentTask.ContextId,
+                Parts = new List<Part> { new TextPart { Text = userRequest } }
+            };
+            
+            agentTask.History ??= new List<AgentMessage>();
+            agentTask.History.Add(userMessage);
+
+            // Update task status to working
+            await _taskManager.UpdateStatusAsync(
+                agentTask.Id, 
+                TaskState.Working, 
+                message: null, 
+                final: false, 
+                cancellationToken).ConfigureAwait(false);
 
             var availableAgentCards = await _agentRegistry
                 .GetAgentsAsync(cancellationToken)
@@ -85,7 +144,26 @@ public class LuciaOrchestrator
             if (availableAgentCards.Count == 0)
             {
                 _logger.LogWarning("No agents available to process request");
-                return "I don't have any specialized agents available right now. Please try again later.";
+                var noAgentsMessage = "I don't have any specialized agents available right now. Please try again later.";
+                
+                // Update task status to failed
+                var errorMessage = new AgentMessage
+                {
+                    Role = MessageRole.Agent,
+                    MessageId = Guid.NewGuid().ToString("N"),
+                    TaskId = agentTask.Id,
+                    ContextId = agentTask.ContextId,
+                    Parts = new List<Part> { new TextPart { Text = noAgentsMessage } }
+                };
+                
+                await _taskManager.UpdateStatusAsync(
+                    agentTask.Id,
+                    TaskState.Failed,
+                    message: errorMessage,
+                    final: true,
+                    cancellationToken).ConfigureAwait(false);
+                
+                return noAgentsMessage;
             }
 
             var aiAgents = await _agentCatalog
@@ -97,7 +175,26 @@ public class LuciaOrchestrator
             if (wrappers.Count == 0)
             {
                 _logger.LogWarning("Unable to build any agent executor wrappers. Falling back to aggregator message.");
-                return _aggregatorOptions.Value.DefaultFallbackMessage;
+                var fallbackMessage = _aggregatorOptions.Value.DefaultFallbackMessage;
+                
+                // Update task status to failed
+                var errorMessage = new AgentMessage
+                {
+                    Role = MessageRole.Agent,
+                    MessageId = Guid.NewGuid().ToString("N"),
+                    TaskId = agentTask.Id,
+                    ContextId = agentTask.ContextId,
+                    Parts = new List<Part> { new TextPart { Text = fallbackMessage } }
+                };
+                
+                await _taskManager.UpdateStatusAsync(
+                    agentTask.Id,
+                    TaskState.Failed,
+                    message: errorMessage,
+                    final: true,
+                    cancellationToken).ConfigureAwait(false);
+                
+                return fallbackMessage;
             }
 
             var routerLogger = _loggerFactory.CreateLogger<RouterExecutor>();
@@ -121,11 +218,70 @@ public class LuciaOrchestrator
 
             var result = await ExecuteWorkflowAsync(workflow, chatMessage, cancellationToken).ConfigureAwait(false);
 
-            return result ?? _aggregatorOptions.Value.DefaultFallbackMessage;
+            var finalResult = result ?? _aggregatorOptions.Value.DefaultFallbackMessage;
+
+            // Add assistant response to task history and update status to completed (T038 - US4)
+            var assistantMessage = new AgentMessage
+            {
+                Role = MessageRole.Agent,
+                MessageId = Guid.NewGuid().ToString("N"),
+                TaskId = agentTask.Id,
+                ContextId = agentTask.ContextId,
+                Parts = new List<Part> { new TextPart { Text = finalResult } }
+            };
+
+            agentTask.History.Add(assistantMessage);
+
+            await _taskManager.UpdateStatusAsync(
+                agentTask.Id,
+                TaskState.Completed,
+                message: assistantMessage,
+                final: true,
+                cancellationToken).ConfigureAwait(false);
+
+            _logger.LogInformation("Task {TaskId} completed successfully with {HistoryCount} history items",
+                agentTask.Id, agentTask.History.Count);
+
+            return finalResult;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error processing user request: {Request}", userRequest);
+            
+            // Try to update task status to failed
+            try
+            {
+                // If agentTask was initialized, update its status
+                if (taskId != null || sessionId != null)
+                {
+                    // Try to determine the taskId from the parameters or create emergency task
+                    var failedTaskId = taskId ?? Guid.NewGuid().ToString();
+                    var failedContextId = sessionId ?? Guid.NewGuid().ToString();
+                    
+                    var errorMessage = new AgentMessage
+                    {
+                        Role = MessageRole.Agent,
+                        MessageId = Guid.NewGuid().ToString("N"),
+                        TaskId = failedTaskId,
+                        ContextId = failedContextId,
+                        Parts = new List<Part> { new TextPart { Text = "I encountered an error while processing your request. Please try again." } }
+                    };
+                    
+                    await _taskManager.UpdateStatusAsync(
+                        failedTaskId,
+                        TaskState.Failed,
+                        message: errorMessage,
+                        final: true,
+                        cancellationToken).ConfigureAwait(false);
+                    
+                    _logger.LogInformation("Task {TaskId} marked as failed", failedTaskId);
+                }
+            }
+            catch (Exception taskEx)
+            {
+                _logger.LogError(taskEx, "Failed to update task status to Failed");
+            }
+
             return "I encountered an error while processing your request. Please try again.";
         }
     }

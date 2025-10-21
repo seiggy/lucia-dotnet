@@ -228,7 +228,7 @@ public static class AgentRegistryApi
         try
         {
             // Process the message through the orchestrator
-            var response = await orchestrator.ProcessRequestAsync(textContent, cancellationToken);
+            var response = await orchestrator.ProcessRequestAsync(textContent, taskId: null, sessionId: null, cancellationToken);
 
             // Generate response IDs
             var messageId = Guid.NewGuid().ToString();

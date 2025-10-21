@@ -91,16 +91,32 @@ public class HomeAssistantErrorHandlingTests
     public async Task GetStatesAsync_WithInvalidUrl_ShouldThrowHttpRequestException()
     {
         // Act & Assert
-        await Assert.ThrowsAsync<HttpRequestException>(
+        // When connecting to a nonexistent domain, the HttpClient times out after 5 seconds
+        // This can throw either TaskCanceledException or HttpRequestException depending on timing
+        var exception = await Record.ExceptionAsync(
             () => _clientWithInvalidUrl.GetStatesAsync());
+
+        // Verify it's a timeout-related exception
+        Assert.NotNull(exception);
+        Assert.True(
+            exception is HttpRequestException || exception is TaskCanceledException,
+            $"Expected HttpRequestException or TaskCanceledException, but got {exception.GetType().Name}");
     }
 
     [Fact]
     public async Task GetStateAsync_WithInvalidUrl_ShouldThrowHttpRequestException()
     {
         // Act & Assert
-        await Assert.ThrowsAsync<HttpRequestException>(
+        // When connecting to a nonexistent domain, the HttpClient times out after 5 seconds
+        // This can throw either TaskCanceledException or HttpRequestException depending on timing
+        var exception = await Record.ExceptionAsync(
             () => _clientWithInvalidUrl.GetStateAsync("sensor.time"));
+
+        // Verify it's a timeout-related exception
+        Assert.NotNull(exception);
+        Assert.True(
+            exception is HttpRequestException || exception is TaskCanceledException,
+            $"Expected HttpRequestException or TaskCanceledException, but got {exception.GetType().Name}");
     }
 
     [Fact]
