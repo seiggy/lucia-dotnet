@@ -54,6 +54,7 @@ public sealed class ContextPreservingHandoffsTests : TestBase
         };
 
         var registry = new StaticAgentRegistry(agentCards);
+
         _contextExtractor = new ContextExtractor(registry);
     }
 

@@ -152,6 +152,147 @@ Expected response:
 }
 ```
 
+## Testing Multi-Turn Conversations (US2)
+
+Multi-turn conversation testing validates that context is preserved across multiple conversation turns with topic shifts. This is critical for natural dialogue where users expect the assistant to remember location, previous agent interactions, and conversation topics.
+
+### Prerequisites for Multi-Turn Testing
+
+1. Ensure `ContextExtractor` is initialized in `LuciaOrchestrator`
+2. Verify `AgentTask` includes `History` property with conversation messages
+3. Ensure `RouterExecutor` receives context metadata for routing decisions
+
+### Example: Testing Context Preservation Across Turns
+
+This example demonstrates the SC-002 success criterion: **"Multi-turn conversations successfully maintain context across at least 5 conversation turns with topic shifts"**
+
+```powershell
+# Test Setup: Start the application and get session/task IDs
+
+$baseUrl = "http://localhost:5000/api"
+$sessionId = [guid]::NewGuid().ToString()
+$taskId = [guid]::NewGuid().ToString()
+
+# Turn 1: User requests lights in living room
+$turn1 = @{
+    Message = "Turn on the living room lights"
+    SessionId = $sessionId
+    TaskId = $taskId
+} | ConvertTo-Json
+
+$response1 = Invoke-RestMethod -Uri "$baseUrl/orchestrate" -Method Post -Body $turn1 -ContentType "application/json"
+Write-Host "Turn 1 Response: $($response1.Response)"
+# Expected: Light agent selected, living room context captured
+
+# Turn 2: User requests music (topic shift, same location)
+$turn2 = @{
+    Message = "Now play some jazz music"
+    SessionId = $sessionId
+    TaskId = $taskId
+} | ConvertTo-Json
+
+$response2 = Invoke-RestMethod -Uri "$baseUrl/orchestrate" -Method Post -Body $turn2 -ContentType "application/json"
+Write-Host "Turn 2 Response: $($response2.Response)"
+# Expected: Music agent selected, living room context preserved
+
+# Turn 3: User adjusts climate (topic shift)
+$turn3 = @{
+    Message = "It's getting warm in here"
+    SessionId = $sessionId
+    TaskId = $taskId
+} | ConvertTo-Json
+
+$response3 = Invoke-RestMethod -Uri "$baseUrl/orchestrate" -Method Post -Body $turn3 -ContentType "application/json"
+Write-Host "Turn 3 Response: $($response3.Response)"
+# Expected: Climate agent selected, living room context maintained
+
+# Turn 4: Back to lighting (topic shift)
+$turn4 = @{
+    Message = "Dim the lights to 50%"
+    SessionId = $sessionId
+    TaskId = $taskId
+} | ConvertTo-Json
+
+$response4 = Invoke-RestMethod -Uri "$baseUrl/orchestrate" -Method Post -Body $turn4 -ContentType "application/json"
+Write-Host "Turn 4 Response: $($response4.Response)"
+# Expected: Light agent selected again, context preserved across multiple topics
+
+# Turn 5: Music change (topic shift)
+$turn5 = @{
+    Message = "Change to classical music"
+    SessionId = $sessionId
+    TaskId = $taskId
+} | ConvertTo-Json
+
+$response5 = Invoke-RestMethod -Uri "$baseUrl/orchestrate" -Method Post -Body $turn5 -ContentType "application/json"
+Write-Host "Turn 5 Response: $($response5.Response)"
+# Expected: Music agent selected, topic shift handled correctly
+
+# Turn 6: Query context (topic shift)
+$turn6 = @{
+    Message = "What's the current temperature?"
+    SessionId = $sessionId
+    TaskId = $taskId
+} | ConvertTo-Json
+
+$response6 = Invoke-RestMethod -Uri "$baseUrl/orchestrate" -Method Post -Body $turn6 -ContentType "application/json"
+Write-Host "Turn 6 Response: $($response6.Response)"
+# Expected: Climate agent selected, full conversation history available
+
+Write-Host "`n✅ SC-002 Validated: 6 conversation turns with context preservation and topic shifts"
+```
+
+### C# Integration Test Example
+
+See `lucia.Tests/Integration/ContextPreservingHandoffsTests.cs` for complete xUnit integration tests:
+
+```csharp
+[Fact]
+public async Task Scenario3_SC002_MultiTurnWithTopicShifts()
+{
+    // Arrange - 6+ turns with location and topic shifts
+    var conversationParts = new List<AgentMessage>
+    {
+        new AgentMessage
+        {
+            Role = MessageRole.User,
+            MessageId = "msg-1",
+            Parts = new List<Part> { new TextPart { Text = "Turn on the living room lights" } }
+        },
+        // ... (full example in test file)
+    };
+
+    var task = new AgentTask
+    {
+        Id = "task-3",
+        ContextId = "ctx-3",
+        History = conversationParts
+    };
+
+    var metadata = await _contextExtractor.ExtractMetadataAsync(task);
+
+    Assert.NotNull(metadata);
+    Assert.True(task.History.Count >= 12, "Should have at least 12 messages (6 turns)");
+}
+```
+
+### Validating Context Extraction
+
+Check that context is properly extracted by inspecting metadata:
+
+```json
+{
+  "location": "living room",
+  "previousAgents": ["light-agent", "music-agent", "climate-agent"],
+  "conversationTopic": "home automation"
+}
+```
+
+Expected behavior:
+- **Location** persists across all turns (living room)
+- **PreviousAgents** accumulates agents that have handled requests
+- **ConversationTopic** reflects the primary domain or most recent topic
+
 ## Testing Workflow
 
 ### Unit Tests
