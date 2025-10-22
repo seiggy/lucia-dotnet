@@ -87,7 +87,7 @@ public sealed class AgentExecutorWrapper : ReflectingExecutor<AgentExecutorWrapp
 
             if (_agent is null && _agentCard is not null)
             {
-                result = await InvokeRemoteAsync(message, conversationId, taskId, linkedCts.Token).ConfigureAwait(false);
+                result = await InvokeRemoteAsync(message, conversationId, taskId, orchestrationContext, linkedCts.Token).ConfigureAwait(false);
             }
             else
             {
@@ -160,8 +160,11 @@ public sealed class AgentExecutorWrapper : ReflectingExecutor<AgentExecutorWrapp
         var agent = ResolveAgent();
         var thread = EnsureThread(agent, orchestrationContext);
 
-    var runTask = agent.RunAsync(message, thread, options: null, cancellationToken);
-    var response = await runTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+        // Inject context metadata into the message for context-aware agent processing
+        var contextualMessage = InjectContextMetadata(message, orchestrationContext);
+
+        var runTask = agent.RunAsync(contextualMessage, thread, options: null, cancellationToken);
+        var response = await runTask.WaitAsync(cancellationToken).ConfigureAwait(false);
 
         orchestrationContext.AgentThreads[_agentId] = thread;
         AppendHistory(orchestrationContext, message, response.Messages);
@@ -169,27 +172,36 @@ public sealed class AgentExecutorWrapper : ReflectingExecutor<AgentExecutorWrapp
         return (true, response.Text, null);
     }
 
-    private async Task<(bool success, string content, string? error)> InvokeRemoteAsync(ChatMessage message, string conversationId, string? taskId, CancellationToken cancellationToken)
+    private async Task<(bool success, string content, string? error)> InvokeRemoteAsync(ChatMessage message, string conversationId, string? taskId, OrchestrationContext? orchestrationContext, CancellationToken cancellationToken)
     {
         if (_taskManager is null || _agentCard is null)
         {
             throw new InvalidOperationException("Remote execution is not configured.");
         }
 
+        // Build A2A message with context metadata
+        var agentMessage = new AgentMessage
+        {
+            Role = MessageRole.User,
+            MessageId = Guid.NewGuid().ToString("N"),
+            TaskId = taskId,
+            ContextId = conversationId,
+            Parts =
+            [
+                new TextPart { Text = ExtractText(message) }
+            ],
+            Extensions = _agentCard.Url is { Length: > 0 } url ? new List<string> { url } : null
+        };
+
+        // Inject context metadata if orchestration context is available
+        if (orchestrationContext is not null)
+        {
+            InjectContextMetadataToA2A(agentMessage, orchestrationContext);
+        }
+
         var sendParams = new MessageSendParams
         {
-            Message = new AgentMessage
-            {
-                Role = MessageRole.User,
-                MessageId = Guid.NewGuid().ToString("N"),
-                TaskId = taskId,
-                ContextId = conversationId,
-                Parts =
-                [
-                    new TextPart { Text = ExtractText(message) }
-                ],
-                Extensions = _agentCard.Url is { Length: > 0 } url ? new List<string> { url } : null
-            }
+            Message = agentMessage
         };
 
         var sendTask = _taskManager.SendMessageAsync(sendParams, cancellationToken);
@@ -198,7 +210,7 @@ public sealed class AgentExecutorWrapper : ReflectingExecutor<AgentExecutorWrapp
         return response switch
         {
             AgentTask task => MapTaskToResult(task),
-            AgentMessage agentMessage => (true, ExtractText(agentMessage) ?? string.Empty, null),
+            AgentMessage agentMessageResponse => (true, ExtractText(agentMessageResponse) ?? string.Empty, null),
             null => (false, string.Empty, "Remote agent returned no response."),
             _ => (false, string.Empty, "Unsupported remote response type.")
         };
@@ -314,4 +326,51 @@ public sealed class AgentExecutorWrapper : ReflectingExecutor<AgentExecutorWrapp
         cts.CancelAfter(_options.Timeout);
         return cts;
     }
+
+    /// <summary>
+    /// Injects context metadata from orchestration context into the ChatMessage for context-aware agent processing.
+    /// </summary>
+    private static ChatMessage InjectContextMetadata(ChatMessage message, OrchestrationContext orchestrationContext)
+    {
+        // For local agents, the message metadata can be extended if needed
+        // Currently, local agents receive context through thread history preservation
+        // This is a hook for future enhancement if metadata passing is needed
+        return message;
+    }
+
+    /// <summary>
+    /// Injects context metadata from orchestration context into the A2A AgentMessage for remote agent processing.
+    /// </summary>
+    private static void InjectContextMetadataToA2A(AgentMessage message, OrchestrationContext orchestrationContext)
+    {
+        if (message.Metadata is null)
+        {
+            message.Metadata = new Dictionary<string, string>();
+        }
+
+        // Inject location context if available from previous agent context
+        if (!string.IsNullOrWhiteSpace(orchestrationContext.Location))
+        {
+            message.Metadata["location"] = orchestrationContext.Location;
+        }
+
+        // Inject previous agent selections for context-aware routing
+        if (!string.IsNullOrWhiteSpace(orchestrationContext.PreviousAgentId))
+        {
+            message.Metadata["previousAgent"] = orchestrationContext.PreviousAgentId;
+        }
+
+        // Inject conversation topic if available
+        if (!string.IsNullOrWhiteSpace(orchestrationContext.ConversationTopic))
+        {
+            message.Metadata["conversationTopic"] = orchestrationContext.ConversationTopic;
+        }
+
+        // Inject conversation ID for correlation
+        if (!string.IsNullOrWhiteSpace(orchestrationContext.ConversationId))
+        {
+            message.Metadata["conversationId"] = orchestrationContext.ConversationId;
+        }
+    }
 }
+
