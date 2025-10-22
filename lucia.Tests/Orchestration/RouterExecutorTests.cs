@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using A2A;
 using FakeItEasy;
 using lucia.Agents.Orchestration;
 using lucia.Agents.Orchestration.Models;
@@ -459,8 +460,18 @@ public class RouterExecutorTests : TestBase
             Id = "task-123",
             History = new()
             {
-                new ChatMessage(ChatRole.User, "Turn on the bedroom lamp"),
-                new ChatMessage(ChatRole.Assistant, "I've turned on the bedroom lamp.")
+                new AgentMessage
+                {
+                    Role = MessageRole.User,
+                    MessageId = "msg-1",
+                    Parts = new List<Part> { new TextPart { Text = "Turn on the bedroom lamp" } }
+                },
+                new AgentMessage
+                {
+                    Role = MessageRole.Agent,
+                    MessageId = "msg-2",
+                    Parts = new List<Part> { new TextPart { Text = "I've turned on the bedroom lamp." } }
+                }
             },
             Metadata = new()
             {
@@ -516,7 +527,12 @@ public class RouterExecutorTests : TestBase
             Id = "task-456",
             History = new()
             {
-                new ChatMessage(ChatRole.User, "What devices are in this room?")
+                new AgentMessage
+                {
+                    Role = MessageRole.User,
+                    MessageId = "msg-1",
+                    Parts = new List<Part> { new TextPart { Text = "What devices are in this room?" } }
+                }
             },
             Metadata = new()
             {
@@ -570,9 +586,24 @@ public class RouterExecutorTests : TestBase
             Id = "task-789",
             History = new()
             {
-                new ChatMessage(ChatRole.User, "Turn on the lights"),
-                new ChatMessage(ChatRole.Assistant, "Lights are on"),
-                new ChatMessage(ChatRole.User, "Play some music")
+                new AgentMessage
+                {
+                    Role = MessageRole.User,
+                    MessageId = "msg-1",
+                    Parts = new List<Part> { new TextPart { Text = "Turn on the lights" } }
+                },
+                new AgentMessage
+                {
+                    Role = MessageRole.Agent,
+                    MessageId = "msg-2",
+                    Parts = new List<Part> { new TextPart { Text = "Lights are on" } }
+                },
+                new AgentMessage
+                {
+                    Role = MessageRole.User,
+                    MessageId = "msg-3",
+                    Parts = new List<Part> { new TextPart { Text = "Play some music" } }
+                }
             },
             Metadata = new()
             {
@@ -624,10 +655,30 @@ public class RouterExecutorTests : TestBase
             Id = "task-abc",
             History = new()
             {
-                new ChatMessage(ChatRole.User, "Turn on the lights"),
-                new ChatMessage(ChatRole.Assistant, "Lights are on"),
-                new ChatMessage(ChatRole.User, "Increase brightness"),
-                new ChatMessage(ChatRole.Assistant, "Brightness increased to 80%")
+                new AgentMessage
+                {
+                    Role = MessageRole.User,
+                    MessageId = "msg-1",
+                    Parts = new List<Part> { new TextPart { Text = "Turn on the lights" } }
+                },
+                new AgentMessage
+                {
+                    Role = MessageRole.Agent,
+                    MessageId = "msg-2",
+                    Parts = new List<Part> { new TextPart { Text = "Lights are on" } }
+                },
+                new AgentMessage
+                {
+                    Role = MessageRole.User,
+                    MessageId = "msg-3",
+                    Parts = new List<Part> { new TextPart { Text = "Increase brightness" } }
+                },
+                new AgentMessage
+                {
+                    Role = MessageRole.Agent,
+                    MessageId = "msg-4",
+                    Parts = new List<Part> { new TextPart { Text = "Brightness increased to 80%" } }
+                }
             },
             Metadata = new()
             {
