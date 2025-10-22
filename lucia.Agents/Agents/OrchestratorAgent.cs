@@ -44,7 +44,7 @@ public class OrchestratorAgent
         {
             Url = "/a2a/orchestrator",
             Name = "orchestrator",
-            Description = "Intelligent orchestrator that routes requests to specialized agents based on intent and capabilities",
+            Description = "Intelligent #orchestrator that #routes requests to specialized agents based on intent and capabilities",
             Capabilities = new AgentCapabilities
             {
                 PushNotifications = true,
