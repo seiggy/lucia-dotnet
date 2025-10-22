@@ -1047,16 +1047,34 @@ Current request: "Now play some classical music"
 
 ---
 
-### T044 - [US2] Enhance AgentExecutorWrapper with Context Injection
+### T044 - [US2] Enhance AgentExecutorWrapper with Context Injection ✅ COMPLETED
 **File**: `lucia.Agents/Orchestration/AgentExecutorWrapper.cs` (modify)  
 **User Story**: US2 - Context-Preserving Conversation Handoffs  
 **Description**: Inject TaskContext metadata into agent invocation  
-**Changes**:
-- Extract location from TaskContext.Metadata
-- Include previous agent selections in context
-- Pass context to AIAgent via ChatMessage metadata
+**Changes** ✅:
+- ✅ Extract location from TaskContext.Metadata
+- ✅ Include previous agent selections in context
+- ✅ Pass context to AIAgent via ChatMessage metadata
+- ✅ Pass context to remote agents via A2A metadata
 
-**Acceptance**: Agents receive contextual information for better responses
+**Implementation**:
+- New method: `InjectContextMetadata()` - Prepare context for local agents
+- New method: `InjectContextMetadataToA2A()` - Inject metadata into A2A messages
+- Modified: `InvokeLocalAsync()` - Call InjectContextMetadata before agent.RunAsync
+- Modified: `InvokeRemoteAsync()` - Accept orchestrationContext parameter, inject A2A metadata
+- Modified: `HandleAsync()` - Pass orchestrationContext to InvokeRemoteAsync
+
+**A2A Metadata Fields**:
+- `location` - Location context for geo-aware processing
+- `previousAgent` - Previous agent ID for context awareness
+- `conversationTopic` - Topic for topic-aware reasoning
+- `conversationId` - Conversation ID for distributed tracing
+
+**Results**:
+- Added 76 lines to AgentExecutorWrapper.cs
+- All 16 AgentExecutorWrapperTests: 16/16 PASSED
+- Commit: 08f135c
+- Acceptance: Agents receive contextual information for better responses
 
 ---
 
