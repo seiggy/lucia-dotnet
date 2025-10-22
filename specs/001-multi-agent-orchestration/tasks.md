@@ -987,16 +987,25 @@ services.AddSingleton<ITaskManager>(sp =>
 **Independent Test**: "Turn on the bedroom lamp" → "Now play classical music" → music starts in bedroom  
 **Completion Criteria**: Context (location, previous requests) flows between agents via TaskContext
 
-### T041 - [US2] Enhance TaskContext with Context Metadata
+### T041 - [US2] Enhance TaskContext with Context Metadata ✅ COMPLETED
 **File**: `lucia.Agents/Models/TaskContext.cs` (modify)  
 **User Story**: US2 - Context-Preserving Conversation Handoffs  
 **Description**: Add context extraction to Metadata dictionary  
-**Metadata Keys**:
+**Metadata Keys** ✅:
 - `"location"`: Extracted location (e.g., "bedroom")
 - `"previousAgents"`: List of agent IDs in conversation
 - `"conversationTopic"`: Current topic/domain
 
-**Acceptance**: Context metadata serializes/deserializes correctly
+**Implementation** ✅:
+- Created ContextExtractor.cs with async ExtractMetadataAsync method
+- Created RoomConfiguration.cs with 20+ canonical room definitions
+- Created DomainCapabilitiesExtractor.cs for hashtag-based domain extraction
+- 23 comprehensive tests all passing
+
+**Results**:
+- Commit: b363e17
+- Tests: 23/23 PASSED
+- Acceptance: Context metadata serializes/deserializes correctly ✅
 
 ---
 
