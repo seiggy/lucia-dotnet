@@ -11,6 +11,7 @@ namespace lucia.Tests.Orchestration;
 
 /// <summary>
 /// Tests for ResultAggregatorExecutor response aggregation logic.
+/// Handles multiple agent responses in a single call for complete multi-agent coordination.
 /// </summary>
 public class ResultAggregatorExecutorTests : TestBase
 {
@@ -34,32 +35,31 @@ public class ResultAggregatorExecutorTests : TestBase
     }
 
     [Fact]
-    public async Task HandleAsync_ReturnsSingleAgentContent()
+    public async Task HandleAsync_WithSingleAgentResponse_ReturnsSingleAgentContent()
     {
         var executor = CreateExecutor();
         var context = new RecordingWorkflowContext();
-        var response = new AgentResponse
+        var responses = new List<AgentResponse>
         {
-            AgentId = "light-agent",
-            Content = "I've turned on the kitchen lights.",
-            Success = true,
-            ExecutionTimeMs = 120
+            new AgentResponse
+            {
+                AgentId = "light-agent",
+                Content = "I've turned on the kitchen lights.",
+                Success = true,
+                ExecutionTimeMs = 120
+            }
         };
 
-        var result = await executor.HandleAsync(response, context);
+        var result = await executor.HandleAsync(responses, context);
 
-        Assert.Equal(response.Content, result);
-
-        var stored = (ResultAggregationState?)context.State[(ResultAggregatorExecutor.StateScope, ResultAggregatorExecutor.StateKey)];
-        Assert.NotNull(stored);
-        Assert.True(stored!.Responses.ContainsKey("light-agent"));
+        Assert.Equal(responses[0].Content, result);
 
         var completed = context.Events.OfType<ExecutorCompletedEvent>().Last();
         var telemetry = Assert.IsType<AggregationResult>(completed.Data);
         Assert.Equal(result, telemetry.Message);
         Assert.Equal(new[] { "light-agent" }, telemetry.SuccessfulAgents);
         Assert.Empty(telemetry.FailedAgents);
-        Assert.Equal(response.ExecutionTimeMs, telemetry.TotalExecutionTimeMs);
+        Assert.Equal(responses[0].ExecutionTimeMs, telemetry.TotalExecutionTimeMs);
     }
 
     [Fact]
@@ -73,21 +73,25 @@ public class ResultAggregatorExecutorTests : TestBase
         var executor = CreateExecutor(options);
         var context = new RecordingWorkflowContext();
 
-        await executor.HandleAsync(new AgentResponse
+        var responses = new List<AgentResponse>
         {
-            AgentId = "music-agent",
-            Content = "Started playing relaxing jazz in the living room.",
-            Success = true,
-            ExecutionTimeMs = 210
-        }, context);
+            new AgentResponse
+            {
+                AgentId = "music-agent",
+                Content = "Started playing relaxing jazz in the living room.",
+                Success = true,
+                ExecutionTimeMs = 210
+            },
+            new AgentResponse
+            {
+                AgentId = "light-agent",
+                Content = "Dimmed the living room lights to 30%.",
+                Success = true,
+                ExecutionTimeMs = 95
+            }
+        };
 
-        var combined = await executor.HandleAsync(new AgentResponse
-        {
-            AgentId = "light-agent",
-            Content = "Dimmed the living room lights to 30%.",
-            Success = true,
-            ExecutionTimeMs = 95
-        }, context);
+        var combined = await executor.HandleAsync(responses, context);
 
         var lightIndex = combined.IndexOf("Dimmed the living room lights", StringComparison.Ordinal);
         var musicIndex = combined.IndexOf("Started playing relaxing jazz", StringComparison.Ordinal);
@@ -105,23 +109,26 @@ public class ResultAggregatorExecutorTests : TestBase
     {
         var executor = CreateExecutor();
         var context = new RecordingWorkflowContext();
-
-        await executor.HandleAsync(new AgentResponse
+        var responses = new List<AgentResponse>
         {
-            AgentId = "light-agent",
-            Content = "I've turned on the hallway lights.",
-            Success = true,
-            ExecutionTimeMs = 80
-        }, context);
+            new AgentResponse
+            {
+                AgentId = "light-agent",
+                Content = "I've turned on the hallway lights.",
+                Success = true,
+                ExecutionTimeMs = 80
+            },
+            new AgentResponse
+            {
+                AgentId = "music-agent",
+                Content = string.Empty,
+                Success = false,
+                ErrorMessage = "Speaker offline",
+                ExecutionTimeMs = 40
+            }
+        };
 
-        var combined = await executor.HandleAsync(new AgentResponse
-        {
-            AgentId = "music-agent",
-            Content = string.Empty,
-            Success = false,
-            ErrorMessage = "Speaker offline",
-            ExecutionTimeMs = 40
-        }, context);
+        var combined = await executor.HandleAsync(responses, context);
 
         Assert.Contains("However", combined, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Speaker offline", combined, StringComparison.OrdinalIgnoreCase);
@@ -141,20 +148,24 @@ public class ResultAggregatorExecutorTests : TestBase
         var executor = CreateExecutor();
         var context = new RecordingWorkflowContext();
 
-        await executor.HandleAsync(new AgentResponseBuilder()
-            .WithAgentId("light-agent")
-            .WithSuccess(false)
-            .WithErrorMessage("Light controller offline")
-            .WithExecutionTime(50)
-            .Build(), context);
+        var responses = new List<AgentResponse>
+        {
+            new AgentResponseBuilder()
+                .WithAgentId("light-agent")
+                .WithSuccess(false)
+                .WithErrorMessage("Light controller offline")
+                .WithExecutionTime(50)
+                .Build(),
+            new AgentResponseBuilder()
+                .WithAgentId("music-agent")
+                .WithSuccess(false)
+                .WithErrorMessage("Music service unavailable")
+                .WithExecutionTime(30)
+                .Build()
+        };
 
         // Act
-        var result = await executor.HandleAsync(new AgentResponseBuilder()
-            .WithAgentId("music-agent")
-            .WithSuccess(false)
-            .WithErrorMessage("Music service unavailable")
-            .WithExecutionTime(30)
-            .Build(), context);
+        var result = await executor.HandleAsync(responses, context);
 
         // Assert
         Assert.NotNull(result);
@@ -175,12 +186,17 @@ public class ResultAggregatorExecutorTests : TestBase
         var executor = CreateExecutor();
         var context = new RecordingWorkflowContext();
 
+        var responses = new List<AgentResponse>
+        {
+            new AgentResponseBuilder()
+                .WithAgentId("light-agent")
+                .WithContent(string.Empty)
+                .WithSuccess(true)
+                .Build()
+        };
+
         // Act
-        var result = await executor.HandleAsync(new AgentResponseBuilder()
-            .WithAgentId("light-agent")
-            .WithContent(string.Empty)
-            .WithSuccess(true)
-            .Build(), context);
+        var result = await executor.HandleAsync(responses, context);
 
         // Assert
         Assert.NotNull(result);
@@ -195,24 +211,27 @@ public class ResultAggregatorExecutorTests : TestBase
         var executor = CreateExecutor();
         var context = new RecordingWorkflowContext();
 
-        await executor.HandleAsync(new AgentResponseBuilder()
-            .WithAgentId("light-agent")
-            .WithSuccess(false)
-            .WithErrorMessage("Network timeout")
-            .Build(), context);
-
-        await executor.HandleAsync(new AgentResponseBuilder()
-            .WithAgentId("music-agent")
-            .WithSuccess(false)
-            .WithErrorMessage("Device not found")
-            .Build(), context);
+        var responses = new List<AgentResponse>
+        {
+            new AgentResponseBuilder()
+                .WithAgentId("light-agent")
+                .WithSuccess(false)
+                .WithErrorMessage("Network timeout")
+                .Build(),
+            new AgentResponseBuilder()
+                .WithAgentId("music-agent")
+                .WithSuccess(false)
+                .WithErrorMessage("Device not found")
+                .Build(),
+            new AgentResponseBuilder()
+                .WithAgentId("climate-agent")
+                .WithSuccess(false)
+                .WithErrorMessage("Permission denied")
+                .Build()
+        };
 
         // Act
-        var result = await executor.HandleAsync(new AgentResponseBuilder()
-            .WithAgentId("climate-agent")
-            .WithSuccess(false)
-            .WithErrorMessage("Permission denied")
-            .Build(), context);
+        var result = await executor.HandleAsync(responses, context);
 
         // Assert
         Assert.Contains("Network timeout", result);
@@ -224,37 +243,19 @@ public class ResultAggregatorExecutorTests : TestBase
     }
 
     [Fact]
-    public async Task HandleAsync_PreservesStateAcrossMultipleCalls()
+    public async Task HandleAsync_WithEmptyResponseList_ReturnsFallbackMessage()
     {
         // Arrange
         var executor = CreateExecutor();
         var context = new RecordingWorkflowContext();
+        var responses = new List<AgentResponse>();
 
-        // Act - First call
-        var firstResult = await executor.HandleAsync(new AgentResponseBuilder()
-            .WithAgentId("light-agent")
-            .WithContent("Lights on")
-            .WithSuccess(true)
-            .Build(), context);
+        // Act
+        var result = await executor.HandleAsync(responses, context);
 
-        // Verify state was stored
-        var state1 = (ResultAggregationState?)context.State[(ResultAggregatorExecutor.StateScope, ResultAggregatorExecutor.StateKey)];
-        Assert.NotNull(state1);
-        Assert.Single(state1!.Responses);
-
-        // Act - Second call
-        var secondResult = await executor.HandleAsync(new AgentResponseBuilder()
-            .WithAgentId("music-agent")
-            .WithContent("Music playing")
-            .WithSuccess(true)
-            .Build(), context);
-
-        // Assert - State accumulated
-        var state2 = (ResultAggregationState?)context.State[(ResultAggregatorExecutor.StateScope, ResultAggregatorExecutor.StateKey)];
-        Assert.NotNull(state2);
-        Assert.Equal(2, state2!.Responses.Count);
-        Assert.Contains("light-agent", state2.Responses.Keys);
-        Assert.Contains("music-agent", state2.Responses.Keys);
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(_options.DefaultFallbackMessage, result);
     }
 
     [Fact]
@@ -264,13 +265,18 @@ public class ResultAggregatorExecutorTests : TestBase
         var executor = CreateExecutor();
         var context = new RecordingWorkflowContext();
 
+        var responses = new List<AgentResponse>
+        {
+            new AgentResponseBuilder()
+                .WithAgentId("light-agent")
+                .WithContent("Success")
+                .WithSuccess(true)
+                .WithExecutionTime(100)
+                .Build()
+        };
+
         // Act
-        await executor.HandleAsync(new AgentResponseBuilder()
-            .WithAgentId("light-agent")
-            .WithContent("Success")
-            .WithSuccess(true)
-            .WithExecutionTime(100)
-            .Build(), context);
+        await executor.HandleAsync(responses, context);
 
         // Assert
         var invokedEvents = context.Events.OfType<ExecutorInvokedEvent>().ToList();
@@ -295,13 +301,18 @@ public class ResultAggregatorExecutorTests : TestBase
         var executor = CreateExecutor();
         var context = new RecordingWorkflowContext();
 
+        var responses = new List<AgentResponse>
+        {
+            new AgentResponseBuilder()
+                .WithAgentId("light-agent")
+                .WithContent("Success")
+                .WithSuccess(true)
+                .WithExecutionTime(-50) // Invalid negative time
+                .Build()
+        };
+
         // Act
-        await executor.HandleAsync(new AgentResponseBuilder()
-            .WithAgentId("light-agent")
-            .WithContent("Success")
-            .WithSuccess(true)
-            .WithExecutionTime(-50) // Invalid negative time
-            .Build(), context);
+        await executor.HandleAsync(responses, context);
 
         // Assert
         var telemetry = Assert.IsType<AggregationResult>(context.Events.OfType<ExecutorCompletedEvent>().Last().Data);
@@ -340,24 +351,27 @@ public class ResultAggregatorExecutorTests : TestBase
         var context = new RecordingWorkflowContext();
 
         // Add agents in wrong order
-        await executor.HandleAsync(new AgentResponseBuilder()
-            .WithAgentId("music-agent")
-            .WithContent("Playing music")
-            .WithSuccess(true)
-            .Build(), context);
-
-        await executor.HandleAsync(new AgentResponseBuilder()
-            .WithAgentId("light-agent")
-            .WithContent("Lights adjusted")
-            .WithSuccess(true)
-            .Build(), context);
+        var responses = new List<AgentResponse>
+        {
+            new AgentResponseBuilder()
+                .WithAgentId("music-agent")
+                .WithContent("Playing music")
+                .WithSuccess(true)
+                .Build(),
+            new AgentResponseBuilder()
+                .WithAgentId("light-agent")
+                .WithContent("Lights adjusted")
+                .WithSuccess(true)
+                .Build(),
+            new AgentResponseBuilder()
+                .WithAgentId("climate-agent")
+                .WithContent("Temperature set")
+                .WithSuccess(true)
+                .Build()
+        };
 
         // Act
-        var result = await executor.HandleAsync(new AgentResponseBuilder()
-            .WithAgentId("climate-agent")
-            .WithContent("Temperature set")
-            .WithSuccess(true)
-            .Build(), context);
+        var result = await executor.HandleAsync(responses, context);
 
         // Assert - Climate should come first due to priority
         var climateIndex = result.IndexOf("Temperature set", StringComparison.Ordinal);
@@ -366,5 +380,92 @@ public class ResultAggregatorExecutorTests : TestBase
 
         Assert.InRange(climateIndex, 0, lightIndex - 1);
         Assert.InRange(lightIndex, climateIndex + 1, musicIndex - 1);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WithThreeAgentsMultiDomain_AggregatesCorrectly()
+    {
+        // Arrange - Multi-domain coordination test
+        var executor = CreateExecutor();
+        var context = new RecordingWorkflowContext();
+        var responses = new List<AgentResponse>
+        {
+            new AgentResponse
+            {
+                AgentId = "light-agent",
+                Content = "Dimmed living room lights to 30%",
+                Success = true,
+                ExecutionTimeMs = 150
+            },
+            new AgentResponse
+            {
+                AgentId = "music-agent",
+                Content = "Started playing relaxing jazz",
+                Success = true,
+                ExecutionTimeMs = 200
+            },
+            new AgentResponse
+            {
+                AgentId = "climate-agent",
+                Content = "Set temperature to 72°F",
+                Success = true,
+                ExecutionTimeMs = 180
+            }
+        };
+
+        // Act
+        var result = await executor.HandleAsync(responses, context);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Contains("Dimmed living room lights", result);
+        Assert.Contains("Started playing relaxing jazz", result);
+        Assert.Contains("Set temperature", result);
+        Assert.DoesNotContain("However", result);
+
+        var telemetry = Assert.IsType<AggregationResult>(context.Events.OfType<ExecutorCompletedEvent>().Last().Data);
+        Assert.Equal(3, telemetry.SuccessfulAgents.Count);
+        Assert.Empty(telemetry.FailedAgents);
+        Assert.Equal(150 + 200 + 180, telemetry.TotalExecutionTimeMs);
+    }
+
+    [Fact]
+    public async Task HandleAsync_WithMixedDomainSuccessAndFailure_AggregatesBoth()
+    {
+        // Arrange
+        var executor = CreateExecutor();
+        var context = new RecordingWorkflowContext();
+        var responses = new List<AgentResponse>
+        {
+            new AgentResponse
+            {
+                AgentId = "light-agent",
+                Content = "Dimmed living room lights to 30%",
+                Success = true,
+                ExecutionTimeMs = 150
+            },
+            new AgentResponse
+            {
+                AgentId = "music-agent",
+                Content = string.Empty,
+                Success = false,
+                ErrorMessage = "Music service temporarily unavailable",
+                ExecutionTimeMs = 200
+            }
+        };
+
+        // Act
+        var result = await executor.HandleAsync(responses, context);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Contains("Dimmed living room lights", result);
+        Assert.Contains("However", result);
+        Assert.Contains("Music", result);
+        Assert.Contains("temporarily unavailable", result);
+
+        var telemetry = Assert.IsType<AggregationResult>(context.Events.OfType<ExecutorCompletedEvent>().Last().Data);
+        Assert.Single(telemetry.SuccessfulAgents);
+        Assert.Single(telemetry.FailedAgents);
     }
 }
