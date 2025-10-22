@@ -67,9 +67,6 @@ public sealed class RouterExecutor : ReflectingExecutor<RouterExecutor>, IMessag
     {
         ArgumentNullException.ThrowIfNull(message);
 
-        // Extract AgentTask from workflow context for context-aware routing
-        var task = ExtractAgentTask(context);
-
         var availableAgents = await FetchAgentsAsync(cancellationToken).ConfigureAwait(false);
         if (availableAgents.Count == 0)
         {
@@ -78,7 +75,7 @@ public sealed class RouterExecutor : ReflectingExecutor<RouterExecutor>, IMessag
         }
 
         var userRequest = ExtractUserText(message);
-        var chatMessages = BuildChatMessages(userRequest, availableAgents, task);
+        var chatMessages = BuildChatMessages(userRequest, availableAgents);
         var chatOptions = BuildChatOptions();
 
         AgentChoiceResult? parsed = null;
@@ -145,7 +142,7 @@ public sealed class RouterExecutor : ReflectingExecutor<RouterExecutor>, IMessag
         return results;
     }
 
-    private IReadOnlyList<ChatMessage> BuildChatMessages(string userRequest, IReadOnlyList<AgentCard> agents, AgentTask? task = null)
+    private IReadOnlyList<ChatMessage> BuildChatMessages(string userRequest, IReadOnlyList<AgentCard> agents)
     {
         var agentCatalog = BuildAgentCatalog(agents);
 
@@ -153,15 +150,7 @@ public sealed class RouterExecutor : ReflectingExecutor<RouterExecutor>, IMessag
             ? RouterExecutorOptions.DefaultUserPromptTemplate
             : _options.UserPromptTemplate!;
 
-        // Format context from previous messages if available
-        var contextSection = FormatContextSection(task);
         var payload = string.Format(CultureInfo.InvariantCulture, userPromptTemplate, userRequest, agentCatalog);
-        
-        // Include context in the payload if available
-        if (!string.IsNullOrWhiteSpace(contextSection))
-        {
-            payload = contextSection + "\n\n" + payload;
-        }
 
         return new[]
         {
@@ -354,142 +343,5 @@ public sealed class RouterExecutor : ReflectingExecutor<RouterExecutor>, IMessag
             Reasoning = reasoning,
             AdditionalAgents = null
         };
-    }
-
-    /// <summary>
-    /// Extracts AgentTask from workflow context state if available for context-aware routing.
-    /// </summary>
-    private static AgentTask? ExtractAgentTask(IWorkflowContext context)
-    {
-        if (context is null)
-        {
-            return null;
-        }
-
-        // Try to get AgentTask from workflow context state
-        if (context.State?.TryGetValue(typeof(AgentTask).Name, out var taskObj) == true && taskObj is AgentTask task)
-        {
-            return task;
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// Formats context section from previous conversation history and metadata for LLM prompt.
-    /// </summary>
-    private static string? FormatContextSection(AgentTask? task)
-    {
-        if (task is null || (task.History?.Count ?? 0) == 0)
-        {
-            return null;
-        }
-
-        var builder = new StringBuilder();
-        builder.AppendLine("### Previous Conversation Context:");
-
-        // Add location context if available
-        if (task.Metadata?.TryGetValue("location", out var locationElement) == true &&
-            locationElement.ValueKind != JsonValueKind.Null)
-        {
-            try
-            {
-                var location = locationElement.GetString();
-                if (!string.IsNullOrWhiteSpace(location))
-                {
-                    builder.AppendLine($"Location: {location}");
-                }
-            }
-            catch
-            {
-                // Ignore parsing errors
-            }
-        }
-
-        // Add previous agents context if available
-        if (task.Metadata?.TryGetValue("previousAgents", out var prevAgentsElement) == true &&
-            prevAgentsElement.ValueKind == JsonValueKind.Array)
-        {
-            try
-            {
-                var agents = new List<string>();
-                foreach (var agent in prevAgentsElement.EnumerateArray())
-                {
-                    if (agent.ValueKind == JsonValueKind.String && agent.GetString() is { } agentName)
-                    {
-                        agents.Add(agentName);
-                    }
-                }
-
-                if (agents.Count > 0)
-                {
-                    builder.AppendLine($"Recent Agents: {string.Join(", ", agents)}");
-                }
-            }
-            catch
-            {
-                // Ignore parsing errors
-            }
-        }
-
-        // Add conversation topic if available
-        if (task.Metadata?.TryGetValue("conversationTopic", out var topicElement) == true &&
-            topicElement.ValueKind != JsonValueKind.Null)
-        {
-            try
-            {
-                var topic = topicElement.GetString();
-                if (!string.IsNullOrWhiteSpace(topic))
-                {
-                    builder.AppendLine($"Current Topic: {topic}");
-                }
-            }
-            catch
-            {
-                // Ignore parsing errors
-            }
-        }
-
-        // Add recent conversation history (last 2-3 exchanges)
-        builder.AppendLine("Recent Messages:");
-        var recentCount = Math.Min(6, task.History!.Count); // Show last 3 exchanges (user + assistant pairs)
-        var startIndex = task.History!.Count - recentCount;
-
-        for (var i = startIndex; i < task.History!.Count; i++)
-        {
-            var message = task.History![i];
-            var role = message.Role?.ToString() ?? "Unknown";
-            var text = ExtractMessageText(message);
-            if (!string.IsNullOrWhiteSpace(text))
-            {
-                builder.AppendLine($"- {role}: {text.Substring(0, Math.Min(100, text.Length))}...");
-            }
-        }
-
-        return builder.ToString();
-    }
-
-    /// <summary>
-    /// Extracts text content from an AgentMessage for display in context section.
-    /// </summary>
-    private static string ExtractMessageText(AgentMessage message)
-    {
-        if (message?.Text is not null)
-        {
-            return message.Text;
-        }
-
-        if (message?.Parts is not null && message.Parts.Count > 0)
-        {
-            foreach (var part in message.Parts)
-            {
-                if (part is TextPart textPart && !string.IsNullOrWhiteSpace(textPart.Text))
-                {
-                    return textPart.Text;
-                }
-            }
-        }
-
-        return string.Empty;
     }
 }
