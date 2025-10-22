@@ -16,7 +16,7 @@ namespace lucia.Agents.Orchestration;
 /// <summary>
 /// Aggregates agent responses into a single natural language message.
 /// </summary>
-public sealed class ResultAggregatorExecutor : ReflectingExecutor<ResultAggregatorExecutor>, IMessageHandler<AgentResponse, string>
+public sealed class ResultAggregatorExecutor : ReflectingExecutor<ResultAggregatorExecutor>, IMessageHandler<List<AgentResponse>, string>
 {
     /// <summary>Executor identifier.</summary>
     public const string ExecutorId = "ResultAggregator";
@@ -37,21 +37,17 @@ public sealed class ResultAggregatorExecutor : ReflectingExecutor<ResultAggregat
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
     }
 
-    public async ValueTask<string> HandleAsync(AgentResponse message, IWorkflowContext context, CancellationToken cancellationToken)
+    public async ValueTask<string> HandleAsync(List<AgentResponse> responses, IWorkflowContext context, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(message);
+        ArgumentNullException.ThrowIfNull(responses);
         ArgumentNullException.ThrowIfNull(context);
 
-        await context.AddEventAsync(new ExecutorInvokedEvent(this.Id, message), cancellationToken).ConfigureAwait(false);
+        await context.AddEventAsync(new ExecutorInvokedEvent(this.Id, responses), cancellationToken).ConfigureAwait(false);
 
-        var state = await LoadStateAsync(context, cancellationToken).ConfigureAwait(false);
-
-        state.Responses[message.AgentId] = message;
-
-        var ordered = OrderResponses(state.Responses.Values);
+        // Order responses by agent priority and build summary
+        var ordered = OrderResponses(responses);
         var summary = BuildSummary(ordered);
 
-        await context.QueueStateUpdateAsync(StateKey, state, StateScope, cancellationToken).ConfigureAwait(false);
         await context.AddEventAsync(new ExecutorCompletedEvent(this.Id, summary), cancellationToken).ConfigureAwait(false);
 
         if (summary.FailedAgents.Count > 0)
@@ -68,14 +64,8 @@ public sealed class ResultAggregatorExecutor : ReflectingExecutor<ResultAggregat
         return summary.Message;
     }
 
-    public ValueTask<string> HandleAsync(AgentResponse message, IWorkflowContext context)
-        => HandleAsync(message, context, CancellationToken.None);
-
-    private async Task<ResultAggregationState> LoadStateAsync(IWorkflowContext context, CancellationToken cancellationToken)
-    {
-        var stored = await context.ReadStateAsync<ResultAggregationState>(StateKey, StateScope, cancellationToken).ConfigureAwait(false);
-        return stored ?? new ResultAggregationState();
-    }
+    public ValueTask<string> HandleAsync(List<AgentResponse> responses, IWorkflowContext context)
+        => HandleAsync(responses, context, CancellationToken.None);
 
     private AggregationResult BuildSummary(IEnumerable<AgentResponse> responses)
     {
