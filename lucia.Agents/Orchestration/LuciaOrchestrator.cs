@@ -145,7 +145,7 @@ public class LuciaOrchestrator
             {
                 _logger.LogWarning("No agents available to process request");
                 var noAgentsMessage = "I don't have any specialized agents available right now. Please try again later.";
-                
+
                 // Update task status to failed
                 var errorMessage = new AgentMessage
                 {

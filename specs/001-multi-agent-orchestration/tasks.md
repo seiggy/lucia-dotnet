@@ -1124,7 +1124,24 @@ Test summary: total: 4, failed: 0, succeeded: 4, skipped: 0
 **File**: `specs/001-multi-agent-orchestration/quickstart.md`  
 **User Story**: US2 - Context-Preserving Conversation Handoffs  
 **Description**: Document multi-turn testing scenarios  
-**Acceptance**: Developers can test context preservation locally
+
+**Implementation Details**:
+- Added new "Testing Multi-Turn Conversations (US2)" section after agent implementation
+- Included PowerShell example demonstrating 6-turn conversation with topic shifts
+- Provided context for SC-002 success criterion validation
+- Added C# integration test reference to ContextPreservingHandoffsTests.cs
+- Documented expected context metadata structure (location, previousAgents, conversationTopic)
+- Explained validation strategy and expected behavior for context preservation
+
+**Content Added**:
+- Prerequisites for multi-turn testing
+- PowerShell script for manual testing (6 turns with topic shifts)
+- C# integration test example
+- Context metadata validation section
+- Expected behavior documentation
+
+**Commit**: (included in final commit)
+**Acceptance**: Developers can now test context preservation locally using quickstart examples
 
 ---
 
