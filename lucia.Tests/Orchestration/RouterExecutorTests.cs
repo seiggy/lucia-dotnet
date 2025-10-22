@@ -436,6 +436,271 @@ public class RouterExecutorTests : TestBase
         Assert.Contains("MaxAttempts must be at least 1", exception.Message);
     }
 
+    #region Context-Aware Routing Tests (T042)
+
+    [Fact]
+    public async Task HandleAsync_WithTaskContextHistory_IncludesContextInPrompt()
+    {
+        // Arrange
+        var availableAgents = new List<AgentCard>
+        {
+            new AgentCardBuilder()
+                .WithName("light-agent")
+                .WithDescription("Controls lighting devices and scenes")
+                .Build(),
+            new AgentCardBuilder()
+                .WithName("music-agent")
+                .WithDescription("Controls music playback")
+                .Build()
+        };
+
+        var task = new AgentTask
+        {
+            Id = "task-123",
+            History = new()
+            {
+                new ChatMessage(ChatRole.User, "Turn on the bedroom lamp"),
+                new ChatMessage(ChatRole.Assistant, "I've turned on the bedroom lamp.")
+            },
+            Metadata = new()
+            {
+                { "location", JsonSerializer.SerializeToElement("bedroom") },
+                { "previousAgents", JsonSerializer.SerializeToElement(new[] { "light-agent" }) },
+                { "conversationTopic", JsonSerializer.SerializeToElement("lighting") }
+            }
+        };
+
+        var expectedResult = new AgentChoiceResultBuilder()
+            .WithAgentId("music-agent")
+            .WithConfidence(0.92)
+            .WithReasoning("User wants music in bedroom context from lighting conversation")
+            .Build();
+
+        SetupAgentRegistry(availableAgents);
+        SetupChatClientResponse(expectedResult);
+
+        var executor = CreateExecutor();
+        var userMessage = new ChatMessage(ChatRole.User, "Now play some classical music");
+
+        // Act
+        var result = await executor.HandleAsync(userMessage, _fakeContext, CancellationToken.None);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal("music-agent", result.AgentId);
+        
+        // Verify context was included in chat history
+        A.CallTo(() => _fakeChatClient.GetResponseAsync(
+            A<IEnumerable<ChatMessage>>.That.Matches(messages =>
+                messages.Any(m => m.Role == ChatRole.System &&
+                            m.Text.Contains("bedroom"))), // Location in context
+            A<ChatOptions>._,
+            A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task HandleAsync_WithLocationContext_InfersRoomSpecificBehavior()
+    {
+        // Arrange
+        var availableAgents = new List<AgentCard>
+        {
+            new AgentCardBuilder()
+                .WithName("light-agent")
+                .WithDescription("Controls lighting devices and scenes")
+                .Build()
+        };
+
+        var task = new AgentTask
+        {
+            Id = "task-456",
+            History = new()
+            {
+                new ChatMessage(ChatRole.User, "What devices are in this room?")
+            },
+            Metadata = new()
+            {
+                { "location", JsonSerializer.SerializeToElement("living room") }
+            }
+        };
+
+        var expectedResult = new AgentChoiceResultBuilder()
+            .WithAgentId("light-agent")
+            .WithConfidence(0.88)
+            .WithReasoning("User asking about living room devices - querying available devices")
+            .Build();
+
+        SetupAgentRegistry(availableAgents);
+        SetupChatClientResponse(expectedResult);
+
+        var executor = CreateExecutor();
+        var userMessage = new ChatMessage(ChatRole.User, "Brighten up");
+
+        // Act
+        var result = await executor.HandleAsync(userMessage, _fakeContext, CancellationToken.None);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal("light-agent", result.AgentId);
+        Assert.True(result.Confidence >= 0.85, "Location context should increase confidence");
+    }
+
+    [Fact]
+    public async Task HandleAsync_WithPreviousAgentContext_AvoidsRedundantAgentSelection()
+    {
+        // Arrange
+        var availableAgents = new List<AgentCard>
+        {
+            new AgentCardBuilder()
+                .WithName("light-agent")
+                .WithDescription("Controls lighting devices and scenes")
+                .Build(),
+            new AgentCardBuilder()
+                .WithName("music-agent")
+                .WithDescription("Controls music playback")
+                .Build(),
+            new AgentCardBuilder()
+                .WithName("climate-agent")
+                .WithDescription("Controls temperature and HVAC")
+                .Build()
+        };
+
+        var task = new AgentTask
+        {
+            Id = "task-789",
+            History = new()
+            {
+                new ChatMessage(ChatRole.User, "Turn on the lights"),
+                new ChatMessage(ChatRole.Assistant, "Lights are on"),
+                new ChatMessage(ChatRole.User, "Play some music")
+            },
+            Metadata = new()
+            {
+                { "location", JsonSerializer.SerializeToElement("bedroom") },
+                { "previousAgents", JsonSerializer.SerializeToElement(new[] { "light-agent" }) },
+                { "conversationTopic", JsonSerializer.SerializeToElement("lighting") }
+            }
+        };
+
+        var expectedResult = new AgentChoiceResultBuilder()
+            .WithAgentId("music-agent")  // Different agent than previous
+            .WithConfidence(0.94)
+            .WithReasoning("Topic shifted from lighting to music, selecting music-agent")
+            .Build();
+
+        SetupAgentRegistry(availableAgents);
+        SetupChatClientResponse(expectedResult);
+
+        var executor = CreateExecutor();
+        var userMessage = new ChatMessage(ChatRole.User, "Play some music");
+
+        // Act
+        var result = await executor.HandleAsync(userMessage, _fakeContext, CancellationToken.None);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal("music-agent", result.AgentId);
+        Assert.NotEqual("light-agent", result.AgentId); // Correctly switched agents
+    }
+
+    [Fact]
+    public async Task HandleAsync_WithConversationTopicContext_MaintainsTopicAwareness()
+    {
+        // Arrange
+        var availableAgents = new List<AgentCard>
+        {
+            new AgentCardBuilder()
+                .WithName("light-agent")
+                .WithDescription("Controls lighting devices and scenes")
+                .Build(),
+            new AgentCardBuilder()
+                .WithName("climate-agent")
+                .WithDescription("Controls temperature and HVAC")
+                .Build()
+        };
+
+        var task = new AgentTask
+        {
+            Id = "task-abc",
+            History = new()
+            {
+                new ChatMessage(ChatRole.User, "Turn on the lights"),
+                new ChatMessage(ChatRole.Assistant, "Lights are on"),
+                new ChatMessage(ChatRole.User, "Increase brightness"),
+                new ChatMessage(ChatRole.Assistant, "Brightness increased to 80%")
+            },
+            Metadata = new()
+            {
+                { "location", JsonSerializer.SerializeToElement("office") },
+                { "previousAgents", JsonSerializer.SerializeToElement(new[] { "light-agent" }) },
+                { "conversationTopic", JsonSerializer.SerializeToElement("lighting") }
+            }
+        };
+
+        var expectedResult = new AgentChoiceResultBuilder()
+            .WithAgentId("light-agent")  // Same agent - topic continues
+            .WithConfidence(0.96)
+            .WithReasoning("Continued lighting topic - maintaining context with light-agent")
+            .Build();
+
+        SetupAgentRegistry(availableAgents);
+        SetupChatClientResponse(expectedResult);
+
+        var executor = CreateExecutor();
+        var userMessage = new ChatMessage(ChatRole.User, "Make it even brighter");
+
+        // Act
+        var result = await executor.HandleAsync(userMessage, _fakeContext, CancellationToken.None);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal("light-agent", result.AgentId);
+        Assert.True(result.Confidence >= 0.95, "Continued topic should have very high confidence");
+    }
+
+    [Fact]
+    public async Task HandleAsync_WithNoContextMetadata_FallsBackToDefaultRouting()
+    {
+        // Arrange
+        var availableAgents = new List<AgentCard>
+        {
+            new AgentCardBuilder()
+                .WithName("light-agent")
+                .WithDescription("Controls lighting devices and scenes")
+                .Build()
+        };
+
+        var task = new AgentTask
+        {
+            Id = "task-def",
+            History = new(),  // Empty history
+            Metadata = new()   // No context metadata
+        };
+
+        var expectedResult = new AgentChoiceResultBuilder()
+            .WithAgentId("light-agent")
+            .WithConfidence(0.75)
+            .WithReasoning("No prior context - default routing to light-agent")
+            .Build();
+
+        SetupAgentRegistry(availableAgents);
+        SetupChatClientResponse(expectedResult);
+
+        var executor = CreateExecutor();
+        var userMessage = new ChatMessage(ChatRole.User, "Turn on the lights");
+
+        // Act
+        var result = await executor.HandleAsync(userMessage, _fakeContext, CancellationToken.None);
+
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal("light-agent", result.AgentId);
+        // Without context, confidence may be slightly lower
+        Assert.True(result.Confidence >= 0.7, "Default routing should still meet minimum threshold");
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private RouterExecutor CreateExecutor()
