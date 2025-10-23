@@ -1,3 +1,4 @@
+using System.Text.Json;
 using lucia.HomeAssistant.Attributes;
 using lucia.HomeAssistant.Models;
 
@@ -33,5 +34,39 @@ public partial class GeneratedHomeAssistantClient : IHomeAssistantClient
     async Task<object[]> IHomeAssistantClient.CallServiceAsync(string domain, string service, ServiceCallRequest? request, CancellationToken cancellationToken)
     {
         return await CallServiceAsync(domain, service, request, cancellationToken);
+    }
+
+    async Task<T> IHomeAssistantClient.RunTemplateAsync<T>(string jinjaTemplate, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(jinjaTemplate, nameof(jinjaTemplate));
+
+        var request = new TemplateRenderRequest
+        {
+            Template = jinjaTemplate
+        };
+
+        var renderedTemplate = await RenderTemplateAsync(request, cancellationToken);
+
+        // If the caller wants a string, return the raw response
+        if (typeof(T) == typeof(string))
+        {
+            return (T)(object)renderedTemplate;
+        }
+
+        // Otherwise, deserialize the JSON response into the requested type
+        try
+        {
+            var deserialized = JsonSerializer.Deserialize<T>(renderedTemplate, _jsonOptions);
+            if (deserialized is null)
+            {
+                throw new InvalidOperationException($"Template response could not be deserialized to type '{typeof(T).Name}'.");
+            }
+
+            return deserialized;
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException($"Failed to deserialize template response to type '{typeof(T).Name}'.", ex);
+        }
     }
 }

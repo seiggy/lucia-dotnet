@@ -129,7 +129,7 @@ class LuciaConversationEntity(conversation.ConversationEntity):
                     "metadata": None
                 }
             ],
-            "messageId": message_id,
+            "messageId": None,
             "contextId": context_id,
             "taskId": None,  # Task management not supported by Agent Framework
             "metadata": None,

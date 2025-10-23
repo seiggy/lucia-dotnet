@@ -167,6 +167,11 @@ public sealed class RouterExecutor : ReflectingExecutor<RouterExecutor>, IMessag
 
         foreach (var agent in agents)
         {
+            if (agent.Name == "orchestrator")
+            {
+                // Skip self-reference
+                continue;
+            }
             builder.Append("- ");
             builder.Append(agent.Name);
             builder.Append(": ");

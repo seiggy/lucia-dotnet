@@ -182,13 +182,13 @@ public class HomeAssistantApiTests
     public async Task RenderTemplateAsync_WithValidTemplate_ShouldReturnRenderedResult()
     {
         // Arrange
-        var templateData = new Dictionary<string, object>
+        var templateRequest = new lucia.HomeAssistant.Models.TemplateRenderRequest
         {
-            ["template"] = "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+            Template = "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
         };
 
         // Act
-        var result = await _client.RenderTemplateAsync(templateData);
+        var result = await _client.RenderTemplateAsync(templateRequest);
 
         // Assert
         Assert.NotNull(result);

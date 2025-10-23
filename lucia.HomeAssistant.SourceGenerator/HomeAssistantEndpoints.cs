@@ -176,7 +176,7 @@ public static class HomeAssistantEndpoints
                 HttpMethod = "POST",
                 OperationId = "RenderTemplate",
                 Description = "Render a template",
-                RequestBodyType = "object",
+                RequestBodyType = "TemplateRenderRequest",
                 ResponseType = "string"
             },
             new OpenApiEndpoint
