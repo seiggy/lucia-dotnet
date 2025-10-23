@@ -374,7 +374,7 @@ public class LuciaOrchestrator
         return result;
     }
 
-    private sealed class AgentDispatchExecutor : ReflectingExecutor<AgentDispatchExecutor>, IMessageHandler<AgentChoiceResult, AgentResponse>
+    private sealed class AgentDispatchExecutor : ReflectingExecutor<AgentDispatchExecutor>, IMessageHandler<AgentChoiceResult, List<AgentResponse>>
     {
         public const string ExecutorId = "AgentDispatch";
 
@@ -396,36 +396,34 @@ public class LuciaOrchestrator
             _userMessage = message;
         }
 
-        public async ValueTask<AgentResponse> HandleAsync(AgentChoiceResult message, IWorkflowContext context, CancellationToken cancellationToken)
+        public async ValueTask<List<AgentResponse>> HandleAsync(AgentChoiceResult message, IWorkflowContext context, CancellationToken cancellationToken)
         {
             await context.AddEventAsync(new ExecutorInvokedEvent(this.Id, message), cancellationToken).ConfigureAwait(false);
 
             if (_userMessage is null)
             {
                 _logger.LogWarning("User message unavailable when dispatching agent execution.");
-                return CreateFailureResponse(message.AgentId, "Unable to locate the original user request.");
+                return new List<AgentResponse> { CreateFailureResponse(message.AgentId, "Unable to locate the original user request.") };
             }
 
             var executionOrder = BuildExecutionOrder(message);
-            AgentResponse? primaryResponse = null;
+            var responses = new List<AgentResponse>(executionOrder.Count);
 
             foreach (var agentId in executionOrder)
             {
                 var response = await InvokeAgentAsync(agentId, _userMessage, context, cancellationToken).ConfigureAwait(false);
-                if (primaryResponse is null)
-                {
-                    primaryResponse = response;
-                }
-                else
-                {
-                    await context.SendMessageAsync(response, cancellationToken).ConfigureAwait(false);
-                }
+                responses.Add(response);
             }
 
-            return primaryResponse ?? CreateFailureResponse(message.AgentId, "No agents were dispatched.");
+            if (responses.Count == 0)
+            {
+                responses.Add(CreateFailureResponse(message.AgentId, "No agents were dispatched."));
+            }
+
+            return responses;
         }
 
-        public ValueTask<AgentResponse> HandleAsync(AgentChoiceResult message, IWorkflowContext context)
+        public ValueTask<List<AgentResponse>> HandleAsync(AgentChoiceResult message, IWorkflowContext context)
             => HandleAsync(message, context, CancellationToken.None);
 
         private async ValueTask<AgentResponse> InvokeAgentAsync(string agentId, ChatMessage userMessage, IWorkflowContext context, CancellationToken cancellationToken)

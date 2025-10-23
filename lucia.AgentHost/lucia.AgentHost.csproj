@@ -15,6 +15,7 @@
     <PackageReference Include="A2A" Version="0.3.1-preview" />
     <PackageReference Include="A2A.AspNetCore" Version="0.3.1-preview" />
     <PackageReference Include="Asp.Versioning.Http" Version="8.1.0" />
+    <PackageReference Include="Aspire.StackExchange.Redis" Version="9.5.1" />
     <PackageReference Include="Microsoft.Agents.AI.AzureAI" Version="1.0.0-preview.251009.1" />
     <PackageReference Include="Microsoft.Agents.AI.Hosting" Version="1.0.0-preview.251009.1" />
     <PackageReference Include="Microsoft.Agents.AI.Hosting.A2A.AspNetCore" Version="1.0.0-preview.251009.1" />
