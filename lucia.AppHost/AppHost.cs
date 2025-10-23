@@ -14,11 +14,19 @@ var openAi = builder.AddAIModel("chat-model")
 var embeddings = builder.AddAIModel("embeddings-model")
     .AsAzureOpenAI("text-embedding-3-small", o => o.AsExisting(azOpenAiResource, azOpenAiResourceGroup));
 
+var redis = builder.AddRedis("redis")
+    .WithDataVolume()
+    .WithLifetime(ContainerLifetime.Persistent)
+    .WithRedisInsight()
+    .WithContainerName("redis");
+
 var lucia = builder.AddProject<lucia_dotnet>("lucia-dotnet")
     .WithReference(embeddings)
     .WithReference(openAi)
+    .WithReference(redis)
     .WaitFor(embeddings)
     .WaitFor(openAi)
+    .WaitFor(redis)
     .WithUrlForEndpoint("https", url =>
         {
             url.DisplayText = "Scalar (HTTPS)";
@@ -29,8 +37,10 @@ var lucia = builder.AddProject<lucia_dotnet>("lucia-dotnet")
 builder.AddProject<Projects.lucia_AgentHost>("lucia-agenthost")
     .WithReference(embeddings)
     .WithReference(openAi)
+    .WithReference(redis)
     .WaitFor(embeddings)
     .WaitFor(openAi)
+    .WaitFor(redis)
     .WithUrlForEndpoint("https", url =>
     {
         url.DisplayText = "Scalar (HTTPS)";

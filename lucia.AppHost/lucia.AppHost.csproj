@@ -4,6 +4,7 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
+    <PreviewFeatures>enable</PreviewFeatures>
     <Nullable>enable</Nullable>
     <UserSecretsId>dd99e9ff-e233-4d7f-99b9-8c04beabcc9f</UserSecretsId>
     <LangVersion>14</LangVersion>
@@ -13,7 +14,8 @@
     <PackageReference Include="Aspire.Hosting.Azure.AIFoundry" Version="9.5.1-preview.1.25502.11" />
     <PackageReference Include="Aspire.Hosting.Azure.CognitiveServices" Version="9.5.1" />
     <PackageReference Include="Aspire.Hosting.OpenAI" Version="9.5.1-preview.1.25502.11" />
-    <PackageReference Include="Scalar.Aspire" Version="0.5.3" />
+    <PackageReference Include="Aspire.Hosting.Redis" Version="9.5.1" />
+    <PackageReference Include="Scalar.Aspire" Version="0.5.4" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\lucia-dotnet\lucia-dotnet.csproj" />

@@ -1,5 +1,6 @@
 ﻿using A2A;
 using lucia.Agents.Orchestration;
+using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Registry;
 using lucia.Agents.Services;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -227,7 +228,7 @@ public static class AgentRegistryApi
         try
         {
             // Process the message through the orchestrator
-            var response = await orchestrator.ProcessRequestAsync(textContent, cancellationToken);
+            var response = await orchestrator.ProcessRequestAsync(textContent, taskId: null, sessionId: null, cancellationToken);
 
             // Generate response IDs
             var messageId = Guid.NewGuid().ToString();

@@ -15,13 +15,16 @@ public static class AgentDiscoveryExtension
     {
         var lightAgent = app.Services.GetRequiredService<LightAgent>();
         var musicAgent = app.Services.GetRequiredService<MusicAgent>();
+        var orchestratorAgent = app.Services.GetRequiredService<OrchestratorAgent>();
         
         
         app.MapA2A("light-agent", path: "/a2a/light-agent", agentCard: lightAgent.GetAgentCard());
         app.MapA2A("music-agent", path: "/a2a/music-agent", agentCard: musicAgent.GetAgentCard());
+        app.MapA2A("orchestrator", path: "/a2a/orchestrator", agentCard: orchestratorAgent.GetAgentCard());
 
         app.MapOpenAIResponses("light-agent");
         app.MapOpenAIResponses("music-agent");
+        app.MapOpenAIResponses("orchestrator");
 
         app.MapAgentDiscovery("/agents");
     }

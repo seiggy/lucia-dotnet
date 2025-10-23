@@ -49,7 +49,7 @@ public class LightAgent
         {
             Url = "/a2a/light-agent",
             Name = "light-agent",
-            Description = "Agent for controlling lights and lighting in Home Assistant",
+            Description = "Agent for controlling #lights and #lighting in Home Assistant",
             Capabilities = new AgentCapabilities
             {
                 PushNotifications = true,

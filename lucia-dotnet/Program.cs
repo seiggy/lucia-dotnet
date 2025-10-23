@@ -12,6 +12,8 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.AddServiceDefaults();
 
+builder.AddRedisClient(connectionName: "redis");
+
 builder.Services.Configure<HomeAssistantOptions>(
     builder.Configuration.GetSection("HomeAssistant"));
 
@@ -46,7 +48,7 @@ builder.Services.AddHomeAssistant(options =>
 {
     options.BaseUrl = builder.Configuration["HomeAssistant:BaseUrl"] ?? "http://homeassistant.local:8123";
     options.AccessToken = builder.Configuration["HomeAssistant:AccessToken"] ?? throw new InvalidOperationException("HomeAssistant:AccessToken is required");
-    options.TimeoutSeconds = 30;
+    options.TimeoutSeconds = 60;
     options.ValidateSSL = false;
 });
 
