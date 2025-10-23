@@ -11,11 +11,12 @@ public class HomeAssistantApiTests
     public HomeAssistantApiTests()
     {
         var services = new ServiceCollection();
-        
+
         // Configure Home Assistant options
         services.Configure<HomeAssistantOptions>(options =>
         {
             options.BaseUrl = "http://homeassistant.local:8123";
+            // test instance key. Need to disable this test in CI as test HA instance is not available there.
             options.AccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIyZmQyNzkyNTE4M2Y0ZjQyYjE5N2E2NTVjNzM0ZTkzOCIsImlhdCI6MTc1MjA5NTI5MywiZXhwIjoyMDY3NDU1MjkzfQ.A-ZsmZx0dZJosOno_C4ct3fdh0YYo9kou4H7pN9DIKc";
             options.TimeoutSeconds = 30;
             options.ValidateSSL = false; // For self-signed certificates
@@ -85,7 +86,7 @@ public class HomeAssistantApiTests
         // Assert
         Assert.NotNull(result);
         Assert.NotEmpty(result);
-        
+
         // Verify we got actual state objects
         var firstState = result.First();
         Assert.NotNull(firstState.EntityId);
@@ -181,13 +182,13 @@ public class HomeAssistantApiTests
     public async Task RenderTemplateAsync_WithValidTemplate_ShouldReturnRenderedResult()
     {
         // Arrange
-        var templateData = new Dictionary<string, object>
+        var templateRequest = new lucia.HomeAssistant.Models.TemplateRenderRequest
         {
-            ["template"] = "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+            Template = "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
         };
 
         // Act
-        var result = await _client.RenderTemplateAsync(templateData);
+        var result = await _client.RenderTemplateAsync(templateRequest);
 
         // Assert
         Assert.NotNull(result);
@@ -204,8 +205,8 @@ public class HomeAssistantApiTests
 
         // Act
         var result = await _client.GetHistoryAsync(
-            timestamp, 
-            entityId, 
+            timestamp,
+            entityId,
             end_time: DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
         );
 
@@ -222,7 +223,7 @@ public class HomeAssistantApiTests
 
         // Act
         var result = await _client.GetLogbookAsync(
-            timestamp, 
+            timestamp,
             end_time: DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
         );
 

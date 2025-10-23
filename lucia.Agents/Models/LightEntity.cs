@@ -11,6 +11,7 @@ public class LightEntity
     public string FriendlyName { get; set; } = string.Empty;
     public SupportedColorModes SupportedColorModes { get; set; } = SupportedColorModes.None;
     public Embedding<float> NameEmbedding { get; set; } = null!;
+    public string? Area { get; set; }
 
     /// <summary>
     /// True if this is a switch entity (switch.* vs light.*)

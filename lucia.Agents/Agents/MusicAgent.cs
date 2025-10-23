@@ -51,7 +51,7 @@ public class MusicAgent
         {
             Url = "/a2a/music-agent",
             Name = "music-agent",
-            Description = "Agent that orchestrates Music Assistant playback on Satellite1 endpoints",
+            Description = "Agent that orchestrates #Music Assistant #playback on #Satellite1 endpoints",
             Capabilities = new AgentCapabilities
             {
                 PushNotifications = true,

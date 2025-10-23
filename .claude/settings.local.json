@@ -61,10 +61,9 @@
     "deny": []
   },
   "enabledMcpjsonServers": [
-    "context7",
-    "memory",
     "sequential-thinking",
-    "playwright",
-    "microsoft.docs"
-  ]
+    "context7",
+    "memory"
+  ],
+  "enableAllProjectMcpServers": true
 }

@@ -1,15 +1,18 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using A2A;
+using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Registry;
-using lucia.Agents.Skills;
 using Microsoft.Agents.AI;
-using Microsoft.Agents.AI.A2A;
 using Microsoft.Agents.AI.Hosting;
 using Microsoft.Agents.AI.Workflows;
-using Microsoft.AspNetCore.Builder;
+using Microsoft.Agents.AI.Workflows.Reflection;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using System.Text;
+using Microsoft.Extensions.Options;
 
 namespace lucia.Agents.Orchestration;
 
@@ -18,122 +21,268 @@ namespace lucia.Agents.Orchestration;
 /// </summary>
 public class LuciaOrchestrator
 {
-    private readonly AgentCard _agent;
+    private readonly IChatClient _chatClient;
     private readonly AgentRegistry _agentRegistry;
-    private readonly ILogger<LuciaOrchestrator> _logger;
+    private readonly AgentCatalog _agentCatalog;
+    private readonly IServiceProvider _serviceProvider;
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly TaskManager _taskManager;
-    private readonly AIAgent _aiAgent;
-    private readonly Workflow<List<ChatMessage>> _workflow;
-    private readonly AIAgent _workflowAgent;
+    private readonly ILogger<LuciaOrchestrator> _logger;
+    private readonly ILoggerFactory _loggerFactory;
+    private readonly IOptions<RouterExecutorOptions> _routerOptions;
+    private readonly IOptions<AgentExecutorWrapperOptions> _wrapperOptions;
+    private readonly IOptions<ResultAggregatorOptions> _aggregatorOptions;
+    private readonly TimeProvider _timeProvider;
+    private readonly ITaskManager _taskManager;
 
     public LuciaOrchestrator(
         IChatClient chatClient,
         AgentRegistry agentRegistry,
         AgentCatalog agentCatalog,
+        IServiceProvider serviceProvider,
         IHttpClientFactory httpClientFactory,
-        ILogger<LuciaOrchestrator> logger)
+        ILogger<LuciaOrchestrator> logger,
+        ILoggerFactory loggerFactory,
+        IOptions<RouterExecutorOptions> routerOptions,
+        IOptions<AgentExecutorWrapperOptions> wrapperOptions,
+        IOptions<ResultAggregatorOptions> aggregatorOptions,
+        TimeProvider timeProvider,
+        ITaskManager taskManager)
     {
+        _chatClient = chatClient ?? throw new ArgumentNullException(nameof(chatClient));
         _agentRegistry = agentRegistry;
-        _logger = logger;
+        _agentCatalog = agentCatalog ?? throw new ArgumentNullException(nameof(agentCatalog));
+        _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
+        _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
+        _routerOptions = routerOptions ?? throw new ArgumentNullException(nameof(routerOptions));
+        _wrapperOptions = wrapperOptions ?? throw new ArgumentNullException(nameof(wrapperOptions));
+        _aggregatorOptions = aggregatorOptions ?? throw new ArgumentNullException(nameof(aggregatorOptions));
+        _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
+        _taskManager = taskManager ?? throw new ArgumentNullException(nameof(taskManager));
+
         _httpClientFactory = httpClientFactory;
-
-        _agent = new AgentCard
-        {
-            Url = "/a2a/lucia-orchestrator",
-            Name = "lucia-orchestrator",
-            Description = "Agent responsible for orchestrating workflow with multiple agents.",
-            Capabilities = new AgentCapabilities
-            {
-                PushNotifications = true,
-                StateTransitionHistory = true,
-                Streaming = true
-            },
-            DefaultInputModes = ["text"],
-            DefaultOutputModes = ["text"],
-            Version = "1.0.0",
-        };
-
-        var instructions = $"""
-            You are a smart home manager who has a collection of agents that can help you control and manage a connected smart home.
-            I will provide you information about my smart home below, and a collection of available agents with their abilities, 
-            use this information to answer the user's question or perform actions requested by the user.
-
-            Current Date and Time: {DateTimeOffset.Now.ToString("G")}
-
-            Available Agents:
-            | agent_name | description | url |
-            | ---------- | ----------- | --- |
-            {RenderAgentMarkdownTable(CancellationToken.None).GetAwaiter().GetResult()}
-
-            ## Rules:
-            * Do not tell me what you're thinking about doing, just do it.
-            * If I ask you about the current state of the home, or many devices I have, or how many devices are in a specific state, 
-                use the available agents to get states of the respective devices before answering.
-            * If I ask you what time or date it is be sure to respond in a format 
-                that will work best for text-to-speech engines such as Piper.
-            * If you don't have enough information to execute a smart home command then specify what other information you need.
-            * You can ask the user for more information by ending your response with a '?'. If you end your response with any other punctuation,
-                the Home Assistant solution will assume you have completed the request. Keep this in mind when responding.
-            """;
-
-        _aiAgent = chatClient.CreateAIAgent(
-            instructions: instructions, name: "lucia-orchestrator");
-        var luciaExecutor = new LuciaExecutor(_aiAgent);
-
-        var agents = agentRegistry.GetAgentsAsync().ToListAsync().GetAwaiter().GetResult();
-
-        var aiAgents = agentCatalog.GetAgentsAsync().ToListAsync().GetAwaiter().GetResult();
-
-
-        var agentOptions = new ChatClientAgentOptions(instructions)
-        {
-            Id = "lucia-orchestrator",
-            Name = "lucia-orchestrator",
-            Description = "Agent responsible for orchestrating workflow with multiple agents.",
-        };
-
-        
-        _taskManager = new TaskManager();
     }
 
     /// <summary>
     /// Process a user request through the MagenticOne multi-agent system
     /// </summary>
-    public async Task<string> ProcessRequestAsync(string userRequest, CancellationToken cancellationToken = default)
+    /// <param name="userRequest">The user's request message</param>
+    /// <param name="taskId">Optional task ID for conversation continuity</param>
+    /// <param name="sessionId">Optional session ID for grouping related tasks</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns>The orchestrated response from the agent system</returns>
+    public async Task<string> ProcessRequestAsync(
+        string userRequest, 
+        string? taskId = null,
+        string? sessionId = null,
+        CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Processing user request: {Request}", userRequest);
-        
+        _logger.LogInformation("Processing user request: {Request} (TaskId: {TaskId}, SessionId: {SessionId})", 
+            userRequest, taskId ?? "new", sessionId ?? "new");
+
         try
         {
-            // Get available agents from registry
-            var availableAgents = _agentRegistry.GetAgentsAsync(cancellationToken);
-            _logger.LogDebug("Found {AgentCount} available agents", await availableAgents.CountAsync(cancellationToken: cancellationToken));
-
-            if (!await availableAgents.AnyAsync())
+            if (string.IsNullOrWhiteSpace(userRequest))
             {
-                _logger.LogWarning("No agents available to process request");
-                return "I don't have any specialized agents available right now. Please try again later.";
+                throw new ArgumentException("User request cannot be empty.", nameof(userRequest));
             }
 
-            // Create MagenticOne orchestration with available agents
-            
-            // Add user request to history
-            
-            // start the runtime
+            // Load or create AgentTask for durable persistence (T038 - US4)
+            AgentTask agentTask;
+            if (!string.IsNullOrWhiteSpace(taskId))
+            {
+                var taskQueryParams = new TaskQueryParams { Id = taskId };
+                var existingTask = await _taskManager.GetTaskAsync(taskQueryParams, cancellationToken).ConfigureAwait(false);
+                
+                if (existingTask != null)
+                {
+                    _logger.LogInformation("Loaded existing task {TaskId} with {HistoryCount} history items", 
+                        existingTask.Id, existingTask.History?.Count ?? 0);
+                    agentTask = existingTask;
+                }
+                else
+                {
+                    _logger.LogWarning("Task {TaskId} not found, creating new task", taskId);
+                    agentTask = await _taskManager.CreateTaskAsync(sessionId, taskId, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            else
+            {
+                // Create new task
+                agentTask = await _taskManager.CreateTaskAsync(sessionId, taskId: null, cancellationToken).ConfigureAwait(false);
+                _logger.LogInformation("Created new task {TaskId} with context {ContextId}", 
+                    agentTask.Id, agentTask.ContextId);
+            }
 
-            // Invoke the orchestration with the user request
+            // Add user message to task history
+            var userMessage = new AgentMessage
+            {
+                Role = MessageRole.User,
+                MessageId = Guid.NewGuid().ToString("N"),
+                TaskId = agentTask.Id,
+                ContextId = agentTask.ContextId,
+                Parts = new List<Part> { new TextPart { Text = userRequest } }
+            };
             
-            throw new NotImplementedException("Orchestration logic not implemented yet");
+            agentTask.History ??= new List<AgentMessage>();
+            agentTask.History.Add(userMessage);
+
+            // Update task status to working
+            await _taskManager.UpdateStatusAsync(
+                agentTask.Id, 
+                TaskState.Working, 
+                message: null, 
+                final: false, 
+                cancellationToken).ConfigureAwait(false);
+
+            var availableAgentCards = await _agentRegistry
+                .GetAgentsAsync(cancellationToken)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            if (availableAgentCards.Count == 0)
+            {
+                _logger.LogWarning("No agents available to process request");
+                var noAgentsMessage = "I don't have any specialized agents available right now. Please try again later.";
+
+                // Update task status to failed
+                var errorMessage = new AgentMessage
+                {
+                    Role = MessageRole.Agent,
+                    MessageId = Guid.NewGuid().ToString("N"),
+                    TaskId = agentTask.Id,
+                    ContextId = agentTask.ContextId,
+                    Parts = new List<Part> { new TextPart { Text = noAgentsMessage } }
+                };
+                
+                await _taskManager.UpdateStatusAsync(
+                    agentTask.Id,
+                    TaskState.Failed,
+                    message: errorMessage,
+                    final: true,
+                    cancellationToken).ConfigureAwait(false);
+                
+                return noAgentsMessage;
+            }
+
+            var aiAgents = await _agentCatalog
+                .GetAgentsAsync(cancellationToken)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            var wrappers = CreateWrappers(availableAgentCards, aiAgents);
+            if (wrappers.Count == 0)
+            {
+                _logger.LogWarning("Unable to build any agent executor wrappers. Falling back to aggregator message.");
+                var fallbackMessage = _aggregatorOptions.Value.DefaultFallbackMessage;
+                
+                // Update task status to failed
+                var errorMessage = new AgentMessage
+                {
+                    Role = MessageRole.Agent,
+                    MessageId = Guid.NewGuid().ToString("N"),
+                    TaskId = agentTask.Id,
+                    ContextId = agentTask.ContextId,
+                    Parts = new List<Part> { new TextPart { Text = fallbackMessage } }
+                };
+                
+                await _taskManager.UpdateStatusAsync(
+                    agentTask.Id,
+                    TaskState.Failed,
+                    message: errorMessage,
+                    final: true,
+                    cancellationToken).ConfigureAwait(false);
+                
+                return fallbackMessage;
+            }
+
+            var routerLogger = _loggerFactory.CreateLogger<RouterExecutor>();
+            var dispatchLogger = _loggerFactory.CreateLogger<AgentDispatchExecutor>();
+            var aggregatorLogger = _loggerFactory.CreateLogger<ResultAggregatorExecutor>();
+            var router = new RouterExecutor(_chatClient, _agentRegistry, routerLogger, _routerOptions);
+            var dispatch = new AgentDispatchExecutor(wrappers, dispatchLogger);
+            var aggregator = new ResultAggregatorExecutor(aggregatorLogger, _aggregatorOptions);
+
+            var chatMessage = new ChatMessage(ChatRole.User, userRequest);
+            dispatch.SetUserMessage(chatMessage);
+
+            var builder = new WorkflowBuilder(router)
+                .WithName("LuciaOrchestratorWorkflow")
+                .WithDescription("Routes Lucia user requests to specialized agents and aggregates responses.")
+                .AddEdge(router, dispatch)
+                .AddEdge(dispatch, aggregator)
+                .WithOutputFrom(aggregator);
+
+            var workflow = builder.Build();
+
+            var result = await ExecuteWorkflowAsync(workflow, chatMessage, cancellationToken).ConfigureAwait(false);
+
+            var finalResult = result ?? _aggregatorOptions.Value.DefaultFallbackMessage;
+
+            // Add assistant response to task history and update status to completed (T038 - US4)
+            var assistantMessage = new AgentMessage
+            {
+                Role = MessageRole.Agent,
+                MessageId = Guid.NewGuid().ToString("N"),
+                TaskId = agentTask.Id,
+                ContextId = agentTask.ContextId,
+                Parts = new List<Part> { new TextPart { Text = finalResult } }
+            };
+
+            agentTask.History.Add(assistantMessage);
+
+            await _taskManager.UpdateStatusAsync(
+                agentTask.Id,
+                TaskState.Completed,
+                message: assistantMessage,
+                final: true,
+                cancellationToken).ConfigureAwait(false);
+
+            _logger.LogInformation("Task {TaskId} completed successfully with {HistoryCount} history items",
+                agentTask.Id, agentTask.History.Count);
+
+            return finalResult;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error processing user request: {Request}", userRequest);
+            
+            // Try to update task status to failed
+            try
+            {
+                // If agentTask was initialized, update its status
+                if (taskId != null || sessionId != null)
+                {
+                    // Try to determine the taskId from the parameters or create emergency task
+                    var failedTaskId = taskId ?? Guid.NewGuid().ToString();
+                    var failedContextId = sessionId ?? Guid.NewGuid().ToString();
+                    
+                    var errorMessage = new AgentMessage
+                    {
+                        Role = MessageRole.Agent,
+                        MessageId = Guid.NewGuid().ToString("N"),
+                        TaskId = failedTaskId,
+                        ContextId = failedContextId,
+                        Parts = new List<Part> { new TextPart { Text = "I encountered an error while processing your request. Please try again." } }
+                    };
+                    
+                    await _taskManager.UpdateStatusAsync(
+                        failedTaskId,
+                        TaskState.Failed,
+                        message: errorMessage,
+                        final: true,
+                        cancellationToken).ConfigureAwait(false);
+                    
+                    _logger.LogInformation("Task {TaskId} marked as failed", failedTaskId);
+                }
+            }
+            catch (Exception taskEx)
+            {
+                _logger.LogError(taskEx, "Failed to update task status to Failed");
+            }
+
             return "I encountered an error while processing your request. Please try again.";
-        }
-        finally
-        {
-            // runtime cleanup if needed
         }
     }
 
@@ -142,13 +291,16 @@ public class LuciaOrchestrator
     /// </summary>
     public async Task<OrchestratorStatus> GetStatusAsync(CancellationToken cancellationToken = default)
     {
-        var agents = _agentRegistry.GetAgentsAsync(cancellationToken);
-        
+        var agents = await _agentRegistry
+            .GetAgentsAsync(cancellationToken)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
         return new OrchestratorStatus
         {
-            IsReady = await agents.AnyAsync(cancellationToken),
-            AvailableAgentCount = await agents.CountAsync(cancellationToken),
-            AvailableAgents = await agents.ToListAsync(cancellationToken)
+            IsReady = agents.Count > 0,
+            AvailableAgentCount = agents.Count,
+            AvailableAgents = agents
         };
     }
 
@@ -161,17 +313,160 @@ public class LuciaOrchestrator
         throw new NotImplementedException("Chat history management not implemented yet");
     }
 
-
-    private async Task<string> RenderAgentMarkdownTable(CancellationToken cancellationToken)
+    private Dictionary<string, AgentExecutorWrapper> CreateWrappers(
+        IReadOnlyList<AgentCard> agentCards,
+        IReadOnlyList<AIAgent> aiAgents)
     {
-        var agents = _agentRegistry.GetAgentsAsync(cancellationToken).ConfigureAwait(false);
+        var wrappers = new Dictionary<string, AgentExecutorWrapper>(StringComparer.OrdinalIgnoreCase);
+        var wrapperLogger = _loggerFactory.CreateLogger<AgentExecutorWrapper>();
 
-        var sb = new StringBuilder();
+        var agentsByKey = aiAgents
+            .Select(agent => (Key: NormalizeAgentKey(agent), Agent: agent))
+            .Where(tuple => tuple.Key is not null)
+            .GroupBy(tuple => tuple.Key!, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First().Agent, StringComparer.OrdinalIgnoreCase);
 
-        await foreach (var agent in agents)
+        var cardsByKey = agentCards
+            .Where(card => !string.IsNullOrWhiteSpace(card.Name))
+            .GroupBy(card => card.Name!, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        var allKeys = new HashSet<string>(agentsByKey.Keys, StringComparer.OrdinalIgnoreCase);
+        allKeys.UnionWith(cardsByKey.Keys);
+
+        foreach (var key in allKeys)
         {
-            sb.Append($"|{agent.Name}|{agent.Description}|{agent.Url}|");
+            agentsByKey.TryGetValue(key, out var agent);
+            cardsByKey.TryGetValue(key, out var card);
+
+            var wrapper = new AgentExecutorWrapper(
+                key,
+                _serviceProvider,
+                wrapperLogger,
+                _wrapperOptions,
+                agent,
+                card,
+                card is not null ? _taskManager : null,
+                _timeProvider);
+
+            wrappers[key] = wrapper;
         }
-        return sb.ToString();
+
+        return wrappers;
+    }
+
+    private static string? NormalizeAgentKey(AIAgent agent)
+        => agent.Name ?? agent.Id;
+
+    private static async Task<string?> ExecuteWorkflowAsync(Workflow workflow, ChatMessage input, CancellationToken cancellationToken)
+    {
+        await using var run = await InProcessExecution.RunAsync(workflow, input, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        string? result = null;
+        foreach (var evt in run.OutgoingEvents.OfType<WorkflowOutputEvent>())
+        {
+            if (evt.Data is string text)
+            {
+                result = text;
+            }
+        }
+
+        return result;
+    }
+
+    private sealed class AgentDispatchExecutor : ReflectingExecutor<AgentDispatchExecutor>, IMessageHandler<AgentChoiceResult, List<AgentResponse>>
+    {
+        public const string ExecutorId = "AgentDispatch";
+
+        private readonly IReadOnlyDictionary<string, AgentExecutorWrapper> _wrappers;
+        private readonly ILogger<AgentDispatchExecutor> _logger;
+        private ChatMessage? _userMessage;
+
+        public AgentDispatchExecutor(
+            IReadOnlyDictionary<string, AgentExecutorWrapper> wrappers,
+            ILogger<AgentDispatchExecutor> logger)
+            : base(ExecutorId)
+        {
+            _wrappers = wrappers;
+            _logger = logger;
+        }
+
+        public void SetUserMessage(ChatMessage message)
+        {
+            _userMessage = message;
+        }
+
+        public async ValueTask<List<AgentResponse>> HandleAsync(AgentChoiceResult message, IWorkflowContext context, CancellationToken cancellationToken)
+        {
+            await context.AddEventAsync(new ExecutorInvokedEvent(this.Id, message), cancellationToken).ConfigureAwait(false);
+
+            if (_userMessage is null)
+            {
+                _logger.LogWarning("User message unavailable when dispatching agent execution.");
+                return new List<AgentResponse> { CreateFailureResponse(message.AgentId, "Unable to locate the original user request.") };
+            }
+
+            var executionOrder = BuildExecutionOrder(message);
+            var responses = new List<AgentResponse>(executionOrder.Count);
+
+            foreach (var agentId in executionOrder)
+            {
+                var response = await InvokeAgentAsync(agentId, _userMessage, context, cancellationToken).ConfigureAwait(false);
+                responses.Add(response);
+            }
+
+            if (responses.Count == 0)
+            {
+                responses.Add(CreateFailureResponse(message.AgentId, "No agents were dispatched."));
+            }
+
+            return responses;
+        }
+
+        public ValueTask<List<AgentResponse>> HandleAsync(AgentChoiceResult message, IWorkflowContext context)
+            => HandleAsync(message, context, CancellationToken.None);
+
+        private async ValueTask<AgentResponse> InvokeAgentAsync(string agentId, ChatMessage userMessage, IWorkflowContext context, CancellationToken cancellationToken)
+        {
+            if (!_wrappers.TryGetValue(agentId, out var wrapper))
+            {
+                _logger.LogWarning("No wrapper registered for agent {AgentId}.", agentId);
+                return CreateFailureResponse(agentId, $"Agent '{agentId}' is not available.");
+            }
+
+            return await wrapper.HandleAsync(userMessage, context, cancellationToken).ConfigureAwait(false);
+        }
+
+        private static AgentResponse CreateFailureResponse(string agentId, string error)
+            => new()
+            {
+                AgentId = agentId,
+                Content = string.Empty,
+                Success = false,
+                ErrorMessage = error,
+                ExecutionTimeMs = 0
+            };
+
+        private static IReadOnlyList<string> BuildExecutionOrder(AgentChoiceResult choice)
+        {
+            var ordered = new List<string>();
+            if (!string.IsNullOrWhiteSpace(choice.AgentId))
+            {
+                ordered.Add(choice.AgentId);
+            }
+
+            if (choice.AdditionalAgents is { Count: > 0 })
+            {
+                foreach (var agentId in choice.AdditionalAgents)
+                {
+                    if (!string.IsNullOrWhiteSpace(agentId) && !ordered.Contains(agentId, StringComparer.OrdinalIgnoreCase))
+                    {
+                        ordered.Add(agentId);
+                    }
+                }
+            }
+
+            return ordered;
+        }
     }
 }
