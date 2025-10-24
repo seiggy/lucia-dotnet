@@ -1,0 +1,63 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: lucia
+  namespace: lucia
+  labels:
+    app.kubernetes.io/name: lucia
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: lucia
+  namespace: lucia
+  labels:
+    app.kubernetes.io/name: lucia
+rules:
+  # Allow reading ConfigMaps and Secrets
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+  
+  # Allow reading Pods (for service discovery)
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  
+  # Allow reading Services
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: lucia
+  namespace: lucia
+  labels:
+    app.kubernetes.io/name: lucia
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: lucia
+subjects:
+  - kind: ServiceAccount
+    name: lucia
+    namespace: lucia
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: lucia
+  namespace: lucia
+  labels:
+    app.kubernetes.io/name: lucia
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: lucia
+      app.kubernetes.io/component: api

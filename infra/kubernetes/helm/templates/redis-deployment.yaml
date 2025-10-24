@@ -1,0 +1,127 @@
+{{- /*
+Lucia Redis StatefulSet Template
+
+This template defines the Redis StatefulSet for persistent task storage.
+It includes:
+- Persistent volume claims for data persistence
+- Redis probes and restart policies
+- Resource limits and security context
+- Service for internal DNS discovery
+*/ -}}
+
+{{- if .Values.redis.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "lucia.fullname" . }}-redis
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "lucia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  clusterIP: None  # Headless service for StatefulSet
+  ports:
+    - port: {{ .Values.redis.service.port }}
+      targetPort: redis
+      protocol: TCP
+      name: redis
+  selector:
+    {{- include "lucia.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "lucia.fullname" . }}-redis
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "lucia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  serviceName: {{ include "lucia.fullname" . }}-redis
+  replicas: {{ .Values.redis.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "lucia.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: redis
+  template:
+    metadata:
+      labels:
+        {{- include "lucia.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: redis
+        version: {{ .Chart.AppVersion | quote }}
+    spec:
+      {{- with .Values.redis.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      containers:
+        - name: redis
+          {{- with .Values.redis.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}"
+          imagePullPolicy: {{ .Values.redis.image.pullPolicy }}
+
+          ports:
+            - name: redis
+              containerPort: {{ .Values.redis.service.port }}
+              protocol: TCP
+
+          # Redis command and args
+          command:
+            {{- range .Values.redis.args }}
+            - {{ . | quote }}
+            {{- end }}
+
+          # Resource limits and requests
+          {{- with .Values.redis.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          # Liveness probe
+          {{- with .Values.redis.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          # Readiness probe
+          {{- with .Values.redis.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          # Volume mounts
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+
+      # Volumes
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 100Mi
+
+  # Persistent volume claims for data
+  {{- if .Values.redis.storage.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+        labels:
+          {{- include "lucia.labels" . | nindent 10 }}
+          app.kubernetes.io/component: redis
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: {{ .Values.redis.storage.storageClassName }}
+        resources:
+          requests:
+            storage: {{ .Values.redis.storage.size }}
+  {{- end }}
+{{- end }}

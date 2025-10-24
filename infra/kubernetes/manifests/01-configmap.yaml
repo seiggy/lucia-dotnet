@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lucia
+  namespace: lucia
+  labels:
+    app.kubernetes.io/name: lucia
+    app.kubernetes.io/component: config
+data:
+  # Redis Configuration
+  Redis__Host: "lucia-redis"
+  Redis__Port: "6379"
+  Redis__Database: "0"
+  Redis__DefaultExpiry: "86400"  # 24 hours in seconds
+
+  # LLM Configuration - Chat Model
+  # Replace with your actual endpoints and model names
+  ConnectionStrings__chat-model: |
+    Endpoint=https://api.openai.com/v1;
+    Model=gpt-4o-mini;
+    Provider=openai;
+
+  # LLM Configuration - Embedding Model
+  ConnectionStrings__embedding-model: |
+    Endpoint=https://api.openai.com/v1;
+    Model=text-embedding-3-small;
+    Provider=azureopenai;
+
+  # Home Assistant Configuration
+  HomeAssistant__ApiEndpoint: "http://home-assistant:8123"
+
+  # Logging Configuration
+  Logging__Console__IncludeScopes: "true"
+  Logging__Console__TimestampFormat: "yyyy-MM-dd HH:mm:ss.fff zzz"
+  Logging__LogLevel__Default: "Information"
+  Logging__LogLevel__Microsoft: "Warning"
+
+  # Application Settings
+  ASPNETCORE_ENVIRONMENT: "Production"
+  ASPNETCORE_URLS: "http://+:8080"
+
+  # Feature Flags
+  Features__SemanticSearch: "true"
+  Features__MultiAgentOrchestration: "true"
+  Features__ContextPreservation: "true"
+
+  # Observability
+  Observability__Enabled: "true"
+  OpenTelemetry__TraceExporter: "http://jaeger-collector:4317"
+  OpenTelemetry__MetricsExporter: "http://prometheus:8888"
+
+  # Environment
+  Environment: "production"

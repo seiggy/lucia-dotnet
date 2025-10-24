@@ -1,0 +1,37 @@
+{{- /*
+Lucia Service Template
+
+This template defines the Kubernetes Service that exposes the Lucia deployment.
+It includes:
+- Service port mapping
+- Support for different service types (ClusterIP, NodePort, LoadBalancer)
+- Service annotations
+- Session affinity (optional)
+*/ -}}
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "lucia.fullname" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "lucia.labels" . | nindent 4 }}
+  {{- with .Values.lucia.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.lucia.service.type }}
+  ports:
+    - port: {{ .Values.lucia.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  {{- if eq .Values.lucia.service.type "NodePort" }}
+  {{- if .Values.lucia.service.nodePort }}
+      nodePort: {{ .Values.lucia.service.nodePort }}
+  {{- end }}
+  {{- end }}
+  selector:
+    {{- include "lucia.selectorLabels" . | nindent 4 }}
+  sessionAffinity: None

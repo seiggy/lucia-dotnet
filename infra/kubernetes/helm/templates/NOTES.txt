@@ -1,0 +1,72 @@
+1. Get the application URL by running these commands:
+{{- if .Values.lucia.ingress.enabled }}
+  {{- range $host := .Values.lucia.ingress.hosts }}
+    {{- range .paths }}
+  http{{ if $.Values.lucia.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
+    {{- end }}
+  {{- end }}
+{{- else if contains "NodePort" .Values.lucia.service.type }}
+  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "lucia.fullname" . }})
+  export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo http://$NODE_IP:$NODE_PORT
+{{- else if contains "LoadBalancer" .Values.lucia.service.type }}
+  NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+  You can watch the status by running 'kubectl get --namespace {{ .Release.Namespace }} svc -w {{ include "lucia.fullname" . }}'
+  export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ include "lucia.fullname" . }} --template "{{"{{ range (index .status.loadBalancer.ingress 0) }}{{.}}{{ end }}"}}")
+  echo http://$SERVICE_IP:{{ .Values.lucia.service.port }}
+{{- else if contains "ClusterIP" .Values.lucia.service.type }}
+  export POD_NAME=$(kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "lucia.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" -o jsonpath="{.items[0].metadata.name}")
+  export CONTAINER_PORT=$(kubectl get pod --namespace {{ .Release.Namespace }} $POD_NAME -o jsonpath="{.spec.containers[0].ports[0].containerPort}")
+  echo "Visit http://127.0.0.1:8080 to use your application"
+  kubectl --namespace {{ .Release.Namespace }} port-forward $POD_NAME 8080:$CONTAINER_PORT
+{{- end }}
+
+2. Check the deployment status:
+  kubectl get deployment --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "lucia.name" . }},app.kubernetes.io/instance={{ .Release.Name }}"
+  kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "lucia.name" . }},app.kubernetes.io/instance={{ .Release.Name }}"
+
+3. View logs from the deployment:
+  kubectl logs --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "lucia.name" . }},app.kubernetes.io/instance={{ .Release.Name }}" -f
+
+4. Monitor Redis status:
+{{- if .Values.redis.enabled }}
+  kubectl get statefulset --namespace {{ .Release.Namespace }} {{ include "lucia.fullname" . }}-redis
+  kubectl logs --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/component=redis" -f
+{{- else }}
+  External Redis endpoint: {{ .Values.redis.externalHost | default "Configure via values.redis.externalHost" }}
+{{- end }}
+
+5. Update configuration:
+  - Edit the ConfigMap with non-sensitive configuration:
+    kubectl edit configmap {{ include "lucia.fullname" . }} --namespace {{ .Release.Namespace }}
+  
+  - Edit the Secret with sensitive configuration:
+    kubectl edit secret {{ include "lucia.fullname" . }} --namespace {{ .Release.Namespace }}
+  
+  - Trigger a rolling restart to apply changes:
+    kubectl rollout restart deployment/{{ include "lucia.fullname" . }} --namespace {{ .Release.Namespace }}
+
+6. Verify health:
+  kubectl exec -it $(kubectl get pod -l app.kubernetes.io/name=lucia -o jsonpath='{.items[0].metadata.name}' --namespace {{ .Release.Namespace }}) --namespace {{ .Release.Namespace }} -- curl http://localhost:8080/health
+
+7. Troubleshooting:
+  - Check pod status and events:
+    kubectl describe pod --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "lucia.name" . }},app.kubernetes.io/instance={{ .Release.Name }}"
+  
+  - View resource usage:
+    kubectl top pod --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name={{ include "lucia.name" . }},app.kubernetes.io/instance={{ .Release.Name }}"
+  
+  - Check service connectivity:
+    kubectl get svc --namespace {{ .Release.Namespace }}
+
+8. Next Steps:
+  {{- if not .Values.lucia.ingress.enabled }}
+  - Enable ingress in values.yaml for production deployments
+  {{- end }}
+  {{- if .Values.lucia.autoscaling.enabled }}
+  - Monitor HPA status: kubectl get hpa --namespace {{ .Release.Namespace }}
+  {{- end }}
+  - Review the README.md for advanced configuration options
+  - Set up monitoring with Prometheus and Grafana (see documentation)
+
+For more information, visit: https://github.com/seiggy/lucia-dotnet

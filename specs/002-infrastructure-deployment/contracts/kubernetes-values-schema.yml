@@ -1,0 +1,494 @@
+# Kubernetes Helm Values Schema
+
+This schema defines the structure and validation rules for `values.yaml` used in Helm chart deployments.
+
+## values.yaml Schema
+
+```yaml
+# Replica Configuration
+replicaCount:
+  type: integer
+  minimum: 1
+  maximum: 10
+  default: 1
+  description: Number of Lucia pod replicas
+
+# Image Configuration
+image:
+  type: object
+  required: true
+  properties:
+    repository:
+      type: string
+      pattern: '^[a-z0-9-_./]+$'
+      example: 'seiggy/lucia'
+      description: Docker image repository
+    
+    pullPolicy:
+      type: string
+      enum: ['Always', 'IfNotPresent', 'Never']
+      default: 'IfNotPresent'
+      description: Image pull policy
+    
+    tag:
+      type: string
+      example: 'latest'
+      default: 'latest'
+      description: Image tag (overrides chart appVersion)
+
+# Service Configuration
+service:
+  type: object
+  properties:
+    type:
+      type: string
+      enum: ['ClusterIP', 'NodePort', 'LoadBalancer']
+      default: 'ClusterIP'
+    
+    port:
+      type: integer
+      minimum: 1
+      maximum: 65535
+      default: 80
+    
+    targetPort:
+      type: integer
+      default: 8080
+
+# Ingress Configuration
+ingress:
+  type: object
+  properties:
+    enabled:
+      type: boolean
+      default: true
+    
+    className:
+      type: string
+      example: 'nginx'
+      description: Ingress controller class (nginx, traefik, etc.)
+    
+    annotations:
+      type: object
+      additionalProperties: string
+      example:
+        cert-manager.io/cluster-issuer: 'letsencrypt-prod'
+    
+    hosts:
+      type: array
+      items:
+        type: object
+        properties:
+          host:
+            type: string
+            pattern: '^[a-z0-9.-]+$'
+            example: 'lucia.local.domain'
+          paths:
+            type: array
+            items:
+              type: object
+              properties:
+                path:
+                  type: string
+                  default: '/'
+                pathType:
+                  type: string
+                  enum: ['Prefix', 'Exact', 'ImplementationSpecific']
+                  default: 'Prefix'
+    
+    tls:
+      type: array
+      items:
+        type: object
+        properties:
+          secretName:
+            type: string
+          hosts:
+            type: array
+            items:
+              type: string
+
+# Resource Configuration
+resources:
+  type: object
+  properties:
+    limits:
+      type: object
+      properties:
+        cpu:
+          type: string
+          pattern: '^\d+(m|)$'
+          example: '1000m'
+          default: '1000m'
+        memory:
+          type: string
+          pattern: '^\d+(Mi|Gi)$'
+          example: '2Gi'
+          default: '2Gi'
+    
+    requests:
+      type: object
+      properties:
+        cpu:
+          type: string
+          example: '500m'
+          default: '500m'
+        memory:
+          type: string
+          example: '1Gi'
+          default: '1Gi'
+
+# Health Probes
+livenessProbe:
+  type: object
+  properties:
+    httpGet:
+      type: object
+      properties:
+        path:
+          type: string
+          default: '/health'
+        port:
+          type: integer
+          default: 8080
+    initialDelaySeconds:
+      type: integer
+      default: 30
+    periodSeconds:
+      type: integer
+      default: 10
+
+readinessProbe:
+  type: object
+  properties:
+    httpGet:
+      type: object
+      properties:
+        path:
+          type: string
+          default: '/health/ready'
+        port:
+          type: integer
+          default: 8080
+    initialDelaySeconds:
+      type: integer
+      default: 10
+    periodSeconds:
+      type: integer
+      default: 5
+
+# Application Configuration (Non-Sensitive)
+config:
+  type: object
+  properties:
+    homeAssistant:
+      type: object
+      required: true
+      properties:
+        baseUrl:
+          type: string
+          format: uri
+          example: 'http://homeassistant.default.svc.cluster.local:8123'
+          description: Home Assistant base URL
+    
+    openai:
+      type: object
+      required: true
+      properties:
+        baseUrl:
+          type: string
+          format: uri
+          default: 'https://api.openai.com/v1'
+          example: 'http://ollama.default.svc.cluster.local:11434/v1'
+        
+        modelId:
+          type: string
+          example: 'gpt-4o'
+          required: true
+        
+        embeddingModelId:
+          type: string
+          example: 'text-embedding-3-small'
+          required: true
+    
+    redis:
+      type: object
+      properties:
+        connectionString:
+          type: string
+          default: 'lucia-redis:6379'
+    
+    logging:
+      type: object
+      properties:
+        logLevel:
+          type: string
+          enum: ['Trace', 'Debug', 'Information', 'Warning', 'Error', 'Critical']
+          default: 'Information'
+
+# Secrets (Sensitive Configuration)
+secrets:
+  type: object
+  required: true
+  properties:
+    homeAssistant:
+      type: object
+      required: true
+      properties:
+        accessToken:
+          type: string
+          minLength: 32
+          description: Home Assistant long-lived access token
+          sensitive: true
+    
+    openai:
+      type: object
+      required: true
+      properties:
+        apiKey:
+          type: string
+          minLength: 20
+          description: OpenAI API key or "ollama" for local
+          sensitive: true
+    
+    redis:
+      type: object
+      properties:
+        password:
+          type: string
+          description: Redis password (optional)
+          sensitive: true
+
+# Redis Configuration
+redis:
+  type: object
+  properties:
+    enabled:
+      type: boolean
+      default: true
+      description: Deploy Redis StatefulSet
+    
+    image:
+      type: object
+      properties:
+        repository:
+          type: string
+          default: 'redis'
+        tag:
+          type: string
+          default: '7-alpine'
+    
+    persistence:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          default: true
+        size:
+          type: string
+          pattern: '^\d+(Mi|Gi)$'
+          default: '1Gi'
+        storageClass:
+          type: string
+          example: 'local-path'
+          description: Storage class for PVC
+    
+    resources:
+      type: object
+      properties:
+        limits:
+          type: object
+          properties:
+            memory:
+              type: string
+              default: '512Mi'
+        requests:
+          type: object
+          properties:
+            memory:
+              type: string
+              default: '256Mi'
+
+# Node Affinity & Tolerations
+nodeSelector:
+  type: object
+  additionalProperties: string
+  example:
+    kubernetes.io/hostname: 'node-1'
+
+tolerations:
+  type: array
+  items:
+    type: object
+
+affinity:
+  type: object
+```
+
+## Example values.yaml
+
+```yaml
+# Replica count
+replicaCount: 1
+
+# Image configuration
+image:
+  repository: seiggy/lucia
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: lucia.local.domain
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: lucia-tls
+      hosts:
+        - lucia.local.domain
+
+# Resource limits
+resources:
+  limits:
+    cpu: 1000m
+    memory: 2Gi
+  requests:
+    cpu: 500m
+    memory: 1Gi
+
+# Health probes
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 8080
+  initialDelaySeconds: 30
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /health/ready
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 5
+
+# Application configuration (non-sensitive)
+config:
+  homeAssistant:
+    baseUrl: "http://homeassistant.default.svc.cluster.local:8123"
+  
+  openai:
+    baseUrl: "https://api.openai.com/v1"
+    modelId: "gpt-4o"
+    embeddingModelId: "text-embedding-3-small"
+  
+  redis:
+    connectionString: "lucia-redis:6379"
+  
+  logging:
+    logLevel: "Information"
+
+# Secrets (sensitive - override via --set or separate values file)
+secrets:
+  homeAssistant:
+    accessToken: "YOUR_HA_TOKEN_HERE"
+  
+  openai:
+    apiKey: "YOUR_OPENAI_KEY_HERE"
+  
+  redis:
+    password: ""  # Optional
+
+# Redis configuration
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: 7-alpine
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: "local-path"
+  resources:
+    limits:
+      memory: 512Mi
+    requests:
+      memory: 256Mi
+```
+
+## Validation Rules
+
+### Required Values
+1. `config.homeAssistant.baseUrl` - Must be valid URL
+2. `config.openai.modelId` - Must be non-empty
+3. `config.openai.embeddingModelId` - Must be non-empty
+4. `secrets.homeAssistant.accessToken` - Must be at least 32 chars
+5. `secrets.openai.apiKey` - Must be at least 20 chars
+
+### Resource Limits
+- CPU: Must use valid K8s quantity format (e.g., "500m", "1", "2")
+- Memory: Must use valid K8s quantity format (e.g., "1Gi", "512Mi")
+- Requests should be ≤ Limits
+
+### Ingress Validation
+- If enabled, `hosts` array must have at least one entry
+- Host must be valid hostname format
+- TLS secret must exist if TLS enabled
+
+## Helm Installation Commands
+
+### Install with default values
+```bash
+helm install lucia ./infra/kubernetes/helm
+```
+
+### Install with custom values file
+```bash
+helm install lucia ./infra/kubernetes/helm -f my-values.yaml
+```
+
+### Install with CLI overrides (recommended for secrets)
+```bash
+helm install lucia ./infra/kubernetes/helm \
+  --set secrets.homeAssistant.accessToken="YOUR_TOKEN" \
+  --set secrets.openai.apiKey="YOUR_KEY" \
+  --set config.homeAssistant.baseUrl="http://ha.local:8123"
+```
+
+### Upgrade existing installation
+```bash
+helm upgrade lucia ./infra/kubernetes/helm -f my-values.yaml
+```
+
+## Error Messages
+
+**Missing Required Value:**
+```
+Error: values don't meet the specifications of the schema(s) in the following chart(s):
+lucia:
+- config.homeAssistant.baseUrl: Required field missing
+```
+
+**Invalid Resource Format:**
+```
+Error: Invalid memory format '1G'
+Memory must use Kubernetes quantity format (e.g., '1Gi', '512Mi')
+```
+
+**Invalid URL:**
+```
+Error: config.homeAssistant.baseUrl must be a valid URL
+Provided: 'homeassistant:8123'
+Expected: 'http://homeassistant:8123' or 'https://homeassistant:8123'
+```
