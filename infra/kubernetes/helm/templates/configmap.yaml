@@ -1,0 +1,75 @@
+{{- /*
+Lucia ConfigMap Template
+
+This template defines the Kubernetes ConfigMap containing non-sensitive configuration.
+It includes:
+- LLM provider configuration (endpoints, model names)
+- Home Assistant integration settings
+- Redis connection details
+- Application settings
+- Feature flags
+*/ -}}
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "lucia.fullname" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "lucia.labels" . | nindent 4 }}
+data:
+  # Redis Configuration
+  Redis__Host: {{ include "lucia.redis.host" . | quote }}
+  Redis__Port: {{ .Values.redis.service.port | quote }}
+  Redis__Database: "0"
+  Redis__DefaultExpiry: "86400"  # 24 hours in seconds
+
+  # LLM Configuration - Chat Model
+  ConnectionStrings__chat-model: |
+    Endpoint={{ .Values.llm.chatModel.endpoint }};
+    Model={{ .Values.llm.chatModel.model }};
+    Provider={{ .Values.llm.chatModel.provider }};
+
+  # LLM Configuration - Embedding Model
+  {{- if .Values.llm.embeddingModel.endpoint }}
+  ConnectionStrings__embedding-model: |
+    Endpoint={{ .Values.llm.embeddingModel.endpoint }};
+    Model={{ .Values.llm.embeddingModel.model }};
+    Provider={{ .Values.llm.embeddingModel.provider }};
+  {{- end }}
+
+  # Home Assistant Configuration
+  {{- if .Values.homeAssistant.apiEndpoint }}
+  HomeAssistant__ApiEndpoint: {{ .Values.homeAssistant.apiEndpoint | quote }}
+  {{- end }}
+
+  # Logging Configuration
+  Logging__Console__IncludeScopes: "true"
+  Logging__Console__TimestampFormat: "yyyy-MM-dd HH:mm:ss.fff zzz"
+  Logging__LogLevel__Default: "Information"
+  Logging__LogLevel__Microsoft: "Warning"
+
+  # Application Settings
+  ASPNETCORE_ENVIRONMENT: "Production"
+  ASPNETCORE_URLS: "http://+:8080"
+
+  # Feature Flags
+  Features__SemanticSearch: "true"
+  Features__MultiAgentOrchestration: "true"
+  Features__ContextPreservation: "true"
+
+  # Observability
+  {{- if .Values.observability.enabled }}
+  Observability__Enabled: "true"
+  {{- if .Values.observability.traceExporter }}
+  OpenTelemetry__TraceExporter: {{ .Values.observability.traceExporter | quote }}
+  {{- end }}
+  {{- if .Values.observability.metricsExporter }}
+  OpenTelemetry__MetricsExporter: {{ .Values.observability.metricsExporter | quote }}
+  {{- end }}
+  {{- else }}
+  Observability__Enabled: "false"
+  {{- end }}
+
+  # Environment-specific settings
+  Environment: {{ .Values.global.environment | quote }}
