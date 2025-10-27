@@ -160,8 +160,8 @@ public sealed class AgentExecutorWrapper : ReflectingExecutor<AgentExecutorWrapp
         var agent = ResolveAgent();
         var thread = EnsureThread(agent, orchestrationContext);
 
-    var runTask = agent.RunAsync(message, thread, options: null, cancellationToken);
-    var response = await runTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var runTask = agent.RunAsync(message, thread, options: null, cancellationToken);
+        var response = await runTask.WaitAsync(cancellationToken).ConfigureAwait(false);
 
         orchestrationContext.AgentThreads[_agentId] = thread;
         AppendHistory(orchestrationContext, message, response.Messages);
