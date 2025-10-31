@@ -107,10 +107,10 @@
 
 ### Implementation for User Story 3
 
-- [ ] T031 [P] [US3] Create systemd service file in /infra/systemd/lucia.service with proper dependencies and restart policy
-- [ ] T032 [P] [US3] Create systemd environment template in /infra/systemd/lucia.env.example
-- [ ] T033 [US3] Create systemd installation script in /infra/systemd/install.sh with automated setup
-- [ ] T034 [US3] Create systemd deployment guide in /infra/systemd/README.md with installation and service management
+- [x] T031 [P] [US3] Create systemd service file in /infra/systemd/lucia.service with proper dependencies and restart policy
+- [x] T032 [P] [US3] Create systemd environment template in /infra/systemd/lucia.env.example
+- [x] T033 [US3] Create systemd installation script in /infra/systemd/install.sh with automated setup
+- [x] T034 [US3] Create systemd deployment guide in /infra/systemd/README.md with installation and service management
 - [ ] T035 [US3] Manual testing: Validate systemd deployment per spec.md User Story 3 acceptance scenarios
 
 **Checkpoint**: User Story 3 complete - systemd deployment functional with installation script
