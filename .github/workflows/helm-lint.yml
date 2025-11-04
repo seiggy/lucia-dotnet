@@ -1,0 +1,174 @@
+name: Helm Chart Validation
+
+on:
+  pull_request:
+    paths:
+      - 'infra/kubernetes/helm/**'
+      - '.github/workflows/helm-lint.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'infra/kubernetes/helm/**'
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Lint Helm Chart
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: '3.13.0'
+
+      - name: Add Helm repositories
+        run: |
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo update
+
+      - name: Lint Helm chart
+        run: |
+          echo "Running Helm lint..."
+          helm lint infra/kubernetes/helm \
+            --strict \
+            --set image.tag=test \
+            --set homeAssistant.baseUrl=http://test:8123 \
+            --set homeAssistant.accessToken=test-token \
+            --set openai.apiKey=test-key \
+            --set openai.modelId=gpt-4o \
+            --set openai.embeddingModelId=text-embedding-3-small
+
+      - name: Template Helm chart
+        run: |
+          echo "Rendering Helm templates..."
+          helm template lucia infra/kubernetes/helm \
+            --namespace lucia-system \
+            --set image.tag=test \
+            --set homeAssistant.baseUrl=http://test:8123 \
+            --set homeAssistant.accessToken=test-token \
+            --set openai.apiKey=test-key \
+            --set openai.modelId=gpt-4o \
+            --set openai.embeddingModelId=text-embedding-3-small \
+            --output-dir /tmp/helm-output
+
+      - name: Validate rendered manifests with kubeval
+        run: |
+          echo "Installing kubeval..."
+          wget https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz
+          tar xf kubeval-linux-amd64.tar.gz
+          sudo mv kubeval /usr/local/bin/
+          
+          echo "Validating Kubernetes manifests..."
+          kubeval --strict --ignore-missing-schemas /tmp/helm-output/**/*.yaml
+
+      - name: Check Helm chart version
+        run: |
+          CHART_VERSION=$(grep '^version:' infra/kubernetes/helm/Chart.yaml | awk '{print $2}')
+          echo "Chart version: $CHART_VERSION"
+          
+          # Verify semantic versioning
+          if [[ ! $CHART_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "❌ Chart version must follow semantic versioning (x.y.z)"
+            exit 1
+          fi
+          
+          echo "✅ Chart version is valid"
+
+      - name: Check for required files
+        run: |
+          echo "Checking for required Helm chart files..."
+          
+          REQUIRED_FILES=(
+            "infra/kubernetes/helm/Chart.yaml"
+            "infra/kubernetes/helm/values.yaml"
+            "infra/kubernetes/helm/templates/deployment.yaml"
+            "infra/kubernetes/helm/templates/service.yaml"
+            "infra/kubernetes/helm/templates/_helpers.tpl"
+            "infra/kubernetes/helm/README.md"
+          )
+          
+          for file in "${REQUIRED_FILES[@]}"; do
+            if [ ! -f "$file" ]; then
+              echo "❌ Missing required file: $file"
+              exit 1
+            fi
+          done
+          
+          echo "✅ All required files present"
+
+      - name: Test Helm install (dry-run)
+        run: |
+          echo "Testing Helm installation (dry-run)..."
+          helm install lucia infra/kubernetes/helm \
+            --dry-run \
+            --namespace lucia-system \
+            --create-namespace \
+            --set image.tag=test \
+            --set homeAssistant.baseUrl=http://test:8123 \
+            --set homeAssistant.accessToken=test-token \
+            --set openai.apiKey=test-key \
+            --set openai.modelId=gpt-4o \
+            --set openai.embeddingModelId=text-embedding-3-small
+
+      - name: Comment PR with validation results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const output = `#### Helm Chart Validation Results ⎈
+            
+            **Chart:** \`lucia\`
+            **Location:** \`infra/kubernetes/helm/\`
+            
+            ✅ Helm lint passed
+            ✅ Template rendering successful
+            ✅ Kubernetes schema validation passed (kubeval)
+            ✅ Chart version valid
+            ✅ All required files present
+            ✅ Dry-run installation successful
+            
+            *Chart is ready for deployment!*`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
+
+  test-values:
+    name: Test Different Value Configurations
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        values-file:
+          - values.yaml
+          - values.dev.yaml
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: '3.13.0'
+
+      - name: Test with ${{ matrix.values-file }}
+        run: |
+          echo "Testing with ${{ matrix.values-file }}..."
+          helm template lucia infra/kubernetes/helm \
+            --values infra/kubernetes/helm/${{ matrix.values-file }} \
+            --set homeAssistant.baseUrl=http://test:8123 \
+            --set homeAssistant.accessToken=test-token \
+            --set openai.apiKey=test-key \
+            --set openai.modelId=gpt-4o \
+            --set openai.embeddingModelId=text-embedding-3-small \
+            > /dev/null
+          
+          echo "✅ Template rendering successful with ${{ matrix.values-file }}"

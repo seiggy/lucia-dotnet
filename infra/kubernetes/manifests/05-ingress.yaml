@@ -1,0 +1,65 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: lucia
+  namespace: lucia
+  labels:
+    app.kubernetes.io/name: lucia
+  annotations:
+    # NGINX Ingress Controller annotations
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    
+    # Cert-manager annotations for automatic TLS certificate
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    
+    # Additional security headers
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
+spec:
+  ingressClassName: nginx
+  
+  tls:
+    - hosts:
+        - lucia.local
+        - lucia.example.com
+      secretName: lucia-tls
+
+  rules:
+    # Development/local access
+    - host: lucia.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: lucia
+                port:
+                  number: 80
+
+    # Production/public access
+    - host: lucia.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: lucia
+                port:
+                  number: 80
+
+    # Catch-all for cluster DNS
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: lucia
+                port:
+                  number: 80

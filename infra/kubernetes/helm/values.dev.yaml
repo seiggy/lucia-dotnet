@@ -1,0 +1,104 @@
+# Lucia Helm Chart Development Values
+# Override defaults for development/testing environments
+# Usage: helm install lucia ./infra/kubernetes/helm -f values.yaml -f values.dev.yaml
+
+global:
+  environment: development
+
+lucia:
+  # Single replica for development to save resources
+  replicaCount: 1
+
+  # Development image configuration
+  image:
+    # Use dev tag or latest
+    tag: "latest"
+    pullPolicy: Always
+
+  # Development resource limits (lower than production)
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  # Disable autoscaling in development
+  autoscaling:
+    enabled: false
+
+  # Development ingress configuration
+  ingress:
+    enabled: true
+    className: "nginx"
+    annotations: {}
+    hosts:
+      - host: lucia.dev.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
+  # Faster probe timings for development
+  livenessProbe:
+    initialDelaySeconds: 10
+    periodSeconds: 30
+
+  readinessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 15
+
+  # No PDB in development
+  podDisruptionBudget:
+    enabled: false
+
+  # Relaxed affinity for development (single node)
+  affinity: {}
+
+redis:
+  # Single replica for development
+  replicaCount: 1
+
+  # Development resource limits (lower than production)
+  resources:
+    limits:
+      cpu: 250m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+  # Smaller storage for development
+  storage:
+    size: 500Mi
+
+  # Faster probe timings for development
+  livenessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 30
+
+  readinessProbe:
+    initialDelaySeconds: 2
+    periodSeconds: 15
+
+llm:
+  # Use Ollama for development (local)
+  provider: ollama
+  chatModel:
+    endpoint: "http://ollama:11434"
+    model: "llama3.2:3b"
+    provider: ollama
+  embeddingModel:
+    endpoint: "http://ollama:11434"
+    model: "nomic-embed-text"
+    provider: ollama
+
+homeAssistant:
+  # Use local Home Assistant for development
+  apiEndpoint: "http://homeassistant:8123"
+
+# No TLS in development
+nodeSelector: {}
+tolerations: []
+priorityClassName: ""

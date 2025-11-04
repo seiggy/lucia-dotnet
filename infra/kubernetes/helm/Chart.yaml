@@ -1,0 +1,55 @@
+apiVersion: v2
+name: lucia
+description: A Helm chart for deploying Lucia AI Agent Host to Kubernetes
+type: application
+
+# Chart version - bump for each release
+version: 1.0.0
+
+# Application version - version of lucia-dotnet being deployed
+appVersion: "1.0.0"
+
+# Chart home page
+home: https://github.com/seiggy/lucia-dotnet
+
+# Source repository
+sources:
+  - https://github.com/seiggy/lucia-dotnet
+
+# Chart maintainers
+maintainers:
+  - name: Lucia Project
+    url: https://github.com/seiggy/lucia-dotnet
+
+# Keywords for chart discovery
+keywords:
+  - ai
+  - agent
+  - home-automation
+  - home-assistant
+  - lucia
+
+# Categories for chart discovery
+categories:
+  - AI
+  - Home Automation
+
+# Icon URL (base64 encoded or URL)
+icon: https://raw.githubusercontent.com/seiggy/lucia-dotnet/main/lucia-logo.png
+
+# Minimum Kubernetes version
+kubeVersion: ">=1.24.0"
+
+# Deprecated flag
+deprecated: false
+
+# Annotations for additional metadata
+annotations:
+  # Artifact Hub annotations
+  artifacthub.io/changes: |
+    - Initial release with support for single and multi-node Kubernetes deployments
+    - Includes integrated Redis for task persistence
+    - Supports multiple LLM providers (OpenAI, Azure OpenAI, Ollama, Azure AI Inference)
+  artifacthub.io/containsSecurityUpdates: "false"
+  artifacthub.io/prerelease: "false"
+  artifacthub.io/recommendations: "1-3 replicas for home lab, 3-5 for production"

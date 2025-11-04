@@ -1,0 +1,84 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Metadata about this kustomization
+metadata:
+  name: lucia
+  namespace: lucia
+
+# Namespace for all resources
+namespace: lucia
+
+# Include all YAML files in this directory
+resources:
+  - 00-namespace.yaml
+  - 01-configmap.yaml
+  - 02-secret.yaml
+  - 03-redis.yaml
+  - 04-deployment.yaml
+  - 05-ingress.yaml
+  - 06-rbac.yaml
+  - 07-hpa.yaml
+
+# Common labels applied to all resources
+commonLabels:
+  app.kubernetes.io/name: lucia
+  app.kubernetes.io/version: "1.0.0"
+  app.kubernetes.io/managed-by: kustomize
+
+# Common annotations applied to all resources
+commonAnnotations:
+  managed-by: lucia-kubernetes-manifests
+  documentation: https://github.com/seiggy/lucia-dotnet/infra/kubernetes/README.md
+
+# Replica override for all Deployments
+replicas:
+  - name: lucia
+    count: 2
+
+# Image overrides (update tag here for all deployments)
+images:
+  - name: docker.io/seiggy/lucia-agenthost
+    newName: docker.io/seiggy/lucia-agenthost
+    newTag: latest
+
+# Patches to apply to resources
+patches: []
+  # Example: Add init container to wait for external service
+  # - target:
+  #     group: apps
+  #     version: v1
+  #     kind: Deployment
+  #     name: lucia
+  #   patch: |-
+  #     - op: add
+  #       path: /spec/template/spec/initContainers
+  #       value:
+  #         - name: wait-for-service
+  #           image: busybox:1.36
+  #           command: ['sh', '-c', 'echo "Waiting..."']
+
+# ConfigMap generator for automatic rollouts when config changes
+# Uncomment if using Kubernetes 1.23+
+# configMapGenerator:
+#   - name: lucia-config
+#     files:
+#       - config.yaml
+
+# Vars for template substitution
+vars: []
+  # Example: Inject environment-specific values
+  # - name: ENVIRONMENT
+  #   objref:
+  #     kind: ConfigMap
+  #     name: lucia
+  #     apiVersion: v1
+  #   fieldref:
+  #     fieldpath: data.Environment
+
+# Configuration for CR validation
+validationBehavior: warn
+
+# Sort resources (optional)
+sortOptions:
+  order: legacy

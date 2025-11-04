@@ -1,0 +1,64 @@
+# Lucia AI Assistant systemd Service Unit
+# Installation: sudo cp lucia.service /etc/systemd/system/
+# Enable: sudo systemctl enable lucia
+# Start: sudo systemctl start lucia
+
+[Unit]
+Description=Lucia AI-Powered Home Assistant Agent Orchestration
+Documentation=https://github.com/seiggy/lucia-dotnet
+After=network.target redis.service
+Requires=redis.service
+
+[Service]
+# Service Type
+Type=notify
+NotifyAccess=main
+
+# Working Directory and Executable
+WorkingDirectory=/opt/lucia
+ExecStart=/usr/bin/dotnet /opt/lucia/lucia.AgentHost.dll
+
+# Configuration
+EnvironmentFile=/etc/lucia/lucia.env
+
+# Restart Policy
+Restart=on-failure
+RestartSec=10s
+TimeoutStartSec=60s
+TimeoutStopSec=30s
+StartLimitInterval=5min
+StartLimitBurst=3
+
+# Security Hardening
+# Use DynamicUser for automatic user/group management
+DynamicUser=yes
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# Allow access to specific directories
+ReadWritePaths=/var/log/lucia
+StateDirectory=lucia
+CacheDirectory=lucia
+LogsDirectory=lucia
+
+# Resource Limits
+MemoryMax=2G
+CPUQuota=200%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lucia
+SyslogLevel=info
+
+[Install]
+WantedBy=multi-user.target
