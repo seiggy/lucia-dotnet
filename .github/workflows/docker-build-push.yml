@@ -5,8 +5,7 @@ on:
     branches:
       - main
     tags:
-      - '2025.*.*'
-      - '2026.*.*'
+      - '20[2-9][0-9].*.*'  # Calendar versioning (YYYY.MM.DD)
   pull_request:
     branches:
       - main
@@ -54,12 +53,10 @@ jobs:
         with:
           images: ${{ env.DOCKER_IMAGE }}
           tags: |
+            type=match,pattern=\d{4}\.\d{1,2}\.\d{1,2},group=0
             type=ref,event=branch
             type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=sha,prefix={{branch}}-,format=short
+            type=sha,prefix={{date 'YYYY.MM.DD'}}-
             type=raw,value=latest,enable={{is_default_branch}}
           labels: |
             org.opencontainers.image.title=Lucia
