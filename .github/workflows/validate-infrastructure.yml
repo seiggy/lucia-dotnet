@@ -1,0 +1,398 @@
+name: Infrastructure Validation
+
+on:
+  pull_request:
+    paths:
+      - 'infra/**'
+      - '.github/workflows/validate-infrastructure.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'infra/**'
+  workflow_dispatch:
+
+jobs:
+  validate-docker:
+    name: Validate Docker Files
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run hadolint on Dockerfiles
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: lucia.AgentHost/Dockerfile
+          failure-threshold: warning
+          ignore: DL3008  # Pin apt package versions (not critical for base images)
+
+      - name: Validate Docker Compose files
+        run: |
+          echo "Validating Docker Compose syntax..."
+          docker-compose -f infra/docker/docker-compose.yml config > /dev/null
+          docker-compose -f infra/docker/docker-compose.dev.yml config > /dev/null
+          echo "✅ Docker Compose files are valid"
+
+      - name: Check Docker Compose structure
+        run: |
+          echo "Checking Docker Compose file structure..."
+          
+          # Check that lucia service exists
+          if ! grep -q 'lucia:' infra/docker/docker-compose.yml; then
+            echo "❌ lucia service not found in docker-compose.yml"
+            exit 1
+          fi
+          
+          # Check that redis service exists
+          if ! grep -q 'redis:' infra/docker/docker-compose.yml; then
+            echo "❌ redis service not found in docker-compose.yml"
+            exit 1
+          fi
+          
+          echo "✅ Required services found in Docker Compose"
+
+  validate-kubernetes:
+    name: Validate Kubernetes Manifests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: '3.13.0'
+
+      - name: Install yamllint
+        run: pip install yamllint
+
+      - name: Lint YAML files
+        run: |
+          echo "Linting Kubernetes YAML files..."
+          yamllint -d relaxed infra/kubernetes/manifests/*.yaml || true
+          echo "✅ YAML linting complete"
+
+      - name: Validate Kubernetes manifests with kubeval
+        run: |
+          echo "Installing kubeval..."
+          wget https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz
+          tar xf kubeval-linux-amd64.tar.gz
+          sudo mv kubeval /usr/local/bin/
+          
+          echo "Validating raw Kubernetes manifests..."
+          kubeval --strict --ignore-missing-schemas infra/kubernetes/manifests/*.yaml
+
+      - name: Render and validate Helm templates
+        run: |
+          echo "Rendering Helm templates..."
+          helm template lucia infra/kubernetes/helm \
+            --namespace lucia-system \
+            --set image.tag=test \
+            --set homeAssistant.baseUrl=http://test:8123 \
+            --set homeAssistant.accessToken=test-token \
+            --set openai.apiKey=test-key \
+            --set openai.modelId=gpt-4o \
+            --set openai.embeddingModelId=text-embedding-3-small \
+            --output-dir /tmp/helm-rendered
+          
+          echo "Validating rendered Helm templates..."
+          kubeval --strict --ignore-missing-schemas /tmp/helm-rendered/**/*.yaml
+
+      - name: Check for required Kubernetes resources
+        run: |
+          echo "Checking for required Kubernetes resources..."
+          
+          REQUIRED_RESOURCES=(
+            "infra/kubernetes/manifests/namespace.yaml"
+            "infra/kubernetes/manifests/deployment.yaml"
+            "infra/kubernetes/manifests/service.yaml"
+            "infra/kubernetes/manifests/configmap.yaml"
+            "infra/kubernetes/manifests/secret.yaml"
+          )
+          
+          for resource in "${REQUIRED_RESOURCES[@]}"; do
+            if [ ! -f "$resource" ]; then
+              echo "❌ Missing required resource: $resource"
+              exit 1
+            fi
+          done
+          
+          echo "✅ All required Kubernetes resources present"
+
+  validate-systemd:
+    name: Validate systemd Configuration
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install systemd tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y systemd
+
+      - name: Validate systemd service file syntax
+        run: |
+          echo "Validating lucia.service syntax..."
+          systemd-analyze verify infra/systemd/lucia.service || true
+          echo "✅ systemd service file validation complete"
+
+      - name: Check systemd service file structure
+        run: |
+          echo "Checking lucia.service structure..."
+          
+          # Check for required sections
+          if ! grep -q '\[Unit\]' infra/systemd/lucia.service; then
+            echo "❌ [Unit] section missing in lucia.service"
+            exit 1
+          fi
+          
+          if ! grep -q '\[Service\]' infra/systemd/lucia.service; then
+            echo "❌ [Service] section missing in lucia.service"
+            exit 1
+          fi
+          
+          if ! grep -q '\[Install\]' infra/systemd/lucia.service; then
+            echo "❌ [Install] section missing in lucia.service"
+            exit 1
+          fi
+          
+          # Check for critical directives
+          if ! grep -q 'Type=notify' infra/systemd/lucia.service; then
+            echo "❌ Type=notify not found (required for ASP.NET Core)"
+            exit 1
+          fi
+          
+          if ! grep -q 'EnvironmentFile=' infra/systemd/lucia.service; then
+            echo "❌ EnvironmentFile directive missing"
+            exit 1
+          fi
+          
+          echo "✅ systemd service file structure valid"
+
+      - name: Validate environment template
+        run: |
+          echo "Checking lucia.env.example..."
+          
+          # Check for required environment variables
+          REQUIRED_VARS=(
+            "HomeAssistant__BaseUrl"
+            "HomeAssistant__AccessToken"
+            "OpenAI__ApiKey"
+            "OpenAI__ModelId"
+            "Redis__ConnectionString"
+            "ASPNETCORE_ENVIRONMENT"
+          )
+          
+          for var in "${REQUIRED_VARS[@]}"; do
+            if ! grep -q "^$var=" infra/systemd/lucia.env.example; then
+              echo "❌ Required environment variable missing: $var"
+              exit 1
+            fi
+          done
+          
+          echo "✅ Environment template contains all required variables"
+
+      - name: Validate installation script
+        run: |
+          echo "Checking install.sh..."
+          
+          # Check that script is executable
+          if [ ! -x infra/systemd/install.sh ]; then
+            echo "⚠️  install.sh is not executable (not critical for validation)"
+          fi
+          
+          # Check for key functions
+          if ! grep -q 'check_prerequisites' infra/systemd/install.sh; then
+            echo "❌ check_prerequisites function missing in install.sh"
+            exit 1
+          fi
+          
+          if ! grep -q 'install_lucia' infra/systemd/install.sh; then
+            echo "❌ install_lucia function missing in install.sh"
+            exit 1
+          fi
+          
+          echo "✅ Installation script structure valid"
+
+      - name: Validate systemd README
+        run: |
+          echo "Checking systemd README.md..."
+          
+          if [ ! -f infra/systemd/README.md ]; then
+            echo "❌ systemd README.md missing"
+            exit 1
+          fi
+          
+          # Check for critical sections
+          if ! grep -qi 'prerequisites' infra/systemd/README.md; then
+            echo "❌ Prerequisites section missing in README"
+            exit 1
+          fi
+          
+          if ! grep -qi 'installation' infra/systemd/README.md; then
+            echo "❌ Installation section missing in README"
+            exit 1
+          fi
+          
+          if ! grep -qi 'troubleshooting' infra/systemd/README.md; then
+            echo "❌ Troubleshooting section missing in README"
+            exit 1
+          fi
+          
+          echo "✅ systemd README structure valid"
+
+  validate-documentation:
+    name: Validate Documentation
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check for required documentation files
+        run: |
+          echo "Checking for required documentation..."
+          
+          REQUIRED_DOCS=(
+            "infra/README.md"
+            "infra/docker/README.md"
+            "infra/kubernetes/README.md"
+            "infra/kubernetes/helm/README.md"
+            "infra/systemd/README.md"
+          )
+          
+          for doc in "${REQUIRED_DOCS[@]}"; do
+            if [ ! -f "$doc" ]; then
+              echo "❌ Missing required documentation: $doc"
+              exit 1
+            fi
+          done
+          
+          echo "✅ All required documentation present"
+
+      - name: Validate markdown syntax
+        uses: DavidAnson/markdownlint-cli2-action@v15
+        with:
+          globs: 'infra/**/*.md'
+          config: |
+            {
+              "default": true,
+              "MD013": false,
+              "MD033": false,
+              "MD041": false
+            }
+
+  security-checks:
+    name: Security Validation
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check for exposed secrets
+        run: |
+          echo "Checking for exposed secrets in configuration files..."
+          
+          # Check that no actual secrets are committed
+          if grep -ri 'sk-[a-zA-Z0-9]\{48\}' infra/; then
+            echo "❌ Potential OpenAI API key found in infra files!"
+            exit 1
+          fi
+          
+          if grep -ri 'Bearer [a-zA-Z0-9]\{20,\}' infra/; then
+            echo "❌ Potential access token found in infra files!"
+            exit 1
+          fi
+          
+          echo "✅ No exposed secrets found"
+
+      - name: Validate security hardening
+        run: |
+          echo "Checking systemd security hardening..."
+          
+          REQUIRED_HARDENING=(
+            "DynamicUser=true"
+            "ProtectSystem=strict"
+            "ProtectHome=true"
+            "PrivateTmp=true"
+            "NoNewPrivileges=true"
+          )
+          
+          for directive in "${REQUIRED_HARDENING[@]}"; do
+            if ! grep -q "$directive" infra/systemd/lucia.service; then
+              echo "⚠️  Recommended security directive missing: $directive"
+            fi
+          done
+          
+          echo "✅ Security hardening check complete"
+
+  summary:
+    name: Validation Summary
+    needs: [validate-docker, validate-kubernetes, validate-systemd, validate-documentation, security-checks]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: Check job statuses
+        run: |
+          echo "## Infrastructure Validation Summary"
+          echo ""
+          echo "**Docker Validation:** ${{ needs.validate-docker.result }}"
+          echo "**Kubernetes Validation:** ${{ needs.validate-kubernetes.result }}"
+          echo "**systemd Validation:** ${{ needs.validate-systemd.result }}"
+          echo "**Documentation Validation:** ${{ needs.validate-documentation.result }}"
+          echo "**Security Checks:** ${{ needs.security-checks.result }}"
+          echo ""
+          
+          if [[ "${{ needs.validate-docker.result }}" == "success" ]] && \
+             [[ "${{ needs.validate-kubernetes.result }}" == "success" ]] && \
+             [[ "${{ needs.validate-systemd.result }}" == "success" ]] && \
+             [[ "${{ needs.validate-documentation.result }}" == "success" ]] && \
+             [[ "${{ needs.security-checks.result }}" == "success" ]]; then
+            echo "✅ All validation checks passed!"
+            exit 0
+          else
+            echo "❌ Some validation checks failed. Please review the logs above."
+            exit 1
+          fi
+
+      - name: Comment PR with validation summary
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const dockerResult = '${{ needs.validate-docker.result }}';
+            const k8sResult = '${{ needs.validate-kubernetes.result }}';
+            const systemdResult = '${{ needs.validate-systemd.result }}';
+            const docsResult = '${{ needs.validate-documentation.result }}';
+            const securityResult = '${{ needs.security-checks.result }}';
+            
+            const getEmoji = (result) => result === 'success' ? '✅' : '❌';
+            
+            const output = `## Infrastructure Validation Summary 🏗️
+            
+            | Component | Status |
+            |-----------|--------|
+            | Docker | ${getEmoji(dockerResult)} ${dockerResult} |
+            | Kubernetes | ${getEmoji(k8sResult)} ${k8sResult} |
+            | systemd | ${getEmoji(systemdResult)} ${systemdResult} |
+            | Documentation | ${getEmoji(docsResult)} ${docsResult} |
+            | Security | ${getEmoji(securityResult)} ${securityResult} |
+            
+            ${dockerResult === 'success' && k8sResult === 'success' && systemdResult === 'success' && docsResult === 'success' && securityResult === 'success' 
+              ? '✅ **All validation checks passed!** Infrastructure changes are ready for merge.' 
+              : '❌ **Some validation checks failed.** Please review the workflow logs and fix the issues.'}
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
