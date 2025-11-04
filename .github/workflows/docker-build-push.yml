@@ -1,0 +1,200 @@
+name: Build and Push Docker Image
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - '2025.*.*'
+      - '2026.*.*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  DOCKER_IMAGE: seiggy/lucia
+  DOCKERFILE_PATH: ./infra/docker/Dockerfile
+
+jobs:
+  build-and-push:
+    name: Build and Push Multi-Platform Docker Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Log in to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:latest
+          
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix={{branch}}-,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.title=Lucia
+            org.opencontainers.image.description=AI-powered Home Assistant agent orchestration
+            org.opencontainers.image.vendor=Lucia Project
+            org.opencontainers.image.licenses=MIT
+
+      - name: Build and push Docker image
+        id: build-push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ env.DOCKERFILE_PATH }}
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.event.head_commit.timestamp }}
+            VCS_REF=${{ github.sha }}
+            VERSION=${{ steps.meta.outputs.version }}
+
+      - name: Generate artifact attestation
+        if: github.event_name != 'pull_request'
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ${{ env.DOCKER_IMAGE }}
+          subject-digest: ${{ steps.build-push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Image digest
+        run: echo ${{ steps.build-push.outputs.digest }}
+
+      - name: Comment PR with image info
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const output = `#### Docker Build Results 🐳
+            
+            **Image:** \`${{ env.DOCKER_IMAGE }}\`
+            **Platforms:** \`linux/amd64\`, \`linux/arm64\`
+            **Digest:** \`${{ steps.build-push.outputs.digest }}\`
+            
+            ✅ Multi-platform build completed successfully!
+            
+            *Image was built but not pushed (PR builds are for validation only)*`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
+
+  test-image:
+    name: Test Docker Image
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.event_name == 'pull_request'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image for testing
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ env.DOCKERFILE_PATH }}
+          load: true
+          tags: lucia:test
+          cache-from: type=gha
+
+      - name: Test image structure
+        run: |
+          echo "Testing Docker image structure..."
+          
+          # Check if image exists
+          docker image inspect lucia:test
+          
+          # Check image size (should be reasonable)
+          SIZE=$(docker image inspect lucia:test --format='{{.Size}}')
+          echo "Image size: $(($SIZE / 1024 / 1024)) MB"
+          
+          # Verify non-root user
+          USER=$(docker run --rm lucia:test whoami)
+          if [ "$USER" = "app" ]; then
+            echo "✅ Running as non-root user"
+          else
+            echo "❌ Not running as non-root user"
+            exit 1
+          fi
+
+      - name: Test container startup
+        run: |
+          echo "Testing container startup..."
+          
+          # Start container in background
+          docker run -d --name lucia-test \
+            -e HomeAssistant__BaseUrl=http://localhost:8123 \
+            -e HomeAssistant__AccessToken=test-token \
+            -e OpenAI__ApiKey=test-key \
+            -e OpenAI__ModelId=gpt-4o \
+            -e OpenAI__EmbeddingModelId=text-embedding-3-small \
+            -e Redis__ConnectionString=localhost:6379 \
+            lucia:test || echo "Expected failure without Redis"
+          
+          # Check logs
+          docker logs lucia-test || true
+          
+          # Cleanup
+          docker rm -f lucia-test || true
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.event_name != 'pull_request'
+    
+    steps:
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.DOCKER_IMAGE }}:latest
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'

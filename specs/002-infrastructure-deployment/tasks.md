@@ -125,9 +125,9 @@
 
 ### Implementation for User Story 4
 
-- [ ] T036 [P] [US4] Create Docker build workflow in .github/workflows/docker-build-push.yml with multi-platform support
-- [ ] T037 [P] [US4] Create Helm lint workflow in .github/workflows/helm-lint.yml
-- [ ] T038 [P] [US4] Create infrastructure validation workflow in .github/workflows/validate-infrastructure.yml
+- [x] T036 [P] [US4] Create Docker build workflow in .github/workflows/docker-build-push.yml with multi-platform support
+- [x] T037 [P] [US4] Create Helm lint workflow in .github/workflows/helm-lint.yml
+- [x] T038 [P] [US4] Create infrastructure validation workflow in .github/workflows/validate-infrastructure.yml
 - [ ] T039 [US4] Manual testing: Validate CI/CD workflows per spec.md User Story 4 acceptance scenarios
 
 **Checkpoint**: User Story 4 complete - Automated CI/CD pipeline functional
