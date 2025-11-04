@@ -1,0 +1,237 @@
+# Docker Compose Configuration Contract
+
+This schema defines the structure and validation rules for `docker-compose.yml` and `.env` files used in Docker deployments.
+
+## docker-compose.yml Schema
+
+```yaml
+version: '3.8'
+
+services:
+  lucia:
+    type: object
+    required: true
+    properties:
+      image:
+        type: string
+        pattern: '^[a-z0-9-_./]+:[a-zA-Z0-9.-]+$'
+        example: 'seiggy/lucia:latest'
+      
+      build:
+        type: object
+        properties:
+          context:
+            type: string
+            example: '.'
+          dockerfile:
+            type: string
+            example: './infra/docker/Dockerfile'
+      
+      ports:
+        type: array
+        items:
+          type: string
+          pattern: '^\d+:\d+$'
+        example: ['7235:8080']
+      
+      environment:
+        type: array
+        items:
+          type: string
+          pattern: '^[A-Z_]+__[A-Za-z_]+='
+        examples:
+          - 'HomeAssistant__BaseUrl=${HA_BASE_URL}'
+          - 'OpenAI__ApiKey=${OPENAI_API_KEY}'
+      
+      depends_on:
+        type: object
+        properties:
+          redis:
+            type: object
+            properties:
+              condition:
+                type: string
+                enum: ['service_started', 'service_healthy']
+                default: 'service_healthy'
+      
+      healthcheck:
+        type: object
+        properties:
+          test:
+            type: array
+            example: ['CMD', 'curl', '-f', 'http://localhost:8080/health']
+          interval:
+            type: string
+            pattern: '^\d+[smh]$'
+            example: '30s'
+          timeout:
+            type: string
+            example: '10s'
+          retries:
+            type: integer
+            minimum: 1
+            maximum: 10
+      
+      volumes:
+        type: array
+        items:
+          type: string
+        example: ['./config:/app/config:ro']
+      
+      restart:
+        type: string
+        enum: ['no', 'always', 'on-failure', 'unless-stopped']
+        default: 'unless-stopped'
+
+  redis:
+    type: object
+    required: true
+    properties:
+      image:
+        type: string
+        example: 'redis:7-alpine'
+      
+      ports:
+        type: array
+        items:
+          type: string
+        example: ['6379:6379']
+      
+      volumes:
+        type: array
+        items:
+          type: string
+        example: ['redis-data:/data']
+      
+      command:
+        type: string
+        example: 'redis-server --appendonly yes --maxmemory 256mb'
+      
+      healthcheck:
+        type: object
+        properties:
+          test:
+            type: array
+            example: ['CMD', 'redis-cli', 'ping']
+          interval:
+            type: string
+            example: '10s'
+      
+      restart:
+        type: string
+        default: 'unless-stopped'
+
+volumes:
+  redis-data:
+    type: object
+    driver: 'local'
+```
+
+## .env File Schema
+
+```ini
+# Home Assistant Configuration
+HomeAssistant__BaseUrl=<REQUIRED: string, URL format, e.g., "http://192.168.1.100:8123">
+HomeAssistant__AccessToken=<REQUIRED: string, min 32 chars, long-lived access token>
+
+# OpenAI / LLM Configuration
+OpenAI__ApiKey=<REQUIRED: string, min 20 chars, API key or "ollama" for local>
+OpenAI__BaseUrl=<OPTIONAL: string, URL format, default: "https://api.openai.com/v1">
+OpenAI__ModelId=<REQUIRED: string, e.g., "gpt-4o", "llama3.2">
+OpenAI__EmbeddingModelId=<REQUIRED: string, e.g., "text-embedding-3-small">
+
+# Redis Configuration
+Redis__ConnectionString=<OPTIONAL: string, default: "redis:6379">
+Redis__Password=<OPTIONAL: string, if Redis requires authentication>
+
+# Logging
+Logging__LogLevel__Default=<OPTIONAL: enum[Trace,Debug,Information,Warning,Error,Critical], default: "Information">
+
+# Application Settings
+ASPNETCORE_ENVIRONMENT=<OPTIONAL: enum[Development,Staging,Production], default: "Production">
+ASPNETCORE_URLS=<OPTIONAL: string, default: "http://+:8080">
+```
+
+## Validation Rules
+
+### Required Variables
+1. `HomeAssistant__BaseUrl` - Must be valid HTTP/HTTPS URL
+2. `HomeAssistant__AccessToken` - Must be at least 32 characters
+3. `OpenAI__ApiKey` - Must be at least 20 characters (or "ollama")
+4. `OpenAI__ModelId` - Must be non-empty string
+5. `OpenAI__EmbeddingModelId` - Must be non-empty string
+
+### Optional Variables (with defaults)
+1. `OpenAI__BaseUrl` - Defaults to OpenAI API endpoint
+2. `Redis__ConnectionString` - Defaults to "redis:6379"
+3. `Logging__LogLevel__Default` - Defaults to "Information"
+4. `ASPNETCORE_ENVIRONMENT` - Defaults to "Production"
+
+### Format Validation
+- **URLs**: Must start with `http://` or `https://`
+- **Ports**: Must be integers in range 1-65535
+- **Tokens**: No whitespace, alphanumeric with special chars
+- **LogLevel**: Must match enum values exactly (case-sensitive)
+
+## Example .env File
+
+```ini
+# Home Assistant Configuration
+HomeAssistant__BaseUrl=http://192.168.1.100:8123
+HomeAssistant__AccessToken=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...
+
+# OpenAI Configuration (Cloud)
+OpenAI__ApiKey=sk-proj-...
+OpenAI__BaseUrl=https://api.openai.com/v1
+OpenAI__ModelId=gpt-4o
+OpenAI__EmbeddingModelId=text-embedding-3-small
+
+# OR Ollama Configuration (Local)
+# OpenAI__ApiKey=ollama
+# OpenAI__BaseUrl=http://host.docker.internal:11434/v1
+# OpenAI__ModelId=llama3.2
+# OpenAI__EmbeddingModelId=mxbai-embed-large
+
+# Redis Configuration
+Redis__ConnectionString=redis:6379
+
+# Logging
+Logging__LogLevel__Default=Information
+```
+
+## Error Messages
+
+**Missing Required Variable:**
+```
+ERROR: Missing required environment variable 'HomeAssistant__BaseUrl'
+Please add this variable to your .env file.
+See .env.example for template.
+```
+
+**Invalid URL Format:**
+```
+ERROR: Invalid URL format for 'HomeAssistant__BaseUrl': 'localhost:8123'
+URLs must include protocol (http:// or https://).
+Example: http://localhost:8123
+```
+
+**Invalid Port:**
+```
+ERROR: Invalid port mapping '7235:999999'
+Ports must be in range 1-65535.
+```
+
+## Testing Contract
+
+**Validation Steps:**
+1. Parse `.env` file and check for required variables
+2. Validate format of each variable (URL, port, token)
+3. Test connectivity to HomeAssistant__BaseUrl
+4. Verify Redis connection on startup
+5. Validate LLM endpoint accessibility (optional pre-flight check)
+
+**Success Criteria:**
+- All required variables present and valid format
+- HomeAssistant URL reachable (HTTP 200 or 401)
+- Redis connection successful
+- No syntax errors in docker-compose.yml

@@ -1,0 +1,300 @@
+# Lucia Helm Chart Default Values
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+## Global settings for the Helm chart
+global:
+  # Environment: production, staging, development
+  environment: production
+
+## Lucia Agent Host Configuration
+lucia:
+  # Image configuration for lucia.AgentHost
+  image:
+    # Image repository
+    repository: docker.io/seiggy/lucia-agenthost
+    # Image pull policy: IfNotPresent, Always, Never
+    pullPolicy: IfNotPresent
+    # Image tag (defaults to Chart.appVersion)
+    tag: ""
+
+  # Number of replicas for the lucia deployment
+  replicaCount: 2
+
+  # Service configuration
+  service:
+    # Service type: ClusterIP, NodePort, LoadBalancer
+    type: ClusterIP
+    # Service port
+    port: 80
+    # Target port on pod
+    targetPort: 8080
+    # For NodePort service type
+    nodePort: null
+    # Service annotations
+    annotations: {}
+
+  # Ingress configuration
+  ingress:
+    # Enable ingress
+    enabled: true
+    # Ingress class (e.g., nginx, traefik)
+    className: "nginx"
+    # Ingress annotations
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Ingress hosts configuration
+    hosts:
+      - host: lucia.local
+        paths:
+          - path: /
+            pathType: Prefix
+    # TLS configuration
+    tls:
+      - secretName: lucia-tls
+        hosts:
+          - lucia.local
+
+  # Pod resource limits and requests
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+  # Pod autoscaling configuration
+  autoscaling:
+    # Enable autoscaling
+    enabled: true
+    # Minimum replicas
+    minReplicas: 2
+    # Maximum replicas
+    maxReplicas: 5
+    # Target CPU utilization percentage
+    targetCPUUtilizationPercentage: 70
+    # Target memory utilization percentage
+    targetMemoryUtilizationPercentage: 80
+
+  # Pod security context
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+
+  # Container security context
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+
+  # Liveness probe configuration
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  # Readiness probe configuration
+  readinessProbe:
+    httpGet:
+      path: /health/ready
+      port: 8080
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  # Pod disruption budget (for graceful updates)
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  # Affinity rules for pod scheduling
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - lucia
+            topologyKey: kubernetes.io/hostname
+
+  # Environment variables (from ConfigMap and Secrets)
+  env: {}
+
+## Redis Configuration
+redis:
+  # Enable embedded Redis
+  enabled: true
+
+  # Image configuration for Redis
+  image:
+    repository: docker.io/library/redis
+    tag: "8.2-alpine"
+    pullPolicy: IfNotPresent
+
+  # Number of Redis replicas (for Redis StatefulSet)
+  replicaCount: 1
+
+  # Redis service configuration
+  service:
+    type: ClusterIP
+    port: 6379
+    targetPort: 6379
+
+  # Redis resource limits and requests
+  resources:
+    limits:
+      cpu: 500m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  # Redis pod security context
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    fsGroup: 999
+
+  # Redis container security context
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+
+  # Redis storage configuration (for data persistence)
+  storage:
+    # Storage class name
+    storageClassName: standard
+    # Storage size
+    size: 2Gi
+    # Persistence enabled
+    enabled: true
+
+  # Redis liveness probe
+  livenessProbe:
+    tcpSocket:
+      port: 6379
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  # Redis readiness probe
+  readinessProbe:
+    exec:
+      command:
+        - /bin/sh
+        - -c
+        - redis-cli ping
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  # Redis command line arguments
+  # These configure AOF persistence, memory limits, and eviction policy
+  args:
+    - redis-server
+    - "--appendonly"
+    - "yes"
+    - "--maxmemory"
+    - "256mb"
+    - "--maxmemory-policy"
+    - "allkeys-lru"
+    - "--loglevel"
+    - "notice"
+
+## LLM Configuration (for ConfigMap and Secrets)
+llm:
+  # Default LLM provider: openai, azureopenai, ollama, azureinference
+  provider: openai
+
+  # Chat model configuration
+  chatModel:
+    endpoint: ""  # Set via --set or values override
+    apiKey: ""    # Set via --set or values override (will be in Secret)
+    model: "gpt-4o-mini"
+    provider: openai
+
+  # Embedding model configuration
+  embeddingModel:
+    endpoint: ""  # Azure OpenAI only currently
+    apiKey: ""    # Set via --set or values override (will be in Secret)
+    model: "text-embedding-3-small"
+    provider: "azureopenai"
+
+## Home Assistant Integration
+homeAssistant:
+  # Home Assistant API endpoint
+  apiEndpoint: ""
+  # Home Assistant API token
+  apiToken: ""  # Set via --set or values override (will be in Secret)
+
+## Observability Configuration
+observability:
+  # Enable OpenTelemetry
+  enabled: true
+  # OpenTelemetry trace exporter endpoint
+  traceExporter: "http://jaeger-collector:4317"
+  # OpenTelemetry metrics exporter endpoint
+  metricsExporter: "http://prometheus:8888"
+
+## Node selector for pod assignment
+nodeSelector: {}
+  # Example:
+  # disktype: ssd
+  # kubernetes.io/hostname: home-server
+
+## Tolerations for pod assignment
+tolerations: []
+  # Example:
+  # - key: "edge"
+  #   operator: "Equal"
+  #   value: "true"
+  #   effect: "NoSchedule"
+
+## Priority class name
+priorityClassName: ""
+
+## Service account configuration
+serviceAccount:
+  # Create service account
+  create: true
+  # Annotations to add to service account
+  annotations: {}
+  # Name of service account
+  name: ""
+
+## RBAC Configuration
+rbac:
+  # Create RBAC resources
+  create: true
+
+## Network policies
+networkPolicy:
+  # Enable network policy
+  enabled: false
+
+## Pod monitoring for Prometheus
+podMonitor:
+  # Enable pod monitoring
+  enabled: false
+  # Scrape interval
+  scrapeInterval: 30s
+  # Scrape timeout
+  scrapeTimeout: 10s
