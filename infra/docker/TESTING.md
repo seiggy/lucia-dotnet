@@ -596,4 +596,3 @@ chmod +x test-lucia.sh
 - Monitor using OpenTelemetry integration
 - Performance tune for your use case
 - Scale to Kubernetes for HA
-

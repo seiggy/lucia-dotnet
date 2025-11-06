@@ -133,6 +133,7 @@ spec:
 ```
 
 **Scaling:**
+
 ```bash
 # Manual scaling
 kubectl scale deployment lucia -n lucia --replicas=5
@@ -163,6 +164,7 @@ spec:
 ```
 
 **Storage:**
+
 ```bash
 # List available storage classes
 kubectl get storageclass
@@ -202,6 +204,7 @@ spec:
 ```
 
 **Modify autoscaling:**
+
 ```bash
 # Edit HPA settings
 kubectl edit hpa lucia -n lucia
@@ -310,6 +313,7 @@ manifests/
 ```
 
 **Example: production/kustomization.yaml**
+
 ```yaml
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
@@ -334,6 +338,7 @@ patchesJson6902:
 ```
 
 **Apply overlay:**
+
 ```bash
 kubectl apply -k overlays/production/
 ```
@@ -493,6 +498,7 @@ storageClassName: your-storage-class
 ### Monitoring with Prometheus
 
 Pods are already annotated for Prometheus scraping:
+
 ```yaml
 prometheus.io/scrape: "true"
 prometheus.io/port: "8080"
