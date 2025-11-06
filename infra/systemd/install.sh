@@ -206,9 +206,9 @@ create_config_dir() {
     fi
 }
 
-# Install systemd service
-install_service() {
-    print_info "Installing systemd service..."
+# Install lucia systemd service
+install_lucia() {
+    print_info "Installing lucia systemd service..."
     
     if [ -f "${SCRIPT_DIR}/${SERVICE_FILE}" ]; then
         cp "${SCRIPT_DIR}/${SERVICE_FILE}" "$SERVICE_PATH"
@@ -338,7 +338,7 @@ main() {
     copy_binaries
     create_config_dir
     create_log_dir
-    install_service
+    install_lucia
     print_next_steps
 }
 

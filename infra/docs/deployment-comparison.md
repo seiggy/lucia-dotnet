@@ -3,6 +3,7 @@
 This guide provides a detailed comparison of all Lucia deployment methods to help you choose the right approach for your situation.
 
 **Quick Reference**:
+
 - **Docker Compose**: Best for home servers, fast setup, single-node
 - **Kubernetes**: Best for HA, scalability, production environments
 - **systemd**: Best for traditional Linux, no container overhead
@@ -86,6 +87,7 @@ This guide provides a detailed comparison of all Lucia deployment methods to hel
 **Profile**: Single home server, basic automation, learning Docker
 
 **Recommended**: 🥇 **Docker Compose**
+
 - Simplest setup
 - Fast iteration
 - Easy to learn
@@ -100,6 +102,7 @@ This guide provides a detailed comparison of all Lucia deployment methods to hel
 **Profile**: Multiple servers, some automation experience, interest in containers
 
 **Recommended**: 🥇 **Kubernetes** (if K8s cluster available)
+
 - Better resource utilization
 - HA across nodes
 - Professional experience
@@ -114,6 +117,7 @@ This guide provides a detailed comparison of all Lucia deployment methods to hel
 **Profile**: Comfortable with systemd, prefer traditional services, no containers
 
 **Recommended**: 🥇 **Linux systemd**
+
 - Native to Linux philosophy
 - Direct system integration
 - Familiar tools (journalctl)
@@ -128,6 +132,7 @@ This guide provides a detailed comparison of all Lucia deployment methods to hel
 **Profile**: High availability, multiple nodes, CI/CD pipeline
 
 **Recommended**: 🥇 **Kubernetes**
+
 - Built-in HA
 - Auto-scaling
 - Rolling updates
@@ -142,6 +147,7 @@ This guide provides a detailed comparison of all Lucia deployment methods to hel
 **Profile**: Building for multiple environments, version management
 
 **Recommended**: 🥇 **GitHub Actions** (with all deployment methods)
+
 - Automated builds
 - Multi-platform (amd64, arm64)
 - Semantic versioning
@@ -224,6 +230,7 @@ This guide provides a detailed comparison of all Lucia deployment methods to hel
 #### Third-Party Integration
 
 **All methods support**:
+
 - OpenTelemetry traces
 - Prometheus metrics
 - Structured logging (JSON)
@@ -309,6 +316,7 @@ Result:
 ### Performance Benchmarks
 
 All methods tested with:
+
 - .NET 10 RC1 application
 - Redis 7-alpine
 - Single node, 4 CPU, 8GB RAM

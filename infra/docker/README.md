@@ -21,6 +21,7 @@ infra/docker/
 ```
 
 See also:
+
 - `docker-compose.yml` - Docker Compose configuration (in project root)
 - `.env.example` - Environment variables template (in project root)
 - `redis:8.2-alpine` - Official Redis image used (no custom Dockerfile needed)
@@ -75,6 +76,7 @@ curl -X POST http://localhost:5000/api/chat \
 Production-ready multi-stage Dockerfile for lucia.AgentHost service.
 
 **Features:**
+
 - ✅ Multi-stage builds (minimal final image)
 - ✅ Non-root user (security)
 - ✅ Health checks
@@ -82,11 +84,13 @@ Production-ready multi-stage Dockerfile for lucia.AgentHost service.
 - ✅ Optimized caching layers
 
 **Build:**
+
 ```bash
 docker build -t lucia-agenthost:latest -f infra/docker/Dockerfile.agenthost .
 ```
 
 **Stages:**
+
 1. `base` - Runtime base image (ASP.NET Core)
 2. `build` - Build stage with SDK
 3. `publish` - Publish optimized binaries
@@ -97,6 +101,7 @@ docker build -t lucia-agenthost:latest -f infra/docker/Dockerfile.agenthost .
 Uses official **redis:8.2-alpine** image with command-line configuration for persistence.
 
 **Features:**
+
 - ✅ AOF (Append-Only File) persistence enabled
 - ✅ Memory limits (256MB default)
 - ✅ Automatic eviction policy
@@ -105,6 +110,7 @@ Uses official **redis:8.2-alpine** image with command-line configuration for per
 - ✅ No custom Dockerfile needed (uses official image)
 
 **Configuration via docker-compose.yml:**
+
 ```yaml
 redis:
   image: redis:8.2-alpine
@@ -120,6 +126,7 @@ redis:
 ### Services
 
 **lucia**
+
 - Image: `lucia-agenthost:latest` (built from Dockerfile.agenthost)
 - Port: `127.0.0.1:5000` (HTTP API)
 - Health: Checked via `/health` endpoint
@@ -127,6 +134,7 @@ redis:
 - Resource Limits: CPU=2, Memory=1GB
 
 **redis**
+
 - Image: `redis:7-alpine`
 - Port: `127.0.0.1:6379` (Redis protocol)
 - Health: Checked via `PING` command
@@ -163,16 +171,19 @@ REDIS_CONNECTION_STRING=redis://redis:6379
 ### LLM Providers
 
 #### OpenAI (Recommended for MVP)
+
 ```env
 ConnectionStrings__chat-model=Endpoint=https://api.openai.com/v1;AccessKey=sk-proj-YOUR_KEY;Model=gpt-4o;Provider=openai
 ```
 
 #### Ollama (Local LLM)
+
 ```env
 ConnectionStrings__chat-model=Endpoint=http://ollama:11434;AccessKey=ollama;Model=llama3.2;Provider=ollama
 ```
 
 #### Azure OpenAI (With Embeddings)
+
 ```env
 ConnectionStrings__chat-model=Endpoint=https://YOUR_RESOURCE.openai.azure.com/;AccessKey=YOUR_KEY;Model=gpt-4-deployment;Provider=azureopenai
 ```
@@ -323,6 +334,7 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for comprehensive troubleshooting.
 ```
 
 Checks:
+
 - ✅ Services running
 - ✅ Health endpoints responding
 - ✅ API endpoints working
@@ -334,6 +346,7 @@ Checks:
 ### Manual Testing
 
 See [TESTING.md](TESTING.md) for:
+
 - Core functionality tests
 - Integration tests
 - Performance testing
@@ -342,6 +355,7 @@ See [TESTING.md](TESTING.md) for:
 ### Testing Checklist
 
 See [TESTING-CHECKLIST.md](TESTING-CHECKLIST.md) for:
+
 - Pre-testing prerequisites
 - 12 comprehensive test scenarios
 - Sign-off documentation
@@ -376,16 +390,19 @@ docker-compose -f docker-compose.yml -f docker-compose.staging.yml up -d
 ## Performance Tuning
 
 ### CPU Usage High
+
 - Reduce `LLM_MAX_TOKENS` in .env
 - Reduce `CHAT_MODEL_MAX_CONCURRENT_REQUESTS`
 - Use smaller LLM model (Ollama: phi3:mini)
 
 ### Memory Usage High
+
 - Reduce Redis `maxmemory` in redis.conf
 - Reduce Lucia container memory limit in docker-compose.yml
 - Reduce conversation history buffer size
 
 ### Response Time Slow
+
 - Check LLM provider response times
 - Reduce `LLM_TEMPERATURE` for faster responses
 - Increase allocated memory to Redis
@@ -437,8 +454,8 @@ ports:
 ## Support
 
 For issues:
+
 1. Check logs: `docker-compose logs lucia`
 2. Run verification: `./infra/docker/verify-mvp.sh`
 3. See [DEPLOYMENT.md](DEPLOYMENT.md) troubleshooting section
 4. Check [Configuration Reference](../docs/configuration-reference.md)
-
