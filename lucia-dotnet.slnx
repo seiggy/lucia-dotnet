@@ -7,7 +7,6 @@
   <Folder Name="/Solution Items/">
     <File Path="NuGet.Config" />
   </Folder>
-  <Project Path="lucia-dotnet/lucia-dotnet.csproj" />
   <Project Path="lucia.AgentHost/lucia.AgentHost.csproj" />
   <Project Path="lucia.Agents/lucia.Agents.csproj" />
   <Project Path="lucia.AppHost/lucia.AppHost.csproj" />

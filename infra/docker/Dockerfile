@@ -10,14 +10,14 @@
 # ============================================================================
 # Stage 1: Base Runtime Image
 # ============================================================================
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-slim AS base
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
 
 # Set working directory
 WORKDIR /app
 
 # Create non-root user for security
-# UID 1000 is standard non-root user ID
-RUN useradd -m -u 1000 appuser
+# UID 1100 for non-privileged access
+RUN useradd -m -u 1100 appuser
 
 # Expose ports for ASP.NET Core
 # 8080: HTTP (user-facing)
@@ -27,7 +27,7 @@ EXPOSE 8080 8081
 # ============================================================================
 # Stage 2: Build Stage
 # ============================================================================
-FROM mcr.microsoft.com/dotnet/sdk:10.0-noble AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 
 # Set build configuration (can be overridden via --build-arg)
 ARG BUILD_CONFIGURATION=Release
@@ -35,12 +35,6 @@ ARG BUILD_TARGET_FRAMEWORK=net10.0
 
 # Set working directory
 WORKDIR /src
-
-# Copy solution file and project files
-# NuGet.Config must be in repo root
-COPY ["NuGet.Config", "."]
-COPY ["Directory.Build.props", "."]
-COPY ["Directory.Packages.props", "."]
 
 # Copy project files (maintaining directory structure)
 COPY ["lucia.AgentHost/lucia.AgentHost.csproj", "lucia.AgentHost/"]
@@ -57,12 +51,15 @@ RUN dotnet restore "./lucia.AgentHost/lucia.AgentHost.csproj"
 COPY . .
 
 # Navigate to project directory and build
-WORKDIR "/src/lucia.AgentHost"
-RUN dotnet build "./lucia.AgentHost.csproj" \
+WORKDIR "/src"
+
+
+RUN dotnet build "./lucia.AgentHost/lucia.AgentHost.csproj" \
     -c $BUILD_CONFIGURATION \
     -o /app/build \
-    --no-restore \
-    --framework $BUILD_TARGET_FRAMEWORK
+    --runtime linux-x64 \
+    --framework $BUILD_TARGET_FRAMEWORK \
+    --no-restore
 
 # ============================================================================
 # Stage 3: Publish Stage
@@ -74,15 +71,14 @@ ARG BUILD_CONFIGURATION=Release
 ARG BUILD_TARGET_FRAMEWORK=net10.0
 
 # Publish to /app/publish directory
-# /p:UseAppHost=false prevents generation of native executable
-RUN dotnet publish "./lucia.AgentHost.csproj" \
+RUN dotnet publish "./lucia.AgentHost/lucia.AgentHost.csproj" \
     -c $BUILD_CONFIGURATION \
     -o /app/publish \
-    --no-build \
     --framework $BUILD_TARGET_FRAMEWORK \
+    --runtime linux-x64 \
     /p:UseAppHost=false \
     /p:PublishTrimmed=false \
-    /p:PublishReadyToRun=true
+    /p:PublishReadyToRun=false
 
 # ============================================================================
 # Stage 4: Final Production Image
@@ -102,13 +98,6 @@ ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false \
 
 # Copy published application from publish stage
 COPY --from=publish --chown=appuser:appuser /app/publish .
-
-# Copy entrypoint script if it exists
-# Allows for custom initialization logic
-COPY --chown=appuser:appuser ["lucia.AgentHost/docker-entrypoint.sh", "./"] 2>/dev/null || true
-
-# Make entrypoint script executable if it exists
-RUN if [ -f ./docker-entrypoint.sh ]; then chmod +x ./docker-entrypoint.sh; fi
 
 # Switch to non-root user for runtime security
 USER appuser
@@ -131,7 +120,7 @@ ENTRYPOINT ["dotnet", "lucia.AgentHost.dll"]
 #   docker build -t lucia-agenthost:latest -f infra/docker/Dockerfile.agenthost .
 #
 #   # Debug build for troubleshooting
-#   docker build --build-arg BUILD_CONFIGURATION=Debug -t lucia-agenthost:debug -f infra/docker/Dockerfile.agenthost .
+#   docker build --build-arg BUILD_CONFIGURATION=Debug -t lucia-agenthost:debug -f infra/docker/Dockerfile .
 #
 #   # Specific framework (if supporting multiple)
-#   docker build --build-arg BUILD_TARGET_FRAMEWORK=net10.0 -t lucia-agenthost:net10 -f infra/docker/Dockerfile.agenthost .
+#   docker build --build-arg BUILD_TARGET_FRAMEWORK=net10.0 -t lucia-agenthost:net10 -f infra/docker/Dockerfile .
