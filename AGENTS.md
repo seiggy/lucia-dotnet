@@ -45,7 +45,7 @@ The `.docs` directory is the single source of truth for product and engineering 
 
 ## 3. Updated Tech Stack Overview (2025-08-06)
 
-- **Backend:** ASP.NET Core Web API (.NET 10 / C# 13) orchestrated with .NET Aspire 9.5.2.
+- **Backend:** ASP.NET Core Web API (.NET 10 / C# 13) orchestrated with .NET Aspire 9.5.1.
 - **AI Runtime:** Microsoft Agent Framework public preview, Custom Regex|SLM|LLM multi-agent orchestration patterns, OpenAI GPT-4o (primary), Gemini & Claude optional, LLaMa/local models planned.
 - **Data & State:** In-memory defaults with planned PostgreSQL 17+, Redis 7.x for task persistence (per latest spec), configuration via ASP.NET Core config + Secrets/K8s secrets.
 - **Home Assistant Integration:** REST + Conversation + LLM APIs today, WebSocket streaming upcoming; Python custom component built on aiohttp 3.x.
