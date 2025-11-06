@@ -8,7 +8,6 @@
     <PreviewFeatures>enable</PreviewFeatures>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
-    <RuntimeIdentifiers>win-x64;linux-x64;osx-arm64</RuntimeIdentifiers>
     <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
     <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
   </PropertyGroup>
