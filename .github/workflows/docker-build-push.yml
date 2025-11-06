@@ -84,14 +84,15 @@ jobs:
             VCS_REF=${{ github.sha }}
             VERSION=${{ steps.meta.outputs.version }}
 
-      ## Not sure why, can't get attestation to work...
-      # - name: Generate artifact attestation
-      #   if: github.event_name != 'pull_request'
-      #   uses: actions/attest-build-provenance@v3
-      #   with:
-      #     subject-name: docker.io/${{ env.DOCKER_IMAGE }}
-      #     subject-digest: ${{ steps.build-push.outputs.digest }}
-      #     push-to-registry: true
+      ## Not sure why, can't get attestation to work... we'll figure it out later
+      - name: Generate artifact attestation
+        if: github.event_name != 'pull_request'
+        uses: actions/attest-build-provenance@v3
+        continue-on-error: true
+        with:
+          subject-name: docker.io/${{ env.DOCKER_IMAGE }}
+          subject-digest: ${{ steps.build-push.outputs.digest }}
+          push-to-registry: true
 
       - name: Image digest
         run: echo ${{ steps.build-push.outputs.digest }}
