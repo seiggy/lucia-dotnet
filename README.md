@@ -29,13 +29,13 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
 - **🎭 Dynamic Agent Selection** - Switch between specialized agents (light control, music, etc.) without reconfiguring
 - **💬 Conversation Threading** - Context-aware conversations with proper message threading support
 
-### Supported Inferrence Platforms:
+### Supported Inference Platforms:
 - Azure OpenAI / AI Foundry
 - OpenAI
 - Ollama
 - Open Router (OpenAI compliant endpoints only)
 
-### Unsupported Inferrence Platforms:
+### Unsupported Inference Platforms:
 - ONNX - no support for function calling.
 
 ## 🚀 Quick Start
