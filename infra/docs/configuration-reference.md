@@ -7,6 +7,7 @@ Complete reference for all Lucia configuration options, environment variables, a
 ## Overview
 
 Lucia configuration is centralized around a set of core environment variables that work identically across all deployment methods:
+
 - **Docker Compose**: Via `.env` file
 - **Kubernetes**: Via ConfigMap and Secrets
 - **systemd**: Via EnvironmentFile
@@ -21,6 +22,7 @@ This document provides the authoritative reference for all configuration options
 ### Application Settings
 
 #### `LUCIA_PORT`
+
 - **Description**: HTTP port for the Lucia API server
 - **Type**: `integer`
 - **Default**: `5000`
@@ -30,6 +32,7 @@ This document provides the authoritative reference for all configuration options
 - **Impact**: Change if port already in use on host
 
 #### `LUCIA_ENV`
+
 - **Description**: Deployment environment name
 - **Type**: `string` (enum)
 - **Allowed values**: `development`, `staging`, `production`
@@ -39,6 +42,7 @@ This document provides the authoritative reference for all configuration options
 - **Impact**: `development` enables debug logs, `production` reduces verbosity
 
 #### `LUCIA_LOG_LEVEL`
+
 - **Description**: Minimum log level to capture
 - **Type**: `string` (enum)
 - **Allowed values**: `Trace`, `Debug`, `Information`, `Warning`, `Error`, `Critical`
@@ -48,6 +52,7 @@ This document provides the authoritative reference for all configuration options
 - **Impact**: Higher levels (Debug, Trace) significantly increase log volume
 
 #### `LUCIA_ENABLE_TELEMETRY`
+
 - **Description**: Enable OpenTelemetry instrumentation
 - **Type**: `boolean`
 - **Allowed values**: `true`, `false`
@@ -61,6 +66,7 @@ This document provides the authoritative reference for all configuration options
 ### Home Assistant Integration
 
 #### `HOMEASSISTANT_URL`
+
 - **Description**: URL to Home Assistant instance
 - **Type**: `url`
 - **Required**: `true`
@@ -69,6 +75,7 @@ This document provides the authoritative reference for all configuration options
 - **Impact**: Core integration - app won't start without this
 
 #### `HOMEASSISTANT_ACCESS_TOKEN`
+
 - **Description**: Long-lived access token for Home Assistant API
 - **Type**: `string` (secret)
 - **Required**: `true`
@@ -78,6 +85,7 @@ This document provides the authoritative reference for all configuration options
 - **Impact**: Required for all Home Assistant API calls
 
 #### `HOMEASSISTANT_CONNECTION_TIMEOUT`
+
 - **Description**: Timeout for Home Assistant API connections
 - **Type**: `integer` (seconds)
 - **Default**: `30`
@@ -86,6 +94,7 @@ This document provides the authoritative reference for all configuration options
 - **Impact**: Increase if network is slow or HA instance is remote
 
 #### `HOMEASSISTANT_RETRY_COUNT`
+
 - **Description**: Number of retries for failed Home Assistant API calls
 - **Type**: `integer`
 - **Default**: `3`
@@ -98,6 +107,7 @@ This document provides the authoritative reference for all configuration options
 ### Redis Configuration
 
 #### `REDIS_CONNECTION_STRING`
+
 - **Description**: Redis connection string for task persistence
 - **Type**: `redis-connection-string`
 - **Required**: `true`
@@ -110,6 +120,7 @@ This document provides the authoritative reference for all configuration options
 - **Impact**: All task state stored in Redis; unavailable = tasks reset
 
 #### `REDIS_TIMEOUT`
+
 - **Description**: Timeout for Redis operations
 - **Type**: `integer` (milliseconds)
 - **Default**: `5000`
@@ -118,6 +129,7 @@ This document provides the authoritative reference for all configuration options
 - **Impact**: Increase if Redis is slow or over network
 
 #### `REDIS_KEY_PREFIX`
+
 - **Description**: Prefix for all Redis keys to avoid collisions
 - **Type**: `string`
 - **Default**: `lucia:`
@@ -125,6 +137,7 @@ This document provides the authoritative reference for all configuration options
 - **Impact**: Useful if sharing Redis with other applications
 
 #### `REDIS_PERSISTENCE_TTL`
+
 - **Description**: Time-to-live for task persistence
 - **Type**: `integer` (hours)
 - **Default**: `24`
@@ -139,6 +152,7 @@ This document provides the authoritative reference for all configuration options
 Lucia uses a unified connection string format for chat model configuration, supporting multiple LLM providers through the `ConnectionStrings__chat-model` variable.
 
 #### `ConnectionStrings__chat-model`
+
 - **Description**: Connection string for chat model provider with unified format
 - **Type**: `connection-string`
 - **Required**: `true`
@@ -171,6 +185,7 @@ Embeddings for semantic search are currently supported exclusively on Azure Open
 ### Agent Configuration
 
 #### `AGENT_REGISTRY_URL`
+
 - **Description**: Internal URL for agent registry API
 - **Type**: `url`
 - **Default**: `http://localhost:5001` (Docker: `http://lucia-agent-registry:5001`)
@@ -178,6 +193,7 @@ Embeddings for semantic search are currently supported exclusively on Azure Open
 - **Impact**: Must be reachable from agent containers
 
 #### `AGENT_TIMEOUT`
+
 - **Description**: Timeout for agent-to-agent communication
 - **Type**: `integer` (seconds)
 - **Default**: `30`
@@ -186,6 +202,7 @@ Embeddings for semantic search are currently supported exclusively on Azure Open
 - **Impact**: Must be larger than slowest agent operation
 
 #### `AGENT_RETRY_POLICY`
+
 - **Description**: Retry behavior for agent failures
 - **Type**: `string` (enum)
 - **Allowed values**: `none`, `exponential-backoff`, `fixed-interval`
@@ -198,6 +215,7 @@ Embeddings for semantic search are currently supported exclusively on Azure Open
 ### Security & HTTPS
 
 #### `ENABLE_HTTPS`
+
 - **Description**: Enable HTTPS/TLS for API endpoints
 - **Type**: `boolean`
 - **Allowed values**: `true`, `false`
@@ -206,6 +224,7 @@ Embeddings for semantic search are currently supported exclusively on Azure Open
 - **Impact**: Required for production deployments
 
 #### `CERTIFICATE_PATH`
+
 - **Description**: Path to TLS certificate file
 - **Type**: `file-path`
 - **Required if**: `ENABLE_HTTPS=true`
@@ -216,6 +235,7 @@ Embeddings for semantic search are currently supported exclusively on Azure Open
 - **Impact**: Certificate must be valid and not expired
 
 #### `CERTIFICATE_KEY_PATH`
+
 - **Description**: Path to TLS private key file
 - **Type**: `file-path`
 - **Required if**: `ENABLE_HTTPS=true`
@@ -224,6 +244,7 @@ Embeddings for semantic search are currently supported exclusively on Azure Open
 - **Impact**: Private key compromise = security breach
 
 #### `ALLOWED_ORIGINS`
+
 - **Description**: CORS origins allowed to call Lucia API
 - **Type**: `string` (comma-separated URLs)
 - **Default**: `http://localhost:3000`
@@ -237,21 +258,27 @@ Embeddings for semantic search are currently supported exclusively on Azure Open
 Reference schema files for each deployment method:
 
 ### Docker Compose Schema
+
 See: `contracts/docker-compose-schema.yml`
+
 - Defines compose service configuration
 - Volume mounts, port mappings, environment variables
 - Health check definitions
 - Resource limits and restart policies
 
 ### Kubernetes Values Schema
+
 See: `contracts/kubernetes-values-schema.yml`
+
 - Helm values for Kubernetes deployment
 - Replica counts, resource requests/limits
 - ConfigMap and Secret definitions
 - Ingress and PersistentVolume configuration
 
 ### systemd Environment Schema
+
 See: `contracts/systemd-env-schema.md`
+
 - Environment file format
 - Variable validation rules
 - Expansion rules (allows referencing other variables)
@@ -266,6 +293,7 @@ See: `contracts/systemd-env-schema.md`
 All configuration is validated on startup. Invalid values cause the application to fail fast with clear error messages.
 
 **Validation checks**:
+
 1. Required variables present
 2. Variable types match specification
 3. URLs are valid and reachable
@@ -288,12 +316,14 @@ ERROR: Configuration validation failed
 ### Troubleshooting Configuration
 
 **Application won't start**:
+
 1. Check logs: `docker logs lucia` or `journalctl -u lucia`
 2. Validate all required variables are set
 3. Test connectivity: `curl $HOMEASSISTANT_URL`
 4. Verify secrets aren't corrupted or empty
 
 **Intermittent failures**:
+
 1. Increase timeout values (connection, agent, redis)
 2. Increase retry counts
 3. Check network connectivity
@@ -318,6 +348,7 @@ nano .env
 Variables in `.env` file override defaults in Dockerfile.
 
 **Best practices**:
+
 - Never commit `.env` to git (already in .gitignore)
 - Use `.env.example` to document required variables
 - Keep secrets in `.env` only for development
@@ -342,6 +373,7 @@ kubectl create secret generic lucia-secrets \
 Pod references both ConfigMap and Secrets in spec.
 
 **Best practices**:
+
 - Store secrets in Kubernetes Secrets, not ConfigMaps
 - Use Sealed Secrets or External Secrets operator for encryption
 - Update ConfigMaps separately from pod to enable rolling updates
@@ -361,12 +393,14 @@ sudo nano /etc/lucia/lucia.env
 ```
 
 Service file references environment file:
+
 ```ini
 [Service]
 EnvironmentFile=/etc/lucia/lucia.env
 ```
 
 **Best practices**:
+
 - Restrict file permissions: `chmod 600 /etc/lucia/lucia.env`
 - Use separate files for secrets and non-secrets
 - Back up environment file with application
@@ -391,6 +425,7 @@ Configuration via Repository Secrets and Variables:
 Workflow accesses via `${{ secrets.VARIABLE_NAME }}` or `${{ vars.VARIABLE_NAME }}`.
 
 **Best practices**:
+
 - Use Secrets for sensitive data (API keys, tokens)
 - Use Variables for non-sensitive config (URLs, environments)
 - Never log secrets in workflow output
@@ -483,6 +518,7 @@ OLLAMA_ENDPOINT=http://localhost:11434
 **Problem**: Changed environment variable but application behavior unchanged
 
 **Solutions**:
+
 1. Verify variable is spelled correctly (case-sensitive)
 2. Restart application: `docker restart lucia` or `sudo systemctl restart lucia`
 3. Check logs for validation errors: `docker logs lucia` or `journalctl -u lucia`
@@ -493,6 +529,7 @@ OLLAMA_ENDPOINT=http://localhost:11434
 **Problem**: Application can't connect to Home Assistant or Redis
 
 **Solutions**:
+
 1. Verify URL is correct: `curl $HOMEASSISTANT_URL`
 2. Check network connectivity: `ping redis` (Docker) or `netstat -an | grep 6379` (systemd)
 3. Verify credentials: Test token manually with curl
@@ -504,6 +541,7 @@ OLLAMA_ENDPOINT=http://localhost:11434
 **Problem**: Slow responses or high latency
 
 **Solutions**:
+
 1. Check `LLM_TEMPERATURE` (lower = faster)
 2. Reduce `LLM_MAX_TOKENS` if responses truncated
 3. Increase `AGENT_TIMEOUT` if agents timing out

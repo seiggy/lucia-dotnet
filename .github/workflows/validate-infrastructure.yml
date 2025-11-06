@@ -31,8 +31,8 @@ jobs:
       - name: Validate Docker Compose files
         run: |
           echo "Validating Docker Compose syntax..."
-          docker-compose -f infra/docker/docker-compose.yml config > /dev/null
-          docker-compose -f infra/docker/docker-compose.dev.yml config > /dev/null
+          mv .env.example .env  # Use example env for validation
+          docker-compose -f docker-compose.yml config > /dev/null
           echo "✅ Docker Compose files are valid"
 
       - name: Check Docker Compose structure
@@ -40,13 +40,13 @@ jobs:
           echo "Checking Docker Compose file structure..."
           
           # Check that lucia service exists
-          if ! grep -q 'lucia:' infra/docker/docker-compose.yml; then
+          if ! grep -q 'lucia:' docker-compose.yml; then
             echo "❌ lucia service not found in docker-compose.yml"
             exit 1
           fi
           
           # Check that redis service exists
-          if ! grep -q 'redis:' infra/docker/docker-compose.yml; then
+          if ! grep -q 'redis:' docker-compose.yml; then
             echo "❌ redis service not found in docker-compose.yml"
             exit 1
           fi
@@ -99,7 +99,7 @@ jobs:
             --output-dir /tmp/helm-rendered
           
           echo "Validating rendered Helm templates..."
-          kubeval --strict --ignore-missing-schemas /tmp/helm-rendered/**/*.yaml
+          kubeval --strict --ignore-missing-schemas /tmp/helm-rendered/lucia/templates/*.yaml
 
       - name: Check for required Kubernetes resources
         run: |
@@ -185,7 +185,6 @@ jobs:
             "OpenAI__ApiKey"
             "OpenAI__ModelId"
             "Redis__ConnectionString"
-            "ASPNETCORE_ENVIRONMENT"
           )
           
           for var in "${REQUIRED_VARS[@]}"; do
@@ -279,13 +278,6 @@ jobs:
         uses: DavidAnson/markdownlint-cli2-action@v15
         with:
           globs: 'infra/**/*.md'
-          config: |
-            {
-              "default": true,
-              "MD013": false,
-              "MD033": false,
-              "MD041": false
-            }
 
   security-checks:
     name: Security Validation

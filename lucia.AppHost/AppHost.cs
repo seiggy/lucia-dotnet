@@ -20,20 +20,6 @@ var redis = builder.AddRedis("redis")
     .WithRedisInsight()
     .WithContainerName("redis");
 
-var lucia = builder.AddProject<lucia_dotnet>("lucia-dotnet")
-    .WithReference(embeddings)
-    .WithReference(openAi)
-    .WithReference(redis)
-    .WaitFor(embeddings)
-    .WaitFor(openAi)
-    .WaitFor(redis)
-    .WithUrlForEndpoint("https", url =>
-        {
-            url.DisplayText = "Scalar (HTTPS)";
-            url.Url = "/scalar";
-        })
-    .WithExternalHttpEndpoints();
-
 builder.AddProject<Projects.lucia_AgentHost>("lucia-agenthost")
     .WithReference(embeddings)
     .WithReference(openAi)

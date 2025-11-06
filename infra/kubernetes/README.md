@@ -53,7 +53,7 @@ kubectl logs -n lucia -l app.kubernetes.io/name=lucia -f
 
 ## Directory Structure
 
-```
+```text
 infra/kubernetes/
 ├── helm/                          # Helm chart for Lucia deployment
 │   ├── Chart.yaml                 # Helm chart metadata
@@ -133,6 +133,7 @@ kubectl get namespace cert-manager
 Both deployment methods use Kubernetes ConfigMap for non-sensitive configuration and Secret for sensitive data:
 
 **ConfigMap** contains:
+
 - Redis connection details
 - LLM provider endpoints
 - Home Assistant API endpoint
@@ -140,13 +141,15 @@ Both deployment methods use Kubernetes ConfigMap for non-sensitive configuration
 - Logging configuration
 
 **Secret** contains:
+
 - LLM provider API keys
 - Home Assistant API token
 - TLS certificates (if applicable)
 
 ### Updating Configuration
 
-#### With Helm:
+#### With Helm
+
 ```bash
 # Update values and upgrade
 helm upgrade lucia ./helm \
@@ -157,7 +160,8 @@ helm upgrade lucia ./helm \
 kubectl rollout restart deployment/lucia -n lucia
 ```
 
-#### With Raw Manifests:
+#### With Raw Manifests
+
 ```bash
 # Edit ConfigMap
 kubectl edit configmap lucia -n lucia
@@ -173,14 +177,16 @@ kubectl rollout restart deployment/lucia -n lucia
 
 Never commit API keys to git. Instead:
 
-**Option 1: Use --set with environment variables**
+#### **Option 1: Use --set with environment variables**
+
 ```bash
 helm install lucia ./helm \
   --set llm.chatModel.apiKey=$OPENAI_API_KEY \
   --set homeAssistant.apiToken=$HA_TOKEN
 ```
 
-**Option 2: Use sealed-secrets (recommended for GitOps)**
+#### **Option 2: Use sealed-secrets (recommended for GitOps)**
+
 ```bash
 # Install sealed-secrets controller
 kubectl apply -f https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.24.0/controller.yaml
@@ -192,7 +198,8 @@ echo -n "my-secret-value" | kubectl create secret generic mysecret --dry-run=cli
 kubectl apply -f sealed-secret.yaml
 ```
 
-**Option 3: Use External Secrets Operator (for AWS Secrets Manager, Vault, etc.)**
+#### **Option 3: Use External Secrets Operator (for AWS Secrets Manager, Vault, etc.)**
+
 ```bash
 # Install External Secrets Operator
 helm repo add external-secrets https://charts.external-secrets.io
@@ -504,7 +511,8 @@ kubectl delete namespace lucia
 ## Support
 
 For issues or questions:
-- GitHub Issues: https://github.com/seiggy/lucia-dotnet/issues
+
+- [GitHub Issues](https://github.com/seiggy/lucia-dotnet/issues)
 - Documentation: See `/infra/docker/` for Docker deployment guide
 - Helm Chart: See `helm/README.md` for detailed Helm documentation
 
