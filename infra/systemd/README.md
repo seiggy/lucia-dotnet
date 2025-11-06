@@ -61,6 +61,7 @@ The systemd deployment method runs Lucia as a native Linux service with:
 ### LLM Provider
 
 Choose one:
+
 - **OpenAI** (cloud): API key from [OpenAI Platform](https://platform.openai.com/)
 - **Azure OpenAI** (cloud): Azure subscription with OpenAI resource
 - **Ollama** (local): [Installation guide](https://ollama.ai/download)
@@ -130,6 +131,7 @@ sudo systemctl enable redis
 #### 2. Install .NET 10 Runtime
 
 **Ubuntu/Debian:**
+
 ```bash
 wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh
 chmod +x dotnet-install.sh
@@ -141,11 +143,13 @@ echo 'export PATH=$PATH:/usr/share/dotnet' >> ~/.bashrc
 ```
 
 **RHEL/Fedora:**
+
 ```bash
 sudo dnf install dotnet-runtime-10.0
 ```
 
 Verify installation:
+
 ```bash
 dotnet --version
 # Should output: 10.0.x
@@ -174,6 +178,7 @@ sudo ./install.sh
 ```
 
 The script will:
+
 1. ✅ Check prerequisites
 2. ✅ Create `/opt/lucia` directory
 3. ✅ Copy application binaries
@@ -258,6 +263,7 @@ Redis__Password=
 ### LLM Provider Examples
 
 **OpenAI (Cloud):**
+
 ```bash
 OpenAI__ApiKey=sk-proj-YOUR_KEY
 OpenAI__BaseUrl=https://api.openai.com/v1
@@ -266,6 +272,7 @@ OpenAI__EmbeddingModelId=text-embedding-3-small
 ```
 
 **Ollama (Local):**
+
 ```bash
 # Install Ollama: curl -fsSL https://ollama.ai/install.sh | sh
 # Pull models: ollama pull llama3.2 && ollama pull mxbai-embed-large
@@ -277,6 +284,7 @@ OpenAI__EmbeddingModelId=mxbai-embed-large
 ```
 
 **Azure OpenAI:**
+
 ```bash
 OpenAI__ApiKey=YOUR_AZURE_KEY
 OpenAI__BaseUrl=https://your-resource.openai.azure.com/
@@ -330,7 +338,8 @@ sudo systemctl status lucia
 ```
 
 **Expected output:**
-```
+
+```text
 ● lucia.service - Lucia AI-Powered Home Assistant Agent Orchestration
      Loaded: loaded (/etc/systemd/system/lucia.service; enabled; vendor preset: enabled)
      Active: active (running) since Fri 2025-10-31 12:00:00 UTC; 5min ago
@@ -413,6 +422,7 @@ Logging__LogLevel__Default=Warning
 ```
 
 After changing log level, restart the service:
+
 ```bash
 sudo systemctl restart lucia
 ```
@@ -424,6 +434,7 @@ sudo systemctl restart lucia
 ### Service Fails to Start
 
 **Check status and recent errors:**
+
 ```bash
 sudo systemctl status lucia
 sudo journalctl -u lucia -n 50 --no-pager
@@ -436,6 +447,7 @@ sudo journalctl -u lucia -n 50 --no-pager
 **Error:** `Unable to connect to Redis`
 
 **Fix:**
+
 ```bash
 sudo systemctl start redis
 sudo systemctl enable redis
@@ -447,6 +459,7 @@ systemctl status redis
 **Error:** `dotnet: command not found`
 
 **Fix:**
+
 ```bash
 # Install .NET 10 Runtime
 wget https://dot.net/v1/dotnet-install.sh
@@ -459,6 +472,7 @@ sudo ./dotnet-install.sh --channel 10.0 --runtime aspnetcore
 **Error:** `Failed to load configuration from /etc/lucia/lucia.env`
 
 **Fix:**
+
 ```bash
 # Create from template
 sudo cp /opt/lucia/infra/systemd/lucia.env.example /etc/lucia/lucia.env
@@ -471,6 +485,7 @@ sudo nano /etc/lucia/lucia.env
 **Error:** `Permission denied accessing /etc/lucia/lucia.env`
 
 **Fix:**
+
 ```bash
 sudo chmod 600 /etc/lucia/lucia.env
 sudo chown root:root /etc/lucia/lucia.env
@@ -481,9 +496,11 @@ sudo chown root:root /etc/lucia/lucia.env
 **Error:** `HTTP 401 Unauthorized when connecting to Home Assistant`
 
 **Fix:**
+
 - Verify Home Assistant URL in lucia.env
 - Regenerate long-lived access token at `http://YOUR_HA_IP:8123/profile/security`
 - Test connection:
+
 ```bash
 curl -H "Authorization: Bearer YOUR_TOKEN" http://YOUR_HA_IP:8123/api/
 ```
@@ -493,9 +510,11 @@ curl -H "Authorization: Bearer YOUR_TOKEN" http://YOUR_HA_IP:8123/api/
 **Error:** `HTTP 401 Unauthorized from OpenAI API`
 
 **Fix:**
+
 - Verify API key in lucia.env
 - Check account status at [OpenAI Platform](https://platform.openai.com/)
 - Test API key:
+
 ```bash
 curl https://api.openai.com/v1/models \
   -H "Authorization: Bearer YOUR_API_KEY"
@@ -504,6 +523,7 @@ curl https://api.openai.com/v1/models \
 ### Service Crashes Repeatedly
 
 **Check crash logs:**
+
 ```bash
 sudo journalctl -u lucia --since "10 minutes ago" | grep -i "error\|exception\|fatal"
 ```
@@ -511,6 +531,7 @@ sudo journalctl -u lucia --since "10 minutes ago" | grep -i "error\|exception\|f
 **Increase restart delay:**
 
 Edit `/etc/systemd/system/lucia.service`:
+
 ```ini
 [Service]
 RestartSec=30s  # Increase from 10s to 30s
@@ -518,6 +539,7 @@ StartLimitBurst=5  # Allow more restart attempts
 ```
 
 Reload and restart:
+
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl restart lucia
@@ -526,17 +548,20 @@ sudo systemctl restart lucia
 ### High Memory Usage
 
 **Check resource usage:**
+
 ```bash
 systemctl status lucia
 ```
 
 **Adjust memory limits** in `/etc/systemd/system/lucia.service`:
+
 ```ini
 [Service]
 MemoryMax=1G  # Reduce from 2G to 1G if needed
 ```
 
 Reload and restart:
+
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl restart lucia
@@ -667,9 +692,9 @@ sudo rm -rf /var/log/lucia
 
 ## Additional Resources
 
-- **GitHub Repository:** https://github.com/seiggy/lucia-dotnet
-- **Documentation:** https://github.com/seiggy/lucia-dotnet/tree/main/infra/docs
-- **Issues & Support:** https://github.com/seiggy/lucia-dotnet/issues
+- **GitHub Repository:** [https://github.com/seiggy/lucia-dotnet](https://github.com/seiggy/lucia-dotnet)
+- **Documentation:** [Documentation](https://github.com/seiggy/lucia-dotnet/tree/main/infra/docs)
+- **Issues & Support:** [GitHub Issues](https://github.com/seiggy/lucia-dotnet/issues)
 - **Docker Deployment:** [../docker/README.md](../docker/README.md)
 - **Kubernetes Deployment:** [../kubernetes/README.md](../kubernetes/README.md)
 

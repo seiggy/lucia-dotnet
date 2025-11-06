@@ -38,6 +38,7 @@ public static class ServiceCollectionExtensions
             ClientChatProvider.AzureOpenAI => builder.AddAzureOpenAIClient(connectionName)
                 .AddChatClient(connectionInfo.SelectedModel),
             ClientChatProvider.AzureAIInference => builder.AddAzureInferenceClient(connectionName, connectionInfo),
+            ClientChatProvider.ONNX => throw new NotImplementedException("ONNX doesn't support function calling still. So we can't support it as a provider."),
             _ => throw new NotSupportedException($"The specified provider '{connectionInfo.Provider}' is not supported.")
         };
 

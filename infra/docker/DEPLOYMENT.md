@@ -18,17 +18,20 @@ This guide covers deploying Lucia Agent Host using Docker Compose for single-nod
 ## Prerequisites
 
 ### Required
+
 - Docker Engine 20.10+ ([Install](https://docs.docker.com/get-docker/))
 - Docker Compose 2.0+ ([Install](https://docs.docker.com/compose/install/))
 - 2GB available RAM (minimum 1GB for each service)
 - 10GB free disk space (for logs and Redis persistence)
 
 ### Recommended
+
 - docker-compose CLI for easier management
 - curl or Postman for API testing
 - Home Assistant 2024.10+ for best compatibility
 
 ### Optional
+
 - Ollama for local LLM ([Install](https://ollama.ai/download)) if using local models
 - Docker Desktop for GUI management
 - ngrok or Cloudflare Tunnel for external access
@@ -129,6 +132,7 @@ REDIS_CONNECTION_STRING=redis://redis:6379
 ### LLM Provider Selection
 
 #### OpenAI (Recommended for MVP)
+
 - ✅ Easiest to setup
 - ✅ Best model quality
 - ✅ Extensive testing
@@ -140,12 +144,14 @@ ConnectionStrings__chat-model=Endpoint=https://api.openai.com/v1;AccessKey=sk-pr
 ```
 
 **Setup:**
-1. Create account at https://platform.openai.com
-2. Generate API key at https://platform.openai.com/api-keys
+
+1. Create account at [OpenAI](https://platform.openai.com)
+2. Generate API key at [OpenAI API Key Dashboard](https://platform.openai.com/api-keys)
 3. Add credits ($5-$20 recommended for testing)
 4. Copy key to `.env`
 
 #### Ollama (Local Models - No Cost)
+
 - ✅ Free and local
 - ✅ No API calls
 - ✅ Privacy-first
@@ -157,12 +163,14 @@ ConnectionStrings__chat-model=Endpoint=http://ollama:11434;AccessKey=ollama;Mode
 ```
 
 **Setup:**
-1. Install Ollama from https://ollama.ai/download
+
+1. Install Ollama from [Ollama Download](https://ollama.ai/download)
 2. Pull model: `ollama pull llama3.2`
 3. Start Ollama: `ollama serve`
 4. Update docker-compose to include Ollama service or use local network
 
 #### Azure OpenAI (Production)
+
 - ✅ Embeddings support (semantic search)
 - ✅ Enterprise features
 - ✅ Azure integration
@@ -174,6 +182,7 @@ ConnectionStrings__chat-model=Endpoint=https://YOUR_RESOURCE.openai.azure.com/;A
 ```
 
 **Setup:**
+
 1. Create Azure account
 2. Deploy Azure OpenAI service
 3. Create deployments for models
@@ -561,4 +570,3 @@ git commit -m "Remove .env from version control"
 4. **Add Monitoring** - Integrate OpenTelemetry for tracing and metrics
 
 See [Kubernetes Deployment Guide](../kubernetes/README.md) for HA setup.
-

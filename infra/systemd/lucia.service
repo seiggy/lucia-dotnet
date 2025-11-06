@@ -6,8 +6,8 @@
 [Unit]
 Description=Lucia AI-Powered Home Assistant Agent Orchestration
 Documentation=https://github.com/seiggy/lucia-dotnet
-After=network.target redis.service
-Requires=redis.service
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 # Service Type
@@ -16,7 +16,8 @@ NotifyAccess=main
 
 # Working Directory and Executable
 WorkingDirectory=/opt/lucia
-ExecStart=/usr/bin/dotnet /opt/lucia/lucia.AgentHost.dll
+# Set to where your dotnet install is
+ExecStart=/home/zackway/.dotnet/dotnet /opt/lucia/lucia.AgentHost.dll
 
 # Configuration
 EnvironmentFile=/etc/lucia/lucia.env

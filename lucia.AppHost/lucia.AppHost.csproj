@@ -18,7 +18,6 @@
     <PackageReference Include="Scalar.Aspire" Version="0.5.4" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\lucia-dotnet\lucia-dotnet.csproj" />
     <ProjectReference Include="..\lucia.AgentHost\lucia.AgentHost.csproj" />
   </ItemGroup>
 </Project>
