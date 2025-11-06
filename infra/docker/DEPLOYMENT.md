@@ -146,7 +146,7 @@ ConnectionStrings__chat-model=Endpoint=https://api.openai.com/v1;AccessKey=sk-pr
 **Setup:**
 
 1. Create account at [https://platform.openai.com](OpenAI)
-2. Generate API key at [https://platform.openai.com/api-keys](OpenAI API Key Dashboard)
+2. Generate API key at [OpenAI API Key Dashboard](https://platform.openai.com/api-keys)
 3. Add credits ($5-$20 recommended for testing)
 4. Copy key to `.env`
 
