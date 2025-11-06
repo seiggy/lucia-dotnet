@@ -109,11 +109,11 @@ services:
         BUILD_TARGET_FRAMEWORK: net10.0
       cache_from:
         - lucia:latest
-    
+
     image: lucia:latest
-    
+
     container_name: lucia
-    
+
     # Depends on Redis being healthy
     depends_on:
       redis:
