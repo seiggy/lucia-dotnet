@@ -164,7 +164,7 @@ ConnectionStrings__chat-model=Endpoint=http://ollama:11434;AccessKey=ollama;Mode
 
 **Setup:**
 
-1. Install Ollama from [https://ollama.ai/download](Ollama Download)
+1. Install Ollama from [Ollama Download](https://ollama.ai/download)
 2. Pull model: `ollama pull llama3.2`
 3. Start Ollama: `ollama serve`
 4. Update docker-compose to include Ollama service or use local network
