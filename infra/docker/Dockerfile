@@ -45,14 +45,15 @@ COPY ["lucia.ServiceDefaults/lucia.ServiceDefaults.csproj", "lucia.ServiceDefaul
 
 # Restore dependencies
 # This layer is cached unless .csproj files change
-RUN dotnet restore "./lucia.AgentHost/lucia.AgentHost.csproj"
+RUN dotnet restore "./lucia.AgentHost/lucia.AgentHost.csproj" \
+    --runtime linux-x64 \
+    /p:PublishReadyToRun=true
 
 # Copy entire source tree
 COPY . .
 
 # Navigate to project directory and build
 WORKDIR "/src"
-
 
 RUN dotnet build "./lucia.AgentHost/lucia.AgentHost.csproj" \
     -c $BUILD_CONFIGURATION \
@@ -71,14 +72,16 @@ ARG BUILD_CONFIGURATION=Release
 ARG BUILD_TARGET_FRAMEWORK=net10.0
 
 # Publish to /app/publish directory
+# We tried running this with no-build, but it seems to cause issues with missing files. Will fix later.
 RUN dotnet publish "./lucia.AgentHost/lucia.AgentHost.csproj" \
     -c $BUILD_CONFIGURATION \
     -o /app/publish \
+    --no-restore \
     --framework $BUILD_TARGET_FRAMEWORK \
     --runtime linux-x64 \
     /p:UseAppHost=false \
     /p:PublishTrimmed=false \
-    /p:PublishReadyToRun=false
+    /p:PublishReadyToRun=true
 
 # ============================================================================
 # Stage 4: Final Production Image
@@ -117,10 +120,10 @@ ENTRYPOINT ["dotnet", "lucia.AgentHost.dll"]
 #
 # Usage examples:
 #   # Standard production build
-#   docker build -t lucia-agenthost:latest -f infra/docker/Dockerfile.agenthost .
+#   docker build -t lucia:latest -f infra/docker/Dockerfile .
 #
 #   # Debug build for troubleshooting
-#   docker build --build-arg BUILD_CONFIGURATION=Debug -t lucia-agenthost:debug -f infra/docker/Dockerfile .
+#   docker build --build-arg BUILD_CONFIGURATION=Debug -t lucia:debug -f infra/docker/Dockerfile .
 #
 #   # Specific framework (if supporting multiple)
-#   docker build --build-arg BUILD_TARGET_FRAMEWORK=net10.0 -t lucia-agenthost:net10 -f infra/docker/Dockerfile .
+#   docker build --build-arg BUILD_TARGET_FRAMEWORK=net10.0 -t lucia:net10 -f infra/docker/Dockerfile .
