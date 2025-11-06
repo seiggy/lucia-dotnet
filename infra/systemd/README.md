@@ -693,7 +693,7 @@ sudo rm -rf /var/log/lucia
 ## Additional Resources
 
 - **GitHub Repository:** [https://github.com/seiggy/lucia-dotnet](https://github.com/seiggy/lucia-dotnet)
-- **Documentation:** [../../docs](https://github.com/seiggy/lucia-dotnet/tree/main/infra/docs)
+- **Documentation:** [Documentation](https://github.com/seiggy/lucia-dotnet/tree/main/infra/docs)
 - **Issues & Support:** [https://github.com/seiggy/lucia-dotnet/issues](GitHub Issues)
 - **Docker Deployment:** [../docker/README.md](../docker/README.md)
 - **Kubernetes Deployment:** [../kubernetes/README.md](../kubernetes/README.md)
