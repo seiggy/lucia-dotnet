@@ -512,7 +512,7 @@ kubectl delete namespace lucia
 
 For issues or questions:
 
-- [https://github.com/seiggy/lucia-dotnet/issues](GitHub Issues)
+- [GitHub Issues](https://github.com/seiggy/lucia-dotnet/issues)
 - Documentation: See `/infra/docker/` for Docker deployment guide
 - Helm Chart: See `helm/README.md` for detailed Helm documentation
 
