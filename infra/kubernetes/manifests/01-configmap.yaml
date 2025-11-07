@@ -26,8 +26,10 @@ data:
     Model=text-embedding-3-small;
     Provider=azureopenai;
 
+  ConnectionStrings__redis: "lucia-redis:6379"
+
   # Home Assistant Configuration
-  HomeAssistant__ApiEndpoint: "http://home-assistant:8123"
+  HomeAssistant__BaseUrl: "http://homeassistant:8123"
 
   # Logging Configuration
   Logging__Console__IncludeScopes: "true"
