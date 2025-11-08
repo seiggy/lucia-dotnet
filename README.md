@@ -243,7 +243,7 @@ Configure agents in `appsettings.Development.json`:
    - **Agent Selection**: Choose from available agents in the dropdown
      - `light-agent` - Controls lights and lighting scenes
      - `music-agent` - Manages Music Assistant playback
-      - `general-assistant` - Handles open-ended questions and orchestrator fallbacks
+     - `general-assistant` - Handles open-ended questions and orchestrator fallbacks
      - *(More agents appear as you add them)*
    - **System Prompt Template**: Customize the agent's behavior (optional)
    - **Max Response Tokens**: Control response length (10-4000, default: 150)
