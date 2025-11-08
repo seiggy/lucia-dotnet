@@ -158,17 +158,18 @@ public static class HomeAssistantEndpoints
             },
             new OpenApiEndpoint
             {
-                Path = "/api/services/{domain}/{service}",
+                Path = "/api/services/{domain}/{service}?{parameters}",
                 HttpMethod = "POST",
                 OperationId = "CallService",
                 Description = "Call a specific service",
                 Parameters = new List<OpenApiParameter>
                 {
                     new OpenApiParameter { Name = "domain", Type = "string", IsRequired = true, Location = "path" },
-                    new OpenApiParameter { Name = "service", Type = "string", IsRequired = true, Location = "path" }
+                    new OpenApiParameter { Name = "service", Type = "string", IsRequired = true, Location = "path" },
+                    new OpenApiParameter { Name = "parameters", Type = "string", IsRequired = false, Location = "query" }
                 },
                 RequestBodyType = "ServiceCallRequest",
-                ResponseType = "object[]"
+                ResponseType = "string"
             },
             new OpenApiEndpoint
             {

@@ -5,14 +5,9 @@ using Scalar.Aspire;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
-var azOpenAiResource = builder.AddParameterFromConfiguration("AzureOpenAIName", "AzureOpenAI:Name");
-var azOpenAiResourceGroup = builder.AddParameterFromConfiguration("AzureOpenAIResourceGroup", "AzureOpenAI:ResourceGroup");
+var openAi = builder.AddConnectionString("chat-model");
 
-var openAi = builder.AddAIModel("chat-model")
-    .AsAzureOpenAI("gpt-4.1-nano", o => o.AsExisting(azOpenAiResource, azOpenAiResourceGroup));
-
-var embeddings = builder.AddAIModel("embeddings-model")
-    .AsAzureOpenAI("text-embedding-3-small", o => o.AsExisting(azOpenAiResource, azOpenAiResourceGroup));
+var embeddings = builder.AddConnectionString("embeddings-model");
 
 var redis = builder.AddRedis("redis")
     .WithDataVolume()

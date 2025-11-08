@@ -1,6 +1,7 @@
 using System.Linq;
 using System.Text.Json;
 using FakeItEasy;
+using lucia.Agents.Configuration;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 using lucia.Agents.Models;
@@ -8,6 +9,7 @@ using lucia.Agents.Skills;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
 using lucia.Tests.TestDoubles;
+using Microsoft.Extensions.Options;
 
 namespace lucia.Tests;
 
@@ -20,7 +22,15 @@ public class MusicPlaybackSkillTests
     public MusicPlaybackSkillTests()
     {
         ConfigureDefaultStates();
-        _skill = new MusicPlaybackSkill(_homeAssistantClient, _embeddingGenerator, NullLogger<MusicPlaybackSkill>.Instance);
+        var options = Options.Create<MusicAssistantConfig>(new MusicAssistantConfig()
+        {
+            IntegrationId = "DEMO"
+        });
+        
+        _skill = new MusicPlaybackSkill(
+            _homeAssistantClient,
+            options,
+            _embeddingGenerator, NullLogger<MusicPlaybackSkill>.Instance);
     }
 
     [Fact]
@@ -37,7 +47,7 @@ public class MusicPlaybackSkillTests
     public async Task PlayArtistAsync_CallsMusicAssistantPlayMedia()
     {
         ServiceCallRequest? capturedRequest = null;
-        A.CallTo(() => _homeAssistantClient.CallServiceAsync("music_assistant", "play_media", A<ServiceCallRequest>._, A<CancellationToken>._))
+        A.CallTo(() => _homeAssistantClient.CallServiceAsync("music_assistant", "play_media", "return_response", A<ServiceCallRequest>._, A<CancellationToken>._))
             .Invokes((string _, string _, ServiceCallRequest request, CancellationToken _) => capturedRequest = request)
             .Returns(Task.FromResult(Array.Empty<object>()));
 
@@ -56,11 +66,11 @@ public class MusicPlaybackSkillTests
     public async Task PlayShuffleAsync_SeedsQueueWithRandomTracks()
     {
         var libraryResponse = CreateLibraryResponseJson();
-        A.CallTo(() => _homeAssistantClient.CallServiceAsync("music_assistant", "get_library", A<ServiceCallRequest>._, A<CancellationToken>._))
+        A.CallTo(() => _homeAssistantClient.CallServiceAsync("music_assistant", "get_library", "return_response", A<ServiceCallRequest>._, A<CancellationToken>._))
             .Returns(Task.FromResult(new object[] { libraryResponse }));
 
         ServiceCallRequest? capturedPlayRequest = null;
-        A.CallTo(() => _homeAssistantClient.CallServiceAsync("music_assistant", "play_media", A<ServiceCallRequest>._, A<CancellationToken>._))
+        A.CallTo(() => _homeAssistantClient.CallServiceAsync("music_assistant", "play_media", "return_response", A<ServiceCallRequest>._, A<CancellationToken>._))
             .Invokes((string _, string _, ServiceCallRequest request, CancellationToken _) => capturedPlayRequest = request)
             .Returns(Task.FromResult(Array.Empty<object>()));
 
