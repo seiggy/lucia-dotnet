@@ -1,3 +1,35 @@
+
+# Release Notes - 2025.11.09
+
+**Release Date:** November 9, 2025  
+**Code Name:** "Constellation"
+
+---
+
+## 🌌 Overview
+
+"Constellation" delivers the feature we've been building toward all year: multi-agent orchestration working end-to-end inside Lucia. Requests can now fan out to the most relevant specialists, combine their output, and respond with a natural narrative backed by contextual awareness. Alongside the orchestration milestone, we introduce a new general-knowledge agent that fills in the gaps when a domain specialist is unavailable, plus targeted refinements to the lighting and music skills that make everyday interactions smoother.
+
+## 🚀 Highlights
+
+- **Multi-Agent Orchestration (GA)** — Router, dispatch, and aggregator executors now coordinate multiple agents in a single workflow, with task persistence and telemetry baked in. Complex requests like "Dim the kitchen lights and play relaxing jazz" are handled as one coherent conversation.
+- **General Knowledge Agent** — A new catalog entry that handles open-ended queries, status questions, and conversation handoffs when no specialist is a clean match. It plugs directly into the orchestrator so fallbacks feel intentional instead of abrupt.
+- **Smarter Light Selection** — Improved semantic matching, room disambiguation, and capability detection make it far easier to target the right fixture on the first try—even when users describe locations conversationally.
+- **Music Skill Enhancements** — Faster player discovery, richer queue summaries, and better error messaging tighten the loop between Music Assistant and Lucia’s orchestration pipeline.
+
+## 🔧 Under the Hood
+
+- Expanded orchestration telemetry with detailed WorkflowErrorEvent parsing and OpenTelemetry spans for traceability.
+- Options flow updated to align with Home Assistant 2025.12 requirements (no more manual `self.config_entry`).
+- HTTP client instrumentation now captures request/response headers and payloads when traces are recorded, aiding diagnostics of A2A traffic.
+
+## ✅ Upgrade Notes
+
+- No breaking schema changes, but existing installations should reload the integration after updating to register the new general agent card.
+- Home Assistant users will no longer see the 2025.12 config-flow deprecation warning.
+
+---
+
 # Release Notes - v2025.10.07
 
 **Release Date:** October 7, 2025  
