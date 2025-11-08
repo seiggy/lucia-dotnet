@@ -53,6 +53,7 @@ public class LightControlSkill
     {
         return [
             AIFunctionFactory.Create(FindLightAsync),
+            AIFunctionFactory.Create(FindLightsByAreaAsync),
             AIFunctionFactory.Create(GetLightStateAsync),
             AIFunctionFactory.Create(SetLightStateAsync)
             ];
@@ -66,6 +67,115 @@ public class LightControlSkill
         _logger.LogInformation("Initializing LightControlPlugin and caching light entities...");
         await RefreshLightCacheAsync(cancellationToken);
         _logger.LogInformation("LightControlPlugin initialized with {LightCount} light entities", _cachedLights.Count);
+    }
+
+    [Description("Find light(s) in an area by name of the Area")]
+    public async Task<string> FindLightsByAreaAsync(
+        [Description("The Area name (e.g 'kitchen', 'office', 'main bedroom')")] string area)
+    {
+        await EnsureCacheIsCurrentAsync();
+
+        if (!_cachedLights.Any())
+        {
+            LightSearchFailures.Add(1, [
+                new KeyValuePair<string, object?>("reason", "empty-cache")
+            ]);
+            return "No lights available in the system";
+        }
+        
+        using var activity = ActivitySource.StartActivity(nameof(FindLightsByAreaAsync), ActivityKind.Internal);
+        activity?.SetTag("search.area", area);
+        var start = Stopwatch.GetTimestamp();
+        LightSearchRequests.Add(1);
+
+        try
+        {
+            var searchEmbedding = await _embeddingService.GenerateAsync(area);
+            activity?.SetTag("search.embedding.dimension", searchEmbedding.Vector.Length);
+            
+            var areaMatches = _areaEmbeddings
+                .Select(kvp => new
+                {
+                    AreaName = kvp.Key,
+                    Similarity = CosineSimilarity(searchEmbedding, kvp.Value),
+                    MatchType = "area"
+                })
+                .ToList();
+            
+            var bestAreaMatch = areaMatches.OrderByDescending(x => x.Similarity).FirstOrDefault();
+            
+            // Return all lights from the matched area
+            var areaLights = _cachedLights.Where(l => l.Area == bestAreaMatch.AreaName).ToList();
+            
+            if (!areaLights.Any())
+            {
+                _logger.LogWarning("Area {AreaName} matched but contains no lights", bestAreaMatch.AreaName);
+                activity?.SetTag("match.failure_reason", "no-lights-in-area");
+                LightSearchFailures.Add(1, [
+                    new KeyValuePair<string, object?>("reason", "no-lights-in-area")
+                ]);
+                return $"Found area '{bestAreaMatch.AreaName}' but it contains no lights.";
+            }
+
+            _logger.LogDebug("Found area match: {AreaName} with similarity {Similarity:F3}, containing {LightCount} lights",
+                bestAreaMatch.AreaName, bestAreaMatch.Similarity, areaLights.Count);
+            activity?.SetTag("match.type", "area");
+            activity?.SetTag("match.area_name", bestAreaMatch.AreaName);
+            activity?.SetTag("match.similarity", bestAreaMatch.Similarity);
+            activity?.SetTag("match.light_count", areaLights.Count);
+
+            var stringBuilder = new StringBuilder();
+            stringBuilder.AppendLine($"Found {areaLights.Count} light(s) in area '{bestAreaMatch.AreaName}':");
+            
+            foreach (var light in areaLights)
+            {
+                var state = await _homeAssistantClient.GetStateAsync(light.EntityId);
+                if (state is null) continue;
+
+                var capabilities = GetCapabilityDescription(light);
+                stringBuilder.Append($"- {light.FriendlyName} (Entity ID: {light.EntityId}){capabilities}, State: {state.State}");
+
+                // Check for brightness
+                if (state.Attributes.TryGetValue("brightness", out var brightnessObj))
+                {
+                    if (JsonSerializer.Deserialize<int?>(brightnessObj?.ToString() ?? "null") is { } brightness)
+                    {
+                        var brightnessPercent = (int)Math.Round(brightness / 255.0 * 100);
+                        stringBuilder.Append($" at {brightnessPercent}% brightness");
+                    }
+                }
+
+                stringBuilder.AppendLine();
+            }
+
+            LightSearchSuccess.Add(1);
+            activity?.SetStatus(ActivityStatusCode.Ok);
+
+            return stringBuilder.ToString().TrimEnd();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error finding lights in area: {Area}", area);
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            activity?.SetTag("exception.type", ex.GetType().Name);
+            activity?.SetTag("exception.message", ex.Message);
+            LightSearchFailures.Add(1, [
+                new KeyValuePair<string, object?>("reason", "exception")
+            ]);
+            return $"Error searching for light: {ex.Message}";
+        }
+        finally
+        {
+            var elapsedMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+            LightSearchDurationMs.Record(elapsedMs);
+            activity?.SetTag("search.elapsed_ms", elapsedMs);
+            activity?.AddEvent(new ActivityEvent("search.completed", tags: new ActivityTagsCollection
+            {
+                { "elapsed_ms", elapsedMs },
+                { "cache.size", _cachedLights.Count },
+                { "area.count", _areaEmbeddings.Count }
+            }));
+        }
     }
 
     [Description("Find a light entity by name or description using natural language")]

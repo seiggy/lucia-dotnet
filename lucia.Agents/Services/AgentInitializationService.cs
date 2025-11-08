@@ -15,6 +15,7 @@ public class AgentInitializationService : BackgroundService
     private readonly LightAgent _lightAgent;
     private readonly MusicAgent _musicAgent;
     private readonly OrchestratorAgent _orchestratorAgent;
+    private readonly GeneralAgent _generalAgent;
     private readonly ILogger<AgentInitializationService> _logger;
 
     public AgentInitializationService(
@@ -22,12 +23,14 @@ public class AgentInitializationService : BackgroundService
         LightAgent lightAgent,
         MusicAgent musicAgent,
         OrchestratorAgent orchestratorAgent,
+        GeneralAgent generalAgent,
         ILogger<AgentInitializationService> logger)
     {
         _agentRegistry = agentRegistry;
         _lightAgent = lightAgent;
         _musicAgent = musicAgent;
         _orchestratorAgent = orchestratorAgent;
+        _generalAgent = generalAgent;
         _logger = logger;
     }
 
@@ -41,12 +44,14 @@ public class AgentInitializationService : BackgroundService
             await _lightAgent.InitializeAsync(stoppingToken).ConfigureAwait(false);
             await _musicAgent.InitializeAsync(stoppingToken).ConfigureAwait(false);
             await _orchestratorAgent.InitializeAsync(stoppingToken).ConfigureAwait(false);
+            await _generalAgent.InitializeAsync(stoppingToken).ConfigureAwait(false);
 
             // Register available agents with the registry
             await _agentRegistry.RegisterAgentAsync(_lightAgent.GetAgentCard(), stoppingToken).ConfigureAwait(false);
             await _agentRegistry.RegisterAgentAsync(_musicAgent.GetAgentCard(), stoppingToken).ConfigureAwait(false);
             await _agentRegistry.RegisterAgentAsync(_orchestratorAgent.GetAgentCard(), stoppingToken).ConfigureAwait(false);
-
+            await _agentRegistry.RegisterAgentAsync(_generalAgent.GetAgentCard(), stoppingToken).ConfigureAwait(false);
+            
             _logger.LogInformation("Agent initialization completed successfully");
         }
         catch (Exception ex)
