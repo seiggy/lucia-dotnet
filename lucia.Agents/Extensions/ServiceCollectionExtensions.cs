@@ -235,6 +235,7 @@ public static class ServiceCollectionExtensions
         // Register agents
         builder.Services.AddSingleton<LightAgent>();
         builder.Services.AddSingleton<MusicAgent>();
+        builder.Services.AddSingleton<GeneralAgent>();
 
         builder.AddAIAgent("light-agent", (sp, name) =>
         {
@@ -257,6 +258,13 @@ public static class ServiceCollectionExtensions
             return orchestratorAgent.GetAIAgent();
         });
 
+        builder.AddAIAgent("general-assistant", (sp, name) =>
+        {
+            var generalAgent = sp.GetRequiredService<GeneralAgent>();
+            generalAgent.InitializeAsync().GetAwaiter().GetResult();
+            return generalAgent.GetAIAgent();
+        });
+        
         // Register the agent initialization service
         builder.Services.AddSingleton<IHostedService, AgentInitializationService>();
     }

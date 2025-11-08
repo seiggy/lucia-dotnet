@@ -134,15 +134,16 @@ class LuciaConfigFlow(ConfigFlow, domain=DOMAIN):
         config_entry: ConfigEntry,
     ) -> OptionsFlow:
         """Get the options flow for this handler."""
-        return LuciaOptionsFlow(config_entry)
+        return LuciaOptionsFlow()
 
 
 class LuciaOptionsFlow(OptionsFlow):
     """Handle options for Lucia integration."""
 
-    def __init__(self, config_entry: ConfigEntry) -> None:
+    def __init__(self) -> None:
         """Initialize options flow."""
-        self.config_entry = config_entry
+        # Configuration entry is provided by OptionsFlow base class at runtime.
+        super().__init__()
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None

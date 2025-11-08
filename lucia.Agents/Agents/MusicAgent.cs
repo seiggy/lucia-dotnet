@@ -79,6 +79,11 @@ public class MusicAgent
             Use the FindPlayer tool to find the device the user requested to have the music played on.
             If you are unsure which endpoint to use, ask a clarifying question before starting playback. If you are at least 50% sure, just choose the endpoint you think is correct.
             If the user does not specify any details about the type of music, simply shuffle music from their library.
+            
+            ## IMPORTANT
+            * Keep your responses short and informative only. Examples: "Shuffling some music!", "Playing 'The Hanging Garden' by 'The Cure'."
+            * Do not offer to provide other assistance.
+            * If you need to ask for user feedback, ensure your response ends in a '?'. Examples: "Did you mean the Bedroom Speaker?", "I'm sorry, I couldn't find a speaker named 'Living Room Speakers'; Is it known by another name?"
             """;
 
         var agentOptions = new ChatClientAgentOptions(instructions)
