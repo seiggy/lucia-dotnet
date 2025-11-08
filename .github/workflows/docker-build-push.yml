@@ -57,10 +57,11 @@ jobs:
           images: ${{ env.DOCKER_IMAGE }}
           tags: |
             type=match,pattern=\d{4}\.\d{1,2}\.\d{1,2},group=0
+            type=raw,value={{date 'YYYY.MM.DD'}},enable=${{ github.event_name != 'pull_request' }}
             type=ref,event=branch
             type=ref,event=pr
             type=sha,prefix={{date 'YYYY.MM.DD'}}-
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
           labels: |
             org.opencontainers.image.title=Lucia
             org.opencontainers.image.description=AI-powered Home Assistant agent orchestration
@@ -186,6 +187,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-and-push
     if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      security-events: write
     
     steps:
       - name: Run Trivy vulnerability scanner

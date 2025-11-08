@@ -3,6 +3,7 @@ using lucia.AgentHost;
 using lucia.AgentHost.Extensions;
 using lucia.Agents.Agents;
 using lucia.Agents.Extensions;
+using lucia.Agents.Orchestration;
 using lucia.Agents.Skills;
 using lucia.HomeAssistant.Configuration;
 using Microsoft.Agents.AI.A2A;
@@ -16,8 +17,6 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.AddRedisClient(connectionName: "redis");
 
-builder.Services.Configure<HomeAssistantOptions>(
-    builder.Configuration.GetSection("HomeAssistant"));
 
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
@@ -67,7 +66,7 @@ if (!app.Environment.IsDevelopment())
 else
 {
     app.UseDeveloperExceptionPage();
-    app.UseHttpsRedirection();
+    //app.UseHttpsRedirection(); // prevents having to deal with cert issues from the server.
 }
 app.MapAgentDiscovery();
 

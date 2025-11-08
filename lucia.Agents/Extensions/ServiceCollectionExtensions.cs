@@ -15,6 +15,8 @@ using lucia.HomeAssistant.Services;
 using Microsoft.Agents.AI.Hosting;
 using OllamaSharp;
 using A2A;
+using lucia.Agents.Configuration;
+using lucia.HomeAssistant.Configuration;
 
 namespace lucia.Agents.Extensions;
 
@@ -180,7 +182,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<ITaskStore, RedisTaskStore>();
 
         // Register A2A TaskManager (T037)
-        builder.Services.AddSingleton<ITaskManager>(sp => 
+        builder.Services.AddSingleton<ITaskManager>(sp =>
         {
             var taskStore = sp.GetRequiredService<ITaskStore>();
             var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
@@ -188,9 +190,25 @@ public static class ServiceCollectionExtensions
             return new TaskManager(httpClient, taskStore);
         });
 
-        builder.Services.AddOptions<RouterExecutorOptions>();
-        builder.Services.AddOptions<AgentExecutorWrapperOptions>();
-        builder.Services.AddOptions<ResultAggregatorOptions>();
+        builder.Services.Configure<RouterExecutorOptions>(
+            builder.Configuration.GetSection("RouterExecutor")
+        );
+
+        builder.Services.Configure<AgentExecutorWrapperOptions>(
+            builder.Configuration.GetSection("AgentExecutorWrapper")
+        );
+
+        builder.Services.Configure<MusicAssistantConfig>(
+            builder.Configuration.GetSection("MusicAssistant")
+        );
+
+    builder.Services.Configure<ResultAggregatorOptions>(
+            builder.Configuration.GetSection("ResultAggregator")
+        );
+
+        builder.Services.Configure<HomeAssistantOptions>(
+            builder.Configuration.GetSection("HomeAssistant"));
+
         builder.Services.AddSingleton(TimeProvider.System);
 
         // Register orchestration executors

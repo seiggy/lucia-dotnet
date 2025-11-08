@@ -16,6 +16,8 @@ public static class AgentDiscoveryExtension
         var lightAgent = app.Services.GetRequiredService<LightAgent>();
         var musicAgent = app.Services.GetRequiredService<MusicAgent>();
         var orchestratorAgent = app.Services.GetRequiredService<OrchestratorAgent>();
+
+        var taskManager = app.Services.GetRequiredService<ITaskManager>();
         
         
         app.MapA2A("light-agent", path: "/a2a/light-agent", agentCard: lightAgent.GetAgentCard());
@@ -27,6 +29,10 @@ public static class AgentDiscoveryExtension
         app.MapOpenAIResponses("orchestrator");
 
         app.MapAgentDiscovery("/agents");
+
+        app.MapAgentDiscoveryEndpoint(taskManager, "/a2a/light-agent");
+        app.MapAgentDiscoveryEndpoint(taskManager, "/a2a/music-agent");
+        app.MapAgentDiscoveryEndpoint(taskManager, "/a2a/orchestrator");
     }
 
     public static void MapAgentDiscovery(this IEndpointRouteBuilder endpoints, [StringSyntax("Route")] string path)

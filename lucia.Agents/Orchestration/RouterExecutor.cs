@@ -150,7 +150,9 @@ public sealed class RouterExecutor : ReflectingExecutor<RouterExecutor>, IMessag
             ? RouterExecutorOptions.DefaultUserPromptTemplate
             : _options.UserPromptTemplate!;
 
-        var payload = string.Format(CultureInfo.InvariantCulture, userPromptTemplate, userRequest, agentCatalog);
+        var payload = userPromptTemplate
+            .Replace("<<USER_REQUEST>>", userRequest)
+            .Replace("<<AGENT_CATALOG>>", agentCatalog);
 
         return new[]
         {

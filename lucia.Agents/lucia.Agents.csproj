@@ -13,8 +13,8 @@
   <ItemGroup>
     <PackageReference Include="A2A" Version="0.3.1-preview" />
     <PackageReference Include="A2A.AspNetCore" Version="0.3.1-preview" />
-    <PackageReference Include="Aspire.Azure.AI.OpenAI" Version="9.5.1-preview.1.25502.11" />
-    <PackageReference Include="Aspire.Hosting.Azure.CognitiveServices" Version="9.5.1" />
+    <PackageReference Include="Aspire.Azure.AI.OpenAI" Version="9.5.2-preview.1.25522.3" />
+    <PackageReference Include="Aspire.Hosting.Azure.CognitiveServices" Version="9.5.2" />
     <PackageReference Include="Microsoft.Agents.AI" Version="1.0.0-preview.251009.1" />
     <PackageReference Include="Microsoft.Agents.AI.A2A" Version="1.0.0-preview.251009.1" />
     <PackageReference Include="Microsoft.Agents.AI.Abstractions" Version="1.0.0-preview.251009.1" />
@@ -33,7 +33,7 @@
 	  <PackageReference Include="System.Linq.Async" Version="7.0.0-preview.1.g24680b5469">
 		<ExcludeAssets>all</ExcludeAssets>
 	</PackageReference>
-    <PackageReference Include="Aspire.StackExchange.Redis" Version="9.5.1" />
+    <PackageReference Include="Aspire.StackExchange.Redis" Version="9.5.2" />
   </ItemGroup>
 
   <ItemGroup>
