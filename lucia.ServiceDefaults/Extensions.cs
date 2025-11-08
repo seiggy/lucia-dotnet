@@ -1,3 +1,6 @@
+using System.Diagnostics;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.DependencyInjection;
@@ -78,7 +81,44 @@ public static class Extensions
                     )
                     // Uncomment the following line to enable gRPC instrumentation (requires the OpenTelemetry.Instrumentation.GrpcNetClient package)
                     //.AddGrpcClientInstrumentation()
-                    .AddHttpClientInstrumentation();
+                    .AddHttpClientInstrumentation(options =>
+                    {
+                        options.EnrichWithHttpRequestMessage = (activity, request) =>
+                        {
+                            if (!IsRecorded(activity))
+                            {
+                                return;
+                            }
+
+                            AddHeaders(activity, "http.request.header.", request.Headers);
+
+                            if (request.Content is null)
+                            {
+                                return;
+                            }
+
+                            AddHeaders(activity, "http.request.content_header.", request.Content.Headers);
+                            TrySetBodyTag(activity, "http.request.body", request.Content);
+                        };
+
+                        options.EnrichWithHttpResponseMessage = (activity, response) =>
+                        {
+                            if (!IsRecorded(activity))
+                            {
+                                return;
+                            }
+
+                            AddHeaders(activity, "http.response.header.", response.Headers);
+
+                            if (response.Content is null)
+                            {
+                                return;
+                            }
+
+                            AddHeaders(activity, "http.response.content_header.", response.Content.Headers);
+                            TrySetBodyTag(activity, "http.response.body", response.Content);
+                        };
+                    });
             });
 
         builder.AddOpenTelemetryExporters();
@@ -133,5 +173,38 @@ public static class Extensions
         }
 
         return app;
+    }
+
+    private static bool IsRecorded(Activity activity)
+        => (activity.ActivityTraceFlags & ActivityTraceFlags.Recorded) != 0;
+
+    private static void AddHeaders(Activity activity, string prefix, HttpHeaders headers)
+    {
+        foreach (var header in headers)
+        {
+            var values = string.Join(",", header.Value);
+            if (values.Length == 0)
+            {
+                continue;
+            }
+
+            activity.SetTag(prefix + header.Key.ToLowerInvariant(), values);
+        }
+    }
+
+    private static void TrySetBodyTag(Activity activity, string tagName, HttpContent content)
+    {
+        try
+        {
+            var payload = content.ReadAsStringAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+            if (!string.IsNullOrWhiteSpace(payload))
+            {
+                activity.SetTag(tagName, payload);
+            }
+        }
+        catch (Exception ex)
+        {
+            activity.SetTag($"{tagName}.error", ex.Message);
+        }
     }
 }

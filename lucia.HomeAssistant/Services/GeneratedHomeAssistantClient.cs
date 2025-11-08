@@ -31,9 +31,24 @@ public partial class GeneratedHomeAssistantClient : IHomeAssistantClient
         return await SetStateAsync(entityId, payload, cancellationToken);
     }
 
-    async Task<object[]> IHomeAssistantClient.CallServiceAsync(string domain, string service, ServiceCallRequest? request, CancellationToken cancellationToken)
+    async Task<T> IHomeAssistantClient.CallServiceAsync<T>(string domain, string service, string? parameters,
+        ServiceCallRequest? request, CancellationToken cancellationToken)
     {
-        return await CallServiceAsync(domain, service, request, cancellationToken);
+        ArgumentNullException.ThrowIfNull(domain, nameof(domain));
+        ArgumentNullException.ThrowIfNull(service, nameof(service));
+        
+        if (string.IsNullOrEmpty(parameters))
+            parameters = string.Empty;
+        var result = await CallServiceAsync(domain, service, request, parameters, cancellationToken);
+        return JsonSerializer.Deserialize<T>(result) ?? default;
+    }
+
+    async Task<object[]> IHomeAssistantClient.CallServiceAsync(string domain, string service, string? parameters, ServiceCallRequest? request, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(parameters))
+            parameters = string.Empty;
+        var result = await CallServiceAsync(domain, service, request, parameters, cancellationToken);
+        return JsonSerializer.Deserialize<object[]>(result) ?? Array.Empty<object>();
     }
 
     async Task<T> IHomeAssistantClient.RunTemplateAsync<T>(string jinjaTemplate, CancellationToken cancellationToken)
