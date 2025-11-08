@@ -136,7 +136,7 @@ spec:
           # Readiness probe - route traffic only to ready pods
           readinessProbe:
             httpGet:
-              path: /health/ready
+              path: /alive
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 5

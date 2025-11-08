@@ -30,7 +30,7 @@ public class MusicAgent
         {
             Id = "id_music_agent",
             Name = "MusicPlayback",
-            Description = "Skillset for controlling Satellite1 Music Assistant playback across artists, albums, genres, and tracks",
+            Description = "Skillset for controlling Music Assistant playback across artists, albums, genres, and tracks",
             Tags = [
                 "music",
                 "media",
@@ -42,8 +42,8 @@ public class MusicAgent
             [
                 "Play relaxed jazz on Satellite1 kitchen",
                 "Shuffle Satellite1 loft",
-                "Play the album Random Access Memories on the Satellite1 office speaker",
-                "Play the song Shivers by Ed Sheeran on Satellite1 bedroom"
+                "Play the album Random Access Memories on the office speaker",
+                "Play the song Shivers by Ed Sheeran int the bedroom"
             ]
         };
 
@@ -51,7 +51,7 @@ public class MusicAgent
         {
             Url = "/a2a/music-agent",
             Name = "music-agent",
-            Description = "Agent that orchestrates #Music Assistant #playback on #Satellite1 endpoints",
+            Description = "Agent that orchestrates #Music Assistant #playback on #speaker endpoints",
             Capabilities = new AgentCapabilities
             {
                 PushNotifications = true,
@@ -78,13 +78,14 @@ public class MusicAgent
             If the user refers to a location (e.g. "Office"), use the FindPlayer tool to search for a player that may be in that location.
             Use the FindPlayer tool to find the device the user requested to have the music played on.
             If you are unsure which endpoint to use, ask a clarifying question before starting playback. If you are at least 50% sure, just choose the endpoint you think is correct.
+            If the user does not specify any details about the type of music, simply shuffle music from their library.
             """;
 
         var agentOptions = new ChatClientAgentOptions(instructions)
         {
             Id = "music-agent",
             Name = "music-agent",
-            Description = "Handles music playback for Satellite1 speakers",
+            Description = "Handles music playback for MusicAssistant",
             ChatOptions = new()
             {
                 Tools = _musicSkill.GetTools()

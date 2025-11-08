@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -358,20 +359,76 @@ public class LuciaOrchestrator
     private static string? NormalizeAgentKey(AIAgent agent)
         => agent.Name ?? agent.Id;
 
-    private static async Task<string?> ExecuteWorkflowAsync(Workflow workflow, ChatMessage input, CancellationToken cancellationToken)
+    private async Task<string?> ExecuteWorkflowAsync(Workflow workflow, ChatMessage input, CancellationToken cancellationToken)
     {
-        await using var run = await InProcessExecution.RunAsync(workflow, input, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var startTimestamp = _timeProvider.GetTimestamp();
+        using var activity = OrchestrationTelemetry.Source.StartActivity("LuciaOrchestrator.ExecuteWorkflow", ActivityKind.Internal);
+        activity?.SetTag("workflow.name", workflow.Name ?? "LuciaOrchestratorWorkflow");
+        activity?.SetTag("workflow.start.executor", workflow.StartExecutorId);
 
-        string? result = null;
-        foreach (var evt in run.OutgoingEvents.OfType<WorkflowOutputEvent>())
+        try
         {
-            if (evt.Data is string text)
-            {
-                result = text;
-            }
-        }
+            await using var run = await InProcessExecution.RunAsync(workflow, input, cancellationToken: cancellationToken).ConfigureAwait(false);
 
-        return result;
+            string? result = null;
+            List<string>? errors = null;
+
+            foreach (var evt in run.OutgoingEvents.OfType<WorkflowOutputEvent>())
+            {
+                if (evt.Data is string text)
+                {
+                    result = text;
+                }
+            }
+
+            foreach (var evt in run.OutgoingEvents.OfType<WorkflowErrorEvent>())
+            {
+                var exception = evt.Data as Exception;
+                var message = exception?.Message ?? evt.Data?.ToString() ?? "Workflow execution reported an unknown error.";
+
+                errors ??= new List<string>();
+                errors.Add(message);
+
+                if (exception is not null)
+                {
+                    _logger.LogError(exception, "Workflow execution emitted error event: {Message}", message);
+                }
+                else
+                {
+                    _logger.LogError("Workflow execution emitted error event: {Message}", message);
+                }
+            }
+
+            if (errors is not null)
+            {
+                var errorSummary = string.Join("; ", errors);
+                activity?.SetTag(OrchestrationTelemetry.Tags.Success, false);
+                activity?.SetTag(OrchestrationTelemetry.Tags.ErrorMessage, errorSummary);
+
+                return result ?? errorSummary;
+            }
+
+            activity?.SetTag(OrchestrationTelemetry.Tags.Success, true);
+
+            if (result is not null)
+            {
+                activity?.SetTag("workflow.output.length", result.Length);
+            }
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            activity?.SetTag(OrchestrationTelemetry.Tags.Success, false);
+            activity?.SetTag(OrchestrationTelemetry.Tags.ErrorMessage, ex.Message);
+            _logger.LogError(ex, "Workflow execution failed to complete.");
+            throw;
+        }
+        finally
+        {
+            var elapsed = _timeProvider.GetElapsedTime(startTimestamp);
+            activity?.SetTag(OrchestrationTelemetry.Tags.ExecutionTime, elapsed.TotalMilliseconds);
+        }
     }
 
     private sealed class AgentDispatchExecutor : ReflectingExecutor<AgentDispatchExecutor>, IMessageHandler<AgentChoiceResult, List<AgentResponse>>
