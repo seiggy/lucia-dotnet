@@ -8,7 +8,7 @@
 [![Agent Framework](https://img.shields.io/badge/Agent%20Framework-1.0.0-blue)](https://github.com/microsoft/semantic-kernel)
 [![License](https://img.shields.io/github/license/seiggy/lucia-dotnet)](LICENSE)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Compatible-41BDF5)](https://www.home-assistant.io/)
-![Latest Version](https://img.shields.io/badge/v2025.10.07-cornflowerblue?logo=homeassistantcommunitystore&label=Release)
+![Latest Version](https://img.shields.io/badge/v2025.11.09-cornflowerblue?logo=homeassistantcommunitystore&label=Release)
 
 Lucia *(pronounced LOO-sha)* is an open-source, privacy-focused AI assistant that serves as a complete replacement for Amazon Alexa and Google Home. Built on Microsoft Agent Framework with a multi-agent architecture, Lucia provides autonomous whole-home automation management through deep integration with Home Assistant.
 
@@ -20,13 +20,14 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
 
 ## 🎯 Key Features
 
-- **🤖 Multi-Agent Architecture** - Specialized agents for different domains (lighting, climate, security, media) that collaborate using the A2A (Agent-to-Agent) protocol
+- **🤖 Multi-Agent Orchestration (GA)** - Router, dispatcher, and result aggregator executors coordinate specialized agents end-to-end using the A2A (Agent-to-Agent) protocol
 - **🧠 Semantic Understanding** - Natural language processing using embeddings and semantic search—no rigid command structures required
 - **🔒 Privacy First** - Fully local operation with optional cloud LLM support; your data stays yours
 - **🏠 Deep Home Assistant Integration** - Native integration via custom component with agent selection, conversation API, and JSON-RPC communication
 - **📦 Kubernetes Ready** - Cloud-native deployment with .NET Aspire, designed for home lab clusters
 - **🔌 Extensible** - Easy to add new agents and capabilities with standardized A2A protocol
-- **🎭 Dynamic Agent Selection** - Switch between specialized agents (light control, music, etc.) without reconfiguring
+- **🧭 General Knowledge Fallback** - Built-in `general-assistant` handles open-ended requests and orchestrator fallbacks when no specialist is a clean match
+- **🎭 Dynamic Agent Selection** - Switch between specialized agents (light control, music, etc.) without reconfiguring; on failure we automatically fall back to the general assistant
 - **💬 Conversation Threading** - Context-aware conversations with proper message threading support
 
 ### Supported Inference Platforms:
@@ -97,10 +98,11 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
    ```
 
 5. **Access the services**
-   - Agent API: https://localhost:7235
-   - Agent Catalog: https://localhost:7235/agents
-   - Swagger UI: https://localhost:7235/swagger
-   - Health Check: https://localhost:7235/health
+  - Agent API: https://localhost:7235
+  - Agent Catalog: https://localhost:7235/agents
+  - Swagger UI: https://localhost:7235/swagger
+  - Health Check: https://localhost:7235/health
+  - After Lucia updates, reload the Home Assistant integration once so the new `general-assistant` card appears in the catalog
 
 ## 🏗️ Architecture
 
@@ -183,9 +185,10 @@ lucia-dotnet/
 ├── lucia.ServiceDefaults/     # Shared services and configuration
 │   └── Extensions.cs         # Common service extensions
 ├── lucia.Tests/               # Unit and integration tests
-│   ├── HomeAssistantApiTests.cs
-│   ├── MusicPlaybackSkillTests.cs
-│   └── IntegrationTest1.cs
+│   ├── Orchestration/        # Router, aggregator, and orchestrator tests
+│   ├── Services/             # Home Assistant service tests
+│   ├── Integration/          # End-to-end scenarios
+│   └── MusicPlaybackSkillTests.cs
 └── custom_components/lucia/   # Home Assistant Python integration
     ├── __init__.py           # Integration setup and agent catalog
     ├── config_flow.py        # Configuration UI with agent selection
@@ -240,6 +243,7 @@ Configure agents in `appsettings.Development.json`:
    - **Agent Selection**: Choose from available agents in the dropdown
      - `light-agent` - Controls lights and lighting scenes
      - `music-agent` - Manages Music Assistant playback
+     - `general-assistant` - Handles open-ended questions and orchestrator fallbacks
      - *(More agents appear as you add them)*
    - **System Prompt Template**: Customize the agent's behavior (optional)
    - **Max Response Tokens**: Control response length (10-4000, default: 150)
@@ -666,7 +670,7 @@ Compatible with Prometheus, Grafana, Jaeger, and other OTLP-compatible tools.
 - 🔄 ClimateAgent (HVAC and temperature control)
 - ⏳ SecurityAgent (alarm, locks, cameras)
 - ⏳ SceneAgent (scene activation and management)
-- ⏳ Multi-agent orchestration
+- ✅ Multi-agent orchestration (GA)
 - ⏳ WebSocket real-time communication
 
 ### Phase 3: Intelligence (Planned)
@@ -800,7 +804,7 @@ If you encounter issues:
 
 **"ConversationResponse error"**
 - This has been fixed in v2025.10.07
-- Update to latest version
+- Update to the latest release (currently v2025.11.09)
 - Integration now uses `IntentResponse` correctly
 
 For detailed troubleshooting, see the [Agent Selection Guide](custom_components/lucia/AGENT_SELECTION.md).
