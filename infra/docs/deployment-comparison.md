@@ -317,7 +317,7 @@ Result:
 
 All methods tested with:
 
-- .NET 10 RC1 application
+- .NET 10 application
 - Redis 7-alpine
 - Single node, 4 CPU, 8GB RAM
 - Home Assistant instance with 100 devices

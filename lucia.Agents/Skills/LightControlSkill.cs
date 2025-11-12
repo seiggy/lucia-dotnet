@@ -14,7 +14,7 @@ namespace lucia.Agents.Skills;
 /// <summary>
 /// Semantic Kernel plugin for Home Assistant light control with caching and similarity search
 /// </summary>
-public class LightControlSkill
+public class LightControlSkill : IAgentSkill
 {
     private const string? ReturnResponseToken = "return_response";
     private readonly IHomeAssistantClient _homeAssistantClient;
@@ -129,7 +129,8 @@ public class LightControlSkill
             
             foreach (var light in areaLights)
             {
-                var state = await _homeAssistantClient.GetStateAsync(light.EntityId);
+                var state = await _homeAssistantClient.GetEntityStateAsync(light.EntityId)
+                    .ConfigureAwait(false);
                 if (state is null) continue;
 
                 var capabilities = GetCapabilityDescription(light);
@@ -244,7 +245,8 @@ public class LightControlSkill
                 activity?.SetTag("match.similarity", bestLightMatch.Similarity);
 
                 var capabilities = GetCapabilityDescription(light);
-                var state = await _homeAssistantClient.GetStateAsync(light.EntityId);
+                var state = await _homeAssistantClient.GetEntityStateAsync(light.EntityId)
+                    .ConfigureAwait(false);
                 if (state is null)
                 {
                     _logger.LogWarning("Light {EntityId} not found when retrieving state after match", light.EntityId);
@@ -306,7 +308,8 @@ public class LightControlSkill
                 
                 foreach (var light in areaLights)
                 {
-                    var state = await _homeAssistantClient.GetStateAsync(light.EntityId);
+                    var state = await _homeAssistantClient.GetEntityStateAsync(light.EntityId)
+                        .ConfigureAwait(false);
                     if (state is null) continue;
 
                     var capabilities = GetCapabilityDescription(light);
@@ -390,7 +393,8 @@ public class LightControlSkill
         {
             _logger.LogDebug("Getting state for light: {EntityId}", entityId);
 
-            var state = await _homeAssistantClient.GetStateAsync(entityId);
+            var state = await _homeAssistantClient.GetEntityStateAsync(entityId)
+                .ConfigureAwait(false);
 
             if (state == null)
             {
@@ -559,7 +563,8 @@ public class LightControlSkill
         {
             _logger.LogDebug("Refreshing light cache...");
 
-            var allStates = await _homeAssistantClient.GetStatesAsync(cancellationToken);
+            var allStates = await _homeAssistantClient.GetAllEntityStatesAsync(cancellationToken)
+                .ConfigureAwait(false);
             
             _logger.LogInformation("Received {EntityCount} entities from Home Assistant state API", allStates.Count());
             foreach (var state in allStates)

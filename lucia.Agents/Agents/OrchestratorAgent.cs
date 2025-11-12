@@ -1,9 +1,13 @@
 using A2A;
 using lucia.Agents.Integration;
 using lucia.Agents.Orchestration;
+using lucia.Agents.Registry;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.A2A;
+using Microsoft.Agents.AI.Hosting;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace lucia.Agents.Agents;
 
@@ -19,11 +23,15 @@ public class OrchestratorAgent
     private readonly TaskManager _taskManager;
 
     public OrchestratorAgent(
-        LuciaOrchestrator orchestrator,
+        IChatClient chatClient,
+        AgentCatalog agentCatalog,
+        IOptions<RouterExecutorOptions> routerExecutorOptions,
         IAgentThreadFactory threadFactory,
         ILoggerFactory loggerFactory)
     {
         _logger = loggerFactory.CreateLogger<OrchestratorAgent>();
+
+
 
         var orchestrationSkill = new AgentSkill
         {
@@ -40,6 +48,13 @@ public class OrchestratorAgent
             ]
         };
 
+        var agents = agentCatalog.GetAgentsAsync()
+            .ToListAsync()
+            .Result;
+
+        var tools = agents
+            .Select(agent => (AITool)agent.AsAIFunction()).ToList();
+        
         _agent = new AgentCard
         {
             Url = "/a2a/orchestrator",
@@ -57,12 +72,22 @@ public class OrchestratorAgent
             Version = "1.0.0"
         };
 
+        var agentOptions = new ChatClientAgentOptions(routerExecutorOptions.Value.SystemPrompt)
+        {
+            Id = "orchestrator",
+            Name = "Orchestrator",
+            Description = "Orchestrator for Lucia",
+            ChatOptions = new()
+            {
+                Tools = tools
+            }
+        };
+
         // Create the custom AIAgent implementation that delegates to orchestrator
-        _aiAgent = new OrchestratorAIAgent(
-            orchestrator,
-            threadFactory,
-            name: "orchestrator",
-            description: "Intelligent orchestrator for multi-agent coordination");
+        _aiAgent = new ChatClientAgent(
+            chatClient,
+            agentOptions,
+            loggerFactory);
 
         _taskManager = new TaskManager();
     }

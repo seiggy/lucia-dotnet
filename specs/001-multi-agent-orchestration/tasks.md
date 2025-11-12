@@ -1454,7 +1454,7 @@ Phase 1 (Setup) → Phase 2 (Foundation)
 2. One class per file (Constitution Principle I)
 3. Add OpenTelemetry spans/metrics per contract specifications
 4. Use [LoggerMessage] for structured logging
-5. Follow C# 13 / .NET 10 RC1 patterns (file-scoped namespaces, required properties)
+5. Follow C# 13 / .NET 10 patterns (file-scoped namespaces, required properties)
 
 ### After Completing Task
 

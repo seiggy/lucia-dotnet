@@ -4,7 +4,7 @@ Auto-generated from all feature plans. Last updated: 2025-10-13
 
 ## Active Technologies
 
-- C# 13 / .NET 10 RC1 + Microsoft.Agents.AI.Workflows 1.0, StackExchange.Redis 2.8.16, OpenTelemetry.NET 1.10 (001-multi-agent-orchestration)
+- C# 13 / .NET 10 + Microsoft.Agents.AI.Workflows 1.0, StackExchange.Redis 2.8.16, OpenTelemetry.NET 1.10 (001-multi-agent-orchestration)
 - Redis 7.x (task persistence with 24h TTL) (001-multi-agent-orchestration)
 
 ## Project Structure
@@ -49,7 +49,7 @@ ollama pull llama3.2:3b
 
 ## Code Style
 
-### C# 13 / .NET 10 RC1
+### C# 13 / .NET 10
 
 - **One Class Per File**: Each `.cs` file contains exactly one class definition
 - **Nullable Reference Types**: Enabled project-wide, explicit nullability annotations
@@ -61,9 +61,9 @@ ollama pull llama3.2:3b
 - **Telemetry**: Instrument with OpenTelemetry spans, metrics, and structured logs
 
 ## Recent Changes
-- 001-multi-agent-orchestration: Added C# 13 / .NET 10 RC1 + Microsoft.Agents.AI.Workflows 1.0, StackExchange.Redis 2.8.16, OpenTelemetry.NET 1.10
+- 001-multi-agent-orchestration: Added C# 13 / .NET 10 + Microsoft.Agents.AI.Workflows 1.0, StackExchange.Redis 2.8.16, OpenTelemetry.NET 1.10
 
-- 001-multi-agent-orchestration: Added C# 13 / .NET 10 RC1 + Microsoft.Agents.AI.Workflows 1.0, StackExchange.Redis 2.8.16, OpenTelemetry.NET 1.10
+- 001-multi-agent-orchestration: Added C# 13 / .NET 10 + Microsoft.Agents.AI.Workflows 1.0, StackExchange.Redis 2.8.16, OpenTelemetry.NET 1.10
 
 <!-- MANUAL ADDITIONS START -->
 

@@ -7,12 +7,12 @@
 
 ### Application Framework
 - **Framework:** ASP.NET Core Web API
-- **Version:** .NET 9
+- **Version:** .NET 10
 - **Language:** C# 13 with nullable reference types
 
 ### AI/ML Framework
-- **Primary:** Microsoft Semantic Kernel
-- **Version:** 1.61.0
+- **Primary:** [Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/)
+- **Version:** 1.0.0
 - **Orchestration:** MagenticOne multi-agent pattern
 
 ### Database
@@ -27,8 +27,8 @@
 - **Offline:** LLaMa and local models (planned)
 - **Embeddings:** text-embedding-3-small (OpenAI)
 
-### Agent Framework
-- **Core:** Semantic Kernel Agents
+### Agent Runtime
+- **Core:** Microsoft Agent Framework Agents
 - **Communication:** A2A (Agent-to-Agent) Protocol
 - **Registry:** Custom agent registry with HTTP API
 
@@ -53,7 +53,7 @@
 
 ### Cloud-Native Framework
 - **Platform:** .NET Aspire
-- **Version:** 9.4.0
+- **Version:** 10.0.0
 - **Features:** Service discovery, resilience, observability
 
 ### Observability

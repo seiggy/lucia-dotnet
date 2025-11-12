@@ -11,29 +11,29 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="A2A" Version="0.3.1-preview" />
-    <PackageReference Include="A2A.AspNetCore" Version="0.3.1-preview" />
-    <PackageReference Include="Aspire.Azure.AI.OpenAI" Version="9.5.2-preview.1.25522.3" />
-    <PackageReference Include="Aspire.Hosting.Azure.CognitiveServices" Version="9.5.2" />
-    <PackageReference Include="Microsoft.Agents.AI" Version="1.0.0-preview.251009.1" />
-    <PackageReference Include="Microsoft.Agents.AI.A2A" Version="1.0.0-preview.251009.1" />
-    <PackageReference Include="Microsoft.Agents.AI.Abstractions" Version="1.0.0-preview.251009.1" />
-    <PackageReference Include="Microsoft.Agents.AI.AzureAI" Version="1.0.0-preview.251009.1" />
-    <PackageReference Include="Microsoft.Agents.AI.Hosting" Version="1.0.0-preview.251009.1" />
-    <PackageReference Include="Microsoft.Agents.AI.Workflows" Version="1.0.0-preview.251009.1" />
+    <PackageReference Include="A2A" Version="0.3.3-preview" />
+    <PackageReference Include="A2A.AspNetCore" Version="0.3.3-preview" />
+    <PackageReference Include="Aspire.Azure.AI.OpenAI" Version="13.0.0-preview.1.25560.3" />
+    <PackageReference Include="Aspire.Hosting.Azure.CognitiveServices" Version="13.0.0" />
+    <PackageReference Include="Microsoft.Agents.AI" Version="1.0.0-preview.251110.2" />
+    <PackageReference Include="Microsoft.Agents.AI.A2A" Version="1.0.0-preview.251110.2" />
+    <PackageReference Include="Microsoft.Agents.AI.Abstractions" Version="1.0.0-preview.251110.2" />
+    <PackageReference Include="Microsoft.Agents.AI.AzureAI" Version="1.0.0-preview.251104.1" />
+    <PackageReference Include="Microsoft.Agents.AI.Hosting" Version="1.0.0-preview.251110.2" />
+    <PackageReference Include="Microsoft.Agents.AI.Workflows" Version="1.0.0-preview.251110.2" />
 	  
-    <PackageReference Include="Microsoft.Extensions.AI" Version="9.9.1" />
-    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="9.9.1" />
-    <PackageReference Include="Microsoft.Extensions.AI.AzureAIInference" Version="9.9.1-preview.1.25474.6" />
-    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="9.9.1-preview.1.25474.6" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0-rc.1.25451.107" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.AzureAIInference" Version="10.0.0-preview.1.25559.3" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.0.0-preview.1.25560.10" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
     <PackageReference Include="Microsoft.Extensions.VectorData.Abstractions" Version="9.7.0" />
-    <PackageReference Include="Microsoft.ML.Tokenizers" Version="2.0.0-preview.25503.2" />
-    <PackageReference Include="OllamaSharp" Version="5.4.7" />
-	  <PackageReference Include="System.Linq.Async" Version="7.0.0-preview.1.g24680b5469">
+    <PackageReference Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
+    <PackageReference Include="OllamaSharp" Version="5.4.10" />
+	  <PackageReference Include="System.Linq.Async" Version="7.0.0-preview.9">
 		<ExcludeAssets>all</ExcludeAssets>
 	</PackageReference>
-    <PackageReference Include="Aspire.StackExchange.Redis" Version="9.5.2" />
+    <PackageReference Include="Aspire.StackExchange.Redis" Version="13.0.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -42,7 +42,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Agents\Extensions\" />
     <Folder Include="Reducers\" />
   </ItemGroup>
 

@@ -6,7 +6,7 @@
 
 ## Prerequisites
 
-- .NET 10 RC1 SDK
+- .NET 10 SDK
 - Docker Desktop (for Redis)
 - Ollama (for local LLM testing)
 - Git

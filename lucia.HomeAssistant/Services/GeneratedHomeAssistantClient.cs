@@ -10,17 +10,17 @@ public partial class GeneratedHomeAssistantClient : IHomeAssistantClient
     // The source generator will create the constructor and all API methods
     
     // Implement the interface methods by delegating to generated methods
-    async Task<IEnumerable<HomeAssistantState>> IHomeAssistantClient.GetStatesAsync(CancellationToken cancellationToken)
+    async Task<IEnumerable<HomeAssistantState>> IHomeAssistantClient.GetAllEntityStatesAsync(CancellationToken cancellationToken)
     {
         return await GetStatesAsync(cancellationToken);
     }
 
-    async Task<HomeAssistantState?> IHomeAssistantClient.GetStateAsync(string entityId, CancellationToken cancellationToken)
+    async Task<HomeAssistantState?> IHomeAssistantClient.GetEntityStateAsync(string entityId, CancellationToken cancellationToken)
     {
         return await GetStateAsync(entityId, cancellationToken);
     }
 
-    async Task<HomeAssistantState> IHomeAssistantClient.SetStateAsync(string entityId, string state, Dictionary<string, object>? attributes, CancellationToken cancellationToken)
+    async Task<HomeAssistantState> IHomeAssistantClient.SetEntityStateAsync(string entityId, string state, Dictionary<string, object>? attributes, CancellationToken cancellationToken)
     {
         var payload = new
         {

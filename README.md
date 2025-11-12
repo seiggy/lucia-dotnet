@@ -4,13 +4,13 @@
 
 # Lucia - Autonomous Home Assistant AI
 
-[![.NET](https://img.shields.io/badge/10.0%20rc1-grey?logo=dotnet&labelColor=512BD4)](https://dotnet.microsoft.com/)
-[![Agent Framework](https://img.shields.io/badge/Agent%20Framework-1.0.0-blue)](https://github.com/microsoft/semantic-kernel)
+[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&labelColor=2C003E&color=5656FF)](https://dotnet.microsoft.com/)
+[![Agent Framework](https://img.shields.io/badge/Agent%20Framework-1.0.0-blue)](https://learn.microsoft.com/agent-framework/)
 [![License](https://img.shields.io/github/license/seiggy/lucia-dotnet)](LICENSE)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Compatible-41BDF5)](https://www.home-assistant.io/)
 ![Latest Version](https://img.shields.io/badge/v2025.11.09-cornflowerblue?logo=homeassistantcommunitystore&label=Release)
 
-Lucia *(pronounced LOO-sha)* is an open-source, privacy-focused AI assistant that serves as a complete replacement for Amazon Alexa and Google Home. Built on Microsoft Agent Framework with a multi-agent architecture, Lucia provides autonomous whole-home automation management through deep integration with Home Assistant.
+Lucia *(pronounced LOO-sha)* is an open-source, privacy-focused AI assistant that serves as a complete replacement for Amazon Alexa and Google Home. Built on the [Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/) with a multi-agent architecture, Lucia provides autonomous whole-home automation management through deep integration with Home Assistant.
 
 ## ☀️ About the Name
 
@@ -43,7 +43,7 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
 
 ### Prerequisites
 
-- .NET 10 RC1 or later
+- .NET 10 SDK or later
 - Home Assistant instance (2024.1 or later)
 - HACS (Home Assistant Community Store) for easy installation
 - Docker (optional, for containerized deployment)

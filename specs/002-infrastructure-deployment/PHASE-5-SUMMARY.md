@@ -384,7 +384,7 @@ Phase 5 is independent of Phases 3-4 and can be tested in parallel.
 
 ### Identified Risks
 
-1. **Risk:** .NET 10 RC1 availability varies by Linux distribution
+1. **Risk:** .NET 10 availability varies by Linux distribution
    - **Mitigation:** Documentation includes manual installation via dotnet-install.sh script
 
 2. **Risk:** SELinux on RHEL/Fedora may block service execution

@@ -11,15 +11,15 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="A2A" Version="0.3.1-preview" />
-        <PackageReference Include="Aspire.Hosting.Testing" Version="9.5.1" />
+        <PackageReference Include="A2A" Version="0.3.3-preview" />
+        <PackageReference Include="Aspire.Hosting.Testing" Version="13.0.0" />
         <PackageReference Include="coverlet.collector" Version="6.0.4">
           <PrivateAssets>all</PrivateAssets>
           <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
         <PackageReference Include="FakeItEasy" Version="8.3.0" />
-        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.0" />
-        <PackageReference Include="Testcontainers.Redis" Version="4.8.0" />
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+        <PackageReference Include="Testcontainers.Redis" Version="4.8.1" />
         <PackageReference Include="xunit" Version="2.9.3" />
         <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
           <PrivateAssets>all</PrivateAssets>
@@ -37,9 +37,14 @@
     </ItemGroup>
 
     <ItemGroup>
+      <ProjectReference Include="..\lucia.MusicAgent\lucia.MusicAgent.csproj" />
       <ProjectReference Include="..\lucia.ServiceDefaults\lucia.ServiceDefaults.csproj" />
       <ProjectReference Include="..\lucia.HomeAssistant\lucia.HomeAssistant.csproj" />
       <ProjectReference Include="..\lucia.Agents\lucia.Agents.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Folder Include="Orchestration\" />
     </ItemGroup>
 
 </Project>

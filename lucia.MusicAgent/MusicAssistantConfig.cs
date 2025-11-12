@@ -1,6 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 
-namespace lucia.Agents.Configuration;
+namespace lucia.MusicAgent;
 
 public sealed class MusicAssistantConfig
 {

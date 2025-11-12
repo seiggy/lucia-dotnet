@@ -10,26 +10,26 @@ namespace lucia.Agents.Registry;
 /// <summary>
 /// In-memory implementation of the agent registry
 /// </summary>
-public sealed class LocalAgentRegistry : AgentRegistry
+public sealed class LocalAgentRegistry : IAgentRegistry
 {
     // Agents are stored by their URI for quick access
     private readonly ConcurrentDictionary<string, AgentCard> _agents = new();
-    private readonly ILogger<AgentRegistry> _logger;
+    private readonly ILogger<LocalAgentRegistry> _logger;
 
     public LocalAgentRegistry(
-        ILogger<AgentRegistry> logger)
+        ILogger<LocalAgentRegistry> logger)
     {
         _logger = logger;
     }
 
-    public override Task RegisterAgentAsync(AgentCard agent, CancellationToken cancellationToken = default)
+    public Task RegisterAgentAsync(AgentCard agent, CancellationToken cancellationToken = default)
     {
         _agents.AddOrUpdate(agent.Url, agent, (key, existing) => agent);
         _logger.LogInformation("Agent {AgentId} ({AgentName}) registered successfully", agent.Url, agent.Name);
         return Task.CompletedTask;
     }
 
-    public override Task UnregisterAgentAsync(string agentUri, CancellationToken cancellationToken = default)
+    public Task UnregisterAgentAsync(string agentUri, CancellationToken cancellationToken = default)
     {
         if (_agents.TryRemove(agentUri, out var agent))
         {
@@ -42,7 +42,14 @@ public sealed class LocalAgentRegistry : AgentRegistry
         return Task.CompletedTask;
     }
 
-    public override async IAsyncEnumerable<AgentCard> GetAgentsAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
+
+    public Task<AgentCard?> GetAgentAsync(string agentUri, CancellationToken cancellationToken = default)
+    {
+        _agents.TryGetValue(agentUri, out var agent);
+        return Task.FromResult(agent);
+    }
+
+    public async IAsyncEnumerable<AgentCard> GetEnumerableAgentsAsync(CancellationToken cancellationToken = default)
     {
         await Task.CompletedTask.ConfigureAwait(false);
         foreach (var name in _agents.Keys.OrderBy(k => k, StringComparer.Ordinal))
@@ -55,17 +62,8 @@ public sealed class LocalAgentRegistry : AgentRegistry
         }
     }
 
-    public override Task<AgentCard?> GetAgentAsync(string agentUri, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyCollection<AgentCard>> GetAllAgentsAsync(CancellationToken cancellationToken = default)
     {
-        _agents.TryGetValue(agentUri, out var agent);
-        return Task.FromResult(agent);
-    }
-
-    public override async Task<IAsyncEnumerable<AgentCard>> FindCapableAgentsAsync(string userRequest, CancellationToken cancellationToken = default)
-    {
-        // TODO: Implement intelligent agent selection based on capabilities
-        // For now, return all agents - the orchestrator will decide
-        var agents = GetAgentsAsync(cancellationToken);
-        return agents;
+        return Task.FromResult(_agents.Values.ToList() as IReadOnlyCollection<AgentCard>);
     }
 }

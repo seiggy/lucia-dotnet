@@ -11,7 +11,7 @@
 
 ## Technical Context
 
-**Language/Version**: C# 13 / .NET 10 RC1  
+**Language/Version**: C# 13 / .NET 10  
 **Primary Dependencies**: Microsoft.Agents.AI.Workflows 1.0, StackExchange.Redis 2.8.16, OpenTelemetry.NET 1.10  
 **Storage**: Redis 7.x (task persistence with 24h TTL)  
 **Testing**: xUnit 2.9, FakeItEasy 8.3, Aspire.Hosting.Testing 9.4  

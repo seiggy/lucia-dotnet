@@ -16,10 +16,10 @@ using System.Text.RegularExpressions;
 /// </summary>
 public sealed class ContextExtractor
 {
-    private readonly AgentRegistry _agentRegistry;
+    private readonly IAgentRegistry _agentRegistry;
     private readonly Dictionary<string, List<string>> _domainAgentMap;
 
-    public ContextExtractor(AgentRegistry agentRegistry)
+    public ContextExtractor(IAgentRegistry agentRegistry)
     {
         _agentRegistry = agentRegistry ?? throw new ArgumentNullException(nameof(agentRegistry));
         _domainAgentMap = new();
@@ -35,7 +35,7 @@ public sealed class ContextExtractor
             return _domainAgentMap;
 
         var allAgents = new List<AgentCard>();
-        await foreach (var agent in _agentRegistry.GetAgentsAsync())
+        await foreach (var agent in _agentRegistry.GetEnumerableAgentsAsync())
         {
             allAgents.Add(agent);
         }

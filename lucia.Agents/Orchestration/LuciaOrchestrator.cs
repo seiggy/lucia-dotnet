@@ -23,7 +23,7 @@ namespace lucia.Agents.Orchestration;
 public class LuciaOrchestrator
 {
     private readonly IChatClient _chatClient;
-    private readonly AgentRegistry _agentRegistry;
+    private readonly IAgentRegistry _agentRegistry;
     private readonly AgentCatalog _agentCatalog;
     private readonly IServiceProvider _serviceProvider;
     private readonly IHttpClientFactory _httpClientFactory;
@@ -37,7 +37,7 @@ public class LuciaOrchestrator
 
     public LuciaOrchestrator(
         IChatClient chatClient,
-        AgentRegistry agentRegistry,
+        IAgentRegistry agentRegistry,
         AgentCatalog agentCatalog,
         IServiceProvider serviceProvider,
         IHttpClientFactory httpClientFactory,
@@ -138,8 +138,7 @@ public class LuciaOrchestrator
                 cancellationToken).ConfigureAwait(false);
 
             var availableAgentCards = await _agentRegistry
-                .GetAgentsAsync(cancellationToken)
-                .ToListAsync(cancellationToken)
+                .GetAllAgentsAsync(cancellationToken)
                 .ConfigureAwait(false);
 
             if (availableAgentCards.Count == 0)
@@ -293,8 +292,7 @@ public class LuciaOrchestrator
     public async Task<OrchestratorStatus> GetStatusAsync(CancellationToken cancellationToken = default)
     {
         var agents = await _agentRegistry
-            .GetAgentsAsync(cancellationToken)
-            .ToListAsync(cancellationToken)
+            .GetAllAgentsAsync(cancellationToken)
             .ConfigureAwait(false);
 
         return new OrchestratorStatus
@@ -315,7 +313,7 @@ public class LuciaOrchestrator
     }
 
     private Dictionary<string, AgentExecutorWrapper> CreateWrappers(
-        IReadOnlyList<AgentCard> agentCards,
+        IReadOnlyCollection<AgentCard> agentCards,
         IReadOnlyList<AIAgent> aiAgents)
     {
         var wrappers = new Dictionary<string, AgentExecutorWrapper>(StringComparer.OrdinalIgnoreCase);

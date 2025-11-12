@@ -10,6 +10,7 @@ using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
 using lucia.Tests.TestDoubles;
 using Microsoft.Extensions.Options;
+using lucia.MusicAgent;
 
 namespace lucia.Tests;
 
@@ -100,7 +101,7 @@ public class MusicPlaybackSkillTests
             }
         };
 
-        A.CallTo(() => _homeAssistantClient.GetStatesAsync(A<CancellationToken>._))
+        A.CallTo(() => _homeAssistantClient.GetAllEntityStatesAsync(A<CancellationToken>._))
             .Returns(Task.FromResult<IEnumerable<HomeAssistantState>>(new[] { state }));
     }
 

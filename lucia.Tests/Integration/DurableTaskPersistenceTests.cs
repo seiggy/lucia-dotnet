@@ -274,6 +274,7 @@ public sealed class DurableTaskPersistenceTests : IAsyncLifetime
         // Assert - New conversation starts without errors
         var retrievedTask = await _taskManager.GetTaskAsync(new TaskQueryParams { Id = newTask.Id });
         Assert.NotNull(retrievedTask);
+        Assert.NotNull(retrievedTask.History);
         Assert.Single(retrievedTask.History!);
         Assert.Equal("Start new conversation", ((TextPart)retrievedTask.History[0].Parts[0]).Text);
     }
@@ -292,7 +293,6 @@ public sealed class DurableTaskPersistenceTests : IAsyncLifetime
         Assert.NotNull(task.Id);
         Assert.NotNull(task.ContextId);
         Assert.Equal(sessionId, task.ContextId);
-        Assert.NotNull(task.Status);
         Assert.Equal(TaskState.Submitted, task.Status.State);
 
         // Act - Update with full A2A lifecycle
@@ -333,7 +333,6 @@ public sealed class DurableTaskPersistenceTests : IAsyncLifetime
         Assert.NotNull(completedTask.History);
         Assert.All(completedTask.History, msg =>
         {
-            Assert.NotNull(msg.Role);
             Assert.NotNull(msg.Parts);
             Assert.NotEmpty(msg.Parts);
         });

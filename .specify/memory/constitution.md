@@ -129,7 +129,7 @@ All services and agents MUST implement comprehensive observability using OpenTel
 ### Code Style & Language
 
 - **Language**: C# 13 with nullable reference types enabled across all projects
-- **Framework**: ASP.NET Core Web API on .NET 10 RC1 (upgrading to .NET 10 RTM when available)
+- **Framework**: ASP.NET Core Web API on .NET 10
 - **Standards**: Microsoft C# Coding Conventions (as per DEC-005)
 - **Async/Await**: All I/O operations MUST use async/await patterns
 - **Nullability**: Nullable reference types MUST be respected; use `?` for nullable types

@@ -38,14 +38,14 @@ public sealed class RouterExecutor : ReflectingExecutor<RouterExecutor>, IMessag
     };
 
     private readonly IChatClient _chatClient;
-    private readonly AgentRegistry _agentRegistry;
+    private readonly IAgentRegistry _agentRegistry;
     private readonly ILogger<RouterExecutor> _logger;
     private readonly RouterExecutorOptions _options;
     private readonly JsonElement _schema;
 
     public RouterExecutor(
         IChatClient chatClient,
-        AgentRegistry agentRegistry,
+        IAgentRegistry agentRegistry,
         ILogger<RouterExecutor> logger,
         IOptions<RouterExecutorOptions> options)
         : base(ExecutorId)
@@ -134,7 +134,7 @@ public sealed class RouterExecutor : ReflectingExecutor<RouterExecutor>, IMessag
     private async Task<List<AgentCard>> FetchAgentsAsync(CancellationToken cancellationToken)
     {
         var results = new List<AgentCard>();
-        await foreach (var agent in _agentRegistry.GetAgentsAsync(cancellationToken).ConfigureAwait(false))
+        await foreach (var agent in _agentRegistry.GetEnumerableAgentsAsync(cancellationToken).ConfigureAwait(false))
         {
             results.Add(agent);
         }

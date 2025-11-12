@@ -117,8 +117,8 @@ This release represents a major milestone for Lucia, bringing the autonomous hom
 
 ### 🏗️ Technical Infrastructure
 
-#### .NET 10 RC1
-- **Latest Framework**: Running on .NET 10 Release Candidate 1
+#### .NET 10 RTM
+- **Latest Framework**: Running on .NET 10 RTM
 - **Modern C#**: Using C# 13 features and nullable reference types
 - **Performance**: Optimized async/await patterns throughout
 
@@ -355,7 +355,7 @@ Special thanks to:
 git clone https://github.com/seiggy/lucia-dotnet.git
 cd lucia-dotnet
 
-# Install .NET 10 RC1
+# Install .NET 10
 # Download from https://dotnet.microsoft.com/
 
 # Run the agent host

@@ -11,7 +11,7 @@ using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
 using Microsoft.Extensions.Options;
 
-namespace lucia.Agents.Skills;
+namespace lucia.MusicAgent;
 
 /// <summary>
 /// Semantic Kernel plugin that controls Music Assistant playback on Satellite endpoints via Home Assistant.
@@ -425,7 +425,7 @@ public class MusicPlaybackSkill
         try
         {
             _logger.LogInformation("Refreshing Music Assistant player cache...");
-            var states = await _homeAssistantClient.GetStatesAsync(cancellationToken).ConfigureAwait(false);
+            var states = await _homeAssistantClient.GetAllEntityStatesAsync(cancellationToken).ConfigureAwait(false);
             var players = states.Where(IsMusicAssistantPlayer).ToList();
             
             _cachedPlayers.Clear();

@@ -4,13 +4,15 @@ using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.A2A;
 using Microsoft.Extensions.Logging;
 using lucia.Agents.Skills;
+using lucia.Agents.Configuration;
+using lucia.Agents.Agents;
 
-namespace lucia.Agents.Agents;
+namespace lucia.MusicAgent;
 
 /// <summary>
 /// Specialized agent that controls Satellite1 music playback through the Home Assistant Music Assistant integration.
 /// </summary>
-public class MusicAgent
+public class MusicAgent : IAgent
 {
     private readonly AgentCard _agent;
     private readonly MusicPlaybackSkill _musicSkill;

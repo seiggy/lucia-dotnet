@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Purpose
 
-Lucia is a Semantic Kernel-based agentic solution that serves as an autonomous whole-home automation manager for Home Assistant. The application acts as an intelligent assistant that integrates with Home Assistant Core APIs to provide automated home management capabilities.
+Lucia is a Microsoft Agent Framework-based agentic solution that serves as an autonomous whole-home automation manager for Home Assistant. The application acts as an intelligent assistant that integrates with Home Assistant Core APIs to provide automated home management capabilities.
 
 ### Home Assistant Integration Points
 
@@ -21,7 +21,7 @@ The system operates as an autonomous assistant that can understand natural langu
 
 ## Architecture Overview
 
-This is a .NET 9 Aspire application with the following structure:
+This is a .NET 10 Aspire application with the following structure:
 
 - **lucia-dotnet**: Main Web API application (ASP.NET Core)
 - **lucia.AppHost**: .NET Aspire orchestrator that manages the distributed application
@@ -32,11 +32,11 @@ The application uses .NET Aspire for cloud-native development with built-in obse
 
 ## Key Technologies
 
-- .NET 9 with C# nullable reference types enabled
+- .NET 10 with C# nullable reference types enabled
 - ASP.NET Core Web API with OpenAPI/Swagger
 - .NET Aspire for orchestration and service defaults
-- **Microsoft Semantic Kernel**: Core AI framework for agentic behaviors and LLM integration
-- **Multi-LLM Support**: Support for both online and offline LLMs through Semantic Kernel:
+- **[Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/)**: Core AI framework for agentic behaviors and LLM integration
+- **Multi-LLM Support**: Support for both online and offline LLMs through Microsoft Agent Framework:
   - **Online**: OpenAI, Google Gemini, Anthropic Claude
   - **Offline/Local**: LLaMa and other local models
 - **Home Assistant APIs**: WebSocket and REST API integration for home automation
@@ -123,11 +123,11 @@ When implementing Home Assistant integration:
    - Use source generators to create type-safe clients from OpenAPI specifications
 5. **Authentication**: Support Home Assistant's long-lived access tokens for API authentication
 6. **State Management**: Maintain synchronized state between Lucia and Home Assistant entities
-7. **Event Processing**: Process and respond to Home Assistant events autonomously using Semantic Kernel agents
+7. **Event Processing**: Process and respond to Home Assistant events autonomously using Agent Framework agents
 
 ## LLM Provider Configuration
 
-The application should support multiple LLM providers through Semantic Kernel's standardized interfaces:
+The application should support multiple LLM providers through Microsoft Agent Framework's standardized abstractions:
 
 ### Online LLM Providers
 - **OpenAI**: GPT-4, GPT-3.5-turbo, and other OpenAI models
@@ -136,7 +136,7 @@ The application should support multiple LLM providers through Semantic Kernel's 
 
 ### Offline/Local LLM Support
 - **LLaMa**: Local LLaMa model variants
-- **Other Local Models**: Any model compatible with Semantic Kernel's local inference capabilities
+- **Other Local Models**: Any model compatible with the Agent Framework's local inference capabilities
 
 ### Configuration Requirements
 - Support for API key management and secure credential storage

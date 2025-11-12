@@ -15,7 +15,7 @@
 
 ### Decision
 
-Build Lucia as a privacy-focused, open-source replacement for Amazon Alexa/Google Home using a multi-agent architecture powered by Microsoft Semantic Kernel, targeting Home Assistant users who want local control with optional cloud LLM support.
+Build Lucia as a privacy-focused, open-source replacement for Amazon Alexa/Google Home using a multi-agent architecture powered by Microsoft Agent Framework, targeting Home Assistant users who want local control with optional cloud LLM support.
 
 ### Context
 
@@ -37,7 +37,7 @@ The smart home market is dominated by cloud-dependent voice assistants that comp
 
 ### Rationale
 
-The multi-agent architecture with .NET backend provides enterprise-grade reliability while maintaining extensibility. Semantic Kernel offers state-of-the-art AI orchestration capabilities. The split between Python (Home Assistant plugin) and C#/.NET (agent system) leverages the strengths of each platform.
+The multi-agent architecture with .NET backend provides enterprise-grade reliability while maintaining extensibility. Microsoft Agent Framework offers state-of-the-art AI orchestration capabilities. The split between Python (Home Assistant plugin) and C#/.NET (agent system) leverages the strengths of each platform.
 
 ### Consequences
 
@@ -54,7 +54,7 @@ The multi-agent architecture with .NET backend provides enterprise-grade reliabi
 
 ---
 
-## 2025-08-06: Semantic Kernel and MagenticOne Selection
+## 2025-08-06: Agent Framework and MagenticOne Selection
 
 **ID:** DEC-002
 **Status:** Accepted
@@ -63,7 +63,7 @@ The multi-agent architecture with .NET backend provides enterprise-grade reliabi
 
 ### Decision
 
-Adopt Microsoft Semantic Kernel as the core AI framework and implement multi-agent orchestration using the MagenticOne pattern for agent collaboration.
+Adopt Microsoft Agent Framework as the core AI foundation and implement multi-agent orchestration using the MagenticOne pattern for agent collaboration.
 
 ### Context
 
@@ -81,11 +81,11 @@ Building a sophisticated AI assistant requires robust orchestration of LLMs, emb
 
 3. **AutoGen**
    - Pros: Microsoft-backed, good multi-agent support
-   - Cons: Python-only, less mature than Semantic Kernel
+   - Cons: Python-only, less mature than Agent Framework
 
 ### Rationale
 
-Semantic Kernel provides enterprise-grade AI orchestration with excellent .NET integration. MagenticOne offers proven patterns for multi-agent collaboration. This combination accelerates development while maintaining flexibility.
+Microsoft Agent Framework provides enterprise-grade AI orchestration with excellent .NET integration. MagenticOne offers proven patterns for multi-agent collaboration. This combination accelerates development while maintaining flexibility.
 
 ### Consequences
 
@@ -97,7 +97,7 @@ Semantic Kernel provides enterprise-grade AI orchestration with excellent .NET i
 
 **Negative:**
 - Dependency on Microsoft ecosystem
-- Learning curve for Semantic Kernel concepts
+- Learning curve for Agent Framework concepts
 - Less community content than LangChain
 
 ---

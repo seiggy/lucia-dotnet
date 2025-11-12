@@ -8,7 +8,7 @@
 
 The following features have been implemented and are working:
 
-- [x] Core project structure with .NET 10 RC1 Aspire - Solution architecture with proper separation of concerns `M`
+- [x] Core project structure with .NET 10 Aspire - Solution architecture with proper separation of concerns `M`
 - [x] Agent Registry API - REST endpoints for agent registration and discovery `L`
 - [x] A2A Protocol v0.3.0 implementation - JSON-RPC 2.0 agent communication protocol `M`
 - [x] LightAgent - Semantic search-enabled light control agent with Home Assistant integration `XL`
@@ -184,7 +184,7 @@ The following features have been implemented and are working:
 
 ### Current Architecture (v2.0)
 - ? Microsoft Agent Framework with A2A Protocol v0.3.0
-- ? .NET 10 RC1 with Aspire orchestration
+- ? .NET 10 with Aspire orchestration
 - ? Home Assistant Python integration via HACS
 - ? JSON-RPC 2.0 communication
 - ? Dynamic agent registry and selection

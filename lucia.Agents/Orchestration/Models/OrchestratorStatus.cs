@@ -9,5 +9,5 @@ public class OrchestratorStatus
 {
     public bool IsReady { get; set; }
     public int AvailableAgentCount { get; set; }
-    public List<AgentCard> AvailableAgents { get; set; } = new();
+    public IReadOnlyCollection<AgentCard> AvailableAgents { get; set; } = [];
 }

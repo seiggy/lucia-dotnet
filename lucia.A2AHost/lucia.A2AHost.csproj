@@ -1,0 +1,24 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>7097d695-2b18-483f-88f1-0919262bfeff</UserSecretsId>
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.0" />
+    <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.23.0" />
+	<PackageReference Include="A2A" Version="0.3.3-preview" />
+	<PackageReference Include="A2A.AspNetCore" Version="0.3.3-preview" />
+	<PackageReference Include="Scalar.AspNetCore" Version="2.10.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\lucia.Agents\lucia.Agents.csproj" />
+    <ProjectReference Include="..\lucia.ServiceDefaults\lucia.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+</Project>

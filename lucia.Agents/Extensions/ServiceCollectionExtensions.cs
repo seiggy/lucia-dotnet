@@ -170,10 +170,7 @@ public static class ServiceCollectionExtensions
     {
         builder.Services.AddTransient<IHomeAssistantClient, GeneratedHomeAssistantClient>();
         // Register core services
-        builder.Services.AddSingleton<AgentRegistry, LocalAgentRegistry>();
-
-        // Register A2A services
-        builder.Services.AddHttpClient<IA2AClientService, A2AClientService>();
+        builder.Services.AddSingleton<IAgentRegistry, LocalAgentRegistry>();
 
         // Register Redis using Aspire client integration
         builder.AddRedisClient(connectionName: "redis");
@@ -198,11 +195,7 @@ public static class ServiceCollectionExtensions
             builder.Configuration.GetSection("AgentExecutorWrapper")
         );
 
-        builder.Services.Configure<MusicAssistantConfig>(
-            builder.Configuration.GetSection("MusicAssistant")
-        );
-
-    builder.Services.Configure<ResultAggregatorOptions>(
+        builder.Services.Configure<ResultAggregatorOptions>(
             builder.Configuration.GetSection("ResultAggregator")
         );
 
@@ -230,11 +223,9 @@ public static class ServiceCollectionExtensions
 
         // Register plugins as singletons (for caching)
         builder.Services.AddSingleton<LightControlSkill>();
-        builder.Services.AddSingleton<MusicPlaybackSkill>();
 
         // Register agents
         builder.Services.AddSingleton<LightAgent>();
-        builder.Services.AddSingleton<MusicAgent>();
         builder.Services.AddSingleton<GeneralAgent>();
 
         builder.AddAIAgent("light-agent", (sp, name) =>
@@ -242,13 +233,6 @@ public static class ServiceCollectionExtensions
             var lightAgent = sp.GetRequiredService<LightAgent>();
             lightAgent.InitializeAsync().GetAwaiter().GetResult();
             return lightAgent.GetAIAgent();
-        });
-
-        builder.AddAIAgent("music-agent", (sp, name) =>
-        {
-            var musicAgent = sp.GetRequiredService<MusicAgent>();
-            musicAgent.InitializeAsync().GetAwaiter().GetResult();
-            return musicAgent.GetAIAgent();
         });
 
         builder.AddAIAgent("orchestrator", (sp, name) =>

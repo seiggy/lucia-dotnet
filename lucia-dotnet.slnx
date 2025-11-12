@@ -7,11 +7,13 @@
   <Folder Name="/Solution Items/">
     <File Path="NuGet.Config" />
   </Folder>
+  <Project Path="lucia.A2AHost/lucia.A2AHost.csproj" Id="ae58b115-374f-40a6-93a1-b33882d25c6f" />
   <Project Path="lucia.AgentHost/lucia.AgentHost.csproj" />
   <Project Path="lucia.Agents/lucia.Agents.csproj" />
   <Project Path="lucia.AppHost/lucia.AppHost.csproj" />
   <Project Path="lucia.HomeAssistant.SourceGenerator/lucia.HomeAssistant.SourceGenerator.csproj" />
   <Project Path="lucia.HomeAssistant/lucia.HomeAssistant.csproj" />
+  <Project Path="lucia.MusicAgent/lucia.MusicAgent.csproj" Id="4e9e4ead-a8f4-438c-a784-1b0aec48e6e6" />
   <Project Path="lucia.ServiceDefaults/lucia.ServiceDefaults.csproj" />
   <Project Path="lucia.Tests/lucia.Tests.csproj" />
 </Solution>

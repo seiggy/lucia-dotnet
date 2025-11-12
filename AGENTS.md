@@ -4,7 +4,7 @@ Welcome! This guide explains how GitHub Copilot agents should operate inside the
 
 ## 1. Product & Repository Snapshot
 
-- **Mission:** Lucia delivers a privacy-first, multi-agent assistant that orchestrates Home Assistant automations locally using Microsoft Semantic Kernel.
+- **Mission:** Lucia delivers a privacy-first, multi-agent assistant that orchestrates Home Assistant automations locally using [Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/).
 - **Primary Projects:**
   - `lucia.AgentHost` – ASP.NET Core Web API hosting the orchestrated AI agents and A2A integration.
   - `lucia.AppHost` – .NET Aspire host for service discovery, local orchestration, and observability.
