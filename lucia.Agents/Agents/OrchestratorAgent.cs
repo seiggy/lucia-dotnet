@@ -5,6 +5,8 @@ using lucia.Agents.Registry;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.A2A;
 using Microsoft.Agents.AI.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;

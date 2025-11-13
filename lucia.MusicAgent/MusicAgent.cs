@@ -121,6 +121,9 @@ public class MusicAgent : IAgent
     /// <summary>
     /// Initializes the agent and primes any dependent caches.
     /// </summary>
+    public async Task InitializeAsync(CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("Initializing MusicAgent...");
         var addressesFeature = _server?.Features?.Get<IServerAddressesFeature>();
         if (addressesFeature?.Addresses != null && addressesFeature.Addresses.Any())
         {
@@ -130,10 +133,8 @@ public class MusicAgent : IAgent
         {
             _agent.Url = "unknown";
         }
-    {
-        _logger.LogInformation("Initializing MusicAgent...");
+        
         await _musicSkill.InitializeAsync(cancellationToken).ConfigureAwait(false);
-        _agent.Url = _server.Features.Get<IServerAddressesFeature>()?.Addresses.FirstOrDefault();
         _logger.LogInformation("MusicAgent initialized successfully");
     }
 }
