@@ -1,4 +1,5 @@
 using A2A;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Skills;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.A2A;

@@ -1,7 +1,7 @@
 ﻿
 using A2A;
 using lucia.A2AHost.AgentRegistry;
-using lucia.Agents.Agents;
+using lucia.Agents.Abstractions;
 
 namespace lucia.A2AHost.Services
 {
@@ -9,16 +9,18 @@ namespace lucia.A2AHost.Services
     {
         private readonly ILogger<AgentHostService> _logger;
         private readonly AgentRegistryClient _agentRegistryClient;
-        private readonly IAgent _hostedAgent;
+        private readonly List<IAgent> _hostedAgents;
 
         public AgentHostService(
             ILogger<AgentHostService> logger,
             AgentRegistryClient agentRegistryClient,
-            IAgent hostedAgent)
+            IServiceProvider serviceProvider)
         {
             _logger = logger;
             _agentRegistryClient = agentRegistryClient;
-            _hostedAgent = hostedAgent;
+            
+            _hostedAgents = serviceProvider.GetServices<IAgent>()
+                .ToList();
         }
 
         public Task StartAsync(CancellationToken cancellationToken)
@@ -30,12 +32,16 @@ namespace lucia.A2AHost.Services
         {
             _logger.LogInformation("AgentHostService has started.");
             // register agent with registry
-            await _agentRegistryClient.RegisterAgentAsync(_hostedAgent.GetAgentCard(), cancellationToken);
+            foreach (var agent in _hostedAgents) 
+            {
+                await agent.InitializeAsync(cancellationToken);
+                await _agentRegistryClient.RegisterAgentAsync(agent.GetAgentCard(), cancellationToken);
+            }
         }
 
-        public async Task StartingAsync(CancellationToken cancellationToken)
+        public Task StartingAsync(CancellationToken cancellationToken)
         {
-            await _hostedAgent.InitializeAsync(cancellationToken);
+            return Task.CompletedTask;
         }
 
         public Task StopAsync(CancellationToken cancellationToken)
@@ -52,7 +58,10 @@ namespace lucia.A2AHost.Services
         {
             _logger.LogInformation("AgentHostService is stopping.");
             // unregister agent
-            await _agentRegistryClient.UnregisterAgentAsync(_hostedAgent.GetAgentCard(), cancellationToken);
+            foreach (var agent in _hostedAgents) 
+            {
+                await _agentRegistryClient.UnregisterAgentAsync(agent.GetAgentCard(), cancellationToken);
+            }
         }
     }
 }

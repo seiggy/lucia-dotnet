@@ -5,7 +5,9 @@ using Microsoft.Agents.AI.A2A;
 using Microsoft.Extensions.Logging;
 using lucia.Agents.Skills;
 using lucia.Agents.Configuration;
-using lucia.Agents.Agents;
+using lucia.Agents.Abstractions;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
 
 namespace lucia.MusicAgent;
 
@@ -19,15 +21,17 @@ public class MusicAgent : IAgent
     private readonly ILogger<MusicAgent> _logger;
     private readonly TaskManager _taskManager;
     private AIAgent _aiAgent;
+    private IServer _server;
 
     public MusicAgent(
         IChatClient chatClient,
         MusicPlaybackSkill musicSkill,
+        IServer server,
         ILoggerFactory loggerFactory)
     {
         _musicSkill = musicSkill;
         _logger = loggerFactory.CreateLogger<MusicAgent>();
-
+        _server = server;
         var musicControlSkill = new AgentSkill
         {
             Id = "id_music_agent",
@@ -51,19 +55,23 @@ public class MusicAgent : IAgent
 
         _agent = new AgentCard
         {
-            Url = "/a2a/music-agent",
+            Url = "pending", // Set to a non-empty placeholder; updated in InitializeAsync
             Name = "music-agent",
             Description = "Agent that orchestrates #Music Assistant #playback on #speaker endpoints",
+            DocumentationUrl = "https://github.com/seiggy/lucia-dotnet/",
+            IconUrl = "https://github.com/seiggy/lucia-dotnet/blob/master/lucia.png?raw=true",
+            SupportsAuthenticatedExtendedCard = false,
             Capabilities = new AgentCapabilities
             {
-                PushNotifications = true,
-                StateTransitionHistory = true,
+                PushNotifications = false,
+                StateTransitionHistory = false,
                 Streaming = true
             },
             DefaultInputModes = ["text"],
             DefaultOutputModes = ["text"],
             Skills = [musicControlSkill],
-            Version = "1.0.0"
+            Version = "1.0.0",
+            ProtocolVersion = "0.2.5"
         };
 
         var instructions = """
@@ -113,10 +121,19 @@ public class MusicAgent : IAgent
     /// <summary>
     /// Initializes the agent and primes any dependent caches.
     /// </summary>
-    public async Task InitializeAsync(CancellationToken cancellationToken = default)
+        var addressesFeature = _server?.Features?.Get<IServerAddressesFeature>();
+        if (addressesFeature?.Addresses != null && addressesFeature.Addresses.Any())
+        {
+            _agent.Url = addressesFeature.Addresses.First();
+        }
+        else
+        {
+            _agent.Url = "unknown";
+        }
     {
         _logger.LogInformation("Initializing MusicAgent...");
         await _musicSkill.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        _agent.Url = _server.Features.Get<IServerAddressesFeature>()?.Addresses.FirstOrDefault();
         _logger.LogInformation("MusicAgent initialized successfully");
     }
 }

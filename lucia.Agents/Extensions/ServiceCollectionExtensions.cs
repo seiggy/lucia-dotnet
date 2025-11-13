@@ -17,11 +17,52 @@ using OllamaSharp;
 using A2A;
 using lucia.Agents.Configuration;
 using lucia.HomeAssistant.Configuration;
+using OpenAI;
+using OpenAI.Embeddings;
 
 namespace lucia.Agents.Extensions;
 
 public static class ServiceCollectionExtensions
 {
+    public static void AddEmbeddingsClient(this IHostApplicationBuilder builder, string connectionName)
+    {
+        var connectionString = builder.Configuration.GetConnectionString(connectionName);
+        if (!ChatClientConnectionInfo.TryParse(connectionString, out var connectionInfo))
+        {
+            throw new InvalidOperationException($"Invalid or missing connection string for '{connectionName}', expectedFormat: Endpoint=endpoint;AccessKey=your_access_key;Model=model_name;Provider=ollama/openai/azureopenai;");
+        }
+        
+        switch (connectionInfo.Provider)
+        {
+            case ClientChatProvider.OpenAI:
+                builder.AddOpenAIClient(connectionName, settings =>
+                {
+                    settings.Endpoint = connectionInfo.Endpoint;
+                    settings.Key = connectionInfo.AccessKey;
+                })
+                .AddEmbeddingGenerator(connectionInfo.SelectedModel);
+                break;
+            case ClientChatProvider.AzureOpenAI:
+                builder.AddAzureOpenAIClient(connectionName)
+                    .AddEmbeddingGenerator(connectionInfo.SelectedModel);
+                break;
+            case ClientChatProvider.AzureAIInference:
+                builder.Services.AddEmbeddingGenerator(sp =>
+                {
+                    var credential = new AzureKeyCredential(connectionInfo.AccessKey!);
+                    var client = new Azure.AI.Inference.EmbeddingsClient(connectionInfo.Endpoint, credential);
+                    return client.AsIEmbeddingGenerator();
+                });
+                break;
+            case ClientChatProvider.Ollama:
+                builder.AddOllamaEmbeddings(connectionName, connectionInfo);
+                break;
+            case ClientChatProvider.ONNX:
+                throw new NotImplementedException("ONNX doesn't support embeddings still. So we can't support it as a provider.");
+            default:
+                throw new InvalidOperationException("Unsupported provider for embeddings client.");
+        }
+    }
 
     public static ChatClientBuilder AddChatClient(this IHostApplicationBuilder builder,
         string connectionName)
@@ -43,12 +84,6 @@ public static class ServiceCollectionExtensions
             ClientChatProvider.ONNX => throw new NotImplementedException("ONNX doesn't support function calling still. So we can't support it as a provider."),
             _ => throw new NotSupportedException($"The specified provider '{connectionInfo.Provider}' is not supported.")
         };
-
-        if (connectionInfo.Provider == ClientChatProvider.AzureOpenAI)
-        {
-            builder.AddAzureOpenAIClient(connectionName)
-                .AddEmbeddingGenerator("text-embedding-3-small");
-        }
 
         chatClientBuilder.UseOpenTelemetry().UseLogging();
 
@@ -77,6 +112,21 @@ public static class ServiceCollectionExtensions
             var credential = new AzureKeyCredential(connectionInfo.AccessKey!);
             var client = new ChatCompletionsClient(connectionInfo.Endpoint, credential, new AzureAIInferenceClientOptions());
             return client.AsIChatClient(connectionInfo.SelectedModel);
+        });
+    }
+
+    private static void AddOllamaEmbeddings(this IHostApplicationBuilder builder, string connectionName, ChatClientConnectionInfo connectionInfo)
+    {
+        var httpKey = $"{connectionName}_http";
+        builder.Services.AddHttpClient(httpKey, c =>
+        {
+            c.BaseAddress = connectionInfo.Endpoint;
+        });
+
+        builder.Services.AddEmbeddingGenerator(sp =>
+        {
+            var client = sp.GetRequiredService<IHttpClientFactory>().CreateClient(httpKey);
+            return new OllamaApiClient(client, connectionInfo.SelectedModel);
         });
     }
 
@@ -221,35 +271,8 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<LuciaOrchestrator>();
         builder.Services.AddSingleton<OrchestratorAgent>();
 
-        // Register plugins as singletons (for caching)
-        builder.Services.AddSingleton<LightControlSkill>();
-
         // Register agents
-        builder.Services.AddSingleton<LightAgent>();
         builder.Services.AddSingleton<GeneralAgent>();
 
-        builder.AddAIAgent("light-agent", (sp, name) =>
-        {
-            var lightAgent = sp.GetRequiredService<LightAgent>();
-            lightAgent.InitializeAsync().GetAwaiter().GetResult();
-            return lightAgent.GetAIAgent();
-        });
-
-        builder.AddAIAgent("orchestrator", (sp, name) =>
-        {
-            var orchestratorAgent = sp.GetRequiredService<OrchestratorAgent>();
-            orchestratorAgent.InitializeAsync().GetAwaiter().GetResult();
-            return orchestratorAgent.GetAIAgent();
-        });
-
-        builder.AddAIAgent("general-assistant", (sp, name) =>
-        {
-            var generalAgent = sp.GetRequiredService<GeneralAgent>();
-            generalAgent.InitializeAsync().GetAwaiter().GetResult();
-            return generalAgent.GetAIAgent();
-        });
-        
-        // Register the agent initialization service
-        builder.Services.AddSingleton<IHostedService, AgentInitializationService>();
     }
 }

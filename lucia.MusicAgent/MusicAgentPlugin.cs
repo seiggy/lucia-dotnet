@@ -21,16 +21,14 @@ namespace lucia.MusicAgent
 
             builder.Services.AddSingleton<MusicPlaybackSkill>();
 
-            builder.Services.AddSingleton<MusicAgent>();
+            builder.Services.AddSingleton<IAgent, MusicAgent>();
         }
 
         public void MapAgentEndpoints(WebApplication app)
         {
-            var musicAgent = app.Services.GetRequiredService<MusicAgent>();
+            var musicAgent = app.Services.GetRequiredService<IAgent>();
             var taskManager = new TaskManager();
             app.MapA2A(musicAgent.GetAIAgent(), path: "/", agentCard: musicAgent.GetAgentCard(), taskManager => app.MapWellKnownAgentCard(taskManager, "/"));
-            app.MapWellKnownAgentCard(taskManager, "/");
-            app.MapHttpA2A(taskManager, "/");
         }
     }
 }

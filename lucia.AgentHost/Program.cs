@@ -6,6 +6,7 @@ using Scalar.AspNetCore;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+builder.Services.AddAntiforgery();
 builder.AddRedisClient(connectionName: "redis");
 
 
@@ -18,6 +19,7 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.AddChatClient("chat-model");
+builder.AddEmbeddingsClient("embeddings-model");
 
 // Add Lucia multi-agent system
 builder.AddLuciaAgents();
@@ -28,14 +30,13 @@ builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
-app.MapDefaultEndpoints();
-
 app.MapOpenApi()
     .CacheOutput();
 
 app.MapScalarApiReference();
 
 app.UseForwardedHeaders();
+app.UseAntiforgery();
 
 if (!app.Environment.IsDevelopment())
 {
@@ -45,8 +46,10 @@ if (!app.Environment.IsDevelopment())
 else
 {
     app.UseDeveloperExceptionPage();
-    //app.UseHttpsRedirection(); // prevents having to deal with cert issues from the server.
+    app.UseHttpsRedirection(); // prevents having to deal with cert issues from the server.
 }
+app.MapAgentRegistryApiV1();
 app.MapAgentDiscovery();
+app.MapDefaultEndpoints();
 
 app.Run();

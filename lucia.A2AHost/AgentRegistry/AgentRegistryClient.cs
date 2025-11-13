@@ -6,13 +6,14 @@ namespace lucia.A2AHost.AgentRegistry
     {
         internal async Task RegisterAgentAsync(AgentCard hostedAgent, CancellationToken cancellationToken)
         {
-            var form = new FormUrlEncodedContent(new[]
+            var formData = new Dictionary<string, string>
             {
-                new KeyValuePair<string, string>("agentId", hostedAgent.Url)
-            });
+                ["agentId"] = hostedAgent.Url
+            };
+            var form = new FormUrlEncodedContent(formData);
             try
             {
-                var response = await httpClient.PostAsync("/agents", form);
+                var response = await httpClient.PostAsync("/agents/register", form, cancellationToken);
             }
             catch (Exception e)
             {

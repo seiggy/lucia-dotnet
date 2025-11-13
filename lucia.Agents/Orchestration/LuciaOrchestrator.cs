@@ -24,7 +24,6 @@ public class LuciaOrchestrator
 {
     private readonly IChatClient _chatClient;
     private readonly IAgentRegistry _agentRegistry;
-    private readonly AgentCatalog _agentCatalog;
     private readonly IServiceProvider _serviceProvider;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<LuciaOrchestrator> _logger;
@@ -38,7 +37,6 @@ public class LuciaOrchestrator
     public LuciaOrchestrator(
         IChatClient chatClient,
         IAgentRegistry agentRegistry,
-        AgentCatalog agentCatalog,
         IServiceProvider serviceProvider,
         IHttpClientFactory httpClientFactory,
         ILogger<LuciaOrchestrator> logger,
@@ -51,7 +49,6 @@ public class LuciaOrchestrator
     {
         _chatClient = chatClient ?? throw new ArgumentNullException(nameof(chatClient));
         _agentRegistry = agentRegistry;
-        _agentCatalog = agentCatalog ?? throw new ArgumentNullException(nameof(agentCatalog));
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -166,12 +163,11 @@ public class LuciaOrchestrator
                 return noAgentsMessage;
             }
 
-            var aiAgents = await _agentCatalog
-                .GetAgentsAsync(cancellationToken)
-                .ToListAsync(cancellationToken)
+            var aiAgents = await _agentRegistry
+                .GetAllAgentsAsync(cancellationToken)
                 .ConfigureAwait(false);
 
-            var wrappers = CreateWrappers(availableAgentCards, aiAgents);
+            var wrappers = CreateWrappers(availableAgentCards, aiAgents.Select(a => a.GetAIAgent()).ToList().AsReadOnly());
             if (wrappers.Count == 0)
             {
                 _logger.LogWarning("Unable to build any agent executor wrappers. Falling back to aggregator message.");

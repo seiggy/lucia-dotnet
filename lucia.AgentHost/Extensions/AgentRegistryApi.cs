@@ -10,9 +10,11 @@ public static class AgentRegistryApi
     public static IEndpointRouteBuilder MapAgentRegistryApiV1(this WebApplication app)
     {
         app.MapGet("/agents", GetAgentsAsync);
-        app.MapPost("/agents/register", RegisterAgentAsync);
+        app.MapPost("/agents/register", RegisterAgentAsync)
+            .DisableAntiforgery();
         app.MapPut("/agents/{agentId}", UpdateAgentAsync);
-        app.MapDelete("/agents/{agentId}", UnregisterAgentAsync);
+        app.MapDelete("/agents/{agentId}", UnregisterAgentAsync)
+            .DisableAntiforgery();
 
         return app;
     }

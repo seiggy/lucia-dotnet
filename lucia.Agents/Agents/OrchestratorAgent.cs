@@ -21,17 +21,18 @@ public class OrchestratorAgent
     private readonly ILogger<OrchestratorAgent> _logger;
     private readonly AIAgent _aiAgent;
     private readonly TaskManager _taskManager;
+    private IServer _server;
 
     public OrchestratorAgent(
         IChatClient chatClient,
-        AgentCatalog agentCatalog,
+        IAgentRegistry agentRegistry,
         IOptions<RouterExecutorOptions> routerExecutorOptions,
         IAgentThreadFactory threadFactory,
+        IServer server,
         ILoggerFactory loggerFactory)
     {
         _logger = loggerFactory.CreateLogger<OrchestratorAgent>();
-
-
+        _server = server;
 
         var orchestrationSkill = new AgentSkill
         {
@@ -48,16 +49,27 @@ public class OrchestratorAgent
             ]
         };
 
-        var agents = agentCatalog.GetAgentsAsync()
-            .ToListAsync()
-            .Result;
+        var agents = agentRegistry.GetAllAgentsAsync()
+            .GetAwaiter()
+            .GetResult();
 
         var tools = agents
-            .Select(agent => (AITool)agent.AsAIFunction()).ToList();
+            .Select(agent => (AITool)agent.GetAIAgent().AsAIFunction()).ToList();
         
+        var serverAddressesFeature = _server?.Features?.Get<IServerAddressesFeature>();
+        string agentUrl;
+        if (serverAddressesFeature?.Addresses != null && serverAddressesFeature.Addresses.Any())
+        {
+            agentUrl = serverAddressesFeature.Addresses.First();
+        }
+        else
+        {
+            agentUrl = "unknown";
+        }
+
         _agent = new AgentCard
         {
-            Url = "/a2a/orchestrator",
+            Url = agentUrl + "/agent",
             Name = "orchestrator",
             Description = "Intelligent #orchestrator that #routes requests to specialized agents based on intent and capabilities",
             Capabilities = new AgentCapabilities
@@ -108,6 +120,17 @@ public class OrchestratorAgent
     public Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Initializing OrchestratorAgent...");
+        var serverAddressesFeature = _server?.Features?.Get<IServerAddressesFeature>();
+        string agentUrl;
+        if (serverAddressesFeature?.Addresses != null && serverAddressesFeature.Addresses.Any())
+        {
+            agentUrl = serverAddressesFeature.Addresses.First();
+        }
+        else
+        {
+            agentUrl = "unknown";
+        }
+        _agent.Url = agentUrl + "/agent";
         _logger.LogInformation("OrchestratorAgent initialized successfully");
         return Task.CompletedTask;
     }

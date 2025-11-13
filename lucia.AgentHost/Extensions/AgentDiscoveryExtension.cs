@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using A2A;
+using A2A.AspNetCore;
 using lucia.Agents.Agents;
 using lucia.Agents.Registry;
 using Microsoft.Agents.AI.A2A;
@@ -12,17 +13,20 @@ public static class AgentDiscoveryExtension
 {
     public static void MapAgentDiscovery(this WebApplication app)
     {
-        var orchestratorAgent = app.Services.GetRequiredService<OrchestratorAgent>();
-        
-        var taskManager = app.Services.GetRequiredService<ITaskManager>();
-        
-        app.MapA2A("orchestrator", path: "/a2a/orchestrator", agentCard: orchestratorAgent.GetAgentCard());
-        
-        app.MapOpenAIResponses("orchestrator");
-        
-        app.MapAgentDiscovery("/agents");
+        try
+        {
+            var orchestratorAgent = app.Services.GetRequiredService<OrchestratorAgent>();
 
-        app.MapAgentDiscoveryEndpoint(taskManager, "/agents/orchestrator", "/a2a/orchestrator");
+            var taskManager = app.Services.GetRequiredService<ITaskManager>();
+
+            app.MapA2A(orchestratorAgent.GetAIAgent(), path: "/agent", agentCard: orchestratorAgent.GetAgentCard(), 
+                taskManager => app.MapWellKnownAgentCard(taskManager, "/agent"));
+        }
+        catch (Exception e)
+        {
+            var logger = app.Services.GetRequiredService<ILogger<Program>>();
+            logger.LogError(e, "Error trying to setup agent discovery");
+        }
     }
 
     public static void MapAgentDiscovery(this IEndpointRouteBuilder endpoints, [StringSyntax("Route")] string path)

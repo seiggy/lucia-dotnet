@@ -20,5 +20,6 @@
   <ItemGroup>
     <ProjectReference Include="..\lucia.A2AHost\lucia.A2AHost.csproj" />
     <ProjectReference Include="..\lucia.AgentHost\lucia.AgentHost.csproj" />
+    <ProjectReference Include="..\lucia.MusicAgent\lucia.MusicAgent.csproj" />
   </ItemGroup>
 </Project>
