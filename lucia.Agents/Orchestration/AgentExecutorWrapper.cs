@@ -18,7 +18,7 @@ namespace lucia.Agents.Orchestration;
 /// <summary>
 /// Workflow executor that wraps agent execution with context preservation and telemetry.
 /// </summary>
-public sealed class AgentExecutorWrapper : ReflectingExecutor<AgentExecutorWrapper>, IMessageHandler<ChatMessage, AgentResponse>
+public sealed class AgentExecutorWrapper : ReflectingExecutor<AgentExecutorWrapper>, IMessageHandler<ChatMessage, OrchestratorAgentResponse>
 {
     /// <summary>Workflow state scope storing orchestration context.</summary>
     public const string StateScope = "orchestration";
@@ -68,7 +68,7 @@ public sealed class AgentExecutorWrapper : ReflectingExecutor<AgentExecutorWrapp
         }
     }
 
-    public async ValueTask<AgentResponse> HandleAsync(ChatMessage message, IWorkflowContext context, CancellationToken cancellationToken)
+    public async ValueTask<OrchestratorAgentResponse> HandleAsync(ChatMessage message, IWorkflowContext context, CancellationToken cancellationToken)
     {
         var invokeEvent = new ExecutorInvokedEvent(this.Id, message);
         await context.AddEventAsync(invokeEvent, cancellationToken).ConfigureAwait(false);
@@ -98,7 +98,7 @@ public sealed class AgentExecutorWrapper : ReflectingExecutor<AgentExecutorWrapp
             await PersistContextAsync(context, orchestrationContext, cancellationToken).ConfigureAwait(false);
 
             var elapsed = (long)_timeProvider.GetElapsedTime(startTimestamp).TotalMilliseconds;
-            var response = new AgentResponse
+            var response = new OrchestratorAgentResponse
             {
                 AgentId = _agentId,
                 Content = result.content,
@@ -123,7 +123,7 @@ public sealed class AgentExecutorWrapper : ReflectingExecutor<AgentExecutorWrapp
             _logger.LogWarning(oce, "Agent {AgentId} execution timed out after {Timeout}.", _agentId, _options.Timeout);
             await context.AddEventAsync(new ExecutorFailedEvent(this.Id, oce), cancellationToken).ConfigureAwait(false);
 
-            return new AgentResponse
+            return new OrchestratorAgentResponse
             {
                 AgentId = _agentId,
                 Content = string.Empty,
@@ -137,7 +137,7 @@ public sealed class AgentExecutorWrapper : ReflectingExecutor<AgentExecutorWrapp
             _logger.LogError(ex, "Agent {AgentId} execution failed.", _agentId);
             await context.AddEventAsync(new ExecutorFailedEvent(this.Id, ex), cancellationToken).ConfigureAwait(false);
 
-            return new AgentResponse
+            return new OrchestratorAgentResponse
             {
                 AgentId = _agentId,
                 Content = string.Empty,
@@ -152,18 +152,18 @@ public sealed class AgentExecutorWrapper : ReflectingExecutor<AgentExecutorWrapp
         }
     }
 
-    public ValueTask<AgentResponse> HandleAsync(ChatMessage message, IWorkflowContext context)
+    public ValueTask<OrchestratorAgentResponse> HandleAsync(ChatMessage message, IWorkflowContext context)
         => HandleAsync(message, context, CancellationToken.None);
 
     private async Task<(bool success, string content, string? error)> InvokeLocalAsync(ChatMessage message, OrchestrationContext orchestrationContext, CancellationToken cancellationToken)
     {
         var agent = ResolveAgent();
-        var thread = EnsureThread(agent, orchestrationContext);
+        var thread = await EnsureThreadAsync(agent, orchestrationContext);
 
         var runTask = agent.RunAsync(message, thread, options: null, cancellationToken);
         var response = await runTask.WaitAsync(cancellationToken).ConfigureAwait(false);
 
-        orchestrationContext.AgentThreads[_agentId] = thread;
+        orchestrationContext.AgentSessions[_agentId] = thread;
         AppendHistory(orchestrationContext, message, response.Messages);
 
         return (true, response.Text, null);
@@ -271,15 +271,15 @@ public sealed class AgentExecutorWrapper : ReflectingExecutor<AgentExecutorWrapp
     private AIAgent ResolveAgent()
         => _agent ?? _services.GetRequiredService<AIAgent>();
 
-    private AgentThread EnsureThread(AIAgent agent, OrchestrationContext context)
+    private async ValueTask<AgentSession> EnsureThreadAsync(AIAgent agent, OrchestrationContext context)
     {
-        if (context.AgentThreads.TryGetValue(_agentId, out var existing))
+        if (context.AgentSessions.TryGetValue(_agentId, out var existing))
         {
             return existing;
         }
 
-        var thread = agent.GetNewThread();
-        context.AgentThreads[_agentId] = thread;
+        var thread = await agent.CreateSessionAsync();
+        context.AgentSessions[_agentId] = thread;
         return thread;
     }
 

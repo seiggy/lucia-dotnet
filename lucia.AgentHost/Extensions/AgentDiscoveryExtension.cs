@@ -1,4 +1,4 @@
-﻿using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics.CodeAnalysis;
 using A2A;
 using A2A.AspNetCore;
 using lucia.Agents.Agents;

@@ -167,7 +167,7 @@ public class LuciaOrchestrator
                 .GetAllAgentsAsync(cancellationToken)
                 .ConfigureAwait(false);
 
-            var wrappers = CreateWrappers(availableAgentCards, aiAgents.Select(a => a.GetAIAgent()).ToList().AsReadOnly());
+            var wrappers = CreateWrappers(availableAgentCards, aiAgents.Select(a => a.AsAIAgent()).ToList().AsReadOnly());
             if (wrappers.Count == 0)
             {
                 _logger.LogWarning("Unable to build any agent executor wrappers. Falling back to aggregator message.");
@@ -425,7 +425,7 @@ public class LuciaOrchestrator
         }
     }
 
-    private sealed class AgentDispatchExecutor : ReflectingExecutor<AgentDispatchExecutor>, IMessageHandler<AgentChoiceResult, List<AgentResponse>>
+    private sealed class AgentDispatchExecutor : ReflectingExecutor<AgentDispatchExecutor>, IMessageHandler<AgentChoiceResult, List<OrchestratorAgentResponse>>
     {
         public const string ExecutorId = "AgentDispatch";
 
@@ -447,18 +447,18 @@ public class LuciaOrchestrator
             _userMessage = message;
         }
 
-        public async ValueTask<List<AgentResponse>> HandleAsync(AgentChoiceResult message, IWorkflowContext context, CancellationToken cancellationToken)
+        public async ValueTask<List<OrchestratorAgentResponse>> HandleAsync(AgentChoiceResult message, IWorkflowContext context, CancellationToken cancellationToken)
         {
             await context.AddEventAsync(new ExecutorInvokedEvent(this.Id, message), cancellationToken).ConfigureAwait(false);
 
             if (_userMessage is null)
             {
                 _logger.LogWarning("User message unavailable when dispatching agent execution.");
-                return new List<AgentResponse> { CreateFailureResponse(message.AgentId, "Unable to locate the original user request.") };
+                return new List<OrchestratorAgentResponse> { CreateFailureResponse(message.AgentId, "Unable to locate the original user request.") };
             }
 
             var executionOrder = BuildExecutionOrder(message);
-            var responses = new List<AgentResponse>(executionOrder.Count);
+            var responses = new List<OrchestratorAgentResponse>(executionOrder.Count);
 
             foreach (var agentId in executionOrder)
             {
@@ -474,10 +474,10 @@ public class LuciaOrchestrator
             return responses;
         }
 
-        public ValueTask<List<AgentResponse>> HandleAsync(AgentChoiceResult message, IWorkflowContext context)
+        public ValueTask<List<OrchestratorAgentResponse>> HandleAsync(AgentChoiceResult message, IWorkflowContext context)
             => HandleAsync(message, context, CancellationToken.None);
 
-        private async ValueTask<AgentResponse> InvokeAgentAsync(string agentId, ChatMessage userMessage, IWorkflowContext context, CancellationToken cancellationToken)
+        private async ValueTask<OrchestratorAgentResponse> InvokeAgentAsync(string agentId, ChatMessage userMessage, IWorkflowContext context, CancellationToken cancellationToken)
         {
             if (!_wrappers.TryGetValue(agentId, out var wrapper))
             {
@@ -488,7 +488,7 @@ public class LuciaOrchestrator
             return await wrapper.HandleAsync(userMessage, context, cancellationToken).ConfigureAwait(false);
         }
 
-        private static AgentResponse CreateFailureResponse(string agentId, string error)
+        private static OrchestratorAgentResponse CreateFailureResponse(string agentId, string error)
             => new()
             {
                 AgentId = agentId,

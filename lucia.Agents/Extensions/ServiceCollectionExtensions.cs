@@ -264,8 +264,8 @@ public static class ServiceCollectionExtensions
         });
         builder.Services.AddSingleton<ResultAggregatorExecutor>();
 
-        // Register thread factory for orchestrator
-        builder.Services.AddSingleton<IAgentThreadFactory, InMemoryThreadFactory>();
+        // Register session factory for orchestrator
+        builder.Services.AddSingleton<IAgentSessionFactory, InMemorySessionFactory>();
 
         // Register orchestrator and orchestrator agent
         builder.Services.AddSingleton<LuciaOrchestrator>();

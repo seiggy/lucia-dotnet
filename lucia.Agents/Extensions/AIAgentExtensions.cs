@@ -13,6 +13,7 @@ using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
 
+
 namespace lucia.Agents.Extensions
 {
     public static class AIAgentExtensions
@@ -21,14 +22,14 @@ namespace lucia.Agents.Extensions
             this AIAgent agent,
             ITaskManager? taskManager = null,
             ILoggerFactory? loggerFactory = null,
-            AgentThreadStore? agentThreadStore = null)
+            AgentSessionStore? agentSessionStore = null)
         {
             ArgumentNullException.ThrowIfNull(agent);
             ArgumentNullException.ThrowIfNull(agent.Name);
 
             var hostAgent = new AIHostAgent(
                 innerAgent: agent,
-                threadStore: agentThreadStore ?? new NoopAgentThreadStore());
+                sessionStore: agentSessionStore ?? new NoopAgentSessionStore());
 
             taskManager ??= new TaskManager();
             taskManager.OnMessageReceived += OnMessageReceivedAsync;
@@ -37,14 +38,14 @@ namespace lucia.Agents.Extensions
             async Task<A2AResponse> OnMessageReceivedAsync(MessageSendParams messageSendParams, CancellationToken cancellationToken)
             {
                 var contextId = messageSendParams.Message.ContextId ?? Guid.NewGuid().ToString("N");
-                var thread = await hostAgent.GetOrCreateThreadAsync(contextId, cancellationToken).ConfigureAwait(false);
+                var session = await hostAgent.GetOrCreateSessionAsync(contextId, cancellationToken).ConfigureAwait(false);
 
                 var response = await hostAgent.RunAsync(
                     messageSendParams.ToChatMessages(),
-                    thread: thread,
+                    session: session,
                     cancellationToken: cancellationToken).ConfigureAwait(false);
 
-                await hostAgent.SaveThreadAsync(contextId, thread, cancellationToken).ConfigureAwait(false);
+                await hostAgent.SaveSessionAsync(contextId, session, cancellationToken).ConfigureAwait(false);
                 var parts = response.Messages.ToParts();
                 return new AgentMessage
                 {
@@ -65,8 +66,8 @@ namespace lucia.Agents.Extensions
             ArgumentNullException.ThrowIfNull(agent);
 
             var loggerFactory = endpoints.ServiceProvider.GetRequiredService<ILoggerFactory>();
-            var agentThreadStore = endpoints.ServiceProvider.GetKeyedService<AgentThreadStore>(agent.Name);
-            var taskManager = agent.MapA2A(agentCard: agentCard, agentThreadStore: agentThreadStore, loggerFactory: loggerFactory);
+            var agentSessionStore = endpoints.ServiceProvider.GetKeyedService<AgentSessionStore>(agent.Name);
+            var taskManager = agent.MapA2A(agentCard: agentCard, agentSessionStore: agentSessionStore, loggerFactory: loggerFactory);
             var endpointConventionBuilder = endpoints.MapA2A(taskManager, path);
 
             configureTaskManager(taskManager);
@@ -80,8 +81,8 @@ namespace lucia.Agents.Extensions
             ArgumentNullException.ThrowIfNull(agent);
 
             var loggerFactory = endpoints.ServiceProvider.GetRequiredService<ILoggerFactory>();
-            var agentThreadStore = endpoints.ServiceProvider.GetKeyedService<AgentThreadStore>(agent.Name);
-            var taskManager = agent.MapA2A(loggerFactory: loggerFactory, agentThreadStore: agentThreadStore);
+            var agentSessionStore = endpoints.ServiceProvider.GetKeyedService<AgentSessionStore>(agent.Name);
+            var taskManager = agent.MapA2A(loggerFactory: loggerFactory, agentSessionStore: agentSessionStore);
             var endpointConventionBuilder = endpoints.MapA2A(taskManager, path);
 
             configureTaskManager(taskManager);
@@ -102,9 +103,9 @@ namespace lucia.Agents.Extensions
             AgentCard agentCard,
             ITaskManager? taskManager = null,
             ILoggerFactory? loggerFactory = null,
-            AgentThreadStore? agentThreadStore = null)
+            AgentSessionStore? agentSessionStore = null)
         {
-            taskManager = agent.MapA2A(taskManager, loggerFactory, agentThreadStore);
+            taskManager = agent.MapA2A(taskManager, loggerFactory, agentSessionStore);
 
             taskManager.OnAgentCardQuery += (context, query) =>
             {

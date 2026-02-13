@@ -1,4 +1,4 @@
-﻿using A2A;
+using A2A;
 using A2A.AspNetCore;
 using lucia.Agents.Abstractions;
 using Microsoft.Agents.AI.Hosting;

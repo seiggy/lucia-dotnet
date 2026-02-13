@@ -29,7 +29,7 @@ public class OrchestratorAgent
         IChatClient chatClient,
         IAgentRegistry agentRegistry,
         IOptions<RouterExecutorOptions> routerExecutorOptions,
-        IAgentThreadFactory threadFactory,
+        IAgentSessionFactory sessionFactory,
         IServer server,
         ILoggerFactory loggerFactory)
     {
@@ -56,7 +56,7 @@ public class OrchestratorAgent
             .GetResult();
 
         var tools = agents
-            .Select(agent => (AITool)agent.GetAIAgent().AsAIFunction()).ToList();
+            .Select(agent => (AITool)agent.AsAIAgent().AsAIFunction()).ToList();
         
         var serverAddressesFeature = _server?.Features?.Get<IServerAddressesFeature>();
         string agentUrl;
@@ -86,13 +86,14 @@ public class OrchestratorAgent
             Version = "1.0.0"
         };
 
-        var agentOptions = new ChatClientAgentOptions(routerExecutorOptions.Value.SystemPrompt)
+        var agentOptions = new ChatClientAgentOptions
         {
             Id = "orchestrator",
             Name = "Orchestrator",
             Description = "Orchestrator for Lucia",
             ChatOptions = new()
             {
+                Instructions = routerExecutorOptions.Value.SystemPrompt,
                 Tools = tools
             }
         };

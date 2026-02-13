@@ -96,13 +96,14 @@ public class MusicAgent : IAgent
             * If you need to ask for user feedback, ensure your response ends in a '?'. Examples: "Did you mean the Bedroom Speaker?", "I'm sorry, I couldn't find a speaker named 'Living Room Speakers'; Is it known by another name?"
             """;
 
-        var agentOptions = new ChatClientAgentOptions(instructions)
+        var agentOptions = new ChatClientAgentOptions
         {
             Id = "music-agent",
             Name = "music-agent",
             Description = "Handles music playback for MusicAssistant",
             ChatOptions = new()
             {
+                Instructions = instructions,
                 Tools = _musicSkill.GetTools()
             }
         };

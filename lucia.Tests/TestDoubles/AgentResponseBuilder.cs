@@ -3,7 +3,7 @@ using lucia.Agents.Orchestration.Models;
 namespace lucia.Tests.TestDoubles;
 
 /// <summary>
-/// Builder pattern for creating test AgentResponse instances.
+/// Builder pattern for creating test OrchestratorAgentResponse instances.
 /// </summary>
 public class AgentResponseBuilder
 {
@@ -50,7 +50,7 @@ public class AgentResponseBuilder
         return this;
     }
     
-    public AgentResponse Build() => new()
+    public OrchestratorAgentResponse Build() => new()
     {
         AgentId = _agentId,
         Content = _content,

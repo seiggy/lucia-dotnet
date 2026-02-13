@@ -15,9 +15,9 @@ public sealed class OrchestrationContext
     public required string ConversationId { get; set; }
 
     /// <summary>
-    /// Agent threads for context preservation keyed by agentId.
+    /// Agent sessions for context preservation keyed by agentId.
     /// </summary>
-    public Dictionary<string, AgentThread> AgentThreads { get; init; } = new(StringComparer.Ordinal);
+    public Dictionary<string, AgentSession> AgentSessions { get; init; } = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Previously invoked agent identifier (for handoffs).

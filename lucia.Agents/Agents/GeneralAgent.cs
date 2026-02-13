@@ -51,14 +51,14 @@ public class GeneralAgent
                 * Do not offer to provide other assistance.
                 """;
 
-        var agentOptions = new ChatClientAgentOptions(instructions)
+        var agentOptions = new ChatClientAgentOptions
         {
             Id = "general-assistant",
             Name = "general-assistant",
             Description = "Agent for answering general knowledge questions in Home Assistant",
             ChatOptions = new()
             {
-                
+                Instructions = instructions
             }
         };
 

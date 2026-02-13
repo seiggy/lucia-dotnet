@@ -5,11 +5,14 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Agents.AI;
-using Microsoft.Agents.AI.Hosting;
 
 namespace lucia.Tests.TestDoubles;
 
-internal sealed class StubAgentCatalog : AgentCatalog
+/// <summary>
+/// Test double for agent catalog functionality.
+/// AgentCatalog was removed in MAF 1.0.0-preview.260212.1.
+/// </summary>
+internal sealed class StubAgentCatalog
 {
     private readonly IReadOnlyDictionary<string, AIAgent> _agentsByName;
 
@@ -26,7 +29,7 @@ internal sealed class StubAgentCatalog : AgentCatalog
             StringComparer.OrdinalIgnoreCase);
     }
 
-    public override async IAsyncEnumerable<AIAgent> GetAgentsAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
+    public async IAsyncEnumerable<AIAgent> GetAgentsAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         foreach (var agent in _agentsByName.Values)
         {

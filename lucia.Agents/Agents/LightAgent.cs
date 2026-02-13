@@ -100,13 +100,14 @@ public class LightAgent : IAgent
                 * If you need to ask for user feedback, ensure your response ends in a '?'. Examples: "Did you mean the kitchen light?", "I'm sorry, I couldn't find the living room light; Is it known by another name?"
                 """;
 
-        var agentOptions = new ChatClientAgentOptions(instructions)
+        var agentOptions = new ChatClientAgentOptions
         {
             Id = "light-agent",
             Name = "light-agent",
             Description = "Agent for controlling lights in Home Assistant",
             ChatOptions = new()
             {
+                Instructions = instructions,
                 Tools = _lightPlugin.GetTools()
             }
         };

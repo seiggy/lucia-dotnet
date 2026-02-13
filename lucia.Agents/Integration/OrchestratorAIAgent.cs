@@ -11,23 +11,23 @@ namespace lucia.Agents.Integration;
 /// Custom AIAgent implementation that delegates message processing to LuciaOrchestrator.
 /// This provides the AIAgent interface required for agent registry integration while
 /// leveraging the orchestrator's workflow-based routing and execution.
-/// Uses IAgentThreadFactory to support pluggable thread implementations (in-memory, Redis-backed, etc.)
+/// Uses IAgentSessionFactory to support pluggable session implementations (in-memory, Redis-backed, etc.)
 /// </summary>
 internal sealed class OrchestratorAIAgent : AIAgent
 {
     private readonly LuciaOrchestrator _orchestrator;
-    private readonly IAgentThreadFactory _threadFactory;
+    private readonly IAgentSessionFactory _sessionFactory;
     private readonly string _name;
     private readonly string _description;
 
     public OrchestratorAIAgent(
         LuciaOrchestrator orchestrator,
-        IAgentThreadFactory threadFactory,
+        IAgentSessionFactory sessionFactory,
         string name,
         string description)
     {
         _orchestrator = orchestrator;
-        _threadFactory = threadFactory;
+        _sessionFactory = sessionFactory;
         _name = name;
         _description = description;
     }
@@ -35,21 +35,35 @@ internal sealed class OrchestratorAIAgent : AIAgent
     public override string? Name => _name;
     public override string? Description => _description;
 
-    public override AgentThread GetNewThread() =>
-        _threadFactory.CreateThread();
+    protected override ValueTask<AgentSession> CreateSessionCoreAsync(CancellationToken cancellationToken = default) =>
+        new(_sessionFactory.CreateSession());
 
-    public override AgentThread DeserializeThread(
-        JsonElement serializedThread,
-        JsonSerializerOptions? jsonSerializerOptions = null) =>
-        _threadFactory.DeserializeThread(serializedThread, jsonSerializerOptions);
+    protected override ValueTask<AgentSession> DeserializeSessionCoreAsync(
+        JsonElement serializedSession,
+        JsonSerializerOptions? jsonSerializerOptions = null,
+        CancellationToken cancellationToken = default) =>
+        new(_sessionFactory.DeserializeSession(serializedSession, jsonSerializerOptions));
 
-    public override async Task<AgentRunResponse> RunAsync(
+    protected override ValueTask<JsonElement> SerializeSessionCoreAsync(
+        AgentSession session,
+        JsonSerializerOptions? jsonSerializerOptions = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (session is OrchestratorInMemorySession inMemorySession)
+        {
+            return new(inMemorySession.Serialize(jsonSerializerOptions));
+        }
+
+        return default;
+    }
+
+    protected override async Task<AgentResponse> RunCoreAsync(
         IEnumerable<ChatMessage> messages,
-        AgentThread? thread = null,
+        AgentSession? session = null,
         AgentRunOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        thread ??= GetNewThread();
+        session ??= await CreateSessionAsync(cancellationToken);
 
         // Extract the last user message
         var userMessage = messages.LastOrDefault(m => m.Role == ChatRole.User);
@@ -69,16 +83,10 @@ internal sealed class OrchestratorAIAgent : AIAgent
         var responseMessage = new ChatMessage(ChatRole.Assistant, responseText)
         {
             MessageId = Guid.NewGuid().ToString("N"),
-            AuthorName = DisplayName
+            AuthorName = Name
         };
 
-        // Notify thread of messages
-        await NotifyThreadOfNewMessagesAsync(
-            thread,
-            messages.Append(responseMessage),
-            cancellationToken);
-
-        return new AgentRunResponse
+        return new AgentResponse
         {
             AgentId = Id,
             ResponseId = Guid.NewGuid().ToString("N"),
@@ -86,13 +94,13 @@ internal sealed class OrchestratorAIAgent : AIAgent
         };
     }
 
-    public override async IAsyncEnumerable<AgentRunResponseUpdate> RunStreamingAsync(
+    protected override async IAsyncEnumerable<AgentResponseUpdate> RunCoreStreamingAsync(
         IEnumerable<ChatMessage> messages,
-        AgentThread? thread = null,
+        AgentSession? session = null,
         AgentRunOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        thread ??= GetNewThread();
+        session ??= await CreateSessionAsync(cancellationToken);
 
         // Extract the last user message
         var userMessage = messages.LastOrDefault(m => m.Role == ChatRole.User);
@@ -113,20 +121,14 @@ internal sealed class OrchestratorAIAgent : AIAgent
         var responseMessage = new ChatMessage(ChatRole.Assistant, responseText)
         {
             MessageId = Guid.NewGuid().ToString("N"),
-            AuthorName = DisplayName
+            AuthorName = Name
         };
 
-        // Notify thread of messages
-        await NotifyThreadOfNewMessagesAsync(
-            thread,
-            messages.Append(responseMessage),
-            cancellationToken);
-
         // Yield single streaming update
-        yield return new AgentRunResponseUpdate
+        yield return new AgentResponseUpdate
         {
             AgentId = Id,
-            AuthorName = DisplayName,
+            AuthorName = Name,
             Role = ChatRole.Assistant,
             Contents = responseMessage.Contents,
             ResponseId = Guid.NewGuid().ToString("N"),

@@ -16,7 +16,7 @@ namespace lucia.Agents.Orchestration;
 /// Executor for dispatching user requests to multiple agents and collecting responses.
 /// Implements the MagenticOne pattern for multi-agent workflow coordination.
 /// </summary>
-public class AgentDispatchExecutor : ReflectingExecutor<AgentDispatchExecutor>, IMessageHandler<AgentChoiceResult, List<AgentResponse>>
+public class AgentDispatchExecutor : ReflectingExecutor<AgentDispatchExecutor>, IMessageHandler<AgentChoiceResult, List<OrchestratorAgentResponse>>
 {
     private readonly Dictionary<string, AgentExecutorWrapper> _wrappers;
     private readonly ILogger<AgentDispatchExecutor> _logger;
@@ -50,16 +50,16 @@ public class AgentDispatchExecutor : ReflectingExecutor<AgentDispatchExecutor>, 
     /// <param name="agentChoice">The router's choice of agent(s) to invoke</param>
     /// <param name="context">The workflow execution context</param>
     /// <param name="cancellationToken">Cancellation token for async operations</param>
-    /// <returns>List of AgentResponse objects from all executed agents</returns>
-    public ValueTask<List<AgentResponse>> HandleAsync(
+    /// <returns>List of OrchestratorAgentResponse objects from all executed agents</returns>
+    public ValueTask<List<OrchestratorAgentResponse>> HandleAsync(
         AgentChoiceResult agentChoice,
         IWorkflowContext context,
         CancellationToken cancellationToken)
     {
-        return new ValueTask<List<AgentResponse>>(HandleAsyncCore(agentChoice, context, cancellationToken));
+        return new ValueTask<List<OrchestratorAgentResponse>>(HandleAsyncCore(agentChoice, context, cancellationToken));
     }
 
-    private async Task<List<AgentResponse>> HandleAsyncCore(
+    private async Task<List<OrchestratorAgentResponse>> HandleAsyncCore(
         AgentChoiceResult agentChoice,
         IWorkflowContext context,
         CancellationToken cancellationToken)
@@ -70,7 +70,7 @@ public class AgentDispatchExecutor : ReflectingExecutor<AgentDispatchExecutor>, 
         _logger.LogInformation("AgentDispatchExecutor: Dispatching to primary agent '{AgentId}' (confidence: {Confidence})",
             agentChoice.AgentId, agentChoice.Confidence);
 
-        var responses = new List<AgentResponse>();
+        var responses = new List<OrchestratorAgentResponse>();
 
         if (_userMessage == null)
         {
@@ -93,7 +93,7 @@ public class AgentDispatchExecutor : ReflectingExecutor<AgentDispatchExecutor>, 
             catch (Exception ex)
             {
                 _logger.LogError(ex, "AgentDispatchExecutor: Error executing primary agent '{AgentId}'", agentChoice.AgentId);
-                responses.Add(new AgentResponse
+                responses.Add(new OrchestratorAgentResponse
                 {
                     AgentId = agentChoice.AgentId,
                     Content = $"Error executing agent: {ex.Message}",
@@ -138,7 +138,7 @@ public class AgentDispatchExecutor : ReflectingExecutor<AgentDispatchExecutor>, 
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "AgentDispatchExecutor: Error executing additional agent '{AgentId}'", additionalAgentId);
-                    responses.Add(new AgentResponse
+                    responses.Add(new OrchestratorAgentResponse
                     {
                         AgentId = additionalAgentId,
                         Content = $"Error executing agent: {ex.Message}",

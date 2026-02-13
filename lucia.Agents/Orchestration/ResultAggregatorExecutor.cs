@@ -16,7 +16,7 @@ namespace lucia.Agents.Orchestration;
 /// <summary>
 /// Aggregates agent responses into a single natural language message.
 /// </summary>
-public sealed class ResultAggregatorExecutor : ReflectingExecutor<ResultAggregatorExecutor>, IMessageHandler<List<AgentResponse>, string>
+public sealed class ResultAggregatorExecutor : ReflectingExecutor<ResultAggregatorExecutor>, IMessageHandler<List<OrchestratorAgentResponse>, string>
 {
     /// <summary>Executor identifier.</summary>
     public const string ExecutorId = "ResultAggregator";
@@ -37,7 +37,7 @@ public sealed class ResultAggregatorExecutor : ReflectingExecutor<ResultAggregat
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
     }
 
-    public async ValueTask<string> HandleAsync(List<AgentResponse> responses, IWorkflowContext context, CancellationToken cancellationToken)
+    public async ValueTask<string> HandleAsync(List<OrchestratorAgentResponse> responses, IWorkflowContext context, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(responses);
         ArgumentNullException.ThrowIfNull(context);
@@ -64,12 +64,12 @@ public sealed class ResultAggregatorExecutor : ReflectingExecutor<ResultAggregat
         return summary.Message;
     }
 
-    public ValueTask<string> HandleAsync(List<AgentResponse> responses, IWorkflowContext context)
+    public ValueTask<string> HandleAsync(List<OrchestratorAgentResponse> responses, IWorkflowContext context)
         => HandleAsync(responses, context, CancellationToken.None);
 
-    private AggregationResult BuildSummary(IEnumerable<AgentResponse> responses)
+    private AggregationResult BuildSummary(IEnumerable<OrchestratorAgentResponse> responses)
     {
-        var successes = new List<AgentResponse>();
+        var successes = new List<OrchestratorAgentResponse>();
         var failures = new List<AggregatedFailure>();
         long totalTime = 0;
 
@@ -97,7 +97,7 @@ public sealed class ResultAggregatorExecutor : ReflectingExecutor<ResultAggregat
             totalTime);
     }
 
-    private IReadOnlyList<AgentResponse> OrderResponses(IEnumerable<AgentResponse> responses)
+    private IReadOnlyList<OrchestratorAgentResponse> OrderResponses(IEnumerable<OrchestratorAgentResponse> responses)
     {
         var priorityLookup = _options.AgentPriority
             .Select((agentId, index) => (agentId, index))
@@ -109,7 +109,7 @@ public sealed class ResultAggregatorExecutor : ReflectingExecutor<ResultAggregat
             .ToList();
     }
 
-    private string ComposeMessage(IReadOnlyList<AgentResponse> successes, IReadOnlyList<AggregatedFailure> failures)
+    private string ComposeMessage(IReadOnlyList<OrchestratorAgentResponse> successes, IReadOnlyList<AggregatedFailure> failures)
     {
         var builder = new StringBuilder();
 
@@ -163,7 +163,7 @@ public sealed class ResultAggregatorExecutor : ReflectingExecutor<ResultAggregat
         return builder.ToString();
     }
 
-    private string NormalizeSuccessMessage(AgentResponse response)
+    private string NormalizeSuccessMessage(OrchestratorAgentResponse response)
     {
         var content = response.Content?.Trim();
         if (string.IsNullOrWhiteSpace(content))
