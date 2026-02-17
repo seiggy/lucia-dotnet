@@ -15,7 +15,7 @@
   <ItemGroup>
     <PackageReference Include="A2A" Version="0.3.3-preview" />
     <PackageReference Include="A2A.AspNetCore" Version="0.3.3-preview" />
-    <PackageReference Include="Aspire.StackExchange.Redis" Version="13.0.0" />
+    <PackageReference Include="Aspire.StackExchange.Redis" Version="13.1.1" />
     <PackageReference Include="Microsoft.Agents.AI.AzureAI" Version="1.0.0-preview.260212.1" />
     <PackageReference Include="Microsoft.Agents.AI.Hosting" Version="1.0.0-preview.260212.1" />
     <PackageReference Include="Microsoft.Agents.AI.Hosting.A2A.AspNetCore" Version="1.0.0-preview.260212.1" />

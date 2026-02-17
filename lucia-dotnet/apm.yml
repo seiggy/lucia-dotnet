@@ -1,0 +1,13 @@
+name: lucia-dotnet
+version: 2025.11.09
+description: Lucia Home Assistant
+author: Zack Way
+license: 
+target: 
+type: 
+dependencies:
+  apm: []
+  mcp: []
+scripts: {}
+compilation: 
+servers: 
