@@ -1,8 +1,10 @@
+using Azure.AI.OpenAI;
 using lucia.AgentHost.Extensions;
 using lucia.Agents.Extensions;
 using lucia.Agents.Orchestration;
 using lucia.Agents.Training;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Extensions.Azure;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -26,8 +28,15 @@ builder.AddChatClient("chat");
 builder.AddEmbeddingsClient("embeddings");
 
 // Register additional model deployments as keyed IChatClient services
-builder.AddKeyedChatClient("gpt-oss-120b");
+builder.AddKeyedChatClient("phi4");
 builder.AddKeyedChatClient("gpt-5-nano");
+
+// Workaround: Aspire's AddKeyedAzureOpenAIClient registers a null non-keyed
+// AzureOpenAIClient singleton (to suppress Azure SDK factory errors), which shadows
+// the real registration from AddAzureOpenAIClient. Re-register using the Azure
+// client factory so the non-keyed resolution chain works correctly.
+builder.Services.AddSingleton(
+    sp => sp.GetRequiredService<IAzureClientFactory<AzureOpenAIClient>>().CreateClient(string.Empty));
 
 // Add Lucia multi-agent system
 builder.AddLuciaAgents();
