@@ -1,5 +1,7 @@
 using lucia.AgentHost.Extensions;
 using lucia.Agents.Extensions;
+using lucia.Agents.Orchestration;
+using lucia.Agents.Training;
 using Microsoft.AspNetCore.HttpOverrides;
 using Scalar.AspNetCore;
 
@@ -9,6 +11,8 @@ builder.AddServiceDefaults();
 builder.Services.AddAntiforgery();
 builder.AddRedisClient(connectionName: "redis");
 
+// MongoDB for trace capture
+builder.AddMongoDBClient(connectionName: "luciatraces");
 
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
@@ -28,9 +32,27 @@ builder.AddKeyedChatClient("gpt-5-nano");
 // Add Lucia multi-agent system
 builder.AddLuciaAgents();
 
+// Trace capture services
+builder.Services.Configure<TraceCaptureOptions>(
+    builder.Configuration.GetSection(TraceCaptureOptions.SectionName));
+builder.Services.AddSingleton<ITraceRepository, MongoTraceRepository>();
+builder.Services.AddSingleton<IOrchestratorObserver, TraceCaptureObserver>();
+builder.Services.AddHostedService<TraceRetentionService>();
+
 builder.Services.AddProblemDetails();
 
 builder.Services.AddOpenApi();
+
+// CORS for dashboard dev server
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("Dashboard", policy =>
+    {
+        policy.WithOrigins("http://localhost:5173")
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
 
 var app = builder.Build();
 
@@ -41,6 +63,8 @@ app.MapScalarApiReference();
 
 app.UseForwardedHeaders();
 app.UseAntiforgery();
+app.UseCors("Dashboard");
+app.UseStaticFiles();
 
 if (!app.Environment.IsDevelopment())
 {
@@ -54,6 +78,15 @@ else
 }
 app.MapAgentRegistryApiV1();
 app.MapAgentDiscovery();
+app.MapTraceManagementApi();
+app.MapDatasetExportApi();
 app.MapDefaultEndpoints();
+
+// SPA hosting: serve React dashboard assets in production
+if (!app.Environment.IsDevelopment())
+{
+    app.UseStaticFiles();
+    app.MapFallbackToFile("index.html");
+}
 
 app.Run();

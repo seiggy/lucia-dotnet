@@ -29,6 +29,13 @@ var redis = builder.AddRedis("redis")
     .WithRedisInsight()
     .WithContainerName("redis");
 
+var mongodb = builder.AddMongoDB("mongodb")
+    .WithDataVolume()
+    .WithLifetime(ContainerLifetime.Persistent)
+    .WithMongoExpress()
+    .WithContainerName("mongodb");
+var tracesDb = mongodb.AddDatabase("luciatraces");
+
 var registryApi = builder.AddProject<Projects.lucia_AgentHost>("lucia-agenthost")
     .WithReference(embeddingsModel)
     .WithReference(chatModel)
@@ -38,6 +45,8 @@ var registryApi = builder.AddProject<Projects.lucia_AgentHost>("lucia-agenthost"
     .WithReference(gpt5Nano)
     .WithReference(redis)
     .WaitFor(redis)
+    .WithReference(tracesDb)
+    .WaitFor(mongodb)
     .WithExternalHttpEndpoints();
 
 var currentDirectory = Environment.CurrentDirectory;
@@ -49,5 +58,9 @@ builder.AddProject<Projects.lucia_A2AHost>("music-agent")
     .WithReference(registryApi)
     .WaitFor(registryApi)
     .WithExternalHttpEndpoints();
+
+builder.AddViteApp("lucia-dashboard", "../lucia-dashboard")
+    .WithExternalHttpEndpoints()
+    .WithNpm();
 
 builder.Build().Run();
