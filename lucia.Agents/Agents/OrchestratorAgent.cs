@@ -25,6 +25,16 @@ public class OrchestratorAgent
     private readonly TaskManager _taskManager;
     private IServer _server;
 
+    /// <summary>
+    /// The system instructions used by this agent.
+    /// </summary>
+    public string Instructions { get; }
+
+    /// <summary>
+    /// The AI tools available to this agent (agent-as-tool functions).
+    /// </summary>
+    public IList<AITool> Tools { get; }
+
     public OrchestratorAgent(
         IChatClient chatClient,
         IAgentRegistry agentRegistry,
@@ -55,7 +65,7 @@ public class OrchestratorAgent
             .GetAwaiter()
             .GetResult();
 
-        var tools = agents
+        Tools = agents
             .Select(agent => (AITool)agent.AsAIAgent().AsAIFunction()).ToList();
         
         var serverAddressesFeature = _server?.Features?.Get<IServerAddressesFeature>();
@@ -86,6 +96,8 @@ public class OrchestratorAgent
             Version = "1.0.0"
         };
 
+        Instructions = routerExecutorOptions.Value.SystemPrompt ?? RouterExecutorOptions.DefaultSystemPrompt;
+
         var agentOptions = new ChatClientAgentOptions
         {
             Id = "orchestrator",
@@ -93,8 +105,8 @@ public class OrchestratorAgent
             Description = "Orchestrator for Lucia",
             ChatOptions = new()
             {
-                Instructions = routerExecutorOptions.Value.SystemPrompt,
-                Tools = tools
+                Instructions = Instructions,
+                Tools = Tools
             }
         };
 

@@ -76,6 +76,21 @@ Refer to `.docs/product/tech-stack.md` for deeper detail and version updates bef
 - **Run AppHost:** `dotnet run --project lucia.AppHost`
 - **Run Tests:** `dotnet test` (or target a project like `dotnet test lucia.Tests`)
 - **Python component:** Lives under `custom_components/lucia`; follow Home Assistant custom component guidelines when editing.
+- **Regenerate HA test snapshot:** `.\scripts\Export-HomeAssistantSnapshot.ps1 -Endpoint $env:HA_ENDPOINT -Token $env:HA_TOKEN`
+
+### Home Assistant Environment Variables
+
+The following environment variables provide access to the user's Home Assistant instance for testing, snapshot export, and Jinja template validation:
+
+| Variable       | Purpose                                                              |
+| -------------- | -------------------------------------------------------------------- |
+| `HA_ENDPOINT`  | Base URL of the Home Assistant instance (e.g. `http://homeassistant.local:8123`) |
+| `HA_TOKEN`     | Long-lived access token (generated in HA → Profile → Long-Lived Access Tokens) |
+
+Use these when you need to:
+- Test Jinja templates against the real HA instance
+- Regenerate the test fixture snapshot (`lucia.Tests/TestData/ha-snapshot.json`)
+- Validate entity/area data during development
 
 Always confirm commands in the repo root PowerShell environment before execution. Document any manual steps you perform in the completion summary.
 

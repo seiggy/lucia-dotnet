@@ -11,9 +11,9 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.0" />
     <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.23.0" />
-	<PackageReference Include="A2A" Version="0.3.3-preview" />
-	<PackageReference Include="A2A.AspNetCore" Version="0.3.3-preview" />
-	<PackageReference Include="Scalar.AspNetCore" Version="2.10.3" />
+    <PackageReference Include="A2A" Version="0.3.3-preview" />
+    <PackageReference Include="A2A.AspNetCore" Version="0.3.3-preview" />
+    <PackageReference Include="Scalar.AspNetCore" Version="2.10.3" />
   </ItemGroup>
 
   <ItemGroup>

@@ -25,5 +25,12 @@ namespace lucia.Agents.Configuration
         /// e.g. "MusicAssistant" (will bind to the agent's options type)
         /// </summary>
         public string? AgentConfig { get; set; }
+
+        /// <summary>
+        /// Optional connection name for the AI model to use with this agent.
+        /// When set, a keyed IChatClient is resolved from DI using this name.
+        /// If null, the default (unkeyed) IChatClient is used.
+        /// </summary>
+        public string? ModelConnectionName { get; set; }
     }
 }

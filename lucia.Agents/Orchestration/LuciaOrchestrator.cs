@@ -12,6 +12,7 @@ using Microsoft.Agents.AI.Hosting;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.Agents.AI.Workflows.Reflection;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -33,9 +34,11 @@ public class LuciaOrchestrator
     private readonly IOptions<ResultAggregatorOptions> _aggregatorOptions;
     private readonly TimeProvider _timeProvider;
     private readonly ITaskManager _taskManager;
+    private readonly IOrchestratorObserver? _observer;
+    private readonly IAgentProvider? _agentProvider;
 
     public LuciaOrchestrator(
-        IChatClient chatClient,
+        [FromKeyedServices(OrchestratorServiceKeys.RouterModel)] IChatClient chatClient,
         IAgentRegistry agentRegistry,
         IServiceProvider serviceProvider,
         IHttpClientFactory httpClientFactory,
@@ -45,7 +48,9 @@ public class LuciaOrchestrator
         IOptions<AgentExecutorWrapperOptions> wrapperOptions,
         IOptions<ResultAggregatorOptions> aggregatorOptions,
         TimeProvider timeProvider,
-        ITaskManager taskManager)
+        ITaskManager taskManager,
+        IOrchestratorObserver? observer = null,
+        IAgentProvider? agentProvider = null)
     {
         _chatClient = chatClient ?? throw new ArgumentNullException(nameof(chatClient));
         _agentRegistry = agentRegistry;
@@ -58,6 +63,8 @@ public class LuciaOrchestrator
         _aggregatorOptions = aggregatorOptions ?? throw new ArgumentNullException(nameof(aggregatorOptions));
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _taskManager = taskManager ?? throw new ArgumentNullException(nameof(taskManager));
+        _observer = observer;
+        _agentProvider = agentProvider;
 
         _httpClientFactory = httpClientFactory;
     }
@@ -163,11 +170,20 @@ public class LuciaOrchestrator
                 return noAgentsMessage;
             }
 
-            var aiAgents = await _agentRegistry
-                .GetAllAgentsAsync(cancellationToken)
-                .ConfigureAwait(false);
+            IReadOnlyList<AIAgent> resolvedAgents;
+            if (_agentProvider is not null)
+            {
+                resolvedAgents = await _agentProvider.GetAgentsAsync(cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                var aiAgents = await _agentRegistry
+                    .GetAllAgentsAsync(cancellationToken)
+                    .ConfigureAwait(false);
+                resolvedAgents = aiAgents.Select(a => a.AsAIAgent()).ToList().AsReadOnly();
+            }
 
-            var wrappers = CreateWrappers(availableAgentCards, aiAgents.Select(a => a.AsAIAgent()).ToList().AsReadOnly());
+            var wrappers = CreateWrappers(availableAgentCards, resolvedAgents);
             if (wrappers.Count == 0)
             {
                 _logger.LogWarning("Unable to build any agent executor wrappers. Falling back to aggregator message.");
@@ -197,7 +213,7 @@ public class LuciaOrchestrator
             var dispatchLogger = _loggerFactory.CreateLogger<AgentDispatchExecutor>();
             var aggregatorLogger = _loggerFactory.CreateLogger<ResultAggregatorExecutor>();
             var router = new RouterExecutor(_chatClient, _agentRegistry, routerLogger, _routerOptions);
-            var dispatch = new AgentDispatchExecutor(wrappers, dispatchLogger);
+            var dispatch = new AgentDispatchExecutor(wrappers, dispatchLogger, _observer);
             var aggregator = new ResultAggregatorExecutor(aggregatorLogger, _aggregatorOptions);
 
             var chatMessage = new ChatMessage(ChatRole.User, userRequest);
@@ -215,6 +231,11 @@ public class LuciaOrchestrator
             var result = await ExecuteWorkflowAsync(workflow, chatMessage, cancellationToken).ConfigureAwait(false);
 
             var finalResult = result ?? _aggregatorOptions.Value.DefaultFallbackMessage;
+
+            if (_observer is not null)
+            {
+                await _observer.OnResponseAggregatedAsync(finalResult, cancellationToken).ConfigureAwait(false);
+            }
 
             // Add assistant response to task history and update status to completed (T038 - US4)
             var assistantMessage = new AgentMessage
@@ -431,15 +452,18 @@ public class LuciaOrchestrator
 
         private readonly IReadOnlyDictionary<string, AgentExecutorWrapper> _wrappers;
         private readonly ILogger<AgentDispatchExecutor> _logger;
+        private readonly IOrchestratorObserver? _observer;
         private ChatMessage? _userMessage;
 
         public AgentDispatchExecutor(
             IReadOnlyDictionary<string, AgentExecutorWrapper> wrappers,
-            ILogger<AgentDispatchExecutor> logger)
+            ILogger<AgentDispatchExecutor> logger,
+            IOrchestratorObserver? observer = null)
             : base(ExecutorId)
         {
             _wrappers = wrappers;
             _logger = logger;
+            _observer = observer;
         }
 
         public void SetUserMessage(ChatMessage message)
@@ -450,6 +474,11 @@ public class LuciaOrchestrator
         public async ValueTask<List<OrchestratorAgentResponse>> HandleAsync(AgentChoiceResult message, IWorkflowContext context, CancellationToken cancellationToken)
         {
             await context.AddEventAsync(new ExecutorInvokedEvent(this.Id, message), cancellationToken).ConfigureAwait(false);
+
+            if (_observer is not null)
+            {
+                await _observer.OnRoutingCompletedAsync(message, cancellationToken).ConfigureAwait(false);
+            }
 
             if (_userMessage is null)
             {
@@ -464,6 +493,11 @@ public class LuciaOrchestrator
             {
                 var response = await InvokeAgentAsync(agentId, _userMessage, context, cancellationToken).ConfigureAwait(false);
                 responses.Add(response);
+
+                if (_observer is not null)
+                {
+                    await _observer.OnAgentExecutionCompletedAsync(response, cancellationToken).ConfigureAwait(false);
+                }
             }
 
             if (responses.Count == 0)

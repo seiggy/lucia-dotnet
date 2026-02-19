@@ -1,11 +1,13 @@
 using A2A;
 using lucia.Agents.Abstractions;
+using lucia.Agents.Orchestration;
 using lucia.Agents.Skills;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.A2A;
 using Microsoft.Agents.AI.Hosting;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -22,8 +24,18 @@ public class LightAgent : IAgent
     private readonly TaskManager _taskManager;
     private readonly AIAgent _aiAgent;
 
+    /// <summary>
+    /// The system instructions used by this agent.
+    /// </summary>
+    public string Instructions { get; }
+
+    /// <summary>
+    /// The AI tools available to this agent.
+    /// </summary>
+    public IList<AITool> Tools { get; }
+
     public LightAgent(
-        IChatClient chatClient,
+        [FromKeyedServices(OrchestratorServiceKeys.LightModel)] IChatClient chatClient,
         LightControlSkill lightPlugin,
         ILoggerFactory loggerFactory)
     {
@@ -100,6 +112,9 @@ public class LightAgent : IAgent
                 * If you need to ask for user feedback, ensure your response ends in a '?'. Examples: "Did you mean the kitchen light?", "I'm sorry, I couldn't find the living room light; Is it known by another name?"
                 """;
 
+        Instructions = instructions;
+        Tools = _lightPlugin.GetTools();
+
         var agentOptions = new ChatClientAgentOptions
         {
             Id = "light-agent",
@@ -107,8 +122,8 @@ public class LightAgent : IAgent
             Description = "Agent for controlling lights in Home Assistant",
             ChatOptions = new()
             {
-                Instructions = instructions,
-                Tools = _lightPlugin.GetTools()
+                Instructions = Instructions,
+                Tools = Tools
             }
         };
 

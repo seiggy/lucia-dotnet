@@ -21,8 +21,8 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
         ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
 });
 
-builder.AddChatClient("chat-model");
-builder.AddEmbeddingsClient("embeddings-model");
+builder.AddChatClient("chat");
+builder.AddEmbeddingsClient("embeddings");
 
 builder.Services.Configure<HomeAssistantOptions>(
     builder.Configuration.GetSection("HomeAssistant"));

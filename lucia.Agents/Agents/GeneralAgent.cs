@@ -1,6 +1,8 @@
 ﻿using A2A;
+using lucia.Agents.Orchestration;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace lucia.Agents.Agents;
@@ -12,8 +14,18 @@ public class GeneralAgent
     private readonly TaskManager _taskManager;
     private readonly AIAgent _aiAgent;
 
+    /// <summary>
+    /// The system instructions used by this agent.
+    /// </summary>
+    public string Instructions { get; }
+
+    /// <summary>
+    /// The AI tools available to this agent (empty for GeneralAgent).
+    /// </summary>
+    public IList<AITool> Tools { get; }
+
     public GeneralAgent(
-        IChatClient chatClient,
+        [FromKeyedServices(OrchestratorServiceKeys.GeneralModel)] IChatClient chatClient,
         ILoggerFactory loggerFactory)
     {
         _logger = loggerFactory.CreateLogger<GeneralAgent>();
@@ -51,6 +63,9 @@ public class GeneralAgent
                 * Do not offer to provide other assistance.
                 """;
 
+        Instructions = instructions;
+        Tools = new List<AITool>();
+
         var agentOptions = new ChatClientAgentOptions
         {
             Id = "general-assistant",
@@ -58,7 +73,7 @@ public class GeneralAgent
             Description = "Agent for answering general knowledge questions in Home Assistant",
             ChatOptions = new()
             {
-                Instructions = instructions
+                Instructions = Instructions
             }
         };
 

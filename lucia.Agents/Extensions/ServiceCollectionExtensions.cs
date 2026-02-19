@@ -29,7 +29,9 @@ public static class ServiceCollectionExtensions
         var connectionString = builder.Configuration.GetConnectionString(connectionName);
         if (!ChatClientConnectionInfo.TryParse(connectionString, out var connectionInfo))
         {
-            throw new InvalidOperationException($"Invalid or missing connection string for '{connectionName}', expectedFormat: Endpoint=endpoint;AccessKey=your_access_key;Model=model_name;Provider=ollama/openai/azureopenai;");
+            throw new InvalidOperationException($"Invalid or missing connection string for '{connectionName}'. " +
+                "Expected custom format: Endpoint=endpoint;AccessKey=your_access_key;Model=model_name;Provider=ollama/openai/azureopenai; " +
+                "or Aspire AI Foundry format: Endpoint=https://xxx.cognitiveservices.azure.com/;Deployment=name");
         }
         
         switch (connectionInfo.Provider)
@@ -71,7 +73,9 @@ public static class ServiceCollectionExtensions
 
         if (!ChatClientConnectionInfo.TryParse(connectionString, out var connectionInfo))
         {
-            throw new InvalidOperationException($"Invalid or missing connection string for '{connectionName}', expectedFormat: Endpoint=endpoint;AccessKey=your_access_key;Model=model_name;Provider=ollama/openai/azureopenai;");
+            throw new InvalidOperationException($"Invalid or missing connection string for '{connectionName}'. " +
+                "Expected custom format: Endpoint=endpoint;AccessKey=your_access_key;Model=model_name;Provider=ollama/openai/azureopenai; " +
+                "or Aspire AI Foundry format: Endpoint=https://xxx.cognitiveservices.azure.com/;Deployment=name");
         }
 
         var chatClientBuilder = connectionInfo.Provider switch
@@ -152,7 +156,9 @@ public static class ServiceCollectionExtensions
 
         if (!ChatClientConnectionInfo.TryParse(cs, out var connectionInfo))
         {
-            throw new InvalidOperationException($"Invalid connection string: {cs}. Expected format: 'Endpoint=endpoint;AccessKey=your_access_key;Model=model_name;Provider=ollama/openai/azureopenai;'.");
+            throw new InvalidOperationException($"Invalid connection string: {cs}. " +
+                "Expected custom format: Endpoint=endpoint;AccessKey=your_access_key;Model=model_name;Provider=ollama/openai/azureopenai; " +
+                "or Aspire AI Foundry format: Endpoint=https://xxx.cognitiveservices.azure.com/;Deployment=name");
         }
 
         var chatClientBuilder = connectionInfo.Provider switch
@@ -267,12 +273,102 @@ public static class ServiceCollectionExtensions
         // Register session factory for orchestrator
         builder.Services.AddSingleton<IAgentSessionFactory, InMemorySessionFactory>();
 
+        // Register default keyed IChatClient forwardings for all agent model keys.
+        // Each key forwards to the unkeyed IChatClient so agents resolve successfully
+        // even when no per-agent model is explicitly configured.
+        foreach (var key in OrchestratorServiceKeys.AllAgentModelKeys)
+        {
+            builder.Services.AddKeyedSingleton<IChatClient>(
+                key,
+                (sp, _) => sp.GetRequiredService<IChatClient>());
+        }
+
+        // Apply config-driven per-agent model overrides.
+        // When an agent's AgentConfiguration specifies a ModelConnectionName, register
+        // a real keyed IChatClient for that agent's service key, overriding the default
+        // forwarding above.
+        var agentConfigs = builder.Configuration.GetSection("Agents").Get<List<AgentConfiguration>>() ?? [];
+        var overrideCount = 0;
+        foreach (var agentConfig in agentConfigs)
+        {
+            if (string.IsNullOrWhiteSpace(agentConfig.ModelConnectionName))
+            {
+                Console.WriteLine(
+                    $"[lucia] Agent '{agentConfig.AgentName}': No ModelConnectionName configured — using default model.");
+                continue;
+            }
+
+            var serviceKey = ResolveAgentServiceKey(agentConfig.AgentName);
+            if (serviceKey is null)
+            {
+                Console.WriteLine(
+                    $"[lucia] WARNING: Agent '{agentConfig.AgentName}': Name not recognized — " +
+                    $"cannot map to a keyed IChatClient. ModelConnectionName '{agentConfig.ModelConnectionName}' ignored.");
+                continue;
+            }
+
+            // Verify the connection string exists before attempting registration
+            var connectionString = builder.Configuration.GetConnectionString(agentConfig.ModelConnectionName);
+            if (string.IsNullOrWhiteSpace(connectionString))
+            {
+                Console.WriteLine(
+                    $"[lucia] WARNING: Agent '{agentConfig.AgentName}': ModelConnectionName " +
+                    $"'{agentConfig.ModelConnectionName}' specified but connection string " +
+                    $"'ConnectionStrings:{agentConfig.ModelConnectionName}' not found — falling back to default model.");
+                continue;
+            }
+
+            overrideCount++;
+
+            // Register the keyed chat client from the named connection string.
+            // This overwrites the default forwarding for this key.
+            builder.AddKeyedChatClient(agentConfig.ModelConnectionName);
+
+            // Re-register the agent's service key to resolve from the named connection
+            builder.Services.AddKeyedSingleton<IChatClient>(
+                serviceKey,
+                (sp, _) => sp.GetRequiredKeyedService<IChatClient>(agentConfig.ModelConnectionName));
+
+            Console.WriteLine(
+                $"[lucia] Agent '{agentConfig.AgentName}': Model override applied — " +
+                $"using connection '{agentConfig.ModelConnectionName}' (key: {serviceKey}).");
+        }
+
+        if (overrideCount == 0 && agentConfigs.Count > 0)
+        {
+            Console.WriteLine(
+                $"[lucia] INFO: {agentConfigs.Count} agent(s) configured but none have ModelConnectionName set. " +
+                "All agents will use the default model. Set Agents[].ModelConnectionName in appsettings.json " +
+                "to assign per-agent models.");
+        }
+
         // Register orchestrator and orchestrator agent
         builder.Services.AddSingleton<LuciaOrchestrator>();
         builder.Services.AddSingleton<OrchestratorAgent>();
 
-        // Register agents
+        // Register agent skills and agents
+        builder.Services.AddSingleton<LightControlSkill>();
+        builder.Services.AddSingleton<LightAgent>();
         builder.Services.AddSingleton<GeneralAgent>();
 
+    }
+
+    /// <summary>
+    /// Maps a configured agent name to its well-known keyed service key.
+    /// Returns null if the agent name is not recognized.
+    /// </summary>
+    private static string? ResolveAgentServiceKey(string? agentName)
+    {
+        if (string.IsNullOrWhiteSpace(agentName))
+            return null;
+
+        return agentName.ToLowerInvariant() switch
+        {
+            "light-agent" or "lightagent" => OrchestratorServiceKeys.LightModel,
+            "music-agent" or "musicagent" => OrchestratorServiceKeys.MusicModel,
+            "general-assistant" or "generalagent" => OrchestratorServiceKeys.GeneralModel,
+            "router" or "orchestrator" => OrchestratorServiceKeys.RouterModel,
+            _ => null
+        };
     }
 }

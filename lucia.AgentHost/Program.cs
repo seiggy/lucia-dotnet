@@ -18,8 +18,12 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.AddChatClient("chat-model");
-builder.AddEmbeddingsClient("embeddings-model");
+builder.AddChatClient("chat");
+builder.AddEmbeddingsClient("embeddings");
+
+// Register additional model deployments as keyed IChatClient services
+builder.AddKeyedChatClient("gpt-oss-120b");
+builder.AddKeyedChatClient("gpt-5-nano");
 
 // Add Lucia multi-agent system
 builder.AddLuciaAgents();

@@ -2,6 +2,7 @@
 
 namespace lucia.AppHost;
 
+[Obsolete("Use AddAzureAIFoundry with AddDeployment instead. See AppHost.cs for the new pattern.")]
 public static class ModelExtensions
 {
     public static IResourceBuilder<AIModel> AddAIModel(this IDistributedApplicationBuilder builder, string name)
@@ -243,6 +244,7 @@ public static class ModelExtensions
 }
 
 // A resource representing an AI model.
+[Obsolete("Use AddAzureAIFoundry with AddDeployment instead. See AppHost.cs for the new pattern.")]
 public class AIModel(string name) : Resource(name), IResourceWithConnectionString
 {
     internal string? Provider { get; set; }

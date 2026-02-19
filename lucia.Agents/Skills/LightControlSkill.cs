@@ -139,7 +139,7 @@ public class LightControlSkill : IAgentSkill
                 // Check for brightness
                 if (state.Attributes.TryGetValue("brightness", out var brightnessObj))
                 {
-                    if (JsonSerializer.Deserialize<int?>(brightnessObj?.ToString() ?? "null") is { } brightness)
+                    if (int.TryParse(brightnessObj?.ToString(), out var brightness))
                     {
                         var brightnessPercent = (int)Math.Round(brightness / 255.0 * 100);
                         stringBuilder.Append($" at {brightnessPercent}% brightness");
@@ -254,7 +254,7 @@ public class LightControlSkill : IAgentSkill
                     LightSearchFailures.Add(1, [
                         new KeyValuePair<string, object?>("reason", "state-missing")
                     ]);
-                    return $"Light '{light.EntityId}' was matched but could not be retrieved from Home Assistant.";
+                    return $"Light '{light.FriendlyName}' was matched but could not be retrieved from Home Assistant.";
                 }
 
                 var stringBuilder = new StringBuilder();
@@ -263,7 +263,7 @@ public class LightControlSkill : IAgentSkill
                 // Check for brightness
                 if (state.Attributes.TryGetValue("brightness", out var brightnessObj))
                 {
-                    if (JsonSerializer.Deserialize<int?>(brightnessObj?.ToString() ?? "null") is { } brightness)
+                    if (int.TryParse(brightnessObj?.ToString(), out var brightness))
                     {
                         var brightnessPercent = (int)Math.Round(brightness / 255.0 * 100);
                         stringBuilder.Append($" at {brightnessPercent}% brightness");
@@ -318,7 +318,7 @@ public class LightControlSkill : IAgentSkill
                     // Check for brightness
                     if (state.Attributes.TryGetValue("brightness", out var brightnessObj))
                     {
-                        if (JsonSerializer.Deserialize<int?>(brightnessObj?.ToString() ?? "null") is { } brightness)
+                        if (int.TryParse(brightnessObj?.ToString(), out var brightness))
                         {
                             var brightnessPercent = (int)Math.Round(brightness / 255.0 * 100);
                             stringBuilder.Append($" at {brightnessPercent}% brightness");
@@ -389,6 +389,9 @@ public class LightControlSkill : IAgentSkill
         LightStateQueries.Add(1);
         var start = Stopwatch.GetTimestamp();
 
+        // Resolve friendly name for user-facing responses
+        var displayName = _cachedLights.FirstOrDefault(l => l.EntityId == entityId)?.FriendlyName ?? entityId;
+
         try
         {
             _logger.LogDebug("Getting state for light: {EntityId}", entityId);
@@ -402,18 +405,18 @@ public class LightControlSkill : IAgentSkill
                 LightStateFailures.Add(1, [
                     new KeyValuePair<string, object?>("reason", "state-not-found")
                 ]);
-                return $"Light '{entityId}' not found or unavailable.";
+                return $"Light '{displayName}' not found or unavailable.";
             }
 
             var isOn = state.State == "on";
-            var result = $"Light '{entityId}' is {state.State}";
+            var result = $"Light '{displayName}' is {state.State}";
 
             if (isOn)
             {
                 // Check for brightness
                 if (state.Attributes.TryGetValue("brightness", out var brightnessObj))
                 {
-                    if (JsonSerializer.Deserialize<int?>(brightnessObj.ToString() ?? "null") is { } brightness)
+                    if (int.TryParse(brightnessObj?.ToString(), out var brightness))
                     {
                         var brightnessPercent = (int)Math.Round(brightness / 255.0 * 100);
                         result += $" at {brightnessPercent}% brightness";
@@ -424,16 +427,6 @@ public class LightControlSkill : IAgentSkill
                 if (state.Attributes.TryGetValue("color_temp", out var colorTempObj))
                 {
                     result += $" with color temperature {colorTempObj}";
-                }
-            }
-
-            // Use friendly name if available
-            if (state.Attributes.TryGetValue("friendly_name", out var friendlyNameObj))
-            {
-                var friendlyName = friendlyNameObj.ToString();
-                if (!string.IsNullOrEmpty(friendlyName))
-                {
-                    result = result.Replace($"'{entityId}'", $"'{friendlyName}'");
                 }
             }
 
@@ -449,7 +442,7 @@ public class LightControlSkill : IAgentSkill
             LightStateFailures.Add(1, [
                 new KeyValuePair<string, object?>("reason", "exception")
             ]);
-            return $"Failed to get state for light '{entityId}': {ex.Message}";
+            return $"Failed to get state for light '{displayName}': {ex.Message}";
         }
         finally
         {
@@ -486,6 +479,9 @@ public class LightControlSkill : IAgentSkill
             _logger.LogDebug("Setting light {EntityId} to {State}, brightness: {Brightness}, color: {Color}",
                 entityId, state, brightness, color);
 
+            // Resolve friendly name for user-facing responses
+            var displayName = _cachedLights.FirstOrDefault(l => l.EntityId == entityId)?.FriendlyName ?? entityId;
+
             var request = new ServiceCallRequest
             {
                 ["entity_id"] = entityId
@@ -498,7 +494,7 @@ public class LightControlSkill : IAgentSkill
             {
                 await _homeAssistantClient.CallServiceAsync(domain, "turn_off", ReturnResponseToken, request);
                 activity?.SetStatus(ActivityStatusCode.Ok);
-                return $"Light '{entityId}' turned off successfully.";
+                return $"Light '{displayName}' turned off successfully.";
             }
             else if (state.ToLower() == "on")
             {
@@ -515,7 +511,7 @@ public class LightControlSkill : IAgentSkill
 
                 await _homeAssistantClient.CallServiceAsync(domain, "turn_on", ReturnResponseToken, request);
 
-                var result = $"Light '{entityId}' turned on successfully";
+                var result = $"Light '{displayName}' turned on successfully";
                 if (brightness.HasValue && !isSwitch)
                 {
                     result += $" at {brightness}% brightness";
@@ -592,7 +588,7 @@ public class LightControlSkill : IAgentSkill
             _areaEmbeddings.Clear();
 
             var allEntityDataByArea = await _homeAssistantClient.RunTemplateAsync<List<AreaEntityMap>>(
-                    "[{% for id in areas() %}{% if not loop.first %}, {% endif %}{\"area\":\"{{ id }}\",\"entities\":[{% for e in area_entities(id) %}{% if not loop.first %}, {% endif %}\"{{ e }}\"{% endfor %}]}{% endfor %}]",
+                    "[{% for id in areas() %}{% if not loop.first %}, {% endif %}{\"area\":\"{{ area_name(id) }}\",\"entities\":[{% for e in area_entities(id) %}{% if not loop.first %}, {% endif %}\"{{ e }}\"{% endfor %}]}{% endfor %}]",
                     cancellationToken
                 );
 
@@ -606,7 +602,7 @@ public class LightControlSkill : IAgentSkill
                 var colorModes = SupportedColorModes.None;
                 if (entity.Attributes.TryGetValue("supported_color_modes", out var modesObj))
                 {
-                    var modesArray = JsonSerializer.Deserialize<string[]>(modesObj.ToString() ?? "[]");
+                    var modesArray = JsonSerializer.Deserialize<string[]>(modesObj?.ToString() ?? "[]");
                     if (modesArray != null)
                     {
                         foreach (var mode in modesArray)
