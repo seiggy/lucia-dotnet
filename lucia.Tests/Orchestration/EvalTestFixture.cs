@@ -270,21 +270,32 @@ public sealed class EvalTestFixture : IAsyncLifetime
             generalAgent.GetAIAgent()
         ]);
 
-        return new LuciaEngine(
+        var taskManager = new StubTaskManager();
+
+        var sessionManager = new SessionManager(
+            taskManager,
+            _loggerFactory.CreateLogger<SessionManager>());
+
+        var workflowFactory = new WorkflowFactory(
             routerChatClient,
             mockRegistry,
             A.Fake<IServiceProvider>(),
-            A.Fake<IHttpClientFactory>(),
-            _loggerFactory.CreateLogger<LuciaEngine>(),
             _loggerFactory,
             Options.Create(new RouterExecutorOptions()),
             Options.Create(new AgentInvokerOptions()),
             Options.Create(new ResultAggregatorOptions()),
-            Options.Create(new SessionCacheOptions()),
             TimeProvider.System,
-            new StubTaskManager(),
+            taskManager,
             observer,
             agentProvider);
+
+        return new LuciaEngine(
+            mockRegistry,
+            sessionManager,
+            workflowFactory,
+            Options.Create(new ResultAggregatorOptions()),
+            _loggerFactory.CreateLogger<LuciaEngine>(),
+            observer);
     }
 
     public Task DisposeAsync()

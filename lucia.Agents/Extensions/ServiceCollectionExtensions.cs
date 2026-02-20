@@ -380,7 +380,9 @@ public static class ServiceCollectionExtensions
                 "to assign per-agent models.");
         }
 
-        // Register orchestrator engine and agent
+        // Register orchestrator components and engine
+        builder.Services.AddSingleton<SessionManager>();
+        builder.Services.AddSingleton<WorkflowFactory>();
         builder.Services.AddSingleton<LuciaEngine>();
         builder.Services.AddSingleton<OrchestratorAgent>();
         builder.Services.AddSingleton<ILuciaAgent>(sp => sp.GetRequiredService<OrchestratorAgent>());
