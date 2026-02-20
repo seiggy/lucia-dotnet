@@ -178,6 +178,8 @@ public static class SetupApi
             client.BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/");
             client.DefaultRequestHeaders.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            client.DefaultRequestHeaders.Accept.Add(
+                new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
 
             // Test with /api/ root endpoint
             var response = await client.GetAsync("api/", ct).ConfigureAwait(false);
@@ -191,7 +193,8 @@ public static class SetupApi
                 var configResponse = await client.GetAsync("api/config", ct).ConfigureAwait(false);
                 if (configResponse.IsSuccessStatusCode)
                 {
-                    var json = await configResponse.Content.ReadFromJsonAsync<JsonElement>(ct).ConfigureAwait(false);
+                    var body = await configResponse.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                    var json = JsonDocument.Parse(body).RootElement;
                     haVersion = json.TryGetProperty("version", out var v) ? v.GetString() : null;
                     locationName = json.TryGetProperty("location_name", out var l) ? l.GetString() : null;
                 }

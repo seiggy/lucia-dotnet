@@ -199,11 +199,20 @@ public static class Extensions
     {
         try
         {
-            // Use synchronous ReadAsStream() (.NET 5+) to avoid deadlock from
-            // GetAwaiter().GetResult() — content is already buffered at enrichment time
+            // Buffer the content first so downstream code can still read it.
+            // LoadIntoBufferAsync is a no-op if already buffered.
+            content.LoadIntoBufferAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+
             using var stream = content.ReadAsStream();
             using var reader = new StreamReader(stream, leaveOpen: true);
             var payload = reader.ReadToEnd();
+
+            // Reset the stream position so downstream callers can re-read
+            if (stream.CanSeek)
+            {
+                stream.Position = 0;
+            }
+
             if (!string.IsNullOrWhiteSpace(payload))
             {
                 activity.SetTag(tagName, payload);
