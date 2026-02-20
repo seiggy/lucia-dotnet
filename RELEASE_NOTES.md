@@ -1,4 +1,142 @@
 
+# Release Notes - 2026.02.20
+
+**Release Date:** February 20, 2026  
+**Code Name:** "Galaxy"
+
+---
+
+## 🌌 Overview
+
+"Galaxy" is the largest release in Lucia's history — a sweeping upgrade that touches nearly every layer of the stack. At its core, this release migrates the entire platform to **Microsoft Agent Framework 1.0.0-preview.260212.1** and **.NET 10**, introduces an **LLM fine-tuning data pipeline** backed by **MongoDB**, adds a brand-new **Timer Agent** for timed announcements, and delivers a comprehensive **evaluation testing framework** for measuring agent quality at scale. With 535 files changed across 86k+ lines, "Galaxy" transforms Lucia from a conversational assistant into a self-improving, observable, and extensible agentic platform.
+
+## 🚀 Highlights
+
+- **Microsoft Agent Framework 1.0.0-preview.260212.1** — Full migration to the latest MAF preview with breaking API changes including `AgentThread` → `AgentSession`, `ChatMessageStore` → `ChatHistoryProvider`, and consolidated `AsAIAgent()` creation. Session management is now fully async, and source-generated executors replace reflection-based patterns.
+- **LLM Fine-Tuning Data Pipeline** — A production-grade training system that automatically captures orchestrator and agent conversation traces, stores them in MongoDB, and exports them as OpenAI-compatible JSONL datasets. Includes sensitive data redaction, labeling workflows, configurable retention, and per-agent filtering.
+- **MongoDB Integration** — Dual-purpose MongoDB backend for trace/training data storage (`luciatraces`) and hot-reloadable application configuration (`luciaconfig`). Configuration changes poll every 5 seconds and override appsettings.json without restarts.
+- **Timer Agent** — New agent for creating timed announcements and reminders on Home Assistant assist satellite devices. Supports natural-language duration parsing, concurrent timer management, and TTS announcements via `assist_satellite.announce`.
+- **Evaluation Testing Framework** — Comprehensive eval tests using `Microsoft.Extensions.AI.Evaluation` with LLM-based evaluators (Relevance, Coherence, ToolCallAccuracy, TaskAdherence, Latency). Cross-products models × prompt variants with disk-based reporting via `dotnet aieval report`.
+
+## ✨ What's New
+
+### 🤖 Timer Agent & Skill
+
+- **SetTimer**: Create timers with natural-language durations ("5 minutes", "1 hour 30 minutes") targeting specific satellite devices
+- **CancelTimer**: Cancel active timers by ID with graceful cleanup
+- **ListTimers**: View all active timers with remaining time and messages
+- Thread-safe concurrent timer tracking via `ConcurrentDictionary`
+- Fire-and-forget execution model with `CancellationTokenSource` support
+- OpenTelemetry instrumentation for timer operations
+- Testable time handling via `TimeProvider`
+
+### 🧠 LLM Fine-Tuning Pipeline
+
+- **TraceCaptureObserver**: Hooks into orchestrator lifecycle to capture full interaction traces without impacting latency (fire-and-forget)
+- **AgentTracingChatClient**: Wrapping `DelegatingChatClient` that captures system prompts, user messages, tool calls, tool results, and assistant responses per-agent
+- **AsyncLocal session correlation**: Links orchestrator and per-agent traces together across async boundaries
+- **JsonlConverter**: Exports traces to OpenAI fine-tuning JSONL format with human correction labels, per-agent filtering, and tool call inclusion
+- **TraceRetentionService**: Auto-cleans unlabeled traces after configurable retention period (default 30 days)
+- **Sensitive data redaction**: Configurable regex patterns strip API keys, tokens, and JWTs before persistence
+
+### 🗄️ MongoDB Backend
+
+- **Trace Storage** (`MongoTraceRepository`): CRUD operations with automatic indexing on Timestamp, Label.Status, and AgentId fields
+- **Configuration Storage** (`MongoConfigurationProvider`): ASP.NET Core `IConfigurationProvider` backed by MongoDB with 5-second polling for hot-reload
+- **ConfigSeeder**: Bootstraps MongoDB config from appsettings.json on first run
+- **Stats aggregation**: Total, labeled, unlabeled, and errored trace counts by agent
+- **Filtering**: Query traces by date range, agent, model, label status, and keyword
+
+### 📊 Evaluation Testing
+
+- **EvalTestFixture** & **AgentEvalTestBase**: Reusable infrastructure for agent quality testing
+- **Real agent instances** backed by Azure OpenAI evaluation models with `FunctionInvokingChatClient` for actual tool execution
+- **LLM-based evaluators**: Relevance, Coherence, ToolCallAccuracy, TaskAdherence, and Latency scoring
+- **Cross-product parameterization**: `[MemberData]` drives model × prompt variant test matrices
+- **Eval test suites**: LightAgentEvalTests, MusicAgentEvalTests, OrchestratorEvalTests with STT artifact variants and edge cases
+- **ChatHistoryCapture** for recording intermediate tool calls and responses
+
+## 🔧 Under the Hood
+
+### MAF Migration (Breaking Changes)
+
+| Before | After |
+|--------|-------|
+| `AgentThread` | `AgentSession` |
+| `ChatMessageStore` | `ChatHistoryProvider` |
+| `GetNewThread()` | `await CreateSessionAsync()` |
+| `DeserializeThread()` | `await DeserializeSessionAsync()` |
+| `session.Serialize()` | `agent.SerializeSession()` |
+| `AgentRunResponse` | `AgentResponse` |
+| `CreateAIAgent()` / `GetAIAgent()` | `AsAIAgent()` |
+| `ReflectingExecutor` | Source-generated `[AgentTools]` |
+
+- `DelegatingAIAgent` is now abstract — implementations must override core methods
+- `AIAgent.Id` is now non-nullable (required)
+- Provider signatures changed: `ChatHistoryProvider` and `AIContextProvider` now receive `(AIAgent agent, AgentSession session)`
+- Custom `IAgentRegistry` replaces removed `AgentCatalog` for agent discovery
+
+### Dependency Upgrades
+
+- **Microsoft.Agents.AI** packages → **1.0.0-preview.260212.1**
+- **Microsoft.Extensions.AI** → **10.2.0 / 10.3.0**
+- Target framework → **.NET 10**
+
+### DI Registration Fix
+
+- Fixed `AddKeyedAzureOpenAIClient` poisoning the non-keyed `AzureOpenAIClient` registration with a null factory
+- Keyed chat clients now reuse the shared non-keyed `OpenAIClient` to prevent double-registration conflicts
+
+### APM & Observability
+
+- **Custom meters**: `Lucia.TraceCapture`, `Lucia.Skills.LightControl`, `Lucia.Skills.MusicPlayback`
+- **Activity sources**: Full tracing for Lucia orchestration, agents, skills, and all MAF/A2A namespaces
+- **Health check filtering**: Excludes `/health` and `/alive` from trace recording
+- **HTTP enrichment**: Request/response headers and bodies captured in OpenTelemetry spans
+
+### Agent Registration & Discovery
+
+- Enhanced agent registration with `IAgentRegistry` interface and `LocalAgentRegistry`
+- Agent Cards (A2A protocol) now required for registration with full capability metadata
+- `OrchestratorServiceKeys` manages agent-specific model keys for bulk registration
+- Async initialization support added to MusicAgent
+
+### Housekeeping
+
+- Removed obsolete multi-agent orchestration specification files
+- Refactored `ContextExtractorTests` to use async mock registry creation
+- Removed unused test doubles and updated package references
+
+### Home Assistant Custom Component
+
+- **Migrated to `_async_handle_message`**: Replaced deprecated `async_process` method with the new `_async_handle_message` API, adopting Home Assistant's built-in `ChatLog` for multi-turn conversation support
+- **Chat log integration**: All agent responses (success and error) are now recorded in the HA `ChatLog` via `async_add_assistant_content_without_tools` with `AssistantContent`
+- **`continue_conversation` support**: `ConversationResult` now includes the `continue_conversation` flag for future multi-turn flows
+- Bumped component version to `2026.02.20`
+
+## ✅ Upgrade Notes
+
+- **Breaking**: This release requires **.NET 10** — upgrade your SDK before building.
+- **Breaking**: MAF API changes require updating all agent session management code (see migration table above).
+- **MongoDB required**: New trace capture and configuration features require MongoDB. Add MongoDB to your Aspire AppHost or provide connection strings for `luciatraces` and `luciaconfig` databases.
+- **New environment variables**: `HA_ENDPOINT` and `HA_TOKEN` provide Home Assistant API access for testing and snapshot export.
+- Existing installations should reload the integration after updating to register the new Timer Agent card.
+- Eval tests require Azure OpenAI credentials configured for evaluation model access.
+- **Home Assistant plugin**: The conversation entity now uses `_async_handle_message` instead of `async_process`. This is backwards-compatible per the HA team, but requires a recent Home Assistant Core version with `ChatLog` support.
+
+## 🔮 What's Next
+
+See our [Roadmap](https://github.com/seiggy/lucia-dotnet/blob/master/.docs/product/roadmap.md) for upcoming features:
+
+- **Climate Agent** — HVAC and temperature control
+- **Security Agent** — Alarms, locks, and camera integration
+- **Scene Agent** — Scene management and automation
+- **Training UI** — Web interface for labeling conversation traces and managing fine-tuning datasets
+- **Local LLM fine-tuning** — Use captured training data with local models for privacy-first deployment
+- **WebSocket streaming** — Real-time Home Assistant event monitoring
+
+---
+
 # Release Notes - 2025.11.09
 
 **Release Date:** November 9, 2025  
