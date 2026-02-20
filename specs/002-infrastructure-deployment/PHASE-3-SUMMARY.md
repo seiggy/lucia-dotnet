@@ -35,7 +35,7 @@ Phase 3 implementation complete! All Docker MVP components deployed and document
 
 ### T008: Docker Compose Orchestration ✅
 
-**File**: `docker-compose.yml`
+**File**: `infra/docker/docker-compose.yml`
 
 **Services:**
 1. **lucia** (lucia.AgentHost API)
@@ -267,7 +267,7 @@ Phase 3 implementation complete! All Docker MVP components deployed and document
 - ✅ `Dockerfile.agenthost` - Production-ready multi-stage Dockerfile
 - ✅ `Dockerfile.redis` - Redis service configuration
 - ✅ `redis.conf` - Production Redis settings
-- ✅ `docker-compose.yml` - Full orchestration in project root
+- ✅ `infra/docker/docker-compose.yml` - Full orchestration
 - ✅ `.env.example` - Configuration template
 
 ### Documentation (1600+ lines)
@@ -481,7 +481,7 @@ infra/
     └── deployment-comparison.md (✅ Phase 1)
 
 Root:
-├── docker-compose.yml (✅ T008 - uses redis:8.2-alpine)
+├── infra/docker/docker-compose.yml (✅ T008 - uses redis:8.2-alpine)
 ├── .env.example (✅ T009)
 └── .gitignore (unchanged - already excludes .env)
 ```

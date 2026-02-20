@@ -16,7 +16,7 @@ Simplified Docker MVP by removing custom Redis Dockerfile and configuration file
 
 ### Updated Files
 
-- ✅ `docker-compose.yml` - Updated redis service to use official image
+- ✅ `infra/docker/docker-compose.yml` - Updated redis service to use official image
 - ✅ `infra/docker/README.md` - Updated documentation
 - ✅ `specs/002-infrastructure-deployment/PHASE-3-SUMMARY.md` - Updated references
 
@@ -118,4 +118,4 @@ Updated files:
 
 - `infra/docker/README.md` ✅
 - `PHASE-3-SUMMARY.md` ✅
-- `docker-compose.yml` ✅
+- `infra/docker/docker-compose.yml` ✅

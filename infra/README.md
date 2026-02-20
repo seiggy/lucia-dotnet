@@ -6,6 +6,26 @@ This directory contains all infrastructure deployment utilities and documentatio
 
 Choose your deployment method below:
 
+### Local Development Topology (AppHost-first)
+
+For local development, start the solution through `lucia.AppHost` so supporting services and agent hosts start in a consistent composition.
+
+Current AppHost composition includes:
+- `lucia-agenthost` (agent registry/API)
+- `music-agent` (`lucia.A2AHost` with music plugin)
+- `timer-agent` (`lucia.A2AHost` with timer plugin)
+- `lucia-dashboard` (Vite app)
+- Redis (persistent container + RedisInsight)
+- MongoDB (persistent container + mongo-express)
+
+Recommended startup from repository root:
+```bash
+dotnet build lucia-dotnet.slnx
+dotnet run --project lucia.AppHost
+```
+
+Use direct host startup (`dotnet run --project lucia.AgentHost`) only for targeted host-only debugging.
+
 ### 🐳 [Docker Compose Deployment](./docker/README.md) - **Recommended for Most Users**
 
 Deploy Lucia on home servers, NAS devices, or single machines using Docker Compose with Redis.
@@ -146,13 +166,16 @@ All deployment methods require configuration via environment variables. See [doc
 ## Architecture
 
 ```
-lucia-dotnet (Application)
-    ↓
-Redis (State Persistence)
-    ↓
-Home Assistant (Device Control)
-    ↓
-LLM Provider (AI Intelligence)
+lucia.AppHost (orchestration)
+    ├── lucia-agenthost (registry + APIs)
+    ├── music-agent (A2AHost plugin)
+    ├── timer-agent (A2AHost plugin)
+    ├── lucia-dashboard (UI)
+    ├── redis (state persistence)
+    └── mongodb (traces/config/tasks stores)
+
+Home Assistant (custom component) ↔ agent endpoints
+LLM provider(s) consumed by agent hosts
 ```
 
 **Deployment Options**:
@@ -168,6 +191,10 @@ LLM Provider (AI Intelligence)
 After deploying, verify your deployment is healthy:
 
 ```bash
+# Local AppHost dev stack
+dotnet run --project lucia.AppHost
+# Then use the Aspire dashboard to open each resource endpoint and health page
+
 # Docker Compose
 docker compose ps                    # Check container status
 curl http://localhost:7235/health   # Check application health

@@ -158,7 +158,7 @@ services:
   # ========================================================================
   a2ahost-base:
     build:
-      context: .
+      context: ../..
       dockerfile: infra/docker/Dockerfile.a2ahost
       args:
         BUILD_CONFIGURATION: Release
@@ -172,7 +172,7 @@ services:
   lucia:
     # Build from local Dockerfile
     build:
-      context: .
+      context: ../..
       dockerfile: infra/docker/Dockerfile
       args:
         BUILD_CONFIGURATION: Release
@@ -203,11 +203,11 @@ services:
     # Volume mounts
     volumes:
       # Configuration (read-only)
-      - ./.env:/app/.env:ro
+      - ../../.env:/app/.env:ro
     
     # Environment variables from .env file
     env_file:
-      - .env
+      - ../../.env
     
     # Additional environment variables
     environment:
@@ -305,7 +305,7 @@ services:
   # ========================================================================
   music-agent:
     build:
-      context: .
+      context: ../..
       dockerfile: infra/docker/Dockerfile.music-agent
       args:
         BUILD_CONFIGURATION: Release
@@ -330,7 +330,7 @@ services:
       - "127.0.0.1:5010:8080"
 
     env_file:
-      - .env
+      - ../../.env
 
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
@@ -380,7 +380,7 @@ services:
   # ========================================================================
   timer-agent:
     build:
-      context: .
+      context: ../..
       dockerfile: infra/docker/Dockerfile.timer-agent
       args:
         BUILD_CONFIGURATION: Release
@@ -405,7 +405,7 @@ services:
       - "127.0.0.1:5011:8080"
 
     env_file:
-      - .env
+      - ../../.env
 
     environment:
       - ASPNETCORE_ENVIRONMENT=Production

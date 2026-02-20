@@ -217,19 +217,20 @@ validate_docker_setup() {
     fi
     
     # Check for docker-compose.yml
-    if [[ -f "docker-compose.yml" ]]; then
-        log_pass "docker-compose.yml found"
+    local compose_file="infra/docker/docker-compose.yml"
+    if [[ -f "$compose_file" ]]; then
+        log_pass "docker-compose.yml found at $compose_file"
         
         # Validate YAML syntax
         if command -v docker &>/dev/null; then
-            if docker run --rm -v "$PWD:/data" sdesbure/yamllint /data/docker-compose.yml &>/dev/null 2>&1; then
+            if docker run --rm -v "$PWD:/data" sdesbure/yamllint "/data/$compose_file" &>/dev/null 2>&1; then
                 log_pass "docker-compose.yml syntax is valid"
             else
                 log_fail "docker-compose.yml has syntax errors"
             fi
         fi
     else
-        log_warn "docker-compose.yml not found in current directory"
+        log_warn "docker-compose.yml not found at $compose_file"
     fi
 }
 

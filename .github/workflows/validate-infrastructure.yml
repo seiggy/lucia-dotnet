@@ -32,7 +32,7 @@ jobs:
         run: |
           echo "Validating Docker Compose syntax..."
           mv .env.example .env  # Use example env for validation
-          docker-compose -f docker-compose.yml config > /dev/null
+          docker-compose -f infra/docker/docker-compose.yml config > /dev/null
           echo "✅ Docker Compose files are valid"
 
       - name: Check Docker Compose structure
@@ -40,13 +40,13 @@ jobs:
           echo "Checking Docker Compose file structure..."
           
           # Check that lucia service exists
-          if ! grep -q 'lucia:' docker-compose.yml; then
+          if ! grep -q 'lucia:' infra/docker/docker-compose.yml; then
             echo "❌ lucia service not found in docker-compose.yml"
             exit 1
           fi
           
           # Check that redis service exists
-          if ! grep -q 'redis:' docker-compose.yml; then
+          if ! grep -q 'redis:' infra/docker/docker-compose.yml; then
             echo "❌ redis service not found in docker-compose.yml"
             exit 1
           fi
