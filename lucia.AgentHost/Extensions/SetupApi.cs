@@ -1,6 +1,6 @@
 using System.Security.Cryptography;
+using System.Text.Json;
 using lucia.Agents.Auth;
-using lucia.HomeAssistant.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace lucia.AgentHost.Extensions;
@@ -151,22 +151,62 @@ public static class SetupApi
 
     /// <summary>
     /// Step 2c: Test the Lucia → Home Assistant connection using the saved URL and token.
+    /// Creates a temporary HttpClient since the DI-registered client may not have the
+    /// newly-configured URL yet (first-run setup).
     /// </summary>
     private static async Task<IResult> TestHaConnectionAsync(
-        IHomeAssistantClient haClient,
+        ConfigStoreWriter configStore,
+        IHttpClientFactory httpClientFactory,
         HttpContext httpContext)
     {
         try
         {
-            var apiRoot = await haClient.GetApiRootAsync(httpContext.RequestAborted).ConfigureAwait(false);
-            var config = await haClient.GetConfigAsync(httpContext.RequestAborted).ConfigureAwait(false);
+            var ct = httpContext.RequestAborted;
+            var baseUrl = await configStore.GetAsync("HomeAssistant:BaseUrl", ct).ConfigureAwait(false);
+            var token = await configStore.GetAsync("HomeAssistant:AccessToken", ct).ConfigureAwait(false);
+
+            if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(token))
+            {
+                return Results.Ok(new
+                {
+                    connected = false,
+                    error = "Home Assistant URL or access token not configured yet.",
+                });
+            }
+
+            using var client = httpClientFactory.CreateClient();
+            client.BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/");
+            client.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+            // Test with /api/ root endpoint
+            var response = await client.GetAsync("api/", ct).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+
+            // Try to get config for version/location info
+            string? haVersion = null;
+            string? locationName = null;
+            try
+            {
+                var configResponse = await client.GetAsync("api/config", ct).ConfigureAwait(false);
+                if (configResponse.IsSuccessStatusCode)
+                {
+                    var json = await configResponse.Content.ReadFromJsonAsync<JsonElement>(ct).ConfigureAwait(false);
+                    haVersion = json.TryGetProperty("version", out var v) ? v.GetString() : null;
+                    locationName = json.TryGetProperty("location_name", out var l) ? l.GetString() : null;
+                }
+            }
+            catch
+            {
+                // Config fetch is best-effort
+            }
 
             return Results.Ok(new
             {
                 connected = true,
-                message = apiRoot?.Message ?? "Connected",
-                haVersion = config?.Version,
-                locationName = config?.LocationName,
+                message = "Connected to Home Assistant",
+                haVersion,
+                locationName,
             });
         }
         catch (HttpRequestException ex)
