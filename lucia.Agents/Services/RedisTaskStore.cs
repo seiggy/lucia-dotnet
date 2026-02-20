@@ -11,6 +11,8 @@ namespace lucia.Agents.Services;
 /// </summary>
 public sealed class RedisTaskStore : ITaskStore
 {
+    private const string TaskIdSetKey = "lucia:task-ids";
+    
     private readonly IConnectionMultiplexer _redis;
     private readonly JsonSerializerOptions _jsonOptions;
     private static readonly ActivitySource ActivitySource = new("lucia.Agents.RedisTaskStore");
@@ -144,6 +146,9 @@ public sealed class RedisTaskStore : ITaskStore
 
         // Set with 24-hour TTL per spec requirements
         await db.StringSetAsync(key, json, TimeSpan.FromHours(24));
+        
+        // Track task ID in the index set (auxiliary bookkeeping)
+        _ = db.SetAddAsync(TaskIdSetKey, task.Id, CommandFlags.FireAndForget);
 
         stopwatch.Stop();
         var durationMs = stopwatch.Elapsed.TotalMilliseconds;

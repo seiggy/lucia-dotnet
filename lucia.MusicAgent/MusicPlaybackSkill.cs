@@ -34,12 +34,12 @@ public class MusicPlaybackSkill
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
     private readonly ILogger<MusicPlaybackSkill> _logger;
     private readonly IDeviceCacheService _deviceCache;
-    private readonly List<MusicPlayerEntity> _cachedPlayers = new();
+    private volatile IReadOnlyList<MusicPlayerEntity> _cachedPlayers = Array.Empty<MusicPlayerEntity>();
     private readonly ConcurrentDictionary<string, Embedding<float>> _searchTermEmbeddingCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _cacheLock = new(1, 1);
     private readonly TimeSpan _cacheRefreshInterval = TimeSpan.FromMinutes(30);
     private readonly MusicAssistantConfig _config;
-    private DateTime _lastCacheUpdate = DateTime.MinValue;
+    private long _lastCacheUpdateTicks = DateTime.MinValue.Ticks;
     
     public MusicPlaybackSkill(
         IHomeAssistantClient homeAssistantClient,
@@ -341,8 +341,20 @@ public class MusicPlaybackSkill
 
         if (!_cachedPlayers.Any())
         {
-            await RefreshPlayerCacheAsync(CancellationToken.None)
-                .ConfigureAwait(false);
+            await _cacheLock.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                if (!_cachedPlayers.Any())
+                {
+                    await RefreshPlayerCacheAsync(CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                _cacheLock.Release();
+            }
+
             if (!_cachedPlayers.Any())
                 return null;
         }
@@ -412,7 +424,7 @@ public class MusicPlaybackSkill
 
     private async Task EnsureCacheIsCurrentAsync()
     {
-        if (DateTime.UtcNow - _lastCacheUpdate < _cacheRefreshInterval)
+        if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) < _cacheRefreshInterval)
         {
             return;
         }
@@ -420,7 +432,7 @@ public class MusicPlaybackSkill
         await _cacheLock.WaitAsync().ConfigureAwait(false);
         try
         {
-            if (DateTime.UtcNow - _lastCacheUpdate < _cacheRefreshInterval)
+            if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) < _cacheRefreshInterval)
             {
                 return;
             }
@@ -442,8 +454,9 @@ public class MusicPlaybackSkill
             // we don't have the websocket api integated yet, so just return the config added by the service config.
             
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Failed to find Music Assistant instance");
         }
     }
     
@@ -458,7 +471,7 @@ public class MusicPlaybackSkill
             if (cachedPlayers is { Count: > 0 })
             {
                 _logger.LogInformation("Loaded {PlayerCount} players from Redis cache", cachedPlayers.Count);
-                _cachedPlayers.Clear();
+                var restoredPlayers = new List<MusicPlayerEntity>(cachedPlayers.Count);
                 
                 // Re-attach embeddings from Redis for each player
                 var allRestored = true;
@@ -468,7 +481,7 @@ public class MusicPlaybackSkill
                     if (embedding is not null)
                     {
                         player.NameEmbedding = embedding;
-                        _cachedPlayers.Add(player);
+                        restoredPlayers.Add(player);
                     }
                     else
                     {
@@ -478,19 +491,20 @@ public class MusicPlaybackSkill
                     }
                 }
                 
-                if (allRestored && _cachedPlayers.Count == cachedPlayers.Count)
+                if (allRestored && restoredPlayers.Count == cachedPlayers.Count)
                 {
-                    _lastCacheUpdate = DateTime.UtcNow;
+                    _cachedPlayers = restoredPlayers;
+                    Volatile.Write(ref _lastCacheUpdateTicks, DateTime.UtcNow.Ticks);
                     return; // Cache hit
                 }
                 
-                _cachedPlayers.Clear(); // Partial — fall through
+                // Partial — fall through to full refresh
             }
 
             var states = await _homeAssistantClient.GetAllEntityStatesAsync(cancellationToken).ConfigureAwait(false);
             var players = states.Where(IsMusicAssistantPlayer).ToList();
             
-            _cachedPlayers.Clear();
+            var newPlayers = new List<MusicPlayerEntity>(players.Count);
 
             foreach (var state in players)
             {
@@ -507,7 +521,7 @@ public class MusicPlaybackSkill
                         NameEmbedding = embedding
                     };
 
-                    _cachedPlayers.Add(entity);
+                    newPlayers.Add(entity);
                 }
                 catch (Exception ex)
                 {
@@ -515,19 +529,21 @@ public class MusicPlaybackSkill
                 }
             }
 
-            _lastCacheUpdate = DateTime.UtcNow;
+            // Atomic swap — readers see either the old or new snapshot, never a partial list
+            _cachedPlayers = newPlayers;
+            Volatile.Write(ref _lastCacheUpdateTicks, DateTime.UtcNow.Ticks);
 
             // Save to Redis
             var playerCacheTtl = TimeSpan.FromMinutes(30);
             var embeddingCacheTtl = TimeSpan.FromHours(24);
-            await _deviceCache.SetCachedPlayersAsync(_cachedPlayers.ToList(), playerCacheTtl, cancellationToken);
-            foreach (var player in _cachedPlayers)
+            await _deviceCache.SetCachedPlayersAsync(newPlayers, playerCacheTtl, cancellationToken);
+            foreach (var player in newPlayers)
             {
                 await _deviceCache.SetEmbeddingAsync($"player:{player.EntityId}", player.NameEmbedding, embeddingCacheTtl, cancellationToken);
             }
-            _logger.LogInformation("Saved {PlayerCount} players to Redis cache", _cachedPlayers.Count);
+            _logger.LogInformation("Saved {PlayerCount} players to Redis cache", newPlayers.Count);
 
-            _logger.LogInformation("Cached {Count} Music Assistant players", _cachedPlayers.Count);
+            _logger.LogInformation("Cached {Count} Music Assistant players", newPlayers.Count);
         }
         catch (Exception ex)
         {
@@ -555,8 +571,9 @@ public class MusicPlaybackSkill
 
             return response.ServiceResponse.Items.Select(item => item.Uri).ToList();
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Failed to get random track URIs from Music Assistant");
             return [];
         }
     }

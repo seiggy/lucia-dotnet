@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using lucia.HomeAssistant.Configuration;
 using lucia.HomeAssistant.Models;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace lucia.HomeAssistant.Services;
@@ -14,10 +15,12 @@ namespace lucia.HomeAssistant.Services;
 public sealed class HomeAssistantClient : IHomeAssistantClient
 {
     private readonly HttpClient _httpClient;
+    private readonly ILogger<HomeAssistantClient> _logger;
 
-    public HomeAssistantClient(HttpClient httpClient, IOptions<HomeAssistantOptions> options)
+    public HomeAssistantClient(HttpClient httpClient, IOptions<HomeAssistantOptions> options, ILogger<HomeAssistantClient> logger)
     {
         _httpClient = httpClient;
+        _logger = logger;
         var opts = options.Value;
 
         _httpClient.BaseAddress = new Uri(opts.BaseUrl.TrimEnd('/'));
@@ -86,14 +89,23 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
         if (returnResponse)
             path += "?return_response";
 
+        _logger.PostRequest(path);
         var json = request is not null
             ? JsonSerializer.Serialize(request, HomeAssistantJsonOptions.Default)
             : "{}";
 
         using var content = new StringContent(json, Encoding.UTF8, "application/json");
-        var response = await _httpClient.PostAsync(path, content, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        return await response.Content.ReadAsStringAsync(cancellationToken);
+        try
+        {
+            var response = await _httpClient.PostAsync(path, content, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadAsStringAsync(cancellationToken);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.HttpRequestFailed(ex, "POST", path);
+            throw;
+        }
     }
 
     // ── History & Logbook ───────────────────────────────────────────
@@ -116,8 +128,22 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
             ("significant_changes_only", significantChangesOnly));
 
         var path = $"/api/history/period/{Uri.EscapeDataString(timestamp)}{qs}";
-        var result = await _httpClient.GetFromJsonAsync<HomeAssistantState[][]>(path, HomeAssistantJsonOptions.Default, cancellationToken);
-        return result ?? [];
+        _logger.GetRequest(path);
+        try
+        {
+            var result = await _httpClient.GetFromJsonAsync<HomeAssistantState[][]>(path, HomeAssistantJsonOptions.Default, cancellationToken);
+            return result ?? [];
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.HttpRequestFailed(ex, "GET", path);
+            throw;
+        }
+        catch (JsonException ex)
+        {
+            _logger.DeserializationFailed(ex, "GET", path);
+            throw;
+        }
     }
 
     /// <summary>Returns an array of logbook entries.</summary>
@@ -143,14 +169,22 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
     /// <summary>Returns a state object for the specified entity, or null if not found.</summary>
     public async Task<HomeAssistantState?> GetStateAsync(string entityId, CancellationToken cancellationToken = default)
     {
+        var path = $"/api/states/{Uri.EscapeDataString(entityId)}";
+        _logger.GetRequest(path);
         try
         {
             return await _httpClient.GetFromJsonAsync<HomeAssistantState>(
-                $"/api/states/{Uri.EscapeDataString(entityId)}", HomeAssistantJsonOptions.Default, cancellationToken);
+                path, HomeAssistantJsonOptions.Default, cancellationToken);
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
+            _logger.EntityNotFound(entityId);
             return null;
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.HttpRequestFailed(ex, "GET", path);
+            throw;
         }
     }
 
@@ -166,9 +200,19 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
     /// <summary>Returns the camera image data.</summary>
     public async Task<byte[]> GetCameraProxyAsync(string cameraEntityId, CancellationToken cancellationToken = default)
     {
-        var response = await _httpClient.GetAsync($"/api/camera_proxy/{Uri.EscapeDataString(cameraEntityId)}", cancellationToken);
-        response.EnsureSuccessStatusCode();
-        return await response.Content.ReadAsByteArrayAsync(cancellationToken);
+        var path = $"/api/camera_proxy/{Uri.EscapeDataString(cameraEntityId)}";
+        _logger.GetRequest(path);
+        try
+        {
+            var response = await _httpClient.GetAsync(path, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadAsByteArrayAsync(cancellationToken);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.HttpRequestFailed(ex, "GET", path);
+            throw;
+        }
     }
 
     // ── Calendars ───────────────────────────────────────────────────
@@ -196,11 +240,20 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
     /// <summary>Render a Home Assistant Jinja2 template.</summary>
     public async Task<string> RenderTemplateAsync(TemplateRenderRequest request, CancellationToken cancellationToken = default)
     {
+        _logger.PostRequest("/api/template");
         var json = JsonSerializer.Serialize(request, HomeAssistantJsonOptions.Default);
         using var content = new StringContent(json, Encoding.UTF8, "application/json");
-        var response = await _httpClient.PostAsync("/api/template", content, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        return await response.Content.ReadAsStringAsync(cancellationToken);
+        try
+        {
+            var response = await _httpClient.PostAsync("/api/template", content, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadAsStringAsync(cancellationToken);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.HttpRequestFailed(ex, "POST", "/api/template");
+            throw;
+        }
     }
 
     // ── Intents ─────────────────────────────────────────────────────
@@ -208,11 +261,20 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
     /// <summary>Handle an intent.</summary>
     public async Task<string> HandleIntentAsync(IntentRequest request, CancellationToken cancellationToken = default)
     {
+        _logger.PostRequest("/api/intent/handle");
         var json = JsonSerializer.Serialize(request, HomeAssistantJsonOptions.Default);
         using var content = new StringContent(json, Encoding.UTF8, "application/json");
-        var response = await _httpClient.PostAsync("/api/intent/handle", content, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        return await response.Content.ReadAsStringAsync(cancellationToken);
+        try
+        {
+            var response = await _httpClient.PostAsync("/api/intent/handle", content, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadAsStringAsync(cancellationToken);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.HttpRequestFailed(ex, "POST", "/api/intent/handle");
+            throw;
+        }
     }
 
     // ── IHomeAssistantClient explicit implementations ───────────────
@@ -270,28 +332,70 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
 
     private async Task<T> GetAsync<T>(string path, CancellationToken cancellationToken)
     {
-        return await _httpClient.GetFromJsonAsync<T>(path, HomeAssistantJsonOptions.Default, cancellationToken)
-            ?? throw new InvalidOperationException("Failed to deserialize response");
+        _logger.GetRequest(path);
+        try
+        {
+            return await _httpClient.GetFromJsonAsync<T>(path, HomeAssistantJsonOptions.Default, cancellationToken)
+                ?? throw new InvalidOperationException("Failed to deserialize response");
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.HttpRequestFailed(ex, "GET", path);
+            throw;
+        }
+        catch (JsonException ex)
+        {
+            _logger.DeserializationFailed(ex, "GET", path);
+            throw;
+        }
     }
 
     private async Task<T[]> GetArrayAsync<T>(string path, CancellationToken cancellationToken)
     {
-        return await _httpClient.GetFromJsonAsync<T[]>(path, HomeAssistantJsonOptions.Default, cancellationToken)
-            ?? [];
+        _logger.GetRequest(path);
+        try
+        {
+            return await _httpClient.GetFromJsonAsync<T[]>(path, HomeAssistantJsonOptions.Default, cancellationToken)
+                ?? [];
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.HttpRequestFailed(ex, "GET", path);
+            throw;
+        }
+        catch (JsonException ex)
+        {
+            _logger.DeserializationFailed(ex, "GET", path);
+            throw;
+        }
     }
 
     private async Task<T> PostAsync<T>(string path, object? payload = null, CancellationToken cancellationToken = default)
     {
+        _logger.PostRequest(path);
         var json = payload is not null
             ? JsonSerializer.Serialize(payload, HomeAssistantJsonOptions.Default)
             : "{}";
 
         using var content = new StringContent(json, Encoding.UTF8, "application/json");
-        var response = await _httpClient.PostAsync(path, content, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        try
+        {
+            var response = await _httpClient.PostAsync(path, content, cancellationToken);
+            response.EnsureSuccessStatusCode();
 
-        return await response.Content.ReadFromJsonAsync<T>(HomeAssistantJsonOptions.Default, cancellationToken)
-            ?? throw new InvalidOperationException("Failed to deserialize response");
+            return await response.Content.ReadFromJsonAsync<T>(HomeAssistantJsonOptions.Default, cancellationToken)
+                ?? throw new InvalidOperationException("Failed to deserialize response");
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.HttpRequestFailed(ex, "POST", path);
+            throw;
+        }
+        catch (JsonException ex)
+        {
+            _logger.DeserializationFailed(ex, "POST", path);
+            throw;
+        }
     }
 
     private static string BuildQueryString(params (string key, object? value)[] parameters)

@@ -12,6 +12,8 @@ namespace lucia.TimerAgent;
 /// </summary>
 public sealed class TimerRecoveryService : BackgroundService
 {
+    private const string TaskIdSetKey = "lucia:task-ids";
+    
     private readonly IConnectionMultiplexer _redis;
     private readonly ITaskStore _taskStore;
     private readonly TimerSkill _timerSkill;
@@ -43,18 +45,18 @@ public sealed class TimerRecoveryService : BackgroundService
         {
             var recovered = 0;
             var expired = 0;
-            var server = _redis.GetServer(_redis.GetEndPoints().First());
-            var keys = server.Keys(pattern: "lucia:task:*")
-                .Select(k => k.ToString())
-                .Where(k => !k.Contains(":notification:"))
+            var db = _redis.GetDatabase();
+            var taskIdValues = await db.SetMembersAsync(TaskIdSetKey);
+            var taskIds = taskIdValues
+                .Where(v => v.HasValue)
+                .Select(v => v.ToString())
                 .ToList();
 
-            foreach (var key in keys)
+            foreach (var taskId in taskIds)
             {
                 if (stoppingToken.IsCancellationRequested)
                     break;
 
-                var taskId = key.Replace("lucia:task:", string.Empty);
                 var task = await _taskStore.GetTaskAsync(taskId, stoppingToken).ConfigureAwait(false);
                 if (task is null)
                     continue;

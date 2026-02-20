@@ -199,7 +199,11 @@ public static class Extensions
     {
         try
         {
-            var payload = content.ReadAsStringAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+            // Use synchronous ReadAsStream() (.NET 5+) to avoid deadlock from
+            // GetAwaiter().GetResult() — content is already buffered at enrichment time
+            using var stream = content.ReadAsStream();
+            using var reader = new StreamReader(stream, leaveOpen: true);
+            var payload = reader.ReadToEnd();
             if (!string.IsNullOrWhiteSpace(payload))
             {
                 activity.SetTag(tagName, payload);

@@ -193,6 +193,104 @@ internal sealed class FakeHomeAssistantClient : IHomeAssistantClient
         return Task.FromResult(result!);
     }
 
+    // ── Stub implementations for newly-exposed REST API methods ─────
+
+    public Task<ApiStatusResponse> GetApiRootAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(new ApiStatusResponse { Message = "API running." });
+
+    public Task<ConfigResponse> GetConfigAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(new ConfigResponse
+        {
+            Components = [],
+            ConfigDir = "/config",
+            Elevation = 0,
+            Latitude = 0,
+            Longitude = 0,
+            LocationName = "Fake",
+            TimeZone = "UTC",
+            UnitSystem = new UnitSystemInfo { Length = "km", Mass = "kg", Temperature = "°C", Volume = "L" },
+            Version = "0.0.0"
+        });
+
+    public Task<string[]> GetComponentsAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(Array.Empty<string>());
+
+    public Task<CheckConfigResponse> CheckConfigAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(new CheckConfigResponse { Result = "valid" });
+
+    public Task<EventInfo[]> GetEventsAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(Array.Empty<EventInfo>());
+
+    public Task<FireEventResponse> FireEventAsync(string eventType, object? data = null, CancellationToken cancellationToken = default)
+        => Task.FromResult(new FireEventResponse { Message = $"Event {eventType} fired." });
+
+    public Task<ServiceDomainInfo[]> GetServicesAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(Array.Empty<ServiceDomainInfo>());
+
+    public Task<string> CallServiceRawAsync(
+        string domain,
+        string service,
+        ServiceCallRequest? request = null,
+        bool returnResponse = false,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult("[]");
+
+    public Task<HomeAssistantState[][]> GetHistoryAsync(
+        string timestamp,
+        string? filterEntityId = null,
+        string? endTime = null,
+        bool? minimalResponse = null,
+        bool? noAttributes = null,
+        bool? significantChangesOnly = null,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(Array.Empty<HomeAssistantState[]>());
+
+    public Task<LogbookEntry[]> GetLogbookAsync(
+        string timestamp,
+        string? entity = null,
+        string? endTime = null,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(Array.Empty<LogbookEntry>());
+
+    public Task<HomeAssistantState[]> GetStatesAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(_entities.Values.ToArray());
+
+    public Task<HomeAssistantState?> GetStateAsync(string entityId, CancellationToken cancellationToken = default)
+    {
+        _entities.TryGetValue(entityId, out var state);
+        return Task.FromResult(state);
+    }
+
+    public Task<HomeAssistantState> SetStateAsync(string entityId, object? payload = null, CancellationToken cancellationToken = default)
+    {
+        if (!_entities.TryGetValue(entityId, out var existing))
+        {
+            existing = new HomeAssistantState { EntityId = entityId };
+            _entities[entityId] = existing;
+        }
+        existing.LastUpdated = DateTime.UtcNow;
+        return Task.FromResult(existing);
+    }
+
+    public Task<byte[]> GetCameraProxyAsync(string cameraEntityId, CancellationToken cancellationToken = default)
+        => Task.FromResult(Array.Empty<byte>());
+
+    public Task<CalendarEntity[]> GetCalendarsAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(Array.Empty<CalendarEntity>());
+
+    public Task<CalendarEvent[]> GetCalendarEventsAsync(
+        string calendarEntityId,
+        string? start = null,
+        string? end = null,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(Array.Empty<CalendarEvent>());
+
+    public Task<string> RenderTemplateAsync(TemplateRenderRequest request, CancellationToken cancellationToken = default)
+        => Task.FromResult(string.Empty);
+
+    public Task<string> HandleIntentAsync(IntentRequest request, CancellationToken cancellationToken = default)
+        => Task.FromResult("{}");
+
     private static HomeAssistantState? DeserializeEntity(JsonElement el, JsonSerializerOptions options)
     {
         var entityId = el.GetProperty("entity_id").GetString();

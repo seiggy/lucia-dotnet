@@ -1,9 +1,11 @@
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
+using FakeItEasy;
 using lucia.HomeAssistant.Configuration;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace lucia.Tests;
@@ -75,7 +77,7 @@ public sealed class HomeAssistantTemplateClientTests
             ValidateSSL = false
         });
 
-        return new HomeAssistantClient(httpClient, options);
+        return new HomeAssistantClient(httpClient, options, A.Fake<ILogger<HomeAssistantClient>>());
     }
 
     private static async Task<TemplateRenderRequest> DeserializeRequestAsync(HttpRequestMessage request)

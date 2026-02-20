@@ -49,8 +49,9 @@ namespace lucia.A2AHost.Extensions
             {
                 return AssemblyLoadContext.Default.LoadFromAssemblyPath(path);
             }
-            catch
+            catch (Exception ex)
             {
+                Console.Error.WriteLine($"[lucia] PluginLoader: Failed to load assembly '{path}' — {ex.Message}");
                 return null;
             }
         }

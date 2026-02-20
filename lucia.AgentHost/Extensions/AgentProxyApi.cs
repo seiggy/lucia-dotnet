@@ -10,6 +10,12 @@ namespace lucia.AgentHost.Extensions;
 /// </summary>
 public static class AgentProxyApi
 {
+    // Only allow proxying to loopback hosts — all A2A agents are local Aspire services
+    private static readonly HashSet<string> s_allowedHosts = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "localhost", "127.0.0.1", "[::1]"
+    };
+
     public static IEndpointRouteBuilder MapAgentProxyApi(this WebApplication app)
     {
         app.MapPost("/agents/proxy", ProxyA2AMessageAsync)
@@ -37,19 +43,18 @@ public static class AgentProxyApi
             return TypedResults.NotFound($"Agent not found: {agentUrl}");
         }
 
+        // Rewrite bind-all addresses to loopback and validate the resulting URI
+        if (!TryRewriteAgentUrl(agentUrl, out var targetUri))
+        {
+            return TypedResults.BadRequest("Invalid or disallowed agent URL.");
+        }
+
         // Read the raw JSON-RPC body from the incoming request
         using var reader = new StreamReader(request.Body);
         var body = await reader.ReadToEndAsync(cancellationToken);
 
         // Forward to the actual A2A agent endpoint
-        // Agent cards may contain 0.0.0.0 (bind-all address) which isn't routable;
-        // rewrite to localhost so the proxy can actually reach the agent.
         var client = httpClientFactory.CreateClient("AgentProxy");
-        var rewrittenUrl = agentUrl
-            .Replace("://0.0.0.0:", "://localhost:")
-            .Replace("://[::0]:", "://localhost:")
-            .Replace("://[::]:", "://localhost:");
-        var targetUri = new Uri(rewrittenUrl);
 
         using var forwardRequest = new HttpRequestMessage(HttpMethod.Post, targetUri)
         {
@@ -63,5 +68,31 @@ public static class AgentProxyApi
             responseBody,
             "application/json",
             statusCode: (int)response.StatusCode);
+    }
+
+    /// <summary>
+    /// Rewrites bind-all addresses to localhost and validates the URI is safe to proxy to.
+    /// Only loopback hosts with http/https schemes are allowed to prevent SSRF.
+    /// </summary>
+    private static bool TryRewriteAgentUrl(string agentUrl, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Uri? targetUri)
+    {
+        targetUri = null;
+
+        var rewritten = agentUrl
+            .Replace("://0.0.0.0:", "://localhost:")
+            .Replace("://[::0]:", "://localhost:")
+            .Replace("://[::]:", "://localhost:");
+
+        if (!Uri.TryCreate(rewritten, UriKind.Absolute, out var uri))
+            return false;
+
+        if (uri.Scheme is not ("http" or "https"))
+            return false;
+
+        if (!s_allowedHosts.Contains(uri.Host))
+            return false;
+
+        targetUri = uri;
+        return true;
     }
 }

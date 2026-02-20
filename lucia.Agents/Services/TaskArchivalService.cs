@@ -25,6 +25,8 @@ public sealed class TaskArchivalService : BackgroundService
         TaskState.Canceled,
     ];
 
+    private const string TaskIdSetKey = "lucia:task-ids";
+
     public TaskArchivalService(
         IConnectionMultiplexer redis,
         ITaskStore taskStore,
@@ -65,26 +67,23 @@ public sealed class TaskArchivalService : BackgroundService
 
     private async Task SweepAsync(CancellationToken cancellationToken)
     {
-        var server = _redis.GetServer(_redis.GetEndPoints().First());
-        var keys = server.Keys(pattern: "lucia:task:*").ToList();
+        var db = _redis.GetDatabase();
+        var taskIdValues = await db.SetMembersAsync(TaskIdSetKey);
 
-        // Filter to only task keys (exclude notification sub-keys)
-        var taskKeys = keys
-            .Select(k => k.ToString())
-            .Where(k => !k.Contains(":notification:"))
+        var taskIds = taskIdValues
+            .Where(v => v.HasValue)
+            .Select(v => v.ToString())
             .ToList();
 
-        if (taskKeys.Count == 0)
+        if (taskIds.Count == 0)
         {
             return;
         }
 
         int archivedCount = 0;
 
-        foreach (var key in taskKeys)
+        foreach (var taskId in taskIds)
         {
-            var taskId = key.Replace("lucia:task:", string.Empty);
-
             try
             {
                 // Skip if already archived
@@ -96,6 +95,8 @@ public sealed class TaskArchivalService : BackgroundService
                 var task = await _taskStore.GetTaskAsync(taskId, cancellationToken);
                 if (task is null)
                 {
+                    // Task expired from Redis but ID remains in the set — clean up
+                    _ = db.SetRemoveAsync(TaskIdSetKey, taskId, CommandFlags.FireAndForget);
                     continue;
                 }
 
@@ -114,8 +115,8 @@ public sealed class TaskArchivalService : BackgroundService
 
         if (archivedCount > 0)
         {
-            _logger.LogInformation("Archival sweep completed: archived {Count} tasks from {Total} Redis keys.",
-                archivedCount, taskKeys.Count);
+            _logger.LogInformation("Archival sweep completed: archived {Count} tasks from {Total} task IDs.",
+                archivedCount, taskIds.Count);
         }
     }
 }

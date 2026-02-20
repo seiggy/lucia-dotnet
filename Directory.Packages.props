@@ -1,11 +1,9 @@
 <Project>
-
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
     <NoWarn>$(NoWarn);NU1507</NoWarn>
   </PropertyGroup>
-
   <!-- ══════════════════════════════════════════════════════════════
        Shared version variables for packages that release together
        ══════════════════════════════════════════════════════════════ -->
@@ -20,13 +18,11 @@
     <OpenTelemetryVersion>1.14.0</OpenTelemetryVersion>
     <XunitVersion>2.9.3</XunitVersion>
   </PropertyGroup>
-
   <!-- ── A2A Protocol ─────────────────────────────────────────── -->
   <ItemGroup Label="A2A Protocol">
     <PackageVersion Include="A2A" Version="$(A2AVersion)" />
     <PackageVersion Include="A2A.AspNetCore" Version="$(A2AVersion)" />
   </ItemGroup>
-
   <!-- ── .NET Aspire Hosting (AppHost orchestration) ──────────── -->
   <ItemGroup Label="Aspire Hosting">
     <PackageVersion Include="Aspire.Hosting.Azure.AIFoundry" Version="$(AspirePreviewVersion)" />
@@ -37,7 +33,6 @@
     <PackageVersion Include="Aspire.Hosting.Redis" Version="$(AspireVersion)" />
     <PackageVersion Include="Aspire.Hosting.Testing" Version="13.0.0" />
   </ItemGroup>
-
   <!-- ── .NET Aspire Client Integrations (service projects) ───── -->
   <ItemGroup Label="Aspire Client Integrations">
     <PackageVersion Include="Aspire.Azure.AI.OpenAI" Version="$(AspirePreviewVersion)" />
@@ -45,7 +40,6 @@
     <PackageVersion Include="Aspire.MongoDB.Driver.v3" Version="9.5.2" />
     <PackageVersion Include="Aspire.StackExchange.Redis" Version="$(AspireVersion)" />
   </ItemGroup>
-
   <!-- ── Microsoft Agent Framework ────────────────────────────── -->
   <ItemGroup Label="Microsoft Agent Framework">
     <PackageVersion Include="Microsoft.Agents.AI" Version="$(MicrosoftAgentsVersion)" />
@@ -57,7 +51,6 @@
     <PackageVersion Include="Microsoft.Agents.AI.Hosting.OpenAI" Version="1.0.0-alpha.260212.1" />
     <PackageVersion Include="Microsoft.Agents.AI.Workflows" Version="$(MicrosoftAgentsVersion)" />
   </ItemGroup>
-
   <!-- ── Microsoft.Extensions.AI ──────────────────────────────── -->
   <ItemGroup Label="Microsoft Extensions AI">
     <PackageVersion Include="Microsoft.Extensions.AI" Version="$(MicrosoftExtensionsAIVersion)" />
@@ -68,28 +61,27 @@
     <PackageVersion Include="Microsoft.Extensions.AI.Evaluation.Reporting" Version="$(MicrosoftExtensionsAIVersion)" />
     <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="$(MicrosoftExtensionsAIVersion)" />
   </ItemGroup>
-
   <!-- ── Microsoft.Extensions (core framework) ────────────────── -->
   <ItemGroup Label="Microsoft Extensions">
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="$(MicrosoftExtensionsVersion)" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.Binder" Version="$(MicrosoftExtensionsConfigVersion)" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="$(MicrosoftExtensionsConfigVersion)" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.Json" Version="$(MicrosoftExtensionsConfigVersion)" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.UserSecrets" Version="$(MicrosoftExtensionsConfigVersion)" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.3" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="$(MicrosoftExtensionsVersion)" />
     <PackageVersion Include="Microsoft.Extensions.Http" Version="$(MicrosoftExtensionsVersion)" />
     <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="$(MicrosoftExtensionsVersion)" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.3" />
     <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.1" />
     <PackageVersion Include="Microsoft.Extensions.ServiceDiscovery" Version="$(MicrosoftExtensionsVersion)" />
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="$(MicrosoftExtensionsAIVersion)" />
     <PackageVersion Include="Microsoft.Extensions.VectorData.Abstractions" Version="9.7.0" />
   </ItemGroup>
-
   <!-- ── Azure SDK ────────────────────────────────────────────── -->
   <ItemGroup Label="Azure">
     <PackageVersion Include="Azure.Identity" Version="1.18.0-beta.2" />
   </ItemGroup>
-
   <!-- ── OpenTelemetry ────────────────────────────────────────── -->
   <ItemGroup Label="OpenTelemetry">
     <PackageVersion Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="$(OpenTelemetryVersion)" />
@@ -98,7 +90,6 @@
     <PackageVersion Include="OpenTelemetry.Instrumentation.Http" Version="$(OpenTelemetryVersion)-rc.1" />
     <PackageVersion Include="OpenTelemetry.Instrumentation.Runtime" Version="1.13.0" />
   </ItemGroup>
-
   <!-- ── Data & Infrastructure ────────────────────────────────── -->
   <ItemGroup Label="Data and Infrastructure">
     <PackageVersion Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
@@ -107,23 +98,19 @@
     <PackageVersion Include="System.Linq.Async" Version="7.0.0-preview.9" />
     <PackageVersion Include="System.Text.Json" Version="$(MicrosoftExtensionsVersion)" />
   </ItemGroup>
-
   <!-- ── API Documentation ────────────────────────────────────── -->
   <ItemGroup Label="API Documentation">
     <PackageVersion Include="Scalar.AspNetCore" Version="2.10.3" />
     <PackageVersion Include="Scalar.Aspire" Version="0.7.3" />
   </ItemGroup>
-
   <!-- ── Community Toolkit ────────────────────────────────────── -->
   <ItemGroup Label="Community Toolkit">
     <PackageVersion Include="CommunityToolkit.Aspire.Hosting.JavaScript.Extensions" Version="13.1.2-beta.518" />
   </ItemGroup>
-
   <!-- ── Docker / Containers ──────────────────────────────────── -->
   <ItemGroup Label="Docker and Container Tooling">
     <PackageVersion Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.23.0" />
   </ItemGroup>
-
   <!-- ── Testing ──────────────────────────────────────────────── -->
   <ItemGroup Label="Testing">
     <PackageVersion Include="coverlet.collector" Version="6.0.4" />
@@ -134,5 +121,4 @@
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
     <PackageVersion Include="Xunit.SkippableFact" Version="1.5.23" />
   </ItemGroup>
-
 </Project>

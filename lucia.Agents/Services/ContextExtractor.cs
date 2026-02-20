@@ -17,22 +17,23 @@ using System.Text.RegularExpressions;
 public sealed class ContextExtractor
 {
     private readonly IAgentRegistry _agentRegistry;
-    private readonly Dictionary<string, List<string>> _domainAgentMap;
+    private volatile IReadOnlyDictionary<string, List<string>>? _domainAgentMap;
 
     public ContextExtractor(IAgentRegistry agentRegistry)
     {
         _agentRegistry = agentRegistry ?? throw new ArgumentNullException(nameof(agentRegistry));
-        _domainAgentMap = new();
     }
 
     /// <summary>
     /// Lazy-loads and caches the domain-to-agent mapping from the agent registry.
     /// Agents declare domains in their descriptions using #hashtags.
+    /// Uses Interlocked.CompareExchange for thread-safe initialization.
     /// </summary>
-    private async Task<Dictionary<string, List<string>>> GetDomainAgentMapAsync()
+    private async Task<IReadOnlyDictionary<string, List<string>>> GetDomainAgentMapAsync()
     {
-        if (_domainAgentMap.Count > 0)
-            return _domainAgentMap;
+        var current = _domainAgentMap;
+        if (current is not null)
+            return current;
 
         var allAgents = new List<AgentCard>();
         await foreach (var agent in _agentRegistry.GetEnumerableAgentsAsync())
@@ -40,13 +41,11 @@ public sealed class ContextExtractor
             allAgents.Add(agent);
         }
 
-        var map = DomainCapabilitiesExtractor.BuildDomainAgentMap(allAgents);
-        foreach (var kvp in map)
-        {
-            _domainAgentMap[kvp.Key] = kvp.Value;
-        }
+        var newMap = DomainCapabilitiesExtractor.BuildDomainAgentMap(allAgents);
 
-        return _domainAgentMap;
+        // Atomically set if still null — if another thread won the race, use theirs
+        var winner = Interlocked.CompareExchange(ref _domainAgentMap, newMap, null);
+        return winner ?? newMap;
     }
 
     /// <summary>
@@ -241,7 +240,7 @@ public sealed class ContextExtractor
     /// <param name="history">Message history to analyze</param>
     /// <param name="domainAgentMap">Domain to agent mapping from the agent catalog</param>
     /// <returns>Extracted topic/domain or null</returns>
-    private static async Task<string?> ExtractConversationTopicAsync(List<AgentMessage> history, Dictionary<string, List<string>> domainAgentMap)
+    private static async Task<string?> ExtractConversationTopicAsync(List<AgentMessage> history, IReadOnlyDictionary<string, List<string>> domainAgentMap)
     {
         var combinedText = CombineMessageText(history);
         var keywords = ExtractKeywords(combinedText);

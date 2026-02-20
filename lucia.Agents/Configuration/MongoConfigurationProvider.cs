@@ -69,9 +69,10 @@ public sealed class MongoConfigurationProvider : ConfigurationProvider, IDisposa
                 OnReload();
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Silently ignore polling failures — config stays at last known good state
+            // Log but don't throw — config stays at last known good state
+            Console.Error.WriteLine($"[lucia] MongoConfigurationProvider: Poll failed — {ex.Message}");
         }
     }
 

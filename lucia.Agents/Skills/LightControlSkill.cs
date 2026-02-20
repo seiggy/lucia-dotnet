@@ -23,11 +23,12 @@ public class LightControlSkill : IAgentSkill
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
     private readonly ILogger<LightControlSkill> _logger;
     private readonly IDeviceCacheService _deviceCache;
-    private readonly List<LightEntity> _cachedLights = new();
-    private readonly Dictionary<string, Embedding<float>> _areaEmbeddings = new();
+    private volatile IReadOnlyList<LightEntity> _cachedLights = Array.Empty<LightEntity>();
+    private volatile IReadOnlyDictionary<string, Embedding<float>> _areaEmbeddings = new Dictionary<string, Embedding<float>>();
     private readonly ConcurrentDictionary<string, Embedding<float>> _searchTermEmbeddingCache = new(StringComparer.OrdinalIgnoreCase);
-    private DateTime _lastCacheUpdate = DateTime.MinValue;
+    private long _lastCacheUpdateTicks = DateTime.MinValue.Ticks;
     private readonly TimeSpan _cacheRefreshInterval = TimeSpan.FromMinutes(30);
+    private readonly SemaphoreSlim _refreshLock = new(1, 1);
 
     private static readonly ActivitySource ActivitySource = new("Lucia.Skills.LightControl", "1.0.0");
     private static readonly Meter Meter = new("Lucia.Skills.LightControl", "1.0.0");
@@ -615,37 +616,36 @@ public class LightControlSkill : IAgentSkill
             if (cachedLights is not null && cachedAreaEmbeddings is not null)
             {
                 _logger.LogInformation("Loaded {LightCount} lights and {AreaCount} area embeddings from Redis cache", cachedLights.Count, cachedAreaEmbeddings.Count);
-                _cachedLights.Clear();
-                _areaEmbeddings.Clear();
+                var newLightsFromCache = new List<LightEntity>();
                 
                 // Re-attach embeddings from Redis for each light
+                var allEmbeddingsFound = true;
                 foreach (var light in cachedLights)
                 {
                     var embedding = await _deviceCache.GetEmbeddingAsync($"light:{light.EntityId}", cancellationToken);
                     if (embedding is not null)
                     {
                         light.NameEmbedding = embedding;
-                        _cachedLights.Add(light);
+                        newLightsFromCache.Add(light);
                     }
                     else
                     {
                         _logger.LogWarning("Missing embedding for light {EntityId} in Redis, will re-fetch from HA", light.EntityId);
+                        allEmbeddingsFound = false;
                         break; // Embedding mismatch — fall through to full refresh
                     }
                 }
                 
-                if (_cachedLights.Count == cachedLights.Count)
+                if (allEmbeddingsFound && newLightsFromCache.Count == cachedLights.Count)
                 {
-                    // All embeddings found — use cached data
-                    foreach (var kvp in cachedAreaEmbeddings)
-                        _areaEmbeddings[kvp.Key] = kvp.Value;
-                    _lastCacheUpdate = DateTime.UtcNow;
+                    // All embeddings found — atomically swap to cached data
+                    _cachedLights = newLightsFromCache;
+                    _areaEmbeddings = new Dictionary<string, Embedding<float>>(cachedAreaEmbeddings);
+                    Volatile.Write(ref _lastCacheUpdateTicks, DateTime.UtcNow.Ticks);
                     return; // Cache hit — done
                 }
                 
-                // Partial cache — clear and fall through to full refresh
-                _cachedLights.Clear();
-                _areaEmbeddings.Clear();
+                // Partial cache — fall through to full refresh
             }
 
             _logger.LogDebug("Refreshing light cache...");
@@ -675,8 +675,7 @@ public class LightControlSkill : IAgentSkill
                             nameObj.ToString()?.ToLower().Contains("light", StringComparison.CurrentCultureIgnoreCase) == true))
                 .ToList();
 
-            _cachedLights.Clear();
-            _areaEmbeddings.Clear();
+            var newLights = new List<LightEntity>();
 
             var allEntityDataByArea = await _homeAssistantClient.RunTemplateAsync<List<AreaEntityMap>>(
                     "[{% for id in areas() %}{% if not loop.first %}, {% endif %}{\"area\":\"{{ area_name(id) }}\",\"entities\":[{% for e in area_entities(id) %}{% if not loop.first %}, {% endif %}\"{{ e }}\"{% endfor %}]}{% endfor %}]",
@@ -732,49 +731,53 @@ public class LightControlSkill : IAgentSkill
                     Area = area
                 };
 
-                _cachedLights.Add(lightEntity);
+                newLights.Add(lightEntity);
             }
 
             // Generate embeddings for all unique areas
-            var uniqueAreas = _cachedLights
+            var uniqueAreas = newLights
                 .Where(l => !string.IsNullOrEmpty(l.Area))
                 .Select(l => l.Area!)
                 .Distinct()
                 .ToList();
 
+            var newAreaEmbeddings = new Dictionary<string, Embedding<float>>();
             foreach (var area in uniqueAreas)
             {
                 var areaEmbedding = await _embeddingService.GenerateAsync(area, cancellationToken: cancellationToken);
-                _areaEmbeddings[area] = areaEmbedding;
+                newAreaEmbeddings[area] = areaEmbedding;
             }
 
-            _lastCacheUpdate = DateTime.UtcNow;
+            // Atomically swap the volatile references
+            _cachedLights = newLights;
+            _areaEmbeddings = newAreaEmbeddings;
+            Volatile.Write(ref _lastCacheUpdateTicks, DateTime.UtcNow.Ticks);
 
             // Save to Redis for next startup
             var deviceCacheTtl = TimeSpan.FromMinutes(30);
             var embeddingCacheTtl = TimeSpan.FromHours(24);
-            await _deviceCache.SetCachedLightsAsync(_cachedLights.ToList(), deviceCacheTtl, cancellationToken);
-            foreach (var light in _cachedLights)
+            await _deviceCache.SetCachedLightsAsync(newLights.ToList(), deviceCacheTtl, cancellationToken);
+            foreach (var light in newLights)
             {
                 await _deviceCache.SetEmbeddingAsync($"light:{light.EntityId}", light.NameEmbedding, embeddingCacheTtl, cancellationToken);
             }
-            await _deviceCache.SetAreaEmbeddingsAsync(new Dictionary<string, Embedding<float>>(_areaEmbeddings), embeddingCacheTtl, cancellationToken);
-            _logger.LogInformation("Saved {LightCount} lights and {AreaCount} area embeddings to Redis cache", _cachedLights.Count, _areaEmbeddings.Count);
+            await _deviceCache.SetAreaEmbeddingsAsync(new Dictionary<string, Embedding<float>>(newAreaEmbeddings), embeddingCacheTtl, cancellationToken);
+            _logger.LogInformation("Saved {LightCount} lights and {AreaCount} area embeddings to Redis cache", newLights.Count, newAreaEmbeddings.Count);
 
-            activity?.SetTag("cache.size", _cachedLights.Count);
-            activity?.SetTag("cache.area_count", _areaEmbeddings.Count);
-            _logger.LogDebug("Light cache refreshed with {Count} entities and {AreaCount} areas", _cachedLights.Count, _areaEmbeddings.Count);
+            activity?.SetTag("cache.size", newLights.Count);
+            activity?.SetTag("cache.area_count", newAreaEmbeddings.Count);
+            _logger.LogDebug("Light cache refreshed with {Count} entities and {AreaCount} areas", newLights.Count, newAreaEmbeddings.Count);
 
-            if (_cachedLights.Count == 0)
+            if (newLights.Count == 0)
             {
                 _logger.LogWarning("No light entities were cached. Inspect trace logs for Home Assistant state payload details.");
             }
             else
             {
                 _logger.LogInformation("Cached {LightCount} lights across {AreaCount} areas: {Lights}", 
-                    _cachedLights.Count, 
-                    _areaEmbeddings.Count,
-                    JsonSerializer.Serialize(_cachedLights.Select(l => new
+                    newLights.Count, 
+                    newAreaEmbeddings.Count,
+                    JsonSerializer.Serialize(newLights.Select(l => new
                     {
                         l.EntityId,
                         l.FriendlyName,
@@ -805,9 +808,22 @@ public class LightControlSkill : IAgentSkill
 
     private async Task EnsureCacheIsCurrentAsync(CancellationToken cancellationToken = default)
     {
-        if (DateTime.UtcNow - _lastCacheUpdate > _cacheRefreshInterval)
+        if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) > _cacheRefreshInterval)
         {
-            await RefreshLightCacheAsync(cancellationToken);
+            if (!await _refreshLock.WaitAsync(0, cancellationToken))
+                return; // Another refresh is already in progress
+            try
+            {
+                // Double-check after acquiring the lock
+                if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) > _cacheRefreshInterval)
+                {
+                    await RefreshLightCacheAsync(cancellationToken);
+                }
+            }
+            finally
+            {
+                _refreshLock.Release();
+            }
         }
     }
 

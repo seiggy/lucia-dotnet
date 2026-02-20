@@ -13,6 +13,8 @@ namespace lucia.AgentHost.Extensions;
 /// </summary>
 public static class TaskManagementApi
 {
+    private const string TaskIdSetKey = "lucia:task-ids";
+    
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -41,18 +43,21 @@ public static class TaskManagementApi
         [FromServices] ITaskStore taskStore,
         CancellationToken ct)
     {
-        var server = redis.GetServer(redis.GetEndPoints().First());
-        var keys = server.Keys(pattern: "lucia:task:*")
-            .Select(k => k.ToString())
-            .Where(k => !k.Contains(":notification:"))
-            .ToList();
+        var db = redis.GetDatabase();
+        var taskIdValues = await db.SetMembersAsync(TaskIdSetKey);
 
         var tasks = new List<ActiveTaskSummary>();
-        foreach (var key in keys)
+        foreach (var idValue in taskIdValues)
         {
-            var taskId = key.Replace("lucia:task:", string.Empty);
+            if (!idValue.HasValue) continue;
+            var taskId = idValue.ToString();
             var task = await taskStore.GetTaskAsync(taskId, ct);
-            if (task is null) continue;
+            if (task is null)
+            {
+                // Task expired from Redis but ID remains in the set — clean up
+                _ = db.SetRemoveAsync(TaskIdSetKey, taskId, CommandFlags.FireAndForget);
+                continue;
+            }
 
             tasks.Add(MapToActiveSummary(task));
         }
@@ -126,19 +131,16 @@ public static class TaskManagementApi
         [FromServices] ITaskArchiveStore archive,
         CancellationToken ct)
     {
-        // Count active tasks
-        var server = redis.GetServer(redis.GetEndPoints().First());
-        var activeKeys = server.Keys(pattern: "lucia:task:*")
-            .Select(k => k.ToString())
-            .Where(k => !k.Contains(":notification:"))
-            .ToList();
+        // Count active tasks from the SET index
+        var db = redis.GetDatabase();
+        var activeCount = await db.SetLengthAsync(TaskIdSetKey);
 
         // Get archived stats
         var archivedStats = await archive.GetTaskStatsAsync(ct);
 
         return TypedResults.Ok(new CombinedTaskStats
         {
-            ActiveCount = activeKeys.Count,
+            ActiveCount = (int)activeCount,
             Archived = archivedStats,
         });
     }

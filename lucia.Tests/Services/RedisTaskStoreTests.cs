@@ -94,6 +94,13 @@ public class RedisTaskStoreTests
             A<When>._,
             A<CommandFlags>._))
             .MustHaveHappenedOnceExactly();
+        
+        // Verify task ID was added to the index set
+        A.CallTo(() => _database.SetAddAsync(
+            "lucia:task-ids",
+            A<RedisValue>.That.Matches(v => v.ToString() == "task-789"),
+            CommandFlags.FireAndForget))
+            .MustHaveHappenedOnceExactly();
     }
 
     [Fact]
