@@ -112,7 +112,6 @@ app.MapDefaultEndpoints();
 // SPA hosting: serve React dashboard assets in production
 if (!app.Environment.IsDevelopment())
 {
-    app.UseStaticFiles();
     app.MapFallbackToFile("index.html");
 }
 

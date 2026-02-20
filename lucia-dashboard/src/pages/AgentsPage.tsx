@@ -45,8 +45,6 @@ interface A2AMessage {
 /*  API helpers                                                        */
 /* ------------------------------------------------------------------ */
 
-const BASE = '/api'
-
 async function fetchAgents(): Promise<AgentCard[]> {
   const res = await fetch('/agents')
   if (!res.ok) throw new Error(`Failed to fetch agents: ${res.statusText}`)

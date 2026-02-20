@@ -39,7 +39,8 @@ FROM ${A2AHOST_IMAGE} AS final
 
 LABEL description="Lucia Music Agent - A2A music playback plugin"
 
-# Switch to root to copy plugin, then back to appuser
+# Only copy the plugin DLL itself — the A2AHost base already has all shared dependencies.
+# Copying transitive deps causes assembly version conflicts at runtime.
 USER root
-COPY --from=build --chown=appuser:appuser /plugin/publish/*.dll /app/plugins/
+COPY --from=build --chown=appuser:appuser /plugin/publish/lucia.MusicAgent.dll /app/plugins/
 USER appuser
