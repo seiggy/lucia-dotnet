@@ -31,6 +31,18 @@ data:
   # Home Assistant Configuration
   HomeAssistant__BaseUrl: "http://homeassistant:8123"
 
+  # MongoDB Configuration
+  ConnectionStrings__luciatraces: "mongodb://lucia-mongodb:27017/luciatraces"
+  ConnectionStrings__luciaconfig: "mongodb://lucia-mongodb:27017/luciaconfig"
+
+  # Session Cache Configuration
+  SessionCache__SessionCacheLengthMinutes: "5"
+  SessionCache__MaxHistoryItems: "20"
+
+  # Trace Capture Configuration
+  TraceCapture__Enabled: "true"
+  TraceCapture__RetentionDays: "30"
+
   # Logging Configuration
   Logging__Console__IncludeScopes: "true"
   Logging__Console__TimestampFormat: "yyyy-MM-dd HH:mm:ss.fff zzz"

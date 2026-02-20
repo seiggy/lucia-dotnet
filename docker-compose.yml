@@ -3,6 +3,7 @@
 # Services:
 #   - lucia: Agent Host API (main application)
 #   - redis: Task persistence and session state
+#   - mongo: Trace capture and configuration storage
 #
 # Features:
 #   - Health checks for automatic restart
@@ -97,6 +98,75 @@ services:
 
 
   # ========================================================================
+  # MongoDB Service - Trace Capture and Configuration Storage
+  # ========================================================================
+  mongo:
+    # Use official MongoDB 8.0 image
+    image: mongo:8.0
+    
+    container_name: lucia-mongo
+    
+    # Network configuration
+    networks:
+      - lucia-network
+    
+    # Port exposure (only on localhost for security)
+    ports:
+      - "127.0.0.1:27017:27017"
+    
+    # Volume for persistent data storage
+    volumes:
+      - mongo-data:/data/db
+    
+    # Health check for automatic restart
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.runCommand('ping').ok"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "mongo"
+    
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+
+
+  # ========================================================================
+  # A2A Host Base Image Build (build-only, not a running service)
+  # Agent-specific images layer their plugins on top of this.
+  # ========================================================================
+  a2ahost-base:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.a2ahost
+      args:
+        BUILD_CONFIGURATION: Release
+    image: lucia-a2ahost:latest
+    # This service exists only to produce the base image; it exits immediately.
+    entrypoint: ["true"]
+
+  # ========================================================================
   # Lucia Agent Host Service - Main Application
   # ========================================================================
   lucia:
@@ -114,9 +184,11 @@ services:
 
     container_name: lucia
 
-    # Depends on Redis being healthy
+    # Depends on Redis and MongoDB being healthy
     depends_on:
       redis:
+        condition: service_healthy
+      mongo:
         condition: service_healthy
     
     # Network configuration
@@ -147,6 +219,10 @@ services:
       # - ConnectionStrings__chat-model=Endpoint=...;AccessKey=...;Model=...;Provider=openai
       # - ConnectionStrings__home-assistant=http://homeassistant:8123
       # - ConnectionStrings__redis=redis://redis:6379
+      
+      # MongoDB connection strings
+      - ConnectionStrings__luciatraces=mongodb://lucia-mongo:27017/luciatraces
+      - ConnectionStrings__luciaconfig=mongodb://lucia-mongo:27017/luciaconfig
       
       # Logging
       - LUCIA_LOG_LEVEL=Information
@@ -224,6 +300,156 @@ services:
   #   restart: unless-stopped
 
 
+  # ========================================================================
+  # Music Agent - A2A Plugin Host (Music Playback)
+  # ========================================================================
+  music-agent:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.music-agent
+      args:
+        BUILD_CONFIGURATION: Release
+        A2AHOST_IMAGE: lucia-a2ahost:latest
+
+    image: lucia-music-agent:latest
+
+    container_name: lucia-music-agent
+
+    depends_on:
+      a2ahost-base:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+
+    networks:
+      - lucia-network
+
+    ports:
+      - "127.0.0.1:5010:8080"
+
+    env_file:
+      - .env
+
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__redis=lucia-redis:6379
+      - ConnectionStrings__luciatraces=mongodb://lucia-mongo:27017/luciatraces
+      - ConnectionStrings__luciaconfig=mongodb://lucia-mongo:27017/luciaconfig
+      - DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
+      - DOTNET_RUNNING_IN_CONTAINER=true
+      - COMPlus_EnableDiagnostics=0
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+    restart: unless-stopped
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "music-agent"
+
+    security_opt:
+      - no-new-privileges:true
+
+    read_only: true
+    tmpfs:
+      - /tmp
+
+
+  # ========================================================================
+  # Timer Agent - A2A Plugin Host (Timers & Announcements)
+  # ========================================================================
+  timer-agent:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.timer-agent
+      args:
+        BUILD_CONFIGURATION: Release
+        A2AHOST_IMAGE: lucia-a2ahost:latest
+
+    image: lucia-timer-agent:latest
+
+    container_name: lucia-timer-agent
+
+    depends_on:
+      a2ahost-base:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+
+    networks:
+      - lucia-network
+
+    ports:
+      - "127.0.0.1:5011:8080"
+
+    env_file:
+      - .env
+
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__redis=lucia-redis:6379
+      - ConnectionStrings__luciatraces=mongodb://lucia-mongo:27017/luciatraces
+      - ConnectionStrings__luciaconfig=mongodb://lucia-mongo:27017/luciaconfig
+      - DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
+      - DOTNET_RUNNING_IN_CONTAINER=true
+      - COMPlus_EnableDiagnostics=0
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+    restart: unless-stopped
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "timer-agent"
+
+    security_opt:
+      - no-new-privileges:true
+
+    read_only: true
+    tmpfs:
+      - /tmp
+
+
 # ============================================================================
 # Networks
 # ============================================================================
@@ -250,6 +476,10 @@ volumes:
       #   type: none
       #   o: bind
       #   device: /data/lucia/redis
+  
+  # MongoDB persistent data
+  mongo-data:
+    driver: local
   
   # Uncomment for Home Assistant persistent data
   # homeassistant-data:

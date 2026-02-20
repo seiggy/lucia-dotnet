@@ -43,6 +43,18 @@ data:
   HomeAssistant__ApiEndpoint: {{ .Values.homeAssistant.apiEndpoint | quote }}
   {{- end }}
 
+  # MongoDB Configuration
+  ConnectionStrings__luciatraces: "mongodb://{{ include "lucia.mongodb.host" . }}:{{ .Values.mongodb.service.port }}/luciatraces"
+  ConnectionStrings__luciaconfig: "mongodb://{{ include "lucia.mongodb.host" . }}:{{ .Values.mongodb.service.port }}/luciaconfig"
+
+  # Session Cache Configuration
+  SessionCache__SessionCacheLengthMinutes: {{ .Values.sessionCache.sessionCacheLengthMinutes | quote }}
+  SessionCache__MaxHistoryItems: {{ .Values.sessionCache.maxHistoryItems | quote }}
+
+  # Trace Capture Configuration
+  TraceCapture__Enabled: {{ .Values.traceCapture.enabled | quote }}
+  TraceCapture__RetentionDays: {{ .Values.traceCapture.retentionDays | quote }}
+
   # Logging Configuration
   Logging__Console__IncludeScopes: "true"
   Logging__Console__TimestampFormat: "yyyy-MM-dd HH:mm:ss.fff zzz"

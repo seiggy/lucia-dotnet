@@ -62,7 +62,7 @@ spec:
       priorityClassName: {{ .Values.priorityClassName }}
       {{- end }}
       
-      # Init container to wait for Redis to be ready
+      # Init containers to wait for dependencies to be ready
       initContainers:
         - name: wait-for-redis
           image: busybox:1.36
@@ -81,6 +81,25 @@ spec:
               done
               echo "Redis failed to become ready"
               exit 1
+        {{- if .Values.mongodb.enabled }}
+        - name: wait-for-mongodb
+          image: busybox:1.36
+          command:
+            - 'sh'
+            - '-c'
+            - |
+              echo "Waiting for MongoDB to be ready..."
+              for i in $(seq 1 60); do
+                if nc -z {{ include "lucia.mongodb.host" . }} {{ .Values.mongodb.service.port }}; then
+                  echo "MongoDB is ready"
+                  exit 0
+                fi
+                echo "Attempt $i: MongoDB not ready, retrying in 1 second..."
+                sleep 1
+              done
+              echo "MongoDB failed to become ready"
+              exit 1
+        {{- end }}
 
       containers:
         - name: {{ .Chart.Name }}

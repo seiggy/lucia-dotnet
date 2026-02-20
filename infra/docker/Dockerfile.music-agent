@@ -1,0 +1,45 @@
+# Lucia Music Agent
+# Builds the music-agent plugin and layers it onto the A2AHost base image.
+#
+# Build (from repo root):
+#   docker build -f infra/docker/Dockerfile.a2ahost -t lucia-a2ahost:latest .
+#   docker build -f infra/docker/Dockerfile.music-agent -t lucia-music-agent:latest .
+
+ARG A2AHOST_IMAGE=lucia-a2ahost:latest
+
+# ============================================================================
+# Stage 1: Build the plugin
+# ============================================================================
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+
+ARG BUILD_CONFIGURATION=Release
+
+WORKDIR /src
+
+# Copy project files for restore layer caching
+COPY ["lucia.MusicAgent/lucia.MusicAgent.csproj", "lucia.MusicAgent/"]
+COPY ["lucia.Agents/lucia.Agents.csproj", "lucia.Agents/"]
+COPY ["lucia.HomeAssistant/lucia.HomeAssistant.csproj", "lucia.HomeAssistant/"]
+COPY ["lucia.HomeAssistant.SourceGenerator/lucia.HomeAssistant.SourceGenerator.csproj", "lucia.HomeAssistant.SourceGenerator/"]
+
+RUN dotnet restore "./lucia.MusicAgent/lucia.MusicAgent.csproj"
+
+# Copy source and publish
+COPY . .
+
+RUN dotnet publish "./lucia.MusicAgent/lucia.MusicAgent.csproj" \
+    -c $BUILD_CONFIGURATION \
+    -o /plugin/publish \
+    /p:UseAppHost=false
+
+# ============================================================================
+# Stage 2: Layer plugin onto A2AHost base
+# ============================================================================
+FROM ${A2AHOST_IMAGE} AS final
+
+LABEL description="Lucia Music Agent - A2A music playback plugin"
+
+# Switch to root to copy plugin, then back to appuser
+USER root
+COPY --from=build --chown=appuser:appuser /plugin/publish/*.dll /app/plugins/
+USER appuser

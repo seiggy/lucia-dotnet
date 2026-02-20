@@ -19,6 +19,7 @@ resources:
   - 05-ingress.yaml
   - 06-rbac.yaml
   - 07-hpa.yaml
+  - 08-mongodb.yaml
 
 # Common labels applied to all resources
 commonLabels:

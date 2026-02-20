@@ -1,0 +1,125 @@
+{{- /*
+Lucia MongoDB StatefulSet Template
+
+This template defines the MongoDB StatefulSet for trace and config storage.
+It includes:
+- Persistent volume claims for data persistence
+- MongoDB probes and restart policies
+- Resource limits and security context
+- Service for internal DNS discovery
+*/ -}}
+
+{{- if .Values.mongodb.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "lucia.fullname" . }}-mongodb
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "lucia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mongodb
+spec:
+  type: {{ .Values.mongodb.service.type }}
+  ports:
+    - port: {{ .Values.mongodb.service.port }}
+      targetPort: mongodb
+      protocol: TCP
+      name: mongodb
+  selector:
+    {{- include "lucia.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: mongodb
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "lucia.fullname" . }}-mongodb
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "lucia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mongodb
+spec:
+  serviceName: {{ include "lucia.fullname" . }}-mongodb
+  replicas: {{ .Values.mongodb.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "lucia.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: mongodb
+  template:
+    metadata:
+      labels:
+        {{- include "lucia.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: mongodb
+        version: {{ .Chart.AppVersion | quote }}
+    spec:
+      {{- with .Values.mongodb.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      containers:
+        - name: mongodb
+          {{- with .Values.mongodb.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ .Values.mongodb.image.repository }}:{{ .Values.mongodb.image.tag }}"
+          imagePullPolicy: {{ .Values.mongodb.image.pullPolicy }}
+
+          ports:
+            - name: mongodb
+              containerPort: {{ .Values.mongodb.service.port }}
+              protocol: TCP
+
+          # Resource limits and requests
+          {{- with .Values.mongodb.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          # Liveness probe
+          livenessProbe:
+            exec:
+              command:
+                - mongosh
+                - --eval
+                - "db.runCommand('ping').ok"
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Readiness probe
+          readinessProbe:
+            exec:
+              command:
+                - mongosh
+                - --eval
+                - "db.runCommand('ping').ok"
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # Volume mounts
+          volumeMounts:
+            - name: mongodb-data
+              mountPath: /data/db
+
+  # Persistent volume claims for data
+  {{- if .Values.mongodb.storage.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: mongodb-data
+        labels:
+          {{- include "lucia.labels" . | nindent 10 }}
+          app.kubernetes.io/component: mongodb
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: {{ .Values.mongodb.storage.storageClassName }}
+        resources:
+          requests:
+            storage: {{ .Values.mongodb.storage.size }}
+  {{- end }}
+{{- end }}

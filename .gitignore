@@ -281,3 +281,6 @@ fabric.properties
 # End of https://www.toptal.com/developers/gitignore/api/openframeworks+visualstudio,visualstudiocode,rider,pycharm,dotnetcore
 /NuGet.Config
 .env
+
+*.dll
+lucia.AppHost/plugins/**/*.dll
