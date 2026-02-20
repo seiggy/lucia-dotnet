@@ -69,8 +69,8 @@ public sealed class TimerAgent : ILuciaAgent
             SupportsAuthenticatedExtendedCard = false,
             Capabilities = new AgentCapabilities
             {
-                PushNotifications = false,
-                StateTransitionHistory = false,
+                PushNotifications = true,
+                StateTransitionHistory = true,
                 Streaming = true
             },
             DefaultInputModes = ["text"],

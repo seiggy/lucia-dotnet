@@ -16,18 +16,24 @@ public static class AgentDiscoveryExtension
     {
         try
         {
-            var orchestratorAgent = app.Services.GetRequiredService<OrchestratorAgent>();
-
             var taskManager = app.Services.GetRequiredService<ITaskManager>();
 
-            app.MapA2A(orchestratorAgent.GetAIAgent(), path: "/agent", agentCard: orchestratorAgent.GetAgentCard(), 
+            // Map the orchestrator's A2A endpoint and well-known agent card
+            var orchestratorAgent = app.Services.GetServices<ILuciaAgent>()
+                .OfType<OrchestratorAgent>()
+                .Single();
+            var orchestratorCard = orchestratorAgent.GetAgentCard();
+            app.MapA2A(orchestratorAgent.GetAIAgent(), path: "/agent", agentCard: orchestratorCard,
                 taskManager => app.MapWellKnownAgentCard(taskManager, "/agent"));
 
-            // Map A2A endpoints for all in-process agents with relative paths
+            // Map A2A endpoints for all other in-process agents with relative paths
             var agents = app.Services.GetServices<ILuciaAgent>();
             var logger = app.Services.GetRequiredService<ILogger<Program>>();
             foreach (var agent in agents)
             {
+                if (agent is OrchestratorAgent)
+                    continue; // Already mapped above with well-known card
+
                 var card = agent.GetAgentCard();
                 if (card.Url is not null && card.Url.StartsWith('/'))
                 {

@@ -7,7 +7,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using lucia.Agents.Orchestration.Models;
 using Microsoft.Agents.AI.Workflows;
-using Microsoft.Agents.AI.Workflows.Reflection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -16,7 +15,7 @@ namespace lucia.Agents.Orchestration;
 /// <summary>
 /// Aggregates agent responses into a single natural language message.
 /// </summary>
-public sealed class ResultAggregatorExecutor : ReflectingExecutor<ResultAggregatorExecutor>, IMessageHandler<List<OrchestratorAgentResponse>, string>
+public sealed class ResultAggregatorExecutor : Executor
 {
     /// <summary>Executor identifier.</summary>
     public const string ExecutorId = "ResultAggregator";
@@ -37,7 +36,10 @@ public sealed class ResultAggregatorExecutor : ReflectingExecutor<ResultAggregat
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
     }
 
-    public async ValueTask<string> HandleAsync(List<OrchestratorAgentResponse> responses, IWorkflowContext context, CancellationToken cancellationToken)
+    protected override RouteBuilder ConfigureRoutes(RouteBuilder routeBuilder)
+        => routeBuilder.AddHandler<List<OrchestratorAgentResponse>, OrchestratorResult>(HandleAsync);
+
+    public async ValueTask<OrchestratorResult> HandleAsync(List<OrchestratorAgentResponse> responses, IWorkflowContext context, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(responses);
         ArgumentNullException.ThrowIfNull(context);
@@ -61,17 +63,19 @@ public sealed class ResultAggregatorExecutor : ReflectingExecutor<ResultAggregat
             _logger.LogInformation("Result aggregation succeeded for agents {Agents}", string.Join(", ", summary.SuccessfulAgents));
         }
 
-        return summary.Message;
+        return new OrchestratorResult
+        {
+            Text = summary.Message,
+            NeedsInput = summary.NeedsInput
+        };
     }
-
-    public ValueTask<string> HandleAsync(List<OrchestratorAgentResponse> responses, IWorkflowContext context)
-        => HandleAsync(responses, context, CancellationToken.None);
 
     private AggregationResult BuildSummary(IEnumerable<OrchestratorAgentResponse> responses)
     {
         var successes = new List<OrchestratorAgentResponse>();
         var failures = new List<AggregatedFailure>();
         long totalTime = 0;
+        var needsInput = false;
 
         foreach (var response in responses)
         {
@@ -80,6 +84,10 @@ public sealed class ResultAggregatorExecutor : ReflectingExecutor<ResultAggregat
             if (response.Success)
             {
                 successes.Add(response);
+                if (response.NeedsInput)
+                {
+                    needsInput = true;
+                }
             }
             else
             {
@@ -94,7 +102,8 @@ public sealed class ResultAggregatorExecutor : ReflectingExecutor<ResultAggregat
             message,
             successAgents,
             failures,
-            totalTime);
+            totalTime,
+            needsInput);
     }
 
     private IReadOnlyList<OrchestratorAgentResponse> OrderResponses(IEnumerable<OrchestratorAgentResponse> responses)

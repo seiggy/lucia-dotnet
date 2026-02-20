@@ -1,8 +1,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using lucia.Agents.Registry;
-using lucia.Agents.Agents;
-using Microsoft.Agents.AI.Hosting;
+using lucia.Agents.Abstractions;
 
 namespace lucia.Agents.Extensions;
 
@@ -12,22 +11,16 @@ namespace lucia.Agents.Extensions;
 public class AgentInitializationService : BackgroundService
 {
     private readonly IAgentRegistry _agentRegistry;
-    private readonly LightAgent _lightAgent;
-    private readonly OrchestratorAgent _orchestratorAgent;
-    private readonly GeneralAgent _generalAgent;
+    private readonly IEnumerable<ILuciaAgent> _agents;
     private readonly ILogger<AgentInitializationService> _logger;
 
     public AgentInitializationService(
         IAgentRegistry agentRegistry,
-        LightAgent lightAgent,
-        OrchestratorAgent orchestratorAgent,
-        GeneralAgent generalAgent,
+        IEnumerable<ILuciaAgent> agents,
         ILogger<AgentInitializationService> logger)
     {
         _agentRegistry = agentRegistry;
-        _lightAgent = lightAgent;
-        _orchestratorAgent = orchestratorAgent;
-        _generalAgent = generalAgent;
+        _agents = agents;
         _logger = logger;
     }
 
@@ -37,17 +30,14 @@ public class AgentInitializationService : BackgroundService
         {
             _logger.LogInformation("Starting agent initialization...");
 
-            // Initialize agents (cache and warm-up)
-            await _lightAgent.InitializeAsync(stoppingToken).ConfigureAwait(false);
-            await _orchestratorAgent.InitializeAsync(stoppingToken).ConfigureAwait(false);
-            await _generalAgent.InitializeAsync(stoppingToken).ConfigureAwait(false);
+            foreach (var agent in _agents)
+            {
+                await agent.InitializeAsync(stoppingToken).ConfigureAwait(false);
+                await _agentRegistry.RegisterAgentAsync(agent.GetAgentCard(), stoppingToken).ConfigureAwait(false);
+                _logger.LogInformation("Initialized and registered agent: {AgentName}", agent.GetAgentCard().Name);
+            }
 
-            // Register available agents with the registry
-            await _agentRegistry.RegisterAgentAsync(_lightAgent.GetAgentCard(), stoppingToken).ConfigureAwait(false);
-            await _agentRegistry.RegisterAgentAsync(_orchestratorAgent.GetAgentCard(), stoppingToken).ConfigureAwait(false);
-            await _agentRegistry.RegisterAgentAsync(_generalAgent.GetAgentCard(), stoppingToken).ConfigureAwait(false);
-            
-            _logger.LogInformation("Agent initialization completed successfully");
+            _logger.LogInformation("Agent initialization completed successfully — {Count} agent(s) registered", _agents.Count());
         }
         catch (Exception ex)
         {

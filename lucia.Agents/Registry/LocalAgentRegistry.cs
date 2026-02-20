@@ -49,7 +49,7 @@ public sealed class LocalAgentRegistry : IAgentRegistry
         return Task.FromResult(agent);
     }
 
-    public async IAsyncEnumerable<AgentCard> GetEnumerableAgentsAsync(CancellationToken cancellationToken = default)
+    public async IAsyncEnumerable<AgentCard> GetEnumerableAgentsAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await Task.CompletedTask.ConfigureAwait(false);
         foreach (var name in _agents.Keys.OrderBy(k => k, StringComparer.Ordinal))

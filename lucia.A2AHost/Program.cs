@@ -40,7 +40,7 @@ builder.AddEmbeddingsClient("embeddings");
 builder.Services.Configure<HomeAssistantOptions>(
     builder.Configuration.GetSection("HomeAssistant"));
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddTransient<IHomeAssistantClient, GeneratedHomeAssistantClient>();
+builder.Services.AddTransient<IHomeAssistantClient, HomeAssistantClient>();
 builder.Services.AddSingleton<IDeviceCacheService, RedisDeviceCacheService>();
 
 builder.Services.AddHttpClient<AgentRegistryClient>(options =>

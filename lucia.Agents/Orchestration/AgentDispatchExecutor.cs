@@ -7,7 +7,6 @@ using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Training;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Workflows;
-using Microsoft.Agents.AI.Workflows.Reflection;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
@@ -17,29 +16,32 @@ namespace lucia.Agents.Orchestration;
 /// Executor for dispatching user requests to multiple agents and collecting responses.
 /// Implements the MagenticOne pattern for multi-agent workflow coordination.
 /// </summary>
-public sealed class AgentDispatchExecutor : ReflectingExecutor<AgentDispatchExecutor>, IMessageHandler<AgentChoiceResult, List<OrchestratorAgentResponse>>
+public sealed class AgentDispatchExecutor : Executor
 {
-    private readonly IReadOnlyDictionary<string, AgentExecutorWrapper> _wrappers;
+    private readonly IReadOnlyDictionary<string, IAgentInvoker> _invokers;
     private readonly ILogger<AgentDispatchExecutor> _logger;
     private readonly IOrchestratorObserver? _observer;
     private ChatMessage? _userMessage;
 
     /// <summary>
-    /// Creates a new AgentDispatchExecutor instance
+    /// Creates a new AgentDispatchExecutor instance.
     /// </summary>
-    /// <param name="wrappers">Dictionary of agent ID to AgentExecutorWrapper for available agents</param>
+    /// <param name="invokers">Dictionary of agent ID to invoker for available agents</param>
     /// <param name="logger">Logger for diagnostic output</param>
     /// <param name="observer">Optional orchestrator observer for trace capture</param>
     public AgentDispatchExecutor(
-        IReadOnlyDictionary<string, AgentExecutorWrapper> wrappers,
+        IReadOnlyDictionary<string, IAgentInvoker> invokers,
         ILogger<AgentDispatchExecutor> logger,
         IOrchestratorObserver? observer = null)
         : base("AgentDispatch")
     {
-        _wrappers = wrappers ?? throw new ArgumentNullException(nameof(wrappers));
+        _invokers = invokers ?? throw new ArgumentNullException(nameof(invokers));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _observer = observer;
     }
+
+    protected override RouteBuilder ConfigureRoutes(RouteBuilder routeBuilder)
+        => routeBuilder.AddHandler<AgentChoiceResult, List<OrchestratorAgentResponse>>(HandleAsync);
 
     /// <summary>
     /// Sets the user message for subsequent agent invocations
@@ -105,11 +107,6 @@ public sealed class AgentDispatchExecutor : ReflectingExecutor<AgentDispatchExec
         return responses;
     }
 
-    public ValueTask<List<OrchestratorAgentResponse>> HandleAsync(
-        AgentChoiceResult agentChoice,
-        IWorkflowContext context)
-        => HandleAsync(agentChoice, context, CancellationToken.None);
-
     /// <summary>
     /// Returns a per-agent tailored message if the router provided agent-specific instructions,
     /// otherwise falls back to the original user message.
@@ -139,15 +136,15 @@ public sealed class AgentDispatchExecutor : ReflectingExecutor<AgentDispatchExec
         IWorkflowContext context,
         CancellationToken cancellationToken)
     {
-        if (!_wrappers.TryGetValue(agentId, out var wrapper))
+        if (!_invokers.TryGetValue(agentId, out var invoker))
         {
-            _logger.LogWarning("No wrapper registered for agent {AgentId}.", agentId);
+            _logger.LogWarning("No invoker registered for agent {AgentId}.", agentId);
             return CreateFailureResponse(agentId, $"Agent '{agentId}' is not available.");
         }
 
         try
         {
-            return await wrapper.HandleAsync(userMessage, context, cancellationToken).ConfigureAwait(false);
+            return await invoker.InvokeAsync(userMessage, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

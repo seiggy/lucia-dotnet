@@ -28,6 +28,7 @@ public sealed class TimerAgentPlugin : IAgentPlugin
 
         builder.Services.AddSingleton<TimerSkill>();
         builder.Services.AddSingleton<ILuciaAgent, TimerAgent>();
+        builder.Services.AddHostedService<TimerRecoveryService>();
     }
 
     public void MapAgentEndpoints(WebApplication app)

@@ -7,4 +7,5 @@ public sealed record AggregationResult(
     string Message,
     IReadOnlyList<string> SuccessfulAgents,
     IReadOnlyList<AggregatedFailure> FailedAgents,
-    long TotalExecutionTimeMs);
+    long TotalExecutionTimeMs,
+    bool NeedsInput = false);

@@ -1,10 +1,10 @@
+using System.Runtime.CompilerServices;
+using System.Text.Json;
 using A2A;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Integration;
 using lucia.Agents.Orchestration;
-using lucia.Agents.Registry;
 using Microsoft.Agents.AI;
-using Microsoft.Agents.AI.A2A;
-using Microsoft.Agents.AI.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.AI;
@@ -14,35 +14,30 @@ using Microsoft.Extensions.Options;
 namespace lucia.Agents.Agents;
 
 /// <summary>
-/// Agent wrapper that exposes the LuciaOrchestrator through the AIAgent interface for Home Assistant integration.
-/// This agent handles intelligent routing of user requests to appropriate specialized agents.
+/// A2A agent adapter that exposes the <see cref="LuciaEngine"/> workflow engine
+/// through the Microsoft Agent Framework <see cref="AIAgent"/> interface.
+/// Handles agent card metadata, session lifecycle, and message extraction.
 /// </summary>
-public class OrchestratorAgent
+public sealed class OrchestratorAgent : AIAgent, ILuciaAgent
 {
-    private readonly AgentCard _agent;
+    private readonly LuciaEngine _engine;
+    private readonly IAgentSessionFactory _sessionFactory;
     private readonly ILogger<OrchestratorAgent> _logger;
-    private readonly AIAgent _aiAgent;
-    private readonly TaskManager _taskManager;
-    private IServer _server;
+    private readonly IServer _server;
+    private AgentCard _agentCard;
 
-    /// <summary>
-    /// The system instructions used by this agent.
-    /// </summary>
-    public string Instructions { get; }
-
-    /// <summary>
-    /// The AI tools available to this agent (agent-as-tool functions).
-    /// </summary>
-    public IList<AITool> Tools { get; }
+    public override string? Name => "Orchestrator";
+    public override string? Description => "Intelligent orchestrator that routes requests to specialized agents based on intent and capabilities";
 
     public OrchestratorAgent(
-        LuciaOrchestrator orchestrator,
-        IAgentRegistry agentRegistry,
-        IOptions<RouterExecutorOptions> routerExecutorOptions,
+        LuciaEngine engine,
         IAgentSessionFactory sessionFactory,
+        IOptions<RouterExecutorOptions> routerExecutorOptions,
         IServer server,
         ILoggerFactory loggerFactory)
     {
+        _engine = engine;
+        _sessionFactory = sessionFactory;
         _logger = loggerFactory.CreateLogger<OrchestratorAgent>();
         _server = server;
 
@@ -61,32 +56,16 @@ public class OrchestratorAgent
             ]
         };
 
-        var agents = agentRegistry.GetAllAgentsAsync()
-            .GetAwaiter()
-            .GetResult();
+        var agentUrl = ResolveServerUrl();
 
-        Tools = agents
-            .Select(agent => (AITool)agent.AsAIAgent().AsAIFunction()).ToList();
-        
-        var serverAddressesFeature = _server?.Features?.Get<IServerAddressesFeature>();
-        string agentUrl;
-        if (serverAddressesFeature?.Addresses != null && serverAddressesFeature.Addresses.Any())
-        {
-            agentUrl = serverAddressesFeature.Addresses.First();
-        }
-        else
-        {
-            agentUrl = "unknown";
-        }
-
-        _agent = new AgentCard
+        _agentCard = new AgentCard
         {
             Url = agentUrl + "/agent",
             Name = "orchestrator",
             Description = "Intelligent #orchestrator that #routes requests to specialized agents based on intent and capabilities",
             Capabilities = new AgentCapabilities
             {
-                PushNotifications = true,
+                PushNotifications = false,
                 StateTransitionHistory = true,
                 Streaming = true
             },
@@ -95,48 +74,213 @@ public class OrchestratorAgent
             Skills = [orchestrationSkill],
             Version = "1.0.0"
         };
-
-        Instructions = routerExecutorOptions.Value.SystemPrompt ?? RouterExecutorOptions.DefaultSystemPrompt;
-
-        // Use OrchestratorAIAgent which delegates to LuciaOrchestrator.ProcessRequestAsync
-        // This ensures the full workflow (routing → dispatch → aggregation) and prompt cache are engaged
-        _aiAgent = new OrchestratorAIAgent(
-            orchestrator,
-            sessionFactory,
-            "Orchestrator",
-            "Orchestrator for Lucia");
-
-        _taskManager = new TaskManager();
     }
 
-    /// <summary>
-    /// Get the agent card for registration with the registry and A2A endpoints.
-    /// </summary>
-    public AgentCard GetAgentCard() => _agent;
+    // --- ILuciaAgent implementation ---
 
-    /// <summary>
-    /// Get the underlying AI agent for processing requests.
-    /// </summary>
-    public AIAgent GetAIAgent() => _aiAgent;
+    public AgentCard GetAgentCard() => _agentCard;
 
-    /// <summary>
-    /// Initialize the agent.
-    /// </summary>
+    public AIAgent GetAIAgent() => this;
+
     public Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Initializing OrchestratorAgent...");
-        var serverAddressesFeature = _server?.Features?.Get<IServerAddressesFeature>();
-        string agentUrl;
-        if (serverAddressesFeature?.Addresses != null && serverAddressesFeature.Addresses.Any())
-        {
-            agentUrl = serverAddressesFeature.Addresses.First();
-        }
-        else
-        {
-            agentUrl = "unknown";
-        }
-        _agent.Url = agentUrl + "/agent";
+        _agentCard.Url = ResolveServerUrl() + "/agent";
         _logger.LogInformation("OrchestratorAgent initialized successfully");
         return Task.CompletedTask;
+    }
+
+    // --- AIAgent session lifecycle ---
+
+    protected override ValueTask<AgentSession> CreateSessionCoreAsync(CancellationToken cancellationToken = default) =>
+        new(_sessionFactory.CreateSession());
+
+    protected override ValueTask<AgentSession> DeserializeSessionCoreAsync(
+        JsonElement serializedSession,
+        JsonSerializerOptions? jsonSerializerOptions = null,
+        CancellationToken cancellationToken = default) =>
+        new(_sessionFactory.DeserializeSession(serializedSession, jsonSerializerOptions));
+
+    protected override ValueTask<JsonElement> SerializeSessionCoreAsync(
+        AgentSession session,
+        JsonSerializerOptions? jsonSerializerOptions = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (session is OrchestratorInMemorySession inMemorySession)
+        {
+            return new(inMemorySession.Serialize(jsonSerializerOptions));
+        }
+
+        return default;
+    }
+
+    // --- AIAgent request processing ---
+
+    protected override async Task<AgentResponse> RunCoreAsync(
+        IEnumerable<ChatMessage> messages,
+        AgentSession? session = null,
+        AgentRunOptions? options = null,
+        CancellationToken cancellationToken = default)
+    {
+        session ??= await CreateSessionAsync(cancellationToken);
+
+        var userMessage = messages.LastOrDefault(m => m.Role == ChatRole.User)
+            ?? throw new InvalidOperationException("No user message found in chat messages.");
+
+        var sessionId = ResolveSessionId(userMessage, session);
+
+        var responseText = await _engine.ProcessRequestAsync(
+            userMessage.Text,
+            taskId: null,
+            sessionId: sessionId,
+            cancellationToken);
+
+        var responseMessage = new ChatMessage(ChatRole.Assistant, responseText.Text)
+        {
+            MessageId = Guid.NewGuid().ToString("N"),
+            AuthorName = Name,
+            AdditionalProperties = new AdditionalPropertiesDictionary
+            {
+                ["lucia.needsInput"] = responseText.NeedsInput
+            }
+        };
+
+        return new AgentResponse
+        {
+            AgentId = Id,
+            ResponseId = Guid.NewGuid().ToString("N"),
+            Messages = [responseMessage]
+        };
+    }
+
+    protected override async IAsyncEnumerable<AgentResponseUpdate> RunCoreStreamingAsync(
+        IEnumerable<ChatMessage> messages,
+        AgentSession? session = null,
+        AgentRunOptions? options = null,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        session ??= await CreateSessionAsync(cancellationToken);
+
+        var userMessage = messages.LastOrDefault(m => m.Role == ChatRole.User)
+            ?? throw new InvalidOperationException("No user message found in chat messages.");
+
+        var streamSessionId = ResolveSessionId(userMessage, session);
+        var responseText = await _engine.ProcessRequestAsync(
+            userMessage.Text,
+            taskId: null,
+            sessionId: streamSessionId,
+            cancellationToken);
+
+        var responseMessage = new ChatMessage(ChatRole.Assistant, responseText.Text)
+        {
+            MessageId = Guid.NewGuid().ToString("N"),
+            AuthorName = Name,
+            AdditionalProperties = new AdditionalPropertiesDictionary
+            {
+                ["lucia.needsInput"] = responseText.NeedsInput
+            }
+        };
+
+        yield return new AgentResponseUpdate
+        {
+            AgentId = Id,
+            AuthorName = Name,
+            Role = ChatRole.Assistant,
+            Contents = responseMessage.Contents,
+            ResponseId = Guid.NewGuid().ToString("N"),
+            MessageId = Guid.NewGuid().ToString("N")
+        };
+    }
+
+    // --- Private helpers ---
+
+    private string ResolveServerUrl()
+    {
+        var serverAddressesFeature = _server?.Features?.Get<IServerAddressesFeature>();
+        if (serverAddressesFeature?.Addresses != null && serverAddressesFeature.Addresses.Any())
+        {
+            return serverAddressesFeature.Addresses.First();
+        }
+
+        return "unknown";
+    }
+
+    /// <summary>
+    /// Resolves the session key for Redis cache lookup.
+    /// Priority: A2A contextId → device.id from HA request context → session object → new GUID.
+    /// Home Assistant doesn't reliably provide a persistent conversation_id, so we fall back
+    /// to the device.id embedded in the request context. Since the service is single-tenant
+    /// (runs on the user's own network), device.id is sufficient for session continuity.
+    /// </summary>
+    private static string ResolveSessionId(ChatMessage userMessage, AgentSession? session)
+    {
+        if (userMessage.AdditionalProperties?.TryGetValue("a2a.contextId", out var ctxId) == true
+            && ctxId?.ToString() is { Length: > 0 } ctx)
+        {
+            return ctx;
+        }
+
+        if (ExtractDeviceId(userMessage.Text) is { Length: > 0 } deviceId)
+        {
+            return deviceId;
+        }
+
+        return (session as OrchestratorInMemorySession)?.SessionId
+            ?? Guid.NewGuid().ToString("N");
+    }
+
+    /// <summary>
+    /// Extracts the device.id from the Home Assistant REQUEST_CONTEXT JSON block
+    /// embedded in the user prompt text. Returns null if not found.
+    /// </summary>
+    internal static string? ExtractDeviceId(string? messageText)
+    {
+        if (string.IsNullOrWhiteSpace(messageText))
+            return null;
+
+        var contextStart = messageText.IndexOf("REQUEST_CONTEXT:", StringComparison.Ordinal);
+        if (contextStart < 0)
+            return null;
+
+        var jsonStart = messageText.IndexOf('{', contextStart);
+        if (jsonStart < 0)
+            return null;
+
+        var depth = 0;
+        var jsonEnd = -1;
+        for (var i = jsonStart; i < messageText.Length; i++)
+        {
+            switch (messageText[i])
+            {
+                case '{': depth++; break;
+                case '}':
+                    depth--;
+                    if (depth == 0) { jsonEnd = i; goto found; }
+                    break;
+            }
+        }
+        found:
+
+        if (jsonEnd < 0)
+            return null;
+
+        try
+        {
+            var jsonSpan = messageText.AsSpan(jsonStart, jsonEnd - jsonStart + 1);
+            using var doc = JsonDocument.Parse(jsonSpan.ToString());
+
+            if (doc.RootElement.TryGetProperty("device", out var device)
+                && device.TryGetProperty("id", out var id)
+                && id.GetString() is { Length: > 0 } devId)
+            {
+                return devId;
+            }
+        }
+        catch (JsonException)
+        {
+            // Malformed context block — fall through
+        }
+
+        return null;
     }
 }

@@ -6,6 +6,7 @@ namespace lucia.TimerAgent;
 internal sealed class ActiveTimer
 {
     public required string Id { get; init; }
+    public required string TaskId { get; init; }
     public required string Message { get; init; }
     public required string EntityId { get; init; }
     public required int DurationSeconds { get; init; }

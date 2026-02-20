@@ -11,6 +11,7 @@ using lucia.HomeAssistant.Services;
 using lucia.Agents.Services;
 using lucia.Tests.TestDoubles;
 using Microsoft.Extensions.Options;
+using lucia.Agents.Skills.Models;
 using lucia.MusicAgent;
 
 namespace lucia.Tests;
@@ -45,15 +46,15 @@ public class MusicPlaybackSkillTests
 
         var result = await _skill.FindPlayerAsync("Satellite1 Kitchen");
 
-        Assert.Contains("Satellite player 'Satellite1 Kitchen'", result);
+        Assert.Contains("MusicAssistant player 'Satellite1 Kitchen'", result);
     }
 
     [Fact]
     public async Task PlayArtistAsync_CallsMusicAssistantPlayMedia()
     {
         ServiceCallRequest? capturedRequest = null;
-        A.CallTo(() => _homeAssistantClient.CallServiceAsync("music_assistant", "play_media", "return_response", A<ServiceCallRequest>._, A<CancellationToken>._))
-            .Invokes((string _, string _, ServiceCallRequest request, CancellationToken _) => capturedRequest = request)
+        A.CallTo(() => _homeAssistantClient.CallServiceAsync("music_assistant", "play_media", "return_response=1", A<ServiceCallRequest>._, A<CancellationToken>._))
+            .Invokes((string _, string _, string? _, ServiceCallRequest request, CancellationToken _) => capturedRequest = request)
             .Returns(Task.FromResult(Array.Empty<object>()));
 
         await _skill.InitializeAsync();
@@ -70,13 +71,22 @@ public class MusicPlaybackSkillTests
     [Fact]
     public async Task PlayShuffleAsync_SeedsQueueWithRandomTracks()
     {
-        var libraryResponse = CreateLibraryResponseJson();
-        A.CallTo(() => _homeAssistantClient.CallServiceAsync("music_assistant", "get_library", "return_response", A<ServiceCallRequest>._, A<CancellationToken>._))
-            .Returns(Task.FromResult(new object[] { libraryResponse }));
+        var libraryResponse = new MusicLibraryResponse
+        {
+            ServiceResponse = new MusicLibraryServiceResponse
+            {
+                Items = [
+                    new LibraryItems { MediaType = "track", Uri = "spotify://track/123", Name = "Track 1" },
+                    new LibraryItems { MediaType = "track", Uri = "spotify://track/456", Name = "Track 2" }
+                ]
+            }
+        };
+        A.CallTo(() => _homeAssistantClient.CallServiceAsync<MusicLibraryResponse>(A<string>._, A<string>._, A<string?>._, A<ServiceCallRequest?>._, A<CancellationToken>._))
+            .Returns(Task.FromResult(libraryResponse));
 
         ServiceCallRequest? capturedPlayRequest = null;
-        A.CallTo(() => _homeAssistantClient.CallServiceAsync("music_assistant", "play_media", "return_response", A<ServiceCallRequest>._, A<CancellationToken>._))
-            .Invokes((string _, string _, ServiceCallRequest request, CancellationToken _) => capturedPlayRequest = request)
+        A.CallTo(() => _homeAssistantClient.CallServiceAsync("music_assistant", "play_media", null, A<ServiceCallRequest>._, A<CancellationToken>._))
+            .Invokes((string _, string _, string? _, ServiceCallRequest request, CancellationToken _) => capturedPlayRequest = request)
             .Returns(Task.FromResult(Array.Empty<object>()));
 
         await _skill.InitializeAsync();
@@ -87,8 +97,7 @@ public class MusicPlaybackSkillTests
         Assert.Contains("spotify://track/123", mediaIds.Cast<string>());
         Assert.Equal("track", capturedPlayRequest["media_type"]);
         Assert.Equal("replace", capturedPlayRequest["enqueue"]);
-        Assert.Equal(true, capturedPlayRequest["radio_mode"]);
-        Assert.Contains("shuffle mix", response);
+        Assert.Contains("Shuffling", response);
     }
 
     private void ConfigureDefaultStates()

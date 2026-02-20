@@ -1,3 +1,4 @@
+using A2A;
 using FakeItEasy;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
@@ -13,6 +14,7 @@ namespace lucia.Tests.Timer;
 public sealed class TimerSkillTests
 {
     private readonly IHomeAssistantClient _haClient = A.Fake<IHomeAssistantClient>();
+    private readonly ITaskStore _taskStore = A.Fake<ITaskStore>();
     private readonly FakeTimeProvider _timeProvider = new();
     private readonly ILogger<TimerSkill> _logger = A.Fake<ILogger<TimerSkill>>();
     private readonly TimerSkill _skill;
@@ -20,7 +22,7 @@ public sealed class TimerSkillTests
     public TimerSkillTests()
     {
         _timeProvider.SetUtcNow(new DateTimeOffset(2025, 7, 15, 12, 0, 0, TimeSpan.Zero));
-        _skill = new TimerSkill(_haClient, _timeProvider, _logger);
+        _skill = new TimerSkill(_haClient, _taskStore, _timeProvider, _logger);
     }
 
     [Fact]

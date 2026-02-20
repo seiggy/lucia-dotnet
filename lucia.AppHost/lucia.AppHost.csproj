@@ -1,22 +1,22 @@
 <Project Sdk="Aspire.AppHost.Sdk/13.1.1">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
     <PreviewFeatures>enable</PreviewFeatures>
-    <Nullable>enable</Nullable>
     <UserSecretsId>dd99e9ff-e233-4d7f-99b9-8c04beabcc9f</UserSecretsId>
-    <LangVersion>14</LangVersion>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Aspire.Hosting.Azure.AIFoundry" Version="13.1.1-preview.1.26105.8" />
-    <PackageReference Include="Aspire.Hosting.Azure.CognitiveServices" Version="13.1.1" />
-    <PackageReference Include="Aspire.Hosting.OpenAI" Version="13.1.1" />
-    <PackageReference Include="Aspire.Hosting.MongoDB" Version="13.1.1" />
-    <PackageReference Include="Aspire.Hosting.JavaScript" Version="13.1.1" />
-    <PackageReference Include="Aspire.Hosting.Redis" Version="13.1.1" />
-    <PackageReference Include="CommunityToolkit.Aspire.Hosting.JavaScript.Extensions" Version="13.1.2-beta.518" />
-    <PackageReference Include="Scalar.Aspire" Version="0.7.3" />
+    <PackageReference Include="Aspire.Hosting.Azure.AIFoundry" />
+    <PackageReference Include="Aspire.Hosting.Azure.CognitiveServices" />
+    <PackageReference Include="Aspire.Hosting.OpenAI" />
+    <PackageReference Include="Aspire.Hosting.MongoDB" />
+    <PackageReference Include="Aspire.Hosting.JavaScript" />
+    <PackageReference Include="Aspire.Hosting.Redis" />
+    <PackageReference Include="CommunityToolkit.Aspire.Hosting.JavaScript.Extensions" />
+    <PackageReference Include="Scalar.Aspire" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" VersionOverride="10.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" VersionOverride="10.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Http" VersionOverride="10.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Options" VersionOverride="10.0.1" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\lucia.A2AHost\lucia.A2AHost.csproj" />
@@ -24,20 +24,14 @@
     <ProjectReference Include="..\lucia.MusicAgent\lucia.MusicAgent.csproj" IsAspireProjectResource="false" />
     <ProjectReference Include="..\lucia.TimerAgent\lucia.TimerAgent.csproj" IsAspireProjectResource="false" />
   </ItemGroup>
-
   <!-- Copy MusicAgent plugin DLL to its own plugins directory -->
   <Target Name="CopyMusicAgentPlugin" AfterTargets="Build">
     <MakeDir Directories="plugins\music-agent" Condition="!Exists('plugins\music-agent')" />
-    <Copy SourceFiles="..\lucia.MusicAgent\bin\$(Configuration)\$(TargetFramework)\lucia.MusicAgent.dll"
-          DestinationFolder="plugins\music-agent"
-          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="..\lucia.MusicAgent\bin\$(Configuration)\$(TargetFramework)\lucia.MusicAgent.dll" DestinationFolder="plugins\music-agent" SkipUnchangedFiles="true" />
   </Target>
-
   <!-- Copy TimerAgent plugin DLL to its own plugins directory -->
   <Target Name="CopyTimerAgentPlugin" AfterTargets="Build">
     <MakeDir Directories="plugins\timer-agent" Condition="!Exists('plugins\timer-agent')" />
-    <Copy SourceFiles="..\lucia.TimerAgent\bin\$(Configuration)\$(TargetFramework)\lucia.TimerAgent.dll"
-          DestinationFolder="plugins\timer-agent"
-          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="..\lucia.TimerAgent\bin\$(Configuration)\$(TargetFramework)\lucia.TimerAgent.dll" DestinationFolder="plugins\timer-agent" SkipUnchangedFiles="true" />
   </Target>
 </Project>

@@ -12,6 +12,7 @@ public class AgentResponseBuilder
     private bool _success = true;
     private string? _errorMessage;
     private long _executionTimeMs = 100;
+    private bool _needsInput;
     
     public AgentResponseBuilder WithAgentId(string agentId)
     {
@@ -49,6 +50,12 @@ public class AgentResponseBuilder
         _executionTimeMs = ms;
         return this;
     }
+
+    public AgentResponseBuilder WithNeedsInput(bool needsInput = true)
+    {
+        _needsInput = needsInput;
+        return this;
+    }
     
     public OrchestratorAgentResponse Build() => new()
     {
@@ -56,6 +63,7 @@ public class AgentResponseBuilder
         Content = _content,
         Success = _success,
         ErrorMessage = _errorMessage,
-        ExecutionTimeMs = _executionTimeMs
+        ExecutionTimeMs = _executionTimeMs,
+        NeedsInput = _needsInput
     };
 }

@@ -1,4 +1,4 @@
-using lucia.Agents.Integration;
+using lucia.Agents.Agents;
 
 namespace lucia.Tests.Integration;
 
@@ -25,7 +25,7 @@ public sealed class ExtractDeviceIdTests
             turn on the lights
             """;
 
-        var result = OrchestratorAIAgent.ExtractDeviceId(message);
+        var result = OrchestratorAgent.ExtractDeviceId(message);
 
         Assert.Equal("conversation.lucia", result);
     }
@@ -40,7 +40,7 @@ public sealed class ExtractDeviceIdTests
             play some music
             """;
 
-        var result = OrchestratorAIAgent.ExtractDeviceId(message);
+        var result = OrchestratorAgent.ExtractDeviceId(message);
 
         Assert.Equal("assist_satellite.kitchen", result);
     }
@@ -50,7 +50,7 @@ public sealed class ExtractDeviceIdTests
     {
         var message = "turn on the lights in the kitchen";
 
-        var result = OrchestratorAIAgent.ExtractDeviceId(message);
+        var result = OrchestratorAgent.ExtractDeviceId(message);
 
         Assert.Null(result);
     }
@@ -58,7 +58,7 @@ public sealed class ExtractDeviceIdTests
     [Fact]
     public void ExtractDeviceId_WithNullMessage_ReturnsNull()
     {
-        var result = OrchestratorAIAgent.ExtractDeviceId(null);
+        var result = OrchestratorAgent.ExtractDeviceId(null);
 
         Assert.Null(result);
     }
@@ -66,7 +66,7 @@ public sealed class ExtractDeviceIdTests
     [Fact]
     public void ExtractDeviceId_WithEmptyMessage_ReturnsNull()
     {
-        var result = OrchestratorAIAgent.ExtractDeviceId("");
+        var result = OrchestratorAgent.ExtractDeviceId("");
 
         Assert.Null(result);
     }
@@ -81,7 +81,7 @@ public sealed class ExtractDeviceIdTests
             do something
             """;
 
-        var result = OrchestratorAIAgent.ExtractDeviceId(message);
+        var result = OrchestratorAgent.ExtractDeviceId(message);
 
         Assert.Null(result);
     }
@@ -96,7 +96,7 @@ public sealed class ExtractDeviceIdTests
             do something
             """;
 
-        var result = OrchestratorAIAgent.ExtractDeviceId(message);
+        var result = OrchestratorAgent.ExtractDeviceId(message);
 
         Assert.Null(result);
     }
@@ -111,7 +111,7 @@ public sealed class ExtractDeviceIdTests
             do something
             """;
 
-        var result = OrchestratorAIAgent.ExtractDeviceId(message);
+        var result = OrchestratorAgent.ExtractDeviceId(message);
 
         Assert.Null(result);
     }

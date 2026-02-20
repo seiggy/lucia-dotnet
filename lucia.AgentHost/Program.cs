@@ -24,6 +24,9 @@ builder.AddMongoDBClient(connectionName: "luciatraces");
 // MongoDB for configuration (shared across services)
 builder.AddMongoDBClient(connectionName: "luciaconfig");
 
+// MongoDB for task archive
+builder.AddMongoDBClient(connectionName: "luciatasks");
+
 // Add MongoDB configuration as highest-priority source (overrides appsettings)
 builder.Configuration.AddMongoConfiguration("luciaconfig");
 
@@ -31,7 +34,7 @@ builder.Configuration.AddMongoConfiguration("luciaconfig");
 builder.Services.Configure<HomeAssistantOptions>(
     builder.Configuration.GetSection(HomeAssistantOptions.SectionName));
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddTransient<IHomeAssistantClient, GeneratedHomeAssistantClient>();
+builder.Services.AddTransient<IHomeAssistantClient, HomeAssistantClient>();
 
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
@@ -57,6 +60,12 @@ builder.Services.Configure<TraceCaptureOptions>(
 builder.Services.AddSingleton<ITraceRepository, MongoTraceRepository>();
 builder.Services.AddSingleton<IOrchestratorObserver, TraceCaptureObserver>();
 builder.Services.AddHostedService<TraceRetentionService>();
+
+// Task archive services
+builder.Services.Configure<TaskArchiveOptions>(
+    builder.Configuration.GetSection(TaskArchiveOptions.SectionName));
+builder.Services.AddSingleton<ITaskArchiveStore, MongoTaskArchiveStore>();
+builder.Services.AddHostedService<TaskArchivalService>();
 
 // Configuration seeder — copies appsettings to MongoDB on first run
 builder.Services.AddHostedService<ConfigSeeder>();
@@ -107,6 +116,7 @@ app.MapTraceManagementApi();
 app.MapDatasetExportApi();
 app.MapConfigurationApi();
 app.MapPromptCacheApi();
+app.MapTaskManagementApi();
 app.MapDefaultEndpoints();
 
 // SPA hosting: serve React dashboard assets in production

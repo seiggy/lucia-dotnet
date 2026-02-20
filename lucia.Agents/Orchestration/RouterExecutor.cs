@@ -13,7 +13,6 @@ using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Registry;
 using lucia.Agents.Services;
 using Microsoft.Agents.AI.Workflows;
-using Microsoft.Agents.AI.Workflows.Reflection;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -25,7 +24,7 @@ namespace lucia.Agents.Orchestration;
 /// When a prompt cache is available, returns cached routing decisions without calling the LLM,
 /// so agents still execute tools fresh every time.
 /// </summary>
-public sealed class RouterExecutor : ReflectingExecutor<RouterExecutor>, IMessageHandler<ChatMessage, AgentChoiceResult>
+public sealed class RouterExecutor : Executor
 {
     public const string ExecutorId = "RouterExecutor";
 
@@ -68,6 +67,9 @@ public sealed class RouterExecutor : ReflectingExecutor<RouterExecutor>, IMessag
 
         _schema = AIJsonUtilities.CreateJsonSchema(typeof(AgentChoiceResult));
     }
+
+    protected override RouteBuilder ConfigureRoutes(RouteBuilder routeBuilder)
+        => routeBuilder.AddHandler<ChatMessage, AgentChoiceResult>(HandleAsync);
 
     public async ValueTask<AgentChoiceResult> HandleAsync(ChatMessage message, IWorkflowContext context, CancellationToken cancellationToken = default)
     {
@@ -189,9 +191,6 @@ public sealed class RouterExecutor : ReflectingExecutor<RouterExecutor>, IMessag
 
         return parsed;
     }
-
-    public ValueTask<AgentChoiceResult> HandleAsync(ChatMessage message, IWorkflowContext context)
-        => HandleAsync(message, context, CancellationToken.None);
 
     private async Task<List<AgentCard>> FetchAgentsAsync(CancellationToken cancellationToken)
     {

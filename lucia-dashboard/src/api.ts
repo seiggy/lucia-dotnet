@@ -5,6 +5,9 @@ import type {
   DatasetExportRecord,
   ExportFilterCriteria,
   LabelStatus,
+  ActiveTaskSummary,
+  ArchivedTask,
+  CombinedTaskStats,
 } from './types';
 
 const BASE = '/api';
@@ -165,4 +168,38 @@ export async function evictAllPromptCache() {
   const res = await fetch(`${BASE}/prompt-cache`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`Failed to clear cache: ${res.statusText}`);
   return res.json();
+}
+
+// ── Task Management API ──────────────────────────────────────────
+
+export async function fetchActiveTasks(): Promise<ActiveTaskSummary[]> {
+  const res = await fetch(`${BASE}/tasks/active`);
+  if (!res.ok) throw new Error(`Failed to fetch active tasks: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchArchivedTasks(
+  params: Record<string, string>,
+): Promise<PagedResult<ArchivedTask>> {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(`${BASE}/tasks/archived?${qs}`);
+  if (!res.ok) throw new Error(`Failed to fetch archived tasks: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchTask(id: string): Promise<ActiveTaskSummary | ArchivedTask> {
+  const res = await fetch(`${BASE}/tasks/${id}`);
+  if (!res.ok) throw new Error(`Task not found`);
+  return res.json();
+}
+
+export async function fetchTaskStats(): Promise<CombinedTaskStats> {
+  const res = await fetch(`${BASE}/tasks/stats`);
+  if (!res.ok) throw new Error(`Failed to fetch task stats: ${res.statusText}`);
+  return res.json();
+}
+
+export async function cancelTask(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/tasks/${id}/cancel`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to cancel task: ${res.statusText}`);
 }

@@ -14,6 +14,7 @@ namespace lucia.Tests.Diagnostics;
 /// These verify the DeterministicEmbeddingGenerator correctly handles
 /// Unicode apostrophes (U+2019) vs ASCII apostrophes (U+0027).
 /// </summary>
+[Trait("Category", "Eval")]
 public sealed class EmbeddingMatchingTests
 {
     private readonly ITestOutputHelper _output;

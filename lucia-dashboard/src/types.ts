@@ -101,3 +101,46 @@ export interface DatasetExportRecord {
   filePath: string | null;
   isComplete: boolean;
 }
+
+// ── Task Types ───────────────────────────────────────────────────
+
+export interface ActiveTaskSummary {
+  id: string;
+  contextId: string | null;
+  status: string;
+  messageCount: number;
+  userInput: string | null;
+  lastUpdated: string;
+}
+
+export interface ArchivedMessage {
+  role: string;
+  text: string | null;
+  messageId: string | null;
+}
+
+export interface ArchivedTask {
+  id: string;
+  contextId: string | null;
+  status: string;
+  agentIds: string[];
+  userInput: string | null;
+  finalResponse: string | null;
+  messageCount: number;
+  history: ArchivedMessage[];
+  createdAt: string;
+  archivedAt: string;
+}
+
+export interface TaskStats {
+  totalTasks: number;
+  completedCount: number;
+  failedCount: number;
+  canceledCount: number;
+  byAgent: Record<string, number>;
+}
+
+export interface CombinedTaskStats {
+  activeCount: number;
+  archived: TaskStats;
+}

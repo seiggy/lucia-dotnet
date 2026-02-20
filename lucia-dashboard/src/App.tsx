@@ -5,6 +5,7 @@ import ExportPage from './pages/ExportPage'
 import ConfigurationPage from './pages/ConfigurationPage'
 import AgentsPage from './pages/AgentsPage'
 import PromptCachePage from './pages/PromptCachePage'
+import TasksPage from './pages/TasksPage'
 
 function App() {
   return (
@@ -53,6 +54,14 @@ function App() {
           >
             Prompt Cache
           </NavLink>
+          <NavLink
+            to="/tasks"
+            className={({ isActive }) =>
+              `text-sm font-medium ${isActive ? 'text-white' : 'text-gray-400 hover:text-gray-200'}`
+            }
+          >
+            Tasks
+          </NavLink>
         </div>
       </nav>
 
@@ -64,6 +73,7 @@ function App() {
           <Route path="/configuration" element={<ConfigurationPage />} />
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="/prompt-cache" element={<PromptCachePage />} />
+          <Route path="/tasks" element={<TasksPage />} />
         </Routes>
       </main>
     </div>

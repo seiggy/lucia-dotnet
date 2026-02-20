@@ -28,5 +28,5 @@ public interface IAgentRegistry
     /// <summary>
     /// Get a specific agent by ID
     /// </summary>
-    Task<AgentCard> GetAgentAsync(string agentUri, CancellationToken cancellationToken = default);
+    Task<AgentCard?> GetAgentAsync(string agentUri, CancellationToken cancellationToken = default);
 }

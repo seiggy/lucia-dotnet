@@ -237,14 +237,14 @@ public sealed class EvalTestFixture : IAsyncLifetime
     }
 
     /// <summary>
-    /// Creates a fully-wired <see cref="LuciaOrchestrator"/> that exercises
+    /// Creates a fully-wired <see cref="LuciaEngine"/> that exercises
     /// the complete Router → AgentDispatch → ResultAggregator pipeline.
     /// All agents use the given <paramref name="deploymentName"/>.
     /// An optional <see cref="IOrchestratorObserver"/> is attached so eval tests
     /// can inspect intermediate routing decisions, per-agent responses, and
     /// the final aggregated result.
     /// </summary>
-    public LuciaOrchestrator CreateLuciaOrchestrator(
+    public LuciaEngine CreateLuciaOrchestrator(
         string deploymentName,
         IOrchestratorObserver? observer = null)
     {
@@ -270,15 +270,15 @@ public sealed class EvalTestFixture : IAsyncLifetime
             generalAgent.GetAIAgent()
         ]);
 
-        return new LuciaOrchestrator(
+        return new LuciaEngine(
             routerChatClient,
             mockRegistry,
             A.Fake<IServiceProvider>(),
             A.Fake<IHttpClientFactory>(),
-            _loggerFactory.CreateLogger<LuciaOrchestrator>(),
+            _loggerFactory.CreateLogger<LuciaEngine>(),
             _loggerFactory,
             Options.Create(new RouterExecutorOptions()),
-            Options.Create(new AgentExecutorWrapperOptions()),
+            Options.Create(new AgentInvokerOptions()),
             Options.Create(new ResultAggregatorOptions()),
             Options.Create(new SessionCacheOptions()),
             TimeProvider.System,

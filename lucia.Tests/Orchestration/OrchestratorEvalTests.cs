@@ -1,5 +1,6 @@
 #pragma warning disable AIEVAL001 // Microsoft.Extensions.AI.Evaluation is experimental
 
+using lucia.Agents.Orchestration;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.AI.Evaluation;
 using Microsoft.Extensions.AI.Evaluation.Reporting;
@@ -8,7 +9,7 @@ namespace lucia.Tests.Orchestration;
 
 /// <summary>
 /// Evaluation tests for the full Lucia orchestrator pipeline. Exercises the real
-/// <see cref="lucia.Agents.Orchestration.LuciaOrchestrator.ProcessRequestAsync"/> workflow —
+/// <see cref="LuciaEngine.ProcessRequestAsync"/> workflow —
 /// Router → AgentDispatch → ResultAggregator — with real agents backed by eval models.
 /// Intermediate pipeline events are captured via <see cref="OrchestratorEvalObserver"/>.
 /// </summary>

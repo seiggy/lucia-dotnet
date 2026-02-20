@@ -65,7 +65,7 @@ public class LightAgent : ILuciaAgent
             Description = "Agent for controlling #lights and #lighting in Home Assistant",
             Capabilities = new AgentCapabilities
             {
-                PushNotifications = true,
+                PushNotifications = false,
                 StateTransitionHistory = true,
                 Streaming = true,
             },

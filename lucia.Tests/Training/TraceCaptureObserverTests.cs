@@ -46,6 +46,8 @@ public sealed class TraceCaptureObserverTests
     {
         var observer = CreateObserver();
 
+        await observer.OnRequestStartedAsync("test request");
+
         var result = new AgentChoiceResult
         {
             AgentId = "home-assistant",
@@ -78,6 +80,8 @@ public sealed class TraceCaptureObserverTests
     {
         var observer = CreateObserver();
 
+        await observer.OnRequestStartedAsync("test request");
+
         await observer.OnRoutingCompletedAsync(new AgentChoiceResult
         {
             AgentId = "agent-1",
@@ -98,10 +102,10 @@ public sealed class TraceCaptureObserverTests
 
         A.CallTo(() => _repository.InsertTraceAsync(
             A<ConversationTrace>.That.Matches(t =>
-                t.AgentExecutions.Count == 1 &&
-                t.AgentExecutions[0].AgentId == "agent-1" &&
-                t.AgentExecutions[0].ResponseContent == "Lights are now on." &&
-                t.AgentExecutions[0].Success),
+                t.AgentExecutions.Count == 2 &&
+                t.AgentExecutions[1].AgentId == "agent-1" &&
+                t.AgentExecutions[1].ResponseContent == "Lights are now on." &&
+                t.AgentExecutions[1].Success),
             A<CancellationToken>._))
             .MustHaveHappenedOnceExactly();
     }
@@ -110,6 +114,8 @@ public sealed class TraceCaptureObserverTests
     public async Task OnAgentExecutionCompletedAsync_SetsIsErrored_WhenResponseNotSuccess()
     {
         var observer = CreateObserver();
+
+        await observer.OnRequestStartedAsync("test request");
 
         await observer.OnRoutingCompletedAsync(new AgentChoiceResult
         {
@@ -142,6 +148,8 @@ public sealed class TraceCaptureObserverTests
     {
         var observer = CreateObserver();
 
+        await observer.OnRequestStartedAsync("test request");
+
         await observer.OnRoutingCompletedAsync(new AgentChoiceResult
         {
             AgentId = "agent-1",
@@ -164,6 +172,8 @@ public sealed class TraceCaptureObserverTests
         };
 
         var observer = CreateObserver(options);
+
+        await observer.OnRequestStartedAsync("test request");
 
         await observer.OnRoutingCompletedAsync(new AgentChoiceResult
         {

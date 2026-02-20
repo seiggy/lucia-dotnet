@@ -37,6 +37,7 @@ var mongodb = builder.AddMongoDB("mongodb")
     .WithContainerName("mongodb");
 var tracesDb = mongodb.AddDatabase("luciatraces");
 var configDb = mongodb.AddDatabase("luciaconfig");
+var tasksDb = mongodb.AddDatabase("luciatasks");
 
 var registryApi = builder.AddProject<Projects.lucia_AgentHost>("lucia-agenthost")
     .WithReference(embeddingsModel)
@@ -49,6 +50,7 @@ var registryApi = builder.AddProject<Projects.lucia_AgentHost>("lucia-agenthost"
     .WaitFor(redis)
     .WithReference(tracesDb)
     .WithReference(configDb)
+    .WithReference(tasksDb)
     .WaitFor(mongodb)
     .WithExternalHttpEndpoints();
 

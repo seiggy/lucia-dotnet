@@ -24,7 +24,7 @@ public sealed class ConfigSeeder : IHostedService
     [
         "HomeAssistant",
         "RouterExecutor",
-        "AgentExecutorWrapper",
+        "AgentInvoker",
         "ResultAggregator",
         "Redis",
         "Agents",

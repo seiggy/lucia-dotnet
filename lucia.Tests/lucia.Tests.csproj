@@ -1,65 +1,60 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-
-    <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
-        <ImplicitUsings>enable</ImplicitUsings>
-        <PreviewFeatures>enable</PreviewFeatures>
-        <Nullable>enable</Nullable>
-        <IsPackable>false</IsPackable>
-        <IsTestProject>true</IsTestProject>
-        <UserSecretsId>0d80bd29-fe56-470c-9726-2b48990f7b5d</UserSecretsId>
-    </PropertyGroup>
-
-    <ItemGroup>
-        <PackageReference Include="A2A" Version="0.3.3-preview" />
-        <PackageReference Include="Aspire.Hosting.Testing" Version="13.0.0" />
-        <PackageReference Include="coverlet.collector" Version="6.0.4">
-          <PrivateAssets>all</PrivateAssets>
-          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-        </PackageReference>
-        <PackageReference Include="FakeItEasy" Version="8.3.0" />
-        <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.3.0" />
-        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
-        <PackageReference Include="Testcontainers.Redis" Version="4.8.1" />
-        <PackageReference Include="xunit" Version="2.9.3" />
-        <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
-          <PrivateAssets>all</PrivateAssets>
-          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-        </PackageReference>
-        <PackageReference Include="Xunit.SkippableFact" Version="1.5.23" />
-        <PackageReference Include="Azure.Identity" Version="1.18.0-beta.2" />
-        <PackageReference Include="Microsoft.Extensions.AI" Version="10.3.0" />
-        <PackageReference Include="Microsoft.Extensions.AI.Evaluation" Version="10.3.0" />
-        <PackageReference Include="Microsoft.Extensions.AI.AzureAIInference" Version="10.0.0-preview.1.25559.3" />
-        <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.3.0" />
-        <PackageReference Include="Microsoft.Extensions.AI.Evaluation.Quality" Version="10.3.0" />
-        <PackageReference Include="Microsoft.Extensions.AI.Evaluation.Reporting" Version="10.3.0" />
-        <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.3.0" />
-        <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.1" />
-        <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.1" />
-        <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="10.0.1" />
-    </ItemGroup>
-
-    <ItemGroup>
-        <Content Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
-        <Content Include="TestData\ha-snapshot.json" CopyToOutputDirectory="PreserveNewest" />
-    </ItemGroup>
-
-    <ItemGroup>
-        <Using Include="System.Net" />
-        <Using Include="Microsoft.Extensions.DependencyInjection" />
-        <Using Include="Aspire.Hosting.ApplicationModel" />
-        <Using Include="Aspire.Hosting.Testing" />
-        <Using Include="Xunit" />
-    </ItemGroup>
-
-    <ItemGroup>
-      <ProjectReference Include="..\lucia.MusicAgent\lucia.MusicAgent.csproj" />
-      <ProjectReference Include="..\lucia.ServiceDefaults\lucia.ServiceDefaults.csproj" />
-      <ProjectReference Include="..\lucia.HomeAssistant\lucia.HomeAssistant.csproj" />
-      <ProjectReference Include="..\lucia.Agents\lucia.Agents.csproj" />
-      <ProjectReference Include="..\lucia.AppHost\lucia.AppHost.csproj" />
-      <ProjectReference Include="..\lucia.TimerAgent\lucia.TimerAgent.csproj" />
-    </ItemGroup>
-
+  <PropertyGroup>
+    <PreviewFeatures>enable</PreviewFeatures>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <UserSecretsId>0d80bd29-fe56-470c-9726-2b48990f7b5d</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="A2A" />
+    <PackageReference Include="Aspire.Hosting.Testing" />
+    <PackageReference Include="coverlet.collector">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="FakeItEasy" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Testcontainers.Redis" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Xunit.SkippableFact" />
+    <PackageReference Include="Azure.Identity" />
+    <PackageReference Include="Microsoft.Extensions.AI" />
+    <PackageReference Include="Microsoft.Extensions.AI.Evaluation" />
+    <PackageReference Include="Microsoft.Extensions.AI.AzureAIInference" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.AI.Evaluation.Quality" />
+    <PackageReference Include="Microsoft.Extensions.AI.Evaluation.Reporting" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" VersionOverride="10.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" VersionOverride="10.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Http" VersionOverride="10.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Options" VersionOverride="10.0.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="TestData\ha-snapshot.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="System.Net" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
+    <Using Include="Aspire.Hosting.ApplicationModel" />
+    <Using Include="Aspire.Hosting.Testing" />
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\lucia.MusicAgent\lucia.MusicAgent.csproj" />
+    <ProjectReference Include="..\lucia.ServiceDefaults\lucia.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\lucia.HomeAssistant\lucia.HomeAssistant.csproj" />
+    <ProjectReference Include="..\lucia.Agents\lucia.Agents.csproj" />
+    <ProjectReference Include="..\lucia.AppHost\lucia.AppHost.csproj" />
+    <ProjectReference Include="..\lucia.TimerAgent\lucia.TimerAgent.csproj" />
+  </ItemGroup>
 </Project>

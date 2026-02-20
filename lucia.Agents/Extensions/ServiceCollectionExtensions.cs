@@ -11,6 +11,7 @@ using lucia.Agents.Services;
 using lucia.Agents.Training;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Azure;
 using Azure.AI.Inference;
 using lucia.HomeAssistant.Services;
@@ -255,15 +256,22 @@ public static class ServiceCollectionExtensions
     public static void AddLuciaAgents(
         this IHostApplicationBuilder builder)
     {
-        builder.Services.AddTransient<IHomeAssistantClient, GeneratedHomeAssistantClient>();
+        builder.Services.AddTransient<IHomeAssistantClient, HomeAssistantClient>();
         // Register core services
         builder.Services.AddSingleton<IAgentRegistry, LocalAgentRegistry>();
 
         // Register Redis using Aspire client integration
         builder.AddRedisClient(connectionName: "redis");
 
-        // Register Redis task store (T037)
-        builder.Services.AddSingleton<ITaskStore, RedisTaskStore>();
+        // Register Redis task store (T037) with archiving decorator
+        builder.Services.AddSingleton<RedisTaskStore>();
+        builder.Services.AddSingleton<ITaskStore>(sp =>
+        {
+            var redisStore = sp.GetRequiredService<RedisTaskStore>();
+            var archive = sp.GetRequiredService<ITaskArchiveStore>();
+            var logger = sp.GetRequiredService<ILogger<ArchivingTaskStore>>();
+            return new ArchivingTaskStore(redisStore, archive, logger);
+        });
 
         // Register Redis device cache service
         builder.Services.AddSingleton<IDeviceCacheService, RedisDeviceCacheService>();
@@ -281,8 +289,8 @@ public static class ServiceCollectionExtensions
             builder.Configuration.GetSection("RouterExecutor")
         );
 
-        builder.Services.Configure<AgentExecutorWrapperOptions>(
-            builder.Configuration.GetSection("AgentExecutorWrapper")
+        builder.Services.Configure<AgentInvokerOptions>(
+            builder.Configuration.GetSection("AgentInvoker")
         );
 
         builder.Services.Configure<ResultAggregatorOptions>(
@@ -299,16 +307,6 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<ISessionCacheService, RedisSessionCacheService>();
 
         builder.Services.AddSingleton(TimeProvider.System);
-
-        // Register orchestration executors
-        builder.Services.AddSingleton<RouterExecutor>();
-        builder.Services.AddSingleton<AgentExecutorWrapper>(sp =>
-        {
-            // AgentExecutorWrapper requires agentId - using factory pattern
-            // Individual wrappers will be created as needed by LuciaOrchestrator
-            throw new InvalidOperationException("AgentExecutorWrapper should not be resolved directly. It's created by LuciaOrchestrator.");
-        });
-        builder.Services.AddSingleton<ResultAggregatorExecutor>();
 
         // Register session factory for orchestrator
         builder.Services.AddSingleton<IAgentSessionFactory, InMemorySessionFactory>();
@@ -382,9 +380,10 @@ public static class ServiceCollectionExtensions
                 "to assign per-agent models.");
         }
 
-        // Register orchestrator and orchestrator agent
-        builder.Services.AddSingleton<LuciaOrchestrator>();
+        // Register orchestrator engine and agent
+        builder.Services.AddSingleton<LuciaEngine>();
         builder.Services.AddSingleton<OrchestratorAgent>();
+        builder.Services.AddSingleton<ILuciaAgent>(sp => sp.GetRequiredService<OrchestratorAgent>());
 
         // Register agent skills and agents
         builder.Services.AddSingleton<LightControlSkill>();

@@ -36,4 +36,11 @@ public sealed class OrchestratorAgentResponse
     /// </summary>
     [JsonPropertyName("executionTimeMs")]
     public long ExecutionTimeMs { get; init; }
+
+    /// <summary>
+    /// Indicates the agent needs additional input from the user before it can complete.
+    /// When true, the response content contains a clarifying question for the user.
+    /// </summary>
+    [JsonPropertyName("needsInput")]
+    public bool NeedsInput { get; init; }
 }

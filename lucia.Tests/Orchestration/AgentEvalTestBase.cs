@@ -264,14 +264,14 @@ public abstract class AgentEvalTestBase
     // ─── Helper: run full LuciaOrchestrator pipeline + evaluate ────────
 
     /// <summary>
-    /// Runs the full <see cref="LuciaOrchestrator.ProcessRequestAsync"/> pipeline
+    /// Runs the full <see cref="LuciaEngine.ProcessRequestAsync"/> pipeline
     /// (Router → AgentDispatch → ResultAggregator) and evaluates the aggregated response.
     /// Intermediate routing decisions and per-agent responses are captured by the
     /// supplied <see cref="OrchestratorEvalObserver"/>.
     /// </summary>
     protected async Task<(ChatResponse Response, EvaluationResult Evaluation)> RunOrchestratorAndEvaluateAsync(
         string deploymentName,
-        LuciaOrchestrator orchestrator,
+        LuciaEngine engine,
         OrchestratorEvalObserver observer,
         string userMessage,
         ReportingConfiguration reportingConfig,
@@ -279,12 +279,12 @@ public abstract class AgentEvalTestBase
         params string[] additionalTags)
     {
         return await RunOrchestratorAndEvaluateAsync(
-            deploymentName, orchestrator, observer, userMessage,
+            deploymentName, engine, observer, userMessage,
             reportingConfig, scenarioName, expectedAgentIds: [], additionalTags: additionalTags);
     }
 
     /// <summary>
-    /// Runs the full <see cref="LuciaOrchestrator.ProcessRequestAsync"/> pipeline
+    /// Runs the full <see cref="LuciaEngine.ProcessRequestAsync"/> pipeline
     /// and evaluates the aggregated response including A2A workflow validation.
     /// When <paramref name="expectedAgentIds"/> is non-empty, an
     /// <see cref="A2AToolCallEvaluatorContext"/> is supplied so the
@@ -293,7 +293,7 @@ public abstract class AgentEvalTestBase
     /// </summary>
     protected async Task<(ChatResponse Response, EvaluationResult Evaluation)> RunOrchestratorAndEvaluateAsync(
         string deploymentName,
-        LuciaOrchestrator orchestrator,
+        LuciaEngine engine,
         OrchestratorEvalObserver observer,
         string userMessage,
         ReportingConfiguration reportingConfig,
@@ -302,7 +302,7 @@ public abstract class AgentEvalTestBase
         params string[] additionalTags)
     {
         var stopwatch = Stopwatch.StartNew();
-        var resultText = await orchestrator.ProcessRequestAsync(
+        var orchestratorResult = await engine.ProcessRequestAsync(
             userMessage,
             taskId: null,
             sessionId: null,
@@ -311,7 +311,7 @@ public abstract class AgentEvalTestBase
 
         var chatResponse = new ChatResponse(
         [
-            new ChatMessage(ChatRole.Assistant, resultText)
+            new ChatMessage(ChatRole.Assistant, orchestratorResult.Text)
         ]);
 
         var tags = new List<string> { deploymentName };

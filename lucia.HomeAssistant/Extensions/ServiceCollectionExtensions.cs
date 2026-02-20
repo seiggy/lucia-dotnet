@@ -13,7 +13,7 @@ public static class ServiceCollectionExtensions
     {
         services.Configure(configureOptions);
         
-        services.AddHttpClient<IHomeAssistantClient, GeneratedHomeAssistantClient>((serviceProvider, client) =>
+        services.AddHttpClient<IHomeAssistantClient, HomeAssistantClient>((serviceProvider, client) =>
         {
             var options = serviceProvider.GetRequiredService<IOptions<HomeAssistantOptions>>().Value;
             // HttpClient configuration is handled in the constructor

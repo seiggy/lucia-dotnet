@@ -6,7 +6,7 @@ namespace lucia.Tests;
 public class HomeAssistantApiTests
 {
     private readonly IServiceProvider _serviceProvider;
-    private readonly GeneratedHomeAssistantClient _client;
+    private readonly HomeAssistantClient _client;
 
     public HomeAssistantApiTests()
     {
@@ -23,14 +23,14 @@ public class HomeAssistantApiTests
         });
 
         // Configure HttpClient
-        services.AddHttpClient<GeneratedHomeAssistantClient>()
+        services.AddHttpClient<HomeAssistantClient>()
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
             {
                 ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
             });
 
         _serviceProvider = services.BuildServiceProvider();
-        _client = _serviceProvider.GetRequiredService<GeneratedHomeAssistantClient>();
+        _client = _serviceProvider.GetRequiredService<HomeAssistantClient>();
     }
 
     [Fact]
@@ -119,17 +119,6 @@ public class HomeAssistantApiTests
     }
 
     [Fact]
-    public async Task GetErrorLogAsync_ShouldReturnErrorLog()
-    {
-        // Act
-        var result = await _client.GetErrorLogAsync();
-
-        // Assert
-        Assert.NotNull(result);
-        // Error log should be a string
-    }
-
-    [Fact]
     public async Task GetCalendarsAsync_ShouldReturnCalendars()
     {
         // Act
@@ -151,8 +140,9 @@ public class HomeAssistantApiTests
             ["message"] = "This is a test notification from the integration test."
         };
 
-        // Act - Call the persistent_notification.create service
-        var result = await _client.CallServiceAsync("persistent_notification", "create", request);
+        // Act - Call the persistent_notification.create service (via interface for object[] return)
+        IHomeAssistantClient client = _client;
+        var result = await client.CallServiceAsync("persistent_notification", "create", null, request);
 
         // Assert
         Assert.NotNull(result);
@@ -207,7 +197,7 @@ public class HomeAssistantApiTests
         var result = await _client.GetHistoryAsync(
             timestamp,
             entityId,
-            end_time: DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+            endTime: DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
         );
 
         // Assert
@@ -224,7 +214,7 @@ public class HomeAssistantApiTests
         // Act
         var result = await _client.GetLogbookAsync(
             timestamp,
-            end_time: DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+            endTime: DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
         );
 
         // Assert

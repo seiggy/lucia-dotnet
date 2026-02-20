@@ -10,6 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 
@@ -55,10 +56,46 @@ namespace lucia.Agents.Extensions
                     cancellationToken: cancellationToken).ConfigureAwait(false);
 
                 await hostAgent.SaveSessionAsync(contextId, session, cancellationToken).ConfigureAwait(false);
+
+                // Check if any response message signals that further user input is needed
+                var needsInput = response.Messages
+                    .Any(m => m.AdditionalProperties?.TryGetValue("lucia.needsInput", out var val) == true
+                              && val is true);
+
                 var parts = response.Messages.ToParts();
+                var responseId = response.ResponseId ?? Guid.NewGuid().ToString("N");
+
+                if (needsInput)
+                {
+                    // Return an AgentTask with InputRequired state so the caller
+                    // knows to keep the conversation open for user follow-up
+                    var taskId = Guid.NewGuid().ToString("N");
+                    var agentMessage = new AgentMessage
+                    {
+                        MessageId = responseId,
+                        ContextId = contextId,
+                        TaskId = taskId,
+                        Role = MessageRole.Agent,
+                        Parts = parts
+                    };
+
+                    return new AgentTask
+                    {
+                        Id = taskId,
+                        ContextId = contextId,
+                        Status = new AgentTaskStatus
+                        {
+                            State = TaskState.InputRequired,
+                            Message = agentMessage,
+                            Timestamp = DateTimeOffset.UtcNow
+                        },
+                        History = [agentMessage]
+                    };
+                }
+
                 return new AgentMessage
                 {
-                    MessageId = response.ResponseId ?? Guid.NewGuid().ToString("N"),
+                    MessageId = responseId,
                     ContextId = contextId,
                     Role = MessageRole.Agent,
                     Parts = parts

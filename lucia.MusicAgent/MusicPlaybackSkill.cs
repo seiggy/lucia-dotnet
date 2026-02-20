@@ -271,16 +271,6 @@ public class MusicPlaybackSkill
                 await EnqueueTracks(player, uris, true).ConfigureAwait(false);
                 return $"Shuffling {trackSeedCount} tracks to {player.FriendlyName}";
             }
-
-            var payload = new ServiceCallRequest
-            {
-                ["media_type"] = "track",
-                ["media_id"] = uris,
-                ["enqueue"] = "replace",
-                ["radio_mode"] = true
-            };
-
-            return await PlayMediaAsync(player, payload, $"Queued a fresh shuffle mix with {uris.Count} tracks").ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -452,9 +442,8 @@ public class MusicPlaybackSkill
             // we don't have the websocket api integated yet, so just return the config added by the service config.
             
         }
-        catch (Exception e)
+        catch (Exception)
         {
-            
         }
     }
     
@@ -466,7 +455,7 @@ public class MusicPlaybackSkill
 
             // Try Redis cache first
             var cachedPlayers = await _deviceCache.GetCachedPlayersAsync(cancellationToken);
-            if (cachedPlayers is not null)
+            if (cachedPlayers is { Count: > 0 })
             {
                 _logger.LogInformation("Loaded {PlayerCount} players from Redis cache", cachedPlayers.Count);
                 _cachedPlayers.Clear();
@@ -566,7 +555,7 @@ public class MusicPlaybackSkill
 
             return response.ServiceResponse.Items.Select(item => item.Uri).ToList();
         }
-        catch (Exception e)
+        catch (Exception)
         {
             return [];
         }

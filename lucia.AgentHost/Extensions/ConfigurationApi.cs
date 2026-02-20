@@ -226,12 +226,11 @@ public static class ConfigurationApi
         },
         new()
         {
-            Section = "AgentExecutorWrapper",
-            Description = "Agent execution timeout and history settings",
+            Section = "AgentInvoker",
+            Description = "Agent execution timeout settings",
             Properties =
             [
-                new("Timeout", "string", "Agent execution timeout (HH:MM:SS)", "00:03:00"),
-                new("HistoryLimit", "number", "Max conversation history entries", "20")
+                new("Timeout", "string", "Agent execution timeout (HH:MM:SS)", "00:03:00")
             ]
         },
         new()

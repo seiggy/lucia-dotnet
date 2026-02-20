@@ -209,7 +209,7 @@ internal sealed class FakeHomeAssistantClient : IHomeAssistantClient
             // Deserialize attributes as Dictionary<string, object> via JsonElement traversal
             foreach (var prop in attrsEl.EnumerateObject())
             {
-                state.Attributes[prop.Name] = DeserializeAttributeValue(prop.Value);
+                state.Attributes[prop.Name] = DeserializeAttributeValue(prop.Value) ?? string.Empty;
             }
         }
 

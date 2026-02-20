@@ -33,6 +33,7 @@ from .const import (
     DEFAULT_TOP_P,
     DOMAIN,
 )
+from .conversation_tracker import ConversationTracker
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -57,6 +58,7 @@ class LuciaConversationEntity(conversation.ConversationEntity):
         """Initialize the conversation entity."""
         self.entry = entry
         self._attr_unique_id = f"{entry.entry_id}"
+        self._tracker = ConversationTracker(ttl_seconds=300.0)
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": "Lucia Home Agent",
@@ -116,16 +118,24 @@ class LuciaConversationEntity(conversation.ConversationEntity):
             _LOGGER.error("Error rendering prompt template: %s", err)
             system_prompt = DEFAULT_PROMPT
 
-        # Use conversation_id as context_id for threading
+        # Resolve A2A context/task IDs from tracker or create new
+        tracked = None
         if user_input.conversation_id:
-            context_id = user_input.conversation_id
+            tracked = self._tracker.get(user_input.conversation_id)
+
+        if tracked:
+            context_id = tracked.context_id
+            task_id = tracked.task_id
         else:
             context_id = str(uuid.uuid4())
+            task_id = None
+
+        ha_conversation_id = user_input.conversation_id or context_id
 
         # Build the message content (combining system prompt + user input)
         message_text = f"{system_prompt}\n\nUser: {user_input.text}"
 
-        # Create the message structure (without taskId - not supported)
+        # Create the A2A message structure
         message = {
             "kind": "message",
             "role": "user",
@@ -138,7 +148,7 @@ class LuciaConversationEntity(conversation.ConversationEntity):
             ],
             "messageId": None,
             "contextId": context_id,
-            "taskId": None,  # Task management not supported by Agent Framework
+            "taskId": task_id,
             "metadata": None,
             "referenceTaskIds": [],
             "extensions": []
@@ -177,7 +187,7 @@ class LuciaConversationEntity(conversation.ConversationEntity):
                 intent_response.async_set_speech(error_text)
                 return ConversationResult(
                     response=intent_response,
-                    conversation_id=context_id,
+                    conversation_id=ha_conversation_id,
                     continue_conversation=False,
                 )
 
@@ -199,21 +209,61 @@ class LuciaConversationEntity(conversation.ConversationEntity):
                 intent_response.async_set_speech(error_text)
                 return ConversationResult(
                     response=intent_response,
-                    conversation_id=context_id,
+                    conversation_id=ha_conversation_id,
                     continue_conversation=False,
                 )
 
-            # Extract response text from result
+            # Extract response text and determine conversation state
             response_text = ""
+            continue_conversation = False
+            response_context_id = context_id
+            response_task_id = task_id
+
             if "result" in result and isinstance(result["result"], dict):
-                agent_message = result["result"]
-                if "parts" in agent_message:
-                    for part in agent_message["parts"]:
-                        if part.get("kind") == "text":
-                            response_text += part.get("text", "")
+                a2a_result = result["result"]
+
+                # Detect Task vs Message by presence of "status" field
+                if "status" in a2a_result:
+                    # This is an AgentTask response
+                    status = a2a_result.get("status", {})
+                    state = status.get("state", "completed")
+                    response_task_id = a2a_result.get("id") or task_id
+                    response_context_id = a2a_result.get("contextId") or context_id
+
+                    # Extract text from status.message.parts
+                    status_message = status.get("message", {})
+                    if isinstance(status_message, dict):
+                        for part in status_message.get("parts", []):
+                            if isinstance(part, dict) and part.get("kind") == "text":
+                                response_text += part.get("text", "")
+
+                    # Set continue_conversation based on task state
+                    if state == "input-required":
+                        continue_conversation = True
+                    elif state == "working":
+                        continue_conversation = True
+
+                    _LOGGER.debug(
+                        "Task response: state=%s, taskId=%s, continue=%s",
+                        state, response_task_id, continue_conversation,
+                    )
+                else:
+                    # This is an AgentMessage response
+                    response_context_id = a2a_result.get("contextId") or context_id
+                    if "parts" in a2a_result:
+                        for part in a2a_result["parts"]:
+                            if isinstance(part, dict) and part.get("kind") == "text":
+                                response_text += part.get("text", "")
 
             if not response_text:
                 response_text = "I received your message but didn't generate a response."
+
+            # Update tracker with latest context/task IDs
+            self._tracker.store(
+                ha_conversation_id,
+                context_id=response_context_id,
+                task_id=response_task_id if continue_conversation else None,
+            )
 
             _LOGGER.debug("Received response from agent: %s", response_text[:100])
 
@@ -231,8 +281,8 @@ class LuciaConversationEntity(conversation.ConversationEntity):
 
             return ConversationResult(
                 response=intent_response,
-                conversation_id=context_id,
-                continue_conversation=False,
+                conversation_id=ha_conversation_id,
+                continue_conversation=continue_conversation,
             )
 
         except Exception as err:

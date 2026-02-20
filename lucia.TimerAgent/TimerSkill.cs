@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Text.Json;
+using A2A;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
 using Microsoft.Extensions.AI;
@@ -10,22 +12,26 @@ namespace lucia.TimerAgent;
 /// <summary>
 /// Skill that creates timed announcements on Home Assistant assist satellite devices.
 /// When a timer expires, it calls assist_satellite.announce on the originating device.
+/// Timers are persisted as A2A tasks in ITaskStore for durability across restarts.
 /// </summary>
 public sealed class TimerSkill
 {
     private static readonly ActivitySource ActivitySource = new("Lucia.Skills.Timer", "1.0.0");
 
     private readonly IHomeAssistantClient _haClient;
+    private readonly ITaskStore _taskStore;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<TimerSkill> _logger;
     private readonly ConcurrentDictionary<string, ActiveTimer> _activeTimers = new();
 
     public TimerSkill(
         IHomeAssistantClient haClient,
+        ITaskStore taskStore,
         TimeProvider timeProvider,
         ILogger<TimerSkill> logger)
     {
         _haClient = haClient ?? throw new ArgumentNullException(nameof(haClient));
+        _taskStore = taskStore ?? throw new ArgumentNullException(nameof(taskStore));
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -84,16 +90,48 @@ public sealed class TimerSkill
         }
 
         var timerId = Guid.NewGuid().ToString("N")[..8];
+        var taskId = Guid.NewGuid().ToString("N");
         var expiresAt = _timeProvider.GetUtcNow().AddSeconds(durationSeconds);
 
         activity?.SetTag("timer.id", timerId);
+        activity?.SetTag("timer.task_id", taskId);
         activity?.SetTag("timer.duration_seconds", durationSeconds);
         activity?.SetTag("timer.entity_id", entityId);
+
+        // Persist as an A2A task so the timer survives process restarts
+        var agentTask = new AgentTask
+        {
+            Id = taskId,
+            ContextId = timerId,
+            Status = new AgentTaskStatus
+            {
+                State = TaskState.Working,
+                Message = new AgentMessage
+                {
+                    MessageId = Guid.NewGuid().ToString("N"),
+                    Role = MessageRole.Agent,
+                    Parts = [new TextPart { Text = $"Timer set for {FormatDuration(TimeSpan.FromSeconds(durationSeconds))}: \"{message}\"" }]
+                },
+                Timestamp = DateTimeOffset.UtcNow
+            },
+            Metadata = new Dictionary<string, JsonElement>
+            {
+                ["timer.agentId"] = JsonSerializer.SerializeToElement("timer-agent"),
+                ["timer.durationSeconds"] = JsonSerializer.SerializeToElement(durationSeconds),
+                ["timer.message"] = JsonSerializer.SerializeToElement(message),
+                ["timer.entityId"] = JsonSerializer.SerializeToElement(entityId),
+                ["timer.expiresAtUtc"] = JsonSerializer.SerializeToElement(expiresAt.UtcDateTime.ToString("O")),
+                ["timer.timerId"] = JsonSerializer.SerializeToElement(timerId),
+            }
+        };
+
+        await _taskStore.SetTaskAsync(agentTask).ConfigureAwait(false);
 
         var cts = new CancellationTokenSource();
         var timer = new ActiveTimer
         {
             Id = timerId,
+            TaskId = taskId,
             Message = message,
             EntityId = entityId,
             DurationSeconds = durationSeconds,
@@ -104,8 +142,8 @@ public sealed class TimerSkill
         _activeTimers[timerId] = timer;
 
         _logger.LogInformation(
-            "Timer {TimerId} set for {Duration}s on {EntityId}: {Message}",
-            timerId, durationSeconds, entityId, message);
+            "Timer {TimerId} (task {TaskId}) set for {Duration}s on {EntityId}: {Message}",
+            timerId, taskId, durationSeconds, entityId, message);
 
         // Fire the background task; don't await — it runs independently
         _ = RunTimerAsync(timer);
@@ -117,17 +155,27 @@ public sealed class TimerSkill
     /// <summary>
     /// Cancels an active timer.
     /// </summary>
-    public Task<string> CancelTimerAsync(string timerId)
+    public async Task<string> CancelTimerAsync(string timerId)
     {
         if (_activeTimers.TryRemove(timerId, out var timer))
         {
             timer.Cts.Cancel();
             timer.Cts.Dispose();
-            _logger.LogInformation("Timer {TimerId} cancelled", timerId);
-            return Task.FromResult($"Timer '{timerId}' has been cancelled.");
+
+            try
+            {
+                await _taskStore.UpdateStatusAsync(timer.TaskId, TaskState.Canceled).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to update task {TaskId} status to Canceled", timer.TaskId);
+            }
+
+            _logger.LogInformation("Timer {TimerId} (task {TaskId}) cancelled", timerId, timer.TaskId);
+            return $"Timer '{timerId}' has been cancelled.";
         }
 
-        return Task.FromResult($"No active timer found with ID '{timerId}'.");
+        return $"No active timer found with ID '{timerId}'.";
     }
 
     /// <summary>
@@ -161,6 +209,35 @@ public sealed class TimerSkill
     internal int ActiveTimerCount => _activeTimers.Count;
 
     /// <summary>
+    /// Resumes a timer from persisted state (used by TimerRecoveryService on startup).
+    /// </summary>
+    internal void ResumeTimer(string timerId, string taskId, string message, string entityId, int durationSeconds, DateTimeOffset expiresAt)
+    {
+        var cts = new CancellationTokenSource();
+        var timer = new ActiveTimer
+        {
+            Id = timerId,
+            TaskId = taskId,
+            Message = message,
+            EntityId = entityId,
+            DurationSeconds = durationSeconds,
+            ExpiresAt = expiresAt,
+            Cts = cts
+        };
+
+        if (_activeTimers.TryAdd(timerId, timer))
+        {
+            _logger.LogInformation("Resuming timer {TimerId} (task {TaskId}), expires at {ExpiresAt}", timerId, taskId, expiresAt);
+            _ = RunTimerAsync(timer);
+        }
+        else
+        {
+            cts.Dispose();
+            _logger.LogDebug("Timer {TimerId} already active, skipping resume", timerId);
+        }
+    }
+
+    /// <summary>
     /// Runs the timer delay then calls Home Assistant to announce.
     /// </summary>
     internal async Task RunTimerAsync(ActiveTimer timer)
@@ -175,7 +252,22 @@ public sealed class TimerSkill
 
             await AnnounceAsync(timer.EntityId, timer.Message, timer.Cts.Token).ConfigureAwait(false);
 
-            _logger.LogInformation("Timer {TimerId} fired successfully on {EntityId}", timer.Id, timer.EntityId);
+            _logger.LogInformation("Timer {TimerId} (task {TaskId}) fired successfully on {EntityId}", timer.Id, timer.TaskId, timer.EntityId);
+
+            try
+            {
+                var completedMessage = new AgentMessage
+                {
+                    MessageId = Guid.NewGuid().ToString("N"),
+                    Role = MessageRole.Agent,
+                    Parts = [new TextPart { Text = $"Timer fired: \"{timer.Message}\" announced on {timer.EntityId}" }]
+                };
+                await _taskStore.UpdateStatusAsync(timer.TaskId, TaskState.Completed, completedMessage).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to update task {TaskId} status to Completed", timer.TaskId);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -183,7 +275,22 @@ public sealed class TimerSkill
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Timer {TimerId} failed to announce on {EntityId}", timer.Id, timer.EntityId);
+            _logger.LogError(ex, "Timer {TimerId} (task {TaskId}) failed to announce on {EntityId}", timer.Id, timer.TaskId, timer.EntityId);
+
+            try
+            {
+                var failedMessage = new AgentMessage
+                {
+                    MessageId = Guid.NewGuid().ToString("N"),
+                    Role = MessageRole.Agent,
+                    Parts = [new TextPart { Text = $"Timer failed: {ex.Message}" }]
+                };
+                await _taskStore.UpdateStatusAsync(timer.TaskId, TaskState.Failed, failedMessage).ConfigureAwait(false);
+            }
+            catch (Exception updateEx)
+            {
+                _logger.LogWarning(updateEx, "Failed to update task {TaskId} status to Failed", timer.TaskId);
+            }
         }
         finally
         {

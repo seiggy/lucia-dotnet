@@ -5,8 +5,8 @@ namespace lucia.Tests;
 
 public class HomeAssistantErrorHandlingTests
 {
-    private readonly GeneratedHomeAssistantClient _clientWithInvalidToken;
-    private readonly GeneratedHomeAssistantClient _clientWithInvalidUrl;
+    private readonly HomeAssistantClient _clientWithInvalidToken;
+    private readonly HomeAssistantClient _clientWithInvalidUrl;
 
     public HomeAssistantErrorHandlingTests()
     {
@@ -19,14 +19,14 @@ public class HomeAssistantErrorHandlingTests
             options.TimeoutSeconds = 5;
             options.ValidateSSL = false;
         });
-        servicesInvalidToken.AddHttpClient<GeneratedHomeAssistantClient>()
+        servicesInvalidToken.AddHttpClient<HomeAssistantClient>()
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
             {
                 ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
             });
 
         var serviceProviderInvalidToken = servicesInvalidToken.BuildServiceProvider();
-        _clientWithInvalidToken = serviceProviderInvalidToken.GetRequiredService<GeneratedHomeAssistantClient>();
+        _clientWithInvalidToken = serviceProviderInvalidToken.GetRequiredService<HomeAssistantClient>();
 
         // Client with invalid URL
         var servicesInvalidUrl = new ServiceCollection();
@@ -37,14 +37,14 @@ public class HomeAssistantErrorHandlingTests
             options.TimeoutSeconds = 5;
             options.ValidateSSL = false;
         });
-        servicesInvalidUrl.AddHttpClient<GeneratedHomeAssistantClient>()
+        servicesInvalidUrl.AddHttpClient<HomeAssistantClient>()
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
             {
                 ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
             });
 
         var serviceProviderInvalidUrl = servicesInvalidUrl.BuildServiceProvider();
-        _clientWithInvalidUrl = serviceProviderInvalidUrl.GetRequiredService<GeneratedHomeAssistantClient>();
+        _clientWithInvalidUrl = serviceProviderInvalidUrl.GetRequiredService<HomeAssistantClient>();
     }
 
     [Fact]
@@ -82,7 +82,7 @@ public class HomeAssistantErrorHandlingTests
     {
         // Act & Assert
         var exception = await Assert.ThrowsAsync<HttpRequestException>(
-            () => _clientWithInvalidToken.CallServiceAsync("homeassistant", "restart"));
+            () => _clientWithInvalidToken.CallServiceRawAsync("homeassistant", "restart"));
 
         Assert.Contains("401", exception.Message);
     }
@@ -131,18 +131,18 @@ public class HomeAssistantErrorHandlingTests
             options.TimeoutSeconds = 5;
             options.ValidateSSL = false;
         });
-        services.AddHttpClient<GeneratedHomeAssistantClient>()
+        services.AddHttpClient<HomeAssistantClient>()
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
             {
                 ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
             });
 
         var serviceProvider = services.BuildServiceProvider();
-        var client = serviceProvider.GetRequiredService<GeneratedHomeAssistantClient>();
+        var client = serviceProvider.GetRequiredService<HomeAssistantClient>();
 
         // Act & Assert
         var exception = await Assert.ThrowsAsync<HttpRequestException>(
-            () => client.CallServiceAsync("nonexistent_domain", "nonexistent_service"));
+            () => client.CallServiceRawAsync("nonexistent_domain", "nonexistent_service"));
 
         Assert.Contains("400", exception.Message);
     }
@@ -159,14 +159,14 @@ public class HomeAssistantErrorHandlingTests
             options.TimeoutSeconds = 5;
             options.ValidateSSL = false;
         });
-        services.AddHttpClient<GeneratedHomeAssistantClient>()
+        services.AddHttpClient<HomeAssistantClient>()
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
             {
                 ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
             });
 
         var serviceProvider = services.BuildServiceProvider();
-        var client = serviceProvider.GetRequiredService<GeneratedHomeAssistantClient>();
+        var client = serviceProvider.GetRequiredService<HomeAssistantClient>();
 
         // Act
         var result = await client.GetStateAsync("nonexistent.entity_that_does_not_exist");
@@ -187,14 +187,14 @@ public class HomeAssistantErrorHandlingTests
             options.TimeoutSeconds = 5;
             options.ValidateSSL = false;
         });
-        services.AddHttpClient<GeneratedHomeAssistantClient>()
+        services.AddHttpClient<HomeAssistantClient>()
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
             {
                 ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
             });
 
         var serviceProvider = services.BuildServiceProvider();
-        var client = serviceProvider.GetRequiredService<GeneratedHomeAssistantClient>();
+        var client = serviceProvider.GetRequiredService<HomeAssistantClient>();
 
         var eventData = new Dictionary<string, object>
         {

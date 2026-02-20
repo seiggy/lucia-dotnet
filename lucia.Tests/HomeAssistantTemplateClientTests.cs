@@ -64,7 +64,7 @@ public sealed class HomeAssistantTemplateClientTests
 
         Assert.NotNull(capturedRequest);
         Assert.Equal(jinjaTemplate, capturedRequest!.Template);
-    }    private static GeneratedHomeAssistantClient CreateClient(HttpMessageHandler handler)
+    }    private static HomeAssistantClient CreateClient(HttpMessageHandler handler)
     {
         var httpClient = new HttpClient(handler);
         var options = Options.Create(new HomeAssistantOptions
@@ -75,7 +75,7 @@ public sealed class HomeAssistantTemplateClientTests
             ValidateSSL = false
         });
 
-        return new GeneratedHomeAssistantClient(httpClient, options);
+        return new HomeAssistantClient(httpClient, options);
     }
 
     private static async Task<TemplateRenderRequest> DeserializeRequestAsync(HttpRequestMessage request)
