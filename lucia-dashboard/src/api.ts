@@ -264,6 +264,15 @@ export async function completeSetup(): Promise<void> {
   }
 }
 
+export async function regenerateDashboardKey(): Promise<GenerateKeyResponse> {
+  const res = await fetch(`${BASE}/setup/regenerate-dashboard-key`, { method: 'POST' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Failed to regenerate key: ${res.statusText}`);
+  }
+  return res.json();
+}
+
 // ── API Key Management API ───────────────────────────────────────
 
 export interface ApiKeySummary {

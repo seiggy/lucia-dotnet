@@ -3,6 +3,7 @@ import { useAuth } from '../auth/AuthContext'
 import {
   fetchSetupStatus,
   generateDashboardKey,
+  regenerateDashboardKey,
   configureHomeAssistant,
   testHaConnection,
   generateHaKey,
@@ -23,9 +24,9 @@ export default function SetupPage() {
     fetchSetupStatus()
       .then((s) => {
         setStatus(s)
+        // Always start at welcome so users can navigate through all steps
+        // and regenerate keys if needed
         if (s.setupComplete) setStep('done')
-        else if (s.hasHaConnection) setStep('ha-plugin')
-        else if (s.hasDashboardKey) setStep('lucia-ha')
         else setStep('welcome')
       })
       .finally(() => setLoading(false))
@@ -160,6 +161,19 @@ function LuciaHaStep({
     }
   }
 
+  async function handleRegenerateKey() {
+    setError('')
+    setBusy(true)
+    try {
+      const result = await regenerateDashboardKey()
+      setDashboardKey(result)
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to regenerate key')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function handleSaveHa() {
     setError('')
     setBusy(true)
@@ -232,7 +246,19 @@ function LuciaHaStep({
             </p>
           </div>
         ) : (
-          <p className="text-sm text-green-400">✓ Dashboard key already exists</p>
+          <div className="space-y-2">
+            <p className="text-sm text-green-400">✓ Dashboard key already exists</p>
+            <p className="text-sm text-gray-400">
+              Lost your key? You can regenerate it below. The old key will be revoked.
+            </p>
+            <button
+              onClick={handleRegenerateKey}
+              disabled={busy}
+              className="rounded bg-amber-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50"
+            >
+              {busy ? 'Regenerating...' : 'Regenerate Dashboard Key'}
+            </button>
+          </div>
         )}
       </section>
 

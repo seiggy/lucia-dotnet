@@ -19,6 +19,7 @@ public static class SetupApi
 
         group.MapGet("/status", GetSetupStatus);
         group.MapPost("/generate-dashboard-key", GenerateDashboardKeyAsync);
+        group.MapPost("/regenerate-dashboard-key", RegenerateDashboardKeyAsync);
         group.MapPost("/configure-ha", ConfigureHomeAssistantAsync);
         group.MapPost("/test-ha-connection", TestHaConnectionAsync);
         group.MapPost("/generate-ha-key", GenerateHaKeyAsync);
@@ -81,6 +82,38 @@ public static class SetupApi
             key = result.Key,
             prefix = result.Prefix,
             message = "Save this API key now — it cannot be shown again. You will use it to log into the Lucia dashboard.",
+        });
+    }
+
+    /// <summary>
+    /// Regenerates the Dashboard API key during setup. Revokes the old one and creates a new one.
+    /// Only works before setup is complete.
+    /// </summary>
+    private static async Task<IResult> RegenerateDashboardKeyAsync(
+        IApiKeyService apiKeyService,
+        HttpContext httpContext)
+    {
+        var keys = await apiKeyService.ListKeysAsync(httpContext.RequestAborted).ConfigureAwait(false);
+        var existing = keys.FirstOrDefault(k => k.Name == "Dashboard" && !k.IsRevoked);
+
+        if (existing is null)
+        {
+            // No existing key — just create one
+            var created = await apiKeyService.CreateKeyAsync("Dashboard", httpContext.RequestAborted).ConfigureAwait(false);
+            return Results.Ok(new
+            {
+                key = created.Key,
+                prefix = created.Prefix,
+                message = "Save this API key now — it cannot be shown again.",
+            });
+        }
+
+        var result = await apiKeyService.RegenerateKeyAsync(existing.Id, httpContext.RequestAborted).ConfigureAwait(false);
+        return Results.Ok(new
+        {
+            key = result.Key,
+            prefix = result.Prefix,
+            message = "New key generated. The previous Dashboard key has been revoked.",
         });
     }
 
