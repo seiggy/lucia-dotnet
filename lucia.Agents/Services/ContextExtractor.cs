@@ -240,12 +240,12 @@ public sealed class ContextExtractor
     /// <param name="history">Message history to analyze</param>
     /// <param name="domainAgentMap">Domain to agent mapping from the agent catalog</param>
     /// <returns>Extracted topic/domain or null</returns>
-    private static async Task<string?> ExtractConversationTopicAsync(List<AgentMessage> history, IReadOnlyDictionary<string, List<string>> domainAgentMap)
+    private static Task<string?> ExtractConversationTopicAsync(List<AgentMessage> history, IReadOnlyDictionary<string, List<string>> domainAgentMap)
     {
         var combinedText = CombineMessageText(history);
         var keywords = ExtractKeywords(combinedText);
         var domain = DomainCapabilitiesExtractor.FindDomainForKeywords(keywords, domainAgentMap);
-        return domain;
+        return Task.FromResult(domain);
     }
 
     /// <summary>

@@ -5,7 +5,7 @@ namespace lucia.Agents.Models;
 /// <summary>
 /// Represents a cached Music Assistant player endpoint with semantic lookup metadata.
 /// </summary>
-public class MusicPlayerEntity
+public sealed class MusicPlayerEntity
 {
     /// <summary>
     /// The Home Assistant entity id (e.g. media_player.satellite1_living_room).

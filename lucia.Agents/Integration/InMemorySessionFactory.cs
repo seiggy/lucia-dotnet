@@ -7,7 +7,7 @@ namespace lucia.Agents.Integration;
 /// Default in-memory session factory for testing and Phase 3 MVP.
 /// Phase 4 will introduce Redis-backed session factory for persistence.
 /// </summary>
-public class InMemorySessionFactory : IAgentSessionFactory
+public sealed class InMemorySessionFactory : IAgentSessionFactory
 {
     public AgentSession CreateSession() => new OrchestratorInMemorySession();
 

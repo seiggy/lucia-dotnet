@@ -77,11 +77,13 @@ builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();
 
 // CORS for dashboard dev server
+var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+    ?? ["http://localhost:5173"];
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Dashboard", policy =>
     {
-        policy.WithOrigins("http://localhost:5173")
+        policy.WithOrigins(corsOrigins)
             .AllowAnyHeader()
             .AllowAnyMethod();
     });
@@ -99,6 +101,8 @@ app.UseAntiforgery();
 app.UseCors("Dashboard");
 app.UseStaticFiles();
 
+app.UseHttpsRedirection();
+
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error");
@@ -107,7 +111,6 @@ if (!app.Environment.IsDevelopment())
 else
 {
     app.UseDeveloperExceptionPage();
-    app.UseHttpsRedirection(); // prevents having to deal with cert issues from the server.
 }
 app.MapAgentRegistryApiV1();
 app.MapAgentProxyApi();

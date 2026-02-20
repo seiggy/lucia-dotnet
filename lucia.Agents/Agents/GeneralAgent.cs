@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging;
 
 namespace lucia.Agents.Agents;
 
-public class GeneralAgent : ILuciaAgent
+public sealed class GeneralAgent : ILuciaAgent
 {
     private static readonly ActivitySource ActivitySource = new("Lucia.Agents.General", "1.0.0");
 
@@ -98,7 +98,7 @@ public class GeneralAgent : ILuciaAgent
     /// <summary>
     /// Initialize the agent
     /// </summary>
-    public async Task InitializeAsync(CancellationToken cancellationToken = default)
+    public Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         using var activity = ActivitySource.StartActivity("GeneralAgent.Initialize", ActivityKind.Internal);
         _logger.LogInformation("Initializing General Knowledge Agent...");
@@ -106,5 +106,6 @@ public class GeneralAgent : ILuciaAgent
         activity?.SetTag("agent.id", "general-assistant");
         activity?.SetStatus(ActivityStatusCode.Ok);
         _logger.LogInformation("General Knowledge initialized successfully");
+        return Task.CompletedTask;
     }
 }

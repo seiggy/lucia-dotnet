@@ -16,7 +16,7 @@ namespace lucia.Agents.Agents;
 /// <summary>
 /// Specialized agent for controlling lights in Home Assistant
 /// </summary>
-public class LightAgent : ILuciaAgent
+public sealed class LightAgent : ILuciaAgent
 {
     private readonly AgentCard _agent;
     private readonly LightControlSkill _lightPlugin;

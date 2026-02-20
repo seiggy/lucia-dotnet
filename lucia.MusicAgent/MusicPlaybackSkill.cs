@@ -79,29 +79,31 @@ public class MusicPlaybackSkill
     [Description("Stops music on the identified player")]
     public async Task<string> StopMusicAsync(
         [Description("MusicAssistant player name (e.g. 'Loft Speaker')")]
-        string playerName)
+        string playerName,
+        CancellationToken cancellationToken = default)
     {
-        var player = await ResolvePlayerAsync(playerName).ConfigureAwait(false);
+        var player = await ResolvePlayerAsync(playerName, cancellationToken).ConfigureAwait(false);
 
         if (player is null)
         {
             return $"I couldn't find a Satellite player that matches '{playerName}.";
         }
 
-        await _homeAssistantClient.CallServiceAsync("media_player", "media_stop", null, new ServiceCallRequest { EntityId = player.EntityId }, CancellationToken.None).ConfigureAwait(false);
+        await _homeAssistantClient.CallServiceAsync("media_player", "media_stop", null, new ServiceCallRequest { EntityId = player.EntityId }, cancellationToken).ConfigureAwait(false);
         return string.Empty;
     }
 
     [Description("Find a MusicAssistant endpoint by friendly name and return its entity id.")]
     public async Task<string> FindPlayerAsync(
-        [Description("Name or description of the endpoint (e.g. 'Kitchen Speaker')")] string playerName)
+        [Description("Name or description of the endpoint (e.g. 'Kitchen Speaker')")] string playerName,
+        CancellationToken cancellationToken = default)
     {
         using var activity = ActivitySource.StartActivity("MusicPlaybackSkill.FindPlayer", ActivityKind.Internal);
         activity?.SetTag("search.player_name", playerName);
         PlayerSearchRequests.Add(1);
         var start = Stopwatch.GetTimestamp();
 
-        var player = await ResolvePlayerAsync(playerName).ConfigureAwait(false);
+        var player = await ResolvePlayerAsync(playerName, cancellationToken).ConfigureAwait(false);
 
         PlayerSearchDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
 
@@ -122,9 +124,10 @@ public class MusicPlaybackSkill
     public async Task<string> PlayArtistAsync(
         [Description("MusicAssistant player name (e.g. 'Loft')")] string playerName,
         [Description("Artist name to play")] string artist,
-        [Description("Enable a radio-style shuffle mix based on this artist")] bool shuffle = false)
+        [Description("Enable a radio-style shuffle mix based on this artist")] bool shuffle = false,
+        CancellationToken cancellationToken = default)
     {
-        var player = await ResolvePlayerAsync(playerName).ConfigureAwait(false);
+        var player = await ResolvePlayerAsync(playerName, cancellationToken).ConfigureAwait(false);
         if (player is null)
         {
             return $"MusicAssistant player '{playerName}' was not found.";
@@ -142,7 +145,7 @@ public class MusicPlaybackSkill
             payload["radio_mode"] = true;
         }
 
-        return await PlayMediaAsync(player, payload, $"Started an artist station for '{artist}'").ConfigureAwait(false);
+        return await PlayMediaAsync(player, payload, $"Started an artist station for '{artist}'", cancellationToken).ConfigureAwait(false);
     }
 
     [Description("Play a specific album on a MusicAssistant endpoint using the Music Assistant integration.")]
@@ -150,9 +153,10 @@ public class MusicPlaybackSkill
         [Description("MusicAssistant player name (e.g. 'Loft')")] string playerName,
         [Description("Album title to play")] string album,
         [Description("Optional artist name to disambiguate the album")] string? artist = null,
-        [Description("Enable a shuffled radio mode after the album queue")] bool shuffle = false)
+        [Description("Enable a shuffled radio mode after the album queue")] bool shuffle = false,
+        CancellationToken cancellationToken = default)
     {
-        var player = await ResolvePlayerAsync(playerName).ConfigureAwait(false);
+        var player = await ResolvePlayerAsync(playerName, cancellationToken).ConfigureAwait(false);
         if (player is null)
         {
             return $"MusicAssistant player '{playerName}' was not found.";
@@ -175,7 +179,7 @@ public class MusicPlaybackSkill
             payload["radio_mode"] = true;
         }
 
-        return await PlayMediaAsync(player, payload, $"Queued album '{album}'").ConfigureAwait(false);
+        return await PlayMediaAsync(player, payload, $"Queued album '{album}'", cancellationToken).ConfigureAwait(false);
     }
 
     [Description("Play a specific song on a MusicAssistant endpoint using the Music Assistant integration.")]
@@ -184,9 +188,10 @@ public class MusicPlaybackSkill
         [Description("Song title to play")] string song,
         [Description("Optional artist to refine the track search")] string? artist = null,
         [Description("Optional album to refine the track search")] string? album = null,
-        [Description("Enable a radio-style mix after the song")] bool shuffle = false)
+        [Description("Enable a radio-style mix after the song")] bool shuffle = false,
+        CancellationToken cancellationToken = default)
     {
-        var player = await ResolvePlayerAsync(playerName).ConfigureAwait(false);
+        var player = await ResolvePlayerAsync(playerName, cancellationToken).ConfigureAwait(false);
         if (player is null)
         {
             return $"MusicAssistant player '{playerName}' was not found.";
@@ -214,16 +219,17 @@ public class MusicPlaybackSkill
             payload["radio_mode"] = true;
         }
 
-        return await PlayMediaAsync(player, payload, $"Started playing '{song}'").ConfigureAwait(false);
+        return await PlayMediaAsync(player, payload, $"Started playing '{song}'", cancellationToken).ConfigureAwait(false);
     }
 
     [Description("Play a genre mix on a MusicAssistant endpoint using the Music Assistant integration.")]
     public async Task<string> PlayGenreAsync(
         [Description("MusicAssistant player name (e.g. 'Loft')")] string playerName,
         [Description("Genre name to play (e.g. 'Lo-fi Beats')")] string genre,
-        [Description("Shuffle queue with radio mode")] bool shuffle = true)
+        [Description("Shuffle queue with radio mode")] bool shuffle = true,
+        CancellationToken cancellationToken = default)
     {
-        var player = await ResolvePlayerAsync(playerName).ConfigureAwait(false);
+        var player = await ResolvePlayerAsync(playerName, cancellationToken).ConfigureAwait(false);
         if (player is null)
         {
             return $"MusicAssistant player '{playerName}' was not found.";
@@ -241,15 +247,16 @@ public class MusicPlaybackSkill
             payload["radio_mode"] = true;
         }
 
-        return await PlayMediaAsync(player, payload, $"Started a '{genre}' station").ConfigureAwait(false);
+        return await PlayMediaAsync(player, payload, $"Started a '{genre}' station", cancellationToken).ConfigureAwait(false);
     }
 
     [Description("Start a fresh shuffle mix using random tracks from the Music Assistant library on the selected MusicAssistant endpoint.")]
     public async Task<string> PlayShuffleAsync(
         [Description("MusicAssistant player name (e.g. 'Loft')")] string playerName,
-        [Description("How many random tracks to seed the queue with")] int trackSeedCount = 25)
+        [Description("How many random tracks to seed the queue with")] int trackSeedCount = 25,
+        CancellationToken cancellationToken = default)
     {
-        var player = await ResolvePlayerAsync(playerName).ConfigureAwait(false);
+        var player = await ResolvePlayerAsync(playerName, cancellationToken).ConfigureAwait(false);
         if (player is null)
         {
             return $"MusicAssistant player '{playerName}' was not found.";
@@ -257,18 +264,18 @@ public class MusicPlaybackSkill
 
         try
         {
-            var uris = await GetRandomTrackUrisAsync(_config.IntegrationId, trackSeedCount).ConfigureAwait(false);
+            var uris = await GetRandomTrackUrisAsync(_config.IntegrationId, trackSeedCount, cancellationToken).ConfigureAwait(false);
 
             if (uris.Count == 0)
             {
                 _logger.LogWarning("Shuffle request for {PlayerId} returned no URIs. Falling back to enabling shuffle on existing queue.", player.EntityId);
-                await EnablePlayerShuffleAsync(player.EntityId).ConfigureAwait(false);
+                await EnablePlayerShuffleAsync(player.EntityId, cancellationToken).ConfigureAwait(false);
                 return $"Enabled shuffle on the current queue for '{player.FriendlyName}'.";
             }
             else
             {
                 _logger.LogInformation("Shuffling {trackSeedCount} tracks to {playerId}...", trackSeedCount, player.EntityId);
-                await EnqueueTracks(player, uris, true).ConfigureAwait(false);
+                await EnqueueTracks(player, uris, true, cancellationToken).ConfigureAwait(false);
                 return $"Shuffling {trackSeedCount} tracks to {player.FriendlyName}";
             }
         }
@@ -279,7 +286,7 @@ public class MusicPlaybackSkill
         }
     }
 
-    private async Task<string> PlayMediaAsync(MusicPlayerEntity player, ServiceCallRequest payload, string successMessage)
+    private async Task<string> PlayMediaAsync(MusicPlayerEntity player, ServiceCallRequest payload, string successMessage, CancellationToken cancellationToken = default)
     {
         using var activity = ActivitySource.StartActivity("MusicPlaybackSkill.PlayMedia", ActivityKind.Internal);
         activity?.SetTag("player.entity_id", player.EntityId);
@@ -290,7 +297,7 @@ public class MusicPlaybackSkill
         try
         {
             payload.EntityId = player.EntityId;
-            await _homeAssistantClient.CallServiceAsync("music_assistant", "play_media", ReturnResponseToken, payload, CancellationToken.None).ConfigureAwait(false);
+            await _homeAssistantClient.CallServiceAsync("music_assistant", "play_media", ReturnResponseToken, payload, cancellationToken).ConfigureAwait(false);
             PlaybackDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
             activity?.SetStatus(ActivityStatusCode.Ok);
             return $"{successMessage} on '{player.FriendlyName}'.";
@@ -304,7 +311,7 @@ public class MusicPlaybackSkill
         }
     }
 
-    private async Task EnqueueTracks(MusicPlayerEntity player, IReadOnlyList<string> tracks, bool clearQueue = false)
+    private async Task EnqueueTracks(MusicPlayerEntity player, IReadOnlyList<string> tracks, bool clearQueue = false, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -315,7 +322,7 @@ public class MusicPlaybackSkill
                 ["media_type"] = "track",
             };
             payload.EntityId = player.EntityId;
-            await _homeAssistantClient.CallServiceAsync("music_assistant", "play_media", null, payload, CancellationToken.None).ConfigureAwait(false);
+            await _homeAssistantClient.CallServiceAsync("music_assistant", "play_media", null, payload, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -324,29 +331,29 @@ public class MusicPlaybackSkill
         }
     }
     
-    private async Task EnablePlayerShuffleAsync(string entityId)
+    private async Task EnablePlayerShuffleAsync(string entityId, CancellationToken cancellationToken = default)
     {
         var shuffleRequest = new ServiceCallRequest
         {
             ["shuffle"] = true,
             ["entity_id"] = entityId
         };
-        await _homeAssistantClient.CallServiceAsync("media_player", "shuffle_set", null, shuffleRequest, CancellationToken.None).ConfigureAwait(false);
-        await _homeAssistantClient.CallServiceAsync("media_player", "media_play", null, new ServiceCallRequest { EntityId = entityId }, CancellationToken.None).ConfigureAwait(false);
+        await _homeAssistantClient.CallServiceAsync("media_player", "shuffle_set", null, shuffleRequest, cancellationToken).ConfigureAwait(false);
+        await _homeAssistantClient.CallServiceAsync("media_player", "media_play", null, new ServiceCallRequest { EntityId = entityId }, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<MusicPlayerEntity?> ResolvePlayerAsync(string? playerName)
+    private async Task<MusicPlayerEntity?> ResolvePlayerAsync(string? playerName, CancellationToken cancellationToken = default)
     {
-        await EnsureCacheIsCurrentAsync().ConfigureAwait(false);
+        await EnsureCacheIsCurrentAsync(cancellationToken).ConfigureAwait(false);
 
         if (!_cachedPlayers.Any())
         {
-            await _cacheLock.WaitAsync().ConfigureAwait(false);
+            await _cacheLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
                 if (!_cachedPlayers.Any())
                 {
-                    await RefreshPlayerCacheAsync(CancellationToken.None)
+                    await RefreshPlayerCacheAsync(cancellationToken)
                         .ConfigureAwait(false);
                 }
             }
@@ -422,14 +429,14 @@ public class MusicPlaybackSkill
         return null;
     }
 
-    private async Task EnsureCacheIsCurrentAsync()
+    private async Task EnsureCacheIsCurrentAsync(CancellationToken cancellationToken = default)
     {
         if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) < _cacheRefreshInterval)
         {
             return;
         }
 
-        await _cacheLock.WaitAsync().ConfigureAwait(false);
+        await _cacheLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) < _cacheRefreshInterval)
@@ -437,7 +444,7 @@ public class MusicPlaybackSkill
                 return;
             }
 
-            await RefreshPlayerCacheAsync(CancellationToken.None).ConfigureAwait(false);
+            await RefreshPlayerCacheAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -551,7 +558,7 @@ public class MusicPlaybackSkill
         }
     }
 
-    private async Task<IReadOnlyList<string>> GetRandomTrackUrisAsync(string? configEntryId, int trackSeedCount)
+    private async Task<IReadOnlyList<string>> GetRandomTrackUrisAsync(string? configEntryId, int trackSeedCount, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -567,7 +574,7 @@ public class MusicPlaybackSkill
                 request["config_entry_id"] = configEntryId;
             }
 
-            var response = await _homeAssistantClient.CallServiceAsync<MusicLibraryResponse>("music_assistant", "get_library", ReturnResponseToken, request, CancellationToken.None).ConfigureAwait(false);
+            var response = await _homeAssistantClient.CallServiceAsync<MusicLibraryResponse>("music_assistant", "get_library", ReturnResponseToken, request, cancellationToken).ConfigureAwait(false);
 
             return response.ServiceResponse.Items.Select(item => item.Uri).ToList();
         }

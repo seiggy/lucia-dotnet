@@ -4,7 +4,7 @@ using System.Text;
 
 namespace lucia.Agents.Configuration
 {
-    public class AgentConfiguration
+    public sealed class AgentConfiguration
     {
         /// <summary>
         /// Name of the Agent Class

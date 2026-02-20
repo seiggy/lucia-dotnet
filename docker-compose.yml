@@ -238,7 +238,7 @@ services:
     
     # Health check for automatic restart
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -343,7 +343,7 @@ services:
       - COMPlus_EnableDiagnostics=0
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -418,7 +418,7 @@ services:
       - COMPlus_EnableDiagnostics=0
 
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -468,14 +468,6 @@ volumes:
   # Redis persistent data
   redis-data:
     driver: local
-    driver_opts:
-      type: tmpfs
-      device: tmpfs
-      # Change to local driver for persistent storage:
-      # driver_opts:
-      #   type: none
-      #   o: bind
-      #   device: /data/lucia/redis
   
   # MongoDB persistent data
   mongo-data:
