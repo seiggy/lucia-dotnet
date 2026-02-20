@@ -9,12 +9,16 @@ public static class AgentRegistryApi
 {
     public static IEndpointRouteBuilder MapAgentRegistryApiV1(this WebApplication app)
     {
-        app.MapGet("/agents", GetAgentsAsync);
+        app.MapGet("/agents", GetAgentsAsync)
+            .RequireAuthorization();
         app.MapPost("/agents/register", RegisterAgentAsync)
-            .DisableAntiforgery();
-        app.MapPut("/agents/{agentId}", UpdateAgentAsync);
+            .DisableAntiforgery()
+            .RequireAuthorization();
+        app.MapPut("/agents/{agentId}", UpdateAgentAsync)
+            .RequireAuthorization();
         app.MapDelete("/agents/{agentId}", UnregisterAgentAsync)
-            .DisableAntiforgery();
+            .DisableAntiforgery()
+            .RequireAuthorization();
 
         return app;
     }

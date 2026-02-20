@@ -19,7 +19,8 @@ public static class DatasetExportApi
     public static IEndpointRouteBuilder MapDatasetExportApi(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/exports")
-            .WithTags("Exports");
+            .WithTags("Exports")
+            .RequireAuthorization();
 
         group.MapPost("/", CreateExportAsync);
 

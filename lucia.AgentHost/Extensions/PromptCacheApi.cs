@@ -13,7 +13,8 @@ public static class PromptCacheApi
     public static IEndpointRouteBuilder MapPromptCacheApi(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/prompt-cache")
-            .WithTags("PromptCache");
+            .WithTags("PromptCache")
+            .RequireAuthorization();
 
         group.MapGet("/", GetAllEntriesAsync);
 

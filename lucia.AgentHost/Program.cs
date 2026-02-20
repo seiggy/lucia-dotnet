@@ -1,4 +1,6 @@
+using lucia.AgentHost.Auth;
 using lucia.AgentHost.Extensions;
+using lucia.Agents.Auth;
 using lucia.Agents.Configuration;
 using lucia.Agents.Extensions;
 using lucia.Agents.Orchestration;
@@ -6,6 +8,7 @@ using lucia.Agents.Training;
 using lucia.HomeAssistant.Configuration;
 using lucia.Agents.Services;
 using lucia.HomeAssistant.Services;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.HttpOverrides;
 using Scalar.AspNetCore;
 
@@ -70,6 +73,17 @@ builder.Services.AddHostedService<TaskArchivalService>();
 // Configuration seeder — copies appsettings to MongoDB on first run
 builder.Services.AddHostedService<ConfigSeeder>();
 
+// API key authentication
+builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection(AuthOptions.SectionName));
+builder.Services.AddSingleton<IApiKeyService, MongoApiKeyService>();
+builder.Services.AddSingleton<ISessionService, HmacSessionService>();
+builder.Services.AddSingleton<ConfigStoreWriter>();
+
+builder.Services.AddAuthentication(AuthOptions.AuthenticationScheme)
+    .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(
+        AuthOptions.AuthenticationScheme, _ => { });
+builder.Services.AddAuthorization();
+
 builder.Services.AddHttpClient("AgentProxy");
 
 builder.Services.AddProblemDetails();
@@ -101,6 +115,12 @@ app.UseAntiforgery();
 app.UseCors("Dashboard");
 app.UseStaticFiles();
 
+// Onboarding: redirect to /setup if first-run
+app.UseMiddleware<OnboardingMiddleware>();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
 app.UseHttpsRedirection();
 
 if (!app.Environment.IsDevelopment())
@@ -112,6 +132,9 @@ else
 {
     app.UseDeveloperExceptionPage();
 }
+app.MapAuthApi();
+app.MapSetupApi();
+app.MapApiKeyManagementApi();
 app.MapAgentRegistryApiV1();
 app.MapAgentProxyApi();
 app.MapAgentDiscovery();

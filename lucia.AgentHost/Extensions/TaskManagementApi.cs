@@ -24,7 +24,8 @@ public static class TaskManagementApi
     public static IEndpointRouteBuilder MapTaskManagementApi(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/tasks")
-            .WithTags("Tasks");
+            .WithTags("Tasks")
+            .RequireAuthorization();
 
         group.MapGet("/active", ListActiveTasksAsync);
         group.MapGet("/archived", ListArchivedTasksAsync);

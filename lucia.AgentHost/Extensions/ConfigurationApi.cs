@@ -13,7 +13,8 @@ public static class ConfigurationApi
     public static IEndpointRouteBuilder MapConfigurationApi(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/config")
-            .WithTags("Configuration");
+            .WithTags("Configuration")
+            .RequireAuthorization();
 
         group.MapGet("/sections", ListSectionsAsync);
         group.MapGet("/sections/{section}", GetSectionAsync);
@@ -70,13 +71,12 @@ public static class ConfigurationApi
     /// <summary>
     /// Gets all key-value pairs for a configuration section.
     /// Falls back to live IConfiguration if no MongoDB entries exist for the section.
-    /// Sensitive values are masked unless ?showSecrets=true is passed.
+    /// All viewers are authenticated — sensitive values are shown.
     /// </summary>
     private static async Task<Results<Ok<List<ConfigEntryDto>>, NotFound>> GetSectionAsync(
         string section,
         IMongoClient mongoClient,
-        IConfiguration configuration,
-        [FromQuery] bool showSecrets = false)
+        IConfiguration configuration)
     {
         var collection = GetCollection(mongoClient);
         var filter = Builders<ConfigEntry>.Filter.Eq(e => e.Section, section);
@@ -87,7 +87,7 @@ public static class ConfigurationApi
             var dtos = entries.Select(e => new ConfigEntryDto
             {
                 Key = e.Key,
-                Value = e.IsSensitive && !showSecrets ? "********" : e.Value,
+                Value = e.Value,
                 IsSensitive = e.IsSensitive,
                 UpdatedAt = e.UpdatedAt,
                 UpdatedBy = e.UpdatedBy
@@ -106,7 +106,7 @@ public static class ConfigurationApi
         }
 
         var liveDtos = new List<ConfigEntryDto>();
-        FlattenConfigSection(configSection, section, section, showSecrets, liveDtos);
+        FlattenConfigSection(configSection, section, section, liveDtos);
 
         return TypedResults.Ok(liveDtos);
     }
@@ -116,7 +116,7 @@ public static class ConfigurationApi
     /// </summary>
     private static void FlattenConfigSection(
         IConfigurationSection configSection, string rootSection, string parentKey,
-        bool showSecrets, List<ConfigEntryDto> results)
+        List<ConfigEntryDto> results)
     {
         foreach (var child in configSection.GetChildren())
         {
@@ -124,7 +124,7 @@ public static class ConfigurationApi
 
             if (child.GetChildren().Any() && child.Value is null)
             {
-                FlattenConfigSection(child, rootSection, fullKey, showSecrets, results);
+                FlattenConfigSection(child, rootSection, fullKey, results);
             }
             else
             {
@@ -132,7 +132,7 @@ public static class ConfigurationApi
                 results.Add(new ConfigEntryDto
                 {
                     Key = fullKey,
-                    Value = isSensitive && !showSecrets ? "********" : child.Value,
+                    Value = child.Value,
                     IsSensitive = isSensitive,
                     UpdatedAt = DateTime.UtcNow,
                     UpdatedBy = "live-config"

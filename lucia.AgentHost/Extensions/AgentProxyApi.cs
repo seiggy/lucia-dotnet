@@ -19,7 +19,8 @@ public static class AgentProxyApi
     public static IEndpointRouteBuilder MapAgentProxyApi(this WebApplication app)
     {
         app.MapPost("/agents/proxy", ProxyA2AMessageAsync)
-            .DisableAntiforgery();
+            .DisableAntiforgery()
+            .RequireAuthorization();
 
         return app;
     }

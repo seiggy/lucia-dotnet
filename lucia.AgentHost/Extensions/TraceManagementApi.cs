@@ -13,7 +13,8 @@ public static class TraceManagementApi
     public static IEndpointRouteBuilder MapTraceManagementApi(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/traces")
-            .WithTags("Traces");
+            .WithTags("Traces")
+            .RequireAuthorization();
 
         group.MapGet("/", ListTracesAsync);
 

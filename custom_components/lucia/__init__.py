@@ -141,6 +141,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "repository": repository,
         }
 
+        # Validate connectivity back to Lucia (non-blocking — plugin still works if this fails)
+        await _validate_lucia_connection(hass, httpx_client, repository)
+
     except Exception as err:
         _LOGGER.error("Failed to set up Lucia integration: %s", err)
         raise ConfigEntryNotReady(f"Error connecting to Lucia agent: {err}") from err
@@ -179,6 +182,38 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await async_unregister_services(hass)
 
     return unload_ok
+
+
+async def _validate_lucia_connection(
+    hass: HomeAssistant, client: httpx.AsyncClient, repository: str
+) -> None:
+    """Call Lucia's validate-ha-connection endpoint to confirm plugin connectivity.
+
+    This is best-effort — if validation fails the plugin still functions normally.
+    Success causes the Lucia dashboard setup wizard to show a green checkmark.
+    """
+    try:
+        instance_id = await hass.helpers.instance_id.async_get()
+        validate_url = f"{repository}/api/setup/validate-ha-connection"
+        response = await client.post(
+            validate_url,
+            json={"homeAssistantInstanceId": instance_id},
+            timeout=10.0,
+        )
+        if response.status_code == 200:
+            _LOGGER.info("Lucia connectivity validation succeeded")
+        else:
+            _LOGGER.warning(
+                "Lucia connectivity validation returned HTTP %s — "
+                "dashboard may not show plugin as connected",
+                response.status_code,
+            )
+    except Exception as err:
+        _LOGGER.warning(
+            "Could not validate Lucia connectivity (%s) — "
+            "this is non-fatal, plugin will still function",
+            err,
+        )
 
 
 async def async_register_services(hass: HomeAssistant, entry: ConfigEntry) -> None:
