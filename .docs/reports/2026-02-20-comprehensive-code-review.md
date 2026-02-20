@@ -7,22 +7,99 @@
 
 ---
 
-## Remediation Status (2026-02-20)
+## Remediation Status (Updated 2026-02-20)
 
-| Task | Status |
-|------|--------|
-| Remove hardcoded JWT tokens from tests | ✅ Done |
-| Fix sync-over-async in OTel body capture | ✅ Done |
-| Fix SSRF in AgentProxyApi | ✅ Done |
-| Thread-safe LightControlSkill | ✅ Done |
-| Thread-safe MusicPlaybackSkill | ✅ Done |
-| Thread-safe ContextExtractor | ✅ Done |
-| Add logging to empty catch blocks | ✅ Done |
-| Split multi-class files (one-class-per-file) | ✅ Done |
-| Replace Redis server.Keys with SET index | ✅ Done |
-| Expand IHomeAssistantClient interface | ✅ Done |
-| Add structured logging to HomeAssistantClient | ✅ Done |
-| API key authentication on endpoints | 📋 Planned (future stage) |
+### Summary
+
+- **Fixed:** 35 findings across 6 commits
+- **Deferred:** 2 (planned for future stages)
+- **Won't Fix:** 1 (intentional behavior)
+- **Remaining:** ~60 low-severity items (naming, dead code, minor cleanup)
+
+### Commits
+
+| Commit | Round | Scope |
+|--------|-------|-------|
+| `8071cea` | 1 | Security, thread safety, error handling, code quality |
+| `9c495da` | 2 | Correctness and resilience |
+| `d5aa2f2` | 3a | LuciaEngine decomposition |
+| `a45c578` | 3b | Options validation, MongoClient reuse, Redis MGET batching |
+| `f18d492` | 4 | CPM versions, log levels, docker-compose, CORS, sealed classes, CancellationToken |
+| `237c54b` | 5 | docker-compose.yml relocated to infra/docker/ |
+
+### Critical Findings
+
+| # | Finding | Status |
+|---|---------|--------|
+| C1 | No auth on any endpoint | 📋 Deferred (planned future stage) |
+| C2 | OTel body logging sync-over-async deadlock | ✅ Fixed (round 1) — body logging kept intentionally |
+| C3 | SSRF via unvalidated agentUrl | ✅ Fixed (round 1) — loopback allowlist |
+| C4 | Hardcoded HA access tokens in tests | ✅ Fixed (round 1) — moved to UserSecrets/env vars |
+| C5 | showSecrets=true exposes config values | 📋 Deferred (requires auth — see C1) |
+| C6 | Connection string in exception message | ⚠️ Not yet fixed (low risk behind auth) |
+| C7 | One-class-per-file violations | ✅ Fixed (round 1) — 3 files split into 8 |
+| C8 | LightControlSkill unsynchronized state | ✅ Fixed (round 1) — volatile snapshot swap + SemaphoreSlim |
+| C9 | MusicPlaybackSkill._cachedPlayers race | ✅ Fixed (round 1) — volatile snapshot swap |
+| C10 | ContextExtractor check-then-act race | ✅ Fixed (round 1) — Interlocked.CompareExchange |
+| C11 | HomeAssistantClient mutates shared HttpClient | ✅ Fixed (round 2) — config moved to IHttpClientFactory |
+| C12 | ServiceCallRequest inherits Dictionary | ⚠️ Not yet fixed (design issue, needs API change) |
+| C13 | `?? default!` null masking | ✅ Fixed (round 2) — replaced with `?? throw` |
+| C14 | Sync-over-async GetAwaiter().GetResult() | ✅ Fixed (round 1) — same as C2 |
+
+### High Findings
+
+| # | Finding | Status |
+|---|---------|--------|
+| H1 | Empty catch in MongoConfigurationProvider | ✅ Fixed (round 1) — added logging |
+| H2 | Empty catch in PluginLoader | ✅ Fixed (round 1) — added logging |
+| H3 | Empty catch in FindMusicAssistantInstanceAsync | ✅ Fixed (round 1) — added logging |
+| H4 | Empty catch in GetRandomTrackUrisAsync | ✅ Fixed (round 1) — added logging |
+| H5 | Bare catch in ContextExtractor | ✅ Fixed (round 2) — narrowed to JsonException |
+| H6 | Fire-and-forget PersistTraceAsync | ⚠️ Not yet fixed (low impact) |
+| H7 | AgentRegistryClient no status checks, copy-paste log | ✅ Fixed (round 2) |
+| H8 | IHomeAssistantClient only 6 of 18 methods | ✅ Fixed (round 1) — expanded to 24 methods |
+| H9 | Zero logging in HomeAssistantClient | ✅ Fixed (round 1) — [LoggerMessage] structured logging |
+| H10 | No IValidateOptions\<HomeAssistantOptions\> | ✅ Fixed (round 3) — startup validation |
+| H11 | RedisTaskStore ignores CancellationToken | ✅ Fixed (round 4) — .WaitAsync(ct) wrapper |
+| H12 | O(N) Redis scan + N+1 GETs in prompt cache | ✅ Fixed (round 3) — MGET batching |
+| H13 | server.Keys full keyspace scan | ✅ Fixed (round 1) — lucia:task-ids SET index |
+| H14 | New MongoClient on every config poll | ✅ Fixed (round 3) — Lazy\<MongoClient\> |
+| H15 | NPE on response.Text substring | ✅ Fixed (round 2) — null guard |
+| H16 | DiagnosticChatClientWrapper null substring | ✅ Fixed (round 2) — null guard |
+| H17 | LuciaEngine 16 constructor params | ✅ Fixed (round 3) — decomposed to 6 (SessionManager + WorkflowFactory) |
+| H18 | AgentDispatchExecutor.SetUserMessage coupling | ⚠️ Not yet fixed (architectural) |
+| H19 | AgentHostService one failure aborts all | ✅ Fixed (round 2) — individual try/catch per agent |
+| H20 | Aspire.Hosting in class library | ✅ Fixed (round 3) — removed |
+| H21 | Redis docker volume uses tmpfs | ✅ Fixed (round 4) — disk-backed volume |
+| H22 | curl health checks in .NET containers | ✅ Fixed (round 4) — switched to wget |
+
+### Medium Findings
+
+| Finding | Status |
+|---------|--------|
+| async methods with no await (GeneralAgent, ContextExtractor) | ✅ Fixed (round 4) |
+| CancellationToken.None in MusicPlaybackSkill | ✅ Fixed (round 4) — 13 methods propagated |
+| DiagnosticChatClientWrapper LogWarning for diagnostics | ✅ Fixed (round 4) — demoted to LogDebug |
+| Aspire.Hosting.Testing version mismatch | ✅ Fixed (round 4) — $(AspireVersion) |
+| TimeProvider.Testing wrong version variable | ✅ Fixed (round 4) |
+| Http.Resilience version conflict | ✅ Fixed (round 4) — pinned to 10.1.0 |
+| Non-sealed classes (7 classes) | ✅ Fixed (round 4) — sealed |
+| CORS hardcoded to localhost:5173 | ✅ Fixed (round 4) — configuration-driven |
+| UseHttpsRedirection only in Development | ✅ Fixed (round 4) — all environments |
+| docker-compose.yml at repo root vs infra/docker/ | ✅ Fixed (round 5) — relocated |
+| LuciaEngine.ClearHistory() throws NotImplementedException | ✅ Fixed (round 3) — removed |
+| LuciaEngine duplicate _httpClientFactory assignment | ✅ Fixed (round 3) — removed |
+| Remaining medium items (dead code, model inconsistencies, etc.) | ⚠️ Not yet fixed |
+
+### Not Fixed (Low Priority / Deferred)
+
+| Category | Items | Notes |
+|----------|-------|-------|
+| Auth/authz on endpoints | C1, C5 | Planned future stage |
+| Low-severity cleanup | ~27 items | Naming, dead usings, magic strings |
+| Test project issues | ~10 items | Metric test gaps, Task.Delay races, dead code |
+| Model design issues | ~5 items | String dates, unused models, mutable vs record |
+| Dead code removal | ~5 items | PromptCachingChatClient, ModelExtensions obsolete code |
 
 ---
 
