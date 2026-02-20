@@ -4,6 +4,7 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <UserSecretsId>0d80bd29-fe56-470c-9726-2b48990f7b5d</UserSecretsId>
+    <NoWarn>$(NoWarn);NU1510</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="A2A" />
@@ -51,6 +52,10 @@
     <Using Include="Xunit" />
   </ItemGroup>
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\lucia.AgentHost\lucia.AgentHost.csproj" />
     <ProjectReference Include="..\lucia.MusicAgent\lucia.MusicAgent.csproj" />
     <ProjectReference Include="..\lucia.ServiceDefaults\lucia.ServiceDefaults.csproj" />
     <ProjectReference Include="..\lucia.HomeAssistant\lucia.HomeAssistant.csproj" />
