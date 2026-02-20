@@ -1,3 +1,4 @@
+using A2A;
 using lucia.A2AHost.AgentRegistry;
 using lucia.A2AHost.Extensions;
 using lucia.A2AHost.Services;
@@ -42,6 +43,9 @@ builder.Services.Configure<HomeAssistantOptions>(
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddTransient<IHomeAssistantClient, HomeAssistantClient>();
 builder.Services.AddSingleton<IDeviceCacheService, RedisDeviceCacheService>();
+
+// Register Redis task store for A2A task persistence (used by TimerAgent)
+builder.Services.AddSingleton<ITaskStore, RedisTaskStore>();
 
 builder.Services.AddHttpClient<AgentRegistryClient>(options =>
 {
