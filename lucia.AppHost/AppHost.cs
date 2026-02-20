@@ -20,13 +20,14 @@ var embeddingsModel = foundry.AddDeployment("embeddings", AIFoundryModel.OpenAI.
 // Additional models for eval benchmarking
 var chatMini = foundry.AddDeployment("chat-mini", AIFoundryModel.OpenAI.Gpt4oMini);
 var phi4 = foundry.AddDeployment("phi4", AIFoundryModel.Microsoft.Phi4MiniInstruct);
-var gptOss120b = foundry.AddDeployment("gpt-oss-120b", AIFoundryModel.OpenAI.GptOss120b);
+//var gptOss120b = foundry.AddDeployment("gpt-oss-120b", "gpt-oss-120b", "1", "OpenAI");
 var gpt5Nano = foundry.AddDeployment("gpt-5-nano", AIFoundryModel.OpenAI.Gpt5Nano);
 
 var redis = builder.AddRedis("redis")
     .WithDataVolume()
     .WithLifetime(ContainerLifetime.Persistent)
     .WithRedisInsight()
+        .WithPersistence()
     .WithContainerName("redis");
 
 var mongodb = builder.AddMongoDB("mongodb")
@@ -35,31 +36,53 @@ var mongodb = builder.AddMongoDB("mongodb")
     .WithMongoExpress()
     .WithContainerName("mongodb");
 var tracesDb = mongodb.AddDatabase("luciatraces");
+var configDb = mongodb.AddDatabase("luciaconfig");
 
 var registryApi = builder.AddProject<Projects.lucia_AgentHost>("lucia-agenthost")
     .WithReference(embeddingsModel)
     .WithReference(chatModel)
     .WithReference(chatMini)
     .WithReference(phi4)
-    .WithReference(gptOss120b)
+    //.WithReference(gptOss120b)
     .WithReference(gpt5Nano)
     .WithReference(redis)
     .WaitFor(redis)
     .WithReference(tracesDb)
+    .WithReference(configDb)
     .WaitFor(mongodb)
     .WithExternalHttpEndpoints();
 
 var currentDirectory = Environment.CurrentDirectory;
+var sep = Path.DirectorySeparatorChar.ToString();
 
 builder.AddProject<Projects.lucia_A2AHost>("music-agent")
-    .WithEnvironment("PluginDirectory", $"{currentDirectory}{Path.DirectorySeparatorChar.ToString()}plugins")
+    .WithEnvironment("PluginDirectory", $"{currentDirectory}{sep}plugins{sep}music-agent")
     .WithReference(embeddingsModel)
     .WithReference(chatModel)
+    .WithReference(redis)
+    .WaitFor(redis)
     .WithReference(registryApi)
     .WaitFor(registryApi)
+    .WithReference(tracesDb)
+    .WithReference(configDb)
+    .WaitFor(mongodb)
+    .WithExternalHttpEndpoints();
+
+builder.AddProject<Projects.lucia_A2AHost>("timer-agent")
+    .WithEnvironment("PluginDirectory", $"{currentDirectory}{sep}plugins{sep}timer-agent")
+    .WithReference(embeddingsModel)
+    .WithReference(chatModel)
+    .WithReference(redis)
+    .WaitFor(redis)
+    .WithReference(registryApi)
+    .WaitFor(registryApi)
+    .WithReference(tracesDb)
+    .WithReference(configDb)
+    .WaitFor(mongodb)
     .WithExternalHttpEndpoints();
 
 builder.AddViteApp("lucia-dashboard", "../lucia-dashboard")
+    .WithReference(registryApi)
     .WithExternalHttpEndpoints()
     .WithNpm();
 

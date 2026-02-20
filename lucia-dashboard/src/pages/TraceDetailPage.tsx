@@ -184,6 +184,20 @@ export default function TraceDetailPage() {
               ))}
             </div>
           )}
+          {trace.routing.agentInstructions && trace.routing.agentInstructions.length > 0 && (
+            <div className="mt-3">
+              <h4 className="mb-2 text-xs font-medium uppercase text-gray-400">Agent Instructions</h4>
+              <div className="space-y-2">
+                {trace.routing.agentInstructions.map((ai, i) => (
+                  <div key={i} className="rounded border border-gray-700 bg-gray-900 p-2 text-sm">
+                    <span className="font-medium text-indigo-300">{ai.agentId}</span>
+                    <span className="mx-2 text-gray-600">→</span>
+                    <span className="text-gray-300">{ai.instruction}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

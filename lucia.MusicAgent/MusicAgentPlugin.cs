@@ -30,12 +30,12 @@ namespace lucia.MusicAgent
 
             builder.Services.AddSingleton<MusicPlaybackSkill>();
 
-            builder.Services.AddSingleton<IAgent, MusicAgent>();
+            builder.Services.AddSingleton<ILuciaAgent, MusicAgent>();
         }
 
         public void MapAgentEndpoints(WebApplication app)
         {
-            var musicAgent = app.Services.GetRequiredService<IAgent>();
+            var musicAgent = app.Services.GetRequiredService<ILuciaAgent>();
             var taskManager = new TaskManager();
             app.MapA2A(musicAgent.GetAIAgent(), path: "/", agentCard: musicAgent.GetAgentCard(), taskManager => app.MapWellKnownAgentCard(taskManager, "/"));
         }

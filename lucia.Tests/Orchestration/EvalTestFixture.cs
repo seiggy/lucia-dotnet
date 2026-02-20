@@ -8,6 +8,7 @@ using lucia.Agents.Orchestration;
 using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Registry;
 using lucia.Agents.Skills;
+using lucia.Agents.Services;
 using lucia.HomeAssistant.Services;
 using lucia.MusicAgent;
 using lucia.Tests.TestDoubles;
@@ -58,6 +59,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
     private IEmbeddingGenerator<string, Embedding<float>> _mockEmbedding = null!;
     private ILoggerFactory _loggerFactory = null!;
     private IServer _mockServer = null!;
+    private readonly IDeviceCacheService _mockDeviceCache = A.Fake<IDeviceCacheService>();
 
     // --- Agent cards for registry (extracted once) ---
 
@@ -157,7 +159,8 @@ public sealed class EvalTestFixture : IAsyncLifetime
         var lightSkill = new LightControlSkill(
             _mockHaClient,
             _mockEmbedding,
-            _loggerFactory.CreateLogger<LightControlSkill>());
+            _loggerFactory.CreateLogger<LightControlSkill>(),
+            _mockDeviceCache);
         return new LightAgent(chatClient, lightSkill, _loggerFactory);
     }
 
@@ -172,6 +175,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
             _mockHaClient,
             musicConfig,
             _mockEmbedding,
+            _mockDeviceCache,
             _loggerFactory.CreateLogger<MusicPlaybackSkill>());
         return new lucia.MusicAgent.MusicAgent(chatClient, musicSkill, _mockServer, _loggerFactory);
     }
@@ -186,7 +190,8 @@ public sealed class EvalTestFixture : IAsyncLifetime
         var lightSkill = new LightControlSkill(
             _mockHaClient,
             _mockEmbedding,
-            _loggerFactory.CreateLogger<LightControlSkill>());
+            _loggerFactory.CreateLogger<LightControlSkill>(),
+            _mockDeviceCache);
         return (new LightAgent(chatClient, lightSkill, _loggerFactory), capture);
     }
 
@@ -202,6 +207,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
             _mockHaClient,
             musicConfig,
             _mockEmbedding,
+            _mockDeviceCache,
             _loggerFactory.CreateLogger<MusicPlaybackSkill>());
         return (new lucia.MusicAgent.MusicAgent(chatClient, musicSkill, _mockServer, _loggerFactory), capture);
     }
@@ -274,6 +280,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
             Options.Create(new RouterExecutorOptions()),
             Options.Create(new AgentExecutorWrapperOptions()),
             Options.Create(new ResultAggregatorOptions()),
+            Options.Create(new SessionCacheOptions()),
             TimeProvider.System,
             new StubTaskManager(),
             observer,
@@ -297,7 +304,8 @@ public sealed class EvalTestFixture : IAsyncLifetime
         // LightAgent card
         var lightSkill = new LightControlSkill(
             _mockHaClient, _mockEmbedding,
-            _loggerFactory.CreateLogger<LightControlSkill>());
+            _loggerFactory.CreateLogger<LightControlSkill>(),
+            _mockDeviceCache);
         var lightAgent = new LightAgent(fakeChatClient, lightSkill, _loggerFactory);
         _lightAgentCard = lightAgent.GetAgentCard();
 
@@ -305,6 +313,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
         var musicConfig = Options.Create(new MusicAssistantConfig());
         var musicSkill = new MusicPlaybackSkill(
             _mockHaClient, musicConfig, _mockEmbedding,
+            _mockDeviceCache,
             _loggerFactory.CreateLogger<MusicPlaybackSkill>());
         var musicAgent = new lucia.MusicAgent.MusicAgent(fakeChatClient, musicSkill, _mockServer, _loggerFactory);
         _musicAgentCard = musicAgent.GetAgentCard();

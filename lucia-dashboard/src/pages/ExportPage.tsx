@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchExports, createExport, getExportDownloadUrl } from '../api'
+import { fetchExports, createExport, getExportDownloadUrl, fetchStats } from '../api'
 import { LabelStatus } from '../types'
 import type { ExportFilterCriteria } from '../types'
 
@@ -39,6 +39,11 @@ export default function ExportPage() {
   const { data: exports, isLoading } = useQuery({
     queryKey: ['exports'],
     queryFn: fetchExports,
+  })
+
+  const { data: stats } = useQuery({
+    queryKey: ['stats'],
+    queryFn: fetchStats,
   })
 
   const mutation = useMutation({
@@ -101,13 +106,18 @@ export default function ExportPage() {
           </div>
           <div>
             <label className="mb-1 block text-xs text-gray-400">Agent</label>
-            <input
-              type="text"
+            <select
               value={agentFilter}
               onChange={(e) => setAgentFilter(e.target.value)}
-              placeholder="Agent ID…"
-              className="rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:border-indigo-500 focus:outline-none"
-            />
+              className="rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm text-white focus:border-indigo-500 focus:outline-none"
+            >
+              <option value="">All Agents</option>
+              {stats && Object.keys(stats.byAgent).sort().map((agentId) => (
+                <option key={agentId} value={agentId}>
+                  {agentId} ({stats.byAgent[agentId]})
+                </option>
+              ))}
+            </select>
           </div>
           <label className="flex items-center gap-2 text-sm text-gray-300">
             <input

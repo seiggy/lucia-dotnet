@@ -72,3 +72,97 @@ export async function fetchExports(): Promise<DatasetExportRecord[]> {
 export function getExportDownloadUrl(id: string): string {
   return `${BASE}/exports/${id}/download`;
 }
+
+// ── Configuration API ──────────────────────────────────────────
+
+export interface ConfigSectionSummary {
+  section: string;
+  keyCount: number;
+  lastUpdated: string;
+}
+
+export interface ConfigEntryDto {
+  key: string;
+  value: string | null;
+  isSensitive: boolean;
+  updatedAt: string;
+  updatedBy: string;
+}
+
+export interface ConfigPropertySchema {
+  name: string;
+  type: string;
+  description: string;
+  defaultValue: string;
+  isSensitive: boolean;
+}
+
+export interface ConfigSectionSchema {
+  section: string;
+  description: string;
+  properties: ConfigPropertySchema[];
+}
+
+export async function fetchConfigSections(): Promise<ConfigSectionSummary[]> {
+  const res = await fetch(`${BASE}/config/sections`);
+  if (!res.ok) throw new Error(`Failed to fetch config sections: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchConfigSection(section: string, showSecrets = false): Promise<ConfigEntryDto[]> {
+  const qs = showSecrets ? '?showSecrets=true' : '';
+  const res = await fetch(`${BASE}/config/sections/${encodeURIComponent(section)}${qs}`);
+  if (!res.ok) throw new Error(`Failed to fetch section: ${res.statusText}`);
+  return res.json();
+}
+
+export async function updateConfigSection(
+  section: string,
+  values: Record<string, string | null>,
+): Promise<number> {
+  const res = await fetch(`${BASE}/config/sections/${encodeURIComponent(section)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(values),
+  });
+  if (!res.ok) throw new Error(`Failed to update section: ${res.statusText}`);
+  return res.json();
+}
+
+export async function resetConfig(): Promise<string> {
+  const res = await fetch(`${BASE}/config/reset`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to reset config: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchConfigSchema(): Promise<ConfigSectionSchema[]> {
+  const res = await fetch(`${BASE}/config/schema`);
+  if (!res.ok) throw new Error(`Failed to fetch schema: ${res.statusText}`);
+  return res.json();
+}
+
+// ── Prompt Cache API ─────────────────────────────────────────────
+
+export async function fetchPromptCacheEntries() {
+  const res = await fetch(`${BASE}/prompt-cache`);
+  if (!res.ok) throw new Error(`Failed to fetch cache entries: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchPromptCacheStats() {
+  const res = await fetch(`${BASE}/prompt-cache/stats`);
+  if (!res.ok) throw new Error(`Failed to fetch cache stats: ${res.statusText}`);
+  return res.json();
+}
+
+export async function evictPromptCacheEntry(cacheKey: string) {
+  const res = await fetch(`${BASE}/prompt-cache/entry/${encodeURIComponent(cacheKey)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to evict cache entry: ${res.statusText}`);
+  return res.json();
+}
+
+export async function evictAllPromptCache() {
+  const res = await fetch(`${BASE}/prompt-cache`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to clear cache: ${res.statusText}`);
+  return res.json();
+}

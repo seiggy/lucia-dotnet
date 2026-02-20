@@ -40,8 +40,17 @@ namespace lucia.Agents.Extensions
                 var contextId = messageSendParams.Message.ContextId ?? Guid.NewGuid().ToString("N");
                 var session = await hostAgent.GetOrCreateSessionAsync(contextId, cancellationToken).ConfigureAwait(false);
 
+                // Tag chat messages with A2A contextId so the orchestrator can use it
+                // as a stable Redis session key for multi-turn conversation continuity
+                var chatMessages = messageSendParams.ToChatMessages();
+                foreach (var msg in chatMessages)
+                {
+                    msg.AdditionalProperties ??= new AdditionalPropertiesDictionary();
+                    msg.AdditionalProperties["a2a.contextId"] = contextId;
+                }
+
                 var response = await hostAgent.RunAsync(
-                    messageSendParams.ToChatMessages(),
+                    chatMessages,
                     session: session,
                     cancellationToken: cancellationToken).ConfigureAwait(false);
 

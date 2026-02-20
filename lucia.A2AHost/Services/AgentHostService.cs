@@ -9,7 +9,7 @@ namespace lucia.A2AHost.Services
     {
         private readonly ILogger<AgentHostService> _logger;
         private readonly AgentRegistryClient _agentRegistryClient;
-        private readonly List<IAgent> _hostedAgents;
+        private readonly List<ILuciaAgent> _hostedAgents;
 
         public AgentHostService(
             ILogger<AgentHostService> logger,
@@ -19,7 +19,7 @@ namespace lucia.A2AHost.Services
             _logger = logger;
             _agentRegistryClient = agentRegistryClient;
             
-            _hostedAgents = serviceProvider.GetServices<IAgent>()
+            _hostedAgents = serviceProvider.GetServices<ILuciaAgent>()
                 .ToList();
         }
 

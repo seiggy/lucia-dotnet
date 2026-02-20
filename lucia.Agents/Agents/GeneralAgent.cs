@@ -1,4 +1,6 @@
-﻿using A2A;
+﻿using System.Diagnostics;
+using A2A;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Orchestration;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -7,8 +9,10 @@ using Microsoft.Extensions.Logging;
 
 namespace lucia.Agents.Agents;
 
-public class GeneralAgent
+public class GeneralAgent : ILuciaAgent
 {
+    private static readonly ActivitySource ActivitySource = new("Lucia.Agents.General", "1.0.0");
+
     private readonly AgentCard _agent;
     private readonly ILogger<GeneralAgent> _logger;
     private readonly TaskManager _taskManager;
@@ -96,8 +100,11 @@ public class GeneralAgent
     /// </summary>
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
+        using var activity = ActivitySource.StartActivity("GeneralAgent.Initialize", ActivityKind.Internal);
         _logger.LogInformation("Initializing General Knowledge Agent...");
         
+        activity?.SetTag("agent.id", "general-assistant");
+        activity?.SetStatus(ActivityStatusCode.Ok);
         _logger.LogInformation("General Knowledge initialized successfully");
     }
 }

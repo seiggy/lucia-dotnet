@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -7,6 +8,7 @@ using System.Text.Json;
 using lucia.HomeAssistant.Services;
 using lucia.HomeAssistant.Models;
 using lucia.Agents.Models;
+using lucia.Agents.Services;
 using Microsoft.Extensions.AI;
 
 namespace lucia.Agents.Skills;
@@ -20,8 +22,10 @@ public class LightControlSkill : IAgentSkill
     private readonly IHomeAssistantClient _homeAssistantClient;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
     private readonly ILogger<LightControlSkill> _logger;
+    private readonly IDeviceCacheService _deviceCache;
     private readonly List<LightEntity> _cachedLights = new();
     private readonly Dictionary<string, Embedding<float>> _areaEmbeddings = new();
+    private readonly ConcurrentDictionary<string, Embedding<float>> _searchTermEmbeddingCache = new(StringComparer.OrdinalIgnoreCase);
     private DateTime _lastCacheUpdate = DateTime.MinValue;
     private readonly TimeSpan _cacheRefreshInterval = TimeSpan.FromMinutes(30);
 
@@ -42,11 +46,13 @@ public class LightControlSkill : IAgentSkill
     public LightControlSkill(
         IHomeAssistantClient homeAssistantClient,
         IEmbeddingGenerator<string, Embedding<float>> embeddingService,
-        ILogger<LightControlSkill> logger)
+        ILogger<LightControlSkill> logger,
+        IDeviceCacheService deviceCache)
     {
         _homeAssistantClient = homeAssistantClient;
         _embeddingService = embeddingService;
         _logger = logger;
+        _deviceCache = deviceCache;
     }
 
     public IList<AITool> GetTools()
@@ -90,63 +96,109 @@ public class LightControlSkill : IAgentSkill
 
         try
         {
-            var searchEmbedding = await _embeddingService.GenerateAsync(area);
-            activity?.SetTag("search.embedding.dimension", searchEmbedding.Vector.Length);
-            
-            var areaMatches = _areaEmbeddings
-                .Select(kvp => new
+            _logger.LogDebug("FindLightsByAreaAsync: searching for area '{Area}', known areas: [{KnownAreas}]",
+                area, string.Join(", ", _areaEmbeddings.Keys));
+
+            // 1. Prefer exact case-insensitive match
+            var exactAreaName = _areaEmbeddings.Keys
+                .FirstOrDefault(name => string.Equals(name, area, StringComparison.OrdinalIgnoreCase));
+
+            List<(string AreaName, double Similarity)> matchedAreas;
+
+            if (exactAreaName is not null)
+            {
+                matchedAreas = [(exactAreaName, 1.0)];
+                _logger.LogDebug("Exact area name match for '{Area}' → '{MatchedArea}'", area, exactAreaName);
+            }
+            else
+            {
+                // 2. Substring match — areas that contain the search term as a word
+                var substringMatches = _areaEmbeddings.Keys
+                    .Where(name => name.Contains(area, StringComparison.OrdinalIgnoreCase))
+                    .Select(name => (AreaName: name, Similarity: 0.95))
+                    .ToList();
+
+                if (substringMatches.Count > 0)
                 {
-                    AreaName = kvp.Key,
-                    Similarity = CosineSimilarity(searchEmbedding, kvp.Value),
-                    MatchType = "area"
-                })
+                    matchedAreas = substringMatches;
+                    _logger.LogDebug("Substring area matches for '{Area}': [{MatchedAreas}]",
+                        area, string.Join(", ", substringMatches.Select(m => m.AreaName)));
+                }
+                else
+                {
+                    // 3. Embedding similarity fallback — return all areas ≥ 90%
+                    const double areaSimilarityThreshold = 0.90;
+                    var searchEmbedding = await GetOrCreateSearchEmbeddingAsync(area);
+                    activity?.SetTag("search.embedding.dimension", searchEmbedding.Vector.Length);
+
+                    matchedAreas = _areaEmbeddings
+                        .Select(kvp => (AreaName: kvp.Key, Similarity: CosineSimilarity(searchEmbedding, kvp.Value)))
+                        .Where(x => x.Similarity >= areaSimilarityThreshold)
+                        .OrderByDescending(x => x.Similarity)
+                        .ToList();
+
+                    if (matchedAreas.Count == 0)
+                    {
+                        LightSearchFailures.Add(1, [
+                            new KeyValuePair<string, object?>("reason", "no-area-match")
+                        ]);
+                        return $"No areas found matching '{area}'. Known areas: {string.Join(", ", _areaEmbeddings.Keys)}";
+                    }
+                }
+            }
+
+            // Gather lights from all matched areas
+            var areaLights = _cachedLights
+                .Where(l => matchedAreas.Any(m => m.AreaName == l.Area))
                 .ToList();
-            
-            var bestAreaMatch = areaMatches.OrderByDescending(x => x.Similarity).FirstOrDefault();
-            
-            // Return all lights from the matched area
-            var areaLights = _cachedLights.Where(l => l.Area == bestAreaMatch.AreaName).ToList();
-            
+
             if (!areaLights.Any())
             {
-                _logger.LogWarning("Area {AreaName} matched but contains no lights", bestAreaMatch.AreaName);
+                var areaNames = string.Join(", ", matchedAreas.Select(m => m.AreaName));
+                _logger.LogWarning("Matched areas [{AreaNames}] contain no lights", areaNames);
                 activity?.SetTag("match.failure_reason", "no-lights-in-area");
                 LightSearchFailures.Add(1, [
                     new KeyValuePair<string, object?>("reason", "no-lights-in-area")
                 ]);
-                return $"Found area '{bestAreaMatch.AreaName}' but it contains no lights.";
+                return $"Found area(s) '{areaNames}' but they contain no lights.";
             }
 
-            _logger.LogDebug("Found area match: {AreaName} with similarity {Similarity:F3}, containing {LightCount} lights",
-                bestAreaMatch.AreaName, bestAreaMatch.Similarity, areaLights.Count);
+            _logger.LogDebug("Found {AreaCount} area match(es) for '{Area}', containing {LightCount} total lights",
+                matchedAreas.Count, area, areaLights.Count);
             activity?.SetTag("match.type", "area");
-            activity?.SetTag("match.area_name", bestAreaMatch.AreaName);
-            activity?.SetTag("match.similarity", bestAreaMatch.Similarity);
+            activity?.SetTag("match.area_count", matchedAreas.Count);
+            activity?.SetTag("match.area_names", string.Join(", ", matchedAreas.Select(m => m.AreaName)));
             activity?.SetTag("match.light_count", areaLights.Count);
 
             var stringBuilder = new StringBuilder();
-            stringBuilder.AppendLine($"Found {areaLights.Count} light(s) in area '{bestAreaMatch.AreaName}':");
-            
-            foreach (var light in areaLights)
+
+            foreach (var (areaName, similarity) in matchedAreas)
             {
-                var state = await _homeAssistantClient.GetEntityStateAsync(light.EntityId)
-                    .ConfigureAwait(false);
-                if (state is null) continue;
+                var lightsInArea = areaLights.Where(l => l.Area == areaName).ToList();
+                if (lightsInArea.Count == 0) continue;
 
-                var capabilities = GetCapabilityDescription(light);
-                stringBuilder.Append($"- {light.FriendlyName} (Entity ID: {light.EntityId}){capabilities}, State: {state.State}");
+                stringBuilder.AppendLine($"Found {lightsInArea.Count} light(s) in area '{areaName}':");
 
-                // Check for brightness
-                if (state.Attributes.TryGetValue("brightness", out var brightnessObj))
+                foreach (var light in lightsInArea)
                 {
-                    if (int.TryParse(brightnessObj?.ToString(), out var brightness))
-                    {
-                        var brightnessPercent = (int)Math.Round(brightness / 255.0 * 100);
-                        stringBuilder.Append($" at {brightnessPercent}% brightness");
-                    }
-                }
+                    var state = await _homeAssistantClient.GetEntityStateAsync(light.EntityId)
+                        .ConfigureAwait(false);
+                    if (state is null) continue;
 
-                stringBuilder.AppendLine();
+                    var capabilities = GetCapabilityDescription(light);
+                    stringBuilder.Append($"- {light.FriendlyName} (Entity ID: {light.EntityId}){capabilities}, State: {state.State}");
+
+                    if (state.Attributes.TryGetValue("brightness", out var brightnessObj))
+                    {
+                        if (int.TryParse(brightnessObj?.ToString(), out var brightness))
+                        {
+                            var brightnessPercent = (int)Math.Round(brightness / 255.0 * 100);
+                            stringBuilder.Append($" at {brightnessPercent}% brightness");
+                        }
+                    }
+
+                    stringBuilder.AppendLine();
+                }
             }
 
             LightSearchSuccess.Add(1);
@@ -200,8 +252,8 @@ public class LightControlSkill : IAgentSkill
 
         try
         {
-            // Generate embedding for the search term
-            var searchEmbedding = await _embeddingService.GenerateAsync(searchTerm);
+            // Generate (or retrieve cached) embedding for the search term
+            var searchEmbedding = await GetOrCreateSearchEmbeddingAsync(searchTerm);
             activity?.SetTag("search.embedding.dimension", searchEmbedding.Vector.Length);
 
             // Search both light names and area names
@@ -557,6 +609,45 @@ public class LightControlSkill : IAgentSkill
         var start = Stopwatch.GetTimestamp();
         try
         {
+            // Try Redis cache first
+            var cachedLights = await _deviceCache.GetCachedLightsAsync(cancellationToken);
+            var cachedAreaEmbeddings = await _deviceCache.GetAreaEmbeddingsAsync(cancellationToken);
+            if (cachedLights is not null && cachedAreaEmbeddings is not null)
+            {
+                _logger.LogInformation("Loaded {LightCount} lights and {AreaCount} area embeddings from Redis cache", cachedLights.Count, cachedAreaEmbeddings.Count);
+                _cachedLights.Clear();
+                _areaEmbeddings.Clear();
+                
+                // Re-attach embeddings from Redis for each light
+                foreach (var light in cachedLights)
+                {
+                    var embedding = await _deviceCache.GetEmbeddingAsync($"light:{light.EntityId}", cancellationToken);
+                    if (embedding is not null)
+                    {
+                        light.NameEmbedding = embedding;
+                        _cachedLights.Add(light);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Missing embedding for light {EntityId} in Redis, will re-fetch from HA", light.EntityId);
+                        break; // Embedding mismatch — fall through to full refresh
+                    }
+                }
+                
+                if (_cachedLights.Count == cachedLights.Count)
+                {
+                    // All embeddings found — use cached data
+                    foreach (var kvp in cachedAreaEmbeddings)
+                        _areaEmbeddings[kvp.Key] = kvp.Value;
+                    _lastCacheUpdate = DateTime.UtcNow;
+                    return; // Cache hit — done
+                }
+                
+                // Partial cache — clear and fall through to full refresh
+                _cachedLights.Clear();
+                _areaEmbeddings.Clear();
+            }
+
             _logger.LogDebug("Refreshing light cache...");
 
             var allStates = await _homeAssistantClient.GetAllEntityStatesAsync(cancellationToken)
@@ -658,6 +749,18 @@ public class LightControlSkill : IAgentSkill
             }
 
             _lastCacheUpdate = DateTime.UtcNow;
+
+            // Save to Redis for next startup
+            var deviceCacheTtl = TimeSpan.FromMinutes(30);
+            var embeddingCacheTtl = TimeSpan.FromHours(24);
+            await _deviceCache.SetCachedLightsAsync(_cachedLights.ToList(), deviceCacheTtl, cancellationToken);
+            foreach (var light in _cachedLights)
+            {
+                await _deviceCache.SetEmbeddingAsync($"light:{light.EntityId}", light.NameEmbedding, embeddingCacheTtl, cancellationToken);
+            }
+            await _deviceCache.SetAreaEmbeddingsAsync(new Dictionary<string, Embedding<float>>(_areaEmbeddings), embeddingCacheTtl, cancellationToken);
+            _logger.LogInformation("Saved {LightCount} lights and {AreaCount} area embeddings to Redis cache", _cachedLights.Count, _areaEmbeddings.Count);
+
             activity?.SetTag("cache.size", _cachedLights.Count);
             activity?.SetTag("cache.area_count", _areaEmbeddings.Count);
             _logger.LogDebug("Light cache refreshed with {Count} entities and {AreaCount} areas", _cachedLights.Count, _areaEmbeddings.Count);
@@ -747,5 +850,24 @@ public class LightControlSkill : IAgentSkill
             return 0.0;
 
         return dotProduct / (Math.Sqrt(magnitude1) * Math.Sqrt(magnitude2));
+    }
+
+    /// <summary>
+    /// Returns a cached embedding for the search term, or generates and caches a new one.
+    /// Search terms are normalized to case-insensitive keys so "Office" and "office" share an entry.
+    /// </summary>
+    private async Task<Embedding<float>> GetOrCreateSearchEmbeddingAsync(string searchTerm)
+    {
+        if (_searchTermEmbeddingCache.TryGetValue(searchTerm, out var cached))
+        {
+            _logger.LogDebug("Search term embedding cache hit for '{SearchTerm}'", searchTerm);
+            return cached;
+        }
+
+        var embedding = await _embeddingService.GenerateAsync(searchTerm);
+        _searchTermEmbeddingCache.TryAdd(searchTerm, embedding);
+        _logger.LogDebug("Cached search term embedding for '{SearchTerm}' ({Dimensions} dims)",
+            searchTerm, embedding.Vector.Length);
+        return embedding;
     }
 }

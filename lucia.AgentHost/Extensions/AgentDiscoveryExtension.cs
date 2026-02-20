@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using A2A;
 using A2A.AspNetCore;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Agents;
 using lucia.Agents.Registry;
 using Microsoft.Agents.AI.A2A;
@@ -21,6 +22,19 @@ public static class AgentDiscoveryExtension
 
             app.MapA2A(orchestratorAgent.GetAIAgent(), path: "/agent", agentCard: orchestratorAgent.GetAgentCard(), 
                 taskManager => app.MapWellKnownAgentCard(taskManager, "/agent"));
+
+            // Map A2A endpoints for all in-process agents with relative paths
+            var agents = app.Services.GetServices<ILuciaAgent>();
+            var logger = app.Services.GetRequiredService<ILogger<Program>>();
+            foreach (var agent in agents)
+            {
+                var card = agent.GetAgentCard();
+                if (card.Url is not null && card.Url.StartsWith('/'))
+                {
+                    app.MapA2A(agent.GetAIAgent(), path: card.Url, agentCard: card);
+                    logger.LogInformation("Mapped in-process A2A endpoint at {Path} for agent {Name}", card.Url, card.Name);
+                }
+            }
         }
         catch (Exception e)
         {

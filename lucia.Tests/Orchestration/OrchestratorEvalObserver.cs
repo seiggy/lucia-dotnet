@@ -25,6 +25,14 @@ public sealed class OrchestratorEvalObserver : IOrchestratorObserver
     /// </summary>
     public string? AggregatedResponse { get; private set; }
 
+    public string? UserRequest { get; private set; }
+
+    public Task OnRequestStartedAsync(string userRequest, CancellationToken cancellationToken = default)
+    {
+        UserRequest = userRequest;
+        return Task.CompletedTask;
+    }
+
     public Task OnRoutingCompletedAsync(AgentChoiceResult result, CancellationToken cancellationToken = default)
     {
         RoutingDecision = result;
@@ -48,6 +56,7 @@ public sealed class OrchestratorEvalObserver : IOrchestratorObserver
     /// </summary>
     public void Reset()
     {
+        UserRequest = null;
         RoutingDecision = null;
         AgentResponses.Clear();
         AggregatedResponse = null;

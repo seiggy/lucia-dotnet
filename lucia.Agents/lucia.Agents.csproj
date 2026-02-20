@@ -11,10 +11,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="lucia.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="A2A" Version="0.3.3-preview" />
     <PackageReference Include="A2A.AspNetCore" Version="0.3.3-preview" />
     <PackageReference Include="Aspire.Azure.AI.OpenAI" Version="13.1.1-preview.1.26105.8" />
     <PackageReference Include="Aspire.Hosting.Azure.CognitiveServices" Version="13.1.1" />
+    <PackageReference Include="Azure.Identity" Version="1.18.0-beta.2" />
     <PackageReference Include="Microsoft.Agents.AI" Version="1.0.0-preview.260212.1" />
     <PackageReference Include="Microsoft.Agents.AI.A2A" Version="1.0.0-preview.260212.1" />
     <PackageReference Include="Microsoft.Agents.AI.Abstractions" Version="1.0.0-preview.260212.1" />

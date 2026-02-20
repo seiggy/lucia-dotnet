@@ -32,6 +32,12 @@ public static class OrchestratorServiceKeys
     public const string GeneralModel = "general-model";
 
     /// <summary>
+    /// Keyed service key for the <see cref="Microsoft.Extensions.AI.IChatClient"/>
+    /// used by the timer/reminder agent.
+    /// </summary>
+    public const string TimerModel = "timer-model";
+
+    /// <summary>
     /// All agent-specific model keys, used for bulk default-forwarding registration.
     /// </summary>
     public static readonly string[] AllAgentModelKeys =
@@ -39,6 +45,7 @@ public static class OrchestratorServiceKeys
         RouterModel,
         LightModel,
         MusicModel,
-        GeneralModel
+        GeneralModel,
+        TimerModel
     ];
 }

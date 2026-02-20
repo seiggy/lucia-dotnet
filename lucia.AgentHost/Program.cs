@@ -1,10 +1,12 @@
-using Azure.AI.OpenAI;
 using lucia.AgentHost.Extensions;
+using lucia.Agents.Configuration;
 using lucia.Agents.Extensions;
 using lucia.Agents.Orchestration;
 using lucia.Agents.Training;
+using lucia.HomeAssistant.Configuration;
+using lucia.Agents.Services;
+using lucia.HomeAssistant.Services;
 using Microsoft.AspNetCore.HttpOverrides;
-using Microsoft.Extensions.Azure;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -13,8 +15,23 @@ builder.AddServiceDefaults();
 builder.Services.AddAntiforgery();
 builder.AddRedisClient(connectionName: "redis");
 
+// Register prompt cache services
+builder.Services.AddSingleton<IPromptCacheService, RedisPromptCacheService>();
+
 // MongoDB for trace capture
 builder.AddMongoDBClient(connectionName: "luciatraces");
+
+// MongoDB for configuration (shared across services)
+builder.AddMongoDBClient(connectionName: "luciaconfig");
+
+// Add MongoDB configuration as highest-priority source (overrides appsettings)
+builder.Configuration.AddMongoConfiguration("luciaconfig");
+
+// Home Assistant client
+builder.Services.Configure<HomeAssistantOptions>(
+    builder.Configuration.GetSection(HomeAssistantOptions.SectionName));
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddTransient<IHomeAssistantClient, GeneratedHomeAssistantClient>();
 
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
@@ -31,13 +48,6 @@ builder.AddEmbeddingsClient("embeddings");
 builder.AddKeyedChatClient("phi4");
 builder.AddKeyedChatClient("gpt-5-nano");
 
-// Workaround: Aspire's AddKeyedAzureOpenAIClient registers a null non-keyed
-// AzureOpenAIClient singleton (to suppress Azure SDK factory errors), which shadows
-// the real registration from AddAzureOpenAIClient. Re-register using the Azure
-// client factory so the non-keyed resolution chain works correctly.
-builder.Services.AddSingleton(
-    sp => sp.GetRequiredService<IAzureClientFactory<AzureOpenAIClient>>().CreateClient(string.Empty));
-
 // Add Lucia multi-agent system
 builder.AddLuciaAgents();
 
@@ -47,6 +57,11 @@ builder.Services.Configure<TraceCaptureOptions>(
 builder.Services.AddSingleton<ITraceRepository, MongoTraceRepository>();
 builder.Services.AddSingleton<IOrchestratorObserver, TraceCaptureObserver>();
 builder.Services.AddHostedService<TraceRetentionService>();
+
+// Configuration seeder — copies appsettings to MongoDB on first run
+builder.Services.AddHostedService<ConfigSeeder>();
+
+builder.Services.AddHttpClient("AgentProxy");
 
 builder.Services.AddProblemDetails();
 
@@ -86,9 +101,12 @@ else
     app.UseHttpsRedirection(); // prevents having to deal with cert issues from the server.
 }
 app.MapAgentRegistryApiV1();
+app.MapAgentProxyApi();
 app.MapAgentDiscovery();
 app.MapTraceManagementApi();
 app.MapDatasetExportApi();
+app.MapConfigurationApi();
+app.MapPromptCacheApi();
 app.MapDefaultEndpoints();
 
 // SPA hosting: serve React dashboard assets in production

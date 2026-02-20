@@ -16,4 +16,9 @@ public sealed class RoutingDecision
     public double RoutingDurationMs { get; set; }
 
     public string? ModelDeploymentName { get; set; }
+
+    /// <summary>
+    /// Per-agent tailored instructions decomposed from the user request by the router.
+    /// </summary>
+    public List<AgentInstructionRecord> AgentInstructions { get; set; } = [];
 }

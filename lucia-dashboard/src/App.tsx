@@ -2,6 +2,9 @@ import { NavLink, Routes, Route } from 'react-router-dom'
 import TraceListPage from './pages/TraceListPage'
 import TraceDetailPage from './pages/TraceDetailPage'
 import ExportPage from './pages/ExportPage'
+import ConfigurationPage from './pages/ConfigurationPage'
+import AgentsPage from './pages/AgentsPage'
+import PromptCachePage from './pages/PromptCachePage'
 
 function App() {
   return (
@@ -26,6 +29,30 @@ function App() {
           >
             Exports
           </NavLink>
+          <NavLink
+            to="/configuration"
+            className={({ isActive }) =>
+              `text-sm font-medium ${isActive ? 'text-white' : 'text-gray-400 hover:text-gray-200'}`
+            }
+          >
+            Configuration
+          </NavLink>
+          <NavLink
+            to="/agents"
+            className={({ isActive }) =>
+              `text-sm font-medium ${isActive ? 'text-white' : 'text-gray-400 hover:text-gray-200'}`
+            }
+          >
+            Agents
+          </NavLink>
+          <NavLink
+            to="/prompt-cache"
+            className={({ isActive }) =>
+              `text-sm font-medium ${isActive ? 'text-white' : 'text-gray-400 hover:text-gray-200'}`
+            }
+          >
+            Prompt Cache
+          </NavLink>
         </div>
       </nav>
 
@@ -34,6 +61,9 @@ function App() {
           <Route path="/" element={<TraceListPage />} />
           <Route path="/traces/:id" element={<TraceDetailPage />} />
           <Route path="/exports" element={<ExportPage />} />
+          <Route path="/configuration" element={<ConfigurationPage />} />
+          <Route path="/agents" element={<AgentsPage />} />
+          <Route path="/prompt-cache" element={<PromptCachePage />} />
         </Routes>
       </main>
     </div>

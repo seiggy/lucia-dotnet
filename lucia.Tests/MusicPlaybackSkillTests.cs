@@ -8,6 +8,7 @@ using lucia.Agents.Models;
 using lucia.Agents.Skills;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
+using lucia.Agents.Services;
 using lucia.Tests.TestDoubles;
 using Microsoft.Extensions.Options;
 using lucia.MusicAgent;
@@ -18,6 +19,7 @@ public class MusicPlaybackSkillTests
 {
     private readonly IHomeAssistantClient _homeAssistantClient = A.Fake<IHomeAssistantClient>();
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator = new StubEmbeddingGenerator();
+    private readonly IDeviceCacheService _deviceCache = A.Fake<IDeviceCacheService>();
     private readonly MusicPlaybackSkill _skill;
 
     public MusicPlaybackSkillTests()
@@ -31,7 +33,9 @@ public class MusicPlaybackSkillTests
         _skill = new MusicPlaybackSkill(
             _homeAssistantClient,
             options,
-            _embeddingGenerator, NullLogger<MusicPlaybackSkill>.Instance);
+            _embeddingGenerator,
+            _deviceCache,
+            NullLogger<MusicPlaybackSkill>.Instance);
     }
 
     [Fact]

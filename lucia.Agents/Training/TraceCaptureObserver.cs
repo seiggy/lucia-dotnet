@@ -36,7 +36,7 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
     }
 
     /// <inheritdoc />
-    public Task OnRoutingCompletedAsync(AgentChoiceResult result, CancellationToken cancellationToken = default)
+    public Task OnRequestStartedAsync(string userRequest, CancellationToken cancellationToken = default)
     {
         if (!_options.Enabled)
         {
@@ -45,17 +45,56 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
 
         _stopwatch.Value = Stopwatch.StartNew();
 
+        var sessionId = Guid.NewGuid().ToString("N");
+
         _currentTrace.Value = new ConversationTrace
         {
-            SessionId = Guid.NewGuid().ToString("N"),
-            UserInput = string.Empty,
-            Routing = new RoutingDecision
+            SessionId = sessionId,
+            UserInput = userRequest,
+            Metadata =
             {
-                SelectedAgentId = result.AgentId,
-                AdditionalAgentIds = result.AdditionalAgents ?? [],
-                Confidence = result.Confidence,
-                Reasoning = result.Reasoning
+                ["traceType"] = "orchestrator"
             }
+        };
+
+        // Add an orchestration-level record so "orchestration" appears in the agents column
+        _currentTrace.Value.AgentExecutions.Add(new AgentExecutionRecord
+        {
+            AgentId = "orchestration",
+            Success = true
+        });
+
+        // Share the session ID with the per-agent tracing chat client
+        // so individual agent traces are correlated with this orchestrator trace.
+        AgentTracingChatClient.SetSessionId(sessionId);
+
+        _logger.LogDebug("Trace capture started for request: {Request}", userRequest);
+
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public Task OnRoutingCompletedAsync(AgentChoiceResult result, CancellationToken cancellationToken = default)
+    {
+        if (!_options.Enabled || _currentTrace.Value is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        // Mutate the existing trace object (do NOT reassign _currentTrace.Value)
+        // so that changes are visible in both parent and child async contexts.
+        _currentTrace.Value.Routing = new RoutingDecision
+        {
+            SelectedAgentId = result.AgentId,
+            AdditionalAgentIds = result.AdditionalAgents ?? [],
+            Confidence = result.Confidence,
+            Reasoning = result.Reasoning,
+            AgentInstructions = result.AgentInstructions?
+                .Select(ai => new AgentInstructionRecord
+                {
+                    AgentId = ai.AgentId,
+                    Instruction = ai.Instruction
+                }).ToList() ?? []
         };
 
         return Task.CompletedTask;
@@ -90,11 +129,11 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
     }
 
     /// <inheritdoc />
-    public Task OnResponseAggregatedAsync(string aggregatedResponse, CancellationToken cancellationToken = default)
+    public async Task OnResponseAggregatedAsync(string aggregatedResponse, CancellationToken cancellationToken = default)
     {
         if (!_options.Enabled || _currentTrace.Value is null)
         {
-            return Task.CompletedTask;
+            return;
         }
 
         _stopwatch.Value?.Stop();
@@ -113,14 +152,21 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
             }
         }
 
-        // Fire-and-forget persist — intentionally not awaited
-        _ = PersistTraceAsync(trace);
+        // Persist trace — await to surface any errors
+        try
+        {
+            await PersistTraceAsync(trace);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Trace persistence failed for {TraceId}", trace.Id);
+        }
 
         // Clear the async-local state
         _currentTrace.Value = null;
         _stopwatch.Value = null;
 
-        return Task.CompletedTask;
+        return;
     }
 
     private async Task PersistTraceAsync(ConversationTrace trace)

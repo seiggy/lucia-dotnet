@@ -1,4 +1,4 @@
-﻿using A2A;
+using A2A;
 using lucia.Agents.Registry;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
@@ -19,11 +19,12 @@ public static class AgentRegistryApi
         return app;
     }
 
-    private static async Task<IAsyncEnumerable<AgentCard>> GetAgentsAsync(
+    private static async Task<Ok<List<AgentCard>>> GetAgentsAsync(
         [FromServices] IAgentRegistry agentRegistry,
         CancellationToken cancellationToken = default)
     {
-        return agentRegistry.GetEnumerableAgentsAsync(cancellationToken);
+        var agents = await agentRegistry.GetAllAgentsAsync(cancellationToken);
+        return TypedResults.Ok(agents.ToList());
     }
 
     private static async Task<Results<

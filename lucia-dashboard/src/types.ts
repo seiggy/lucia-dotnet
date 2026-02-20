@@ -29,6 +29,11 @@ export interface AgentExecutionRecord {
   responseContent: string | null;
 }
 
+export interface AgentInstructionRecord {
+  agentId: string;
+  instruction: string;
+}
+
 export interface RoutingDecision {
   selectedAgentId: string;
   additionalAgentIds: string[];
@@ -36,6 +41,7 @@ export interface RoutingDecision {
   reasoning: string | null;
   routingDurationMs: number;
   modelDeploymentName: string | null;
+  agentInstructions: AgentInstructionRecord[];
 }
 
 export interface TraceLabel {

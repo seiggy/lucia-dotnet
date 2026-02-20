@@ -29,12 +29,14 @@ export default function TraceListPage() {
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
   const [labelFilter, setLabelFilter] = useState('')
+  const [agentFilter, setAgentFilter] = useState('')
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
 
   const params: Record<string, string> = { page: String(page), pageSize: '20' }
   if (search) params.search = search
-  if (labelFilter) params.labelFilter = labelFilter
+  if (labelFilter) params.label = labelFilter
+  if (agentFilter) params.agent = agentFilter
   if (fromDate) params.fromDate = fromDate
   if (toDate) params.toDate = toDate
 
@@ -110,6 +112,21 @@ export default function TraceListPage() {
             <option value="0">Unlabeled</option>
             <option value="1">Positive</option>
             <option value="2">Negative</option>
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-gray-400">Agent</label>
+          <select
+            value={agentFilter}
+            onChange={(e) => { setAgentFilter(e.target.value); setPage(1) }}
+            className="rounded border border-gray-600 bg-gray-800 px-3 py-1.5 text-sm text-white focus:border-indigo-500 focus:outline-none"
+          >
+            <option value="">All Agents</option>
+            {stats && Object.keys(stats.byAgent).sort().map((agentId) => (
+              <option key={agentId} value={agentId}>
+                {agentId} ({stats.byAgent[agentId]})
+              </option>
+            ))}
           </select>
         </div>
         <div>

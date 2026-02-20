@@ -16,4 +16,5 @@
   <Project Path="lucia.MusicAgent/lucia.MusicAgent.csproj" Id="4e9e4ead-a8f4-438c-a784-1b0aec48e6e6" />
   <Project Path="lucia.ServiceDefaults/lucia.ServiceDefaults.csproj" />
   <Project Path="lucia.Tests/lucia.Tests.csproj" />
+  <Project Path="lucia.TimerAgent/lucia.TimerAgent.csproj" />
 </Solution>

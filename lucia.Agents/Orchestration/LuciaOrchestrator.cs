@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using A2A;
 using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Registry;
+using lucia.Agents.Services;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Hosting;
 using Microsoft.Agents.AI.Workflows;
@@ -36,6 +37,9 @@ public class LuciaOrchestrator
     private readonly ITaskManager _taskManager;
     private readonly IOrchestratorObserver? _observer;
     private readonly IAgentProvider? _agentProvider;
+    private readonly IPromptCacheService? _promptCache;
+    private readonly ISessionCacheService? _sessionCache;
+    private readonly SessionCacheOptions _sessionCacheOptions;
 
     public LuciaOrchestrator(
         [FromKeyedServices(OrchestratorServiceKeys.RouterModel)] IChatClient chatClient,
@@ -47,10 +51,13 @@ public class LuciaOrchestrator
         IOptions<RouterExecutorOptions> routerOptions,
         IOptions<AgentExecutorWrapperOptions> wrapperOptions,
         IOptions<ResultAggregatorOptions> aggregatorOptions,
+        IOptions<SessionCacheOptions> sessionCacheOptions,
         TimeProvider timeProvider,
         ITaskManager taskManager,
         IOrchestratorObserver? observer = null,
-        IAgentProvider? agentProvider = null)
+        IAgentProvider? agentProvider = null,
+        IPromptCacheService? promptCache = null,
+        ISessionCacheService? sessionCache = null)
     {
         _chatClient = chatClient ?? throw new ArgumentNullException(nameof(chatClient));
         _agentRegistry = agentRegistry;
@@ -65,6 +72,9 @@ public class LuciaOrchestrator
         _taskManager = taskManager ?? throw new ArgumentNullException(nameof(taskManager));
         _observer = observer;
         _agentProvider = agentProvider;
+        _promptCache = promptCache;
+        _sessionCache = sessionCache;
+        _sessionCacheOptions = sessionCacheOptions?.Value ?? new SessionCacheOptions();
 
         _httpClientFactory = httpClientFactory;
     }
@@ -91,6 +101,26 @@ public class LuciaOrchestrator
             if (string.IsNullOrWhiteSpace(userRequest))
             {
                 throw new ArgumentException("User request cannot be empty.", nameof(userRequest));
+            }
+
+            // Check prompt cache for an exact or semantic match on routing decision
+            // (cache hit skips only the router LLM call; agents still execute tools fresh)
+
+            // Load existing session from Redis for multi-turn conversation support
+            SessionData? sessionData = null;
+            if (_sessionCache is not null && !string.IsNullOrWhiteSpace(sessionId))
+            {
+                sessionData = await _sessionCache.GetSessionAsync(sessionId, cancellationToken).ConfigureAwait(false);
+                if (sessionData is not null)
+                {
+                    _logger.LogInformation(
+                        "Loaded session {SessionId} with {TurnCount} prior turns",
+                        sessionId, sessionData.History.Count);
+                }
+                else
+                {
+                    _logger.LogDebug("No existing session found for {SessionId}, starting new conversation", sessionId);
+                }
             }
 
             // Load or create AgentTask for durable persistence (T038 - US4)
@@ -180,7 +210,45 @@ public class LuciaOrchestrator
                 var aiAgents = await _agentRegistry
                     .GetAllAgentsAsync(cancellationToken)
                     .ConfigureAwait(false);
-                resolvedAgents = aiAgents.Select(a => a.AsAIAgent()).ToList().AsReadOnly();
+
+                var resolved = new List<AIAgent>();
+
+                // Resolve in-process agents from ILuciaAgent DI registrations
+                var luciaAgents = _serviceProvider.GetServices<Abstractions.ILuciaAgent>();
+                foreach (var luciaAgent in luciaAgents)
+                {
+                    try
+                    {
+                        var aiAgent = luciaAgent.GetAIAgent();
+                        if (aiAgent is not null)
+                        {
+                            resolved.Add(aiAgent);
+                            _logger.LogDebug("Resolved local AIAgent: {AgentName}", aiAgent.Name ?? aiAgent.Id);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to resolve AIAgent from ILuciaAgent {Type}", luciaAgent.GetType().Name);
+                    }
+                }
+
+                // Also resolve remote agents with absolute URIs
+                foreach (var card in aiAgents)
+                {
+                    if (Uri.TryCreate(card.Url, UriKind.Absolute, out _))
+                    {
+                        try
+                        {
+                            resolved.Add(card.AsAIAgent());
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to resolve AIAgent from card {AgentName} ({Url})", card.Name, card.Url);
+                        }
+                    }
+                }
+
+                resolvedAgents = resolved.AsReadOnly();
             }
 
             var wrappers = CreateWrappers(availableAgentCards, resolvedAgents);
@@ -212,12 +280,21 @@ public class LuciaOrchestrator
             var routerLogger = _loggerFactory.CreateLogger<RouterExecutor>();
             var dispatchLogger = _loggerFactory.CreateLogger<AgentDispatchExecutor>();
             var aggregatorLogger = _loggerFactory.CreateLogger<ResultAggregatorExecutor>();
-            var router = new RouterExecutor(_chatClient, _agentRegistry, routerLogger, _routerOptions);
+            var router = new RouterExecutor(_chatClient, _agentRegistry, routerLogger, _routerOptions, _promptCache);
             var dispatch = new AgentDispatchExecutor(wrappers, dispatchLogger, _observer);
             var aggregator = new ResultAggregatorExecutor(aggregatorLogger, _aggregatorOptions);
 
-            var chatMessage = new ChatMessage(ChatRole.User, userRequest);
+            // Build conversation history messages for the router to have multi-turn context
+            var historyAwareRequest = BuildHistoryAwareRequest(sessionData, userRequest);
+            var chatMessage = new ChatMessage(ChatRole.User, historyAwareRequest);
             dispatch.SetUserMessage(chatMessage);
+
+            // Initialize trace in the PARENT async context so AsyncLocal state
+            // flows correctly into the workflow child contexts.
+            if (_observer is not null)
+            {
+                await _observer.OnRequestStartedAsync(userRequest, cancellationToken).ConfigureAwait(false);
+            }
 
             var builder = new WorkflowBuilder(router)
                 .WithName("LuciaOrchestratorWorkflow")
@@ -258,6 +335,18 @@ public class LuciaOrchestrator
 
             _logger.LogInformation("Task {TaskId} completed successfully with {HistoryCount} history items",
                 agentTask.Id, agentTask.History.Count);
+
+            // Persist session to Redis for multi-turn conversation continuity
+            if (_sessionCache is not null && !string.IsNullOrWhiteSpace(sessionId))
+            {
+                sessionData ??= new SessionData { SessionId = sessionId };
+                sessionData.History.Add(new SessionTurn { Role = "user", Content = userRequest });
+                sessionData.History.Add(new SessionTurn { Role = "assistant", Content = finalResult });
+                await _sessionCache.SaveSessionAsync(sessionData, cancellationToken).ConfigureAwait(false);
+            }
+
+            // Routing decisions are cached inside RouterExecutor (not final responses)
+            // so agents always execute tools fresh on subsequent identical prompts.
 
             return finalResult;
         }
@@ -446,112 +535,29 @@ public class LuciaOrchestrator
         }
     }
 
-    private sealed class AgentDispatchExecutor : ReflectingExecutor<AgentDispatchExecutor>, IMessageHandler<AgentChoiceResult, List<OrchestratorAgentResponse>>
+    /// <summary>
+    /// Prepends conversation history to the user request so the router and agents
+    /// have multi-turn context. Returns the original request if no history exists.
+    /// </summary>
+    private static string BuildHistoryAwareRequest(SessionData? sessionData, string currentRequest)
     {
-        public const string ExecutorId = "AgentDispatch";
-
-        private readonly IReadOnlyDictionary<string, AgentExecutorWrapper> _wrappers;
-        private readonly ILogger<AgentDispatchExecutor> _logger;
-        private readonly IOrchestratorObserver? _observer;
-        private ChatMessage? _userMessage;
-
-        public AgentDispatchExecutor(
-            IReadOnlyDictionary<string, AgentExecutorWrapper> wrappers,
-            ILogger<AgentDispatchExecutor> logger,
-            IOrchestratorObserver? observer = null)
-            : base(ExecutorId)
+        if (sessionData is null || sessionData.History.Count == 0)
         {
-            _wrappers = wrappers;
-            _logger = logger;
-            _observer = observer;
+            return currentRequest;
         }
 
-        public void SetUserMessage(ChatMessage message)
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("[Conversation History]");
+        foreach (var turn in sessionData.History)
         {
-            _userMessage = message;
+            sb.Append(turn.Role == "user" ? "User: " : "Assistant: ");
+            sb.AppendLine(turn.Content);
         }
 
-        public async ValueTask<List<OrchestratorAgentResponse>> HandleAsync(AgentChoiceResult message, IWorkflowContext context, CancellationToken cancellationToken)
-        {
-            await context.AddEventAsync(new ExecutorInvokedEvent(this.Id, message), cancellationToken).ConfigureAwait(false);
+        sb.AppendLine();
+        sb.AppendLine("[Current Request]");
+        sb.Append(currentRequest);
 
-            if (_observer is not null)
-            {
-                await _observer.OnRoutingCompletedAsync(message, cancellationToken).ConfigureAwait(false);
-            }
-
-            if (_userMessage is null)
-            {
-                _logger.LogWarning("User message unavailable when dispatching agent execution.");
-                return new List<OrchestratorAgentResponse> { CreateFailureResponse(message.AgentId, "Unable to locate the original user request.") };
-            }
-
-            var executionOrder = BuildExecutionOrder(message);
-            var responses = new List<OrchestratorAgentResponse>(executionOrder.Count);
-
-            foreach (var agentId in executionOrder)
-            {
-                var response = await InvokeAgentAsync(agentId, _userMessage, context, cancellationToken).ConfigureAwait(false);
-                responses.Add(response);
-
-                if (_observer is not null)
-                {
-                    await _observer.OnAgentExecutionCompletedAsync(response, cancellationToken).ConfigureAwait(false);
-                }
-            }
-
-            if (responses.Count == 0)
-            {
-                responses.Add(CreateFailureResponse(message.AgentId, "No agents were dispatched."));
-            }
-
-            return responses;
-        }
-
-        public ValueTask<List<OrchestratorAgentResponse>> HandleAsync(AgentChoiceResult message, IWorkflowContext context)
-            => HandleAsync(message, context, CancellationToken.None);
-
-        private async ValueTask<OrchestratorAgentResponse> InvokeAgentAsync(string agentId, ChatMessage userMessage, IWorkflowContext context, CancellationToken cancellationToken)
-        {
-            if (!_wrappers.TryGetValue(agentId, out var wrapper))
-            {
-                _logger.LogWarning("No wrapper registered for agent {AgentId}.", agentId);
-                return CreateFailureResponse(agentId, $"Agent '{agentId}' is not available.");
-            }
-
-            return await wrapper.HandleAsync(userMessage, context, cancellationToken).ConfigureAwait(false);
-        }
-
-        private static OrchestratorAgentResponse CreateFailureResponse(string agentId, string error)
-            => new()
-            {
-                AgentId = agentId,
-                Content = string.Empty,
-                Success = false,
-                ErrorMessage = error,
-                ExecutionTimeMs = 0
-            };
-
-        private static IReadOnlyList<string> BuildExecutionOrder(AgentChoiceResult choice)
-        {
-            var ordered = new List<string>();
-            if (!string.IsNullOrWhiteSpace(choice.AgentId))
-            {
-                ordered.Add(choice.AgentId);
-            }
-
-            if (choice.AdditionalAgents is { Count: > 0 })
-            {
-                foreach (var agentId in choice.AdditionalAgents)
-                {
-                    if (!string.IsNullOrWhiteSpace(agentId) && !ordered.Contains(agentId, StringComparer.OrdinalIgnoreCase))
-                    {
-                        ordered.Add(agentId);
-                    }
-                }
-            }
-
-            return ordered;
-        }
+        return sb.ToString();
     }
 }

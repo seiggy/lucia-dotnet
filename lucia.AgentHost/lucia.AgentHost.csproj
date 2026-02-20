@@ -28,6 +28,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\lucia.Agents\lucia.Agents.csproj" />
+    <ProjectReference Include="..\lucia.HomeAssistant\lucia.HomeAssistant.csproj" />
     <ProjectReference Include="..\lucia.ServiceDefaults\lucia.ServiceDefaults.csproj" />
   </ItemGroup>
 

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Agents.AI;
 
 namespace lucia.Agents.Integration;
@@ -9,17 +10,49 @@ namespace lucia.Agents.Integration;
 /// </summary>
 internal sealed class OrchestratorInMemorySession : InMemoryAgentSession
 {
-    internal OrchestratorInMemorySession() { }
+    /// <summary>
+    /// Stable session identifier used for Redis conversation cache keying.
+    /// </summary>
+    internal string SessionId { get; }
+
+    internal OrchestratorInMemorySession()
+    {
+        SessionId = Guid.NewGuid().ToString("N");
+    }
 
     internal OrchestratorInMemorySession(
         JsonElement serializedThreadState,
         JsonSerializerOptions? jsonSerializerOptions = null)
-        : base(serializedThreadState, jsonSerializerOptions) { }
+        : base(serializedThreadState, jsonSerializerOptions)
+    {
+        // Try to extract the sessionId from serialized state, or generate a new one
+        if (serializedThreadState.TryGetProperty("sessionId", out var idElement)
+            && idElement.GetString() is { } id)
+        {
+            SessionId = id;
+        }
+        else
+        {
+            SessionId = Guid.NewGuid().ToString("N");
+        }
+    }
 
     /// <summary>
-    /// Exposes the protected internal Serialize method from the base class
-    /// so that OrchestratorAIAgent can serialize session state.
+    /// Serializes session state including our custom SessionId so it persists
+    /// across multi-turn A2A conversations (contextId reuse).
     /// </summary>
     internal new JsonElement Serialize(JsonSerializerOptions? jsonSerializerOptions = null)
-        => base.Serialize(jsonSerializerOptions);
+    {
+        var baseElement = base.Serialize(jsonSerializerOptions);
+
+        // Inject sessionId into the serialized JSON object
+        var obj = JsonNode.Parse(baseElement.GetRawText())?.AsObject();
+        if (obj is not null)
+        {
+            obj["sessionId"] = SessionId;
+            return JsonSerializer.SerializeToElement(obj);
+        }
+
+        return baseElement;
+    }
 }

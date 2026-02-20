@@ -1,8 +1,12 @@
+using System.Collections.Concurrent;
 using System.ComponentModel;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Globalization;
 using System.Linq;
 using System.Text.Json;
 using lucia.Agents.Configuration;
+using lucia.Agents.Services;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using lucia.Agents.Models;
@@ -18,11 +22,20 @@ namespace lucia.MusicAgent;
 /// </summary>
 public class MusicPlaybackSkill
 {
+    private static readonly ActivitySource ActivitySource = new("Lucia.Skills.MusicPlayback", "1.0.0");
+    private static readonly Meter Meter = new("Lucia.Skills.MusicPlayback", "1.0.0");
+    private static readonly Counter<long> PlayerSearchRequests = Meter.CreateCounter<long>("music.player.search.requests", "{count}", "Number of player search requests.");
+    private static readonly Counter<long> PlaybackRequests = Meter.CreateCounter<long>("music.playback.requests", "{count}", "Number of playback requests.");
+    private static readonly Histogram<double> PlayerSearchDurationMs = Meter.CreateHistogram<double>("music.player.search.duration", "ms", "Duration of player search operations.");
+    private static readonly Histogram<double> PlaybackDurationMs = Meter.CreateHistogram<double>("music.playback.duration", "ms", "Duration of playback operations.");
+
     private const string? ReturnResponseToken = "return_response=1";
     private readonly IHomeAssistantClient _homeAssistantClient;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
     private readonly ILogger<MusicPlaybackSkill> _logger;
+    private readonly IDeviceCacheService _deviceCache;
     private readonly List<MusicPlayerEntity> _cachedPlayers = new();
+    private readonly ConcurrentDictionary<string, Embedding<float>> _searchTermEmbeddingCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _cacheLock = new(1, 1);
     private readonly TimeSpan _cacheRefreshInterval = TimeSpan.FromMinutes(30);
     private readonly MusicAssistantConfig _config;
@@ -32,10 +45,12 @@ public class MusicPlaybackSkill
         IHomeAssistantClient homeAssistantClient,
         IOptions<MusicAssistantConfig> config,
         IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
+        IDeviceCacheService deviceCache,
         ILogger<MusicPlaybackSkill> logger)
     {
         _homeAssistantClient = homeAssistantClient;
         _embeddingGenerator = embeddingGenerator;
+        _deviceCache = deviceCache;
         _logger = logger;
         _config = config.Value;
     }
@@ -81,12 +96,25 @@ public class MusicPlaybackSkill
     public async Task<string> FindPlayerAsync(
         [Description("Name or description of the endpoint (e.g. 'Kitchen Speaker')")] string playerName)
     {
+        using var activity = ActivitySource.StartActivity("MusicPlaybackSkill.FindPlayer", ActivityKind.Internal);
+        activity?.SetTag("search.player_name", playerName);
+        PlayerSearchRequests.Add(1);
+        var start = Stopwatch.GetTimestamp();
+
         var player = await ResolvePlayerAsync(playerName).ConfigureAwait(false);
+
+        PlayerSearchDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+
         if (player is null)
         {
+            activity?.SetTag("match.found", false);
             return $"I couldn't find a MusicAssistant player that matches '{playerName}'.";
         }
 
+        activity?.SetTag("match.found", true);
+        activity?.SetTag("match.entity_id", player.EntityId);
+        activity?.SetTag("match.friendly_name", player.FriendlyName);
+        activity?.SetStatus(ActivityStatusCode.Ok);
         return $"MusicAssistant player '{player.FriendlyName}' is available as entity '{player.EntityId}'.";
     }
 
@@ -263,14 +291,24 @@ public class MusicPlaybackSkill
 
     private async Task<string> PlayMediaAsync(MusicPlayerEntity player, ServiceCallRequest payload, string successMessage)
     {
+        using var activity = ActivitySource.StartActivity("MusicPlaybackSkill.PlayMedia", ActivityKind.Internal);
+        activity?.SetTag("player.entity_id", player.EntityId);
+        activity?.SetTag("player.friendly_name", player.FriendlyName);
+        PlaybackRequests.Add(1);
+        var start = Stopwatch.GetTimestamp();
+
         try
         {
             payload.EntityId = player.EntityId;
             await _homeAssistantClient.CallServiceAsync("music_assistant", "play_media", ReturnResponseToken, payload, CancellationToken.None).ConfigureAwait(false);
+            PlaybackDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+            activity?.SetStatus(ActivityStatusCode.Ok);
             return $"{successMessage} on '{player.FriendlyName}'.";
         }
         catch (Exception ex)
         {
+            PlaybackDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
             _logger.LogError(ex, "Music Assistant play_media failed for {PlayerId}", player.EntityId);
             return $"I wasn't able to start playback on '{player.FriendlyName}': {ex.Message}";
         }
@@ -359,7 +397,7 @@ public class MusicPlaybackSkill
         // Fallback to semantic similarity
         try
         {
-            var searchEmbedding = await _embeddingGenerator.GenerateAsync(trimmed).ConfigureAwait(false);
+            var searchEmbedding = await GetOrCreateSearchEmbeddingAsync(trimmed).ConfigureAwait(false);
             var bestMatch = _cachedPlayers
                 .Select(player => new
                 {
@@ -425,6 +463,41 @@ public class MusicPlaybackSkill
         try
         {
             _logger.LogInformation("Refreshing Music Assistant player cache...");
+
+            // Try Redis cache first
+            var cachedPlayers = await _deviceCache.GetCachedPlayersAsync(cancellationToken);
+            if (cachedPlayers is not null)
+            {
+                _logger.LogInformation("Loaded {PlayerCount} players from Redis cache", cachedPlayers.Count);
+                _cachedPlayers.Clear();
+                
+                // Re-attach embeddings from Redis for each player
+                var allRestored = true;
+                foreach (var player in cachedPlayers)
+                {
+                    var embedding = await _deviceCache.GetEmbeddingAsync($"player:{player.EntityId}", cancellationToken);
+                    if (embedding is not null)
+                    {
+                        player.NameEmbedding = embedding;
+                        _cachedPlayers.Add(player);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Missing embedding for player {EntityId} in Redis, will re-fetch", player.EntityId);
+                        allRestored = false;
+                        break;
+                    }
+                }
+                
+                if (allRestored && _cachedPlayers.Count == cachedPlayers.Count)
+                {
+                    _lastCacheUpdate = DateTime.UtcNow;
+                    return; // Cache hit
+                }
+                
+                _cachedPlayers.Clear(); // Partial — fall through
+            }
+
             var states = await _homeAssistantClient.GetAllEntityStatesAsync(cancellationToken).ConfigureAwait(false);
             var players = states.Where(IsMusicAssistantPlayer).ToList();
             
@@ -454,6 +527,17 @@ public class MusicPlaybackSkill
             }
 
             _lastCacheUpdate = DateTime.UtcNow;
+
+            // Save to Redis
+            var playerCacheTtl = TimeSpan.FromMinutes(30);
+            var embeddingCacheTtl = TimeSpan.FromHours(24);
+            await _deviceCache.SetCachedPlayersAsync(_cachedPlayers.ToList(), playerCacheTtl, cancellationToken);
+            foreach (var player in _cachedPlayers)
+            {
+                await _deviceCache.SetEmbeddingAsync($"player:{player.EntityId}", player.NameEmbedding, embeddingCacheTtl, cancellationToken);
+            }
+            _logger.LogInformation("Saved {PlayerCount} players to Redis cache", _cachedPlayers.Count);
+
             _logger.LogInformation("Cached {Count} Music Assistant players", _cachedPlayers.Count);
         }
         catch (Exception ex)
@@ -641,5 +725,23 @@ public class MusicPlaybackSkill
         }
 
         return dotProduct / (Math.Sqrt(magnitude1) * Math.Sqrt(magnitude2));
+    }
+
+    /// <summary>
+    /// Returns a cached embedding for the search term, or generates and caches a new one.
+    /// </summary>
+    private async Task<Embedding<float>> GetOrCreateSearchEmbeddingAsync(string searchTerm)
+    {
+        if (_searchTermEmbeddingCache.TryGetValue(searchTerm, out var cached))
+        {
+            _logger.LogDebug("Search term embedding cache hit for '{SearchTerm}'", searchTerm);
+            return cached;
+        }
+
+        var embedding = await _embeddingGenerator.GenerateAsync(searchTerm).ConfigureAwait(false);
+        _searchTermEmbeddingCache.TryAdd(searchTerm, embedding);
+        _logger.LogDebug("Cached search term embedding for '{SearchTerm}' ({Dimensions} dims)",
+            searchTerm, embedding.Vector.Length);
+        return embedding;
     }
 }

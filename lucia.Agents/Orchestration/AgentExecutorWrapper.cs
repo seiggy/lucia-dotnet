@@ -160,8 +160,30 @@ public sealed class AgentExecutorWrapper : ReflectingExecutor<AgentExecutorWrapp
         var agent = ResolveAgent();
         var thread = await EnsureThreadAsync(agent, orchestrationContext);
 
+        _logger.LogInformation("[Diag] Agent {AgentId}: invoking RunAsync. Input length={Len}",
+            _agentId, ExtractText(message)?.Length ?? 0);
+
         var runTask = agent.RunAsync(message, thread, options: null, cancellationToken);
         var response = await runTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        // Diagnostic: log response messages to check for tool calls
+        if (response.Messages is { Count: > 0 })
+        {
+            foreach (var msg in response.Messages)
+            {
+                var functionCalls = msg.Contents?.OfType<FunctionCallContent>().ToList();
+                var functionResults = msg.Contents?.OfType<FunctionResultContent>().ToList();
+                if (functionCalls is { Count: > 0 })
+                    _logger.LogInformation("[Diag] Agent {AgentId}: tool calls in response: {Calls}",
+                        _agentId, string.Join(", ", functionCalls.Select(fc => fc.Name)));
+                if (functionResults is { Count: > 0 })
+                    _logger.LogInformation("[Diag] Agent {AgentId}: tool results in response: {Results}",
+                        _agentId, string.Join(", ", functionResults.Select(fr => $"{fr.CallId}={fr.Result?.ToString()?[..Math.Min(100, fr.Result?.ToString()?.Length ?? 0)]}")));
+            }
+        }
+
+        _logger.LogInformation("[Diag] Agent {AgentId}: response text={Text}, messageCount={Count}",
+            _agentId, response.Text?[..Math.Min(100, response.Text?.Length ?? 0)], response.Messages?.Count ?? 0);
 
         orchestrationContext.AgentSessions[_agentId] = thread;
         AppendHistory(orchestrationContext, message, response.Messages);

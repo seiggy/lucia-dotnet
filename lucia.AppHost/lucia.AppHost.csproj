@@ -22,5 +22,22 @@
     <ProjectReference Include="..\lucia.A2AHost\lucia.A2AHost.csproj" />
     <ProjectReference Include="..\lucia.AgentHost\lucia.AgentHost.csproj" />
     <ProjectReference Include="..\lucia.MusicAgent\lucia.MusicAgent.csproj" IsAspireProjectResource="false" />
+    <ProjectReference Include="..\lucia.TimerAgent\lucia.TimerAgent.csproj" IsAspireProjectResource="false" />
   </ItemGroup>
+
+  <!-- Copy MusicAgent plugin DLL to its own plugins directory -->
+  <Target Name="CopyMusicAgentPlugin" AfterTargets="Build">
+    <MakeDir Directories="plugins\music-agent" Condition="!Exists('plugins\music-agent')" />
+    <Copy SourceFiles="..\lucia.MusicAgent\bin\$(Configuration)\$(TargetFramework)\lucia.MusicAgent.dll"
+          DestinationFolder="plugins\music-agent"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- Copy TimerAgent plugin DLL to its own plugins directory -->
+  <Target Name="CopyTimerAgentPlugin" AfterTargets="Build">
+    <MakeDir Directories="plugins\timer-agent" Condition="!Exists('plugins\timer-agent')" />
+    <Copy SourceFiles="..\lucia.TimerAgent\bin\$(Configuration)\$(TargetFramework)\lucia.TimerAgent.dll"
+          DestinationFolder="plugins\timer-agent"
+          SkipUnchangedFiles="true" />
+  </Target>
 </Project>

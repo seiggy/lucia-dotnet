@@ -1,12 +1,14 @@
 using System;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Registry;
 using lucia.Agents.Integration;
 using lucia.Agents.Orchestration;
 using lucia.Agents.Skills;
 using lucia.Agents.Agents;
 using lucia.Agents.Services;
+using lucia.Agents.Training;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Azure;
@@ -17,6 +19,7 @@ using OllamaSharp;
 using A2A;
 using lucia.Agents.Configuration;
 using lucia.HomeAssistant.Configuration;
+using Azure.Identity;
 using OpenAI;
 using OpenAI.Embeddings;
 
@@ -33,6 +36,10 @@ public static class ServiceCollectionExtensions
                 "Expected custom format: Endpoint=endpoint;AccessKey=your_access_key;Model=model_name;Provider=ollama/openai/azureopenai; " +
                 "or Aspire AI Foundry format: Endpoint=https://xxx.cognitiveservices.azure.com/;Deployment=name");
         }
+
+        Console.WriteLine($"[lucia] Embeddings client '{connectionName}': Provider={connectionInfo.Provider}, " +
+            $"Endpoint={connectionInfo.Endpoint}, Model={connectionInfo.SelectedModel}, " +
+            $"HasKey={connectionInfo.AccessKey is not null}");
         
         switch (connectionInfo.Provider)
         {
@@ -45,7 +52,10 @@ public static class ServiceCollectionExtensions
                 .AddEmbeddingGenerator(connectionInfo.SelectedModel);
                 break;
             case ClientChatProvider.AzureOpenAI:
-                builder.AddAzureOpenAIClient(connectionName)
+                builder.AddAzureOpenAIClient(connectionName, settings =>
+                {
+                    settings.Credential = new AzureCliCredential();
+                })
                     .AddEmbeddingGenerator(connectionInfo.SelectedModel);
                 break;
             case ClientChatProvider.AzureAIInference:
@@ -78,11 +88,18 @@ public static class ServiceCollectionExtensions
                 "or Aspire AI Foundry format: Endpoint=https://xxx.cognitiveservices.azure.com/;Deployment=name");
         }
 
+        Console.WriteLine($"[lucia] Chat client '{connectionName}': Provider={connectionInfo.Provider}, " +
+            $"Endpoint={connectionInfo.Endpoint}, Model={connectionInfo.SelectedModel}, " +
+            $"HasKey={connectionInfo.AccessKey is not null}");
+
         var chatClientBuilder = connectionInfo.Provider switch
         {
             ClientChatProvider.Ollama => builder.AddOllamaClient(connectionName, connectionInfo),
             ClientChatProvider.OpenAI => builder.AddOpenAIClient(connectionName, connectionInfo),
-            ClientChatProvider.AzureOpenAI => builder.AddAzureOpenAIClient(connectionName)
+            ClientChatProvider.AzureOpenAI => builder.AddAzureOpenAIClient(connectionName, settings =>
+                {
+                    settings.Credential = new AzureCliCredential();
+                })
                 .AddChatClient(connectionInfo.SelectedModel),
             ClientChatProvider.AzureAIInference => builder.AddAzureInferenceClient(connectionName, connectionInfo),
             ClientChatProvider.ONNX => throw new NotImplementedException("ONNX doesn't support function calling still. So we can't support it as a provider."),
@@ -165,7 +182,7 @@ public static class ServiceCollectionExtensions
         {
             ClientChatProvider.Ollama => builder.AddKeyedOllamaClient(connectionName, connectionInfo),
             ClientChatProvider.OpenAI => builder.AddKeyedOpenAIClient(connectionName, connectionInfo),
-            ClientChatProvider.AzureOpenAI => builder.AddKeyedAzureOpenAIClient(connectionName).AddKeyedChatClient(connectionName, connectionInfo.SelectedModel),
+            ClientChatProvider.AzureOpenAI => builder.AddKeyedAzureOpenAIChatClient(connectionName, connectionInfo),
             ClientChatProvider.AzureAIInference => builder.AddKeyedAzureInferenceClient(connectionName, connectionInfo),
             _ => throw new NotSupportedException($"Unsupported provider: {connectionInfo.Provider}")
         };
@@ -197,6 +214,20 @@ public static class ServiceCollectionExtensions
             var client = new ChatCompletionsClient(connectionInfo.Endpoint, credential, new AzureAIInferenceClientOptions());
 
             return client.AsIChatClient(connectionInfo.SelectedModel);
+        });
+    }
+
+    /// <summary>
+    /// Registers a keyed IChatClient for an Azure OpenAI deployment by reusing the
+    /// shared non-keyed OpenAIClient. This avoids calling AddKeyedAzureOpenAIClient
+    /// which poisons the non-keyed AzureOpenAIClient registration with a null factory.
+    /// </summary>
+    private static ChatClientBuilder AddKeyedAzureOpenAIChatClient(this IHostApplicationBuilder builder, string connectionName, ChatClientConnectionInfo connectionInfo)
+    {
+        return builder.Services.AddKeyedChatClient(connectionName, sp =>
+        {
+            var client = sp.GetRequiredService<OpenAIClient>();
+            return client.GetChatClient(connectionInfo.SelectedModel).AsIChatClient();
         });
     }
 
@@ -234,6 +265,9 @@ public static class ServiceCollectionExtensions
         // Register Redis task store (T037)
         builder.Services.AddSingleton<ITaskStore, RedisTaskStore>();
 
+        // Register Redis device cache service
+        builder.Services.AddSingleton<IDeviceCacheService, RedisDeviceCacheService>();
+
         // Register A2A TaskManager (T037)
         builder.Services.AddSingleton<ITaskManager>(sp =>
         {
@@ -257,6 +291,12 @@ public static class ServiceCollectionExtensions
 
         builder.Services.Configure<HomeAssistantOptions>(
             builder.Configuration.GetSection("HomeAssistant"));
+
+        builder.Services.Configure<SessionCacheOptions>(
+            builder.Configuration.GetSection("SessionCache"));
+
+        // Register Redis session cache for multi-turn conversations
+        builder.Services.AddSingleton<ISessionCacheService, RedisSessionCacheService>();
 
         builder.Services.AddSingleton(TimeProvider.System);
 
@@ -349,8 +389,57 @@ public static class ServiceCollectionExtensions
         // Register agent skills and agents
         builder.Services.AddSingleton<LightControlSkill>();
         builder.Services.AddSingleton<LightAgent>();
+        builder.Services.AddSingleton<ILuciaAgent>(sp => sp.GetRequiredService<LightAgent>());
         builder.Services.AddSingleton<GeneralAgent>();
+        builder.Services.AddSingleton<ILuciaAgent>(sp => sp.GetRequiredService<GeneralAgent>());
 
+        // Register agent initialization background service
+        builder.Services.AddHostedService<AgentInitializationService>();
+
+        // Wrap each agent's keyed IChatClient with AgentTracingChatClient
+        // to capture full conversation traces (prompts, tool calls, results) per agent.
+        WrapAgentChatClientWithTracing(builder.Services, OrchestratorServiceKeys.LightModel, "light-agent");
+        WrapAgentChatClientWithTracing(builder.Services, OrchestratorServiceKeys.MusicModel, "music-agent");
+        WrapAgentChatClientWithTracing(builder.Services, OrchestratorServiceKeys.GeneralModel, "general-assistant");
+    }
+
+    /// <summary>
+    /// Wraps a keyed IChatClient registration with <see cref="AgentTracingChatClient"/>
+    /// by removing the existing registration and re-adding one that decorates the original.
+    /// </summary>
+    public static void WrapAgentChatClientWithTracing(IServiceCollection services, string serviceKey, string agentId)
+    {
+        // Find the existing keyed registration for this service key
+        var existing = services.LastOrDefault(d =>
+            d.ServiceType == typeof(IChatClient) &&
+            d.IsKeyedService &&
+            string.Equals(d.ServiceKey?.ToString(), serviceKey, StringComparison.Ordinal));
+
+        if (existing is null)
+            return;
+
+        // Capture the original factory
+        var originalFactory = existing.KeyedImplementationFactory;
+        var originalInstance = existing.KeyedImplementationInstance;
+
+        // Remove the original registration
+        services.Remove(existing);
+
+        // Re-register with tracing wrapper
+        services.AddKeyedSingleton<IChatClient>(serviceKey, (sp, key) =>
+        {
+            IChatClient inner;
+            if (originalFactory is not null)
+                inner = (IChatClient)originalFactory(sp, key);
+            else if (originalInstance is IChatClient instance)
+                inner = instance;
+            else
+                inner = sp.GetRequiredService<IChatClient>();
+
+            var repository = sp.GetRequiredService<ITraceRepository>();
+            var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<AgentTracingChatClient>>();
+            return new AgentTracingChatClient(inner, agentId, repository, logger);
+        });
     }
 
     /// <summary>

@@ -11,6 +11,15 @@ namespace lucia.Agents.Orchestration;
 public interface IOrchestratorObserver
 {
     /// <summary>
+    /// Called before the workflow begins to initialize per-request tracking state.
+    /// Must be called in the parent async context so that AsyncLocal state flows
+    /// correctly into the workflow child contexts.
+    /// </summary>
+    /// <param name="userRequest">The original user request text.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task OnRequestStartedAsync(string userRequest, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Called after the router has selected an agent (or agents) for the request.
     /// </summary>
     /// <param name="result">The routing decision including agent ID, confidence, reasoning, and additional agents.</param>

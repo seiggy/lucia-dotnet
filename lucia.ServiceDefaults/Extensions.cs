@@ -64,13 +64,19 @@ public static class Extensions
                 metrics.AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
                     .AddRuntimeInstrumentation()
-                    .AddMeter("Lucia.TraceCapture");
+                    .AddMeter("Lucia.TraceCapture")
+                    .AddMeter("Lucia.Skills.LightControl")
+                    .AddMeter("Lucia.Skills.MusicPlayback");
             })
             .WithTracing(tracing =>
             {
                 tracing.AddSource(builder.Environment.ApplicationName)
                     .AddSource("Lucia.Orchestration")
                     .AddSource("Lucia.TraceCapture")
+                    .AddSource("Lucia.Agents.General")
+                    .AddSource("Lucia.Agents.Music")
+                    .AddSource("Lucia.Skills.LightControl")
+                    .AddSource("Lucia.Skills.MusicPlayback")
                     .AddSource("Microsoft.Agents.AI*")
                     .AddSource("A2A*")
                     .AddSource("Microsoft.Agents.AI.Hosting*")

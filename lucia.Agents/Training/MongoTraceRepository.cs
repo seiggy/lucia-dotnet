@@ -133,20 +133,29 @@ public sealed class MongoTraceRepository : ITraceRepository
 
         await Task.WhenAll(totalTask, unlabeledTask, positiveTask, negativeTask, erroredTask);
 
-        // Aggregate traces by agent
-        var pipeline = _traces.Aggregate()
-            .Unwind<ConversationTrace, ConversationTrace>(t => t.AgentExecutions)
-            .Group(
-                t => t.AgentExecutions.First().AgentId,
-                g => new { AgentId = g.Key, Count = g.Count() });
+        // Aggregate traces by agent — after Unwind, AgentExecutions is a single object
+        var agentPipeline = new MongoDB.Bson.BsonDocument[]
+        {
+            new("$unwind", "$AgentExecutions"),
+            new("$group", new MongoDB.Bson.BsonDocument
+            {
+                { "_id", "$AgentExecutions.AgentId" },
+                { "Count", new MongoDB.Bson.BsonDocument("$sum", 1) }
+            })
+        };
 
-        var agentGroups = await pipeline.ToListAsync(ct);
+        var agentGroups = await _traces
+            .Aggregate<MongoDB.Bson.BsonDocument>(agentPipeline)
+            .ToListAsync(ct);
+
         var byAgent = new Dictionary<string, int>();
         foreach (var group in agentGroups)
         {
-            if (group.AgentId is not null)
+            var agentId = group["_id"].AsString;
+            var count = group["Count"].AsInt32;
+            if (!string.IsNullOrEmpty(agentId))
             {
-                byAgent[group.AgentId] = group.Count;
+                byAgent[agentId] = count;
             }
         }
 

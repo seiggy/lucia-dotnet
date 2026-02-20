@@ -21,17 +21,13 @@ public static class DatasetExportApi
         var group = endpoints.MapGroup("/api/exports")
             .WithTags("Exports");
 
-        group.MapPost("/", CreateExportAsync)
-            .WithOpenApi();
+        group.MapPost("/", CreateExportAsync);
 
-        group.MapGet("/", ListExportsAsync)
-            .WithOpenApi();
+        group.MapGet("/", ListExportsAsync);
 
-        group.MapGet("/{id}", GetExportAsync)
-            .WithOpenApi();
+        group.MapGet("/{id}", GetExportAsync);
 
-        group.MapGet("/{id}/download", DownloadExportAsync)
-            .WithOpenApi();
+        group.MapGet("/{id}/download", DownloadExportAsync);
 
         return endpoints;
     }
@@ -58,7 +54,7 @@ public static class DatasetExportApi
         {
             foreach (var trace in traces)
             {
-                var jsonlLine = ConvertTraceToJsonl(trace, filter.IncludeCorrections);
+                var jsonlLine = ConvertTraceToJsonl(trace, filter.IncludeCorrections, filter.AgentFilter);
                 await writer.WriteLineAsync(jsonlLine);
             }
         }
@@ -123,6 +119,6 @@ public static class DatasetExportApi
     /// <summary>
     /// Converts a conversation trace to an OpenAI fine-tuning JSONL line.
     /// </summary>
-    private static string ConvertTraceToJsonl(ConversationTrace trace, bool includeCorrections) =>
-        JsonlConverter.ConvertTraceToJsonl(trace, includeCorrections);
+    private static string ConvertTraceToJsonl(ConversationTrace trace, bool includeCorrections, string? agentFilter = null) =>
+        JsonlConverter.ConvertTraceToJsonl(trace, includeCorrections, agentFilter);
 }

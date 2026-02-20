@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using A2A;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,8 +17,10 @@ namespace lucia.MusicAgent;
 /// <summary>
 /// Specialized agent that controls Satellite1 music playback through the Home Assistant Music Assistant integration.
 /// </summary>
-public class MusicAgent : IAgent
+public class MusicAgent : ILuciaAgent
 {
+    private static readonly ActivitySource ActivitySource = new("Lucia.Agents.Music", "1.0.0");
+
     private readonly AgentCard _agent;
     private readonly MusicPlaybackSkill _musicSkill;
     private readonly ILogger<MusicAgent> _logger;
@@ -139,6 +142,8 @@ public class MusicAgent : IAgent
     /// </summary>
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
+        using var activity = ActivitySource.StartActivity("MusicAgent.Initialize", ActivityKind.Internal);
+        activity?.SetTag("agent.id", "music-agent");
         _logger.LogInformation("Initializing MusicAgent...");
         var addressesFeature = _server?.Features?.Get<IServerAddressesFeature>();
         if (addressesFeature?.Addresses != null && addressesFeature.Addresses.Any())
@@ -151,6 +156,7 @@ public class MusicAgent : IAgent
         }
         
         await _musicSkill.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        activity?.SetStatus(ActivityStatusCode.Ok);
         _logger.LogInformation("MusicAgent initialized successfully");
     }
 }

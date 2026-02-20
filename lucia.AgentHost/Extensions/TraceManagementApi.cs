@@ -15,20 +15,15 @@ public static class TraceManagementApi
         var group = endpoints.MapGroup("/api/traces")
             .WithTags("Traces");
 
-        group.MapGet("/", ListTracesAsync)
-            .WithOpenApi();
+        group.MapGet("/", ListTracesAsync);
 
-        group.MapGet("/stats", GetStatsAsync)
-            .WithOpenApi();
+        group.MapGet("/stats", GetStatsAsync);
 
-        group.MapGet("/{id}", GetTraceAsync)
-            .WithOpenApi();
+        group.MapGet("/{id}", GetTraceAsync);
 
-        group.MapPut("/{id}/label", UpdateLabelAsync)
-            .WithOpenApi();
+        group.MapPut("/{id}/label", UpdateLabelAsync);
 
-        group.MapDelete("/{id}", DeleteTraceAsync)
-            .WithOpenApi();
+        group.MapDelete("/{id}", DeleteTraceAsync);
 
         return endpoints;
     }

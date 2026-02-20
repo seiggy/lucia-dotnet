@@ -36,7 +36,7 @@ public class OrchestratorAgent
     public IList<AITool> Tools { get; }
 
     public OrchestratorAgent(
-        IChatClient chatClient,
+        LuciaOrchestrator orchestrator,
         IAgentRegistry agentRegistry,
         IOptions<RouterExecutorOptions> routerExecutorOptions,
         IAgentSessionFactory sessionFactory,
@@ -98,23 +98,13 @@ public class OrchestratorAgent
 
         Instructions = routerExecutorOptions.Value.SystemPrompt ?? RouterExecutorOptions.DefaultSystemPrompt;
 
-        var agentOptions = new ChatClientAgentOptions
-        {
-            Id = "orchestrator",
-            Name = "Orchestrator",
-            Description = "Orchestrator for Lucia",
-            ChatOptions = new()
-            {
-                Instructions = Instructions,
-                Tools = Tools
-            }
-        };
-
-        // Create the custom AIAgent implementation that delegates to orchestrator
-        _aiAgent = new ChatClientAgent(
-            chatClient,
-            agentOptions,
-            loggerFactory);
+        // Use OrchestratorAIAgent which delegates to LuciaOrchestrator.ProcessRequestAsync
+        // This ensures the full workflow (routing → dispatch → aggregation) and prompt cache are engaged
+        _aiAgent = new OrchestratorAIAgent(
+            orchestrator,
+            sessionFactory,
+            "Orchestrator",
+            "Orchestrator for Lucia");
 
         _taskManager = new TaskManager();
     }
