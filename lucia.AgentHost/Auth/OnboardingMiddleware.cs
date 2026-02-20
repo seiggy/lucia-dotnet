@@ -14,8 +14,10 @@ public sealed class OnboardingMiddleware
     /// </summary>
     private static readonly string[] ExemptPrefixes =
     [
-        "/setup",
+        "/api/setup",
         "/api/auth/status",
+        "/api/auth/login",
+        "/setup",
         "/health",
         "/alive",
         "/_framework",
