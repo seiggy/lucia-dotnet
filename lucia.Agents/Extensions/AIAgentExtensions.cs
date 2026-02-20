@@ -1,6 +1,5 @@
 ﻿using A2A;
 using A2A.AspNetCore;
-using Aspire.Hosting;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Hosting;
 using Microsoft.AspNetCore.Builder;

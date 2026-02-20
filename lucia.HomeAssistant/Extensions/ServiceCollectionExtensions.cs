@@ -12,6 +12,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddHomeAssistant(this IServiceCollection services, Action<HomeAssistantOptions> configureOptions)
     {
         services.Configure(configureOptions);
+        services.AddSingleton<IValidateOptions<HomeAssistantOptions>, HomeAssistantOptionsValidator>();
         
         services.AddHttpClient<IHomeAssistantClient, HomeAssistantClient>((serviceProvider, client) =>
         {

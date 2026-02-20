@@ -118,13 +118,15 @@ public sealed class RedisPromptCacheService : IPromptCacheService
             CachedPromptEntry? bestEntry = null;
             double bestScore = 0;
 
-            foreach (var member in indexMembers)
+            var memberKeys = indexMembers.Select(m => (RedisKey)m.ToString()).ToArray();
+            var values = await db.StringGetAsync(memberKeys);
+
+            for (var i = 0; i < values.Length; i++)
             {
-                var entryJson = await db.StringGetAsync(member.ToString());
-                if (!entryJson.HasValue)
+                if (!values[i].HasValue)
                     continue;
 
-                var candidate = JsonSerializer.Deserialize<CachedPromptEntry>(entryJson.ToString(), SerializerOptions);
+                var candidate = JsonSerializer.Deserialize<CachedPromptEntry>(values[i].ToString(), SerializerOptions);
                 if (candidate?.Embedding is null)
                     continue;
 
@@ -228,15 +230,20 @@ public sealed class RedisPromptCacheService : IPromptCacheService
             var db = _redis.GetDatabase();
             var members = await db.SetMembersAsync(IndexKey);
 
-            foreach (var member in members)
+            if (members.Length > 0)
             {
-                var json = await db.StringGetAsync(member.ToString());
-                if (!json.HasValue)
-                    continue;
+                var memberKeys = members.Select(m => (RedisKey)m.ToString()).ToArray();
+                var values = await db.StringGetAsync(memberKeys);
 
-                var entry = JsonSerializer.Deserialize<CachedPromptEntry>(json.ToString(), SerializerOptions);
-                if (entry is not null)
-                    entries.Add(entry);
+                for (var i = 0; i < values.Length; i++)
+                {
+                    if (!values[i].HasValue)
+                        continue;
+
+                    var entry = JsonSerializer.Deserialize<CachedPromptEntry>(values[i].ToString(), SerializerOptions);
+                    if (entry is not null)
+                        entries.Add(entry);
+                }
             }
         }
         catch (Exception ex)
@@ -275,10 +282,10 @@ public sealed class RedisPromptCacheService : IPromptCacheService
             var members = await db.SetMembersAsync(IndexKey);
             long count = 0;
 
-            foreach (var member in members)
+            if (members.Length > 0)
             {
-                if (await db.KeyDeleteAsync(member.ToString()))
-                    count++;
+                var memberKeys = members.Select(m => (RedisKey)m.ToString()).ToArray();
+                count = await db.KeyDeleteAsync(memberKeys);
             }
 
             await db.KeyDeleteAsync(IndexKey);

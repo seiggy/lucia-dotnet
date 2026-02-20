@@ -12,6 +12,7 @@ public sealed class MongoConfigurationProvider : ConfigurationProvider, IDisposa
     private readonly string _connectionString;
     private readonly string _databaseName;
     private readonly TimeSpan _pollInterval;
+    private readonly Lazy<MongoClient> _client;
     private Timer? _pollTimer;
     private DateTime _lastLoadTime = DateTime.MinValue;
 
@@ -20,14 +21,14 @@ public sealed class MongoConfigurationProvider : ConfigurationProvider, IDisposa
         _connectionString = connectionString;
         _databaseName = databaseName;
         _pollInterval = pollInterval ?? TimeSpan.FromSeconds(5);
+        _client = new Lazy<MongoClient>(() => new MongoClient(_connectionString));
     }
 
     public override void Load()
     {
         try
         {
-            var client = new MongoClient(_connectionString);
-            var database = client.GetDatabase(_databaseName);
+            var database = _client.Value.GetDatabase(_databaseName);
             var collection = database.GetCollection<ConfigEntry>(ConfigEntry.CollectionName);
 
             var entries = collection.Find(FilterDefinition<ConfigEntry>.Empty).ToList();
@@ -55,8 +56,7 @@ public sealed class MongoConfigurationProvider : ConfigurationProvider, IDisposa
     {
         try
         {
-            var client = new MongoClient(_connectionString);
-            var database = client.GetDatabase(_databaseName);
+            var database = _client.Value.GetDatabase(_databaseName);
             var collection = database.GetCollection<ConfigEntry>(ConfigEntry.CollectionName);
 
             // Check if any documents have been updated since last load
