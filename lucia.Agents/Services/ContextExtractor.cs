@@ -345,7 +345,7 @@ public sealed class ContextExtractor
             using var doc = JsonDocument.Parse(jsonStr);
             return doc.RootElement.Clone();
         }
-        catch
+        catch (JsonException)
         {
             // If parsing fails, treat as string
             var escaped = jsonStr.Replace("\\", "\\\\").Replace("\"", "\\\"");

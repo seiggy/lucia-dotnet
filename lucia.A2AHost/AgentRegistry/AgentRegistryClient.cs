@@ -2,7 +2,7 @@
 
 namespace lucia.A2AHost.AgentRegistry
 {
-    public class AgentRegistryClient(HttpClient httpClient, ILogger<AgentRegistryClient> logger)
+    public sealed class AgentRegistryClient(HttpClient httpClient, ILogger<AgentRegistryClient> logger)
     {
         internal async Task RegisterAgentAsync(AgentCard hostedAgent, CancellationToken cancellationToken)
         {
@@ -14,10 +14,14 @@ namespace lucia.A2AHost.AgentRegistry
             try
             {
                 var response = await httpClient.PostAsync("/agents/register", form, cancellationToken);
+                if (!response.IsSuccessStatusCode)
+                {
+                    logger.LogWarning("Agent registration returned {StatusCode} for {AgentUrl}", (int)response.StatusCode, hostedAgent.Url);
+                }
             }
             catch (Exception e)
             {
-                logger.LogError(e, "Error trying to register the configured agent with the registry. Check if it's online?");
+                logger.LogError(e, "Error trying to register agent {AgentUrl} with the registry. Check if it's online?", hostedAgent.Url);
             }
         }
 
@@ -25,11 +29,15 @@ namespace lucia.A2AHost.AgentRegistry
         {
             try
             {
-                var response = await httpClient.DeleteAsync($"/agents/{Uri.EscapeDataString(hostedAgent.Url)}");
+                var response = await httpClient.DeleteAsync($"/agents/{Uri.EscapeDataString(hostedAgent.Url)}", cancellationToken);
+                if (!response.IsSuccessStatusCode)
+                {
+                    logger.LogWarning("Agent unregistration returned {StatusCode} for {AgentUrl}", (int)response.StatusCode, hostedAgent.Url);
+                }
             }
             catch (Exception e)
             {
-                logger.LogError(e, "Error trying to register the configured agent with the registry. Check if it's online?");
+                logger.LogError(e, "Error trying to unregister agent {AgentUrl} from the registry. Check if it's online?", hostedAgent.Url);
             }
 
         }

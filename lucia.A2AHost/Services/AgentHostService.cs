@@ -31,11 +31,19 @@ namespace lucia.A2AHost.Services
         public async Task StartedAsync(CancellationToken cancellationToken)
         {
             _logger.LogInformation("AgentHostService has started.");
-            // register agent with registry
+            // register agents with registry — continue on individual failures
             foreach (var agent in _hostedAgents) 
             {
-                await agent.InitializeAsync(cancellationToken);
-                await _agentRegistryClient.RegisterAgentAsync(agent.GetAgentCard(), cancellationToken);
+                try
+                {
+                    await agent.InitializeAsync(cancellationToken);
+                    await _agentRegistryClient.RegisterAgentAsync(agent.GetAgentCard(), cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to initialize or register agent {AgentName}. Continuing with remaining agents.",
+                        agent.GetType().Name);
+                }
             }
         }
 

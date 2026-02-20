@@ -16,7 +16,10 @@ public static class ServiceCollectionExtensions
         services.AddHttpClient<IHomeAssistantClient, HomeAssistantClient>((serviceProvider, client) =>
         {
             var options = serviceProvider.GetRequiredService<IOptions<HomeAssistantOptions>>().Value;
-            // HttpClient configuration is handled in the constructor
+            client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/'));
+            client.DefaultRequestHeaders.Add("Authorization", $"Bearer {options.AccessToken}");
+            client.DefaultRequestHeaders.Add("Accept", "application/json");
+            client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
         })
         .ConfigurePrimaryHttpMessageHandler(serviceProvider =>
         {

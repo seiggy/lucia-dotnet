@@ -4,7 +4,6 @@ using System.Text.Json;
 using lucia.HomeAssistant.Configuration;
 using lucia.HomeAssistant.Models;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace lucia.HomeAssistant.Services;
 
@@ -17,16 +16,10 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
     private readonly HttpClient _httpClient;
     private readonly ILogger<HomeAssistantClient> _logger;
 
-    public HomeAssistantClient(HttpClient httpClient, IOptions<HomeAssistantOptions> options, ILogger<HomeAssistantClient> logger)
+    public HomeAssistantClient(HttpClient httpClient, ILogger<HomeAssistantClient> logger)
     {
         _httpClient = httpClient;
         _logger = logger;
-        var opts = options.Value;
-
-        _httpClient.BaseAddress = new Uri(opts.BaseUrl.TrimEnd('/'));
-        _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {opts.AccessToken}");
-        _httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
-        _httpClient.Timeout = TimeSpan.FromSeconds(opts.TimeoutSeconds);
     }
 
     // ── Status & Config ─────────────────────────────────────────────
@@ -304,7 +297,8 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
 
         var returnResponse = parameters?.Contains("return_response", StringComparison.OrdinalIgnoreCase) == true;
         var result = await CallServiceRawAsync(domain, service, request, returnResponse, cancellationToken);
-        return JsonSerializer.Deserialize<T>(result, HomeAssistantJsonOptions.Default) ?? default!;
+        return JsonSerializer.Deserialize<T>(result, HomeAssistantJsonOptions.Default)
+            ?? throw new InvalidOperationException($"Service response could not be deserialized to type '{typeof(T).Name}'.");
     }
 
     async Task<object[]> IHomeAssistantClient.CallServiceAsync(

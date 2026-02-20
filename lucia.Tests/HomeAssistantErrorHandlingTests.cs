@@ -1,4 +1,3 @@
-using lucia.HomeAssistant.Configuration;
 using lucia.HomeAssistant.Services;
 
 namespace lucia.Tests;
@@ -14,14 +13,13 @@ public class HomeAssistantErrorHandlingTests
         if (HomeAssistantTestConfig.IsConfigured)
         {
             var servicesInvalidToken = new ServiceCollection();
-            servicesInvalidToken.Configure<HomeAssistantOptions>(options =>
-            {
-                options.BaseUrl = HomeAssistantTestConfig.Endpoint!;
-                options.AccessToken = "invalid-token";
-                options.TimeoutSeconds = 5;
-                options.ValidateSSL = false;
-            });
-            servicesInvalidToken.AddHttpClient<HomeAssistantClient>()
+            servicesInvalidToken.AddLogging();
+            servicesInvalidToken.AddHttpClient<HomeAssistantClient>((sp, client) =>
+                {
+                    client.BaseAddress = new Uri(HomeAssistantTestConfig.Endpoint!.TrimEnd('/'));
+                    client.DefaultRequestHeaders.Add("Authorization", "Bearer invalid-token");
+                    client.Timeout = TimeSpan.FromSeconds(5);
+                })
                 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
                 {
                     ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
@@ -33,14 +31,13 @@ public class HomeAssistantErrorHandlingTests
 
         // Client with invalid URL
         var servicesInvalidUrl = new ServiceCollection();
-        servicesInvalidUrl.Configure<HomeAssistantOptions>(options =>
-        {
-            options.BaseUrl = "http://nonexistent.local:8123";
-            options.AccessToken = "any-token";
-            options.TimeoutSeconds = 5;
-            options.ValidateSSL = false;
-        });
-        servicesInvalidUrl.AddHttpClient<HomeAssistantClient>()
+        servicesInvalidUrl.AddLogging();
+        servicesInvalidUrl.AddHttpClient<HomeAssistantClient>((sp, client) =>
+            {
+                client.BaseAddress = new Uri("http://nonexistent.local:8123");
+                client.DefaultRequestHeaders.Add("Authorization", "Bearer any-token");
+                client.Timeout = TimeSpan.FromSeconds(5);
+            })
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
             {
                 ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true

@@ -69,12 +69,12 @@ public sealed class LocalAgentInvoker : IAgentInvoker
             }
 
             _logger.LogInformation("[Diag] Agent {AgentId}: response text={Text}, messageCount={Count}",
-                AgentId, response.Text[..Math.Min(100, response.Text.Length)], response.Messages.Count);
+                AgentId, response.Text?[..Math.Min(100, response.Text?.Length ?? 0)] ?? "(null)", response.Messages.Count);
 
             return new OrchestratorAgentResponse
             {
                 AgentId = AgentId,
-                Content = response.Text,
+                Content = response.Text ?? string.Empty,
                 Success = true,
                 ExecutionTimeMs = ElapsedMs(startTimestamp)
             };
