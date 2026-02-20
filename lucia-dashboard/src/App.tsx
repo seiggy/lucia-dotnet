@@ -1,4 +1,7 @@
-import { NavLink, Routes, Route } from 'react-router-dom'
+import { NavLink, Routes, Route, Navigate } from 'react-router-dom'
+import { AuthProvider, useAuth } from './auth/AuthContext'
+import LoginPage from './pages/LoginPage'
+import SetupPage from './pages/SetupPage'
 import TraceListPage from './pages/TraceListPage'
 import TraceDetailPage from './pages/TraceDetailPage'
 import ExportPage from './pages/ExportPage'
@@ -8,6 +11,45 @@ import PromptCachePage from './pages/PromptCachePage'
 import TasksPage from './pages/TasksPage'
 
 function App() {
+  return (
+    <AuthProvider>
+      <AppRoutes />
+    </AuthProvider>
+  )
+}
+
+function AppRoutes() {
+  const { authenticated, setupComplete, loading, logout } = useAuth()
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-900">
+        <div className="text-gray-400">Loading...</div>
+      </div>
+    )
+  }
+
+  // Setup not complete → show setup wizard
+  if (!setupComplete) {
+    return (
+      <Routes>
+        <Route path="/setup" element={<SetupPage />} />
+        <Route path="*" element={<Navigate to="/setup" replace />} />
+      </Routes>
+    )
+  }
+
+  // Not authenticated → show login
+  if (!authenticated) {
+    return (
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    )
+  }
+
+  // Authenticated → full dashboard
   return (
     <div className="min-h-screen bg-gray-900 text-white">
       <nav className="border-b border-gray-700 bg-gray-800">
@@ -62,6 +104,14 @@ function App() {
           >
             Tasks
           </NavLink>
+          <div className="ml-auto">
+            <button
+              onClick={logout}
+              className="rounded px-3 py-1 text-sm text-gray-400 transition hover:bg-gray-700 hover:text-white"
+            >
+              Sign Out
+            </button>
+          </div>
         </div>
       </nav>
 
@@ -74,6 +124,7 @@ function App() {
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="/prompt-cache" element={<PromptCachePage />} />
           <Route path="/tasks" element={<TasksPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
     </div>

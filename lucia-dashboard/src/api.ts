@@ -112,9 +112,8 @@ export async function fetchConfigSections(): Promise<ConfigSectionSummary[]> {
   return res.json();
 }
 
-export async function fetchConfigSection(section: string, showSecrets = false): Promise<ConfigEntryDto[]> {
-  const qs = showSecrets ? '?showSecrets=true' : '';
-  const res = await fetch(`${BASE}/config/sections/${encodeURIComponent(section)}${qs}`);
+export async function fetchConfigSection(section: string, _showSecrets = false): Promise<ConfigEntryDto[]> {
+  const res = await fetch(`${BASE}/config/sections/${encodeURIComponent(section)}`);
   if (!res.ok) throw new Error(`Failed to fetch section: ${res.statusText}`);
   return res.json();
 }
@@ -144,7 +143,173 @@ export async function fetchConfigSchema(): Promise<ConfigSectionSchema[]> {
   return res.json();
 }
 
-// ── Prompt Cache API ─────────────────────────────────────────────
+// ── Auth API ─────────────────────────────────────────────────────
+
+export interface AuthStatus {
+  authenticated: boolean;
+  setupComplete: boolean;
+  hasKeys: boolean;
+}
+
+export interface LoginResponse {
+  authenticated: boolean;
+  keyName: string;
+  keyPrefix: string;
+}
+
+export async function fetchAuthStatus(): Promise<AuthStatus> {
+  const res = await fetch(`${BASE}/auth/status`);
+  if (!res.ok) throw new Error(`Failed to fetch auth status: ${res.statusText}`);
+  return res.json();
+}
+
+export async function login(apiKey: string): Promise<LoginResponse> {
+  const res = await fetch(`${BASE}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ apiKey }),
+  });
+  if (res.status === 401) throw new Error('Invalid API key');
+  if (!res.ok) throw new Error(`Login failed: ${res.statusText}`);
+  return res.json();
+}
+
+export async function logout(): Promise<void> {
+  await fetch(`${BASE}/auth/logout`, { method: 'POST' });
+}
+
+// ── Setup Wizard API ─────────────────────────────────────────────
+
+export interface SetupStatus {
+  hasDashboardKey: boolean;
+  hasHaConnection: boolean;
+  haUrl: string | null;
+  pluginValidated: boolean;
+  setupComplete: boolean;
+}
+
+export interface GenerateKeyResponse {
+  key: string;
+  prefix: string;
+  message: string;
+}
+
+export interface TestHaConnectionResponse {
+  connected: boolean;
+  message?: string;
+  haVersion?: string;
+  locationName?: string;
+  error?: string;
+}
+
+export interface HaStatusResponse {
+  pluginConnected: boolean;
+  instanceId: string | null;
+  lastValidatedAt: string | null;
+}
+
+export async function fetchSetupStatus(): Promise<SetupStatus> {
+  const res = await fetch(`${BASE}/setup/status`);
+  if (!res.ok) throw new Error(`Failed to fetch setup status: ${res.statusText}`);
+  return res.json();
+}
+
+export async function generateDashboardKey(): Promise<GenerateKeyResponse> {
+  const res = await fetch(`${BASE}/setup/generate-dashboard-key`, { method: 'POST' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Failed to generate key: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function configureHomeAssistant(baseUrl: string, accessToken: string): Promise<void> {
+  const res = await fetch(`${BASE}/setup/configure-ha`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ baseUrl, accessToken }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Failed to configure HA: ${res.statusText}`);
+  }
+}
+
+export async function testHaConnection(): Promise<TestHaConnectionResponse> {
+  const res = await fetch(`${BASE}/setup/test-ha-connection`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to test connection: ${res.statusText}`);
+  return res.json();
+}
+
+export async function generateHaKey(): Promise<GenerateKeyResponse> {
+  const res = await fetch(`${BASE}/setup/generate-ha-key`, { method: 'POST' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Failed to generate HA key: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function fetchHaStatus(): Promise<HaStatusResponse> {
+  const res = await fetch(`${BASE}/setup/ha-status`);
+  if (!res.ok) throw new Error(`Failed to fetch HA status: ${res.statusText}`);
+  return res.json();
+}
+
+export async function completeSetup(): Promise<void> {
+  const res = await fetch(`${BASE}/setup/complete`, { method: 'POST' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Failed to complete setup: ${res.statusText}`);
+  }
+}
+
+// ── API Key Management API ───────────────────────────────────────
+
+export interface ApiKeySummary {
+  id: string;
+  keyPrefix: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  isRevoked: boolean;
+  revokedAt: string | null;
+  scopes: string[];
+}
+
+export async function fetchApiKeys(): Promise<ApiKeySummary[]> {
+  const res = await fetch(`${BASE}/keys`);
+  if (!res.ok) throw new Error(`Failed to fetch API keys: ${res.statusText}`);
+  return res.json();
+}
+
+export async function createApiKey(name: string): Promise<GenerateKeyResponse & { id: string }> {
+  const res = await fetch(`${BASE}/keys`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error(`Failed to create key: ${res.statusText}`);
+  return res.json();
+}
+
+export async function revokeApiKey(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/keys/${id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Failed to revoke key: ${res.statusText}`);
+  }
+}
+
+export async function regenerateApiKey(id: string): Promise<GenerateKeyResponse & { id: string }> {
+  const res = await fetch(`${BASE}/keys/${id}/regenerate`, { method: 'POST' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Failed to regenerate key: ${res.statusText}`);
+  }
+  return res.json();
+}
 
 export async function fetchPromptCacheEntries() {
   const res = await fetch(`${BASE}/prompt-cache`);
