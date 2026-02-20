@@ -179,6 +179,8 @@ See our [Roadmap](https://github.com/seiggy/lucia-dotnet/blob/master/.docs/produ
 
 This release represents a major milestone for Lucia, bringing the autonomous home assistant from concept to working reality. Named after the Nordic sun goddess who brings light through darkness, this release illuminates your smart home with AI-powered agent automation.
 
+> Correction (2026-02-20): references in this historical section to `lucia.HomeAssistant.SourceGenerator` reflect the 2025.10 state. Current runtime uses the hand-written `lucia.HomeAssistant/Services/HomeAssistantClient.cs` implementation.
+
 ## ✨ What's New
 
 ### 🏠 Home Assistant Integration (Complete)
@@ -287,14 +289,14 @@ This release represents a major milestone for Lucia, bringing the autonomous hom
 - **lucia.AgentHost**: Main agent hosting API (ASP.NET Core)
 - **lucia.Agents**: Agent implementations and skills
 - **lucia.HomeAssistant**: Home Assistant API client library
-- **lucia.HomeAssistant.SourceGenerator**: Roslyn-based API code generation
+- **Home Assistant client generation**: Historical at this release point; now replaced by hand-written client implementation
 - **lucia.AppHost**: .NET Aspire orchestration
 - **lucia.ServiceDefaults**: Shared service configurations
 - **lucia.Tests**: Comprehensive test suite
 - **custom_components/lucia**: Home Assistant Python integration
 
 #### Code Quality
-- **Source Generators**: Automatic Home Assistant API client generation
+- **Home Assistant client**: Hand-written, type-safe API implementation
 - **Dependency Injection**: Full DI throughout the application
 - **Async/Await**: Proper async patterns everywhere
 - **Error Handling**: Comprehensive exception handling with logging
@@ -510,7 +512,7 @@ cp -r custom_components/lucia /path/to/homeassistant/custom_components/
 - **Repository**: https://github.com/seiggy/lucia-dotnet
 - **Issues**: https://github.com/seiggy/lucia-dotnet/issues
 - **Discussions**: https://github.com/seiggy/lucia-dotnet/discussions
-- **Documentation**: https://github.com/seiggy/lucia-dotnet/wiki *(coming soon)*
+- **Documentation**: https://github.com/seiggy/lucia-dotnet/wiki
 
 ## 📄 License
 

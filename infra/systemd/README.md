@@ -253,7 +253,7 @@ HomeAssistant__AccessToken=eyJ0eXAiOiJKV1QiLCJhbGciOi...
 OpenAI__ApiKey=sk-proj-abc123...
 OpenAI__BaseUrl=https://api.openai.com/v1
 OpenAI__ModelId=gpt-4o
-OpenAI__EmbeddingModelId=text-embedding-3-small
+OpenAI__EmbeddingModelId=TextEmbedding3Large
 
 # Redis (default values usually work)
 Redis__ConnectionString=localhost:6379
@@ -268,7 +268,7 @@ Redis__Password=
 OpenAI__ApiKey=sk-proj-YOUR_KEY
 OpenAI__BaseUrl=https://api.openai.com/v1
 OpenAI__ModelId=gpt-4o
-OpenAI__EmbeddingModelId=text-embedding-3-small
+OpenAI__EmbeddingModelId=TextEmbedding3Large
 ```
 
 **Ollama (Local):**

@@ -11,8 +11,11 @@ Auto-generated from all feature plans. Last updated: 2025-10-13
 
 ```
 lucia-dotnet/
-├── lucia.AgentHost/           # ASP.NET Core Web API hosting orchestrated AI agents
+├── lucia.AgentHost/           # ASP.NET Core minimal API host for orchestrated AI agents
 │   ├── Extensions/
+│   └── Program.cs
+├── lucia.A2AHost/             # ASP.NET Core minimal API host for A2A-facing endpoints
+│   ├── AgentRegistry/
 │   └── Program.cs
 ├── lucia.Agents/              # Domain-specific agent implementations
 │   ├── Agents/
@@ -31,10 +34,14 @@ lucia-dotnet/
 
 ```powershell
 # Build solution
-dotnet build lucia-dotnet.sln
+dotnet build lucia-dotnet.slnx
 
 # Run AppHost (starts all services with Aspire)
 dotnet run --project lucia.AppHost
+
+# Run hosts directly when needed
+dotnet run --project lucia.AgentHost
+dotnet run --project lucia.A2AHost
 
 # Run tests
 dotnet test

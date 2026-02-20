@@ -8,7 +8,7 @@
 [![Agent Framework](https://img.shields.io/badge/Agent%20Framework-1.0.0-blue)](https://learn.microsoft.com/agent-framework/)
 [![License](https://img.shields.io/github/license/seiggy/lucia-dotnet)](LICENSE)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Compatible-41BDF5)](https://www.home-assistant.io/)
-![Latest Version](https://img.shields.io/badge/v2025.11.09-cornflowerblue?logo=homeassistantcommunitystore&label=Release)
+![Latest Version](https://img.shields.io/badge/v2026.02.20-cornflowerblue?logo=homeassistantcommunitystore&label=Release)
 
 Lucia *(pronounced LOO-sha)* is an open-source, privacy-focused AI assistant that serves as a complete replacement for Amazon Alexa and Google Home. Built on the [Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/) with a multi-agent architecture, Lucia provides autonomous whole-home automation management through deep integration with Home Assistant.
 
@@ -180,8 +180,6 @@ lucia-dotnet/
 │   ├── Models/               # HA data models
 │   ├── Services/             # HA API services
 │   └── Configuration/        # Client configuration
-├── lucia.HomeAssistant.SourceGenerator/  # Roslyn code generator for HA API
-│   └── HomeAssistantApiGenerator.cs
 ├── lucia.ServiceDefaults/     # Shared services and configuration
 │   └── Extensions.cs         # Common service extensions
 ├── lucia.Tests/               # Unit and integration tests
@@ -220,7 +218,7 @@ Configure agents in `appsettings.Development.json`:
   "OpenAI": {
     "ApiKey": "your-openai-api-key",
     "ModelId": "gpt-4o",
-    "EmbeddingModelId": "text-embedding-3-small"
+    "EmbeddingModelId": "TextEmbedding3Large"
   },
   "A2A": {
     "ProtocolVersion": "0.3.0",
@@ -354,7 +352,7 @@ Content-Type: application/json
 
 ```bash
 # Build the entire solution
-dotnet build lucia-dotnet.sln
+dotnet build lucia-dotnet.slnx
 
 # Run tests
 dotnet test
@@ -364,6 +362,9 @@ dotnet watch --project lucia.AgentHost
 
 # Run with Aspire (recommended for development)
 dotnet run --project lucia.AppHost
+
+# Optional: run AgentHost directly for host-only debugging
+dotnet run --project lucia.AgentHost
 ```
 
 ### Testing the Integration
@@ -590,7 +591,7 @@ public class ClimateControlSkill
 docker build -f lucia.AgentHost/Dockerfile -t lucia-agent:latest .
 ```
 
-### Docker Compose (Coming Soon)
+### Docker Compose
 
 ```yaml
 version: '3.8'
@@ -608,7 +609,7 @@ services:
     restart: unless-stopped
 ```
 
-### Kubernetes Deployment (Planned)
+### Kubernetes Deployment
 
 ```bash
 # Deploy to Kubernetes cluster
@@ -617,7 +618,7 @@ kubectl apply -f k8s/lucia-deployment.yaml
 kubectl apply -f k8s/lucia-service.yaml
 ```
 
-Helm charts are planned for Phase 4.
+Kubernetes manifests and Helm charts are maintained under `infra/kubernetes`.
 
 ## 📊 Monitoring and Observability
 
@@ -636,7 +637,7 @@ Lucia includes OpenTelemetry instrumentation for comprehensive observability:
 - LLM provider request/response timing
 
 ### Logs
-- Structured logging with Serilog
+- Structured application logging via Microsoft.Extensions.Logging with OpenTelemetry integration
 - Correlation IDs for request tracking
 - Agent-specific log filtering
 - Integration with Home Assistant logs
@@ -742,7 +743,7 @@ We welcome contributions! Whether you're fixing bugs, adding features, or improv
 - 🧪 Test coverage improvements
 - 🌐 Internationalization (i18n)
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines (coming soon).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ## 📄 License
 
@@ -762,7 +763,7 @@ Special thanks to the Home Assistant community for inspiration and the countless
 
 ## 📞 Support and Community
 
-- **📖 Documentation**: [Wiki](https://github.com/seiggy/lucia-dotnet/wiki) *(coming soon)*
+- **📖 Documentation**: [Wiki](https://github.com/seiggy/lucia-dotnet/wiki)
 - **🐛 Bug Reports**: [GitHub Issues](https://github.com/seiggy/lucia-dotnet/issues)
 - **💬 Discussions**: [GitHub Discussions](https://github.com/seiggy/lucia-dotnet/discussions)
 - **🏠 Home Assistant**: [Community Forum](https://community.home-assistant.io/)
