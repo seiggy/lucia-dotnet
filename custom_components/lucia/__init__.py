@@ -111,10 +111,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             agent_relative_url = agent_card.get("url", "")
 
             # Convert relative URL to absolute
-            if agent_relative_url.startswith("/"):
+            if agent_relative_url.startswith(("http://", "https://")):
+                agent_url = agent_relative_url
+            elif agent_relative_url.startswith("/"):
                 agent_url = f"{repository}{agent_relative_url}"
             else:
-                agent_url = agent_relative_url
+                # Fallback: relative path or placeholder like "unknown/agent"
+                agent_url = f"{repository}/{agent_relative_url.lstrip('/')}"
 
             _LOGGER.info(
                 "Using agent: %s (version: %s) at %s",
@@ -193,7 +196,8 @@ async def _validate_lucia_connection(
     Success causes the Lucia dashboard setup wizard to show a green checkmark.
     """
     try:
-        instance_id = await hass.helpers.instance_id.async_get()
+        from homeassistant.helpers.instance_id import async_get as async_get_instance_id
+        instance_id = await async_get_instance_id(hass)
         validate_url = f"{repository}/api/setup/validate-ha-connection"
         response = await client.post(
             validate_url,
