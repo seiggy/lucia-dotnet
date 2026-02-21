@@ -1,0 +1,6 @@
+@lucia.A2AHost_HostAddress = http://localhost:5297
+
+GET {{lucia.A2AHost_HostAddress}}/.well-known/agent-card.json
+Accept: application/json
+
+###

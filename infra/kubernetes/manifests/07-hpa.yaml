@@ -20,7 +20,7 @@ spec:
         target:
           type: Utilization
           averageUtilization: 70
-    
+
     # Memory-based scaling
     - type: Resource
       resource:
@@ -28,7 +28,7 @@ spec:
         target:
           type: Utilization
           averageUtilization: 80
-  
+
   # Scaling behavior
   behavior:
     scaleDown:

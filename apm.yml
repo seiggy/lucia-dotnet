@@ -1,0 +1,14 @@
+name: lucia-dotnet
+version: 1.0.0
+description: APM project for lucia-dotnet
+author: 
+license: 
+target: 
+type: 
+dependencies:
+  apm:
+  - https://github.com/Aaronontheweb/dotnet-skills
+  mcp: []
+scripts: {}
+compilation: 
+servers: 

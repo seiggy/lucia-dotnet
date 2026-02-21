@@ -5,7 +5,7 @@ namespace lucia.Agents.Models;
 /// <summary>
 /// Represents a cached light entity with search capabilities
 /// </summary>
-public class LightEntity
+public sealed class LightEntity
 {
     public string EntityId { get; set; } = string.Empty;
     public string FriendlyName { get; set; } = string.Empty;

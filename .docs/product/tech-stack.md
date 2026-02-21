@@ -1,34 +1,34 @@
 # Technical Stack
 
-> Last Updated: 2025-08-06
-> Version: 1.0.0
+> Last Updated: 2026-02-20
+> Version: 1.1.0
 
 ## Core Technologies
 
 ### Application Framework
 - **Framework:** ASP.NET Core Web API
-- **Version:** .NET 9
+- **Version:** .NET 10
 - **Language:** C# 13 with nullable reference types
 
 ### AI/ML Framework
-- **Primary:** Microsoft Semantic Kernel
-- **Version:** 1.61.0
+- **Primary:** [Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/)
+- **Version:** 1.0.0
 - **Orchestration:** MagenticOne multi-agent pattern
 
 ### Database
-- **Primary:** In-Memory (current) / PostgreSQL (planned)
-- **Version:** PostgreSQL 17+ (planned)
-- **ORM:** Entity Framework Core (planned)
+- **Primary:** Redis + MongoDB (runtime)
+- **Runtime Usage:** Redis for session/task persistence; MongoDB for traces, config overrides, and task records
+- **Storage:** MongoDB databases `luciatraces`, `luciaconfig`, `luciatasks`
 
 ## Agent Stack
 
 ### LLM Providers
 - **Online:** OpenAI (GPT-4o), Google Gemini, Anthropic Claude
 - **Offline:** LLaMa and local models (planned)
-- **Embeddings:** text-embedding-3-small (OpenAI)
+- **Embeddings:** TextEmbedding3Large (runtime deployment)
 
-### Agent Framework
-- **Core:** Semantic Kernel Agents
+### Agent Runtime
+- **Core:** Microsoft Agent Framework Agents
 - **Communication:** A2A (Agent-to-Agent) Protocol
 - **Registry:** Custom agent registry with HTTP API
 
@@ -39,7 +39,7 @@
 - **Framework:** Home Assistant Custom Component
 - **API Client:** aiohttp for async HTTP
 
-### Management UI (Planned)
+### Management UI (Implemented, Evolving)
 - **Framework:** React
 - **Version:** Latest stable
 - **Build Tool:** Vite
@@ -53,7 +53,7 @@
 
 ### Cloud-Native Framework
 - **Platform:** .NET Aspire
-- **Version:** 9.4.0
+- **Version:** 13.1.1
 - **Features:** Service discovery, resilience, observability
 
 ### Observability
@@ -64,7 +64,7 @@
 ## Home Assistant Integration
 
 ### API Integration
-- **REST API:** Strongly-typed client via Roslyn source generators
+- **REST API:** Hand-written strongly-typed `HomeAssistantClient`
 - **WebSocket:** Real-time event streaming (planned)
 - **LLM API:** Home Assistant LLM integration endpoint
 - **Conversation API:** Natural language processing
@@ -75,9 +75,9 @@
 
 ## Development Tools
 
-### Source Generation
-- **Tool:** C# Roslyn Source Generators
-- **Purpose:** Generate type-safe Home Assistant API clients
+### Home Assistant Client Implementation
+- **Approach:** Hand-written typed client in `lucia.HomeAssistant/Services`
+- **Contract:** `IHomeAssistantClient` abstraction for integration usage
 
 ### Testing
 - **Framework:** xUnit
@@ -105,6 +105,6 @@
 - **Secrets:** User Secrets (dev) / Kubernetes Secrets (prod)
 
 ## Code Repository
-- **URL:** https://github.com/seiggy/jarvis-dotnet
+- **URL:** https://github.com/seiggy/lucia-dotnet
 - **Structure:** Monorepo with multiple projects
 - **Version Control:** Git with conventional commits

@@ -27,7 +27,7 @@ public class HomeAssistantClientConfigurationTests
         // Assert
         var client = serviceProvider.GetService<IHomeAssistantClient>();
         Assert.NotNull(client);
-        Assert.IsType<GeneratedHomeAssistantClient>(client);
+        Assert.IsType<HomeAssistantClient>(client);
 
         var options = serviceProvider.GetRequiredService<IOptions<HomeAssistantOptions>>();
         Assert.Equal("http://homeassistant.local:8123", options.Value.BaseUrl);
@@ -45,7 +45,7 @@ public class HomeAssistantClientConfigurationTests
         // Assert
         Assert.Equal(string.Empty, options.BaseUrl);
         Assert.Equal(string.Empty, options.AccessToken);
-        Assert.Equal(30, options.TimeoutSeconds);
+        Assert.Equal(60, options.TimeoutSeconds);
         Assert.True(options.ValidateSSL);
     }
 

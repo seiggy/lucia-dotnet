@@ -58,7 +58,7 @@ This document provides the authoritative reference for all configuration options
 - **Allowed values**: `true`, `false`
 - **Default**: `true`
 - **Example**: `LUCIA_ENABLE_TELEMETRY=true`
-- **Used by**: Agent Framework, Semantic Kernel, application spans
+- **Used by**: Agent Framework components and application spans
 - **Impact**: Disabling reduces overhead but loses observability
 
 ---

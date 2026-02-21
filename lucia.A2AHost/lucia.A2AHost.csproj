@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <UserSecretsId>7097d695-2b18-483f-88f1-0919262bfeff</UserSecretsId>
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Aspire.MongoDB.Driver" />
+    <PackageReference Include="Aspire.StackExchange.Redis" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" />
+    <PackageReference Include="A2A" />
+    <PackageReference Include="A2A.AspNetCore" />
+    <PackageReference Include="Scalar.AspNetCore" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\lucia.Agents\lucia.Agents.csproj" />
+    <ProjectReference Include="..\lucia.ServiceDefaults\lucia.ServiceDefaults.csproj" />
+  </ItemGroup>
+</Project>

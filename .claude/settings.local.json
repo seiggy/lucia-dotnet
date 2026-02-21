@@ -56,14 +56,16 @@
       "Read(/D:\\github\\zembrosoft\\.playwright-mcp/**)",
       "Bash(dir \"D:\\github\\zembrosoft\\BacchusPOS.Shared\\Components\\Dialogs\")",
       "mcp__playwright__browser_press_key",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(npx tsc:*)"
     ],
     "deny": []
   },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "sequential-thinking",
     "context7",
-    "memory"
-  ],
-  "enableAllProjectMcpServers": true
+    "memory",
+    "playwright"
+  ]
 }

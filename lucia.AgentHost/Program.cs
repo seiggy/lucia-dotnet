@@ -1,22 +1,35 @@
-using Asp.Versioning;
-using lucia.AgentHost;
+using lucia.AgentHost.Auth;
 using lucia.AgentHost.Extensions;
-using lucia.Agents.Agents;
+using lucia.Agents.Auth;
+using lucia.Agents.Configuration;
 using lucia.Agents.Extensions;
 using lucia.Agents.Orchestration;
-using lucia.Agents.Skills;
-using lucia.HomeAssistant.Configuration;
-using Microsoft.Agents.AI.A2A;
-using Microsoft.Agents.AI.Hosting;
-using Microsoft.Agents.AI.Hosting.A2A.AspNetCore;
+using lucia.Agents.Training;
+using lucia.Agents.Services;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.HttpOverrides;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+builder.Services.AddAntiforgery();
 builder.AddRedisClient(connectionName: "redis");
 
+// Register prompt cache services
+builder.Services.AddSingleton<IPromptCacheService, RedisPromptCacheService>();
+
+// MongoDB for trace capture
+builder.AddMongoDBClient(connectionName: "luciatraces");
+
+// MongoDB for configuration (shared across services)
+builder.AddMongoDBClient(connectionName: "luciaconfig");
+
+// MongoDB for task archive
+builder.AddMongoDBClient(connectionName: "luciatasks");
+
+// Add MongoDB configuration as highest-priority source (overrides appsettings)
+builder.Configuration.AddMongoConfiguration("luciaconfig");
 
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
@@ -26,30 +39,63 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.AddChatClient("chat-model");
+builder.AddChatClient("chat");
+builder.AddEmbeddingsClient("embeddings");
+
+// Register additional model deployments as keyed IChatClient services
+builder.AddKeyedChatClient("phi4");
+builder.AddKeyedChatClient("gpt-5-nano");
 
 // Add Lucia multi-agent system
 builder.AddLuciaAgents();
 
-builder.Services.AddProblemDetails();
+// Trace capture services
+builder.Services.Configure<TraceCaptureOptions>(
+    builder.Configuration.GetSection(TraceCaptureOptions.SectionName));
+builder.Services.AddSingleton<ITraceRepository, MongoTraceRepository>();
+builder.Services.AddSingleton<IOrchestratorObserver, TraceCaptureObserver>();
+builder.Services.AddHostedService<TraceRetentionService>();
 
-builder.Services.AddApiVersioning(options =>
-{
-    options.DefaultApiVersion = new ApiVersion(1, 0);
-    options.AssumeDefaultVersionWhenUnspecified = true;
-    options.ReportApiVersions = true;
-    options.ApiVersionReader = ApiVersionReader.Combine(
-        new QueryStringApiVersionReader("api-version"),
-        new HeaderApiVersionReader("api-version"),
-        new UrlSegmentApiVersionReader()
-    );
-});
+// Task archive services
+builder.Services.Configure<TaskArchiveOptions>(
+    builder.Configuration.GetSection(TaskArchiveOptions.SectionName));
+builder.Services.AddSingleton<ITaskArchiveStore, MongoTaskArchiveStore>();
+builder.Services.AddHostedService<TaskArchivalService>();
+
+// Configuration seeder — copies appsettings to MongoDB on first run
+builder.Services.AddHostedService<ConfigSeeder>();
+
+// API key authentication
+builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection(AuthOptions.SectionName));
+builder.Services.AddSingleton<IApiKeyService, MongoApiKeyService>();
+builder.Services.AddSingleton<ISessionService, HmacSessionService>();
+builder.Services.AddSingleton<ConfigStoreWriter>();
+
+builder.Services.AddAuthentication(AuthOptions.AuthenticationScheme)
+    .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(
+        AuthOptions.AuthenticationScheme, _ => { });
+builder.Services.AddAuthorization();
+
+builder.Services.AddHttpClient("AgentProxy");
+
+builder.Services.AddProblemDetails();
 
 builder.Services.AddOpenApi();
 
-var app = builder.Build();
+// CORS for dashboard dev server
+var corsOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+    ?? ["http://localhost:5173"];
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("Dashboard", policy =>
+    {
+        policy.WithOrigins(corsOrigins)
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
 
-app.MapDefaultEndpoints();
+var app = builder.Build();
 
 app.MapOpenApi()
     .CacheOutput();
@@ -57,6 +103,15 @@ app.MapOpenApi()
 app.MapScalarApiReference();
 
 app.UseForwardedHeaders();
+app.UseAntiforgery();
+app.UseCors("Dashboard");
+app.UseStaticFiles();
+
+// Onboarding: redirect to /setup if first-run
+app.UseMiddleware<OnboardingMiddleware>();
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 if (!app.Environment.IsDevelopment())
 {
@@ -66,8 +121,24 @@ if (!app.Environment.IsDevelopment())
 else
 {
     app.UseDeveloperExceptionPage();
-    //app.UseHttpsRedirection(); // prevents having to deal with cert issues from the server.
 }
+app.MapAuthApi();
+app.MapSetupApi();
+app.MapApiKeyManagementApi();
+app.MapAgentRegistryApiV1();
+app.MapAgentProxyApi();
 app.MapAgentDiscovery();
+app.MapTraceManagementApi();
+app.MapDatasetExportApi();
+app.MapConfigurationApi();
+app.MapPromptCacheApi();
+app.MapTaskManagementApi();
+app.MapDefaultEndpoints();
+
+// SPA hosting: serve React dashboard assets in production
+if (!app.Environment.IsDevelopment())
+{
+    app.MapFallbackToFile("index.html");
+}
 
 app.Run();

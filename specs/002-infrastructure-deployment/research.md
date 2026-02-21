@@ -12,7 +12,7 @@ This document contains research findings for all infrastructure deployment metho
 
 ### Decision
 
-Use multi-stage Dockerfile with SDK image for build and runtime-deps image for final container, optimized for .NET 10 RC1 with layer caching and security hardening.
+Use multi-stage Dockerfile with SDK image for build and runtime-deps image for final container, optimized for .NET 10 with layer caching and security hardening.
 
 ### Rationale
 

@@ -1,6 +1,6 @@
 # Lucia Home Assistant Integration
 
-This custom component integrates the Lucia AI agent system with Home Assistant, providing natural language conversation capabilities powered by the A2A (Agent-to-Agent) protocol.
+This custom component integrates the Lucia AI agent system with Home Assistant, providing natural language conversation capabilities over Lucia's A2A/JSON-RPC message interface.
 
 ## Features
 
@@ -19,17 +19,29 @@ This custom component integrates the Lucia AI agent system with Home Assistant, 
 3. Go to Settings → Devices & Services → Add Integration
 4. Search for "Lucia Home Agent" and follow the setup flow
 
-### HACS Installation (Coming Soon)
+### HACS Installation
 
-This integration will be available through HACS in the future.
+Install via HACS as a custom repository:
+
+1. In Home Assistant, open HACS → Integrations
+2. Open the menu (⋮) → Custom repositories
+3. Add `https://github.com/seiggy/lucia-dotnet` as category **Integration**
+4. Install **Lucia** and restart Home Assistant
 
 ## Configuration
 
 ### Initial Setup
 
+Start Lucia with AppHost first (recommended):
+
+```bash
+dotnet build lucia-dotnet.slnx
+dotnet run --project lucia.AppHost
+```
+
 When adding the integration, you'll need to provide:
 
-- **Agent Repository URL**: The URL of your Lucia agent (e.g., `http://localhost:5211`)
+- **Agent Repository URL**: The base URL exposing Lucia's `/agents` catalog (for example, the URL shown for `lucia-agenthost` in the Aspire dashboard)
 - **API Key**: The API key for authenticating with your Lucia agent
 
 ### Options
@@ -48,6 +60,7 @@ Once configured, Lucia appears as a conversation agent in Home Assistant. You ca
 1. Select Lucia as your preferred conversation agent in Assist settings
 2. Use voice commands through Home Assistant Assist
 3. Type messages in the Assist chat interface
+4. Change selected agents in integration options without re-adding the integration
 
 ### Services
 
@@ -91,6 +104,7 @@ If the agent connects but doesn't respond properly:
 1. Check the Lucia agent logs for errors
 2. Verify the agent card is properly configured
 3. Ensure the A2A protocol is correctly implemented
+4. Confirm `/agents` is reachable from Home Assistant and returns a catalog
 
 ## Development
 

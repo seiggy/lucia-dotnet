@@ -1,10 +1,10 @@
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
-using lucia.HomeAssistant.Configuration;
+using FakeItEasy;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
-using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging;
 
 namespace lucia.Tests;
 
@@ -64,18 +64,15 @@ public sealed class HomeAssistantTemplateClientTests
 
         Assert.NotNull(capturedRequest);
         Assert.Equal(jinjaTemplate, capturedRequest!.Template);
-    }    private static GeneratedHomeAssistantClient CreateClient(HttpMessageHandler handler)
+    }    private static HomeAssistantClient CreateClient(HttpMessageHandler handler)
     {
         var httpClient = new HttpClient(handler);
-        var options = Options.Create(new HomeAssistantOptions
-        {
-            BaseUrl = "http://localhost:8123",
-            AccessToken = "test-token",
-            TimeoutSeconds = 30,
-            ValidateSSL = false
-        });
+        httpClient.BaseAddress = new Uri("http://localhost:8123");
+        httpClient.DefaultRequestHeaders.Add("Authorization", "Bearer test-token");
+        httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
+        httpClient.Timeout = TimeSpan.FromSeconds(30);
 
-        return new GeneratedHomeAssistantClient(httpClient, options);
+        return new HomeAssistantClient(httpClient, A.Fake<ILogger<HomeAssistantClient>>());
     }
 
     private static async Task<TemplateRenderRequest> DeserializeRequestAsync(HttpRequestMessage request)

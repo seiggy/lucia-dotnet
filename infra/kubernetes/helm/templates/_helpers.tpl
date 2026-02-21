@@ -79,6 +79,17 @@ Returns "hostname" or "hostname.namespace.svc.cluster.local" depending on contex
 {{- end }}
 
 {{/*
+MongoDB host for ConfigMap and connection strings.
+*/}}
+{{- define "lucia.mongodb.host" -}}
+{{- if .Values.mongodb.enabled }}
+{{- printf "%s-mongodb" (include "lucia.fullname" .) }}
+{{- else }}
+{{- .Values.mongodb.externalHost | default "mongodb" }}
+{{- end }}
+{{- end }}
+
+{{/*
 Format environment variables from map.
 Usage: {{ include "lucia.env" . }}
 */}}

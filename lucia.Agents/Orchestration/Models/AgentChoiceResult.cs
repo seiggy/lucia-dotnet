@@ -31,4 +31,12 @@ public sealed class AgentChoiceResult
     /// </summary>
     [JsonPropertyName("confidence")]
     public double Confidence { get; set; } = 1.0;
+
+    /// <summary>
+    /// Per-agent tailored instructions extracted from the original request.
+    /// Each entry maps an agent to its focused sub-prompt.
+    /// When present, the dispatcher sends each agent only its relevant instruction.
+    /// </summary>
+    [JsonPropertyName("agentInstructions")]
+    public List<AgentInstruction>? AgentInstructions { get; set; }
 }

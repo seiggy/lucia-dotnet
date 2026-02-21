@@ -3,11 +3,13 @@
 /workspace.xml
 # Rider ignored files
 /modules.xml
+/contentModel.xml
 /projectSettingsUpdater.xml
 /.idea.lucia-dotnet.iml
-/contentModel.xml
-# Editor-based HTTP Client requests
-/httpRequests/
+# Ignored default folder with query files
+/queries/
 # Datasource local storage ignored files
 /dataSources/
 /dataSources.local.xml
+# Editor-based HTTP Client requests
+/httpRequests/

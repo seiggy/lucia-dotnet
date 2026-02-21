@@ -2,10 +2,28 @@
 # Purpose: Create optimized production image for lucia.AgentHost service
 # 
 # Stages:
+#   - node-build: Build the React SPA dashboard with Node.js
 #   - base: ASP.NET 10.0 runtime base image with non-root user
 #   - build: Build the application with .NET SDK
 #   - publish: Publish optimized release build
 #   - final: Production image with health checks and security hardening
+
+# ============================================================================
+# Stage 0: Node.js Build Stage (React SPA Dashboard)
+# ============================================================================
+FROM node:22-alpine AS node-build
+
+WORKDIR /app
+
+# Copy package files first for dependency caching
+COPY lucia-dashboard/package*.json ./
+
+# Install dependencies (clean install for reproducible builds)
+RUN npm ci
+
+# Copy the rest of the dashboard source and build
+COPY lucia-dashboard/ ./
+RUN npm run build
 
 # ============================================================================
 # Stage 1: Base Runtime Image
@@ -101,6 +119,9 @@ ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false \
 
 # Copy published application from publish stage
 COPY --from=publish --chown=appuser:appuser /app/publish .
+
+# Copy built SPA dashboard into wwwroot for static file serving
+COPY --from=node-build --chown=appuser:appuser /app/dist ./wwwroot/
 
 # Switch to non-root user for runtime security
 USER appuser

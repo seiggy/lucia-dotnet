@@ -13,7 +13,7 @@ Provide comprehensive infrastructure deployment utilities and documentation enab
 
 **Language/Version**: 
 - Infrastructure: Docker (multi-stage builds), Docker Compose v3.8+, Kubernetes 1.28+, Bash/PowerShell scripts
-- Application: C# 13 / .NET 10 RC1 (existing)
+- Application: C# 13 / .NET 10 (existing)
 - Python: 3.12+ for Home Assistant component (existing)
 - CI/CD: GitHub Actions YAML workflows
 
@@ -272,7 +272,7 @@ No complexity tracking required for this feature.
 Based on the Technical Context section and Documentation-First Research principle, the following research must be completed before implementation:
 
 1. **Docker Multi-Stage Builds for .NET 10**
-   - Research optimal multi-stage Dockerfile patterns for .NET 10 RC1 applications
+   - Research optimal multi-stage Dockerfile patterns for .NET 10 applications
    - Layer caching strategies for faster rebuilds
    - Security hardening (non-root user, minimal base images)
    - Multi-platform builds (amd64, arm64)

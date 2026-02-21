@@ -12,6 +12,10 @@ on:
       - 'infra/**'
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   validate-docker:
     name: Validate Docker Files
@@ -32,7 +36,7 @@ jobs:
         run: |
           echo "Validating Docker Compose syntax..."
           mv .env.example .env  # Use example env for validation
-          docker-compose -f docker-compose.yml config > /dev/null
+          docker compose -f infra/docker/docker-compose.yml config > /dev/null
           echo "✅ Docker Compose files are valid"
 
       - name: Check Docker Compose structure
@@ -40,13 +44,13 @@ jobs:
           echo "Checking Docker Compose file structure..."
           
           # Check that lucia service exists
-          if ! grep -q 'lucia:' docker-compose.yml; then
+          if ! grep -q 'lucia:' infra/docker/docker-compose.yml; then
             echo "❌ lucia service not found in docker-compose.yml"
             exit 1
           fi
           
           # Check that redis service exists
-          if ! grep -q 'redis:' docker-compose.yml; then
+          if ! grep -q 'redis:' infra/docker/docker-compose.yml; then
             echo "❌ redis service not found in docker-compose.yml"
             exit 1
           fi
@@ -67,7 +71,7 @@ jobs:
           version: '3.13.0'
 
       - name: Install yamllint
-        run: pip install yamllint
+        run: pip install --break-system-packages yamllint
 
       - name: Lint YAML files
         run: |
@@ -106,11 +110,10 @@ jobs:
           echo "Checking for required Kubernetes resources..."
           
           REQUIRED_RESOURCES=(
-            "infra/kubernetes/manifests/namespace.yaml"
-            "infra/kubernetes/manifests/deployment.yaml"
-            "infra/kubernetes/manifests/service.yaml"
-            "infra/kubernetes/manifests/configmap.yaml"
-            "infra/kubernetes/manifests/secret.yaml"
+            "infra/kubernetes/manifests/00-namespace.yaml"
+            "infra/kubernetes/manifests/04-deployment.yaml"
+            "infra/kubernetes/manifests/01-configmap.yaml"
+            "infra/kubernetes/manifests/02-secret.yaml"
           )
           
           for resource in "${REQUIRED_RESOURCES[@]}"; do

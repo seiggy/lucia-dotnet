@@ -4,6 +4,7 @@ using A2A;
 using FakeItEasy;
 using lucia.Agents.Registry;
 using lucia.Agents.Services;
+using Microsoft.Extensions.Logging.Abstractions;
 using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -35,9 +36,10 @@ public sealed class ContextExtractorTests
     /// <summary>
     /// Creates a mock AgentRegistry with sample agents declaring domains via hashtags
     /// </summary>
-    private static AgentRegistry CreateMockAgentRegistry()
+    private static async Task<IAgentRegistry> CreateMockAgentRegistry()
     {
-        var registry = A.Fake<AgentRegistry>();
+        var nullLogger = new NullLogger<LocalAgentRegistry>();
+        var registry = new LocalAgentRegistry(nullLogger);
 
         var agents = new[]
         {
@@ -71,10 +73,10 @@ public sealed class ContextExtractorTests
             }
         };
 
-        A.CallTo(() => registry.GetAgentsAsync()).ReturnsLazily(() =>
+        foreach (var agent in agents)
         {
-            return GetAgentsAsync(agents);
-        });
+            await registry.RegisterAgentAsync(agent);
+        }
 
         return registry;
     }
@@ -95,7 +97,7 @@ public sealed class ContextExtractorTests
     public async Task ExtractMetadataAsync_WithBedroomLocation_ExtractsLocationCorrectly()
     {
         // Arrange
-        var registry = CreateMockAgentRegistry();
+        var registry = await CreateMockAgentRegistry();
         var extractor = new ContextExtractor(registry);
 
         var task = new AgentTask
@@ -120,7 +122,7 @@ public sealed class ContextExtractorTests
     public async Task ExtractMetadataAsync_WithKitchenLocation_ExtractsLocationCorrectly()
     {
         // Arrange
-        var registry = CreateMockAgentRegistry();
+        var registry = await CreateMockAgentRegistry();
         var extractor = new ContextExtractor(registry);
 
         var task = new AgentTask
@@ -144,7 +146,7 @@ public sealed class ContextExtractorTests
     public async Task ExtractMetadataAsync_WithLivingRoomLocation_ExtractsLocationCorrectly()
     {
         // Arrange
-        var registry = CreateMockAgentRegistry();
+        var registry = await CreateMockAgentRegistry();
         var extractor = new ContextExtractor(registry);
 
         var task = new AgentTask
@@ -167,7 +169,7 @@ public sealed class ContextExtractorTests
     public async Task ExtractMetadataAsync_WithMultipleLocations_ExtractsFirstLocation()
     {
         // Arrange
-        var registry = CreateMockAgentRegistry();
+        var registry = await CreateMockAgentRegistry();
         var extractor = new ContextExtractor(registry);
 
         var task = new AgentTask
@@ -192,7 +194,7 @@ public sealed class ContextExtractorTests
     public async Task ExtractMetadataAsync_WithMasterBedroom_ExtractsLocation()
     {
         // Arrange
-        var registry = CreateMockAgentRegistry();
+        var registry = await CreateMockAgentRegistry();
         var extractor = new ContextExtractor(registry);
 
         var task = new AgentTask
@@ -218,7 +220,7 @@ public sealed class ContextExtractorTests
     public async Task ExtractMetadataAsync_WithNoLocation_NoLocationMetadata()
     {
         // Arrange
-        var registry = CreateMockAgentRegistry();
+        var registry = await CreateMockAgentRegistry();
         var extractor = new ContextExtractor(registry);
 
         var task = new AgentTask
@@ -244,7 +246,7 @@ public sealed class ContextExtractorTests
     public async Task ExtractMetadataAsync_WithAgentIdInMetadata_ExtractsPreviousAgents()
     {
         // Arrange
-        var registry = CreateMockAgentRegistry();
+        var registry = await CreateMockAgentRegistry();
         var extractor = new ContextExtractor(registry);
 
         var messageMetadata = new Dictionary<string, JsonElement>
@@ -274,7 +276,7 @@ public sealed class ContextExtractorTests
     public async Task ExtractMetadataAsync_WithMultipleAgentsInHistory_ExtractsAllAgents()
     {
         // Arrange
-        var registry = CreateMockAgentRegistry();
+        var registry = await CreateMockAgentRegistry();
         var extractor = new ContextExtractor(registry);
 
         var lightMetadata = new Dictionary<string, JsonElement>
@@ -311,7 +313,7 @@ public sealed class ContextExtractorTests
     public async Task ExtractMetadataAsync_InferAgentFromContent_ExtractsAgentFromLighting()
     {
         // Arrange
-        var registry = CreateMockAgentRegistry();
+        var registry = await CreateMockAgentRegistry();
         var extractor = new ContextExtractor(registry);
 
         var task = new AgentTask
@@ -336,7 +338,7 @@ public sealed class ContextExtractorTests
     public async Task ExtractMetadataAsync_InferAgentFromContent_ExtractsAgentFromMusic()
     {
         // Arrange
-        var registry = CreateMockAgentRegistry();
+        var registry = await CreateMockAgentRegistry();
         var extractor = new ContextExtractor(registry);
 
         var task = new AgentTask
@@ -360,7 +362,7 @@ public sealed class ContextExtractorTests
     public async Task ExtractMetadataAsync_InferAgentFromContent_ExtractsAgentFromClimate()
     {
         // Arrange
-        var registry = CreateMockAgentRegistry();
+        var registry = await CreateMockAgentRegistry();
         var extractor = new ContextExtractor(registry);
 
         var task = new AgentTask
@@ -384,7 +386,7 @@ public sealed class ContextExtractorTests
     public async Task ExtractMetadataAsync_InferAgentFromContent_ExtractsAgentFromSecurity()
     {
         // Arrange
-        var registry = CreateMockAgentRegistry();
+        var registry = await CreateMockAgentRegistry();
         var extractor = new ContextExtractor(registry);
 
         var task = new AgentTask
@@ -412,7 +414,7 @@ public sealed class ContextExtractorTests
     public async Task ExtractMetadataAsync_WithLightingKeywords_ExtractsLightingDomain()
     {
         // Arrange
-        var registry = CreateMockAgentRegistry();
+        var registry = await CreateMockAgentRegistry();
         var extractor = new ContextExtractor(registry);
 
         var task = new AgentTask
@@ -440,7 +442,7 @@ public sealed class ContextExtractorTests
     public async Task ExtractMetadataAsync_WithMusicKeywords_ExtractsMusicDomain()
     {
         // Arrange
-        var registry = CreateMockAgentRegistry();
+        var registry = await CreateMockAgentRegistry();
         var extractor = new ContextExtractor(registry);
 
         var task = new AgentTask
@@ -468,7 +470,7 @@ public sealed class ContextExtractorTests
     public async Task ExtractMetadataAsync_WithClimateKeywords_ExtractsClimateDomain()
     {
         // Arrange
-        var registry = CreateMockAgentRegistry();
+        var registry = await CreateMockAgentRegistry();
         var extractor = new ContextExtractor(registry);
 
         var task = new AgentTask
@@ -496,7 +498,7 @@ public sealed class ContextExtractorTests
     public async Task ExtractMetadataAsync_WithSecurityKeywords_ExtractsSecurityDomain()
     {
         // Arrange
-        var registry = CreateMockAgentRegistry();
+        var registry = await CreateMockAgentRegistry();
         var extractor = new ContextExtractor(registry);
 
         var task = new AgentTask
@@ -524,7 +526,7 @@ public sealed class ContextExtractorTests
     public async Task ExtractMetadataAsync_WithKeywordScoring_SelectsBestScoringDomain()
     {
         // Arrange
-        var registry = CreateMockAgentRegistry();
+        var registry = await CreateMockAgentRegistry();
         var extractor = new ContextExtractor(registry);
 
         // "light" keyword appears 4 times, "music" appears 1 time
@@ -555,7 +557,7 @@ public sealed class ContextExtractorTests
     public async Task ExtractMetadataAsync_WithAmbiguousKeywords_ChoosesMusicOverLight()
     {
         // Arrange
-        var registry = CreateMockAgentRegistry();
+        var registry = await CreateMockAgentRegistry();
         var extractor = new ContextExtractor(registry);
 
         // Edge case: "light jazz" contains "light" but context is about music
@@ -590,7 +592,7 @@ public sealed class ContextExtractorTests
     public async Task ExtractMetadataAsync_WithEmptyHistory_ReturnsEmptyMetadata()
     {
         // Arrange
-        var registry = CreateMockAgentRegistry();
+        var registry = await CreateMockAgentRegistry();
         var extractor = new ContextExtractor(registry);
 
         var task = new AgentTask { History = new() };
@@ -606,7 +608,7 @@ public sealed class ContextExtractorTests
     public async Task ExtractMetadataAsync_WithNullHistory_ReturnsEmptyMetadata()
     {
         // Arrange
-        var registry = CreateMockAgentRegistry();
+        var registry = await CreateMockAgentRegistry();
         var extractor = new ContextExtractor(registry);
 
         var task = new AgentTask { History = null };
@@ -622,7 +624,7 @@ public sealed class ContextExtractorTests
     public async Task ExtractMetadataAsync_FullConversationFlow_ExtractsAllMetadata()
     {
         // Arrange
-        var registry = CreateMockAgentRegistry();
+        var registry = await CreateMockAgentRegistry();
         var extractor = new ContextExtractor(registry);
 
         var lightMetadata = new Dictionary<string, JsonElement>
@@ -657,7 +659,7 @@ public sealed class ContextExtractorTests
     public async Task ExtractMetadataAsync_SerializationRoundTrip_PreservesMetadata()
     {
         // Arrange
-        var registry = CreateMockAgentRegistry();
+        var registry = await CreateMockAgentRegistry();
         var extractor = new ContextExtractor(registry);
 
         var task = new AgentTask
@@ -687,7 +689,7 @@ public sealed class ContextExtractorTests
     public async Task ExtractMetadataAsync_WithMultipleTextParts_CombinesAllText()
     {
         // Arrange
-        var registry = CreateMockAgentRegistry();
+        var registry = await CreateMockAgentRegistry();
         var extractor = new ContextExtractor(registry);
 
         var message = new AgentMessage
