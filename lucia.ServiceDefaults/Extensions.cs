@@ -63,12 +63,20 @@ public static class Extensions
             {
                 metrics.AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
-                    .AddRuntimeInstrumentation();
+                    .AddRuntimeInstrumentation()
+                    .AddMeter("Lucia.TraceCapture")
+                    .AddMeter("Lucia.Skills.LightControl")
+                    .AddMeter("Lucia.Skills.MusicPlayback");
             })
             .WithTracing(tracing =>
             {
                 tracing.AddSource(builder.Environment.ApplicationName)
                     .AddSource("Lucia.Orchestration")
+                    .AddSource("Lucia.TraceCapture")
+                    .AddSource("Lucia.Agents.General")
+                    .AddSource("Lucia.Agents.Music")
+                    .AddSource("Lucia.Skills.LightControl")
+                    .AddSource("Lucia.Skills.MusicPlayback")
                     .AddSource("Microsoft.Agents.AI*")
                     .AddSource("A2A*")
                     .AddSource("Microsoft.Agents.AI.Hosting*")
@@ -158,19 +166,14 @@ public static class Extensions
 
     public static WebApplication MapDefaultEndpoints(this WebApplication app)
     {
-        // Adding health checks endpoints to applications in non-development environments has security implications.
-        // See https://aka.ms/dotnet/aspire/healthchecks for details before enabling these endpoints in non-development environments.
-        if (app.Environment.IsDevelopment())
-        {
-            // All health checks must pass for app to be considered ready to accept traffic after starting
-            app.MapHealthChecks(HealthEndpointPath);
+        // All health checks must pass for app to be considered ready to accept traffic after starting
+        app.MapHealthChecks(HealthEndpointPath);
 
-            // Only health checks tagged with the "live" tag must pass for app to be considered alive
-            app.MapHealthChecks(AlivenessEndpointPath, new HealthCheckOptions
-            {
-                Predicate = r => r.Tags.Contains("live")
-            });
-        }
+        // Only health checks tagged with the "live" tag must pass for app to be considered alive
+        app.MapHealthChecks(AlivenessEndpointPath, new HealthCheckOptions
+        {
+            Predicate = r => r.Tags.Contains("live")
+        });
 
         return app;
     }
@@ -196,7 +199,22 @@ public static class Extensions
     {
         try
         {
-            var payload = content.ReadAsStringAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+            // Buffer the content first so downstream code can still read it.
+            // LoadIntoBufferAsync is a no-op if already buffered.
+            content.LoadIntoBufferAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+
+            // Do NOT dispose the stream — it is owned by HttpContent and will be
+            // read again by downstream code (e.g. GetFromJsonAsync).
+            var stream = content.ReadAsStream();
+            using var reader = new StreamReader(stream, leaveOpen: true);
+            var payload = reader.ReadToEnd();
+
+            // Reset the stream position so downstream callers can re-read
+            if (stream.CanSeek)
+            {
+                stream.Position = 0;
+            }
+
             if (!string.IsNullOrWhiteSpace(payload))
             {
                 activity.SetTag(tagName, payload);

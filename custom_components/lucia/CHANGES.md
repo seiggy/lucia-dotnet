@@ -1,5 +1,7 @@
 # Home Assistant Integration Updates
 
+> Historical context: Entries below are kept as originally written. Any "coming soon" or "next steps" language in older notes reflects that point in time, not necessarily current capability. For current behavior and setup, use `custom_components/lucia/README.md`.
+
 
 # Release Notes - 2025.11.09
 

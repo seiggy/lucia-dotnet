@@ -52,7 +52,7 @@
 **Independent Test**: Run `docker compose up -d`, verify services healthy, access http://localhost:5000/health
 
 - [x] T007 [US1] Create multi-stage Dockerfile in /infra/docker/Dockerfile.agenthost with SDK build stage and ASP.NET runtime stage
-- [x] T008 [US1] Create production docker-compose.yml in /infra/docker/docker-compose.yml (root) with lucia and redis services
+- [x] T008 [US1] Create production docker-compose.yml in /infra/docker/docker-compose.yml with lucia and redis services
 - [x] T009 [US1] Create environment template in .env.example with all configuration variables
 - [x] T010 [US1] Create Docker deployment guide in /infra/docker/DEPLOYMENT.md with installation, configuration, troubleshooting
 - [x] T011 [US1] Create Docker testing guide in /infra/docker/TESTING.md with test procedures and debugging

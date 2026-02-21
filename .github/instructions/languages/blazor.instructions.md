@@ -21,7 +21,7 @@ applyTo: '**/*.razor, **/*.razor.cs, **/*.razor.css'
 - Utilize .NET for all Blazor project development.
 - Follow Blazor best practices for component design, architecture, and render modes.
 - Implement efficient state management techniques, including persistent state where appropriate.
-- Prioritize performance optimization leveraging .NET 9 features for both server and WASM scenarios.
+- Prioritize performance optimization leveraging .NET 10 features for both server and WASM scenarios.
 - Ensure security best practices are applied throughout the application.
 - Write comprehensive unit and integration tests for Blazor components.
 - Leverage new .NET features relevant to Blazor development for optimal outcomes.
@@ -300,7 +300,7 @@ but sparingly to avoid over-coupling.
 - Minimize and batch JS interop calls, using unmarshalled interop where beneficial.
 - Implement robust authentication, authorization, and error handling.
 - Write comprehensive tests using bUnit.
-- Stay informed about and leverage new .NET 9 Blazor features.
+- Stay informed about and leverage new .NET 10 Blazor features.
 - Follow official Microsoft Blazor documentation and community best practices.
 
 ## Troubleshooting:

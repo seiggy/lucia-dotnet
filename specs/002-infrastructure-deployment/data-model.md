@@ -168,7 +168,7 @@ Represents GitHub Actions CI/CD pipeline configuration.
 
 ```
 User
-  └─> docker-compose.yml (references .env)
+  └─> infra/docker/docker-compose.yml (references .env)
        ├─> lucia service (ApplicationConfiguration)
        │   └─> Dockerfile (build time)
        └─> redis service (RedisConfiguration)

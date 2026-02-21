@@ -6,7 +6,7 @@ using Xunit;
 namespace lucia.Tests.Models;
 
 /// <summary>
-/// Tests for AgentResponse model serialization and validation.
+/// Tests for OrchestratorAgentResponse model serialization and validation.
 /// </summary>
 public class AgentResponseTests : TestBase
 {
@@ -23,7 +23,7 @@ public class AgentResponseTests : TestBase
 
         // Act
         var json = JsonSerializer.Serialize(response);
-        var deserialized = JsonSerializer.Deserialize<AgentResponse>(json);
+        var deserialized = JsonSerializer.Deserialize<OrchestratorAgentResponse>(json);
 
         // Assert
         Assert.NotNull(deserialized);
@@ -46,7 +46,7 @@ public class AgentResponseTests : TestBase
 
         // Act
         var json = JsonSerializer.Serialize(response);
-        var deserialized = JsonSerializer.Deserialize<AgentResponse>(json);
+        var deserialized = JsonSerializer.Deserialize<OrchestratorAgentResponse>(json);
 
         // Assert
         Assert.NotNull(deserialized);
@@ -131,7 +131,7 @@ public class AgentResponseTests : TestBase
         """;
 
         // Act
-        var response = JsonSerializer.Deserialize<AgentResponse>(json);
+        var response = JsonSerializer.Deserialize<OrchestratorAgentResponse>(json);
 
         // Assert
         Assert.NotNull(response);

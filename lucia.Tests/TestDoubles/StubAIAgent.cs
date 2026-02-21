@@ -9,63 +9,67 @@ namespace lucia.Tests.TestDoubles;
 
 internal sealed class StubAIAgent : AIAgent
 {
-    private readonly Func<IEnumerable<ChatMessage>, AgentThread?, CancellationToken, Task<AgentRunResponse>> _runAsync;
-    private readonly Func<JsonElement, JsonSerializerOptions?, AgentThread>? _deserialize;
+    private readonly Func<IEnumerable<ChatMessage>, AgentSession?, CancellationToken, Task<AgentResponse>> _runAsync;
+    private readonly Func<JsonElement, JsonSerializerOptions?, AgentSession>? _deserialize;
 
     public StubAIAgent(
-        Func<IEnumerable<ChatMessage>, AgentThread?, CancellationToken, Task<AgentRunResponse>>? runAsync = null,
-        Func<JsonElement, JsonSerializerOptions?, AgentThread>? deserialize = null,
-        Func<AgentThread>? newThreadFactory = null,
+        Func<IEnumerable<ChatMessage>, AgentSession?, CancellationToken, Task<AgentResponse>>? runAsync = null,
+        Func<JsonElement, JsonSerializerOptions?, AgentSession>? deserialize = null,
+        Func<AgentSession>? newSessionFactory = null,
         string? id = null,
         string? name = null)
     {
-        _runAsync = runAsync ?? ((messages, thread, token) => Task.FromResult(new AgentRunResponse(new ChatMessage(ChatRole.Assistant, "ok"))));
+        _runAsync = runAsync ?? ((messages, session, token) => Task.FromResult(new AgentResponse(new ChatMessage(ChatRole.Assistant, "ok"))));
         _deserialize = deserialize;
-        GetNewThreadFactory = newThreadFactory ?? (() => new TestAgentThread());
+        CreateSessionFactory = newSessionFactory ?? (() => new TestAgentSession());
         OverrideId = id;
         OverrideName = name;
     }
 
-    public AgentThread? LastThread { get; private set; }
+    public AgentSession? LastSession { get; private set; }
 
     public IReadOnlyList<ChatMessage>? LastMessages { get; private set; }
 
     public CancellationToken LastCancellationToken { get; private set; }
 
-    public Func<AgentThread> GetNewThreadFactory { get; }
+    public Func<AgentSession> CreateSessionFactory { get; }
 
     public string? OverrideId { get; }
 
     public string? OverrideName { get; }
 
-    public override string Id => OverrideId ?? base.Id;
+    public new string Id => OverrideId ?? base.Id;
 
     public override string? Name => OverrideName ?? base.Name;
 
-    public override AgentThread GetNewThread() => GetNewThreadFactory();
+    protected override ValueTask<AgentSession> CreateSessionCoreAsync(CancellationToken cancellationToken = default) =>
+        new(CreateSessionFactory());
 
-    public override AgentThread DeserializeThread(JsonElement serializedThread, JsonSerializerOptions? jsonSerializerOptions = null)
+    protected override ValueTask<AgentSession> DeserializeSessionCoreAsync(JsonElement serializedSession, JsonSerializerOptions? jsonSerializerOptions = null, CancellationToken cancellationToken = default)
     {
         if (_deserialize is { } factory)
         {
-            return factory(serializedThread, jsonSerializerOptions);
+            return new(factory(serializedSession, jsonSerializerOptions));
         }
 
-        return new TestAgentThread();
+        return new(new TestAgentSession());
     }
 
-    public override Task<AgentRunResponse> RunAsync(IEnumerable<ChatMessage> messages, AgentThread? thread = null, AgentRunOptions? options = null, CancellationToken cancellationToken = default)
+    protected override ValueTask<JsonElement> SerializeSessionCoreAsync(AgentSession session, JsonSerializerOptions? jsonSerializerOptions = null, CancellationToken cancellationToken = default)
+        => default;
+
+    protected override Task<AgentResponse> RunCoreAsync(IEnumerable<ChatMessage> messages, AgentSession? session = null, AgentRunOptions? options = null, CancellationToken cancellationToken = default)
     {
         LastMessages = messages.ToList();
-        LastThread = thread;
+        LastSession = session;
         LastCancellationToken = cancellationToken;
-        return _runAsync(messages, thread, cancellationToken);
+        return _runAsync(messages, session, cancellationToken);
     }
 
-    public override IAsyncEnumerable<AgentRunResponseUpdate> RunStreamingAsync(IEnumerable<ChatMessage> messages, AgentThread? thread = null, AgentRunOptions? options = null, CancellationToken cancellationToken = default)
-        => AsyncEnumerable.Empty<AgentRunResponseUpdate>();
+    protected override IAsyncEnumerable<AgentResponseUpdate> RunCoreStreamingAsync(IEnumerable<ChatMessage> messages, AgentSession? session = null, AgentRunOptions? options = null, CancellationToken cancellationToken = default)
+        => AsyncEnumerable.Empty<AgentResponseUpdate>();
 
-    private sealed class TestAgentThread : AgentThread
+    private sealed class TestAgentSession : AgentSession
     {
     }
 }

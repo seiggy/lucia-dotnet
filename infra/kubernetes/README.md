@@ -88,7 +88,7 @@ infra/kubernetes/
 ## Deployment Methods Comparison
 
 | Feature | Helm | Raw Manifests |
-|---------|------|---------------|
+| ------- | ---- | ------------- |
 | **Learning Curve** | Moderate | Low |
 | **Flexibility** | Very High | High |
 | **Customization** | Template-driven | Direct editing |

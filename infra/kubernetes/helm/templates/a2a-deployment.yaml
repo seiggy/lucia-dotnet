@@ -1,0 +1,257 @@
+{{- /*
+Lucia A2A Agent Host Deployment Template
+
+This template defines Kubernetes Deployments for A2A plugin agents.
+Each agent runs as a separate Deployment with its own Service.
+Agents share the same base image but load different plugins via PLUGIN_DIRECTORY.
+*/ -}}
+
+{{- if .Values.a2aAgents.musicAgent.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "lucia.fullname" . }}-music-agent
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "lucia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: music-agent
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "lucia.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: music-agent
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "lucia.fullname" . }}-music-agent
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "lucia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: music-agent
+spec:
+  replicas: {{ .Values.a2aAgents.musicAgent.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "lucia.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: music-agent
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+      labels:
+        {{- include "lucia.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: music-agent
+        version: {{ .Chart.AppVersion | quote }}
+    spec:
+      # Init containers to wait for dependencies
+      initContainers:
+        - name: wait-for-redis
+          image: busybox:1.36
+          command:
+            - 'sh'
+            - '-c'
+            - |
+              echo "Waiting for Redis to be ready..."
+              for i in $(seq 1 60); do
+                if nc -z {{ include "lucia.redis.host" . }} {{ .Values.redis.service.port }}; then
+                  echo "Redis is ready"
+                  exit 0
+                fi
+                echo "Attempt $i: Redis not ready, retrying in 1 second..."
+                sleep 1
+              done
+              echo "Redis failed to become ready"
+              exit 1
+        {{- if .Values.mongodb.enabled }}
+        - name: wait-for-mongodb
+          image: busybox:1.36
+          command:
+            - 'sh'
+            - '-c'
+            - |
+              echo "Waiting for MongoDB to be ready..."
+              for i in $(seq 1 60); do
+                if nc -z {{ include "lucia.mongodb.host" . }} {{ .Values.mongodb.service.port }}; then
+                  echo "MongoDB is ready"
+                  exit 0
+                fi
+                echo "Attempt $i: MongoDB not ready, retrying in 1 second..."
+                sleep 1
+              done
+              echo "MongoDB failed to become ready"
+              exit 1
+        {{- end }}
+
+      containers:
+        - name: music-agent
+          image: "{{ .Values.a2aAgents.musicAgent.image.repository | default .Values.a2aAgents.image.repository }}:{{ .Values.a2aAgents.musicAgent.image.tag | default .Values.a2aAgents.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.a2aAgents.image.pullPolicy }}
+
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: {{ include "lucia.fullname" . }}
+            - secretRef:
+                name: {{ include "lucia.fullname" . }}
+
+          {{- with .Values.a2aAgents.musicAgent.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+{{- end }}
+
+{{- if .Values.a2aAgents.timerAgent.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "lucia.fullname" . }}-timer-agent
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "lucia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: timer-agent
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "lucia.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: timer-agent
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "lucia.fullname" . }}-timer-agent
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "lucia.labels" . | nindent 4 }}
+    app.kubernetes.io/component: timer-agent
+spec:
+  replicas: {{ .Values.a2aAgents.timerAgent.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "lucia.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: timer-agent
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+      labels:
+        {{- include "lucia.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: timer-agent
+        version: {{ .Chart.AppVersion | quote }}
+    spec:
+      # Init containers to wait for dependencies
+      initContainers:
+        - name: wait-for-redis
+          image: busybox:1.36
+          command:
+            - 'sh'
+            - '-c'
+            - |
+              echo "Waiting for Redis to be ready..."
+              for i in $(seq 1 60); do
+                if nc -z {{ include "lucia.redis.host" . }} {{ .Values.redis.service.port }}; then
+                  echo "Redis is ready"
+                  exit 0
+                fi
+                echo "Attempt $i: Redis not ready, retrying in 1 second..."
+                sleep 1
+              done
+              echo "Redis failed to become ready"
+              exit 1
+        {{- if .Values.mongodb.enabled }}
+        - name: wait-for-mongodb
+          image: busybox:1.36
+          command:
+            - 'sh'
+            - '-c'
+            - |
+              echo "Waiting for MongoDB to be ready..."
+              for i in $(seq 1 60); do
+                if nc -z {{ include "lucia.mongodb.host" . }} {{ .Values.mongodb.service.port }}; then
+                  echo "MongoDB is ready"
+                  exit 0
+                fi
+                echo "Attempt $i: MongoDB not ready, retrying in 1 second..."
+                sleep 1
+              done
+              echo "MongoDB failed to become ready"
+              exit 1
+        {{- end }}
+
+      containers:
+        - name: timer-agent
+          image: "{{ .Values.a2aAgents.timerAgent.image.repository | default .Values.a2aAgents.image.repository }}:{{ .Values.a2aAgents.timerAgent.image.tag | default .Values.a2aAgents.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.a2aAgents.image.pullPolicy }}
+
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: {{ include "lucia.fullname" . }}
+            - secretRef:
+                name: {{ include "lucia.fullname" . }}
+
+          {{- with .Values.a2aAgents.timerAgent.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+{{- end }}

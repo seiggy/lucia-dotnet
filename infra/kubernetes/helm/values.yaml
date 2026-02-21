@@ -219,6 +219,35 @@ redis:
     - "--loglevel"
     - "notice"
 
+## MongoDB Configuration
+mongodb:
+  enabled: true
+  image:
+    repository: docker.io/library/mongo
+    tag: "8.0"
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 27017
+    targetPort: 27017
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+  storage:
+    storageClassName: standard
+    size: 10Gi
+    enabled: true
+  podSecurityContext:
+    runAsNonRoot: false
+    fsGroup: 999
+  securityContext:
+    allowPrivilegeEscalation: false
+
 ## LLM Configuration (for ConfigMap and Secrets)
 llm:
   # Default LLM provider: openai, azureopenai, ollama, azureinference
@@ -245,6 +274,16 @@ homeAssistant:
   # Home Assistant API token
   apiToken: ""  # Set via --set or values override (will be in Secret)
 
+## Session Cache Configuration
+sessionCache:
+  sessionCacheLengthMinutes: 5
+  maxHistoryItems: 20
+
+## Trace Capture Configuration
+traceCapture:
+  enabled: true
+  retentionDays: 30
+
 ## Observability Configuration
 observability:
   # Enable OpenTelemetry
@@ -253,6 +292,43 @@ observability:
   traceExporter: "http://jaeger-collector:4317"
   # OpenTelemetry metrics exporter endpoint
   metricsExporter: "http://prometheus:8888"
+
+## A2A Agent Hosts Configuration (plugin agents)
+## Each agent is built from infra/docker/Dockerfile.a2ahost with a --target stage
+a2aAgents:
+  # Shared base image settings (used when agent doesn't override)
+  image:
+    repository: docker.io/seiggy/lucia-a2ahost
+    pullPolicy: IfNotPresent
+    tag: ""
+  musicAgent:
+    enabled: true
+    replicaCount: 1
+    # Override image for agent-specific container built with --target music-agent
+    image:
+      repository: docker.io/seiggy/lucia-music-agent
+      tag: ""
+    resources:
+      limits:
+        cpu: 500m
+        memory: 256Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+  timerAgent:
+    enabled: true
+    replicaCount: 1
+    # Override image for agent-specific container built with --target timer-agent
+    image:
+      repository: docker.io/seiggy/lucia-timer-agent
+      tag: ""
+    resources:
+      limits:
+        cpu: 500m
+        memory: 256Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
 
 ## Node selector for pod assignment
 nodeSelector: {}

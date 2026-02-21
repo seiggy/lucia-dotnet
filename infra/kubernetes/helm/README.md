@@ -118,6 +118,7 @@ helm install lucia . \
 #### Setting LLM Provider
 
 **OpenAI:**
+
 ```bash
 --set llm.provider=openai \
 --set llm.chatModel.endpoint="https://api.openai.com/v1" \
@@ -126,6 +127,7 @@ helm install lucia . \
 ```
 
 **Azure OpenAI:**
+
 ```bash
 --set llm.provider=azureopenai \
 --set llm.chatModel.endpoint="https://<instance>.openai.azure.com/" \
@@ -134,6 +136,7 @@ helm install lucia . \
 ```
 
 **Ollama (Local):**
+
 ```bash
 --set llm.provider=ollama \
 --set llm.chatModel.endpoint="http://ollama:11434" \
@@ -431,8 +434,8 @@ kubectl delete namespace lucia
 
 ## Support and Documentation
 
-- **GitHub Repository**: https://github.com/seiggy/lucia-dotnet
-- **Issues**: https://github.com/seiggy/lucia-dotnet/issues
+- **GitHub Repository**: <https://github.com/seiggy/lucia-dotnet>
+- **Issues**: <https://github.com/seiggy/lucia-dotnet/issues>
 - **Documentation**: See `/infra/kubernetes/README.md` for additional guides
 
 ## License

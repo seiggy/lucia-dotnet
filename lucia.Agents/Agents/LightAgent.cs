@@ -1,10 +1,13 @@
 using A2A;
+using lucia.Agents.Abstractions;
+using lucia.Agents.Orchestration;
 using lucia.Agents.Skills;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.A2A;
 using Microsoft.Agents.AI.Hosting;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -13,7 +16,7 @@ namespace lucia.Agents.Agents;
 /// <summary>
 /// Specialized agent for controlling lights in Home Assistant
 /// </summary>
-public class LightAgent
+public sealed class LightAgent : ILuciaAgent
 {
     private readonly AgentCard _agent;
     private readonly LightControlSkill _lightPlugin;
@@ -21,8 +24,18 @@ public class LightAgent
     private readonly TaskManager _taskManager;
     private readonly AIAgent _aiAgent;
 
+    /// <summary>
+    /// The system instructions used by this agent.
+    /// </summary>
+    public string Instructions { get; }
+
+    /// <summary>
+    /// The AI tools available to this agent.
+    /// </summary>
+    public IList<AITool> Tools { get; }
+
     public LightAgent(
-        IChatClient chatClient,
+        [FromKeyedServices(OrchestratorServiceKeys.LightModel)] IChatClient chatClient,
         LightControlSkill lightPlugin,
         ILoggerFactory loggerFactory)
     {
@@ -52,7 +65,7 @@ public class LightAgent
             Description = "Agent for controlling #lights and #lighting in Home Assistant",
             Capabilities = new AgentCapabilities
             {
-                PushNotifications = true,
+                PushNotifications = false,
                 StateTransitionHistory = true,
                 Streaming = true,
             },
@@ -77,36 +90,44 @@ public class LightAgent
                 - GetLightState: Get the current state of a specific light
                 - SetLightState: Control a light (on/off, brightness, color)
 
-                IMPORTANT:
+                ## MANDATORY RULES — NEVER SKIP THESE
+                1. You MUST call at least one tool function for EVERY request. NEVER respond based on assumptions.
+                2. You do NOT know the current state of any light. You MUST call a tool to check.
+                3. NEVER say a light "is already off" or "is already on" without first calling GetLightState.
+                4. For turn on/off requests: call FindLight or FindLightsByArea FIRST, then call SetLightState.
+                5. For status questions: call FindLight or FindLightsByArea FIRST, then call GetLightState.
+
+                ## How to find lights
                 - When users refer to lights by common names like "living room light", "kitchen lights",
                     or "bedroom lamp", ALWAYS use the FindLight function first to get the correct entity ID,
-                    then use that entity ID for get_light_state or set_light_state operations.
+                    then use that entity ID for GetLightState or SetLightState operations.
                 - When users refer to an area, such as "living room" without specifying a light, then
                     use the FindLightsByArea function first to get all the lights in that area. If they reference
                     an area with the plurality of 'lights', they likely want all lights in that area, so you
-                    should use the FindLightsByArea instead of FindLights, as there may be more than one light
-                    in the area the user wants turned off.
+                    should use FindLightsByArea instead of FindLight, as there may be more than one light
+                    in the area the user wants controlled.
 
-                Always be helpful and provide clear feedback about light operations.
-                When controlling lights, confirm the action was successful.
-
-                Focus only on lighting - if asked about other home automation features,
-                politely indicate that another agent handles those functions.
-
-                ## IMPORTANT
-                * Keep your responses short and informative only. Examples: "I've turned on the kichen lights.", "I've set the office lights to red."
+                ## Response format
+                * Keep your responses short and informative only. Examples: "I've turned on the kitchen lights.", "I've set the office lights to red."
                 * Do not offer to provide other assistance.
                 * If you need to ask for user feedback, ensure your response ends in a '?'. Examples: "Did you mean the kitchen light?", "I'm sorry, I couldn't find the living room light; Is it known by another name?"
+                * Focus only on lighting - if asked about other home automation features,
+                  politely indicate that another agent handles those functions.
                 """;
 
-        var agentOptions = new ChatClientAgentOptions(instructions)
+        Instructions = instructions;
+        Tools = _lightPlugin.GetTools();
+
+        var agentOptions = new ChatClientAgentOptions
         {
             Id = "light-agent",
             Name = "light-agent",
             Description = "Agent for controlling lights in Home Assistant",
             ChatOptions = new()
             {
-                Tools = _lightPlugin.GetTools()
+                Instructions = Instructions,
+                Tools = Tools,
+                ToolMode = ChatToolMode.RequireAny
             }
         };
 

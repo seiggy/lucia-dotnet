@@ -30,7 +30,7 @@
 
 ### Docker Configuration
 
-- [ ] `docker-compose.yml` exists in repository root
+- [ ] `infra/docker/docker-compose.yml` exists
 - [ ] Docker build context includes all required files
 - [ ] `Dockerfile.agenthost` exists in `infra/docker/`
 - [ ] `Dockerfile.redis` exists in `infra/docker/`

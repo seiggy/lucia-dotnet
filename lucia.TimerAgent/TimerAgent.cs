@@ -1,0 +1,147 @@
+using System.Diagnostics;
+using A2A;
+using lucia.Agents.Abstractions;
+using lucia.Agents.Orchestration;
+using Microsoft.Agents.AI;
+using Microsoft.Agents.AI.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+
+namespace lucia.TimerAgent;
+
+/// <summary>
+/// Specialized agent that creates timed announcements on Home Assistant assist satellite devices.
+/// </summary>
+public sealed class TimerAgent : ILuciaAgent
+{
+    private static readonly ActivitySource ActivitySource = new("Lucia.Agents.Timer", "1.0.0");
+
+    private readonly AgentCard _agent;
+    private readonly ILogger<TimerAgent> _logger;
+    private readonly AIAgent _aiAgent;
+    private readonly IServer _server;
+
+    /// <summary>
+    /// The system instructions used by this agent.
+    /// </summary>
+    public string Instructions { get; }
+
+    /// <summary>
+    /// The AI tools available to this agent.
+    /// </summary>
+    public IList<AITool> Tools { get; }
+
+    public TimerAgent(
+        [FromKeyedServices(OrchestratorServiceKeys.TimerModel)] IChatClient chatClient,
+        TimerSkill timerSkill,
+        IServer server,
+        ILoggerFactory loggerFactory)
+    {
+        _logger = loggerFactory.CreateLogger<TimerAgent>();
+        _server = server;
+
+        var timerControlSkill = new AgentSkill
+        {
+            Id = "id_timer_agent",
+            Name = "TimerControl",
+            Description = "Skill for setting timed announcements and reminders on Home Assistant satellite devices",
+            Tags = ["timer", "reminder", "alarm", "announcement", "tts", "satellite"],
+            Examples =
+            [
+                "Set a timer for 5 minutes",
+                "Remind me in 30 minutes that dinner is ready",
+                "Set a 10-minute pizza timer",
+                "Cancel my timer",
+                "What timers are active?"
+            ]
+        };
+
+        _agent = new AgentCard
+        {
+            Url = "pending",
+            Name = "timer-agent",
+            Description = "Agent that creates #timed #announcements and #reminders on Home Assistant #satellite devices using TTS",
+            DocumentationUrl = "https://github.com/seiggy/lucia-dotnet/",
+            IconUrl = "https://github.com/seiggy/lucia-dotnet/blob/master/lucia.png?raw=true",
+            SupportsAuthenticatedExtendedCard = false,
+            Capabilities = new AgentCapabilities
+            {
+                PushNotifications = true,
+                StateTransitionHistory = true,
+                Streaming = true
+            },
+            DefaultInputModes = ["text"],
+            DefaultOutputModes = ["text"],
+            Skills = [timerControlSkill],
+            Version = "1.0.0",
+            ProtocolVersion = "0.2.5"
+        };
+
+        var instructions = """
+            You are Lucia's Timer Agent. You set timers and reminders that announce via TTS on the user's Home Assistant satellite device.
+
+            Responsibilities:
+            - Parse timer duration from user requests (e.g. "5 minutes", "1 hour and 30 minutes", "90 seconds").
+            - Create a friendly announcement message based on what the user is timing (e.g. "Your pizza timer is done!", "Time to check the laundry!").
+            - Use the SetTimer tool with the parsed duration (in seconds), the announcement message, and the entity_id of the satellite device.
+            - List active timers when asked.
+            - Cancel timers when requested.
+
+            The entity_id for the satellite device will be provided in the request context. Use that entity_id when calling SetTimer.
+            If no entity_id is available, ask the user which device to announce on.
+
+            When the user says "set a timer for X minutes", convert X to seconds and create an appropriate announcement message.
+            If the user doesn't specify what the timer is for, use a generic message like "Your timer is up!".
+
+            ## IMPORTANT
+            * Keep responses short and confirmatory. Example: "Timer set for 5 minutes! I'll let you know when it's done."
+            * Do not offer additional assistance after setting a timer.
+            * If you need clarification about the duration, ask. Example: "How long should the timer be?"
+            """;
+
+        Instructions = instructions;
+        Tools = timerSkill.GetTools();
+
+        var agentOptions = new ChatClientAgentOptions
+        {
+            Id = "timer-agent",
+            Name = "timer-agent",
+            Description = "Sets timed announcements on satellite devices",
+            ChatOptions = new()
+            {
+                Instructions = Instructions,
+                Tools = Tools
+            }
+        };
+
+        _aiAgent = new ChatClientAgent(chatClient, agentOptions, loggerFactory);
+    }
+
+    public AgentCard GetAgentCard() => _agent;
+
+    public AIAgent GetAIAgent() => _aiAgent;
+
+    public Task InitializeAsync(CancellationToken cancellationToken = default)
+    {
+        using var activity = ActivitySource.StartActivity("TimerAgent.Initialize", ActivityKind.Internal);
+        activity?.SetTag("agent.id", "timer-agent");
+        _logger.LogInformation("Initializing TimerAgent...");
+
+        var addressesFeature = _server?.Features?.Get<IServerAddressesFeature>();
+        if (addressesFeature?.Addresses != null && addressesFeature.Addresses.Any())
+        {
+            _agent.Url = addressesFeature.Addresses.First();
+        }
+        else
+        {
+            _agent.Url = "unknown";
+        }
+
+        activity?.SetStatus(ActivityStatusCode.Ok);
+        _logger.LogInformation("TimerAgent initialized successfully");
+        return Task.CompletedTask;
+    }
+}

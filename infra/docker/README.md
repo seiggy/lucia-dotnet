@@ -22,7 +22,7 @@ infra/docker/
 
 See also:
 
-- `docker-compose.yml` - Docker Compose configuration (in project root)
+- `docker-compose.yml` - Docker Compose configuration
 - `.env.example` - Environment variables template (in project root)
 - `redis:8.2-alpine` - Official Redis image used (no custom Dockerfile needed)
 

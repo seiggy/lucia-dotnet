@@ -12,11 +12,15 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddHomeAssistant(this IServiceCollection services, Action<HomeAssistantOptions> configureOptions)
     {
         services.Configure(configureOptions);
+        services.AddSingleton<IValidateOptions<HomeAssistantOptions>, HomeAssistantOptionsValidator>();
         
-        services.AddHttpClient<IHomeAssistantClient, GeneratedHomeAssistantClient>((serviceProvider, client) =>
+        services.AddHttpClient<IHomeAssistantClient, HomeAssistantClient>((serviceProvider, client) =>
         {
             var options = serviceProvider.GetRequiredService<IOptions<HomeAssistantOptions>>().Value;
-            // HttpClient configuration is handled in the constructor
+            client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/'));
+            client.DefaultRequestHeaders.Add("Authorization", $"Bearer {options.AccessToken}");
+            client.DefaultRequestHeaders.Add("Accept", "application/json");
+            client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
         })
         .ConfigurePrimaryHttpMessageHandler(serviceProvider =>
         {

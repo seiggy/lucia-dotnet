@@ -1,19 +1,35 @@
-﻿using A2A;
+﻿using System.Diagnostics;
+using A2A;
+using lucia.Agents.Abstractions;
+using lucia.Agents.Orchestration;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace lucia.Agents.Agents;
 
-public class GeneralAgent
+public sealed class GeneralAgent : ILuciaAgent
 {
+    private static readonly ActivitySource ActivitySource = new("Lucia.Agents.General", "1.0.0");
+
     private readonly AgentCard _agent;
     private readonly ILogger<GeneralAgent> _logger;
     private readonly TaskManager _taskManager;
     private readonly AIAgent _aiAgent;
 
+    /// <summary>
+    /// The system instructions used by this agent.
+    /// </summary>
+    public string Instructions { get; }
+
+    /// <summary>
+    /// The AI tools available to this agent (empty for GeneralAgent).
+    /// </summary>
+    public IList<AITool> Tools { get; }
+
     public GeneralAgent(
-        IChatClient chatClient,
+        [FromKeyedServices(OrchestratorServiceKeys.GeneralModel)] IChatClient chatClient,
         ILoggerFactory loggerFactory)
     {
         _logger = loggerFactory.CreateLogger<GeneralAgent>();
@@ -26,7 +42,7 @@ public class GeneralAgent
             Description = "Agent for handling #general-knowledge questions in Home Assistant",
             Capabilities = new AgentCapabilities
             {
-                PushNotifications = true,
+                PushNotifications = false,
                 StateTransitionHistory = true,
                 Streaming = true,
             },
@@ -51,14 +67,17 @@ public class GeneralAgent
                 * Do not offer to provide other assistance.
                 """;
 
-        var agentOptions = new ChatClientAgentOptions(instructions)
+        Instructions = instructions;
+        Tools = new List<AITool>();
+
+        var agentOptions = new ChatClientAgentOptions
         {
             Id = "general-assistant",
             Name = "general-assistant",
             Description = "Agent for answering general knowledge questions in Home Assistant",
             ChatOptions = new()
             {
-                
+                Instructions = Instructions
             }
         };
 
@@ -79,10 +98,14 @@ public class GeneralAgent
     /// <summary>
     /// Initialize the agent
     /// </summary>
-    public async Task InitializeAsync(CancellationToken cancellationToken = default)
+    public Task InitializeAsync(CancellationToken cancellationToken = default)
     {
+        using var activity = ActivitySource.StartActivity("GeneralAgent.Initialize", ActivityKind.Internal);
         _logger.LogInformation("Initializing General Knowledge Agent...");
         
+        activity?.SetTag("agent.id", "general-assistant");
+        activity?.SetStatus(ActivityStatusCode.Ok);
         _logger.LogInformation("General Knowledge initialized successfully");
+        return Task.CompletedTask;
     }
 }

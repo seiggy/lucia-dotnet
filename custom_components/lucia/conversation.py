@@ -8,7 +8,13 @@ from datetime import datetime
 from typing import Any, Literal
 
 from homeassistant.components import conversation
-from homeassistant.components.conversation import ConversationResult
+from homeassistant.components.conversation import (
+    AssistantContent,
+    ChatLog,
+    ConversationEntity,
+    ConversationInput,
+    ConversationResult,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, TemplateError
@@ -27,6 +33,7 @@ from .const import (
     DEFAULT_TOP_P,
     DOMAIN,
 )
+from .conversation_tracker import ConversationTracker
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,6 +58,7 @@ class LuciaConversationEntity(conversation.ConversationEntity):
         """Initialize the conversation entity."""
         self.entry = entry
         self._attr_unique_id = f"{entry.entry_id}"
+        self._tracker = ConversationTracker(ttl_seconds=300.0)
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},
             "name": "Lucia Home Agent",
@@ -64,19 +72,22 @@ class LuciaConversationEntity(conversation.ConversationEntity):
         """Return supported languages."""
         return "*"  # Support all languages
 
-    async def async_process(
-        self, user_input: conversation.ConversationInput
-    ) -> conversation.ConversationResult:
-        """Process a conversation turn."""
+    async def _async_handle_message(
+        self,
+        user_input: ConversationInput,
+        chat_log: ChatLog,
+    ) -> ConversationResult:
+        """Handle an incoming conversation message with chat log support."""
         client_data = self.hass.data[DOMAIN].get(self.entry.entry_id)
 
         if not client_data:
             _LOGGER.error("No client data found for conversation processing")
             intent_response = intent.IntentResponse(language=user_input.language)
             intent_response.async_set_speech("I'm sorry, but I'm not properly configured. Please check the integration settings.")
-            return conversation.ConversationResult(
+            return ConversationResult(
                 response=intent_response,
                 conversation_id=None,
+                continue_conversation=False,
             )
 
         agent_card = client_data.get("agent_card")
@@ -87,38 +98,45 @@ class LuciaConversationEntity(conversation.ConversationEntity):
             _LOGGER.error("Missing agent URL or HTTP client")
             intent_response = intent.IntentResponse(language=user_input.language)
             intent_response.async_set_speech("Agent configuration is incomplete.")
-            return conversation.ConversationResult(
+            return ConversationResult(
                 response=intent_response,
                 conversation_id=None,
+                continue_conversation=False,
             )
 
         # Get configuration options
         options = self.entry.options or self.entry.data
-        prompt_template = options.get(CONF_PROMPT, DEFAULT_PROMPT)
+        prompt_template = options.get(CONF_PROMPT) or DEFAULT_PROMPT
 
-        # Process the prompt template if it exists
+        # Process the prompt template
         try:
-            if prompt_template:
-                system_prompt = self._render_template(prompt_template, user_input)
-            else:
-                system_prompt = DEFAULT_PROMPT
+            system_prompt = self._render_template(prompt_template, user_input)
         except TemplateError as err:
             _LOGGER.error("Error rendering prompt template: %s", err)
-            system_prompt = DEFAULT_PROMPT
+            # Fallback to plain text (no Jinja2 markers)
+            system_prompt = (
+                "You are a Home Assistant smart home assistant. "
+                "Help the user control their devices and automations."
+            )
 
-        # Generate IDs for message tracking
-        message_id = str(uuid.uuid4())
-
-        # Use conversation_id as context_id for threading
+        # Resolve A2A context/task IDs from tracker or create new
+        tracked = None
         if user_input.conversation_id:
-            context_id = user_input.conversation_id
+            tracked = self._tracker.get(user_input.conversation_id)
+
+        if tracked:
+            context_id = tracked.context_id
+            task_id = tracked.task_id
         else:
             context_id = str(uuid.uuid4())
+            task_id = None
+
+        ha_conversation_id = user_input.conversation_id or context_id
 
         # Build the message content (combining system prompt + user input)
         message_text = f"{system_prompt}\n\nUser: {user_input.text}"
 
-        # Create the message structure (without taskId - not supported)
+        # Create the A2A message structure
         message = {
             "kind": "message",
             "role": "user",
@@ -131,7 +149,7 @@ class LuciaConversationEntity(conversation.ConversationEntity):
             ],
             "messageId": None,
             "contextId": context_id,
-            "taskId": None,  # Task management not supported by Agent Framework
+            "taskId": task_id,
             "metadata": None,
             "referenceTaskIds": [],
             "extensions": []
@@ -154,16 +172,25 @@ class LuciaConversationEntity(conversation.ConversationEntity):
             response = await httpx_client.post(
                 agent_url,
                 json=jsonrpc_request,
-                timeout=30.0
+                timeout=120.0
             )
 
             if response.status_code != 200:
                 _LOGGER.error("Agent returned status %s: %s", response.status_code, response.text[:200])
-                return conversation.ConversationResult(
-                    response=intent.IntentResponse(language=user_input.language),
-                    conversation_id=context_id,
+                error_text = f"Agent returned HTTP {response.status_code}"
+                chat_log.async_add_assistant_content_without_tools(
+                    AssistantContent(
+                        agent_id=user_input.agent_id,
+                        content=error_text,
+                    )
                 )
-                # Note: IntentResponse will be converted to error speech by Home Assistant
+                intent_response = intent.IntentResponse(language=user_input.language)
+                intent_response.async_set_speech(error_text)
+                return ConversationResult(
+                    response=intent_response,
+                    conversation_id=ha_conversation_id,
+                    continue_conversation=False,
+                )
 
             # Parse JSON-RPC response
             result = response.json()
@@ -172,53 +199,117 @@ class LuciaConversationEntity(conversation.ConversationEntity):
             if "error" in result:
                 error_msg = result["error"].get("message", "Unknown error")
                 _LOGGER.error("Agent returned error: %s", error_msg)
-                # Create an intent response with error speech
+                error_text = f"Agent error: {error_msg}"
+                chat_log.async_add_assistant_content_without_tools(
+                    AssistantContent(
+                        agent_id=user_input.agent_id,
+                        content=error_text,
+                    )
+                )
                 intent_response = intent.IntentResponse(language=user_input.language)
-                intent_response.async_set_speech(f"Agent error: {error_msg}")
-                return conversation.ConversationResult(
+                intent_response.async_set_speech(error_text)
+                return ConversationResult(
                     response=intent_response,
-                    conversation_id=context_id,
+                    conversation_id=ha_conversation_id,
+                    continue_conversation=False,
                 )
 
-            # Extract response text from result
+            # Extract response text and determine conversation state
             response_text = ""
+            continue_conversation = False
+            response_context_id = context_id
+            response_task_id = task_id
+
             if "result" in result and isinstance(result["result"], dict):
-                agent_message = result["result"]
-                if "parts" in agent_message:
-                    for part in agent_message["parts"]:
-                        if part.get("kind") == "text":
-                            response_text += part.get("text", "")
+                a2a_result = result["result"]
+
+                # Detect Task vs Message by presence of "status" field
+                if "status" in a2a_result:
+                    # This is an AgentTask response
+                    status = a2a_result.get("status", {})
+                    state = status.get("state", "completed")
+                    response_task_id = a2a_result.get("id") or task_id
+                    response_context_id = a2a_result.get("contextId") or context_id
+
+                    # Extract text from status.message.parts
+                    status_message = status.get("message", {})
+                    if isinstance(status_message, dict):
+                        for part in status_message.get("parts", []):
+                            if isinstance(part, dict) and part.get("kind") == "text":
+                                response_text += part.get("text", "")
+
+                    # Set continue_conversation based on task state
+                    if state == "input-required":
+                        continue_conversation = True
+                    elif state == "working":
+                        continue_conversation = True
+
+                    _LOGGER.debug(
+                        "Task response: state=%s, taskId=%s, continue=%s",
+                        state, response_task_id, continue_conversation,
+                    )
+                else:
+                    # This is an AgentMessage response
+                    response_context_id = a2a_result.get("contextId") or context_id
+                    if "parts" in a2a_result:
+                        for part in a2a_result["parts"]:
+                            if isinstance(part, dict) and part.get("kind") == "text":
+                                response_text += part.get("text", "")
 
             if not response_text:
                 response_text = "I received your message but didn't generate a response."
 
+            # Update tracker with latest context/task IDs
+            self._tracker.store(
+                ha_conversation_id,
+                context_id=response_context_id,
+                task_id=response_task_id if continue_conversation else None,
+            )
+
             _LOGGER.debug("Received response from agent: %s", response_text[:100])
+
+            # Add the response to the chat log for multi-turn support
+            chat_log.async_add_assistant_content_without_tools(
+                AssistantContent(
+                    agent_id=user_input.agent_id,
+                    content=response_text,
+                )
+            )
 
             # Create the conversation result with intent response
             intent_response = intent.IntentResponse(language=user_input.language)
             intent_response.async_set_speech(response_text)
 
-            return conversation.ConversationResult(
+            return ConversationResult(
                 response=intent_response,
-                conversation_id=context_id,  # Return the context_id for threading
+                conversation_id=ha_conversation_id,
+                continue_conversation=continue_conversation,
             )
 
         except Exception as err:
             _LOGGER.error("Error processing conversation with agent: %s", err, exc_info=True)
 
-            # Create error intent response
-            intent_response = intent.IntentResponse(language=user_input.language)
-            intent_response.async_set_speech(f"I encountered an error while processing your request: {str(err)}")
+            error_text = f"I encountered an error while processing your request: {str(err)}"
+            chat_log.async_add_assistant_content_without_tools(
+                AssistantContent(
+                    agent_id=user_input.agent_id,
+                    content=error_text,
+                )
+            )
 
-            return conversation.ConversationResult(
+            intent_response = intent.IntentResponse(language=user_input.language)
+            intent_response.async_set_speech(error_text)
+
+            return ConversationResult(
                 response=intent_response,
                 conversation_id=None,
+                continue_conversation=False,
             )
 
     def _render_template(
         self,
         prompt_template: str,
-        user_input: conversation.ConversationInput,
+        user_input: ConversationInput,
     ) -> str:
         """Render a template with the current context."""
         raw_prompt = template.Template(prompt_template, self.hass)
@@ -279,7 +370,7 @@ class LuciaConversationEntity(conversation.ConversationEntity):
         return raw_prompt.async_render(template_vars, parse_result=False)
 
     def _get_exposed_entities(
-        self, user_input: conversation.ConversationInput
+        self, user_input: ConversationInput
     ) -> list[dict[str, Any]]:
         """Get all entities exposed to the conversation agent."""
         entities = []

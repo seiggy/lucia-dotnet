@@ -11,6 +11,8 @@ namespace lucia.Agents.Services;
 /// </summary>
 public sealed class RedisTaskStore : ITaskStore
 {
+    private const string TaskIdSetKey = "lucia:task-ids";
+    
     private readonly IConnectionMultiplexer _redis;
     private readonly JsonSerializerOptions _jsonOptions;
     private static readonly ActivitySource ActivitySource = new("lucia.Agents.RedisTaskStore");
@@ -59,7 +61,7 @@ public sealed class RedisTaskStore : ITaskStore
         
         var db = _redis.GetDatabase();
         var key = GetTaskKey(taskId);
-        var json = await db.StringGetAsync(key);
+        var json = await db.StringGetAsync(key).WaitAsync(cancellationToken);
 
         stopwatch.Stop();
         var durationMs = stopwatch.Elapsed.TotalMilliseconds;
@@ -88,7 +90,7 @@ public sealed class RedisTaskStore : ITaskStore
 
         var db = _redis.GetDatabase();
         var key = GetNotificationKey(taskId, notificationConfigId);
-        var json = await db.StringGetAsync(key);
+        var json = await db.StringGetAsync(key).WaitAsync(cancellationToken);
 
         if (json.IsNullOrEmpty)
         {
@@ -143,7 +145,10 @@ public sealed class RedisTaskStore : ITaskStore
         var json = JsonSerializer.Serialize(task, _jsonOptions);
 
         // Set with 24-hour TTL per spec requirements
-        await db.StringSetAsync(key, json, TimeSpan.FromHours(24));
+        await db.StringSetAsync(key, json, TimeSpan.FromHours(24)).WaitAsync(cancellationToken);
+        
+        // Track task ID in the index set (auxiliary bookkeeping)
+        _ = db.SetAddAsync(TaskIdSetKey, task.Id, CommandFlags.FireAndForget);
 
         stopwatch.Stop();
         var durationMs = stopwatch.Elapsed.TotalMilliseconds;
@@ -165,7 +170,7 @@ public sealed class RedisTaskStore : ITaskStore
         var json = JsonSerializer.Serialize(pushNotificationConfig, _jsonOptions);
 
         // Set with 24-hour TTL matching task TTL
-        await db.StringSetAsync(key, json, TimeSpan.FromHours(24));
+        await db.StringSetAsync(key, json, TimeSpan.FromHours(24)).WaitAsync(cancellationToken);
     }
 
     public async Task<IEnumerable<TaskPushNotificationConfig>> GetPushNotificationsAsync(
@@ -190,7 +195,7 @@ public sealed class RedisTaskStore : ITaskStore
         var configs = new List<TaskPushNotificationConfig>();
         foreach (var key in keys)
         {
-            var json = await db.StringGetAsync(key);
+            var json = await db.StringGetAsync(key).WaitAsync(cancellationToken);
             if (!json.IsNullOrEmpty)
             {
                 var config = JsonSerializer.Deserialize<TaskPushNotificationConfig>(json!.ToString(), _jsonOptions);

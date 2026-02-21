@@ -61,7 +61,7 @@ Instead of keyword matching, we use embeddings and semantic search to understand
 
 ### Enterprise-Grade Architecture
 
-Built with .NET 9 Aspire for cloud-native deployment, offering professional-grade reliability, observability, and scalability that can run on a home Kubernetes cluster.
+Built with .NET 10 Aspire for cloud-native deployment, offering professional-grade reliability, observability, and scalability that can run on a home Kubernetes cluster.
 
 ## Key Features
 

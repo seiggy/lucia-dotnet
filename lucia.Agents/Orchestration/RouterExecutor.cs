@@ -11,8 +11,8 @@ using System.Threading.Tasks;
 using AgentCard = A2A.AgentCard;
 using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Registry;
+using lucia.Agents.Services;
 using Microsoft.Agents.AI.Workflows;
-using Microsoft.Agents.AI.Workflows.Reflection;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -21,8 +21,10 @@ namespace lucia.Agents.Orchestration;
 
 /// <summary>
 /// Executes routing decisions by invoking an LLM via <see cref="IChatClient"/> and emitting an <see cref="AgentChoiceResult"/>.
+/// When a prompt cache is available, returns cached routing decisions without calling the LLM,
+/// so agents still execute tools fresh every time.
 /// </summary>
-public sealed class RouterExecutor : ReflectingExecutor<RouterExecutor>, IMessageHandler<ChatMessage, AgentChoiceResult>
+public sealed class RouterExecutor : Executor
 {
     public const string ExecutorId = "RouterExecutor";
 
@@ -38,22 +40,25 @@ public sealed class RouterExecutor : ReflectingExecutor<RouterExecutor>, IMessag
     };
 
     private readonly IChatClient _chatClient;
-    private readonly AgentRegistry _agentRegistry;
+    private readonly IAgentRegistry _agentRegistry;
     private readonly ILogger<RouterExecutor> _logger;
     private readonly RouterExecutorOptions _options;
+    private readonly IPromptCacheService? _promptCache;
     private readonly JsonElement _schema;
 
     public RouterExecutor(
         IChatClient chatClient,
-        AgentRegistry agentRegistry,
+        IAgentRegistry agentRegistry,
         ILogger<RouterExecutor> logger,
-        IOptions<RouterExecutorOptions> options)
+        IOptions<RouterExecutorOptions> options,
+        IPromptCacheService? promptCache = null)
         : base(ExecutorId)
     {
         _chatClient = chatClient ?? throw new ArgumentNullException(nameof(chatClient));
         _agentRegistry = agentRegistry ?? throw new ArgumentNullException(nameof(agentRegistry));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
+        _promptCache = promptCache;
 
         if (_options.MaxAttempts < 1)
         {
@@ -62,6 +67,9 @@ public sealed class RouterExecutor : ReflectingExecutor<RouterExecutor>, IMessag
 
         _schema = AIJsonUtilities.CreateJsonSchema(typeof(AgentChoiceResult));
     }
+
+    protected override RouteBuilder ConfigureRoutes(RouteBuilder routeBuilder)
+        => routeBuilder.AddHandler<ChatMessage, AgentChoiceResult>(HandleAsync);
 
     public async ValueTask<AgentChoiceResult> HandleAsync(ChatMessage message, IWorkflowContext context, CancellationToken cancellationToken = default)
     {
@@ -75,8 +83,43 @@ public sealed class RouterExecutor : ReflectingExecutor<RouterExecutor>, IMessag
         }
 
         var userRequest = ExtractUserText(message);
+
+        // Check prompt cache for a cached routing decision
+        if (_promptCache is not null)
+        {
+            try
+            {
+                var cacheMessages = new List<ChatMessage> { new(ChatRole.User, userRequest) };
+                var cached = await _promptCache.TryGetCachedResponseAsync(cacheMessages, cancellationToken);
+                if (cached is not null && IsKnownAgent(cached.RoutingDecision.AgentId, availableAgents))
+                {
+                    // Skip stale cache entries that route to multiple agents but lack per-agent instructions
+                    if (cached.RoutingDecision.AdditionalAgents is { Count: > 0 }
+                        && cached.RoutingDecision.AgentInstructions is null or { Count: 0 })
+                    {
+                        _logger.LogInformation(
+                            "Router cache hit for multi-agent routing but missing agentInstructions — bypassing cache");
+                    }
+                    else
+                    {
+                        _logger.LogInformation(
+                            "Router cache hit (exact={IsExact}, similarity={Score:F3}): routing to {AgentId}, hasInstructions={HasInstructions}",
+                            cached.IsExactMatch, cached.SimilarityScore, cached.RoutingDecision.AgentId,
+                            cached.RoutingDecision.AgentInstructions?.Count > 0);
+                        return cached.RoutingDecision;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Router cache lookup failed, falling through to LLM");
+            }
+        }
+
         var chatMessages = BuildChatMessages(userRequest, availableAgents);
         var chatOptions = BuildChatOptions();
+
+        _logger.LogInformation("RouterExecutor: {AgentCount} agents available for routing", availableAgents.Count);
 
         AgentChoiceResult? parsed = null;
         Exception? lastError = null;
@@ -116,6 +159,13 @@ public sealed class RouterExecutor : ReflectingExecutor<RouterExecutor>, IMessag
 
         NormalizeAdditionalAgents(parsed, availableAgents);
 
+        _logger.LogInformation(
+            "RouterExecutor result: agentId={AgentId}, additionalAgents=[{Additional}], hasInstructions={HasInstructions}, confidence={Confidence}",
+            parsed.AgentId,
+            parsed.AdditionalAgents is not null ? string.Join(", ", parsed.AdditionalAgents) : "",
+            parsed.AgentInstructions?.Count > 0,
+            parsed.Confidence);
+
         if (parsed.Confidence < _options.ConfidenceThreshold)
         {
             _logger.LogInformation(
@@ -125,16 +175,27 @@ public sealed class RouterExecutor : ReflectingExecutor<RouterExecutor>, IMessag
             return CreateClarificationResult(parsed, availableAgents, userRequest);
         }
 
+        // Cache the routing decision for future lookups
+        if (_promptCache is not null)
+        {
+            try
+            {
+                var cacheMessages = new List<ChatMessage> { new(ChatRole.User, userRequest) };
+                await _promptCache.CacheRoutingDecisionAsync(cacheMessages, parsed, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to cache routing decision");
+            }
+        }
+
         return parsed;
     }
-
-    public ValueTask<AgentChoiceResult> HandleAsync(ChatMessage message, IWorkflowContext context)
-        => HandleAsync(message, context, CancellationToken.None);
 
     private async Task<List<AgentCard>> FetchAgentsAsync(CancellationToken cancellationToken)
     {
         var results = new List<AgentCard>();
-        await foreach (var agent in _agentRegistry.GetAgentsAsync(cancellationToken).ConfigureAwait(false))
+        await foreach (var agent in _agentRegistry.GetEnumerableAgentsAsync(cancellationToken).ConfigureAwait(false))
         {
             results.Add(agent);
         }
@@ -146,18 +207,17 @@ public sealed class RouterExecutor : ReflectingExecutor<RouterExecutor>, IMessag
     {
         var agentCatalog = BuildAgentCatalog(agents);
 
-        var userPromptTemplate = string.IsNullOrWhiteSpace(_options.UserPromptTemplate)
-            ? RouterExecutorOptions.DefaultUserPromptTemplate
-            : _options.UserPromptTemplate!;
+        var systemPromptTemplate = string.IsNullOrWhiteSpace(_options.SystemPrompt)
+            ? RouterExecutorOptions.DefaultSystemPrompt
+            : _options.SystemPrompt!;
 
-        var payload = userPromptTemplate
-            .Replace("<<USER_REQUEST>>", userRequest)
+        var systemPrompt = systemPromptTemplate
             .Replace("<<AGENT_CATALOG>>", agentCatalog);
 
         return new[]
         {
-            new ChatMessage(ChatRole.System, _options.SystemPrompt ?? RouterExecutorOptions.DefaultSystemPrompt),
-            new ChatMessage(ChatRole.User, payload)
+            new ChatMessage(ChatRole.System, systemPrompt),
+            new ChatMessage(ChatRole.User, userRequest)
         };
     }
 

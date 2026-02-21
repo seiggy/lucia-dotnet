@@ -1,0 +1,73 @@
+# Lucia A2A Host - Generic Base Image
+# Purpose: Create the A2AHost runtime image with NO plugins baked in.
+# Agent-specific images (Dockerfile.music-agent, Dockerfile.timer-agent) layer
+# their compiled plugin DLLs on top of this base.
+#
+# Build:
+#   docker build -f infra/docker/Dockerfile.a2ahost -t lucia-a2ahost:latest .
+
+# ============================================================================
+# Stage 1: Base Runtime Image
+# ============================================================================
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
+
+WORKDIR /app
+
+# Create non-root user for security
+RUN useradd -m -u 1100 appuser
+
+EXPOSE 8080 8081
+
+# ============================================================================
+# Stage 2: Build Stage
+# ============================================================================
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+
+ARG BUILD_CONFIGURATION=Release
+
+WORKDIR /src
+
+# Copy project files for restore layer caching (A2AHost + dependencies only)
+COPY ["lucia.A2AHost/lucia.A2AHost.csproj", "lucia.A2AHost/"]
+COPY ["lucia.Agents/lucia.Agents.csproj", "lucia.Agents/"]
+COPY ["lucia.HomeAssistant/lucia.HomeAssistant.csproj", "lucia.HomeAssistant/"]
+COPY ["lucia.HomeAssistant.SourceGenerator/lucia.HomeAssistant.SourceGenerator.csproj", "lucia.HomeAssistant.SourceGenerator/"]
+COPY ["lucia.ServiceDefaults/lucia.ServiceDefaults.csproj", "lucia.ServiceDefaults/"]
+
+RUN dotnet restore "./lucia.A2AHost/lucia.A2AHost.csproj"
+
+# Copy source tree and build
+COPY . .
+
+RUN dotnet publish "./lucia.A2AHost/lucia.A2AHost.csproj" \
+    -c $BUILD_CONFIGURATION \
+    -o /app/publish \
+    /p:UseAppHost=false
+
+# ============================================================================
+# Stage 3: Final Production Image
+# ============================================================================
+FROM base AS final
+
+LABEL maintainer="Lucia Project"
+LABEL description="Lucia A2A Host - Generic agent plugin runtime (no plugins)"
+LABEL version="1.0.0"
+
+ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false \
+    DOTNET_RUNNING_IN_CONTAINER=true \
+    ASPNETCORE_URLS=http://+:8080 \
+    COMPlus_EnableDiagnostics=0 \
+    PluginDirectory=/app/plugins
+
+# Copy published A2AHost application
+COPY --from=build --chown=appuser:appuser /app/publish .
+
+# Create plugins directory (agents will populate this)
+RUN mkdir -p /app/plugins && chown appuser:appuser /app/plugins
+
+USER appuser
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+ENTRYPOINT ["dotnet", "lucia.A2AHost.dll"]

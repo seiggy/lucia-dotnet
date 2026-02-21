@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Purpose
 
-Lucia is a Semantic Kernel-based agentic solution that serves as an autonomous whole-home automation manager for Home Assistant. The application acts as an intelligent assistant that integrates with Home Assistant Core APIs to provide automated home management capabilities.
+Lucia is a Microsoft Agent Framework-based agentic solution that serves as an autonomous whole-home automation manager for Home Assistant. The application acts as an intelligent assistant that integrates with Home Assistant Core APIs to provide automated home management capabilities.
 
 ### Home Assistant Integration Points
 
@@ -21,10 +21,11 @@ The system operates as an autonomous assistant that can understand natural langu
 
 ## Architecture Overview
 
-This is a .NET 9 Aspire application with the following structure:
+This is a .NET 10 Aspire application with the following structure:
 
-- **lucia-dotnet**: Main Web API application (ASP.NET Core)
-- **lucia.AppHost**: .NET Aspire orchestrator that manages the distributed application
+- **lucia.AppHost**: .NET Aspire orchestrator and recommended development entrypoint
+- **lucia.AgentHost**: ASP.NET Core minimal API host for orchestrated agent endpoints
+- **lucia.A2AHost**: ASP.NET Core minimal API host for A2A-facing endpoints
 - **lucia.ServiceDefaults**: Shared library containing common services (OpenTelemetry, health checks, service discovery, resilience)
 - **lucia.Tests**: Integration test project using xUnit and Aspire.Hosting.Testing
 
@@ -32,15 +33,15 @@ The application uses .NET Aspire for cloud-native development with built-in obse
 
 ## Key Technologies
 
-- .NET 9 with C# nullable reference types enabled
+- .NET 10 with C# nullable reference types enabled
 - ASP.NET Core Web API with OpenAPI/Swagger
 - .NET Aspire for orchestration and service defaults
-- **Microsoft Semantic Kernel**: Core AI framework for agentic behaviors and LLM integration
-- **Multi-LLM Support**: Support for both online and offline LLMs through Semantic Kernel:
+- **[Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/)**: Core AI framework for agentic behaviors and LLM integration
+- **Multi-LLM Support**: Support for both online and offline LLMs through Microsoft Agent Framework:
   - **Online**: OpenAI, Google Gemini, Anthropic Claude
   - **Offline/Local**: LLaMa and other local models
 - **Home Assistant APIs**: WebSocket and REST API integration for home automation
-- **C# Roslyn Code Generators**: Generate strongly-typed API clients for Home Assistant REST API
+- **Home Assistant REST Client**: Hand-written strongly typed implementation in `lucia.HomeAssistant` for Home Assistant REST API integration
 - xUnit for testing with FakeItEasy for mocking
 - OpenTelemetry for observability
 - Docker support with Linux containers
@@ -50,18 +51,24 @@ The application uses .NET Aspire for cloud-native development with built-in obse
 ### Build and Run
 ```bash
 # Build the entire solution
-dotnet build
-
-# Run the main application directly
-dotnet run --project lucia-dotnet
+dotnet build lucia-dotnet.slnx
 
 # Run via Aspire AppHost (recommended for development)
 dotnet run --project lucia.AppHost
+
+# Run AgentHost directly
+dotnet run --project lucia.AgentHost
+
+# Run A2AHost directly
+dotnet run --project lucia.A2AHost
 ```
 
 ### Testing
 ```bash
-# Run all tests
+# Run non-eval tests only (preferred — eval tests are slow LLM-based tests)
+dotnet test lucia.Tests --filter 'Category!=Eval'
+
+# Run all tests including evals (slow — requires LLM connectivity)
 dotnet test
 
 # Run tests with coverage
@@ -71,16 +78,18 @@ dotnet test --collect:"XPlat Code Coverage"
 dotnet test lucia.Tests
 ```
 
+> **Note:** Eval tests use `[Trait("Category", "Eval")]` and involve live LLM calls, so they are slow. Always use `--filter 'Category!=Eval'` for routine development testing.
+
 ### Development
 ```bash
 # Restore packages
-dotnet restore
+dotnet restore lucia-dotnet.slnx
 
 # Clean solution
-dotnet clean
+dotnet clean lucia-dotnet.slnx
 
-# Watch for changes (main app)
-dotnet watch --project lucia-dotnet
+# Watch AgentHost
+dotnet watch --project lucia.AgentHost
 
 # Watch for changes (AppHost)
 dotnet watch --project lucia.AppHost
@@ -105,8 +114,8 @@ The application uses standard ASP.NET Core configuration with:
 
 ## Important Notes
 
-- The main web API currently has an empty Controllers folder - controllers need to be implemented for Home Assistant integration endpoints
-- Integration tests are set up but commented out - uncomment and update the template code when ready to use
+- Agent hosts are implemented as ASP.NET Core minimal API applications (not MVC controller-first)
+- Prefer running `lucia.AppHost` for local end-to-end orchestration across services
 - OpenTelemetry is configured but requires `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable for external exporters
 - Docker support is included with Linux target OS
 - The application uses implicit usings and nullable reference types throughout
@@ -118,16 +127,16 @@ When implementing Home Assistant integration:
 1. **LLM API Integration**: Implement endpoints that conform to Home Assistant's LLM API specification for AI-powered responses
 2. **Conversation API**: Handle natural language processing and intent recognition for home automation commands
 3. **WebSocket Client**: Establish persistent connection to Home Assistant for real-time event monitoring and state updates
-4. **REST API Client**: Generate strongly-typed API client using C# Roslyn code generators
+4. **REST API Client**: Implement and maintain strongly-typed Home Assistant client abstractions in `lucia.HomeAssistant`
    - REST API Documentation: https://developers.home-assistant.io/docs/api/rest
-   - Use source generators to create type-safe clients from OpenAPI specifications
+  - Keep contracts and request/response models type-safe and aligned with Home Assistant API schemas
 5. **Authentication**: Support Home Assistant's long-lived access tokens for API authentication
 6. **State Management**: Maintain synchronized state between Lucia and Home Assistant entities
-7. **Event Processing**: Process and respond to Home Assistant events autonomously using Semantic Kernel agents
+7. **Event Processing**: Process and respond to Home Assistant events autonomously using Agent Framework agents
 
 ## LLM Provider Configuration
 
-The application should support multiple LLM providers through Semantic Kernel's standardized interfaces:
+The application should support multiple LLM providers through Microsoft Agent Framework's standardized abstractions:
 
 ### Online LLM Providers
 - **OpenAI**: GPT-4, GPT-3.5-turbo, and other OpenAI models
@@ -136,7 +145,7 @@ The application should support multiple LLM providers through Semantic Kernel's 
 
 ### Offline/Local LLM Support
 - **LLaMa**: Local LLaMa model variants
-- **Other Local Models**: Any model compatible with Semantic Kernel's local inference capabilities
+- **Other Local Models**: Any model compatible with the Agent Framework's local inference capabilities
 
 ### Configuration Requirements
 - Support for API key management and secure credential storage

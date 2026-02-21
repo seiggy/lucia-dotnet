@@ -4,9 +4,9 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using lucia.Agents.Orchestration.Models;
+using lucia.Agents.Training;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Workflows;
-using Microsoft.Agents.AI.Workflows.Reflection;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
@@ -16,24 +16,32 @@ namespace lucia.Agents.Orchestration;
 /// Executor for dispatching user requests to multiple agents and collecting responses.
 /// Implements the MagenticOne pattern for multi-agent workflow coordination.
 /// </summary>
-public class AgentDispatchExecutor : ReflectingExecutor<AgentDispatchExecutor>, IMessageHandler<AgentChoiceResult, List<AgentResponse>>
+public sealed class AgentDispatchExecutor : Executor
 {
-    private readonly Dictionary<string, AgentExecutorWrapper> _wrappers;
+    private readonly IReadOnlyDictionary<string, IAgentInvoker> _invokers;
     private readonly ILogger<AgentDispatchExecutor> _logger;
+    private readonly IOrchestratorObserver? _observer;
     private ChatMessage? _userMessage;
 
     /// <summary>
-    /// Creates a new AgentDispatchExecutor instance
+    /// Creates a new AgentDispatchExecutor instance.
     /// </summary>
-    /// <param name="wrappers">Dictionary of agent ID to AgentExecutorWrapper for available agents</param>
+    /// <param name="invokers">Dictionary of agent ID to invoker for available agents</param>
     /// <param name="logger">Logger for diagnostic output</param>
-    /// <exception cref="ArgumentNullException">Thrown if wrappers or logger is null</exception>
-    public AgentDispatchExecutor(Dictionary<string, AgentExecutorWrapper> wrappers, ILogger<AgentDispatchExecutor> logger)
-        : base("AgentDispatchExecutor")
+    /// <param name="observer">Optional orchestrator observer for trace capture</param>
+    public AgentDispatchExecutor(
+        IReadOnlyDictionary<string, IAgentInvoker> invokers,
+        ILogger<AgentDispatchExecutor> logger,
+        IOrchestratorObserver? observer = null)
+        : base("AgentDispatch")
     {
-        _wrappers = wrappers ?? throw new ArgumentNullException(nameof(wrappers));
+        _invokers = invokers ?? throw new ArgumentNullException(nameof(invokers));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _observer = observer;
     }
+
+    protected override RouteBuilder ConfigureRoutes(RouteBuilder routeBuilder)
+        => routeBuilder.AddHandler<AgentChoiceResult, List<OrchestratorAgentResponse>>(HandleAsync);
 
     /// <summary>
     /// Sets the user message for subsequent agent invocations
@@ -45,21 +53,9 @@ public class AgentDispatchExecutor : ReflectingExecutor<AgentDispatchExecutor>, 
     }
 
     /// <summary>
-    /// Dispatches the primary agent selection and any additional agents sequentially
+    /// Dispatches agents in parallel and collects responses.
     /// </summary>
-    /// <param name="agentChoice">The router's choice of agent(s) to invoke</param>
-    /// <param name="context">The workflow execution context</param>
-    /// <param name="cancellationToken">Cancellation token for async operations</param>
-    /// <returns>List of AgentResponse objects from all executed agents</returns>
-    public ValueTask<List<AgentResponse>> HandleAsync(
-        AgentChoiceResult agentChoice,
-        IWorkflowContext context,
-        CancellationToken cancellationToken)
-    {
-        return new ValueTask<List<AgentResponse>>(HandleAsyncCore(agentChoice, context, cancellationToken));
-    }
-
-    private async Task<List<AgentResponse>> HandleAsyncCore(
+    public async ValueTask<List<OrchestratorAgentResponse>> HandleAsync(
         AgentChoiceResult agentChoice,
         IWorkflowContext context,
         CancellationToken cancellationToken)
@@ -67,90 +63,125 @@ public class AgentDispatchExecutor : ReflectingExecutor<AgentDispatchExecutor>, 
         ArgumentNullException.ThrowIfNull(agentChoice);
         ArgumentNullException.ThrowIfNull(context);
 
-        _logger.LogInformation("AgentDispatchExecutor: Dispatching to primary agent '{AgentId}' (confidence: {Confidence})",
-            agentChoice.AgentId, agentChoice.Confidence);
+        await context.AddEventAsync(new ExecutorInvokedEvent(this.Id, agentChoice), cancellationToken).ConfigureAwait(false);
 
-        var responses = new List<AgentResponse>();
-
-        if (_userMessage == null)
+        if (_observer is not null)
         {
-            _logger.LogWarning("AgentDispatchExecutor: User message not set");
-            return responses;
+            await _observer.OnRoutingCompletedAsync(agentChoice, cancellationToken).ConfigureAwait(false);
         }
 
-        // Execute primary agent
-        if (_wrappers.TryGetValue(agentChoice.AgentId, out var primaryWrapper))
+        if (_userMessage is null)
         {
-            try
-            {
-                var primaryResponse = await primaryWrapper.HandleAsync(_userMessage, context, cancellationToken)
-                    .ConfigureAwait(false);
-                responses.Add(primaryResponse);
-
-                _logger.LogInformation("AgentDispatchExecutor: Primary agent '{AgentId}' completed (success: {Success})",
-                    agentChoice.AgentId, primaryResponse.Success);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "AgentDispatchExecutor: Error executing primary agent '{AgentId}'", agentChoice.AgentId);
-                responses.Add(new AgentResponse
-                {
-                    AgentId = agentChoice.AgentId,
-                    Content = $"Error executing agent: {ex.Message}",
-                    Success = false,
-                    ExecutionTimeMs = 0
-                });
-            }
-        }
-        else
-        {
-            _logger.LogWarning("AgentDispatchExecutor: Primary agent '{AgentId}' not found in wrappers", agentChoice.AgentId);
+            _logger.LogWarning("User message unavailable when dispatching agent execution.");
+            return [CreateFailureResponse(agentChoice.AgentId, "Unable to locate the original user request.")];
         }
 
-        // Execute additional agents sequentially if specified
-        if (agentChoice.AdditionalAgents != null && agentChoice.AdditionalAgents.Count > 0)
+        var executionOrder = BuildExecutionOrder(agentChoice);
+
+        // Dispatch all agents in parallel
+        var tasks = new List<Task<OrchestratorAgentResponse>>(executionOrder.Count);
+        foreach (var agentId in executionOrder)
         {
-            foreach (var additionalAgentId in agentChoice.AdditionalAgents)
+            var agentMessage = GetAgentMessage(agentChoice, agentId, _userMessage);
+            tasks.Add(InvokeAgentAsync(agentId, agentMessage, context, cancellationToken).AsTask());
+        }
+
+        var results = await Task.WhenAll(tasks).ConfigureAwait(false);
+        var responses = new List<OrchestratorAgentResponse>(results);
+
+        // Notify observer for each completed agent
+        if (_observer is not null)
+        {
+            foreach (var response in responses)
             {
-                if (string.IsNullOrWhiteSpace(additionalAgentId))
-                {
-                    continue;
-                }
-
-                if (!_wrappers.TryGetValue(additionalAgentId, out var additionalWrapper))
-                {
-                    _logger.LogWarning("AgentDispatchExecutor: Additional agent '{AgentId}' not found, skipping",
-                        additionalAgentId);
-                    continue;
-                }
-
-                try
-                {
-                    _logger.LogInformation("AgentDispatchExecutor: Executing additional agent '{AgentId}'", additionalAgentId);
-
-                    var additionalResponse = await additionalWrapper.HandleAsync(_userMessage, context, cancellationToken)
-                        .ConfigureAwait(false);
-                    responses.Add(additionalResponse);
-
-                    _logger.LogInformation("AgentDispatchExecutor: Additional agent '{AgentId}' completed (success: {Success})",
-                        additionalAgentId, additionalResponse.Success);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "AgentDispatchExecutor: Error executing additional agent '{AgentId}'", additionalAgentId);
-                    responses.Add(new AgentResponse
-                    {
-                        AgentId = additionalAgentId,
-                        Content = $"Error executing agent: {ex.Message}",
-                        Success = false,
-                        ExecutionTimeMs = 0
-                    });
-                }
+                await _observer.OnAgentExecutionCompletedAsync(response, cancellationToken).ConfigureAwait(false);
             }
         }
 
-        _logger.LogInformation("AgentDispatchExecutor: Completed with {ResponseCount} responses", responses.Count);
+        if (responses.Count == 0)
+        {
+            responses.Add(CreateFailureResponse(agentChoice.AgentId, "No agents were dispatched."));
+        }
 
+        _logger.LogInformation("AgentDispatchExecutor: Completed {ResponseCount} agents in parallel.", responses.Count);
         return responses;
+    }
+
+    /// <summary>
+    /// Returns a per-agent tailored message if the router provided agent-specific instructions,
+    /// otherwise falls back to the original user message.
+    /// </summary>
+    private ChatMessage GetAgentMessage(AgentChoiceResult agentChoice, string agentId, ChatMessage fallback)
+    {
+        if (agentChoice.AgentInstructions is { Count: > 0 })
+        {
+            var match = agentChoice.AgentInstructions
+                .FirstOrDefault(ai => string.Equals(ai.AgentId, agentId, StringComparison.OrdinalIgnoreCase));
+
+            if (match is not null && !string.IsNullOrWhiteSpace(match.Instruction))
+            {
+                _logger.LogInformation("Dispatching tailored instruction to '{AgentId}': {Instruction}",
+                    agentId, match.Instruction);
+                return new ChatMessage(ChatRole.User, match.Instruction);
+            }
+        }
+
+        _logger.LogInformation("No tailored instruction for '{AgentId}', using full user message.", agentId);
+        return fallback;
+    }
+
+    private async ValueTask<OrchestratorAgentResponse> InvokeAgentAsync(
+        string agentId,
+        ChatMessage userMessage,
+        IWorkflowContext context,
+        CancellationToken cancellationToken)
+    {
+        if (!_invokers.TryGetValue(agentId, out var invoker))
+        {
+            _logger.LogWarning("No invoker registered for agent {AgentId}.", agentId);
+            return CreateFailureResponse(agentId, $"Agent '{agentId}' is not available.");
+        }
+
+        try
+        {
+            return await invoker.InvokeAsync(userMessage, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Agent '{AgentId}' execution failed.", agentId);
+            return CreateFailureResponse(agentId, ex.Message);
+        }
+    }
+
+    private static OrchestratorAgentResponse CreateFailureResponse(string agentId, string error)
+        => new()
+        {
+            AgentId = agentId,
+            Content = string.Empty,
+            Success = false,
+            ErrorMessage = error,
+            ExecutionTimeMs = 0
+        };
+
+    private static IReadOnlyList<string> BuildExecutionOrder(AgentChoiceResult choice)
+    {
+        var ordered = new List<string>();
+        if (!string.IsNullOrWhiteSpace(choice.AgentId))
+        {
+            ordered.Add(choice.AgentId);
+        }
+
+        if (choice.AdditionalAgents is { Count: > 0 })
+        {
+            foreach (var agentId in choice.AdditionalAgents)
+            {
+                if (!string.IsNullOrWhiteSpace(agentId) && !ordered.Contains(agentId, StringComparer.OrdinalIgnoreCase))
+                {
+                    ordered.Add(agentId);
+                }
+            }
+        }
+
+        return ordered;
     }
 }

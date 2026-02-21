@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "isRoot": true,
+  "tools": {
+    "microsoft.extensions.ai.evaluation.console": {
+      "version": "10.3.0",
+      "commands": [
+        "aieval"
+      ],
+      "rollForward": false
+    },
+    "roslynmcp.server": {
+      "version": "0.3.1",
+      "commands": [
+        "roslyn-mcp"
+      ],
+      "rollForward": false
+    }
+  }
+}

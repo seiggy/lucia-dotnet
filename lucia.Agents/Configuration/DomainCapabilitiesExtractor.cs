@@ -81,7 +81,7 @@ public static class DomainCapabilitiesExtractor
     /// <param name="keywords">List of keywords extracted from user message</param>
     /// <param name="domainAgentMap">Domain to agent mapping from agent catalog</param>
     /// <returns>Best matching domain or null if no good match found</returns>
-    public static string? FindDomainForKeywords(List<string> keywords, Dictionary<string, List<string>> domainAgentMap)
+    public static string? FindDomainForKeywords(List<string> keywords, IReadOnlyDictionary<string, List<string>> domainAgentMap)
     {
         if (keywords.Count == 0 || domainAgentMap.Count == 0)
             return null;
