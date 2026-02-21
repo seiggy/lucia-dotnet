@@ -37,11 +37,11 @@ public static class AgentProxyApi
             return TypedResults.BadRequest("agentUrl query parameter is required.");
         }
 
-        // Verify the agent is registered
+        // Verify the agent is registered (don't reflect raw input in response)
         var agent = await agentRegistry.GetAgentAsync(agentUrl, cancellationToken);
         if (agent is null)
         {
-            return TypedResults.NotFound($"Agent not found: {agentUrl}");
+            return TypedResults.NotFound("Agent not found for the specified URL.");
         }
 
         // Rewrite bind-all addresses to loopback and validate the resulting URI
