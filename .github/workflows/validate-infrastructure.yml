@@ -71,7 +71,7 @@ jobs:
           version: '3.13.0'
 
       - name: Install yamllint
-        run: pip install yamllint
+        run: pip install --break-system-packages yamllint
 
       - name: Lint YAML files
         run: |

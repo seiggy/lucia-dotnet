@@ -19,12 +19,12 @@ rules:
   - apiGroups: [""]
     resources: ["configmaps", "secrets"]
     verbs: ["get", "list", "watch"]
-  
+
   # Allow reading Pods (for service discovery)
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "watch"]
-  
+
   # Allow reading Services
   - apiGroups: [""]
     resources: ["services"]

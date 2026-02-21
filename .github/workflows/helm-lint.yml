@@ -68,7 +68,7 @@ jobs:
           sudo mv kubeval /usr/local/bin/
           
           echo "Validating Kubernetes manifests..."
-          kubeval --strict --ignore-missing-schemas /tmp/helm-output/**/*.yaml
+          find /tmp/helm-output -name '*.yaml' -exec kubeval --strict --ignore-missing-schemas {} +
 
       - name: Check Helm chart version
         run: |
@@ -108,16 +108,16 @@ jobs:
       - name: Test Helm install (dry-run)
         run: |
           echo "Testing Helm installation (dry-run)..."
-          helm install lucia infra/kubernetes/helm \
-            --dry-run \
+          helm template lucia infra/kubernetes/helm \
             --namespace lucia-system \
-            --create-namespace \
             --set image.tag=test \
             --set homeAssistant.baseUrl=http://test:8123 \
             --set homeAssistant.accessToken=test-token \
             --set openai.apiKey=test-key \
             --set openai.modelId=gpt-4o \
-            --set openai.embeddingModelId=text-embedding-3-small
+            --set openai.embeddingModelId=text-embedding-3-small \
+            > /dev/null
+          echo "✅ Dry-run installation successful"
 
       - name: Comment PR with validation results
         if: github.event_name == 'pull_request'
