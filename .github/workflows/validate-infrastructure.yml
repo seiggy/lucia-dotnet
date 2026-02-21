@@ -12,6 +12,10 @@ on:
       - 'infra/**'
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   validate-docker:
     name: Validate Docker Files
