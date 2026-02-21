@@ -8,15 +8,25 @@
 
 ## 🌌 Overview
 
-"Galaxy" is the largest release in Lucia's history — a sweeping upgrade that touches nearly every layer of the stack. At its core, this release migrates the entire platform to **Microsoft Agent Framework 1.0.0-preview.260212.1** and **.NET 10**, introduces an **LLM fine-tuning data pipeline** backed by **MongoDB**, adds a brand-new **Timer Agent** for timed announcements, and delivers a comprehensive **evaluation testing framework** for measuring agent quality at scale. With 535 files changed across 86k+ lines, "Galaxy" transforms Lucia from a conversational assistant into a self-improving, observable, and extensible agentic platform.
+"Galaxy" is the largest release in Lucia's history — a sweeping upgrade that touches nearly every layer of the stack. At its core, this release migrates the entire platform to **Microsoft Agent Framework 1.0.0-preview.260212.1** and **.NET 10**, introduces a full-featured **React management dashboard**, a comprehensive **REST API** with 44+ endpoints, a complete **authentication and onboarding system**, an **LLM fine-tuning data pipeline** backed by **MongoDB**, a **prompt caching layer** for routing decisions, a brand-new **Timer Agent** for timed announcements, a separate **A2A plugin host**, production-ready **Kubernetes Helm charts** and **Docker Compose** deployments, and a comprehensive **evaluation testing framework** for measuring agent quality at scale. With 535 files changed across 86k+ lines, "Galaxy" transforms Lucia from a conversational assistant into a self-improving, observable, and extensible agentic platform.
 
 ## 🚀 Highlights
 
+- **React Management Dashboard** — A brand-new React 19 + Vite 7 web UI with dark theme, 9 pages covering traces, agents, configuration, dataset exports, prompt cache, tasks, and a guided setup wizard. Built with TanStack Query and Tailwind CSS.
+- **44+ REST API Endpoints** — Comprehensive API surface for trace management, dataset exports, prompt cache, task management, configuration, agent registry, A2A protocol, authentication, API key management, and onboarding setup.
+- **Authentication & Onboarding** — API key authentication with HMAC-signed sessions, a 4-step setup wizard, and `OnboardingMiddleware` that gates all endpoints until initial configuration is complete.
 - **Microsoft Agent Framework 1.0.0-preview.260212.1** — Full migration to the latest MAF preview with breaking API changes including `AgentThread` → `AgentSession`, `ChatMessageStore` → `ChatHistoryProvider`, and consolidated `AsAIAgent()` creation. Session management is now fully async, and source-generated executors replace reflection-based patterns.
+- **Orchestrator Pipeline** — Three-stage executor pipeline (Router → Dispatch → Aggregator) with parallel agent invocation, prompt caching for routing decisions, and natural-language result aggregation.
+- **Prompt Caching** — `PromptCachingChatClient` decorator caches router LLM routing decisions in Redis. Agents still execute tools fresh — only the routing step is cached. Full cache management UI with hit rate stats and eviction controls.
+- **A2A Plugin Host** — Separate `lucia.A2AHost` service hosts agent plugins (Music Agent, Timer Agent) with auto-registration, health polling, and HA config polling every 10 seconds.
 - **LLM Fine-Tuning Data Pipeline** — A production-grade training system that automatically captures orchestrator and agent conversation traces, stores them in MongoDB, and exports them as OpenAI-compatible JSONL datasets. Includes sensitive data redaction, labeling workflows, configurable retention, and per-agent filtering.
 - **MongoDB Integration** — Dual-purpose MongoDB backend for trace/training data storage (`luciatraces`) and hot-reloadable application configuration (`luciaconfig`). Configuration changes poll every 5 seconds and override appsettings.json without restarts.
 - **Timer Agent** — New agent for creating timed announcements and reminders on Home Assistant assist satellite devices. Supports natural-language duration parsing, concurrent timer management, and TTS announcements via `assist_satellite.announce`.
+- **Task Persistence & Management** — Active tasks in Redis, archived tasks in MongoDB, with automatic archival via `TaskArchivalService`. Dashboard shows active/archived tasks with search, filtering, and cancellation.
+- **Kubernetes Helm Charts** — Production-ready Helm chart (v1.0.0) for Kubernetes ≥1.24 with Redis and MongoDB StatefulSets, init container dependency waiting, rolling updates, pod security contexts, and Ingress support.
+- **Docker Compose Deployment** — Hardened multi-service Docker Compose with Redis, MongoDB, and Lucia containers featuring read-only filesystems, dropped capabilities, resource limits, health checks, and log rotation.
 - **Evaluation Testing Framework** — Comprehensive eval tests using `Microsoft.Extensions.AI.Evaluation` with LLM-based evaluators (Relevance, Coherence, ToolCallAccuracy, TaskAdherence, Latency). Cross-products models × prompt variants with disk-based reporting via `dotnet aieval report`.
+- **CI/CD Hardening** — Explicit permissions blocks on all workflows, multi-platform Docker builds (amd64/arm64), Trivy security scanning, Helm linting with kubeval, and infrastructure validation.
 
 ## ✨ What's New
 
@@ -55,6 +65,112 @@
 - **Cross-product parameterization**: `[MemberData]` drives model × prompt variant test matrices
 - **Eval test suites**: LightAgentEvalTests, MusicAgentEvalTests, OrchestratorEvalTests with STT artifact variants and edge cases
 - **ChatHistoryCapture** for recording intermediate tool calls and responses
+
+### 🖥️ React Management Dashboard
+
+A full-featured React 19 + Vite 7 web dashboard with dark theme, TanStack Query for data fetching, and Tailwind CSS styling. Nine pages provide complete visibility and control:
+
+- **Setup Wizard**: Guided 4-step onboarding (Welcome → Configure Lucia → Connect HA Plugin → Done) with API key generation, HA connection testing, and plugin validation
+- **Login**: API key authentication with session persistence
+- **Traces**: Browse conversation traces with filtering by agent, date range, label status, and keyword search. Drill into individual traces to view agent execution records, tool calls, and responses. Label traces for fine-tuning with status, correction text, and reviewer notes
+- **Agents**: Agent discovery and registration dashboard. Register agents by URL, view capabilities and skills, send test A2A messages, refresh metadata, and unregister agents
+- **Configuration**: Live configuration management backed by MongoDB. Schema-driven form UI, Music Assistant integration testing, section-based organization with secret masking
+- **Dataset Exports**: Generate OpenAI-compatible JSONL files for LLM fine-tuning with date range, agent, and label filters. Download generated datasets
+- **Prompt Cache**: View all cached routing decisions with hit rate statistics, hit counts, and timestamps. Evict individual entries or clear entire cache
+- **Tasks**: Active and archived task management with search, status filtering, pagination, and cancellation. View task statistics and details
+- **Auth Context**: Protected routing with automatic redirect to setup wizard (if not configured) or login page (if not authenticated)
+
+### 🔐 Authentication & API Key Management
+
+- **API Key Authentication**: `ApiKeyAuthenticationHandler` validates keys against MongoDB-stored hashes with ASP.NET Core authentication pipeline integration
+- **HMAC Session Service**: `HmacSessionService` creates cryptographically signed session cookies for browser-based dashboard access
+- **API Key Lifecycle**: Create, list, revoke, and regenerate API keys with metadata (name, prefix, scopes, created/last-used/expiry timestamps)
+- **Onboarding Middleware**: `OnboardingMiddleware` blocks all non-setup endpoints until initial configuration is complete. Setup endpoints use `[AllowAnonymous]`
+- **Setup Flow**: 4-step wizard generates dashboard API key, configures Home Assistant connection (base URL + access token), tests connectivity, generates HA integration key, validates plugin presence, and marks setup complete
+
+### 🔄 Orchestrator Pipeline
+
+The multi-agent orchestration system has been decomposed into a clean three-stage executor pipeline:
+
+- **RouterExecutor**: Routes user input to appropriate agents using LLM-based decision making with prompt cache integration. Returns cached routing decisions when available, bypassing the LLM call entirely
+- **AgentDispatchExecutor**: Invokes selected agents in parallel using observer pattern for trace capture. Supports both local (in-process via `ILuciaAgent`) and remote (HTTP via A2A protocol) agent invocation
+- **ResultAggregatorExecutor**: Aggregates responses from multiple agents into a single natural-language message. Orders by priority, handles partial failures with detailed reason reporting
+- **LuciaEngine**: Decomposed from monolithic god class into focused services — delegates to `SessionManager` (session/task persistence) and `WorkflowFactory` (agent resolution + workflow execution)
+- **SessionManager**: Manages session lifecycle with Redis-backed persistence
+- **WorkflowFactory**: Creates workflow instances and resolves agent references
+
+### 🔌 A2A Plugin Host
+
+A separate `lucia.A2AHost` service that hosts agent plugins independently from the main AgentHost:
+
+- **AgentHostService**: `IHostedLifecycleService` that initializes agents with 3-retry logic, polls HA config every 10 seconds, and registers agents via `AgentRegistryClient`
+- **AgentRegistryClient**: HTTP client for registering/unregistering agents at the main AgentHost's `/agents/register` and `/agents/{agentId}` endpoints
+- **Plugin Architecture**: `PluginLoader` and `PluginEndpointMappingExtension` for loading and mapping agent plugins
+- **Agent Plugins**: Music Agent and Timer Agent run as separate A2A endpoints, each with their own Dockerfile for independent scaling
+
+### ⚡ Prompt Caching
+
+- **PromptCachingChatClient**: `DelegatingChatClient` decorator that checks Redis cache before forwarding LLM calls. Designed specifically for the RouterExecutor — caches routing decisions only, so agents always execute tools fresh
+- **Cache-Aware Routing**: When a cache hit occurs, the RouterExecutor returns the cached agent selection without invoking the LLM, while agent dispatch and result aggregation still execute normally
+- **Management API**: List entries, view statistics (total entries, hit rate, total hits/misses), evict individual entries, and clear all entries
+- **Dashboard UI**: Full cache visibility with entry metadata (agent, confidence, reasoning, hit count, created/last-hit timestamps)
+
+### 📋 Task Persistence & Archival
+
+- **RedisTaskStore**: Active task persistence in Redis with TTL-based expiry
+- **MongoTaskArchiveStore**: Historical task archival to MongoDB for long-term storage
+- **ArchivingTaskStore**: Composite store that wraps both Redis and MongoDB stores with automatic archival
+- **TaskArchivalService**: Background service that auto-archives completed tasks with configurable retention
+- **Management API**: List active/archived tasks, view details, cancel tasks, and get task statistics
+- **Dashboard UI**: Task management page with search, status filtering, and pagination
+
+### 🌐 REST API Surface (44+ Endpoints)
+
+| Category | Endpoints | Description |
+|----------|-----------|-------------|
+| Traces | 5 | List, detail, label, delete, statistics |
+| Exports | 4 | Create JSONL, list, detail, download |
+| Prompt Cache | 4 | List entries, stats, evict, clear all |
+| Tasks | 5 | Active, archived, detail, cancel, stats |
+| Configuration | 5 | List sections, get/update section, reset, schema |
+| Auth | 3 | Login, logout, status |
+| API Keys | 4 | List, create, revoke, regenerate |
+| Setup | 8 | Status, generate keys, configure HA, test connection, validate, complete |
+| Agents | 5 | List, register, update, unregister, proxy A2A |
+| Discovery | 1 | `/.well-known/agent-card.json` |
+
+### ☸️ Kubernetes Helm Charts
+
+Production-ready Helm chart (v1.0.0, Kubernetes ≥1.24) with Artifact Hub annotations:
+
+- **Multi-Service Deployment**: Separate deployments for AgentHost, A2A agents (Music, Timer), Redis StatefulSet, and MongoDB StatefulSet
+- **Init Containers**: Dependency waiting pattern — services wait for Redis and MongoDB health before starting
+- **Rolling Updates**: `maxSurge: 1`, `maxUnavailable: 0` for zero-downtime deployments
+- **Pod Security**: Non-root user, read-only filesystem, `cap_drop: ALL`, `runAsNonRoot: true`
+- **ConfigMap/Secret Checksums**: Automatic pod restarts when configuration changes
+- **Liveness/Readiness Probes**: HTTP health check integration
+- **Ingress Support**: Configurable Kubernetes Ingress with TLS
+- **Values Files**: Production defaults (`values.yaml`) and development overrides (`values.dev.yaml`)
+
+### 🐳 Docker Compose Deployment
+
+Hardened multi-service Docker Compose deployment (`infra/docker/`):
+
+- **Services**: Redis 8.2 (AOF persistence, 256MB maxmemory), MongoDB 8.0, Lucia AgentHost, and A2A agent plugin containers
+- **Security**: Localhost-only port binding, read-only filesystems with tmpfs for temp dirs, dropped capabilities (`NET_RAW`, `SYS_PTRACE`, `SYS_ADMIN`), `no-new-privileges`
+- **Resource Limits**: CPU and memory limits per container (Redis: 1CPU/512MB, MongoDB: 1CPU/512MB, Lucia: 2CPU/1GB)
+- **Health Checks**: All services include health checks with automatic restart on failure
+- **Logging**: JSON file driver with rotation (10MB max, 5 files)
+- **Multi-Image Dockerfiles**: Separate Dockerfiles for AgentHost, A2AHost base, Music Agent, and Timer Agent
+- **Documentation**: Deployment guide, testing guide, testing checklist, and Redis design rationale
+
+### 🔧 CI/CD Improvements
+
+- **Explicit Permissions**: All GitHub Actions workflows now have top-level `permissions` blocks with least-privilege scopes
+- **Multi-Platform Docker Builds**: `docker-build-push.yml` builds for `linux/amd64` and `linux/arm64` with Docker Hub push, layer caching, artifact attestation, and Trivy security scanning
+- **Helm Validation**: `helm-lint.yml` performs chart linting, template rendering, and schema validation with kubeval
+- **Infrastructure Validation**: `validate-infrastructure.yml` validates Docker Compose, Kubernetes manifests (yamllint), systemd units, documentation (markdownlint), and runs security checks
+- **Normalized Line Endings**: All infrastructure files converted to LF to prevent CRLF-related CI failures
 
 ## 🔧 Under the Hood
 
@@ -100,6 +216,25 @@
 - Agent Cards (A2A protocol) now required for registration with full capability metadata
 - `OrchestratorServiceKeys` manages agent-specific model keys for bulk registration
 - Async initialization support added to MusicAgent
+- `AgentInitializationService` now uses `IEnumerable<ILuciaAgent>` for auto-discovery instead of injecting each agent by concrete type
+- `OrchestratorAgent` merges the old agent + AI agent classes, extends `AIAgent` and implements `ILuciaAgent`
+
+### Orchestration Decomposition
+
+- **LuciaEngine** decomposed from monolithic god class into 3 focused services with 6 constructor parameters (down from 16)
+- **SessionManager**: Session lifecycle and task persistence
+- **WorkflowFactory**: Agent resolution and workflow execution
+- All 4 executors migrated from deprecated `ReflectingExecutor<T>` + `IMessageHandler<TIn,TOut>` to `Executor` base class with `ConfigureRoutes(RouteBuilder)` using `AddHandler<TIn,TOut>()`
+- **RemoteAgentInvoker** and **LocalAgentInvoker** for A2A protocol and in-process agent invocation respectively
+- In-process agents resolved via `GetAIAgent()` from DI (not `AsAIAgent()` which requires absolute URIs)
+
+### Session & Cache Services
+
+- **RedisSessionCacheService**: Session persistence backed by Redis
+- **RedisPromptCacheService**: Prompt cache backed by Redis with TTL-based expiry
+- **RedisDeviceCacheService**: Home Assistant device list caching
+- **PromptCachingChatClient**: DelegatingChatClient decorator for router LLM call caching
+- **ContextExtractor**: Extracts contextual data for agent prompting
 
 ### Housekeeping
 
@@ -131,9 +266,9 @@ See our [Roadmap](https://github.com/seiggy/lucia-dotnet/blob/master/.docs/produ
 - **Climate Agent** — HVAC and temperature control
 - **Security Agent** — Alarms, locks, and camera integration
 - **Scene Agent** — Scene management and automation
-- **Training UI** — Web interface for labeling conversation traces and managing fine-tuning datasets
-- **Local LLM fine-tuning** — Use captured training data with local models for privacy-first deployment
-- **WebSocket streaming** — Real-time Home Assistant event monitoring
+- **WebSocket Streaming** — Real-time Home Assistant event monitoring
+- **Local LLM Fine-Tuning** — Use captured training data with local models for privacy-first deployment
+- **Training UI Enhancements** — Batch labeling, inter-annotator agreement, and quality dashboards
 
 ---
 
