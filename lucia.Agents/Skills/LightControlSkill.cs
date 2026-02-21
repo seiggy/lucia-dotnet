@@ -18,7 +18,6 @@ namespace lucia.Agents.Skills;
 /// </summary>
 public class LightControlSkill : IAgentSkill
 {
-    private const string? ReturnResponseToken = "return_response";
     private readonly IHomeAssistantClient _homeAssistantClient;
     private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
     private readonly ILogger<LightControlSkill> _logger;
@@ -545,7 +544,7 @@ public class LightControlSkill : IAgentSkill
 
             if (state.ToLower() == "off")
             {
-                await _homeAssistantClient.CallServiceAsync(domain, "turn_off", ReturnResponseToken, request);
+                await _homeAssistantClient.CallServiceAsync(domain, "turn_off", parameters: null, request);
                 activity?.SetStatus(ActivityStatusCode.Ok);
                 return $"Light '{displayName}' turned off successfully.";
             }
@@ -562,7 +561,7 @@ public class LightControlSkill : IAgentSkill
                     request["color_name"] = color;
                 }
 
-                await _homeAssistantClient.CallServiceAsync(domain, "turn_on", ReturnResponseToken, request);
+                await _homeAssistantClient.CallServiceAsync(domain, "turn_on", parameters: null, request);
 
                 var result = $"Light '{displayName}' turned on successfully";
                 if (brightness.HasValue && !isSwitch)

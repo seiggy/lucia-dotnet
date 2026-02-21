@@ -13,15 +13,20 @@ var existingFoundryResourceGroup = builder.AddParameter("existingFoundryResource
 var foundry = builder.AddAzureAIFoundry("foundry")
     .AsExisting(existingFoundryName, existingFoundryResourceGroup);
 
-// Primary models
-var chatModel = foundry.AddDeployment("chat", AIFoundryModel.OpenAI.Gpt4o);
-var embeddingsModel = foundry.AddDeployment("embeddings", AIFoundryModel.OpenAI.TextEmbedding3Large);
+// Primary models — default SkuCapacity is 1 (1K TPM), far too low for multi-agent orchestration
+var chatModel = foundry.AddDeployment("chat", AIFoundryModel.OpenAI.Gpt4o)
+    .WithProperties(d => d.SkuCapacity = 100);
+var embeddingsModel = foundry.AddDeployment("embeddings", AIFoundryModel.OpenAI.TextEmbedding3Large)
+    .WithProperties(d => d.SkuCapacity = 100);
 
 // Additional models for eval benchmarking
-var chatMini = foundry.AddDeployment("chat-mini", AIFoundryModel.OpenAI.Gpt4oMini);
-var phi4 = foundry.AddDeployment("phi4", AIFoundryModel.Microsoft.Phi4MiniInstruct);
+var chatMini = foundry.AddDeployment("chat-mini", AIFoundryModel.OpenAI.Gpt4oMini)
+    .WithProperties(d => d.SkuCapacity = 100);
+var phi4 = foundry.AddDeployment("phi4", AIFoundryModel.Microsoft.Phi4MiniInstruct)
+    .WithProperties(d => d.SkuCapacity = 100);
 //var gptOss120b = foundry.AddDeployment("gpt-oss-120b", "gpt-oss-120b", "1", "OpenAI");
-var gpt5Nano = foundry.AddDeployment("gpt-5-nano", AIFoundryModel.OpenAI.Gpt5Nano);
+var gpt5Nano = foundry.AddDeployment("gpt-5-nano", AIFoundryModel.OpenAI.Gpt5Nano)
+    .WithProperties(d => d.SkuCapacity = 100);
 
 var redis = builder.AddRedis("redis")
     .WithDataVolume()
