@@ -30,7 +30,6 @@ WORKDIR /src
 # Copy MSBuild infrastructure files required before restore
 COPY ["Directory.Build.props", "."]
 COPY ["Directory.Packages.props", "."]
-COPY ["NuGet.Config", "."]
 
 # Copy project files for restore layer caching (A2AHost + dependencies only)
 COPY ["lucia.A2AHost/lucia.A2AHost.csproj", "lucia.A2AHost/"]
