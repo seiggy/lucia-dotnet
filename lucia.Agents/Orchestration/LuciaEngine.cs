@@ -149,13 +149,13 @@ public class LuciaEngine
 
             var finalState = needsInput ? TaskState.InputRequired : TaskState.Completed;
             await _sessionManager.UpdateTaskStatusAsync(
-                agentTask.Id, finalState, message: assistantMessage, final: !needsInput, cancellationToken).ConfigureAwait(false);
+                agentTask.Id, finalState, message: assistantMessage, final: !needsInput, CancellationToken.None).ConfigureAwait(false);
 
             _logger.LogInformation("Task {TaskId} ended with state {TaskState} and {HistoryCount} history items",
                 agentTask.Id, finalState, agentTask.History.Count);
 
             await _sessionManager.SaveSessionAsync(
-                sessionId, sessionData, userRequest, finalText, cancellationToken).ConfigureAwait(false);
+                sessionId, sessionData, userRequest, finalText, CancellationToken.None).ConfigureAwait(false);
 
             return new OrchestratorResult { Text = finalText, NeedsInput = needsInput };
         }
@@ -181,7 +181,7 @@ public class LuciaEngine
                     };
 
                     await _sessionManager.UpdateTaskStatusAsync(
-                        failedTaskId, TaskState.Failed, errorMessage, true, cancellationToken).ConfigureAwait(false);
+                        failedTaskId, TaskState.Failed, errorMessage, true, CancellationToken.None).ConfigureAwait(false);
 
                     _logger.LogInformation("Task {TaskId} marked as failed", failedTaskId);
                 }

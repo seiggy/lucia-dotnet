@@ -172,7 +172,7 @@ class LuciaConversationEntity(conversation.ConversationEntity):
             response = await httpx_client.post(
                 agent_url,
                 json=jsonrpc_request,
-                timeout=30.0
+                timeout=120.0
             )
 
             if response.status_code != 200:
