@@ -16,6 +16,11 @@ ARG BUILD_CONFIGURATION=Release
 
 WORKDIR /src
 
+# Copy MSBuild infrastructure files required before restore
+COPY ["Directory.Build.props", "."]
+COPY ["Directory.Packages.props", "."]
+COPY ["NuGet.Config", "."]
+
 # Copy project files for restore layer caching
 COPY ["lucia.TimerAgent/lucia.TimerAgent.csproj", "lucia.TimerAgent/"]
 COPY ["lucia.Agents/lucia.Agents.csproj", "lucia.Agents/"]
