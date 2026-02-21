@@ -14,7 +14,6 @@ ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 COPY ["Directory.Build.props", "."]
 COPY ["Directory.Packages.props", "."]
-COPY ["NuGet.Config", "."]
 COPY ["lucia.AgentHost/lucia.AgentHost.csproj", "lucia.AgentHost/"]
 RUN dotnet restore "./lucia.AgentHost/lucia.AgentHost.csproj"
 COPY . .

@@ -57,9 +57,8 @@ WORKDIR /src
 # Copy MSBuild infrastructure files required before restore
 COPY ["Directory.Build.props", "."]
 COPY ["Directory.Packages.props", "."]
-COPY ["NuGet.Config", "."]
 
-# Copy project files (maintaining directory structure)
+# Copy project files(maintaining directory structure)
 COPY ["lucia.AgentHost/lucia.AgentHost.csproj", "lucia.AgentHost/"]
 COPY ["lucia.Agents/lucia.Agents.csproj", "lucia.Agents/"]
 COPY ["lucia.HomeAssistant/lucia.HomeAssistant.csproj", "lucia.HomeAssistant/"]
