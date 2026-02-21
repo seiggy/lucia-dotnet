@@ -37,15 +37,27 @@ public static class AgentProxyApi
             return TypedResults.BadRequest("agentUrl query parameter is required.");
         }
 
-        // Verify the agent is registered (don't reflect raw input in response)
-        var agent = await agentRegistry.GetAgentAsync(agentUrl, cancellationToken);
+        // Resolve relative URLs against the current server's address
+        var resolvedUrl = agentUrl;
+        if (!agentUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+            && !agentUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            var baseUrl = $"{request.Scheme}://{request.Host}";
+            resolvedUrl = agentUrl.StartsWith('/')
+                ? $"{baseUrl}{agentUrl}"
+                : $"{baseUrl}/{agentUrl}";
+        }
+
+        // Verify the agent is registered (try both original and resolved URLs)
+        var agent = await agentRegistry.GetAgentAsync(agentUrl, cancellationToken)
+            ?? await agentRegistry.GetAgentAsync(resolvedUrl, cancellationToken);
         if (agent is null)
         {
             return TypedResults.NotFound("Agent not found for the specified URL.");
         }
 
         // Rewrite bind-all addresses to loopback and validate the resulting URI
-        if (!TryRewriteAgentUrl(agentUrl, out var targetUri))
+        if (!TryRewriteAgentUrl(resolvedUrl, out var targetUri))
         {
             return TypedResults.BadRequest("Invalid or disallowed agent URL.");
         }
