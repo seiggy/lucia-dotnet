@@ -16,7 +16,7 @@ This guide provides a detailed comparison of all Lucia deployment methods to hel
 ### Complexity & Learning Curve
 
 | Method | Docker | Kubernetes | systemd | Rating |
-|--------|--------|-----------|---------|--------|
+| ------ | ------ | ---------- | ------- | ------ |
 | **Installation** | <2 min | 5-10 min | 5-15 min | 🟢🟡🔴 |
 | **Configuration** | Simple | Moderate | Moderate | 🟢🟡🟡 |
 | **Troubleshooting** | Easy | Hard | Medium | 🟢🔴🟡 |
@@ -28,7 +28,7 @@ This guide provides a detailed comparison of all Lucia deployment methods to hel
 ### Performance Characteristics
 
 | Metric | Docker | Kubernetes | systemd |
-|--------|--------|-----------|---------|
+| ------ | ------ | ---------- | ------- |
 | **Startup Time** | 15-30s | 30-60s | 5-10s |
 | **Memory Overhead** | 50-100MB | 100-200MB | 10-20MB |
 | **Disk Usage** | 200-500MB | 300-800MB | 50-100MB |
@@ -42,7 +42,7 @@ This guide provides a detailed comparison of all Lucia deployment methods to hel
 #### Single Host Scaling
 
 | Feature | Docker | Kubernetes | systemd |
-|---------|--------|-----------|---------|
+| ------- | ------ | ---------- | ------- |
 | **Multiple Replicas** | 🟡 Via compose | 🟢 Native | 🔴 N/A |
 | **Auto-restart** | 🟢 Yes | 🟢 Yes | 🟢 Yes |
 | **Load Balancing** | 🟡 Via compose | 🟢 Native | 🔴 N/A |
@@ -51,7 +51,7 @@ This guide provides a detailed comparison of all Lucia deployment methods to hel
 #### Multi-Host Scaling
 
 | Feature | Docker | Kubernetes | systemd |
-|---------|--------|-----------|---------|
+| ------- | ------ | ---------- | ------- |
 | **Multi-node** | 🔴 No (Docker Swarm) | 🟢 Yes | 🔴 No |
 | **Auto-failover** | 🔴 No | 🟢 Yes | 🔴 No |
 | **Load Distribution** | 🔴 No | 🟢 Yes | 🔴 No |
@@ -64,7 +64,7 @@ This guide provides a detailed comparison of all Lucia deployment methods to hel
 #### Secrets Handling
 
 | Method | How Secrets Handled | Security | Rotation | Recovery |
-|--------|-------------------|----------|----------|----------|
+| ------ | ------------------- | -------- | -------- | -------- |
 | **Docker** | .env file or Docker secrets | 🟡 Medium | Manual | Recreate .env |
 | **Kubernetes** | K8s Secrets or Sealed Secrets | 🟢 High | Easy | Native rolling restart |
 | **systemd** | Encrypted EnvironmentFile | 🟢 High | Manual | File permissions matter |
@@ -72,7 +72,7 @@ This guide provides a detailed comparison of all Lucia deployment methods to hel
 #### Configuration Updates
 
 | Scenario | Docker | Kubernetes | systemd |
-|----------|--------|-----------|---------|
+| -------- | ------ | ---------- | ------- |
 | **Update env variable** | Edit .env + restart | kubectl edit/patch | Edit .env + systemctl restart |
 | **Zero-downtime update** | ❌ No | ✅ Rolling update | ❌ No |
 | **Rollback capability** | ⚠️ Manual | ✅ Built-in | ❌ Manual |
@@ -200,7 +200,7 @@ This guide provides a detailed comparison of all Lucia deployment methods to hel
 #### Backup & Restore Times
 
 | Scenario | Docker | Kubernetes | systemd |
-|----------|--------|-----------|---------|
+| -------- | ------ | ---------- | ------- |
 | **Config backup** | 1s | 5-10s | 1s |
 | **Full backup** | 5-10s | 30-60s | 5-10s |
 | **Restore from backup** | 5-10s | 1-2m | 5-10s |
@@ -221,7 +221,7 @@ This guide provides a detailed comparison of all Lucia deployment methods to hel
 #### Built-in Monitoring
 
 | Feature | Docker | Kubernetes | systemd |
-|---------|--------|-----------|---------|
+| ------- | ------ | ---------- | ------- |
 | **Health checks** | ✅ Yes | ✅ Yes | ⚠️ systemd-notify |
 | **Logs aggregation** | ⚠️ Docker logs | ✅ Built-in | ⚠️ journalctl |
 | **Metrics** | ⚠️ Optional | ✅ Prometheus | ⚠️ Node exporter |
@@ -243,7 +243,7 @@ This guide provides a detailed comparison of all Lucia deployment methods to hel
 #### Infrastructure Costs
 
 | Component | Docker | Kubernetes | systemd |
-|-----------|--------|-----------|---------|
+| --------- | ------ | ---------- | ------- |
 | **Hardware** | 1 small server | 1+ medium servers | 1 small server |
 | **Estimated specs** | 2C/4GB RAM | 4C/8GB RAM minimum | 2C/4GB RAM |
 | **Example cost/month** | $5-20 (home) | $50-200 (cloud) | $5-20 (home) |
@@ -251,7 +251,7 @@ This guide provides a detailed comparison of all Lucia deployment methods to hel
 #### Operational Costs
 
 | Activity | Docker | Kubernetes | systemd |
-|----------|--------|-----------|---------|
+| -------- | ------ | ---------- | ------- |
 | **Setup time** | 15-30m | 2-4h | 30m-1h |
 | **Maintenance** | Low | Medium | Low |
 | **Learning investment** | Low | High | Medium |
@@ -353,7 +353,7 @@ systemd:    160MB (Lucia) + 20MB (system overhead)
 ### Troubleshooting Comparison
 
 | Issue | Docker Solution | Kubernetes Solution | systemd Solution |
-|-------|-----------------|-------------------|------------------|
+| ----- | --------------- | ------------------- | ---------------- |
 | App won't start | `docker logs <container>` | `kubectl logs <pod>` | `journalctl -u lucia` |
 | Redis connection failed | Check compose network | Check service DNS | Check connectionstring |
 | Config not loading | Check .env file | Check ConfigMap | Check EnvironmentFile |

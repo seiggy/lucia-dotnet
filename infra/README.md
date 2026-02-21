@@ -11,6 +11,7 @@ Choose your deployment method below:
 For local development, start the solution through `lucia.AppHost` so supporting services and agent hosts start in a consistent composition.
 
 Current AppHost composition includes:
+
 - `lucia-agenthost` (agent registry/API)
 - `music-agent` (`lucia.A2AHost` with music plugin)
 - `timer-agent` (`lucia.A2AHost` with timer plugin)
@@ -19,6 +20,7 @@ Current AppHost composition includes:
 - MongoDB (persistent container + mongo-express)
 
 Recommended startup from repository root:
+
 ```bash
 dotnet build lucia-dotnet.slnx
 dotnet run --project lucia.AppHost
@@ -36,6 +38,7 @@ Deploy Lucia on home servers, NAS devices, or single machines using Docker Compo
 - **Files**: [Dockerfile](./docker/Dockerfile), [docker-compose.yml](./docker/docker-compose.yml), [.env.example](./docker/.env.example)
 
 **Quick Start**:
+
 ```bash
 cd infra/docker
 cp .env.example .env
@@ -55,11 +58,13 @@ Deploy Lucia on Kubernetes clusters using Helm charts or raw manifests.
 - **Methods**: [Helm Chart](./kubernetes/helm/) or [Raw Manifests](./kubernetes/manifests/)
 
 **Quick Start (Helm)**:
+
 ```bash
 helm install lucia ./kubernetes/helm -f my-values.yaml
 ```
 
 **Quick Start (Raw Manifests)**:
+
 ```bash
 kubectl apply -k kubernetes/manifests/
 ```
@@ -76,6 +81,7 @@ Deploy Lucia as a native Linux service on Ubuntu, Debian, or RHEL using systemd.
 - **Installation**: Automated script or manual setup
 
 **Quick Start**:
+
 ```bash
 sudo ./systemd/install.sh
 sudo systemctl start lucia
@@ -97,6 +103,7 @@ Automated Docker image building and publishing to Docker Hub.
 ## Prerequisites Checklist
 
 ✅ **All Deployment Methods Require**:
+
 - Home Assistant instance (version 2024.1+) running and accessible
 - Home Assistant long-lived access token
 - LLM provider (OpenAI API key, Azure OpenAI, or local Ollama/LM Studio)
@@ -113,7 +120,7 @@ Automated Docker image building and publishing to Docker Hub.
 ## Deployment Method Comparison
 
 | Feature | Docker | Kubernetes | systemd | CI/CD |
-|---------|--------|-----------|---------|-------|
+| ------- | ------ | ---------- | ------- | ----- |
 | **Complexity** | Easy | Advanced | Intermediate | N/A |
 | **Setup Time** | ~15 min | ~20 min | ~25 min | <10 min |
 | **Best For** | Home servers | Production | Linux servers | Automation |
@@ -129,6 +136,7 @@ Automated Docker image building and publishing to Docker Hub.
 All deployment methods require configuration via environment variables. See [docs/configuration-reference.md](./docs/configuration-reference.md) for complete documentation.
 
 **Essential Variables**:
+
 - `HomeAssistant__BaseUrl` - Your Home Assistant URL
 - `HomeAssistant__AccessToken` - Long-lived Home Assistant token
 - `ConnectionStrings__chat-model` - Unified chat model connection string (format: `Endpoint=...;AccessKey=...;Model=...;Provider=openai|azureopenai|ollama|azureinference`)
@@ -141,22 +149,26 @@ All deployment methods require configuration via environment variables. See [doc
 ## Documentation Guide
 
 ### Getting Started
+
 - [Quickstart Guide](../specs/002-infrastructure-deployment/quickstart.md) - Step-by-step for all methods
 - [Configuration Reference](./docs/configuration-reference.md) - All environment variables
 - [LLM Providers Guide](./docs/llm-providers.md) - Configure OpenAI, Azure, Ollama, etc.
 
 ### Deployment Methods
+
 - [Docker Deployment Guide](./docker/README.md) - Docker Compose documentation
 - [Kubernetes Deployment (Helm)](./kubernetes/helm/README.md) - Helm chart guide
 - [Kubernetes Deployment (Raw Manifests)](./kubernetes/README.md) - kubectl guide
 - [Linux systemd Deployment](./systemd/README.md) - Service installation guide
 
 ### Operations & Troubleshooting
+
 - [Deployment Comparison](./docs/deployment-comparison.md) - Compare methods
 - [Troubleshooting Guide](./docs/troubleshooting.md) - Common issues and solutions
 - [Security Hardening](./docs/security-hardening.md) - Security best practices
 
 ### Utilities
+
 - [Health Check Script](./scripts/health-check.sh) - Validate deployment health
 - [Deployment Validation Script](./scripts/validate-deployment.sh) - Pre-deployment checks
 - [Configuration Backup Script](./scripts/backup-config.sh) - Backup deployments
@@ -179,6 +191,7 @@ LLM provider(s) consumed by agent hosts
 ```
 
 **Deployment Options**:
+
 1. **All In Docker** - Application + Redis in containers
 2. **All on Kubernetes** - Application, Redis, Ingress in K8s
 3. **All on Linux** - Application + Redis as systemd services

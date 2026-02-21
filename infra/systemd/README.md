@@ -40,7 +40,7 @@ The systemd deployment method runs Lucia as a native Linux service with:
 ### Required Software
 
 | Component | Minimum Version | Installation |
-|-----------|-----------------|--------------|
+| --------- | --------------- | ------------ |
 | **systemd** | 240+ | Included in most modern Linux distros |
 | **.NET Runtime** | 10.0+ | [Install Guide](https://learn.microsoft.com/en-us/dotnet/core/install/linux) |
 | **Redis** | 7.0+ | `sudo apt install redis-server` (Ubuntu/Debian) |

@@ -36,7 +36,7 @@ jobs:
         run: |
           echo "Validating Docker Compose syntax..."
           mv .env.example .env  # Use example env for validation
-          docker-compose -f infra/docker/docker-compose.yml config > /dev/null
+          docker compose -f infra/docker/docker-compose.yml config > /dev/null
           echo "✅ Docker Compose files are valid"
 
       - name: Check Docker Compose structure
@@ -110,11 +110,10 @@ jobs:
           echo "Checking for required Kubernetes resources..."
           
           REQUIRED_RESOURCES=(
-            "infra/kubernetes/manifests/namespace.yaml"
-            "infra/kubernetes/manifests/deployment.yaml"
-            "infra/kubernetes/manifests/service.yaml"
-            "infra/kubernetes/manifests/configmap.yaml"
-            "infra/kubernetes/manifests/secret.yaml"
+            "infra/kubernetes/manifests/00-namespace.yaml"
+            "infra/kubernetes/manifests/04-deployment.yaml"
+            "infra/kubernetes/manifests/01-configmap.yaml"
+            "infra/kubernetes/manifests/02-secret.yaml"
           )
           
           for resource in "${REQUIRED_RESOURCES[@]}"; do

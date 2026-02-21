@@ -23,7 +23,7 @@ curl http://localhost:8080/health
 ## File Structure
 
 | File | Purpose | Description |
-|------|---------|-------------|
+| ---- | ------- | ----------- |
 | `00-namespace.yaml` | Namespace | Creates the `lucia` namespace for all resources |
 | `01-configmap.yaml` | Configuration | Non-sensitive configuration (endpoints, settings) |
 | `02-secret.yaml` | Secrets | Sensitive data (API keys, tokens) |
@@ -82,6 +82,7 @@ kubectl edit configmap lucia -n lucia
 ```
 
 **Update steps:**
+
 1. Edit the ConfigMap
 2. Restart deployment: `kubectl rollout restart deployment/lucia -n lucia`
 
@@ -102,6 +103,7 @@ kubectl edit secret lucia -n lucia
 ```
 
 **Security Note**: Consider using:
+
 - **Sealed Secrets** for GitOps-safe secret management
 - **External Secrets Operator** for integration with external secret stores
 - **RBAC** to limit access to secrets
@@ -438,6 +440,7 @@ kubectl apply -f sealed-secret.yaml
 ### 2. RBAC (Role-Based Access Control)
 
 ServiceAccount `lucia` has minimal permissions:
+
 - Read ConfigMaps
 - Read Secrets
 - Read Pods
