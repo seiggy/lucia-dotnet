@@ -202,7 +202,9 @@ public sealed class OrchestratorAgent : AIAgent, ILuciaAgent
             return serverAddressesFeature.Addresses.First();
         }
 
-        return "unknown";
+        // Return empty so callers produce a relative path (e.g. "/agent")
+        // which the HA plugin resolves against the repository base URL.
+        return string.Empty;
     }
 
     /// <summary>
