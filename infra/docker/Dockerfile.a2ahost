@@ -31,7 +31,6 @@ WORKDIR /src
 COPY ["lucia.A2AHost/lucia.A2AHost.csproj", "lucia.A2AHost/"]
 COPY ["lucia.Agents/lucia.Agents.csproj", "lucia.Agents/"]
 COPY ["lucia.HomeAssistant/lucia.HomeAssistant.csproj", "lucia.HomeAssistant/"]
-COPY ["lucia.HomeAssistant.SourceGenerator/lucia.HomeAssistant.SourceGenerator.csproj", "lucia.HomeAssistant.SourceGenerator/"]
 COPY ["lucia.ServiceDefaults/lucia.ServiceDefaults.csproj", "lucia.ServiceDefaults/"]
 
 RUN dotnet restore "./lucia.A2AHost/lucia.A2AHost.csproj"
