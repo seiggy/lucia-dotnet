@@ -22,8 +22,7 @@ var embeddingsModel = foundry.AddDeployment("embeddings", AIFoundryModel.OpenAI.
 // Additional models for eval benchmarking
 var chatMini = foundry.AddDeployment("chat-mini", AIFoundryModel.OpenAI.Gpt4oMini)
     .WithProperties(d => d.SkuCapacity = 100);
-var phi4 = foundry.AddDeployment("phi4", AIFoundryModel.Microsoft.Phi4MiniInstruct)
-    .WithProperties(d => d.SkuCapacity = 100);
+var phi4 = foundry.AddDeployment("phi4", AIFoundryModel.Microsoft.Phi4MiniInstruct);
 //var gptOss120b = foundry.AddDeployment("gpt-oss-120b", "gpt-oss-120b", "1", "OpenAI");
 var gpt5Nano = foundry.AddDeployment("gpt-5-nano", AIFoundryModel.OpenAI.Gpt5Nano)
     .WithProperties(d => d.SkuCapacity = 100);
