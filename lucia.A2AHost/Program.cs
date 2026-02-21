@@ -7,7 +7,10 @@ using lucia.Agents.Extensions;
 using lucia.Agents.Services;
 using lucia.HomeAssistant.Configuration;
 using lucia.HomeAssistant.Services;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -41,7 +44,30 @@ builder.AddEmbeddingsClient("embeddings");
 builder.Services.Configure<HomeAssistantOptions>(
     builder.Configuration.GetSection("HomeAssistant"));
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddTransient<IHomeAssistantClient, HomeAssistantClient>();
+builder.Services.AddHttpClient<IHomeAssistantClient, HomeAssistantClient>((sp, client) =>
+{
+    var options = sp.GetRequiredService<IOptions<HomeAssistantOptions>>().Value;
+    if (!string.IsNullOrWhiteSpace(options.BaseUrl))
+    {
+        client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/'));
+        client.DefaultRequestHeaders.Add("Authorization", $"Bearer {options.AccessToken}");
+        client.DefaultRequestHeaders.Add("Accept", "application/json");
+        client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+    }
+})
+.ConfigurePrimaryHttpMessageHandler(sp =>
+{
+    var options = sp.GetRequiredService<IOptions<HomeAssistantOptions>>().Value;
+    var handler = new HttpClientHandler();
+
+    if (!options.ValidateSSL)
+    {
+        handler.ServerCertificateCustomValidationCallback =
+            (HttpRequestMessage message, X509Certificate2? certificate, X509Chain? chain, SslPolicyErrors sslPolicyErrors) => true;
+    }
+
+    return handler;
+});
 builder.Services.AddSingleton<IDeviceCacheService, RedisDeviceCacheService>();
 
 // Register Redis task store for A2A task persistence (used by TimerAgent)

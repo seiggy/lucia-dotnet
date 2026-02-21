@@ -4,6 +4,7 @@ import {
   fetchConfigSection,
   updateConfigSection,
   resetConfig,
+  testMusicAssistantIntegration,
 } from '../api'
 import type {
   ConfigSectionSchema,
@@ -130,9 +131,13 @@ function ToggleSwitch({
 
 function ConnectionStringsEditor({
   entries,
+  sensitiveKeys,
+  showSecrets,
   onChange,
 }: {
   entries: Record<string, string | null>
+  sensitiveKeys: Set<string>
+  showSecrets: boolean
   onChange: (updated: Record<string, string | null>) => void
 }) {
   const keys = Object.keys(entries)
@@ -159,10 +164,19 @@ function ConnectionStringsEditor({
       {keys.map((key) => {
         const value = entries[key]
         if (value === null) return null
+        const isSensitive = sensitiveKeys.has(key)
+        const isMasked = isSensitive && value === '********'
         return (
           <div key={key} className="rounded-lg border border-gray-600 bg-gray-750 p-4">
             <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-medium text-indigo-400">{key}</label>
+              <label className="text-sm font-medium text-indigo-400">
+                {key}
+                {isSensitive && (
+                  <span className="ml-2 rounded bg-yellow-600/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-yellow-400">
+                    sensitive
+                  </span>
+                )}
+              </label>
               <button
                 type="button"
                 onClick={() => handleRemove(key)}
@@ -172,11 +186,11 @@ function ConnectionStringsEditor({
               </button>
             </div>
             <input
-              type="text"
-              value={value ?? ''}
+              type={isSensitive && !showSecrets ? 'password' : 'text'}
+              value={isMasked ? '' : (value ?? '')}
               onChange={(e) => handleValueChange(key, e.target.value)}
               className="w-full rounded-lg border border-gray-600 bg-gray-700 px-3 py-2 text-sm text-white font-mono placeholder-gray-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-              placeholder="Server=...;Database=...;..."
+              placeholder={isMasked ? '••••••••  (enter new value to change)' : 'Server=...;Database=...;...'}
             />
           </div>
         )
@@ -194,10 +208,69 @@ function ConnectionStringsEditor({
 }
 
 /* ------------------------------------------------------------------ */
-/*  Section Form                                                       */
+/*  Array Section Form                                                 */
 /* ------------------------------------------------------------------ */
 
-function SectionForm({
+/** Parse flat indexed keys ("0:AgentName") into an array of item objects. */
+function parseArrayItems(
+  values: Record<string, string | null>,
+  properties: ConfigPropertySchema[],
+): Record<string, string | null>[] {
+  // Collect all numeric indices
+  const indices = new Set<number>()
+  for (const key of Object.keys(values)) {
+    const match = key.match(/^(\d+):/)
+    if (match) indices.add(parseInt(match[1]))
+  }
+
+  return Array.from(indices)
+    .sort((a, b) => a - b)
+    .map((idx) => {
+      const item: Record<string, string | null> = {}
+      for (const prop of properties) {
+        const simpleKey = `${idx}:${prop.name}`
+        if (values[simpleKey] !== undefined) {
+          item[prop.name] = values[simpleKey]
+          continue
+        }
+        // Array property stored as sub-keys (e.g. 0:AgentSkills:0, 0:AgentSkills:1)
+        const subValues: string[] = []
+        for (const key of Object.keys(values)) {
+          if (key.startsWith(`${idx}:${prop.name}:`) && values[key] !== null) {
+            subValues.push(values[key]!)
+          }
+        }
+        item[prop.name] = subValues.length > 0 ? subValues.join(', ') : null
+      }
+      return item
+    })
+}
+
+/** Flatten an array of item objects back to indexed keys. */
+function flattenArrayItems(
+  items: Record<string, string | null>[],
+  properties: ConfigPropertySchema[],
+): Record<string, string | null> {
+  const result: Record<string, string | null> = {}
+  items.forEach((item, idx) => {
+    for (const prop of properties) {
+      if (prop.type === 'array' && item[prop.name]) {
+        const parts = item[prop.name]!
+          .split(',')
+          .map((v) => v.trim())
+          .filter((v) => v)
+        parts.forEach((v, i) => {
+          result[`${idx}:${prop.name}:${i}`] = v
+        })
+      } else {
+        result[`${idx}:${prop.name}`] = item[prop.name]
+      }
+    }
+  })
+  return result
+}
+
+function ArraySectionForm({
   schema,
   values,
   onValuesChange,
@@ -206,9 +279,101 @@ function SectionForm({
   values: Record<string, string | null>
   onValuesChange: (updated: Record<string, string | null>) => void
 }) {
+  const items = parseArrayItems(values, schema.properties)
+
+  const handleItemFieldChange = (itemIndex: number, propName: string, value: string | null) => {
+    const updated = items.map((item, i) =>
+      i === itemIndex ? { ...item, [propName]: value } : item,
+    )
+    onValuesChange(flattenArrayItems(updated, schema.properties))
+  }
+
+  const handleAddItem = () => {
+    const newItem: Record<string, string | null> = {}
+    for (const prop of schema.properties) {
+      newItem[prop.name] = prop.defaultValue || null
+    }
+    onValuesChange(flattenArrayItems([...items, newItem], schema.properties))
+  }
+
+  const handleRemoveItem = (index: number) => {
+    const updated = items.filter((_, i) => i !== index)
+    onValuesChange(flattenArrayItems(updated, schema.properties))
+  }
+
+  return (
+    <div className="space-y-4">
+      {items.map((item, idx) => (
+        <div
+          key={idx}
+          className="rounded-lg border border-gray-600 bg-gray-750 p-4"
+        >
+          <div className="mb-4 flex items-center justify-between">
+            <span className="text-sm font-semibold text-indigo-400">
+              Item {idx}
+            </span>
+            <button
+              type="button"
+              onClick={() => handleRemoveItem(idx)}
+              className="text-xs text-red-400 hover:text-red-300 transition-colors"
+            >
+              Remove
+            </button>
+          </div>
+          <div className="space-y-4">
+            {schema.properties.map((prop) => (
+              <FieldEditor
+                key={prop.name}
+                property={prop}
+                value={item[prop.name] ?? null}
+                onChange={(val) => handleItemFieldChange(idx, prop.name, val)}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+      {items.length === 0 && (
+        <p className="py-4 text-center text-sm text-gray-500">
+          No items configured
+        </p>
+      )}
+      <button
+        type="button"
+        onClick={handleAddItem}
+        className="flex items-center gap-2 rounded-lg border border-dashed border-gray-600 px-4 py-2 text-sm text-gray-400 hover:border-indigo-500 hover:text-indigo-400 transition-colors"
+      >
+        <span className="text-lg leading-none">+</span>
+        Add Item
+      </button>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Section Form                                                       */
+/* ------------------------------------------------------------------ */
+
+function SectionForm({
+  schema,
+  values,
+  sensitiveKeys,
+  showSecrets,
+  onValuesChange,
+}: {
+  schema: ConfigSectionSchema
+  values: Record<string, string | null>
+  sensitiveKeys: Set<string>
+  showSecrets: boolean
+  onValuesChange: (updated: Record<string, string | null>) => void
+}) {
   // Connection strings get a specialized editor
   if (schema.section === 'ConnectionStrings') {
-    return <ConnectionStringsEditor entries={values} onChange={onValuesChange} />
+    return <ConnectionStringsEditor entries={values} sensitiveKeys={sensitiveKeys} showSecrets={showSecrets} onChange={onValuesChange} />
+  }
+
+  // Array sections get an indexed item editor
+  if (schema.isArray) {
+    return <ArraySectionForm schema={schema} values={values} onValuesChange={onValuesChange} />
   }
 
   const handleFieldChange = (name: string, value: string | null) => {
@@ -222,6 +387,7 @@ function SectionForm({
           key={prop.name}
           property={prop}
           value={values[prop.name] ?? null}
+          showSecrets={showSecrets}
           onChange={(val) => handleFieldChange(prop.name, val)}
         />
       ))}
@@ -236,15 +402,18 @@ function SectionForm({
 function FieldEditor({
   property,
   value,
+  showSecrets,
   onChange,
 }: {
   property: ConfigPropertySchema
   value: string | null
+  showSecrets?: boolean
   onChange: (val: string | null) => void
 }) {
   const { name, type, description, defaultValue, isSensitive } = property
   const displayValue = value ?? ''
   const isMasked = isSensitive && displayValue === '********'
+  const usePasswordInput = isSensitive && !showSecrets
 
   const labelNode = (
     <div className="mb-1.5">
@@ -325,7 +494,7 @@ function FieldEditor({
     <div>
       {labelNode}
       <input
-        type={isSensitive ? 'password' : 'text'}
+        type={usePasswordInput ? 'password' : 'text'}
         value={isMasked ? '' : displayValue}
         onChange={(e) => onChange(e.target.value || null)}
         placeholder={isMasked ? '••••••••  (enter new value to change)' : defaultValue || ''}
@@ -333,6 +502,76 @@ function FieldEditor({
       />
       {defaultValue !== undefined && defaultValue !== '' && !isSensitive && (
         <p className="mt-1 text-xs text-gray-600">Default: {defaultValue}</p>
+      )}
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Music Assistant Test Button                                        */
+/* ------------------------------------------------------------------ */
+
+function MusicAssistantTestButton({ integrationId }: { integrationId: string }) {
+  const [testing, setTesting] = useState(false)
+  const [result, setResult] = useState<{ success: boolean; message: string } | null>(null)
+
+  const handleTest = async () => {
+    setTesting(true)
+    setResult(null)
+    try {
+      const res = await testMusicAssistantIntegration(integrationId)
+      setResult(res)
+    } catch (err) {
+      setResult({
+        success: false,
+        message: err instanceof Error ? err.message : 'Test request failed',
+      })
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-gray-700 bg-gray-800 p-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-medium text-gray-200">Test Integration</h3>
+          <p className="mt-0.5 text-xs text-gray-500">
+            Validates the IntegrationId by querying the Music Assistant library
+          </p>
+        </div>
+        <button
+          onClick={handleTest}
+          disabled={testing || !integrationId}
+          className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+            testing || !integrationId
+              ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+              : 'bg-indigo-500 text-white hover:bg-indigo-400'
+          }`}
+        >
+          {testing ? (
+            <span className="flex items-center gap-2">
+              <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+              </svg>
+              Testing...
+            </span>
+          ) : (
+            'Test Connection'
+          )}
+        </button>
+      </div>
+      {result && (
+        <div
+          className={`mt-3 rounded-lg px-4 py-3 text-sm ${
+            result.success
+              ? 'bg-green-500/10 border border-green-500/30 text-green-400'
+              : 'bg-red-500/10 border border-red-500/30 text-red-400'
+          }`}
+        >
+          {result.success ? '✓' : '✕'} {result.message}
+        </div>
       )}
     </div>
   )
@@ -354,6 +593,7 @@ export default function ConfigurationPage() {
   // Form values & dirty tracking
   const [formValues, setFormValues] = useState<Record<string, string | null>>({})
   const [originalValues, setOriginalValues] = useState<Record<string, string | null>>({})
+  const [sensitiveKeys, setSensitiveKeys] = useState<Set<string>>(new Set())
   const [showSecrets, setShowSecrets] = useState(false)
 
   // Toast notifications
@@ -405,23 +645,52 @@ export default function ConfigurationPage() {
     }
   }, [])
 
-  // Load section values when active section or showSecrets changes
-  useEffect(() => {
-    if (!activeSection) return
-    let cancelled = false
-    setSectionLoading(true)
-
-    fetchConfigSection(activeSection, showSecrets)
-      .then((entries: ConfigEntryDto[]) => {
-        if (cancelled) return
+  /** Convert API entries to form values, stripping the section prefix from keys.
+   *  Also returns the set of short keys that are sensitive. */
+  const entriesToValues = useCallback(
+    (entries: ConfigEntryDto[], sectionSchema: ConfigSectionSchema | undefined): {
+      values: Record<string, string | null>
+      sensitive: Set<string>
+    } => {
+      const sensitive = new Set<string>()
+      if (entries.length > 0) {
         const vals: Record<string, string | null> = {}
         for (const e of entries) {
           // Strip section prefix (e.g. "MusicAssistant:IntegrationId" → "IntegrationId")
           const shortKey = e.key.includes(':') ? e.key.split(':').slice(1).join(':') : e.key
           vals[shortKey] = e.value
+          if (e.isSensitive) sensitive.add(shortKey)
         }
+        return { values: vals, sensitive }
+      }
+      // No stored values — populate from schema defaults so the form isn't empty
+      if (sectionSchema && !sectionSchema.isArray) {
+        const defaults: Record<string, string | null> = {}
+        for (const prop of sectionSchema.properties) {
+          defaults[prop.name] = prop.defaultValue || null
+          if (prop.isSensitive) sensitive.add(prop.name)
+        }
+        return { values: defaults, sensitive }
+      }
+      return { values: {}, sensitive }
+    },
+    [],
+  )
+
+  // Load section values when active section or showSecrets changes
+  useEffect(() => {
+    if (!activeSection) return
+    let cancelled = false
+    setSectionLoading(true)
+    const sectionSchema = schemas.find((s) => s.section === activeSection)
+
+    fetchConfigSection(activeSection, showSecrets)
+      .then((entries: ConfigEntryDto[]) => {
+        if (cancelled) return
+        const { values: vals, sensitive } = entriesToValues(entries, sectionSchema)
         setFormValues(vals)
         setOriginalValues(vals)
+        setSensitiveKeys(sensitive)
       })
       .catch((err) => {
         if (cancelled) return
@@ -439,7 +708,7 @@ export default function ConfigurationPage() {
     return () => {
       cancelled = true
     }
-  }, [activeSection, showSecrets, showToast])
+  }, [activeSection, showSecrets, showToast, schemas, entriesToValues])
 
   const handleSectionChange = useCallback(
     (section: string) => {
@@ -484,13 +753,11 @@ export default function ConfigurationPage() {
 
       // Refresh values
       const entries = await fetchConfigSection(activeSection, showSecrets)
-      const vals: Record<string, string | null> = {}
-      for (const e of entries) {
-        const shortKey = e.key.includes(':') ? e.key.split(':').slice(1).join(':') : e.key
-        vals[shortKey] = e.value
-      }
+      const sectionSchema = schemas.find((s) => s.section === activeSection)
+      const { values: vals, sensitive } = entriesToValues(entries, sectionSchema)
       setFormValues(vals)
       setOriginalValues(vals)
+      setSensitiveKeys(sensitive)
     } catch (err) {
       showToast(
         `Save failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
@@ -499,7 +766,7 @@ export default function ConfigurationPage() {
     } finally {
       setSaving(false)
     }
-  }, [activeSection, formValues, originalValues, showSecrets, showToast])
+  }, [activeSection, formValues, originalValues, showSecrets, showToast, schemas, entriesToValues])
 
   const handleReset = useCallback(async () => {
     setResetDialogOpen(false)
@@ -509,12 +776,11 @@ export default function ConfigurationPage() {
       // Reload current section
       if (activeSection) {
         const entries = await fetchConfigSection(activeSection, showSecrets)
-        const vals: Record<string, string | null> = {}
-        for (const e of entries) {
-          vals[e.key] = e.value
-        }
+        const sectionSchema = schemas.find((s) => s.section === activeSection)
+        const { values: vals, sensitive } = entriesToValues(entries, sectionSchema)
         setFormValues(vals)
         setOriginalValues(vals)
+        setSensitiveKeys(sensitive)
       }
     } catch (err) {
       showToast(
@@ -522,7 +788,7 @@ export default function ConfigurationPage() {
         'error',
       )
     }
-  }, [activeSection, showSecrets, showToast])
+  }, [activeSection, showSecrets, showToast, schemas, entriesToValues])
 
   const handleDiscard = useCallback(() => {
     setFormValues({ ...originalValues })
@@ -681,9 +947,18 @@ export default function ConfigurationPage() {
                 <SectionForm
                   schema={activeSchema}
                   values={formValues}
+                  sensitiveKeys={sensitiveKeys}
+                  showSecrets={showSecrets}
                   onValuesChange={setFormValues}
                 />
               </div>
+
+              {/* Section-specific actions */}
+              {activeSchema.section === 'MusicAssistant' && (
+                <MusicAssistantTestButton
+                  integrationId={formValues['IntegrationId'] ?? ''}
+                />
+              )}
 
               {/* Action bar */}
               <div className="mt-6 flex items-center justify-between">

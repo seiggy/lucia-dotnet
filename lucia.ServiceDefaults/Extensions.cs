@@ -203,7 +203,9 @@ public static class Extensions
             // LoadIntoBufferAsync is a no-op if already buffered.
             content.LoadIntoBufferAsync().ConfigureAwait(false).GetAwaiter().GetResult();
 
-            using var stream = content.ReadAsStream();
+            // Do NOT dispose the stream — it is owned by HttpContent and will be
+            // read again by downstream code (e.g. GetFromJsonAsync).
+            var stream = content.ReadAsStream();
             using var reader = new StreamReader(stream, leaveOpen: true);
             var payload = reader.ReadToEnd();
 

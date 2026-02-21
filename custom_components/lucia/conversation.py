@@ -9,12 +9,12 @@ from typing import Any, Literal
 
 from homeassistant.components import conversation
 from homeassistant.components.conversation import (
+    AssistantContent,
     ChatLog,
     ConversationEntity,
     ConversationInput,
     ConversationResult,
 )
-from homeassistant.components.conversation.models import AssistantContent
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, TemplateError

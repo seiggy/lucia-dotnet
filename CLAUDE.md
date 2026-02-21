@@ -65,7 +65,10 @@ dotnet run --project lucia.A2AHost
 
 ### Testing
 ```bash
-# Run all tests
+# Run non-eval tests only (preferred — eval tests are slow LLM-based tests)
+dotnet test lucia.Tests --filter 'Category!=Eval'
+
+# Run all tests including evals (slow — requires LLM connectivity)
 dotnet test
 
 # Run tests with coverage
@@ -74,6 +77,8 @@ dotnet test --collect:"XPlat Code Coverage"
 # Run specific test project
 dotnet test lucia.Tests
 ```
+
+> **Note:** Eval tests use `[Trait("Category", "Eval")]` and involve live LLM calls, so they are slow. Always use `--filter 'Category!=Eval'` for routine development testing.
 
 ### Development
 ```bash

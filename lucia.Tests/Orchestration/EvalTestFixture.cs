@@ -61,6 +61,13 @@ public sealed class EvalTestFixture : IAsyncLifetime
     private IServer _mockServer = null!;
     private readonly IDeviceCacheService _mockDeviceCache = A.Fake<IDeviceCacheService>();
 
+    private static IOptionsMonitor<MusicAssistantConfig> CreateMusicAssistantOptionsMonitor()
+    {
+        var monitor = A.Fake<IOptionsMonitor<MusicAssistantConfig>>();
+        A.CallTo(() => monitor.CurrentValue).Returns(new MusicAssistantConfig());
+        return monitor;
+    }
+
     // --- Agent cards for registry (extracted once) ---
 
     private AgentCard _lightAgentCard = null!;
@@ -170,7 +177,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
     public lucia.MusicAgent.MusicAgent CreateMusicAgent(string deploymentName)
     {
         var chatClient = CreateFunctionInvokingChatClient(deploymentName);
-        var musicConfig = Options.Create(new MusicAssistantConfig());
+        var musicConfig = CreateMusicAssistantOptionsMonitor();
         var musicSkill = new MusicPlaybackSkill(
             _mockHaClient,
             musicConfig,
@@ -202,7 +209,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
     public (lucia.MusicAgent.MusicAgent Agent, ChatHistoryCapture Capture) CreateMusicAgentWithCapture(string deploymentName)
     {
         var (chatClient, capture) = CreateCapturingChatClient(deploymentName);
-        var musicConfig = Options.Create(new MusicAssistantConfig());
+        var musicConfig = CreateMusicAssistantOptionsMonitor();
         var musicSkill = new MusicPlaybackSkill(
             _mockHaClient,
             musicConfig,
@@ -321,7 +328,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
         _lightAgentCard = lightAgent.GetAgentCard();
 
         // MusicAgent card
-        var musicConfig = Options.Create(new MusicAssistantConfig());
+        var musicConfig = CreateMusicAssistantOptionsMonitor();
         var musicSkill = new MusicPlaybackSkill(
             _mockHaClient, musicConfig, _mockEmbedding,
             _mockDeviceCache,

@@ -21,8 +21,11 @@ using A2A;
 using lucia.Agents.Configuration;
 using lucia.HomeAssistant.Configuration;
 using Azure.Identity;
+using Microsoft.Extensions.Options;
 using OpenAI;
 using OpenAI.Embeddings;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 
 namespace lucia.Agents.Extensions;
 
@@ -256,7 +259,31 @@ public static class ServiceCollectionExtensions
     public static void AddLuciaAgents(
         this IHostApplicationBuilder builder)
     {
-        builder.Services.AddTransient<IHomeAssistantClient, HomeAssistantClient>();
+        builder.Services.AddHttpClient<IHomeAssistantClient, HomeAssistantClient>((sp, client) =>
+        {
+            var options = sp.GetRequiredService<IOptions<HomeAssistantOptions>>().Value;
+            if (!string.IsNullOrWhiteSpace(options.BaseUrl))
+            {
+                client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/'));
+                client.DefaultRequestHeaders.Add("Authorization", $"Bearer {options.AccessToken}");
+                client.DefaultRequestHeaders.Add("Accept", "application/json");
+                client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+            }
+        })
+        .ConfigurePrimaryHttpMessageHandler(sp =>
+        {
+            var options = sp.GetRequiredService<IOptions<HomeAssistantOptions>>().Value;
+            var handler = new HttpClientHandler();
+
+            if (!options.ValidateSSL)
+            {
+                handler.ServerCertificateCustomValidationCallback =
+                    (HttpRequestMessage message, X509Certificate2? certificate, X509Chain? chain, SslPolicyErrors sslPolicyErrors) => true;
+            }
+
+            return handler;
+        });
+
         // Register core services
         builder.Services.AddSingleton<IAgentRegistry, LocalAgentRegistry>();
 

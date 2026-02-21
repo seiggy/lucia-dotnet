@@ -47,7 +47,13 @@ public static class HomeAssistantTestConfig
             options.ValidateSSL = validateSsl;
         });
 
-        services.AddHttpClient<HomeAssistantClient>()
+        services.AddHttpClient<HomeAssistantClient>((sp, client) =>
+            {
+                client.BaseAddress = new Uri(Endpoint!.TrimEnd('/'));
+                client.DefaultRequestHeaders.Add("Authorization", $"Bearer {Token}");
+                client.DefaultRequestHeaders.Add("Accept", "application/json");
+                client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+            })
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
             {
                 ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true

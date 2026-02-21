@@ -104,6 +104,7 @@ export interface ConfigSectionSchema {
   section: string;
   description: string;
   properties: ConfigPropertySchema[];
+  isArray: boolean;
 }
 
 export async function fetchConfigSections(): Promise<ConfigSectionSummary[]> {
@@ -112,8 +113,10 @@ export async function fetchConfigSections(): Promise<ConfigSectionSummary[]> {
   return res.json();
 }
 
-export async function fetchConfigSection(section: string, _showSecrets = false): Promise<ConfigEntryDto[]> {
-  const res = await fetch(`${BASE}/config/sections/${encodeURIComponent(section)}`);
+export async function fetchConfigSection(section: string, showSecrets = false): Promise<ConfigEntryDto[]> {
+  const qs = showSecrets ? '?showSecrets=true' : '';
+  const res = await fetch(`${BASE}/config/sections/${encodeURIComponent(section)}${qs}`);
+  if (res.status === 404) return [];
   if (!res.ok) throw new Error(`Failed to fetch section: ${res.statusText}`);
   return res.json();
 }
@@ -140,6 +143,21 @@ export async function resetConfig(): Promise<string> {
 export async function fetchConfigSchema(): Promise<ConfigSectionSchema[]> {
   const res = await fetch(`${BASE}/config/schema`);
   if (!res.ok) throw new Error(`Failed to fetch schema: ${res.statusText}`);
+  return res.json();
+}
+
+export interface MusicAssistantTestResult {
+  success: boolean;
+  message: string;
+}
+
+export async function testMusicAssistantIntegration(integrationId: string): Promise<MusicAssistantTestResult> {
+  const res = await fetch(`${BASE}/config/test/music-assistant`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ integrationId }),
+  });
+  if (!res.ok) throw new Error(`Test failed: ${res.statusText}`);
   return res.json();
 }
 

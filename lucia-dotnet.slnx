@@ -13,6 +13,9 @@
     <Project Path="lucia.AppHost/lucia.AppHost.csproj" />
     <Project Path="lucia.ServiceDefaults/lucia.ServiceDefaults.csproj" />
   </Folder>
+  <Folder Name="/Dashboard/">
+    <Project Path="lucia-dashboard/lucia-dashboard.esproj" />
+  </Folder>
   <Folder Name="/HomeAssistant/">
     <Project Path="lucia.HomeAssistant/lucia.HomeAssistant.csproj" />
   </Folder>

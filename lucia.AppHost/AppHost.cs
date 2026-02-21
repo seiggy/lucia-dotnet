@@ -31,6 +31,7 @@ var redis = builder.AddRedis("redis")
     .WithContainerName("redis");
 
 var mongodb = builder.AddMongoDB("mongodb")
+    .WithImageTag("7.0")
     .WithDataVolume()
     .WithLifetime(ContainerLifetime.Persistent)
     .WithMongoExpress()
@@ -52,6 +53,11 @@ var registryApi = builder.AddProject<Projects.lucia_AgentHost>("lucia-agenthost"
     .WithReference(configDb)
     .WithReference(tasksDb)
     .WaitFor(mongodb)
+    .WithUrlForEndpoint("https", url =>
+    {
+        url.DisplayText = "Scalar (HTTPS)";
+        url.Url = "/scalar";
+    })
     .WithExternalHttpEndpoints();
 
 var currentDirectory = Environment.CurrentDirectory;

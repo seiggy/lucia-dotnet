@@ -13,12 +13,12 @@ public static class AgentRegistryApi
             .RequireAuthorization();
         app.MapPost("/agents/register", RegisterAgentAsync)
             .DisableAntiforgery()
-            .RequireAuthorization();
+            .AllowAnonymous();
         app.MapPut("/agents/{agentId}", UpdateAgentAsync)
             .RequireAuthorization();
         app.MapDelete("/agents/{agentId}", UnregisterAgentAsync)
             .DisableAntiforgery()
-            .RequireAuthorization();
+            .AllowAnonymous();
 
         return app;
     }

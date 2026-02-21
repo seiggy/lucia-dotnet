@@ -38,12 +38,12 @@ public class MusicPlaybackSkill
     private readonly ConcurrentDictionary<string, Embedding<float>> _searchTermEmbeddingCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _cacheLock = new(1, 1);
     private readonly TimeSpan _cacheRefreshInterval = TimeSpan.FromMinutes(30);
-    private readonly MusicAssistantConfig _config;
+    private readonly IOptionsMonitor<MusicAssistantConfig> _config;
     private long _lastCacheUpdateTicks = DateTime.MinValue.Ticks;
-    
+
     public MusicPlaybackSkill(
         IHomeAssistantClient homeAssistantClient,
-        IOptions<MusicAssistantConfig> config,
+        IOptionsMonitor<MusicAssistantConfig> config,
         IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
         IDeviceCacheService deviceCache,
         ILogger<MusicPlaybackSkill> logger)
@@ -52,7 +52,7 @@ public class MusicPlaybackSkill
         _embeddingGenerator = embeddingGenerator;
         _deviceCache = deviceCache;
         _logger = logger;
-        _config = config.Value;
+        _config = config;
     }
 
     public IList<AITool> GetTools()
@@ -264,7 +264,7 @@ public class MusicPlaybackSkill
 
         try
         {
-            var uris = await GetRandomTrackUrisAsync(_config.IntegrationId, trackSeedCount, cancellationToken).ConfigureAwait(false);
+            var uris = await GetRandomTrackUrisAsync(_config.CurrentValue.IntegrationId, trackSeedCount, cancellationToken).ConfigureAwait(false);
 
             if (uris.Count == 0)
             {

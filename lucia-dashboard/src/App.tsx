@@ -81,7 +81,7 @@ function AppRoutes() {
             Configuration
           </NavLink>
           <NavLink
-            to="/agents"
+            to="/agent-dashboard"
             className={({ isActive }) =>
               `text-sm font-medium ${isActive ? 'text-white' : 'text-gray-400 hover:text-gray-200'}`
             }
@@ -121,7 +121,7 @@ function AppRoutes() {
           <Route path="/traces/:id" element={<TraceDetailPage />} />
           <Route path="/exports" element={<ExportPage />} />
           <Route path="/configuration" element={<ConfigurationPage />} />
-          <Route path="/agents" element={<AgentsPage />} />
+          <Route path="/agent-dashboard" element={<AgentsPage />} />
           <Route path="/prompt-cache" element={<PromptCachePage />} />
           <Route path="/tasks" element={<TasksPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />

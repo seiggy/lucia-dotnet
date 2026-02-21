@@ -26,14 +26,15 @@ public class MusicPlaybackSkillTests
     public MusicPlaybackSkillTests()
     {
         ConfigureDefaultStates();
-        var options = Options.Create<MusicAssistantConfig>(new MusicAssistantConfig()
+        var optionsMonitor = A.Fake<IOptionsMonitor<MusicAssistantConfig>>();
+        A.CallTo(() => optionsMonitor.CurrentValue).Returns(new MusicAssistantConfig
         {
             IntegrationId = "DEMO"
         });
-        
+
         _skill = new MusicPlaybackSkill(
             _homeAssistantClient,
-            options,
+            optionsMonitor,
             _embeddingGenerator,
             _deviceCache,
             NullLogger<MusicPlaybackSkill>.Instance);

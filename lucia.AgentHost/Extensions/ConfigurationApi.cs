@@ -1,4 +1,6 @@
 using lucia.Agents.Configuration;
+using lucia.HomeAssistant.Models;
+using lucia.HomeAssistant.Services;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using MongoDB.Driver;
@@ -21,6 +23,7 @@ public static class ConfigurationApi
         group.MapPut("/sections/{section}", UpdateSectionAsync);
         group.MapPost("/reset", ResetConfigAsync);
         group.MapGet("/schema", GetSchemaAsync);
+        group.MapPost("/test/music-assistant", TestMusicAssistantAsync);
 
         return endpoints;
     }
@@ -71,20 +74,23 @@ public static class ConfigurationApi
     /// <summary>
     /// Gets all key-value pairs for a configuration section.
     /// Falls back to live IConfiguration if no MongoDB entries exist for the section.
-    /// All viewers are authenticated — sensitive values are shown.
+    /// Sensitive values are masked unless <c>showSecrets=true</c> is passed.
     /// </summary>
     private static async Task<Results<Ok<List<ConfigEntryDto>>, NotFound>> GetSectionAsync(
         string section,
         IMongoClient mongoClient,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        [FromQuery] bool showSecrets = false)
     {
         var collection = GetCollection(mongoClient);
         var filter = Builders<ConfigEntry>.Filter.Eq(e => e.Section, section);
         var entries = await collection.Find(filter).ToListAsync();
 
+        List<ConfigEntryDto> dtos;
+
         if (entries.Count > 0)
         {
-            var dtos = entries.Select(e => new ConfigEntryDto
+            dtos = entries.Select(e => new ConfigEntryDto
             {
                 Key = e.Key,
                 Value = e.Value,
@@ -92,23 +98,34 @@ public static class ConfigurationApi
                 UpdatedAt = e.UpdatedAt,
                 UpdatedBy = e.UpdatedBy
             }).ToList();
-
-            return TypedResults.Ok(dtos);
         }
-
-        // Fall back to live IConfiguration for sections not stored in MongoDB
-        var configSection = configuration.GetSection(section);
-        var children = configSection.GetChildren().ToList();
-
-        if (children.Count == 0)
+        else
         {
-            return TypedResults.NotFound();
+            // Fall back to live IConfiguration for sections not stored in MongoDB
+            var configSection = configuration.GetSection(section);
+            var children = configSection.GetChildren().ToList();
+
+            if (children.Count == 0)
+            {
+                return TypedResults.NotFound();
+            }
+
+            dtos = new List<ConfigEntryDto>();
+            FlattenConfigSection(configSection, section, section, dtos);
         }
 
-        var liveDtos = new List<ConfigEntryDto>();
-        FlattenConfigSection(configSection, section, section, liveDtos);
+        if (!showSecrets)
+        {
+            foreach (var dto in dtos)
+            {
+                if (dto.IsSensitive && dto.Value is not null)
+                {
+                    dto.Value = "********";
+                }
+            }
+        }
 
-        return TypedResults.Ok(liveDtos);
+        return TypedResults.Ok(dtos);
     }
 
     /// <summary>
@@ -196,6 +213,51 @@ public static class ConfigurationApi
         return TypedResults.Ok(GetAllSchemas());
     }
 
+    /// <summary>
+    /// Tests the Music Assistant integration by querying the library with the provided IntegrationId.
+    /// </summary>
+    private static async Task<Results<Ok<MusicAssistantTestResult>, BadRequest<string>>> TestMusicAssistantAsync(
+        [FromBody] MusicAssistantTestRequest request,
+        [FromServices] IHomeAssistantClient haClient,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.IntegrationId))
+        {
+            return TypedResults.BadRequest("IntegrationId is required.");
+        }
+
+        try
+        {
+            var serviceRequest = new ServiceCallRequest
+            {
+                ["media_type"] = "track",
+                ["limit"] = 1,
+                ["order_by"] = "random",
+                ["config_entry_id"] = request.IntegrationId
+            };
+
+            var response = await haClient.CallServiceAsync<lucia.Agents.Skills.Models.MusicLibraryResponse>(
+                "music_assistant", "get_library", "return_response=1", serviceRequest, cancellationToken);
+
+            var trackCount = response.ServiceResponse.Items.Count;
+            return TypedResults.Ok(new MusicAssistantTestResult
+            {
+                Success = true,
+                Message = trackCount > 0
+                    ? $"Connection successful — Music Assistant library returned {trackCount} track(s)."
+                    : "Connection successful but the library appears empty."
+            });
+        }
+        catch (Exception ex)
+        {
+            return TypedResults.Ok(new MusicAssistantTestResult
+            {
+                Success = false,
+                Message = $"Integration test failed: {ex.Message}"
+            });
+        }
+    }
+
     private static List<ConfigSectionSchema> GetAllSchemas() =>
     [
         new()
@@ -230,7 +292,7 @@ public static class ConfigurationApi
             Description = "Agent execution timeout settings",
             Properties =
             [
-                new("Timeout", "string", "Agent execution timeout (HH:MM:SS)", "00:03:00")
+                new("Timeout", "string", "Agent execution timeout (HH:MM:SS)", "00:00:30")
             ]
         },
         new()
@@ -260,7 +322,9 @@ public static class ConfigurationApi
             Description = "Music Assistant integration settings",
             Properties =
             [
-                new("IntegrationId", "string", "Home Assistant integration entry ID for Music Assistant", "")
+                new("IntegrationId", "string", "Home Assistant integration entry ID for Music Assistant. " +
+                    "To find this: open your HA config directory, look in .storage/core.config_entries, " +
+                    "search for \"music_assistant\", and copy the entry_id value.", "")
             ]
         },
         new()
@@ -269,10 +333,12 @@ public static class ConfigurationApi
             Description = "Conversation trace capture and retention settings",
             Properties =
             [
+                new("Enabled", "boolean", "Whether trace capture is enabled", "true"),
+                new("RetentionDays", "number", "Number of days to retain unlabeled traces before cleanup", "30"),
+                new("RedactionPatterns", "array", "Regex patterns for redacting sensitive data from trace content", ""),
                 new("DatabaseName", "string", "MongoDB database for traces", "luciatraces"),
                 new("TracesCollectionName", "string", "Collection name for traces", "traces"),
-                new("ExportsCollectionName", "string", "Collection name for exports", "exports"),
-                new("RetentionDays", "number", "Trace retention period in days", "30")
+                new("ExportsCollectionName", "string", "Collection name for exports", "exports")
             ]
         },
         new()
@@ -290,12 +356,12 @@ public static class ConfigurationApi
         {
             Section = "Agents",
             Description = "Agent configuration array — each agent has name, type, skills, and optional model override",
+            IsArray = true,
             Properties =
             [
-                new("__isArray", "boolean", "This section is a JSON array of agent configurations", "true"),
                 new("AgentName", "string", "Agent identifier name", ""),
                 new("AgentType", "string", "Fully qualified agent class name", ""),
-                new("AgentSkills", "array", "List of skill class names", "[]"),
+                new("AgentSkills", "array", "List of skill class names", ""),
                 new("AgentConfig", "string", "Optional config section name for agent options", ""),
                 new("ModelConnectionName", "string", "Optional connection name for per-agent model override", "")
             ]
@@ -314,5 +380,16 @@ public static class ConfigurationApi
         return lower.Contains("token") || lower.Contains("password") || lower.Contains("secret") ||
                lower.Contains("key") || lower.Contains("accesskey") || lower.Contains("connectionstring");
     }
+}
+
+public sealed class MusicAssistantTestRequest
+{
+    public string IntegrationId { get; set; } = default!;
+}
+
+public sealed class MusicAssistantTestResult
+{
+    public bool Success { get; set; }
+    public string Message { get; set; } = default!;
 }
 

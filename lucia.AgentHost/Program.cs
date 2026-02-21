@@ -5,9 +5,7 @@ using lucia.Agents.Configuration;
 using lucia.Agents.Extensions;
 using lucia.Agents.Orchestration;
 using lucia.Agents.Training;
-using lucia.HomeAssistant.Configuration;
 using lucia.Agents.Services;
-using lucia.HomeAssistant.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.HttpOverrides;
 using Scalar.AspNetCore;
@@ -32,12 +30,6 @@ builder.AddMongoDBClient(connectionName: "luciatasks");
 
 // Add MongoDB configuration as highest-priority source (overrides appsettings)
 builder.Configuration.AddMongoConfiguration("luciaconfig");
-
-// Home Assistant client
-builder.Services.Configure<HomeAssistantOptions>(
-    builder.Configuration.GetSection(HomeAssistantOptions.SectionName));
-builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddTransient<IHomeAssistantClient, HomeAssistantClient>();
 
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
@@ -120,8 +112,6 @@ app.UseMiddleware<OnboardingMiddleware>();
 
 app.UseAuthentication();
 app.UseAuthorization();
-
-app.UseHttpsRedirection();
 
 if (!app.Environment.IsDevelopment())
 {
