@@ -12,6 +12,9 @@ EXPOSE 8081
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
+COPY ["Directory.Build.props", "."]
+COPY ["Directory.Packages.props", "."]
+COPY ["NuGet.Config", "."]
 COPY ["lucia.A2AHost/lucia.A2AHost.csproj", "lucia.A2AHost/"]
 RUN dotnet restore "./lucia.A2AHost/lucia.A2AHost.csproj"
 COPY . .
