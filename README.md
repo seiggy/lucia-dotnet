@@ -1,8 +1,8 @@
 <p align="center">
-<img src="./lucia.png" width="250">
+  <img src="./lucia.png" width="250">
 </p>
 
-# Lucia - Autonomous Home Assistant AI
+# Lucia — Autonomous Home Assistant AI
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&labelColor=2C003E&color=5656FF)](https://dotnet.microsoft.com/)
 [![Agent Framework](https://img.shields.io/badge/Agent%20Framework-1.0.0-blue)](https://learn.microsoft.com/agent-framework/)
@@ -10,341 +10,309 @@
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Compatible-41BDF5)](https://www.home-assistant.io/)
 ![Latest Version](https://img.shields.io/badge/v2026.02.20-cornflowerblue?logo=homeassistantcommunitystore&label=Release)
 
-Lucia *(pronounced LOO-sha)* is an open-source, privacy-focused AI assistant that serves as a complete replacement for Amazon Alexa and Google Home. Built on the [Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/) with a multi-agent architecture, Lucia provides autonomous whole-home automation management through deep integration with Home Assistant.
+Lucia *(pronounced LOO-sha)* is an open-source, privacy-focused AI assistant that serves as a complete replacement for Amazon Alexa and Google Home. Built on the [Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/) with a multi-agent architecture, Lucia provides autonomous whole-home automation management through deep integration with Home Assistant. A full-featured React dashboard lets you manage agents, inspect traces, tune configuration, and export training data—all from a single UI.
 
 ## ☀️ About the Name
 
 Lucia is named after **Lucia**, the ancient Nordic sun goddess associated with light, wisdom, and bringing illumination during the darkest time of year. In Norse mythology, Lucia represents the return of light and the power to guide through darkness—a fitting name for an AI assistant that brings intelligent automation and insight to your home.
 
-The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pronunciation), with the emphasis on the first syllable. The celebration of St. Lucia Day (December 13th) in Scandinavian countries honors this tradition of bringing light and warmth during the winter solstice.
+The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pronunciation), with the emphasis on the first syllable.
 
 ## 🎯 Key Features
 
-- **🤖 Multi-Agent Orchestration (GA)** - Router, dispatcher, and result aggregator executors coordinate specialized agents end-to-end using the A2A (Agent-to-Agent) protocol
-- **🧠 Semantic Understanding** - Natural language processing using embeddings and semantic search—no rigid command structures required
-- **🔒 Privacy First** - Fully local operation with optional cloud LLM support; your data stays yours
-- **🏠 Deep Home Assistant Integration** - Native integration via custom component with agent selection, conversation API, and JSON-RPC communication
-- **📦 Kubernetes Ready** - Cloud-native deployment with .NET Aspire, designed for home lab clusters
-- **🔌 Extensible** - Easy to add new agents and capabilities with standardized A2A protocol
-- **🧭 General Knowledge Fallback** - Built-in `general-assistant` handles open-ended requests and orchestrator fallbacks when no specialist is a clean match
-- **🎭 Dynamic Agent Selection** - Switch between specialized agents (light control, music, etc.) without reconfiguring; on failure we automatically fall back to the general assistant
-- **💬 Conversation Threading** - Context-aware conversations with proper message threading support
+- **🤖 Multi-Agent Orchestration** — Router, dispatcher, and result aggregator executors coordinate specialized agents end-to-end using the A2A (Agent-to-Agent) protocol
+- **🧠 Semantic Understanding** — Natural language processing using embeddings and semantic search—no rigid command structures required
+- **🔒 Privacy First** — Fully local operation with optional cloud LLM support; your data stays yours
+- **🏠 Deep Home Assistant Integration** — Native integration via custom component with agent selection, conversation API, and JSON-RPC communication
+- **📊 Management Dashboard** — React-based dark-themed dashboard for agent management, trace inspection, configuration, and dataset exports
+- **📦 Kubernetes Ready** — Cloud-native deployment with .NET Aspire, Helm charts, and K8s manifests
+- **🔌 Extensible** — Easy to add new agents and capabilities with standardized A2A protocol
+- **🧭 General Knowledge Fallback** — Built-in `general-assistant` handles open-ended requests when no specialist is a clean match
+- **🎭 Dynamic Agent Selection** — Switch between specialized agents (light control, music, timers, etc.) without reconfiguring
+- **💬 Conversation Threading** — Context-aware conversations with proper message threading support
+- **⚡ Prompt Caching** — Intelligent caching of routing decisions for faster repeated queries
 
-### Supported Inference Platforms:
-- Azure OpenAI / AI Foundry
-- OpenAI
-- Ollama
-- Open Router (OpenAI compliant endpoints only)
+### Supported Inference Platforms
 
-### Unsupported Inference Platforms:
-- ONNX - no support for function calling.
+| Platform | Status |
+|----------|--------|
+| Azure OpenAI / AI Foundry | ✅ Supported |
+| OpenAI | ✅ Supported |
+| Ollama | ✅ Supported |
+| Open Router (OpenAI-compatible) | ✅ Supported |
+| ONNX | ❌ No function calling support |
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
-- .NET 10 SDK or later
+- [.NET 10 SDK](https://dotnet.microsoft.com/download) or later
+- [Node.js 22+](https://nodejs.org/) (for the dashboard)
+- [Docker](https://www.docker.com/) (required for Redis and MongoDB via Aspire)
 - Home Assistant instance (2024.1 or later)
-- HACS (Home Assistant Community Store) for easy installation
-- Docker (optional, for containerized deployment)
-- OpenAI API key (or other LLM provider)
+- An LLM provider API key (Azure AI Foundry, OpenAI, etc.)
 
 ### Installation
 
 1. **Clone the repository**
+
    ```bash
    git clone https://github.com/seiggy/lucia-dotnet.git
    cd lucia-dotnet
    ```
 
-2. **Configure your settings**
-   ```bash
-   # Edit appsettings.Development.json with your settings
-   # Add your Home Assistant URL and long-lived access token
-   # Add your OpenAI API key or other LLM provider credentials
-   ```
+2. **Run the application via Aspire**
 
-3. **Run the application**
    ```bash
-   # Using .NET Aspire (recommended for development)
    dotnet run --project lucia.AppHost
-   
-   # Or run the AgentHost directly
-   dotnet run --project lucia.AgentHost
    ```
 
-4. **Install Home Assistant Integration**
+   This starts the full stack: AgentHost, A2A satellite agents (Music, Timer), the React dashboard, Redis, and MongoDB—all orchestrated via .NET Aspire.
+
+3. **Open the Lucia Dashboard**
+
+   The Aspire console output will show the dashboard URL. On first launch, the setup wizard guides you through configuration:
+
+   ![Setup Wizard — Welcome](docs/images/setup-welcome.png)
+
+   **Step 1 — Welcome:** Overview of what the wizard will configure.
+
+   ![Setup Wizard — Configure](docs/images/setup-configure.png)
+
+   **Step 2 — Configure:** Generate a Dashboard API key and connect to your Home Assistant instance by entering its URL and a long-lived access token.
+
+   **Step 3 — Connect HA Plugin:** Set up the Home Assistant custom component to communicate back to Lucia.
+
+   **Step 4 — Done:** Setup is complete. You'll use the generated API key to sign in.
+
+4. **Sign in to the Dashboard**
+
+   ![Login](docs/images/login.png)
+
+   Enter the API key generated during setup to access the full dashboard.
+
+5. **Install the Home Assistant Integration**
 
    **Option A: HACS (Recommended)**
-   ```bash
-   # In Home Assistant:
-   # 1. Go to HACS → Integrations
-   # 2. Click the three dots menu (top right) → Custom repositories
-   # 3. Add repository URL: https://github.com/seiggy/lucia-dotnet
-   # 4. Select category: Integration
-   # 5. Click "Add"
-   # 6. Find "Lucia" in HACS and click "Download"
-   # 7. Restart Home Assistant
-   # 8. Add integration: Settings → Devices & Services → Add Integration → Lucia
-   ```
+
+   1. Go to HACS → Integrations → three-dot menu → Custom repositories
+   2. Add repository URL: `https://github.com/seiggy/lucia-dotnet`
+   3. Select category: Integration → Click "Add"
+   4. Find "Lucia" in HACS and click "Download"
+   5. Restart Home Assistant
+   6. Add integration: Settings → Devices & Services → Add Integration → Lucia
 
    **Option B: Manual Installation**
+
    ```bash
-   # Copy the custom component to your Home Assistant
    cp -r custom_components/lucia /path/to/homeassistant/custom_components/
-   
-   # Restart Home Assistant
-   # Then add the integration via UI: Settings → Devices & Services → Add Integration → Lucia
+   # Restart Home Assistant, then add the integration via UI
    ```
 
-5. **Access the services**
-  - Agent API: https://localhost:7235
-  - Agent Catalog: https://localhost:7235/agents
-  - Swagger UI: https://localhost:7235/swagger
-  - Health Check: https://localhost:7235/health
-  - After Lucia updates, reload the Home Assistant integration once so the new `general-assistant` card appears in the catalog
+## 📊 Dashboard
+
+Lucia includes a full-featured React dashboard for managing your agent platform. Built with React 19, Vite 7, TanStack Query, and Tailwind CSS, it runs as part of the Aspire-orchestrated development stack.
+
+### Traces
+
+![Traces](docs/images/traces.png)
+
+Monitor every conversation passing through the orchestrator. Filter by label, agent, and date range. View stats at a glance with color-coded counters for positive, negative, unlabeled, and errored traces. Click any trace to see the full routing decision, agent execution details, and tool calls.
+
+### Agents
+
+![Agent Registry](docs/images/agents.png)
+
+View all registered agents with their capabilities, skills, and connection status. Register new A2A agents, refresh agent metadata, and send test messages directly from the dashboard. Each agent card shows its version, endpoint URL, supported capabilities (Push, Streaming, History), and associated skills.
+
+### Configuration
+
+![Configuration](docs/images/configuration.png)
+
+Schema-driven configuration editor with categorized settings. Manage Home Assistant connection details, orchestration parameters (RouterExecutor, AgentInvoker, ResultAggregator), Redis/MongoDB connection strings, Music Assistant integration, trace capture settings, and agent definitions—all from one page. Sensitive values are masked with a "Show secrets" toggle.
+
+### Dataset Exports
+
+![Exports](docs/images/exports.png)
+
+Export labeled conversation traces as training datasets. Filter by label, date range, and agent. Optionally include human corrections for RLHF-style fine-tuning. View export history and re-download previous exports.
+
+### Prompt Cache
+
+![Prompt Cache](docs/images/prompt-cache.png)
+
+Monitor the routing prompt cache that accelerates repeated queries. View cache statistics (total entries, hit rate, hits vs misses), browse cached entries with their routed agents and confidence scores, and clear the cache when needed.
+
+### Tasks
+
+![Tasks](docs/images/tasks.png)
+
+Track active and archived tasks with status counters (Active, Completed, Failed, Cancelled). Switch between Active Tasks and Task History views to monitor ongoing work and review completed operations.
 
 ## 🏗️ Architecture
 
-Lucia uses the **A2A (Agent-to-Agent) Protocol v0.3.0** with **JSON-RPC 2.0** for agent communication, enabling seamless multi-agent collaboration and dynamic agent discovery.
+Lucia uses the **A2A (Agent-to-Agent) Protocol** with **JSON-RPC 2.0** for agent communication. The orchestrator routes incoming requests to the best-fit specialized agent, with results aggregated and returned to Home Assistant.
 
 ```mermaid
 graph TB
-    HA[Home Assistant] <--> HP[Lucia Custom Component]
-    HP <-->|JSON-RPC| AH[Agent Host API]
-    AH <--> AR[Agent Registry]
-    AH <--> LA[LightAgent]
-    AH <--> MA[MusicAgent]
-    
-    subgraph "Lucia Agent System"
-        AH
-        AR
-    end
-    
-    subgraph "Specialized Agents"
-        LA
-        MA
-    end
-    
+    HA[Home Assistant] <-->|Conversation API| HP[Lucia Custom Component]
+    HP <-->|JSON-RPC| AH[AgentHost]
+
+    AH <--> O[Orchestrator]
+    O <--> Router[RouterExecutor]
+    O <--> Dispatch[AgentDispatchExecutor]
+    O <--> Agg[ResultAggregatorExecutor]
+
+    Dispatch <--> LA[LightAgent]
+    Dispatch <--> GA[GeneralAgent]
+    Dispatch <-->|A2A| A2A[A2AHost]
+
+    A2A <--> MA[MusicAgent]
+    A2A <--> TA[TimerAgent]
+
+    AH <--> DB[(MongoDB)]
+    AH <--> Cache[(Redis)]
+    AH <--> Dashboard[React Dashboard]
+
     subgraph "LLM Providers"
-        OpenAI
-        Gemini[Google Gemini]
-        Claude[Anthropic Claude]
-        Local[Local LLMs]
+        Azure[Azure AI Foundry]
+        OAI[OpenAI]
+        Ollama[Ollama]
     end
-    
-    LA -.-> OpenAI
-    MA -.-> OpenAI
-    LA -.-> Gemini
-    MA -.-> Claude
+
+    Router -.-> Azure
+    LA -.-> Azure
+    GA -.-> OAI
+    MA -.-> Azure
 ```
 
 ### Communication Flow
 
-1. **User Input** → Home Assistant receives voice/text command
-2. **Conversation** → Lucia custom component processes via conversation platform
-3. **Agent Discovery** → Fetches available agents from `/agents` endpoint
-4. **Agent Selection** → User-configured agent or automatic routing
-5. **JSON-RPC Request** → Sends message to agent with `taskId: null` and `contextId` for threading
-6. **LLM Processing** → Agent uses Agent Framework with configured LLM provider
-7. **Response** → Agent returns structured response via JSON-RPC
-8. **Speech Output** → Home Assistant speaks the response via IntentResponse
+1. **User Input** → Home Assistant receives a voice or text command
+2. **Conversation API** → Lucia custom component sends the message via JSON-RPC
+3. **Orchestrator** → RouterExecutor selects the best agent using semantic matching
+4. **Agent Dispatch** → AgentDispatchExecutor forwards the request (in-process or via A2A)
+5. **LLM Processing** → The selected agent calls its LLM with domain-specific tools
+6. **Result Aggregation** → ResultAggregatorExecutor formats the final response
+7. **Response** → JSON-RPC response returned to Home Assistant for speech output
 
 ### Key Components
 
-- **Agent Host** (`lucia.AgentHost`): Main API server hosting agents and registry
-- **Agent Registry**: Dynamic discovery system for available agents
-- **Specialized Agents**: Domain-specific agents (light control, music, climate, etc.)
-- **Home Assistant Integration**: Python custom component with conversation platform
-- **A2A Protocol**: Standardized communication protocol between agents
+| Component | Description |
+|-----------|-------------|
+| **AgentHost** (`lucia.AgentHost`) | Main API server hosting the orchestrator, agents, auth, configuration, and dashboard proxy |
+| **A2AHost** (`lucia.A2AHost`) | Satellite host for running agents as separate processes (MusicAgent, TimerAgent) |
+| **Orchestrator** (`lucia.Agents/Orchestration`) | Router → Dispatch → Aggregator pipeline for multi-agent coordination |
+| **Dashboard** (`lucia-dashboard`) | React 19 SPA for management, traces, exports, and configuration |
+| **Home Assistant Integration** (`custom_components/lucia`) | Python custom component with conversation platform |
+| **HomeAssistant Client** (`lucia.HomeAssistant`) | Strongly-typed .NET client for the HA REST API |
 
 ## 📁 Project Structure
 
 ```
 lucia-dotnet/
-├── lucia.AgentHost/            # Main agent hosting API (ASP.NET Core)
-│   ├── APIs/                   # API endpoints (A2A JSON-RPC, Agent Registry)
-│   ├── Extensions/             # Service extensions and middleware
-│   └── Program.cs             # Application entry point
-├── lucia.Agents/              # Agent implementations and orchestration
-│   ├── Agents/                # Specialized agents (Light, Music, etc.)
-│   ├── Models/                # Data models and DTOs
-│   ├── Orchestration/         # Agent coordination logic
-│   ├── Registry/              # Agent discovery and registration
-│   ├── Services/              # Core agent services
-│   └── Skills/                # Agent skills/tools
-├── lucia.AppHost/             # .NET Aspire orchestrator
-│   ├── AppHost.cs            # Service orchestration
-│   └── ModelExtensions.cs    # Model configuration
-├── lucia.HomeAssistant/       # Home Assistant API client library
-│   ├── Models/               # HA data models
-│   ├── Services/             # HA API services
-│   └── Configuration/        # Client configuration
-├── lucia.ServiceDefaults/     # Shared services and configuration
-│   └── Extensions.cs         # Common service extensions
-├── lucia.Tests/               # Unit and integration tests
-│   ├── Orchestration/        # Router, aggregator, and orchestrator tests
-│   ├── Services/             # Home Assistant service tests
-│   ├── Integration/          # End-to-end scenarios
-│   └── MusicPlaybackSkillTests.cs
-└── custom_components/lucia/   # Home Assistant Python integration
-    ├── __init__.py           # Integration setup and agent catalog
-    ├── config_flow.py        # Configuration UI with agent selection
-    ├── conversation.py       # Conversation platform (JSON-RPC client)
-    ├── const.py              # Constants and configuration keys
-    ├── manifest.json         # Integration metadata
-    └── strings.json          # UI translations
+├── lucia.AppHost/                # .NET Aspire orchestrator (recommended dev entrypoint)
+├── lucia.AgentHost/              # ASP.NET Core API host
+│   ├── Auth/                     # API key authentication and session management
+│   ├── Extensions/               # Setup, Configuration, A2A, and Auth API endpoints
+│   └── plugins/                  # Agent Framework plugins
+├── lucia.A2AHost/                # A2A satellite agent host
+│   ├── AgentRegistry/            # Agent card registration
+│   ├── Extensions/               # A2A endpoint mapping
+│   └── Services/                 # Agent initialization
+├── lucia.Agents/                 # Shared agent implementations and orchestration
+│   ├── Agents/                   # GeneralAgent, LightAgent, OrchestratorAgent
+│   ├── Orchestration/            # RouterExecutor, AgentDispatchExecutor, etc.
+│   ├── Registry/                 # Agent discovery and registration
+│   ├── Services/                 # Agent initialization, config store
+│   ├── Skills/                   # LightControlSkill and tool definitions
+│   └── Training/                 # Trace capture and export
+├── lucia.MusicAgent/             # Music Assistant playback agent (A2AHost)
+├── lucia.TimerAgent/             # Timer and reminder agent (A2AHost)
+├── lucia.HomeAssistant/          # Strongly-typed HA REST API client
+│   ├── Models/                   # Entity, state, and service models
+│   ├── Services/                 # IHomeAssistantClient implementation
+│   └── Configuration/            # Client settings
+├── lucia-dashboard/              # React 19 + Vite 7 management dashboard
+│   └── src/
+│       ├── pages/                # Traces, Agents, Config, Exports, Cache, Tasks
+│       ├── context/              # Auth context and providers
+│       └── components/           # Shared UI components
+├── lucia.ServiceDefaults/        # OpenTelemetry, health checks, resilience
+├── lucia.Tests/                  # xUnit tests (unit, integration, eval)
+├── custom_components/lucia/      # Home Assistant Python custom component
+│   ├── conversation.py           # JSON-RPC conversation platform
+│   ├── config_flow.py            # HA configuration UI with agent selection
+│   └── translations/             # Multi-language UI strings
+└── infra/                        # Deployment infrastructure
+    ├── docker/                   # Dockerfiles and docker-compose.yml
+    ├── kubernetes/
+    │   ├── manifests/            # K8s YAML manifests
+    │   └── helm/                 # Helm chart
+    └── systemd/                  # systemd service units
 ```
 
 ## 🔧 Configuration
 
-### .NET Agent Configuration
+Lucia uses a schema-driven configuration system stored in MongoDB. On first run, the setup wizard guides you through the essential settings. After setup, all configuration can be managed through the dashboard's Configuration page.
 
-Configure agents in `appsettings.Development.json`:
+### Key Configuration Sections
 
-```json
-{
-  "Logging": {
-    "LogLevel": {
-      "Default": "Information",
-      "Microsoft.AspNetCore": "Warning",
-      "Microsoft.Agents": "Information"
-    }
-  },
-  "HomeAssistant": {
-    "BaseUrl": "http://your-ha-instance:8123",
-    "AccessToken": "your-long-lived-access-token"
-  },
-  "OpenAI": {
-    "ApiKey": "your-openai-api-key",
-    "ModelId": "gpt-4o",
-    "EmbeddingModelId": "TextEmbedding3Large"
-  },
-  "A2A": {
-    "ProtocolVersion": "0.3.0",
-    "TaskIdRequired": false
-  }
-}
-```
+| Section | Description |
+|---------|-------------|
+| **HomeAssistant** | Base URL, access token, API timeout, SSL validation |
+| **RouterExecutor** | Agent routing model and parameters |
+| **AgentInvoker** | Agent execution timeout settings |
+| **ResultAggregator** | Response aggregation settings |
+| **Redis** | Connection string and task persistence TTL |
+| **MusicAssistant** | Music Assistant integration settings |
+| **TraceCapture** | Conversation trace storage settings |
+| **ConnectionStrings** | AI Foundry, MongoDB, and Redis connection details |
+| **Agents** | Agent definitions and registration |
 
 ### Home Assistant Integration Setup
 
-1. **Add the Integration**
-   - Go to Settings → Devices & Services → Add Integration
-   - Search for "Lucia" and select it
-   - Enter your Agent Repository URL (e.g., `https://localhost:7235`)
-   - Add API Key if authentication is configured
-   - Click Submit
+After installing the custom component:
 
-2. **Configure Agent Selection**
-   - After setup, click "Configure" on the Lucia integration
-   - **Agent Selection**: Choose from available agents in the dropdown
-     - `light-agent` - Controls lights and lighting scenes
-     - `music-agent` - Manages Music Assistant playback
-     - `general-assistant` - Handles open-ended questions and orchestrator fallbacks
-     - *(More agents appear as you add them)*
-   - **System Prompt Template**: Customize the agent's behavior (optional)
-   - **Max Response Tokens**: Control response length (10-4000, default: 150)
-
-3. **Set as Conversation Agent**
-   - Go to Settings → Voice Assistants → Assist
-   - Select "Lucia" as your conversation agent
-   - Start using voice or text commands!
-
-### Agent Selection Feature
-
-The integration dynamically discovers available agents from the `/agents` catalog endpoint. You can switch agents anytime:
-
-- **Without Reload**: Agent changes take effect immediately via update listener
-- **Context Preservation**: Conversation threading maintains context across agent switches
-- **Fallback Behavior**: Automatically uses first available agent if selection is unavailable
-
-See [custom_components/lucia/AGENT_SELECTION.md](custom_components/lucia/AGENT_SELECTION.md) for detailed documentation.
+1. Go to Settings → Devices & Services → Add Integration → Lucia
+2. Enter your Agent Repository URL (e.g., `https://localhost:7235`)
+3. Add the API Key generated during dashboard setup
+4. Configure agent selection — choose from discovered agents in the dropdown
+5. Set as your conversation agent under Settings → Voice Assistants → Assist
 
 ## 🤝 Agent System
 
 ### A2A Protocol (Agent-to-Agent)
 
-Lucia uses the **A2A Protocol v0.3.0** with JSON-RPC 2.0 for standardized agent communication.
+Agents communicate via the A2A Protocol with JSON-RPC 2.0. The AgentHost runs in-process agents (LightAgent, GeneralAgent, Orchestrator) while the A2AHost runs satellite agents (MusicAgent, TimerAgent) as separate processes.
 
 #### Agent Discovery
 
 ```bash
 # List all registered agents
-GET https://localhost:7235/agents
-
-# Response
-[
-  {
-    "name": "light-agent",
-    "description": "Agent for controlling lights and lighting in Home Assistant",
-    "url": "/a2a/light-agent",
-    "version": "1.0.0",
-    "protocolVersion": "0.3.0",
-    "capabilities": {
-      "streaming": false,
-      "contextPreservation": true
-    }
-  }
-]
+curl http://localhost:5151/agents
 ```
 
-#### Sending Messages (JSON-RPC 2.0)
+#### Sending Messages
 
 ```bash
-# Send a message to an agent
-POST https://localhost:7235/a2a/light-agent
-Content-Type: application/json
-
-{
-  "jsonrpc": "2.0",
-  "method": "message/send",
-  "params": {
-    "message": {
-      "kind": "message",
-      "role": "user",
-      "parts": [
-        {
-          "kind": "text",
-          "text": "Turn on the living room lights"
-        }
-      ],
-      "messageId": "550e8400-e29b-41d4-a716-446655440000",
-      "contextId": "550e8400-e29b-41d4-a716-446655440001",
-      "taskId": null,
-      "metadata": null,
-      "referenceTaskIds": [],
-      "extensions": []
-    }
-  },
-  "id": 1
-}
-
-# Response
-{
-  "jsonrpc": "2.0",
-  "result": {
-    "kind": "message",
-    "role": "assistant",
-    "parts": [
-      {
-        "kind": "text",
-        "text": "I've turned on the living room lights for you."
+curl -X POST http://localhost:5151/a2a/light-agent \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "message/send",
+    "params": {
+      "message": {
+        "kind": "message",
+        "role": "user",
+        "parts": [{"kind": "text", "text": "Turn on the living room lights"}],
+        "messageId": "550e8400-e29b-41d4-a716-446655440000",
+        "contextId": "550e8400-e29b-41d4-a716-446655440001"
       }
-    ],
-    "messageId": "550e8400-e29b-41d4-a716-446655440002",
-    "contextId": "550e8400-e29b-41d4-a716-446655440001",
-    "taskId": null
-  },
-  "id": 1
-}
+    },
+    "id": 1
+  }'
 ```
-
-### Important Notes
-
-- **`taskId` must be `null`**: The Agent Framework doesn't support task management yet
-- **`contextId`**: Used for conversation threading and context preservation
-- **Message IDs**: UUIDs for tracking individual messages in the conversation
 
 ## 🧪 Development
 
@@ -354,461 +322,143 @@ Content-Type: application/json
 # Build the entire solution
 dotnet build lucia-dotnet.slnx
 
-# Run tests
-dotnet test
-
-# Run with hot reload (Agent Host)
-dotnet watch --project lucia.AgentHost
-
-# Run with Aspire (recommended for development)
+# Run via Aspire (recommended — starts all services)
 dotnet run --project lucia.AppHost
 
-# Optional: run AgentHost directly for host-only debugging
+# Run tests (excludes slow eval tests)
+dotnet test --filter 'Category!=Eval'
+
+# Run all tests including LLM-based evals
+dotnet test
+
+# Run AgentHost directly (without Aspire)
 dotnet run --project lucia.AgentHost
+
+# Dashboard dev server (standalone)
+cd lucia-dashboard && npm install && npm run dev
 ```
 
-### Testing the Integration
+### Service Endpoints
 
-A simple test script is provided for testing JSON-RPC communication:
+When running via Aspire AppHost:
 
-```bash
-cd custom_components/lucia
-python test_catalog_simple.py
-```
+| Service | HTTP | HTTPS |
+|---------|------|-------|
+| AgentHost API | `http://localhost:5151` | `https://localhost:7235` |
+| Dashboard | Assigned by Aspire | — |
+| Aspire Dashboard | — | `https://localhost:17274` |
+| API Documentation (Scalar) | — | `https://localhost:7235/scalar` |
+| Health Check | `http://localhost:5151/health` | — |
 
-This verifies:
-- Agent catalog discovery
-- JSON-RPC message format
-- Response parsing
-- Context ID threading
-
-### Adding a New Agent
-
-1. **Create Agent Class** in `lucia.Agents/Agents/`
-
-```csharp
-using A2A;
-using lucia.Agents.Skills;
-using Microsoft.Agents.AI;
-using Microsoft.Agents.AI.A2A;
-using Microsoft.Agents.AI.Hosting;
-using Microsoft.Extensions.AI;
-using Microsoft.Extensions.Logging;
-
-namespace lucia.Agents.Agents;
-
-public class ClimateAgent
-{
-    private readonly AgentCard _agent;
-    private readonly ClimateControlSkill _climateSkill;
-    private readonly ILogger<ClimateAgent> _logger;
-    private readonly AIAgent _aiAgent;
-
-    public ClimateAgent(
-        IChatClient chatClient,
-        ClimateControlSkill climateSkill,
-        ILoggerFactory loggerFactory)
-    {
-        _climateSkill = climateSkill;
-        _logger = loggerFactory.CreateLogger<ClimateAgent>();
-
-        var climateControlSkill = new AgentSkill()
-        {
-            Id = "id_climate_agent",
-            Name = "ClimateControl",
-            Description = "Skill for controlling HVAC, temperature, and climate systems",
-            Tags = ["climate", "hvac", "temperature", "home automation"],
-            Examples = [
-                "Set the thermostat to 72 degrees",
-                "Turn on the AC in the living room",
-                "What's the current temperature?",
-                "Set heating mode to auto"
-            ],
-        };
-
-        // Create the agent card for registration
-        _agent = new AgentCard
-        {
-            Url = "/a2a/climate-agent",
-            Name = "climate-agent",
-            Description = "Agent for controlling HVAC and climate systems",
-            Capabilities = new AgentCapabilities
-            {
-                PushNotifications = true,
-                StateTransitionHistory = true,
-                Streaming = true,
-            },
-            DefaultInputModes = ["text"],
-            DefaultOutputModes = ["text"],
-            Skills = [climateControlSkill],
-            Version = "1.0.0",
-        };
-
-        var instructions = """
-            You are a specialized Climate Control Agent for a home automation system.
-            
-            Your responsibilities:
-            - Control HVAC systems and thermostats
-            - Monitor temperature and humidity
-            - Adjust heating and cooling settings
-            
-            Always be helpful and provide clear feedback about climate operations.
-            """;
-
-        var agentOptions = new ChatClientAgentOptions(instructions)
-        {
-            Id = "climate-agent",
-            Name = "climate-agent",
-            Description = "Agent for controlling climate systems",
-            ChatOptions = new()
-            {
-                Tools = _climateSkill.GetTools()
-            }
-        };
-
-        _aiAgent = new ChatClientAgent(chatClient, agentOptions, loggerFactory);
-    }
-
-    public AgentCard GetAgentCard() => _agent;
-    public AIAgent GetAIAgent() => _aiAgent;
-
-    public async Task InitializeAsync(CancellationToken cancellationToken = default)
-    {
-        _logger.LogInformation("Initializing ClimateAgent...");
-        await _climateSkill.InitializeAsync(cancellationToken);
-        _logger.LogInformation("ClimateAgent initialized successfully");
-    }
-}
-```
-
-2. **Register Agent** in `ServiceCollectionExtensions.cs`
-
-```csharp
-public static void AddLuciaAgents(this IHostApplicationBuilder builder)
-{
-    // ... existing registrations ...
-    
-    // Register skill
-    builder.Services.AddSingleton<ClimateControlSkill>();
-    
-    // Register agent
-    builder.Services.AddSingleton<ClimateAgent>();
-    
-    // Register with AI Agent system
-    builder.AddAIAgent("climate-agent", (sp, name) =>
-    {
-        var climateAgent = sp.GetRequiredService<ClimateAgent>();
-        climateAgent.InitializeAsync().GetAwaiter().GetResult();
-        return climateAgent.GetAIAgent();
-    });
-}
-```
-
-3. **Create Skill** in `lucia.Agents/Skills/`
-
-```csharp
-using Microsoft.Extensions.AI;
-using Microsoft.Extensions.Logging;
-using System.ComponentModel;
-using lucia.HomeAssistant.Services;
-
-namespace lucia.Agents.Skills;
-
-public class ClimateControlSkill
-{
-    private readonly IHomeAssistantClient _homeAssistantClient;
-    private readonly ILogger<ClimateControlSkill> _logger;
-
-    public ClimateControlSkill(
-        IHomeAssistantClient homeAssistantClient,
-        ILogger<ClimateControlSkill> logger)
-    {
-        _homeAssistantClient = homeAssistantClient;
-        _logger = logger;
-    }
-
-    public IList<AITool> GetTools()
-    {
-        return [
-            AIFunctionFactory.Create(SetTemperatureAsync),
-            AIFunctionFactory.Create(GetClimateStateAsync)
-        ];
-    }
-
-    public async Task InitializeAsync(CancellationToken cancellationToken = default)
-    {
-        _logger.LogInformation("Initializing ClimateControlSkill...");
-        // Initialize any caches or resources
-    }
-
-    [Description("Sets the target temperature for a climate device")]
-    public async Task<string> SetTemperatureAsync(
-        [Description("The entity ID of the climate device")] string entityId,
-        [Description("Target temperature in degrees")] double temperature)
-    {
-        try
-        {
-            var request = new ServiceCallRequest
-            {
-                ["entity_id"] = entityId,
-                ["temperature"] = temperature
-            };
-
-            await _homeAssistantClient.CallServiceAsync("climate", "set_temperature", request);
-            return $"Set temperature to {temperature}° for {entityId}";
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error setting temperature for {EntityId}", entityId);
-            return $"Failed to set temperature: {ex.Message}";
-        }
-    }
-
-    [Description("Gets the current state of a climate device")]
-    public async Task<string> GetClimateStateAsync(
-        [Description("The entity ID of the climate device")] string entityId)
-    {
-        try
-        {
-            var state = await _homeAssistantClient.GetStateAsync(entityId);
-            return $"Climate device {entityId} is {state.State}";
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting climate state for {EntityId}", entityId);
-            return $"Failed to get climate state: {ex.Message}";
-        }
-    }
-}
-```
-
-## 🐳 Docker Deployment
-
-### Building the Image
-
-```bash
-# Build the Agent Host image
-docker build -f lucia.AgentHost/Dockerfile -t lucia-agent:latest .
-```
+## 🐳 Deployment
 
 ### Docker Compose
 
-```yaml
-version: '3.8'
-services:
-  lucia-agent:
-    image: lucia-agent:latest
-    ports:
-      - "7235:7235"
-    environment:
-      - HomeAssistant__BaseUrl=http://homeassistant:8123
-      - HomeAssistant__AccessToken=${HA_TOKEN}
-      - OpenAI__ApiKey=${OPENAI_KEY}
-    volumes:
-      - ./config:/app/config
-    restart: unless-stopped
+```bash
+cd infra/docker
+docker compose up -d
 ```
 
-### Kubernetes Deployment
+See [`infra/docker/`](infra/docker/) for individual Dockerfiles (AgentHost, A2AHost, Music-Agent, Timer-Agent) and the compose configuration.
+
+### Kubernetes
 
 ```bash
-# Deploy to Kubernetes cluster
-kubectl apply -f k8s/lucia-namespace.yaml
-kubectl apply -f k8s/lucia-deployment.yaml
-kubectl apply -f k8s/lucia-service.yaml
+# Using manifests
+kubectl apply -f infra/kubernetes/manifests/
+
+# Using Helm
+helm install lucia infra/kubernetes/helm/lucia-helm \
+  --namespace lucia --create-namespace
 ```
 
-Kubernetes manifests and Helm charts are maintained under `infra/kubernetes`.
+See [`infra/kubernetes/`](infra/kubernetes/) for manifests and Helm chart documentation.
+
+### systemd
+
+For bare-metal or VM deployments, systemd service units are provided in [`infra/systemd/`](infra/systemd/).
 
 ## 📊 Monitoring and Observability
 
-Lucia includes OpenTelemetry instrumentation for comprehensive observability:
+Lucia includes OpenTelemetry instrumentation out of the box via the `lucia.ServiceDefaults` project:
 
-### Metrics
-- Request rates and response times
-- Agent performance and execution duration
-- LLM token usage and costs
-- Error rates by agent and operation
+- **Traces** — Distributed tracing across orchestrator, agents, and Home Assistant API calls
+- **Metrics** — Request rates, agent execution duration, LLM token usage
+- **Logs** — Structured logging with correlation IDs and agent-specific filtering
 
-### Traces
-- Distributed tracing across agent calls
-- Agent Framework operation tracking
-- Home Assistant API interactions
-- LLM provider request/response timing
-
-### Logs
-- Structured application logging via Microsoft.Extensions.Logging with OpenTelemetry integration
-- Correlation IDs for request tracking
-- Agent-specific log filtering
-- Integration with Home Assistant logs
-
-### Configuration
-
-```json
-{
-  "OpenTelemetry": {
-    "ServiceName": "Lucia",
-    "Endpoint": "http://your-collector:4317"
-  }
-}
-```
-
-Compatible with Prometheus, Grafana, Jaeger, and other OTLP-compatible tools.
+The Aspire Dashboard provides built-in log aggregation, trace visualization, and metrics during development. For production, export to Prometheus, Grafana, Jaeger, or any OTLP-compatible backend.
 
 ## 🗺️ Roadmap
 
-### Phase 1: Foundation ✅ (Completed)
-- ✅ Agent Registry with dynamic discovery
-- ✅ LightAgent with semantic search
-- ✅ MusicAgent for Music Assistant
-- ✅ A2A Protocol (JSON-RPC 2.0) implementation
-- ✅ Home Assistant custom component
-- ✅ Agent selection UI in config flow
-- ✅ Conversation threading with contextId
-- ✅ IntentResponse integration
+### ✅ Completed
 
-### Phase 2: Core Agents (In Progress)
-- 🔄 ClimateAgent (HVAC and temperature control)
-- ⏳ SecurityAgent (alarm, locks, cameras)
-- ⏳ SceneAgent (scene activation and management)
-- ✅ Multi-agent orchestration (GA)
-- ⏳ WebSocket real-time communication
+- Multi-agent orchestration with Router → Dispatch → Aggregator pipeline
+- LightAgent with semantic entity search
+- MusicAgent for Music Assistant playback
+- TimerAgent for announcements and reminders
+- A2A Protocol (JSON-RPC 2.0) implementation
+- Home Assistant custom component with agent selection
+- React management dashboard with traces, exports, configuration
+- Prompt caching for routing acceleration
+- Helm charts and Kubernetes manifests
+- Multi-LLM support (Azure AI Foundry, OpenAI, Ollama)
+- Dataset export for fine-tuning workflows
+- Schema-driven configuration system
 
-### Phase 3: Intelligence (Planned)
-- ⏳ Pattern recognition and learning
-- ⏳ Multi-LLM support (Gemini, Claude, etc.)
-- ⏳ Local LLM integration (LLaMa, Ollama)
-- ⏳ Automation suggestions based on usage
-- ⏳ Cost optimization for LLM routing
+### 🔄 In Progress
 
-### Phase 4: Advanced Features (Future)
-- ⏳ Kubernetes Helm charts
-- ⏳ Distributed agent deployment
-- ⏳ Service mesh integration (Istio)
-- ⏳ Management UI (React dashboard)
-- ⏳ Multi-home support
+- ClimateAgent (HVAC and temperature control)
+- WebSocket real-time event streaming from Home Assistant
+- HACS store listing for one-click installation
 
-### Phase 5: Ecosystem (Vision)
-- ⏳ Agent SDK for community development
-- ⏳ HACS integration for easy installation
-- ⏳ Community agent marketplace
-- ⏳ Voice integration (local STT/TTS)
-- ⏳ Mobile companion app
+### ⏳ Planned
 
-See [.docs/product/roadmap.md](.docs/product/roadmap.md) for detailed roadmap with sizing estimates.
+- SecurityAgent (alarm, locks, cameras)
+- SceneAgent (scene activation and management)
+- Pattern recognition and automation suggestions
+- Local LLM optimization (Ollama performance tuning)
+- Voice integration (local STT/TTS)
+- Mobile companion app
+
+See [.docs/product/roadmap.md](.docs/product/roadmap.md) for the detailed roadmap.
 
 ## 🤝 Contributing
 
-We welcome contributions! Whether you're fixing bugs, adding features, or improving documentation, your help is appreciated.
+We welcome contributions! Whether you're fixing bugs, adding agents, or improving documentation.
 
-### How to Contribute
-
-1. **Fork the repository**
-2. **Create a feature branch**
-   ```bash
-   git checkout -b feature/amazing-feature
-   ```
-3. **Make your changes**
-   - Follow existing code style and conventions
-   - Add tests for new functionality
-   - Update documentation as needed
-4. **Commit your changes**
-   ```bash
-   git commit -m 'Add amazing feature'
-   ```
-5. **Push to your branch**
-   ```bash
-   git push origin feature/amazing-feature
-   ```
-6. **Open a Pull Request**
-   - Describe your changes clearly
-   - Reference any related issues
-   - Ensure all tests pass
-
-### Development Guidelines
-
-- **Code Style**: Follow Microsoft C# coding conventions
-- **Testing**: Write unit tests for new functionality
-- **Documentation**: Update README and inline comments
-- **Commits**: Use conventional commit messages
-- **PR Size**: Keep pull requests focused and reasonably sized
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/amazing-feature`
+3. Make your changes following existing code style and conventions
+4. Add tests for new functionality
+5. Commit using [conventional commits](https://www.conventionalcommits.org/): `git commit -m 'feat: add amazing feature'`
+6. Push and open a Pull Request
 
 ### Areas for Contribution
 
-- 🤖 New specialized agents (weather, calendar, notifications, etc.)
+- 🤖 New specialized agents (climate, security, calendar, etc.)
 - 🧠 Additional LLM provider integrations
 - 🏠 Enhanced Home Assistant integrations
-- 📚 Documentation improvements
-- 🐛 Bug fixes and error handling
-- 🧪 Test coverage improvements
-- 🌐 Internationalization (i18n)
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+- 📊 Dashboard features and improvements
+- 📚 Documentation
+- 🧪 Test coverage
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 
-Lucia wouldn't be possible without these amazing projects and communities:
+- **[Microsoft Agent Framework](https://github.com/microsoft/agent-framework)** — AI orchestration framework powering our agents
+- **[Home Assistant](https://www.home-assistant.io/)** — Open-source home automation platform
+- **[.NET Aspire](https://learn.microsoft.com/en-us/dotnet/aspire/)** — Cloud-native app development stack
+- **[A2A Protocol](https://github.com/a2aproject/A2A)** — Standardized agent communication protocol
+- **[Music Assistant](https://music-assistant.io/)** — Universal music library and playback system
 
-- **[Microsoft Agent Framework](https://github.com/microsoft/agent-framework)** - AI orchestration framework powering our agents (Public Preview)
-- **[Home Assistant](https://www.home-assistant.io/)** - The world's best open-source home automation platform
-- **[.NET Aspire](https://learn.microsoft.com/en-us/dotnet/aspire/)** - Cloud-native app development stack
-- **[A2A Protocol](https://github.com/a2aproject/A2A)** - Standardized agent communication protocol
-- **[Music Assistant](https://music-assistant.io/)** - Universal music library and playback system
+## 📞 Support
 
-Special thanks to the Home Assistant community for inspiration and the countless developers building the open-source smart home ecosystem.
-
-## 📞 Support and Community
-
-- **📖 Documentation**: [Wiki](https://github.com/seiggy/lucia-dotnet/wiki)
 - **🐛 Bug Reports**: [GitHub Issues](https://github.com/seiggy/lucia-dotnet/issues)
 - **💬 Discussions**: [GitHub Discussions](https://github.com/seiggy/lucia-dotnet/discussions)
 - **🏠 Home Assistant**: [Community Forum](https://community.home-assistant.io/)
-
-### Getting Help
-
-If you encounter issues:
-
-1. Check existing [GitHub Issues](https://github.com/seiggy/lucia-dotnet/issues)
-2. Review the [custom component documentation](custom_components/lucia/README.md)
-3. Check Home Assistant logs for error details
-4. Open a new issue with:
-   - Detailed description of the problem
-   - Steps to reproduce
-   - Log excerpts (remove sensitive info)
-   - Your environment (HA version, .NET version, OS)
-
-## 🔧 Troubleshooting
-
-### Common Issues
-
-**"Agent not responding"**
-- Verify the agent is running: `curl https://localhost:7235/agents`
-- Check SSL certificate is trusted (self-signed cert issues)
-- Confirm taskId is null in JSON-RPC requests
-- Review agent logs for errors
-
-**"Integration fails to load"**
-- Ensure custom component is in correct directory
-- Restart Home Assistant after copying files
-- Check HA logs: `config/home-assistant.log`
-- Verify Python dependencies are installed
-
-**"No agents in dropdown"**
-- Confirm agent catalog endpoint is accessible
-- Check repository URL configuration
-- Review agent registration in `Program.cs`
-- Try reloading the integration
-
-**"ConversationResponse error"**
-- This has been fixed in v2025.10.07
-- Update to the latest release (currently v2025.11.09)
-- Integration now uses `IntentResponse` correctly
-
-For detailed troubleshooting, see the [Agent Selection Guide](custom_components/lucia/AGENT_SELECTION.md).
 
 ---
 
