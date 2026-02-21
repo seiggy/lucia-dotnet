@@ -20,7 +20,6 @@ WORKDIR /src
 COPY ["lucia.TimerAgent/lucia.TimerAgent.csproj", "lucia.TimerAgent/"]
 COPY ["lucia.Agents/lucia.Agents.csproj", "lucia.Agents/"]
 COPY ["lucia.HomeAssistant/lucia.HomeAssistant.csproj", "lucia.HomeAssistant/"]
-COPY ["lucia.HomeAssistant.SourceGenerator/lucia.HomeAssistant.SourceGenerator.csproj", "lucia.HomeAssistant.SourceGenerator/"]
 
 RUN dotnet restore "./lucia.TimerAgent/lucia.TimerAgent.csproj"
 
