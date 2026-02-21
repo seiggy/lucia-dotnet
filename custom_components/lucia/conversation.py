@@ -106,17 +106,18 @@ class LuciaConversationEntity(conversation.ConversationEntity):
 
         # Get configuration options
         options = self.entry.options or self.entry.data
-        prompt_template = options.get(CONF_PROMPT, DEFAULT_PROMPT)
+        prompt_template = options.get(CONF_PROMPT) or DEFAULT_PROMPT
 
-        # Process the prompt template if it exists
+        # Process the prompt template
         try:
-            if prompt_template:
-                system_prompt = self._render_template(prompt_template, user_input)
-            else:
-                system_prompt = DEFAULT_PROMPT
+            system_prompt = self._render_template(prompt_template, user_input)
         except TemplateError as err:
             _LOGGER.error("Error rendering prompt template: %s", err)
-            system_prompt = DEFAULT_PROMPT
+            # Fallback to plain text (no Jinja2 markers)
+            system_prompt = (
+                "You are a Home Assistant smart home assistant. "
+                "Help the user control their devices and automations."
+            )
 
         # Resolve A2A context/task IDs from tracker or create new
         tracked = None
