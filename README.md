@@ -27,6 +27,7 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
 - **📊 Management Dashboard** — React-based dark-themed dashboard for agent management, trace inspection, configuration, and dataset exports
 - **📦 Kubernetes Ready** — Cloud-native deployment with .NET Aspire, Helm charts, and K8s manifests
 - **🔌 Extensible** — Easy to add new agents and capabilities with standardized A2A protocol
+- **🛠️ Runtime Agent Builder** — Create custom agents via the dashboard with MCP tool integration—no code required
 - **🧭 General Knowledge Fallback** — Built-in `general-assistant` handles open-ended requests when no specialist is a clean match
 - **🎭 Dynamic Agent Selection** — Switch between specialized agents (light control, music, timers, etc.) without reconfiguring
 - **💬 Conversation Threading** — Context-aware conversations with proper message threading support
@@ -148,6 +149,14 @@ Monitor the routing prompt cache that accelerates repeated queries. View cache s
 ![Tasks](docs/images/tasks.png)
 
 Track active and archived tasks with status counters (Active, Completed, Failed, Cancelled). Switch between Active Tasks and Task History views to monitor ongoing work and review completed operations.
+
+### MCP Tool Servers
+
+Manage platform-wide MCP (Model Context Protocol) tool server registrations. Add stdio-based local tools (e.g., `dnx` .NET tools) or remote HTTP/SSE servers. Connect servers to discover available tools, view connection status, and manage environment variables and authentication headers.
+
+### Agent Definitions
+
+Create and manage custom agents at runtime—no code changes required. Each agent definition includes a name, system prompt (instructions), optional model connection override, and a granular MCP tool picker that lets you assign individual tools from registered MCP servers. Agents are loaded from MongoDB on each invocation, so changes take effect immediately.
 
 ## 🏗️ Architecture
 
@@ -314,6 +323,43 @@ curl -X POST http://localhost:5151/a2a/light-agent \
   }'
 ```
 
+### Creating Custom Agents (Runtime)
+
+Lucia supports creating agents at runtime through the dashboard UI. Custom agents are stored in MongoDB and loaded dynamically—no code changes or restarts required.
+
+**1. Register MCP Tool Servers**
+
+Navigate to **MCP Servers** in the dashboard and add your tool servers:
+
+- **stdio transports** — local processes (e.g., `dnx my-tool`, `npx @scope/tool`). The container ships with the .NET SDK, so `dnx` tools work out of the box. For `npx`, `python`, or other runtimes, extend the container image.
+- **HTTP/SSE transports** — remote MCP servers accessible via URL.
+
+After adding a server, click **Connect** then **Discover Tools** to see available tools.
+
+**2. Define an Agent**
+
+Navigate to **Agent Definitions** and click **New Agent**:
+
+| Field | Description |
+|-------|-------------|
+| **Name** | Unique agent identifier (e.g., `research-agent`) |
+| **Display Name** | Human-readable name for the dashboard |
+| **Instructions** | System prompt that defines the agent's behavior |
+| **Model Connection** | Optional override (blank = default model) |
+| **MCP Tools** | Select individual tools from registered MCP servers |
+
+**3. Use the Agent**
+
+Once saved, the agent is immediately available to the orchestrator's router. The router considers the agent's description and tool capabilities when making routing decisions. No reload required—agents are loaded from MongoDB on each invocation.
+
+**Extending the container for non-.NET runtimes:**
+
+```dockerfile
+# Example: Add Node.js for npx-based MCP tools
+FROM ghcr.io/seiggy/lucia-dotnet:latest
+RUN apt-get update && apt-get install -y nodejs npm
+```
+
 ## 🧪 Development
 
 ### Building from Source
@@ -407,6 +453,7 @@ The Aspire Dashboard provides built-in log aggregation, trace visualization, and
 
 ### 🔄 In Progress
 
+- Runtime MCP tool server registration and dynamic agent definitions
 - ClimateAgent (HVAC and temperature control)
 - WebSocket real-time event streaming from Home Assistant
 - HACS store listing for one-click installation

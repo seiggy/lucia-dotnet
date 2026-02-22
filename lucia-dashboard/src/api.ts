@@ -8,6 +8,10 @@ import type {
   ActiveTaskSummary,
   ArchivedTask,
   CombinedTaskStats,
+  McpToolServerDefinition,
+  McpToolInfo,
+  McpServerStatus,
+  AgentDefinition,
 } from './types';
 
 const BASE = '/api';
@@ -410,4 +414,112 @@ export async function fetchTaskStats(): Promise<CombinedTaskStats> {
 export async function cancelTask(id: string): Promise<void> {
   const res = await fetch(`${BASE}/tasks/${id}/cancel`, { method: 'POST' });
   if (!res.ok) throw new Error(`Failed to cancel task: ${res.statusText}`);
+}
+
+// ── MCP Servers ──────────────────────────────────────────────────────
+
+export async function fetchMcpServers(): Promise<McpToolServerDefinition[]> {
+  const res = await fetch(`${BASE}/mcp-servers`);
+  if (!res.ok) throw new Error(`Failed to fetch MCP servers: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchMcpServer(id: string): Promise<McpToolServerDefinition> {
+  const res = await fetch(`${BASE}/mcp-servers/${id}`);
+  if (!res.ok) throw new Error(`MCP server not found`);
+  return res.json();
+}
+
+export async function createMcpServer(server: Partial<McpToolServerDefinition>): Promise<McpToolServerDefinition> {
+  const res = await fetch(`${BASE}/mcp-servers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(server),
+  });
+  if (!res.ok) throw new Error(`Failed to create MCP server: ${res.statusText}`);
+  return res.json();
+}
+
+export async function updateMcpServer(id: string, server: Partial<McpToolServerDefinition>): Promise<McpToolServerDefinition> {
+  const res = await fetch(`${BASE}/mcp-servers/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(server),
+  });
+  if (!res.ok) throw new Error(`Failed to update MCP server: ${res.statusText}`);
+  return res.json();
+}
+
+export async function deleteMcpServer(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/mcp-servers/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to delete MCP server: ${res.statusText}`);
+}
+
+export async function discoverMcpTools(serverId: string): Promise<McpToolInfo[]> {
+  const res = await fetch(`${BASE}/mcp-servers/${serverId}/tools`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to discover tools: ${res.statusText}`);
+  return res.json();
+}
+
+export async function connectMcpServer(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/mcp-servers/${id}/connect`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to connect MCP server: ${res.statusText}`);
+}
+
+export async function disconnectMcpServer(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/mcp-servers/${id}/disconnect`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to disconnect MCP server: ${res.statusText}`);
+}
+
+export async function fetchMcpServerStatuses(): Promise<Record<string, McpServerStatus>> {
+  const res = await fetch(`${BASE}/mcp-servers/status`);
+  if (!res.ok) throw new Error(`Failed to fetch statuses: ${res.statusText}`);
+  return res.json();
+}
+
+// ── Agent Definitions ────────────────────────────────────────────────
+
+export async function fetchAgentDefinitions(): Promise<AgentDefinition[]> {
+  const res = await fetch(`${BASE}/agent-definitions`);
+  if (!res.ok) throw new Error(`Failed to fetch agent definitions: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchAgentDefinition(id: string): Promise<AgentDefinition> {
+  const res = await fetch(`${BASE}/agent-definitions/${id}`);
+  if (!res.ok) throw new Error(`Agent definition not found`);
+  return res.json();
+}
+
+export async function createAgentDefinition(definition: Partial<AgentDefinition>): Promise<AgentDefinition> {
+  const res = await fetch(`${BASE}/agent-definitions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(definition),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Failed to create agent definition: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function updateAgentDefinition(id: string, definition: Partial<AgentDefinition>): Promise<AgentDefinition> {
+  const res = await fetch(`${BASE}/agent-definitions/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(definition),
+  });
+  if (!res.ok) throw new Error(`Failed to update agent definition: ${res.statusText}`);
+  return res.json();
+}
+
+export async function deleteAgentDefinition(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/agent-definitions/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to delete agent definition: ${res.statusText}`);
+}
+
+export async function reloadDynamicAgents(): Promise<void> {
+  const res = await fetch(`${BASE}/agent-definitions/reload`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to reload agents: ${res.statusText}`);
 }

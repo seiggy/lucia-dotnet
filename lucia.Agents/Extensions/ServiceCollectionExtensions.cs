@@ -19,6 +19,7 @@ using Microsoft.Agents.AI.Hosting;
 using OllamaSharp;
 using A2A;
 using lucia.Agents.Configuration;
+using lucia.Agents.Mcp;
 using lucia.HomeAssistant.Configuration;
 using Azure.Identity;
 using Microsoft.Extensions.Options;
@@ -437,6 +438,12 @@ public static class ServiceCollectionExtensions
         WrapAgentChatClientWithTracing(builder.Services, OrchestratorServiceKeys.MusicModel, "music-agent");
         WrapAgentChatClientWithTracing(builder.Services, OrchestratorServiceKeys.GeneralModel, "general-assistant");
         WrapAgentChatClientWithTracing(builder.Services, OrchestratorServiceKeys.ClimateModel, "climate-agent");
+
+        // Register MCP tool registry and dynamic agent system
+        builder.Services.AddSingleton<IAgentDefinitionRepository, MongoAgentDefinitionRepository>();
+        builder.Services.AddSingleton<IMcpToolRegistry, McpToolRegistry>();
+        builder.Services.AddSingleton<IDynamicAgentProvider, DynamicAgentProvider>();
+        builder.Services.AddHostedService<DynamicAgentLoader>();
     }
 
     /// <summary>

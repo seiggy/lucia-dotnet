@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using A2A;
+using lucia.Agents.Mcp;
 using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Registry;
 using lucia.Agents.Services;
@@ -37,6 +38,7 @@ public sealed class WorkflowFactory
     private readonly IOrchestratorObserver? _observer;
     private readonly IAgentProvider? _agentProvider;
     private readonly IPromptCacheService? _promptCache;
+    private readonly IDynamicAgentProvider? _dynamicAgentProvider;
 
     public WorkflowFactory(
         [FromKeyedServices(OrchestratorServiceKeys.RouterModel)] IChatClient chatClient,
@@ -50,7 +52,8 @@ public sealed class WorkflowFactory
         ITaskManager taskManager,
         IOrchestratorObserver? observer = null,
         IAgentProvider? agentProvider = null,
-        IPromptCacheService? promptCache = null)
+        IPromptCacheService? promptCache = null,
+        IDynamicAgentProvider? dynamicAgentProvider = null)
     {
         _chatClient = chatClient ?? throw new ArgumentNullException(nameof(chatClient));
         _agentRegistry = agentRegistry ?? throw new ArgumentNullException(nameof(agentRegistry));
@@ -65,6 +68,7 @@ public sealed class WorkflowFactory
         _observer = observer;
         _agentProvider = agentProvider;
         _promptCache = promptCache;
+        _dynamicAgentProvider = dynamicAgentProvider;
     }
 
     /// <summary>
@@ -111,6 +115,27 @@ public sealed class WorkflowFactory
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Failed to resolve AIAgent from card {AgentName} ({Url})", card.Name, card.Url);
+                }
+            }
+        }
+
+        // Resolve dynamic agents (user-defined via MCP) — lazily built from latest Mongo definition
+        if (_dynamicAgentProvider is not null)
+        {
+            foreach (var dynamicAgent in _dynamicAgentProvider.GetAllAgents())
+            {
+                try
+                {
+                    var aiAgent = dynamicAgent.GetAIAgent();
+                    if (aiAgent is not null)
+                    {
+                        resolved.Add(aiAgent);
+                        _logger.LogDebug("Resolved dynamic AIAgent: {AgentName}", aiAgent.Name ?? aiAgent.Id);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to resolve dynamic AIAgent {AgentId}", dynamicAgent.GetAgentCard().Name);
                 }
             }
         }

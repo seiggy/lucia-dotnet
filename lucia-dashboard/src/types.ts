@@ -146,3 +146,55 @@ export interface CombinedTaskStats {
   activeCount: number;
   archived: TaskStats;
 }
+
+// MCP Tool Servers
+export interface McpToolServerDefinition {
+  id: string;
+  name: string;
+  description: string;
+  transportType: string;
+  command?: string;
+  arguments: string[];
+  workingDirectory?: string;
+  environmentVariables: Record<string, string>;
+  url?: string;
+  headers: Record<string, string>;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface McpToolInfo {
+  serverId: string;
+  serverName: string;
+  toolName: string;
+  description?: string;
+}
+
+export interface McpServerStatus {
+  serverId: string;
+  serverName: string;
+  state: 'Disconnected' | 'Connecting' | 'Connected' | 'Error';
+  errorMessage?: string;
+  toolCount: number;
+  connectedAt?: string;
+}
+
+// Agent Definitions
+export interface AgentToolReference {
+  serverId: string;
+  toolName: string;
+}
+
+export interface AgentDefinition {
+  id: string;
+  name: string;
+  displayName?: string;
+  description?: string;
+  instructions?: string;
+  tools: AgentToolReference[];
+  modelConnectionName?: string;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}

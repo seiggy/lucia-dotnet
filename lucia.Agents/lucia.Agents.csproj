@@ -26,6 +26,7 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.VectorData.Abstractions" />
     <PackageReference Include="Microsoft.ML.Tokenizers" />
+    <PackageReference Include="ModelContextProtocol" />
     <PackageReference Include="MongoDB.Driver" />
     <PackageReference Include="OllamaSharp" />
     <PackageReference Include="System.Linq.Async">
