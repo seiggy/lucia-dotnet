@@ -311,6 +311,7 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
         string? Area,
         int PercentageStep,
         List<string> PresetModes,
+        string? ModeSelectEntityId,
         int SupportedFeatures);
 
     public async Task<List<ClimateEntity>?> GetCachedClimateDevicesAsync(CancellationToken cancellationToken = default)
@@ -422,6 +423,7 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
                 Area = d.Area,
                 PercentageStep = d.PercentageStep,
                 PresetModes = d.PresetModes,
+                ModeSelectEntityId = d.ModeSelectEntityId,
                 SupportedFeatures = d.SupportedFeatures
             }).ToList();
         }
@@ -449,6 +451,7 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
                 f.Area,
                 f.PercentageStep,
                 f.PresetModes,
+                f.ModeSelectEntityId,
                 f.SupportedFeatures)).ToList();
 
             var json = JsonSerializer.Serialize(dtos);

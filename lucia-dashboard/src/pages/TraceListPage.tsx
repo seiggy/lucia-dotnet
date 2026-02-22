@@ -176,7 +176,17 @@ export default function TraceListPage() {
                     <td className="whitespace-nowrap px-4 py-3 text-gray-300">
                       {formatDate(trace.timestamp)}
                     </td>
-                    <td className="px-4 py-3">{truncate(trace.userInput, 80)}</td>
+                    <td className="px-4 py-3">
+                      {trace.conversationHistory && trace.conversationHistory.length > 0 && (
+                        <span
+                          className="mr-1.5 inline-block rounded bg-purple-500/20 px-1.5 py-0.5 text-xs text-purple-300"
+                          title={`${trace.conversationHistory.length} prior turns`}
+                        >
+                          {trace.conversationHistory.length}↩
+                        </span>
+                      )}
+                      {truncate(trace.userInput, 80)}
+                    </td>
                     <td className="px-4 py-3">{agentBadges(trace)}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-gray-300">
                       {trace.totalDurationMs} ms

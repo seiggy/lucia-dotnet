@@ -27,6 +27,22 @@ export async function fetchTrace(id: string): Promise<ConversationTrace> {
   return res.json();
 }
 
+export interface RelatedTraceSummary {
+  id: string;
+  timestamp: string;
+  traceType: string;
+  agentId: string | null;
+  userInput: string;
+  isErrored: boolean;
+  totalDurationMs: number;
+}
+
+export async function fetchRelatedTraces(id: string): Promise<RelatedTraceSummary[]> {
+  const res = await fetch(`${BASE}/traces/${id}/related`);
+  if (!res.ok) throw new Error(`Failed to fetch related traces`);
+  return res.json();
+}
+
 export async function fetchStats(): Promise<TraceStats> {
   const res = await fetch(`${BASE}/traces/stats`);
   if (!res.ok) throw new Error(`Failed to fetch stats`);

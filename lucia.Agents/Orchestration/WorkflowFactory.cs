@@ -120,6 +120,8 @@ public sealed class WorkflowFactory
 
     /// <summary>
     /// Creates agent invokers (local or remote) keyed by agent name.
+    /// Local agents use <see cref="AIHostAgent"/> for in-process invocation with
+    /// session persistence. Remote agents route through <see cref="ITaskManager"/>.
     /// </summary>
     public Dictionary<string, IAgentInvoker> CreateInvokers(
         IReadOnlyCollection<AgentCard> agentCards,
@@ -127,6 +129,7 @@ public sealed class WorkflowFactory
     {
         var invokers = new Dictionary<string, IAgentInvoker>(StringComparer.OrdinalIgnoreCase);
         var invokerLogger = _loggerFactory.CreateLogger("lucia.Agents.Orchestration.AgentInvoker");
+        var sessionStore = _serviceProvider.GetService<AgentSessionStore>() ?? new NoopAgentSessionStore();
 
         var agentsByKey = aiAgents
             .Select(agent => (Key: NormalizeAgentKey(agent), Agent: agent))
@@ -150,14 +153,17 @@ public sealed class WorkflowFactory
             IAgentInvoker invoker;
             if (agent is not null)
             {
-                invoker = new LocalAgentInvoker(key, agent, invokerLogger, _invokerOptions, _timeProvider);
+                // Local agent: invoke in-process via AIHostAgent with session persistence
+                invoker = new LocalAgentInvoker(key, agent, sessionStore, invokerLogger, _invokerOptions, _timeProvider);
             }
-            else if (card is not null)
+            else if (card is not null && Uri.TryCreate(card.Url, UriKind.Absolute, out _))
             {
+                // Remote agent: route through TaskManager via HTTP
                 invoker = new RemoteAgentInvoker(key, card, _taskManager, invokerLogger, _invokerOptions, _timeProvider);
             }
             else
             {
+                _logger.LogDebug("Skipping agent {AgentName}: no local match and no absolute URL.", key);
                 continue;
             }
 

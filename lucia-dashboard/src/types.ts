@@ -57,6 +57,8 @@ export interface ConversationTrace {
   sessionId: string;
   taskId: string | null;
   userInput: string;
+  conversationHistory: TracedMessage[];
+  systemPrompt: string | null;
   routing: RoutingDecision | null;
   agentExecutions: AgentExecutionRecord[];
   finalResponse: string | null;

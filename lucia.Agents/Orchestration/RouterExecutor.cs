@@ -159,6 +159,10 @@ public sealed class RouterExecutor : Executor
 
         NormalizeAdditionalAgents(parsed, availableAgents);
 
+        // Attach the router system prompt for trace capture
+        var systemMessage = chatMessages.FirstOrDefault(m => m.Role == ChatRole.System);
+        parsed.RouterSystemPrompt = systemMessage?.Text;
+
         _logger.LogInformation(
             "RouterExecutor result: agentId={AgentId}, additionalAgents=[{Additional}], hasInstructions={HasInstructions}, confidence={Confidence}",
             parsed.AgentId,

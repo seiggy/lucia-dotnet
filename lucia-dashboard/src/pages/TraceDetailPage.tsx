@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchTrace, updateLabel } from '../api'
+import { fetchTrace, updateLabel, fetchRelatedTraces } from '../api'
+import type { RelatedTraceSummary } from '../api'
 import { LabelStatus } from '../types'
 import type { AgentExecutionRecord } from '../types'
 
@@ -77,6 +78,12 @@ export default function TraceDetailPage() {
     enabled: !!id,
   })
 
+  const { data: relatedTraces } = useQuery({
+    queryKey: ['trace-related', id],
+    queryFn: () => fetchRelatedTraces(id!),
+    enabled: !!id,
+  })
+
   const [labelStatus, setLabelStatus] = useState<number | null>(null)
   const [notes, setNotes] = useState('')
   const [correction, setCorrection] = useState('')
@@ -135,6 +142,30 @@ export default function TraceDetailPage() {
             </div>
           )}
         </div>
+
+        {/* Conversation History */}
+        {trace.conversationHistory && trace.conversationHistory.length > 0 && (
+          <div className="mt-3">
+            <span className="text-xs text-gray-400">Conversation History</span>
+            <div className="mt-1 space-y-2 rounded border border-gray-700 bg-gray-900 p-3">
+              {trace.conversationHistory.map((msg, i) => (
+                <div key={i} className="flex gap-2 text-sm">
+                  <span
+                    className={`shrink-0 rounded px-1.5 py-0.5 text-xs font-medium ${
+                      msg.role === 'user'
+                        ? 'bg-blue-500/20 text-blue-300'
+                        : 'bg-emerald-500/20 text-emerald-300'
+                    }`}
+                  >
+                    {msg.role}
+                  </span>
+                  <span className="whitespace-pre-wrap text-gray-300">{msg.content}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="mt-3">
           <span className="text-xs text-gray-400">User Input</span>
           <p className="mt-1 whitespace-pre-wrap">{trace.userInput}</p>
@@ -146,6 +177,55 @@ export default function TraceDetailPage() {
           </div>
         )}
       </div>
+
+      {/* System Prompt */}
+      {trace.systemPrompt && (
+        <details className="rounded-lg border border-gray-700 bg-gray-800">
+          <summary className="cursor-pointer p-4 text-sm font-semibold uppercase text-gray-400 hover:text-gray-300">
+            Router System Prompt
+          </summary>
+          <div className="border-t border-gray-700 p-4">
+            <pre className="whitespace-pre-wrap text-sm text-gray-300">{trace.systemPrompt}</pre>
+          </div>
+        </details>
+      )}
+
+      {/* Related Traces (same session) */}
+      {relatedTraces && relatedTraces.length > 0 && (
+        <div className="rounded-lg border border-gray-700 bg-gray-800 p-4">
+          <h3 className="mb-3 text-sm font-semibold uppercase text-gray-400">
+            Related Traces ({relatedTraces.length})
+          </h3>
+          <div className="space-y-2">
+            {relatedTraces.map((rt: RelatedTraceSummary) => (
+              <div
+                key={rt.id}
+                onClick={() => navigate(`/traces/${rt.id}`)}
+                className="flex cursor-pointer items-center gap-3 rounded border border-gray-700 bg-gray-900 p-3 hover:border-indigo-500/50 hover:bg-gray-800"
+              >
+                <span
+                  className={`shrink-0 rounded px-2 py-0.5 text-xs font-medium ${
+                    rt.traceType === 'orchestrator'
+                      ? 'bg-purple-500/20 text-purple-300'
+                      : 'bg-indigo-500/20 text-indigo-300'
+                  }`}
+                >
+                  {rt.traceType === 'agent' && rt.agentId ? rt.agentId : rt.traceType}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-sm text-gray-300">
+                  {rt.userInput}
+                </span>
+                <span className="shrink-0 text-xs text-gray-500">{rt.totalDurationMs} ms</span>
+                {rt.isErrored && (
+                  <span className="shrink-0 rounded-full bg-red-500/20 px-2 py-0.5 text-xs text-red-400">
+                    Error
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Routing Decision */}
       {trace.routing && (

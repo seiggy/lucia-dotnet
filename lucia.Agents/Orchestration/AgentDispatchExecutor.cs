@@ -92,7 +92,7 @@ public sealed class AgentDispatchExecutor : Executor
 
         if (_observer is not null)
         {
-            await _observer.OnRoutingCompletedAsync(agentChoice, cancellationToken).ConfigureAwait(false);
+            await _observer.OnRoutingCompletedAsync(agentChoice, agentChoice.RouterSystemPrompt, cancellationToken).ConfigureAwait(false);
         }
 
         if (_userMessage is null)

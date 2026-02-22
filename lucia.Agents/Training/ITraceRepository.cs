@@ -9,6 +9,7 @@ public interface ITraceRepository
 {
     Task InsertTraceAsync(ConversationTrace trace, CancellationToken ct = default);
     Task<ConversationTrace?> GetTraceAsync(string traceId, CancellationToken ct = default);
+    Task<List<ConversationTrace>> GetTracesBySessionIdAsync(string sessionId, CancellationToken ct = default);
     Task<PagedResult<ConversationTrace>> ListTracesAsync(TraceFilterCriteria filter, CancellationToken ct = default);
     Task UpdateLabelAsync(string traceId, TraceLabel label, CancellationToken ct = default);
     Task DeleteTraceAsync(string traceId, CancellationToken ct = default);

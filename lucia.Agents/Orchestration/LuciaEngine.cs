@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using A2A;
 using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Registry;
+using lucia.Agents.Training.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -115,7 +116,16 @@ public class LuciaEngine
             // flows correctly into the workflow child contexts.
             if (_observer is not null)
             {
-                await _observer.OnRequestStartedAsync(userRequest, cancellationToken).ConfigureAwait(false);
+                var historyMessages = sessionData?.History
+                    .Select(t => new TracedMessage
+                    {
+                        Role = t.Role,
+                        Content = t.Content,
+                        Timestamp = t.Timestamp
+                    })
+                    .ToList();
+
+                await _observer.OnRequestStartedAsync(userRequest, historyMessages, cancellationToken).ConfigureAwait(false);
             }
 
             var workflowResult = await _workflowFactory.BuildAndExecuteAsync(

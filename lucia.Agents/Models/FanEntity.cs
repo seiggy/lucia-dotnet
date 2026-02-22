@@ -19,9 +19,17 @@ public sealed class FanEntity
     public int PercentageStep { get; set; }
 
     /// <summary>
-    /// Available preset modes (e.g., "auto", "nature", "sleep")
+    /// Available preset modes (e.g., "auto", "nature", "sleep").
+    /// May come from the fan entity's native preset_modes or from a companion select entity.
     /// </summary>
     public List<string> PresetModes { get; set; } = [];
+
+    /// <summary>
+    /// Entity ID of a companion select entity that controls fan modes
+    /// (e.g., select.office_fan_fan_mode for Tuya/LocalTuya fans).
+    /// When set, mode changes use <c>select.select_option</c> instead of <c>fan.set_preset_mode</c>.
+    /// </summary>
+    public string? ModeSelectEntityId { get; set; }
 
     /// <summary>
     /// Bitmask of supported features from Home Assistant.
@@ -32,5 +40,5 @@ public sealed class FanEntity
     public bool SupportsSpeed => (SupportedFeatures & 1) != 0;
     public bool SupportsOscillate => (SupportedFeatures & 2) != 0;
     public bool SupportsDirection => (SupportedFeatures & 4) != 0;
-    public bool SupportsPresetMode => (SupportedFeatures & 8) != 0;
+    public bool SupportsPresetMode => (SupportedFeatures & 8) != 0 || ModeSelectEntityId is not null;
 }

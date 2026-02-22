@@ -1,9 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using lucia.Agents.Orchestration.Models;
 using Microsoft.Agents.AI;
+using Microsoft.Agents.AI.Hosting;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -11,11 +13,13 @@ using Microsoft.Extensions.Options;
 namespace lucia.Agents.Orchestration;
 
 /// <summary>
-/// Invokes an in-process <see cref="AIAgent"/> and returns a structured response.
+/// Invokes an in-process agent via <see cref="AIHostAgent"/>, providing
+/// session persistence and proper NeedsInput detection identical to the
+/// A2A endpoint path — but without any HTTP overhead.
 /// </summary>
 public sealed class LocalAgentInvoker : IAgentInvoker
 {
-    private readonly AIAgent _agent;
+    private readonly AIHostAgent _hostAgent;
     private readonly ILogger _logger;
     private readonly AgentInvokerOptions _options;
     private readonly TimeProvider _timeProvider;
@@ -25,12 +29,14 @@ public sealed class LocalAgentInvoker : IAgentInvoker
     public LocalAgentInvoker(
         string agentId,
         AIAgent agent,
+        AgentSessionStore sessionStore,
         ILogger logger,
         IOptions<AgentInvokerOptions> options,
         TimeProvider? timeProvider = null)
     {
         AgentId = agentId;
-        _agent = agent ?? throw new ArgumentNullException(nameof(agent));
+        ArgumentNullException.ThrowIfNull(agent);
+        _hostAgent = new AIHostAgent(agent, sessionStore ?? new NoopAgentSessionStore());
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _options = options.Value;
         _timeProvider = timeProvider ?? TimeProvider.System;
@@ -45,39 +51,62 @@ public sealed class LocalAgentInvoker : IAgentInvoker
 
         try
         {
+            var text = ExtractText(message);
             _logger.LogInformation("[Diag] Agent {AgentId}: invoking RunAsync. Input length={Len}",
-                AgentId, ExtractText(message).Length);
+                AgentId, text.Length);
 
-            var response = await _agent.RunAsync(message, session: null, options: null, linkedCts.Token)
-                .WaitAsync(linkedCts.Token)
-                .ConfigureAwait(false);
+            var contextId = Guid.NewGuid().ToString("N");
 
-            // Diagnostic: log tool calls
-            if (response.Messages is { Count: > 0 })
+            // Propagate a2a.contextId from the incoming message for multi-turn continuity
+            if (message.AdditionalProperties?.TryGetValue("a2a.contextId", out var ctxVal) == true
+                && ctxVal is string existingCtx && existingCtx.Length > 0)
             {
-                foreach (var msg in response.Messages)
-                {
-                    var functionCalls = msg.Contents.OfType<FunctionCallContent>().ToList();
-                    var functionResults = msg.Contents.OfType<FunctionResultContent>().ToList();
-                    if (functionCalls is { Count: > 0 })
-                        _logger.LogInformation("[Diag] Agent {AgentId}: tool calls in response: {Calls}",
-                            AgentId, string.Join(", ", functionCalls.Select(fc => fc.Name)));
-                    if (functionResults is { Count: > 0 })
-                        _logger.LogInformation("[Diag] Agent {AgentId}: tool results in response: {Results}",
-                            AgentId, string.Join(", ", functionResults.Select(fr => $"{fr.CallId}={fr.Result?.ToString()?[..Math.Min(100, fr.Result?.ToString()?.Length ?? 0)]}")));
-                }
+                contextId = existingCtx;
             }
 
-            _logger.LogInformation("[Diag] Agent {AgentId}: response text={Text}, messageCount={Count}",
-                AgentId, response.Text?[..Math.Min(100, response.Text?.Length ?? 0)] ?? "(null)", response.Messages.Count);
+            var session = await _hostAgent.GetOrCreateSessionAsync(contextId, linkedCts.Token)
+                .ConfigureAwait(false);
+
+            var chatMessages = new List<ChatMessage>
+            {
+                new(ChatRole.User, text)
+                {
+                    AdditionalProperties = new AdditionalPropertiesDictionary
+                    {
+                        ["a2a.contextId"] = contextId
+                    }
+                }
+            };
+
+            var response = await _hostAgent.RunAsync(
+                chatMessages,
+                session: session,
+                cancellationToken: linkedCts.Token).ConfigureAwait(false);
+
+            await _hostAgent.SaveSessionAsync(contextId, session, linkedCts.Token)
+                .ConfigureAwait(false);
+
+            // Detect NeedsInput via the same property the A2A endpoint uses
+            var needsInput = response.Messages
+                .Any(m => m.AdditionalProperties?.TryGetValue("lucia.needsInput", out var val) == true
+                          && val is true);
+
+            var content = string.Join(' ',
+                response.Messages.Select(m => m.Text).Where(t => !string.IsNullOrEmpty(t)));
+
+            _logger.LogInformation(
+                "[Diag] Agent {AgentId}: response text={Text}, success=True, needsInput={NeedsInput}",
+                AgentId,
+                content.Length > 100 ? content[..100] : content,
+                needsInput);
 
             return new OrchestratorAgentResponse
             {
                 AgentId = AgentId,
-                Content = response.Text ?? string.Empty,
+                Content = content,
                 Success = true,
                 ExecutionTimeMs = ElapsedMs(startTimestamp),
-                NeedsInput = IsResponseAskingForInput(response.Text)
+                NeedsInput = needsInput
             };
         }
         catch (OperationCanceledException oce) when (!cancellationToken.IsCancellationRequested)
@@ -128,18 +157,5 @@ public sealed class LocalAgentInvoker : IAgentInvoker
         }
 
         return message.ToString();
-    }
-
-    /// <summary>
-    /// Detects when a local agent's response is asking the user for clarification.
-    /// Agent system prompts instruct agents to end responses with '?' when they need more info.
-    /// </summary>
-    private static bool IsResponseAskingForInput(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return false;
-
-        // Agent instructions say: "If you need clarification, end your response with '?'"
-        return text.TrimEnd().EndsWith('?');
     }
 }

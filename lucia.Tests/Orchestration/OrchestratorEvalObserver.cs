@@ -1,5 +1,6 @@
 using lucia.Agents.Orchestration;
 using lucia.Agents.Orchestration.Models;
+using lucia.Agents.Training.Models;
 
 namespace lucia.Tests.Orchestration;
 
@@ -27,13 +28,19 @@ public sealed class OrchestratorEvalObserver : IOrchestratorObserver
 
     public string? UserRequest { get; private set; }
 
-    public Task OnRequestStartedAsync(string userRequest, CancellationToken cancellationToken = default)
+    public Task OnRequestStartedAsync(
+        string userRequest,
+        IReadOnlyList<TracedMessage>? conversationHistory = null,
+        CancellationToken cancellationToken = default)
     {
         UserRequest = userRequest;
         return Task.CompletedTask;
     }
 
-    public Task OnRoutingCompletedAsync(AgentChoiceResult result, CancellationToken cancellationToken = default)
+    public Task OnRoutingCompletedAsync(
+        AgentChoiceResult result,
+        string? systemPrompt = null,
+        CancellationToken cancellationToken = default)
     {
         RoutingDecision = result;
         return Task.CompletedTask;

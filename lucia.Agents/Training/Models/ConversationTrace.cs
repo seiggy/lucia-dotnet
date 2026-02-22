@@ -17,6 +17,17 @@ public sealed class ConversationTrace
 
     public required string UserInput { get; set; }
 
+    /// <summary>
+    /// Prior conversation turns leading up to this request (multi-turn context).
+    /// Empty for single-turn requests.
+    /// </summary>
+    public List<TracedMessage> ConversationHistory { get; set; } = [];
+
+    /// <summary>
+    /// The system prompt used by the orchestrator/router for this request.
+    /// </summary>
+    public string? SystemPrompt { get; set; }
+
     public RoutingDecision? Routing { get; set; }
 
     public List<AgentExecutionRecord> AgentExecutions { get; set; } = [];

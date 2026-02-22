@@ -411,6 +411,32 @@ public sealed class FanControlSkill : IAgentSkill
 
         try
         {
+            await EnsureCacheIsCurrentAsync().ConfigureAwait(false);
+            var fan = _fans?.FirstOrDefault(f => f.EntityId.Equals(entityId, StringComparison.OrdinalIgnoreCase));
+
+            // If the fan has a companion select entity for modes, use that instead
+            if (fan?.ModeSelectEntityId is { Length: > 0 } selectEntityId)
+            {
+                // Match option case-insensitively against available modes
+                var matchedMode = fan.PresetModes
+                    .FirstOrDefault(m => m.Equals(presetMode, StringComparison.OrdinalIgnoreCase))
+                    ?? presetMode;
+
+                var selectRequest = new ServiceCallRequest
+                {
+                    EntityId = selectEntityId,
+                    ["option"] = matchedMode
+                };
+
+                await _homeAssistantClient.CallServiceAsync("select", "select_option", request: selectRequest).ConfigureAwait(false);
+
+                _logger.LogInformation("Set fan {EntityId} mode to {PresetMode} via select entity {SelectEntity}",
+                    entityId, matchedMode, selectEntityId);
+                activity?.SetStatus(ActivityStatusCode.Ok);
+                return $"Set fan '{entityId}' mode to '{matchedMode}'.";
+            }
+
+            // Fall back to native fan preset mode service
             var request = new ServiceCallRequest
             {
                 EntityId = entityId,
@@ -446,7 +472,7 @@ public sealed class FanControlSkill : IAgentSkill
         if (state.Attributes.TryGetValue("direction", out var dirObj))
             sb.Append($", Direction: {dirObj}");
 
-        if (state.Attributes.TryGetValue("preset_mode", out var presetObj))
+        if (state.Attributes.TryGetValue("preset_mode", out var presetObj) && presetObj is not null)
             sb.Append($", Preset: {presetObj}");
 
         if (state.Attributes.TryGetValue("oscillating", out var oscObj))
@@ -454,6 +480,10 @@ public sealed class FanControlSkill : IAgentSkill
 
         if (device is not null)
         {
+            // Show companion mode info so the LLM knows modes are available
+            if (device.ModeSelectEntityId is not null && device.PresetModes.Count > 0)
+                sb.Append($", Mode source: select entity, Available modes: [{string.Join(", ", device.PresetModes)}]");
+
             var features = new List<string>();
             if (device.SupportsSpeed) features.Add("speed");
             if (device.SupportsDirection) features.Add("direction");
@@ -509,6 +539,12 @@ public sealed class FanControlSkill : IAgentSkill
                 return;
             }
 
+            // Build a lookup of companion select entities that control fan modes.
+            // Some integrations (e.g., LocalTuya) expose fan modes as a separate
+            // select entity named select.{fan_suffix}_mode rather than using the
+            // fan entity's native preset_modes attribute.
+            var modeSelectLookup = BuildModeSelectLookup(states, fanEntities);
+
             var newFans = new List<FanEntity>();
             var areas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -534,6 +570,17 @@ public sealed class FanControlSkill : IAgentSkill
 
                 var presetModes = ParseStringListAttribute(entity.Attributes, "preset_modes");
 
+                // Check for a companion select entity that controls modes
+                string? modeSelectEntityId = null;
+                if (presetModes.Count == 0
+                    && modeSelectLookup.TryGetValue(entity.EntityId, out var selectInfo))
+                {
+                    modeSelectEntityId = selectInfo.EntityId;
+                    presetModes = selectInfo.Options;
+                    _logger.LogDebug("Fan {FanId} uses companion select entity {SelectId} for modes: [{Modes}]",
+                        entity.EntityId, modeSelectEntityId, string.Join(", ", presetModes));
+                }
+
                 var supportedFeatures = 0;
                 if (entity.Attributes.TryGetValue("supported_features", out var featObj) && int.TryParse(featObj?.ToString(), out var feat))
                     supportedFeatures = feat;
@@ -548,6 +595,7 @@ public sealed class FanControlSkill : IAgentSkill
                     Area = area,
                     PercentageStep = percentageStep,
                     PresetModes = presetModes,
+                    ModeSelectEntityId = modeSelectEntityId,
                     SupportedFeatures = supportedFeatures
                 });
             }
@@ -656,4 +704,50 @@ public sealed class FanControlSkill : IAgentSkill
 
         return [];
     }
+
+    /// <summary>
+    /// Builds a lookup from fan entity ID to a companion select entity that controls
+    /// fan modes. Some integrations (e.g., LocalTuya/Tuya) expose fan modes as a
+    /// separate <c>select.{device}_fan_mode</c> entity instead of through the fan
+    /// entity's native <c>preset_modes</c> attribute.
+    /// <para>
+    /// Detection is deterministic: for each fan entity <c>fan.{suffix}</c>, check
+    /// whether <c>select.{suffix}_mode</c> exists in the entity states and has
+    /// a non-empty <c>options</c> list.
+    /// </para>
+    /// </summary>
+    private Dictionary<string, ModeSelectInfo> BuildModeSelectLookup(
+        HomeAssistantState[] states,
+        List<HomeAssistantState> fanEntities)
+    {
+        // Index all select entities by entity_id for O(1) lookup
+        var selectStates = states
+            .Where(s => s.EntityId.StartsWith("select.", StringComparison.OrdinalIgnoreCase))
+            .ToDictionary(s => s.EntityId, StringComparer.OrdinalIgnoreCase);
+
+        var lookup = new Dictionary<string, ModeSelectInfo>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var fan in fanEntities)
+        {
+            // fan.office_fan_fan → select.office_fan_fan_mode
+            var fanSuffix = fan.EntityId["fan.".Length..];
+            var candidateSelectId = $"select.{fanSuffix}_mode";
+
+            if (!selectStates.TryGetValue(candidateSelectId, out var selectState))
+                continue;
+
+            var options = ParseStringListAttribute(selectState.Attributes, "options");
+            if (options.Count == 0)
+                continue;
+
+            lookup[fan.EntityId] = new ModeSelectInfo(candidateSelectId, options);
+            _logger.LogDebug(
+                "Detected companion mode select {SelectId} for fan {FanId} with options: [{Options}]",
+                candidateSelectId, fan.EntityId, string.Join(", ", options));
+        }
+
+        return lookup;
+    }
+
+    private sealed record ModeSelectInfo(string EntityId, List<string> Options);
 }

@@ -30,6 +30,8 @@ public sealed class MongoTraceRepository : ITraceRepository
                 Builders<ConversationTrace>.IndexKeys.Ascending("Label.Status")),
             new CreateIndexModel<ConversationTrace>(
                 Builders<ConversationTrace>.IndexKeys.Ascending("AgentExecutions.AgentId")),
+            new CreateIndexModel<ConversationTrace>(
+                Builders<ConversationTrace>.IndexKeys.Ascending(t => t.SessionId)),
         ]);
     }
 
@@ -42,6 +44,13 @@ public sealed class MongoTraceRepository : ITraceRepository
     {
         var filter = Builders<ConversationTrace>.Filter.Eq(t => t.Id, traceId);
         return await _traces.Find(filter).FirstOrDefaultAsync(ct);
+    }
+
+    public async Task<List<ConversationTrace>> GetTracesBySessionIdAsync(string sessionId, CancellationToken ct = default)
+    {
+        var filter = Builders<ConversationTrace>.Filter.Eq(t => t.SessionId, sessionId);
+        var sort = Builders<ConversationTrace>.Sort.Ascending(t => t.Timestamp);
+        return await _traces.Find(filter).Sort(sort).ToListAsync(ct);
     }
 
     public async Task<PagedResult<ConversationTrace>> ListTracesAsync(TraceFilterCriteria filter, CancellationToken ct = default)
