@@ -9,6 +9,7 @@ using lucia.HomeAssistant.Configuration;
 using lucia.HomeAssistant.Services;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Options;
 using Scalar.AspNetCore;
@@ -75,24 +76,31 @@ builder.Services.AddSingleton<ITaskStore, RedisTaskStore>();
 
 builder.Services.AddHttpClient<AgentRegistryClient>(options =>
 {
-    options.BaseAddress = new Uri("https://lucia-agenthost");
+    var registryUrl = builder.Configuration["services:registryApi"] ?? "https://lucia-agenthost";
+    options.BaseAddress = new Uri(registryUrl);
 });
 
 var pluginDir = builder.Configuration["PluginDirectory"] ?? "/app/plugins";
 PluginLoader.LoadAgentPlugins(builder, pluginDir);
 
-// Wrap the music agent's IChatClient with tracing after plugin registration
-lucia.Agents.Extensions.ServiceCollectionExtensions.WrapAgentChatClientWithTracing(
-    builder.Services,
-    lucia.Agents.Orchestration.OrchestratorServiceKeys.MusicModel,
-    "music-agent");
-
 builder.Services.AddHostedService<AgentHostService>();
 builder.Services.AddProblemDetails();
+
+// Health check that reports agent registration status as structured data and
+// auto-re-registers if the registry was restarted. Uses a diagnostic-only tag
+// so it doesn't affect the /health readiness endpoint used by Aspire/K8s.
+builder.Services.AddHealthChecks()
+    .AddCheck<AgentRegistrationHealthCheck>("agent-registration", tags: ["registration"]);
 
 var app = builder.Build();
 
 app.MapDefaultEndpoints();
+
+// Separate diagnostic endpoint for registration status — not used by Aspire/K8s probes
+app.MapHealthChecks("/health/registration", new HealthCheckOptions
+{
+    Predicate = r => r.Tags.Contains("registration")
+});
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

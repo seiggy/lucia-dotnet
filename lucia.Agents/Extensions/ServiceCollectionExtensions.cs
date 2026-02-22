@@ -422,7 +422,10 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<ILuciaAgent>(sp => sp.GetRequiredService<GeneralAgent>());
 
         // Register agent initialization background service
+        builder.Services.AddSingleton<AgentInitializationStatus>();
         builder.Services.AddHostedService<AgentInitializationService>();
+        builder.Services.AddHealthChecks()
+            .AddCheck<AgentInitializationHealthCheck>("agent-initialization", tags: ["ready"]);
 
         // Wrap each agent's keyed IChatClient with AgentTracingChatClient
         // to capture full conversation traces (prompts, tool calls, results) per agent.

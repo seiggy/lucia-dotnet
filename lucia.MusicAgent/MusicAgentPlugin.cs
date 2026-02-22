@@ -28,6 +28,10 @@ namespace lucia.MusicAgent
                 OrchestratorServiceKeys.MusicModel,
                 (sp, _) => sp.GetRequiredService<IChatClient>());
 
+            // Wrap with tracing to capture conversation traces for this agent
+            ServiceCollectionExtensions.WrapAgentChatClientWithTracing(
+                builder.Services, OrchestratorServiceKeys.MusicModel, AgentId);
+
             builder.Services.AddSingleton<MusicPlaybackSkill>();
 
             builder.Services.AddSingleton<ILuciaAgent, MusicAgent>();
@@ -36,8 +40,7 @@ namespace lucia.MusicAgent
         public void MapAgentEndpoints(WebApplication app)
         {
             var musicAgent = app.Services.GetRequiredService<ILuciaAgent>();
-            var taskManager = new TaskManager();
-            app.MapA2A(musicAgent.GetAIAgent(), path: "/", agentCard: musicAgent.GetAgentCard(), taskManager => app.MapWellKnownAgentCard(taskManager, "/"));
+            app.MapA2A(musicAgent.GetAIAgent(), path: "/music", agentCard: musicAgent.GetAgentCard(), taskManager => app.MapWellKnownAgentCard(taskManager, "/music"));
         }
     }
 }

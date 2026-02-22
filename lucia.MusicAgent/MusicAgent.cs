@@ -11,6 +11,7 @@ using lucia.Agents.Abstractions;
 using lucia.Agents.Orchestration;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.Extensions.Configuration;
 
 namespace lucia.MusicAgent;
 
@@ -24,6 +25,7 @@ public class MusicAgent : ILuciaAgent
     private readonly AgentCard _agent;
     private readonly MusicPlaybackSkill _musicSkill;
     private readonly ILogger<MusicAgent> _logger;
+    private readonly IConfiguration _configuration;
     private readonly TaskManager _taskManager;
     private AIAgent _aiAgent;
     private IServer _server;
@@ -42,11 +44,13 @@ public class MusicAgent : ILuciaAgent
         [FromKeyedServices(OrchestratorServiceKeys.MusicModel)] IChatClient chatClient,
         MusicPlaybackSkill musicSkill,
         IServer server,
+        IConfiguration configuration,
         ILoggerFactory loggerFactory)
     {
         _musicSkill = musicSkill;
         _logger = loggerFactory.CreateLogger<MusicAgent>();
         _server = server;
+        _configuration = configuration;
         var musicControlSkill = new AgentSkill
         {
             Id = "id_music_agent",
@@ -145,14 +149,22 @@ public class MusicAgent : ILuciaAgent
         using var activity = ActivitySource.StartActivity("MusicAgent.Initialize", ActivityKind.Internal);
         activity?.SetTag("agent.id", "music-agent");
         _logger.LogInformation("Initializing MusicAgent...");
-        var addressesFeature = _server?.Features?.Get<IServerAddressesFeature>();
-        if (addressesFeature?.Addresses != null && addressesFeature.Addresses.Any())
+        var selfUrl = _configuration["services:selfUrl"];
+        if (!string.IsNullOrWhiteSpace(selfUrl))
         {
-            _agent.Url = addressesFeature.Addresses.First();
+            _agent.Url = selfUrl;
         }
         else
         {
-            _agent.Url = "unknown";
+            var addressesFeature = _server?.Features?.Get<IServerAddressesFeature>();
+            if (addressesFeature?.Addresses != null && addressesFeature.Addresses.Any())
+            {
+                _agent.Url = addressesFeature.Addresses.First();
+            }
+            else
+            {
+                _agent.Url = "unknown";
+            }
         }
         
         await _musicSkill.InitializeAsync(cancellationToken).ConfigureAwait(false);

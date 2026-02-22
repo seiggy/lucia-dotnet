@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using lucia.Agents.Registry;
 using lucia.Agents.Abstractions;
+using lucia.Agents.Services;
 using lucia.HomeAssistant.Configuration;
 
 namespace lucia.Agents.Extensions;
@@ -21,17 +22,20 @@ public class AgentInitializationService : BackgroundService
     private readonly IEnumerable<ILuciaAgent> _agents;
     private readonly ILogger<AgentInitializationService> _logger;
     private readonly IOptionsMonitor<HomeAssistantOptions> _haOptions;
+    private readonly AgentInitializationStatus _initStatus;
 
     public AgentInitializationService(
         IAgentRegistry agentRegistry,
         IEnumerable<ILuciaAgent> agents,
         ILogger<AgentInitializationService> logger,
-        IOptionsMonitor<HomeAssistantOptions> haOptions)
+        IOptionsMonitor<HomeAssistantOptions> haOptions,
+        AgentInitializationStatus initStatus)
     {
         _agentRegistry = agentRegistry;
         _agents = agents;
         _logger = logger;
         _haOptions = haOptions;
+        _initStatus = initStatus;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -70,6 +74,9 @@ public class AgentInitializationService : BackgroundService
                 "Agent initialization completed successfully — {Count} agent(s) registered",
                 succeeded);
         }
+
+        // Signal readiness so health checks (and Aspire WaitFor) can proceed
+        _initStatus.MarkReady();
     }
 
     private async Task<bool> TryInitializeAgentAsync(ILuciaAgent agent, string agentName, CancellationToken stoppingToken)

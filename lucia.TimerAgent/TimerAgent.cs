@@ -6,6 +6,7 @@ using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -21,6 +22,7 @@ public sealed class TimerAgent : ILuciaAgent
 
     private readonly AgentCard _agent;
     private readonly ILogger<TimerAgent> _logger;
+    private readonly IConfiguration _configuration;
     private readonly AIAgent _aiAgent;
     private readonly IServer _server;
 
@@ -38,10 +40,12 @@ public sealed class TimerAgent : ILuciaAgent
         [FromKeyedServices(OrchestratorServiceKeys.TimerModel)] IChatClient chatClient,
         TimerSkill timerSkill,
         IServer server,
+        IConfiguration configuration,
         ILoggerFactory loggerFactory)
     {
         _logger = loggerFactory.CreateLogger<TimerAgent>();
         _server = server;
+        _configuration = configuration;
 
         var timerControlSkill = new AgentSkill
         {
@@ -130,14 +134,22 @@ public sealed class TimerAgent : ILuciaAgent
         activity?.SetTag("agent.id", "timer-agent");
         _logger.LogInformation("Initializing TimerAgent...");
 
-        var addressesFeature = _server?.Features?.Get<IServerAddressesFeature>();
-        if (addressesFeature?.Addresses != null && addressesFeature.Addresses.Any())
+        var selfUrl = _configuration["services:selfUrl"];
+        if (!string.IsNullOrWhiteSpace(selfUrl))
         {
-            _agent.Url = addressesFeature.Addresses.First();
+            _agent.Url = selfUrl;
         }
         else
         {
-            _agent.Url = "unknown";
+            var addressesFeature = _server?.Features?.Get<IServerAddressesFeature>();
+            if (addressesFeature?.Addresses != null && addressesFeature.Addresses.Any())
+            {
+                _agent.Url = addressesFeature.Addresses.First();
+            }
+            else
+            {
+                _agent.Url = "unknown";
+            }
         }
 
         activity?.SetStatus(ActivityStatusCode.Ok);

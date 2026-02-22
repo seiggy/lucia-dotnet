@@ -26,6 +26,10 @@ public sealed class TimerAgentPlugin : IAgentPlugin
             OrchestratorServiceKeys.TimerModel,
             (sp, _) => sp.GetRequiredService<IChatClient>());
 
+        // Wrap with tracing to capture conversation traces for this agent
+        ServiceCollectionExtensions.WrapAgentChatClientWithTracing(
+            builder.Services, OrchestratorServiceKeys.TimerModel, AgentId);
+
         builder.Services.AddSingleton<TimerSkill>();
         builder.Services.AddSingleton<ILuciaAgent, TimerAgent>();
         builder.Services.AddHostedService<TimerRecoveryService>();
@@ -35,6 +39,6 @@ public sealed class TimerAgentPlugin : IAgentPlugin
     {
         var timerAgent = app.Services.GetServices<ILuciaAgent>()
             .First(a => a.GetAgentCard().Name == "timer-agent");
-        app.MapA2A(timerAgent.GetAIAgent(), path: "/", agentCard: timerAgent.GetAgentCard(), taskManager => app.MapWellKnownAgentCard(taskManager, "/"));
+        app.MapA2A(timerAgent.GetAIAgent(), path: "/timers", agentCard: timerAgent.GetAgentCard(), taskManager => app.MapWellKnownAgentCard(taskManager, "/timers"));
     }
 }
