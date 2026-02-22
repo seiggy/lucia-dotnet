@@ -83,7 +83,7 @@ public class LuciaEngine
             agentTask.History.Add(userMessage);
 
             await _sessionManager.UpdateTaskStatusAsync(
-                agentTask.Id, TaskState.Working, message: null, final: false, cancellationToken).ConfigureAwait(false);
+                agentTask.Id, TaskState.Working, message: userMessage, final: false, cancellationToken).ConfigureAwait(false);
 
             // 2. Agent resolution & workflow execution
             var availableAgentCards = await _agentRegistry

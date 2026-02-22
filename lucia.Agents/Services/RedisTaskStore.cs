@@ -120,6 +120,13 @@ public sealed class RedisTaskStore : ITaskStore
                 A2AErrorCode.TaskNotFound);
         }
 
+        // Append the message to History so the full conversation is persisted
+        if (message is not null)
+        {
+            task.History ??= new List<AgentMessage>();
+            task.History.Add(message);
+        }
+
         var newStatus = new AgentTaskStatus
         {
             State = status,
