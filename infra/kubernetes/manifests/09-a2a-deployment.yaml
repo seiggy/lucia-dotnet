@@ -1,58 +1,71 @@
-{{- /*
-Lucia A2A Agent Host Deployment Template
+# Lucia A2A Agent Deployments
+# Music Agent and Timer Agent - deployed as separate pods
+# These agents register with the main AgentHost orchestrator.
+# They wait for AgentHost, Redis, and MongoDB to be healthy before starting.
 
-This template defines Kubernetes Deployments for A2A plugin agents.
-Each agent runs as a separate Deployment with its own Service.
-Agents share the same base image but load different plugins via PLUGIN_DIRECTORY.
-*/ -}}
-
-{{- if .Values.a2aAgents.musicAgent.enabled }}
 ---
+# ========================================================================
+# Music Agent Service
+# ========================================================================
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "lucia.fullname" . }}-music-agent
-  namespace: {{ .Release.Namespace | quote }}
+  name: lucia-music-agent
+  namespace: lucia
   labels:
-    {{- include "lucia.labels" . | nindent 4 }}
+    app.kubernetes.io/name: lucia
     app.kubernetes.io/component: music-agent
 spec:
   type: ClusterIP
   ports:
     - port: 8080
-      targetPort: http
+      targetPort: 8080
       protocol: TCP
       name: http
   selector:
-    {{- include "lucia.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/name: lucia
     app.kubernetes.io/component: music-agent
 
 ---
+# ========================================================================
+# Music Agent Deployment
+# ========================================================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "lucia.fullname" . }}-music-agent
-  namespace: {{ .Release.Namespace | quote }}
+  name: lucia-music-agent
+  namespace: lucia
   labels:
-    {{- include "lucia.labels" . | nindent 4 }}
+    app.kubernetes.io/name: lucia
     app.kubernetes.io/component: music-agent
 spec:
-  replicas: {{ .Values.a2aAgents.musicAgent.replicaCount }}
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
-      {{- include "lucia.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/name: lucia
       app.kubernetes.io/component: music-agent
   template:
     metadata:
-      annotations:
-        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
-        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
       labels:
-        {{- include "lucia.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/name: lucia
         app.kubernetes.io/component: music-agent
-        version: {{ .Chart.AppVersion | quote }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
     spec:
-      # Init containers to wait for dependencies
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+
+      serviceAccountName: lucia
+
       initContainers:
         - name: wait-for-redis
           image: busybox:1.36
@@ -62,7 +75,7 @@ spec:
             - |
               echo "Waiting for Redis to be ready..."
               for i in $(seq 1 60); do
-                if nc -z {{ include "lucia.redis.host" . }} {{ .Values.redis.service.port }}; then
+                if nc -z lucia-redis 6379; then
                   echo "Redis is ready"
                   exit 0
                 fi
@@ -71,7 +84,7 @@ spec:
               done
               echo "Redis failed to become ready"
               exit 1
-        {{- if .Values.mongodb.enabled }}
+
         - name: wait-for-mongodb
           image: busybox:1.36
           command:
@@ -80,7 +93,7 @@ spec:
             - |
               echo "Waiting for MongoDB to be ready..."
               for i in $(seq 1 60); do
-                if nc -z {{ include "lucia.mongodb.host" . }} {{ .Values.mongodb.service.port }}; then
+                if nc -z lucia-mongodb 27017; then
                   echo "MongoDB is ready"
                   exit 0
                 fi
@@ -89,7 +102,7 @@ spec:
               done
               echo "MongoDB failed to become ready"
               exit 1
-        {{- end }}
+
         - name: wait-for-agenthost
           image: busybox:1.36
           command:
@@ -97,10 +110,8 @@ spec:
             - '-c'
             - |
               echo "Waiting for AgentHost to be healthy..."
-              AGENTHOST_HOST="{{ include "lucia.fullname" . }}"
-              AGENTHOST_PORT="{{ .Values.lucia.service.port }}"
               for i in $(seq 1 120); do
-                if wget -qO- "http://${AGENTHOST_HOST}:${AGENTHOST_PORT}/health" 2>/dev/null | grep -q "Healthy"; then
+                if wget -qO- http://lucia:80/health 2>/dev/null | grep -q "Healthy"; then
                   echo "AgentHost is healthy"
                   exit 0
                 fi
@@ -112,8 +123,14 @@ spec:
 
       containers:
         - name: music-agent
-          image: "{{ .Values.a2aAgents.musicAgent.image.repository | default .Values.a2aAgents.image.repository }}:{{ .Values.a2aAgents.musicAgent.image.tag | default .Values.a2aAgents.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.a2aAgents.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          image: docker.io/seiggy/lucia-music-agent:latest
+          imagePullPolicy: IfNotPresent
 
           ports:
             - name: http
@@ -122,18 +139,17 @@ spec:
 
           envFrom:
             - configMapRef:
-                name: {{ include "lucia.fullname" . }}
+                name: lucia
             - secretRef:
-                name: {{ include "lucia.fullname" . }}
+                name: lucia
 
-          {{- with .Values.a2aAgents.musicAgent.resources }}
-          resources:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
+          env:
+            - name: services__selfUrl
+              value: "http://lucia-music-agent:8080"
 
           livenessProbe:
             httpGet:
-              path: /health
+              path: /alive
               port: 8080
             initialDelaySeconds: 30
             periodSeconds: 10
@@ -142,61 +158,97 @@ spec:
 
           readinessProbe:
             httpGet:
-              path: /health/ready
+              path: /health
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 3
-{{- end }}
 
-{{- if .Values.a2aAgents.timerAgent.enabled }}
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+
+      terminationGracePeriodSeconds: 30
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+
 ---
+# ========================================================================
+# Timer Agent Service
+# ========================================================================
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "lucia.fullname" . }}-timer-agent
-  namespace: {{ .Release.Namespace | quote }}
+  name: lucia-timer-agent
+  namespace: lucia
   labels:
-    {{- include "lucia.labels" . | nindent 4 }}
+    app.kubernetes.io/name: lucia
     app.kubernetes.io/component: timer-agent
 spec:
   type: ClusterIP
   ports:
     - port: 8080
-      targetPort: http
+      targetPort: 8080
       protocol: TCP
       name: http
   selector:
-    {{- include "lucia.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/name: lucia
     app.kubernetes.io/component: timer-agent
 
 ---
+# ========================================================================
+# Timer Agent Deployment
+# ========================================================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "lucia.fullname" . }}-timer-agent
-  namespace: {{ .Release.Namespace | quote }}
+  name: lucia-timer-agent
+  namespace: lucia
   labels:
-    {{- include "lucia.labels" . | nindent 4 }}
+    app.kubernetes.io/name: lucia
     app.kubernetes.io/component: timer-agent
 spec:
-  replicas: {{ .Values.a2aAgents.timerAgent.replicaCount }}
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
-      {{- include "lucia.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/name: lucia
       app.kubernetes.io/component: timer-agent
   template:
     metadata:
-      annotations:
-        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
-        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
       labels:
-        {{- include "lucia.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/name: lucia
         app.kubernetes.io/component: timer-agent
-        version: {{ .Chart.AppVersion | quote }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
     spec:
-      # Init containers to wait for dependencies
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+
+      serviceAccountName: lucia
+
       initContainers:
         - name: wait-for-redis
           image: busybox:1.36
@@ -206,7 +258,7 @@ spec:
             - |
               echo "Waiting for Redis to be ready..."
               for i in $(seq 1 60); do
-                if nc -z {{ include "lucia.redis.host" . }} {{ .Values.redis.service.port }}; then
+                if nc -z lucia-redis 6379; then
                   echo "Redis is ready"
                   exit 0
                 fi
@@ -215,7 +267,7 @@ spec:
               done
               echo "Redis failed to become ready"
               exit 1
-        {{- if .Values.mongodb.enabled }}
+
         - name: wait-for-mongodb
           image: busybox:1.36
           command:
@@ -224,7 +276,7 @@ spec:
             - |
               echo "Waiting for MongoDB to be ready..."
               for i in $(seq 1 60); do
-                if nc -z {{ include "lucia.mongodb.host" . }} {{ .Values.mongodb.service.port }}; then
+                if nc -z lucia-mongodb 27017; then
                   echo "MongoDB is ready"
                   exit 0
                 fi
@@ -233,7 +285,7 @@ spec:
               done
               echo "MongoDB failed to become ready"
               exit 1
-        {{- end }}
+
         - name: wait-for-agenthost
           image: busybox:1.36
           command:
@@ -241,10 +293,8 @@ spec:
             - '-c'
             - |
               echo "Waiting for AgentHost to be healthy..."
-              AGENTHOST_HOST="{{ include "lucia.fullname" . }}"
-              AGENTHOST_PORT="{{ .Values.lucia.service.port }}"
               for i in $(seq 1 120); do
-                if wget -qO- "http://${AGENTHOST_HOST}:${AGENTHOST_PORT}/health" 2>/dev/null | grep -q "Healthy"; then
+                if wget -qO- http://lucia:80/health 2>/dev/null | grep -q "Healthy"; then
                   echo "AgentHost is healthy"
                   exit 0
                 fi
@@ -256,8 +306,14 @@ spec:
 
       containers:
         - name: timer-agent
-          image: "{{ .Values.a2aAgents.timerAgent.image.repository | default .Values.a2aAgents.image.repository }}:{{ .Values.a2aAgents.timerAgent.image.tag | default .Values.a2aAgents.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.a2aAgents.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          image: docker.io/seiggy/lucia-timer-agent:latest
+          imagePullPolicy: IfNotPresent
 
           ports:
             - name: http
@@ -266,18 +322,17 @@ spec:
 
           envFrom:
             - configMapRef:
-                name: {{ include "lucia.fullname" . }}
+                name: lucia
             - secretRef:
-                name: {{ include "lucia.fullname" . }}
+                name: lucia
 
-          {{- with .Values.a2aAgents.timerAgent.resources }}
-          resources:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
+          env:
+            - name: services__selfUrl
+              value: "http://lucia-timer-agent:8080"
 
           livenessProbe:
             httpGet:
-              path: /health
+              path: /alive
               port: 8080
             initialDelaySeconds: 30
             periodSeconds: 10
@@ -286,10 +341,30 @@ spec:
 
           readinessProbe:
             httpGet:
-              path: /health/ready
+              path: /health
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 3
-{{- end }}
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+
+      terminationGracePeriodSeconds: 30
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always

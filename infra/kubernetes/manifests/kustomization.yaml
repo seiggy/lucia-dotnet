@@ -20,12 +20,14 @@ resources:
   - 06-rbac.yaml
   - 07-hpa.yaml
   - 08-mongodb.yaml
+  - 09-a2a-deployment.yaml
 
-# Common labels applied to all resources
-commonLabels:
-  app.kubernetes.io/name: lucia
-  app.kubernetes.io/version: "1.0.0"
-  app.kubernetes.io/managed-by: kustomize
+# Labels applied to all resources (not injected into selectors)
+labels:
+  - pairs:
+      app.kubernetes.io/version: "1.0.0"
+      app.kubernetes.io/managed-by: kustomize
+    includeSelectors: false
 
 # Common annotations applied to all resources
 commonAnnotations:
@@ -41,6 +43,12 @@ replicas:
 images:
   - name: docker.io/seiggy/lucia-agenthost
     newName: docker.io/seiggy/lucia-agenthost
+    newTag: latest
+  - name: docker.io/seiggy/lucia-music-agent
+    newName: docker.io/seiggy/lucia-music-agent
+    newTag: latest
+  - name: docker.io/seiggy/lucia-timer-agent
+    newName: docker.io/seiggy/lucia-timer-agent
     newTag: latest
 
 # Patches to apply to resources
@@ -76,9 +84,6 @@ vars: []
   #     apiVersion: v1
   #   fieldref:
   #     fieldpath: data.Environment
-
-# Configuration for CR validation
-validationBehavior: warn
 
 # Sort resources (optional)
 sortOptions:
