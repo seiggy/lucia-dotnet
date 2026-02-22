@@ -71,10 +71,50 @@ builder.Services.AddSingleton<IApiKeyService, MongoApiKeyService>();
 builder.Services.AddSingleton<ISessionService, HmacSessionService>();
 builder.Services.AddSingleton<ConfigStoreWriter>();
 
-builder.Services.AddAuthentication(AuthOptions.AuthenticationScheme)
+// Bind internal token options (injected by Aspire/K8s as env var InternalAuth__Token)
+builder.Services.Configure<InternalTokenOptions>(
+    builder.Configuration.GetSection(InternalTokenOptions.SectionName));
+
+builder.Services.AddAuthentication(options =>
+    {
+        options.DefaultScheme = "MultiScheme";
+        options.DefaultChallengeScheme = "MultiScheme";
+    })
     .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(
-        AuthOptions.AuthenticationScheme, _ => { });
-builder.Services.AddAuthorization();
+        AuthOptions.AuthenticationScheme, _ => { })
+    .AddScheme<AuthenticationSchemeOptions, InternalTokenAuthenticationHandler>(
+        InternalTokenDefaults.AuthenticationScheme, _ => { })
+    .AddPolicyScheme("MultiScheme", "API Key or Internal Token", options =>
+    {
+        // Route to the correct handler based on the request
+        options.ForwardDefaultSelector = context =>
+        {
+            // Bearer token → internal token handler
+            var authHeader = context.Request.Headers.Authorization.ToString();
+            if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                return InternalTokenDefaults.AuthenticationScheme;
+            }
+
+            // Everything else → API key handler (which also checks session cookies)
+            return AuthOptions.AuthenticationScheme;
+        };
+    });
+
+builder.Services.AddAuthorization(options =>
+{
+    // Internal-only: only platform-injected token (agent → registry)
+    options.AddPolicy("InternalOnly", policy =>
+        policy.AddAuthenticationSchemes(InternalTokenDefaults.AuthenticationScheme)
+              .RequireAuthenticatedUser());
+
+    // External or internal: either API key/session OR internal token
+    options.AddPolicy("ExternalOrInternal", policy =>
+        policy.AddAuthenticationSchemes(
+                AuthOptions.AuthenticationScheme,
+                InternalTokenDefaults.AuthenticationScheme)
+              .RequireAuthenticatedUser());
+});
 
 builder.Services.AddHttpClient("AgentProxy");
 
