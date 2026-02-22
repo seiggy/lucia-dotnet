@@ -76,7 +76,8 @@ public sealed class LocalAgentInvoker : IAgentInvoker
                 AgentId = AgentId,
                 Content = response.Text ?? string.Empty,
                 Success = true,
-                ExecutionTimeMs = ElapsedMs(startTimestamp)
+                ExecutionTimeMs = ElapsedMs(startTimestamp),
+                NeedsInput = IsResponseAskingForInput(response.Text)
             };
         }
         catch (OperationCanceledException oce) when (!cancellationToken.IsCancellationRequested)
@@ -127,5 +128,18 @@ public sealed class LocalAgentInvoker : IAgentInvoker
         }
 
         return message.ToString();
+    }
+
+    /// <summary>
+    /// Detects when a local agent's response is asking the user for clarification.
+    /// Agent system prompts instruct agents to end responses with '?' when they need more info.
+    /// </summary>
+    private static bool IsResponseAskingForInput(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+
+        // Agent instructions say: "If you need clarification, end your response with '?'"
+        return text.TrimEnd().EndsWith('?');
     }
 }

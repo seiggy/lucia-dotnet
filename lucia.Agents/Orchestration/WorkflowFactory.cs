@@ -180,7 +180,7 @@ public sealed class WorkflowFactory
         var dispatchLogger = _loggerFactory.CreateLogger<AgentDispatchExecutor>();
         var aggregatorLogger = _loggerFactory.CreateLogger<ResultAggregatorExecutor>();
         var router = new RouterExecutor(_chatClient, _agentRegistry, routerLogger, _routerOptions, _promptCache);
-        var dispatch = new AgentDispatchExecutor(invokers, dispatchLogger, _routerOptions, _observer);
+        var dispatch = new AgentDispatchExecutor(invokers, dispatchLogger, _routerOptions, _chatClient, _observer);
         var aggregator = new ResultAggregatorExecutor(aggregatorLogger, _aggregatorOptions);
 
         var chatMessage = new ChatMessage(ChatRole.User, historyAwareRequest);

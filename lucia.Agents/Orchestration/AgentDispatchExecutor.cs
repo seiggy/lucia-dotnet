@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,7 +20,22 @@ namespace lucia.Agents.Orchestration;
 /// </summary>
 public sealed class AgentDispatchExecutor : Executor
 {
+    private const string ClarificationSystemPrompt =
+        """
+        You are a friendly home assistant. The system couldn't confidently determine which 
+        capability should handle the user's request. Your job is to ask the user a brief, 
+        natural clarification question so we can help them.
+
+        Rules:
+        - Never mention agent names, internal routing, or system internals.
+        - Frame the question in terms of what the user might want to do (lights, music, 
+          temperature, fans, timers, etc.).
+        - Keep it to 1-2 sentences maximum.
+        - Be conversational and helpful, not robotic.
+        """;
+
     private readonly IReadOnlyDictionary<string, IAgentInvoker> _invokers;
+    private readonly IChatClient? _chatClient;
     private readonly ILogger<AgentDispatchExecutor> _logger;
     private readonly IOrchestratorObserver? _observer;
     private readonly string _clarificationAgentId;
@@ -31,11 +47,13 @@ public sealed class AgentDispatchExecutor : Executor
     /// <param name="invokers">Dictionary of agent ID to invoker for available agents</param>
     /// <param name="logger">Logger for diagnostic output</param>
     /// <param name="routerOptions">Router options containing clarification agent configuration</param>
+    /// <param name="chatClient">Optional chat client for generating natural clarification prompts</param>
     /// <param name="observer">Optional orchestrator observer for trace capture</param>
     public AgentDispatchExecutor(
         IReadOnlyDictionary<string, IAgentInvoker> invokers,
         ILogger<AgentDispatchExecutor> logger,
         IOptions<RouterExecutorOptions> routerOptions,
+        IChatClient? chatClient = null,
         IOrchestratorObserver? observer = null)
         : base("AgentDispatch")
     {
@@ -43,6 +61,7 @@ public sealed class AgentDispatchExecutor : Executor
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _clarificationAgentId = routerOptions?.Value.ClarificationAgentId
             ?? RouterExecutorOptions.DefaultClarificationAgentId;
+        _chatClient = chatClient;
         _observer = observer;
     }
 
@@ -82,20 +101,23 @@ public sealed class AgentDispatchExecutor : Executor
             return [CreateFailureResponse(agentChoice.AgentId, "Unable to locate the original user request.")];
         }
 
-        // Short-circuit clarification: return the reasoning as a NeedsInput response
-        // instead of trying to dispatch to a non-existent clarification agent
+        // Short-circuit clarification: use the LLM to craft a natural clarification
+        // question instead of dispatching to a non-existent agent
         if (string.Equals(agentChoice.AgentId, _clarificationAgentId, StringComparison.OrdinalIgnoreCase))
         {
             _logger.LogInformation(
-                "Clarification requested (confidence={Confidence}). Returning input-required response.",
+                "Clarification requested (confidence={Confidence}). Generating natural clarification prompt.",
                 agentChoice.Confidence);
+
+            var clarificationText = await GenerateClarificationAsync(
+                _userMessage, agentChoice.Reasoning, cancellationToken).ConfigureAwait(false);
 
             return
             [
                 new OrchestratorAgentResponse
                 {
                     AgentId = _clarificationAgentId,
-                    Content = agentChoice.Reasoning,
+                    Content = clarificationText,
                     Success = true,
                     NeedsInput = true,
                     ExecutionTimeMs = 0
@@ -132,6 +154,56 @@ public sealed class AgentDispatchExecutor : Executor
 
         _logger.LogInformation("AgentDispatchExecutor: Completed {ResponseCount} agents in parallel.", responses.Count);
         return responses;
+    }
+
+    /// <summary>
+    /// Uses the LLM to reword router reasoning into a natural, user-friendly clarification question.
+    /// Falls back to a generic prompt if the LLM call fails or no chat client is available.
+    /// </summary>
+    private async Task<string> GenerateClarificationAsync(
+        ChatMessage userMessage, string routerReasoning, CancellationToken cancellationToken)
+    {
+        if (_chatClient is null)
+        {
+            _logger.LogDebug("No chat client available for clarification rewriting; using fallback.");
+            return "I'm not quite sure what you're asking me to do. Could you give me a bit more detail?";
+        }
+
+        var start = Stopwatch.GetTimestamp();
+        try
+        {
+            var messages = new List<ChatMessage>
+            {
+                new(ChatRole.System, ClarificationSystemPrompt),
+                new(ChatRole.User,
+                    $"""
+                    The user said: "{userMessage.Text}"
+                    
+                    Internal routing context (do NOT expose this to the user): {routerReasoning}
+                    
+                    Write a short, friendly clarification question for the user.
+                    """)
+            };
+
+            var response = await _chatClient.GetResponseAsync(
+                messages,
+                new ChatOptions { MaxOutputTokens = 128, Temperature = 0.7f },
+                cancellationToken).ConfigureAwait(false);
+
+            var text = response.Text?.Trim();
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                _logger.LogInformation("Generated clarification prompt in {ElapsedMs}ms", 
+                    Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+                return text;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to generate clarification prompt via LLM; using fallback.");
+        }
+
+        return "I'm not quite sure what you're asking me to do. Could you give me a bit more detail?";
     }
 
     /// <summary>
