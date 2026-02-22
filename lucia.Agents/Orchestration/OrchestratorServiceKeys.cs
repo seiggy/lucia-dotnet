@@ -38,6 +38,12 @@ public static class OrchestratorServiceKeys
     public const string TimerModel = "timer-model";
 
     /// <summary>
+    /// Keyed service key for the <see cref="Microsoft.Extensions.AI.IChatClient"/>
+    /// used by the climate control agent.
+    /// </summary>
+    public const string ClimateModel = "climate-model";
+
+    /// <summary>
     /// All agent-specific model keys, used for bulk default-forwarding registration.
     /// </summary>
     public static readonly string[] AllAgentModelKeys =
@@ -46,6 +52,7 @@ public static class OrchestratorServiceKeys
         LightModel,
         MusicModel,
         GeneralModel,
-        TimerModel
+        TimerModel,
+        ClimateModel
     ];
 }

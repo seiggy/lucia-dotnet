@@ -420,6 +420,10 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<ILuciaAgent>(sp => sp.GetRequiredService<LightAgent>());
         builder.Services.AddSingleton<GeneralAgent>();
         builder.Services.AddSingleton<ILuciaAgent>(sp => sp.GetRequiredService<GeneralAgent>());
+        builder.Services.AddSingleton<ClimateControlSkill>();
+        builder.Services.AddSingleton<FanControlSkill>();
+        builder.Services.AddSingleton<ClimateAgent>();
+        builder.Services.AddSingleton<ILuciaAgent>(sp => sp.GetRequiredService<ClimateAgent>());
 
         // Register agent initialization background service
         builder.Services.AddSingleton<AgentInitializationStatus>();
@@ -432,6 +436,7 @@ public static class ServiceCollectionExtensions
         WrapAgentChatClientWithTracing(builder.Services, OrchestratorServiceKeys.LightModel, "light-agent");
         WrapAgentChatClientWithTracing(builder.Services, OrchestratorServiceKeys.MusicModel, "music-agent");
         WrapAgentChatClientWithTracing(builder.Services, OrchestratorServiceKeys.GeneralModel, "general-assistant");
+        WrapAgentChatClientWithTracing(builder.Services, OrchestratorServiceKeys.ClimateModel, "climate-agent");
     }
 
     /// <summary>
