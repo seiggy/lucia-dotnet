@@ -9,6 +9,7 @@ using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace lucia.Agents.Orchestration;
 
@@ -21,6 +22,7 @@ public sealed class AgentDispatchExecutor : Executor
     private readonly IReadOnlyDictionary<string, IAgentInvoker> _invokers;
     private readonly ILogger<AgentDispatchExecutor> _logger;
     private readonly IOrchestratorObserver? _observer;
+    private readonly string _clarificationAgentId;
     private ChatMessage? _userMessage;
 
     /// <summary>
@@ -28,15 +30,19 @@ public sealed class AgentDispatchExecutor : Executor
     /// </summary>
     /// <param name="invokers">Dictionary of agent ID to invoker for available agents</param>
     /// <param name="logger">Logger for diagnostic output</param>
+    /// <param name="routerOptions">Router options containing clarification agent configuration</param>
     /// <param name="observer">Optional orchestrator observer for trace capture</param>
     public AgentDispatchExecutor(
         IReadOnlyDictionary<string, IAgentInvoker> invokers,
         ILogger<AgentDispatchExecutor> logger,
+        IOptions<RouterExecutorOptions> routerOptions,
         IOrchestratorObserver? observer = null)
         : base("AgentDispatch")
     {
         _invokers = invokers ?? throw new ArgumentNullException(nameof(invokers));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _clarificationAgentId = routerOptions?.Value.ClarificationAgentId
+            ?? RouterExecutorOptions.DefaultClarificationAgentId;
         _observer = observer;
     }
 
@@ -74,6 +80,27 @@ public sealed class AgentDispatchExecutor : Executor
         {
             _logger.LogWarning("User message unavailable when dispatching agent execution.");
             return [CreateFailureResponse(agentChoice.AgentId, "Unable to locate the original user request.")];
+        }
+
+        // Short-circuit clarification: return the reasoning as a NeedsInput response
+        // instead of trying to dispatch to a non-existent clarification agent
+        if (string.Equals(agentChoice.AgentId, _clarificationAgentId, StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogInformation(
+                "Clarification requested (confidence={Confidence}). Returning input-required response.",
+                agentChoice.Confidence);
+
+            return
+            [
+                new OrchestratorAgentResponse
+                {
+                    AgentId = _clarificationAgentId,
+                    Content = agentChoice.Reasoning,
+                    Success = true,
+                    NeedsInput = true,
+                    ExecutionTimeMs = 0
+                }
+            ];
         }
 
         var executionOrder = BuildExecutionOrder(agentChoice);
