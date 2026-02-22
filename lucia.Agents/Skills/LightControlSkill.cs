@@ -275,63 +275,80 @@ public class LightControlSkill : IAgentSkill
                 })
                 .ToList();
 
-            // Find the best overall match (light or area)
-            var bestLightMatch = lightMatches.OrderByDescending(x => x.Similarity).FirstOrDefault();
             var bestAreaMatch = areaMatches.OrderByDescending(x => x.Similarity).FirstOrDefault();
 
             const double similarityThreshold = 0.6;
 
-            // Determine which match is better
-            var useLightMatch = bestLightMatch != null && 
-                                (bestAreaMatch == null || bestLightMatch.Similarity >= bestAreaMatch.Similarity);
+            // Collect ALL lights above the similarity threshold
+            var matchingLights = lightMatches
+                .Where(x => x.Similarity >= similarityThreshold)
+                .OrderByDescending(x => x.Similarity)
+                .ToList();
 
-            if (useLightMatch && bestLightMatch!.Similarity >= similarityThreshold)
+            if (matchingLights.Count > 0 &&
+                (bestAreaMatch == null || matchingLights[0].Similarity >= bestAreaMatch.Similarity))
             {
-                // Return specific light match
-                var light = bestLightMatch.Light;
-                _logger.LogDebug("Found light match: {EntityId} ({FriendlyName}) with similarity {Similarity:F3}",
-                    light.EntityId, light.FriendlyName, bestLightMatch.Similarity);
+                // Return all lights that met the threshold
                 activity?.SetTag("match.type", "light");
-                activity?.SetTag("match.entity_id", light.EntityId);
-                activity?.SetTag("match.friendly_name", light.FriendlyName);
-                activity?.SetTag("match.similarity", bestLightMatch.Similarity);
+                activity?.SetTag("match.count", matchingLights.Count);
+                activity?.SetTag("match.top_similarity", matchingLights[0].Similarity);
 
-                var capabilities = GetCapabilityDescription(light);
-                var state = await _homeAssistantClient.GetEntityStateAsync(light.EntityId)
-                    .ConfigureAwait(false);
-                if (state is null)
-                {
-                    _logger.LogWarning("Light {EntityId} not found when retrieving state after match", light.EntityId);
-                    activity?.SetStatus(ActivityStatusCode.Error, "state-missing");
-                    LightSearchFailures.Add(1, [
-                        new KeyValuePair<string, object?>("reason", "state-missing")
-                    ]);
-                    return $"Light '{light.FriendlyName}' was matched but could not be retrieved from Home Assistant.";
-                }
+                _logger.LogDebug("Found {Count} light(s) above threshold {Threshold} for term '{SearchTerm}'",
+                    matchingLights.Count, similarityThreshold, searchTerm);
 
                 var stringBuilder = new StringBuilder();
-                stringBuilder.Append($"Found light: {light.FriendlyName} (Entity ID: {light.EntityId}){capabilities}, State: {state.State}");
-
-                // Check for brightness
-                if (state.Attributes.TryGetValue("brightness", out var brightnessObj))
+                if (matchingLights.Count == 1)
                 {
-                    if (int.TryParse(brightnessObj?.ToString(), out var brightness))
-                    {
-                        var brightnessPercent = (int)Math.Round(brightness / 255.0 * 100);
-                        stringBuilder.Append($" at {brightnessPercent}% brightness");
-                    }
+                    stringBuilder.Append("Found light: ");
+                }
+                else
+                {
+                    stringBuilder.AppendLine($"Found {matchingLights.Count} matching light(s):");
                 }
 
-                // Check for color temperature
-                if (state.Attributes.TryGetValue("color_temp", out var colorTempObj))
+                foreach (var match in matchingLights)
                 {
-                    stringBuilder.Append($" with color temperature {colorTempObj}");
+                    var light = match.Light;
+                    var capabilities = GetCapabilityDescription(light);
+                    var state = await _homeAssistantClient.GetEntityStateAsync(light.EntityId)
+                        .ConfigureAwait(false);
+                    if (state is null) continue;
+
+                    if (matchingLights.Count == 1)
+                    {
+                        stringBuilder.Append($"{light.FriendlyName} (Entity ID: {light.EntityId}){capabilities}, State: {state.State}");
+                    }
+                    else
+                    {
+                        stringBuilder.Append($"- {light.FriendlyName} (Entity ID: {light.EntityId}){capabilities}, State: {state.State}");
+                    }
+
+                    if (state.Attributes.TryGetValue("brightness", out var brightnessObj))
+                    {
+                        if (int.TryParse(brightnessObj?.ToString(), out var brightness))
+                        {
+                            var brightnessPercent = (int)Math.Round(brightness / 255.0 * 100);
+                            stringBuilder.Append($" at {brightnessPercent}% brightness");
+                        }
+                    }
+
+                    if (state.Attributes.TryGetValue("color_temp", out var colorTempObj))
+                    {
+                        stringBuilder.Append($" with color temperature {colorTempObj}");
+                    }
+
+                    if (matchingLights.Count > 1)
+                    {
+                        stringBuilder.AppendLine();
+                    }
                 }
 
                 LightSearchSuccess.Add(1);
                 activity?.SetStatus(ActivityStatusCode.Ok);
 
-                return stringBuilder.ToString();
+                return matchingLights.Count == 1
+                    ? stringBuilder.ToString()
+                    : stringBuilder.ToString().TrimEnd();
             }
             else if (bestAreaMatch != null && bestAreaMatch.Similarity >= similarityThreshold)
             {
