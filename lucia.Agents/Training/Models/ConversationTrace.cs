@@ -1,5 +1,3 @@
-using System.Text.Json.Serialization;
-
 namespace lucia.Agents.Training.Models;
 
 /// <summary>

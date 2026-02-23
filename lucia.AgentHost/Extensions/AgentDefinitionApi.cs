@@ -30,7 +30,7 @@ public static class AgentDefinitionApi
     private static async Task<Ok<List<AgentDefinition>>> ListDefinitionsAsync(
         [FromServices] IAgentDefinitionRepository repository)
     {
-        var definitions = await repository.GetAllAgentDefinitionsAsync();
+        var definitions = await repository.GetAllAgentDefinitionsAsync().ConfigureAwait(false);
         return TypedResults.Ok(definitions);
     }
 
@@ -38,7 +38,7 @@ public static class AgentDefinitionApi
         string id,
         [FromServices] IAgentDefinitionRepository repository)
     {
-        var definition = await repository.GetAgentDefinitionAsync(id);
+        var definition = await repository.GetAgentDefinitionAsync(id).ConfigureAwait(false);
         return definition is not null
             ? TypedResults.Ok(definition)
             : TypedResults.NotFound();
@@ -62,7 +62,7 @@ public static class AgentDefinitionApi
 
         definition.CreatedAt = DateTime.UtcNow;
         definition.UpdatedAt = DateTime.UtcNow;
-        await repository.UpsertAgentDefinitionAsync(definition);
+        await repository.UpsertAgentDefinitionAsync(definition).ConfigureAwait(false);
         return TypedResults.Created($"/api/agent-definitions/{definition.Id}", definition);
     }
 
@@ -71,12 +71,12 @@ public static class AgentDefinitionApi
         [FromBody] AgentDefinition definition,
         [FromServices] IAgentDefinitionRepository repository)
     {
-        var existing = await repository.GetAgentDefinitionAsync(id);
+        var existing = await repository.GetAgentDefinitionAsync(id).ConfigureAwait(false);
         if (existing is null) return TypedResults.NotFound();
 
         definition.Id = id;
         definition.CreatedAt = existing.CreatedAt;
-        await repository.UpsertAgentDefinitionAsync(definition);
+        await repository.UpsertAgentDefinitionAsync(definition).ConfigureAwait(false);
         return TypedResults.Ok(definition);
     }
 
@@ -86,14 +86,14 @@ public static class AgentDefinitionApi
         [FromServices] IDynamicAgentProvider dynamicAgentProvider,
         [FromServices] IAgentRegistry agentRegistry)
     {
-        var existing = await repository.GetAgentDefinitionAsync(id);
+        var existing = await repository.GetAgentDefinitionAsync(id).ConfigureAwait(false);
         if (existing is null) return TypedResults.NotFound();
 
-        await repository.DeleteAgentDefinitionAsync(id);
+        await repository.DeleteAgentDefinitionAsync(id).ConfigureAwait(false);
 
         // Unregister from in-memory provider and agent registry
         dynamicAgentProvider.Unregister(existing.Name);
-        await agentRegistry.UnregisterAgentAsync($"/a2a/{existing.Name}");
+        await agentRegistry.UnregisterAgentAsync($"/a2a/{existing.Name}").ConfigureAwait(false);
 
         return TypedResults.NoContent();
     }
@@ -101,7 +101,7 @@ public static class AgentDefinitionApi
     private static async Task<Ok<string>> ReloadAgentsAsync(
         [FromServices] DynamicAgentLoader loader)
     {
-        await loader.ReloadAsync();
+        await loader.ReloadAsync().ConfigureAwait(false);
         return TypedResults.Ok("Dynamic agents reloaded");
     }
 }

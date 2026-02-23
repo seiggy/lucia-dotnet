@@ -60,11 +60,11 @@ public sealed class CopilotConnectService
             }
 
             client = new CopilotClient(options);
-            await client.StartAsync(ct);
+            await client.StartAsync(ct).ConfigureAwait(false);
 
             _logger.LogInformation("Copilot CLI started, listing models...");
 
-            var models = await client.ListModelsAsync(ct);
+            var models = await client.ListModelsAsync(ct).ConfigureAwait(false);
 
             var result = models.Select(m => new CopilotModelInfo(
                 Id: m.Id,
@@ -93,7 +93,7 @@ public sealed class CopilotConnectService
         {
             if (client is not null)
             {
-                try { await client.StopAsync(); }
+                try { await client.StopAsync().ConfigureAwait(false); }
                 catch { /* best-effort cleanup */ }
             }
         }

@@ -55,7 +55,7 @@ public static class TraceManagementApi
             PageSize = pageSize ?? 25
         };
 
-        var result = await repository.ListTracesAsync(filter, ct);
+        var result = await repository.ListTracesAsync(filter, ct).ConfigureAwait(false);
         return TypedResults.Ok(result);
     }
 
@@ -63,7 +63,7 @@ public static class TraceManagementApi
         [FromServices] ITraceRepository repository,
         CancellationToken ct)
     {
-        var stats = await repository.GetStatsAsync(ct);
+        var stats = await repository.GetStatsAsync(ct).ConfigureAwait(false);
         return TypedResults.Ok(stats);
     }
 
@@ -72,7 +72,7 @@ public static class TraceManagementApi
         [FromRoute] string id,
         CancellationToken ct)
     {
-        var trace = await repository.GetTraceAsync(id, ct);
+        var trace = await repository.GetTraceAsync(id, ct).ConfigureAwait(false);
 
         if (trace is null)
         {
@@ -87,13 +87,13 @@ public static class TraceManagementApi
         [FromRoute] string id,
         CancellationToken ct)
     {
-        var trace = await repository.GetTraceAsync(id, ct);
+        var trace = await repository.GetTraceAsync(id, ct).ConfigureAwait(false);
         if (trace is null)
         {
             return TypedResults.Ok(new List<RelatedTraceSummary>());
         }
 
-        var sessionTraces = await repository.GetTracesBySessionIdAsync(trace.SessionId, ct);
+        var sessionTraces = await repository.GetTracesBySessionIdAsync(trace.SessionId, ct).ConfigureAwait(false);
 
         var related = sessionTraces
             .Where(t => t.Id != id)
@@ -140,7 +140,7 @@ public static class TraceManagementApi
             LabeledAt = DateTime.UtcNow
         };
 
-        await repository.UpdateLabelAsync(id, label, ct);
+        await repository.UpdateLabelAsync(id, label, ct).ConfigureAwait(false);
         return TypedResults.NoContent();
     }
 
@@ -149,7 +149,7 @@ public static class TraceManagementApi
         [FromRoute] string id,
         CancellationToken ct)
     {
-        await repository.DeleteTraceAsync(id, ct);
+        await repository.DeleteTraceAsync(id, ct).ConfigureAwait(false);
         return TypedResults.NoContent();
     }
 }

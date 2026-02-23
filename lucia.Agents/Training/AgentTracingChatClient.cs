@@ -82,7 +82,7 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
 
         try
         {
-            var response = await base.GetResponseAsync(requestMessages, options, cancellationToken);
+            var response = await base.GetResponseAsync(requestMessages, options, cancellationToken).ConfigureAwait(false);
 
             var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds;
 
@@ -182,7 +182,7 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
     {
         try
         {
-            await _repository.InsertTraceAsync(trace);
+            await _repository.InsertTraceAsync(trace).ConfigureAwait(false);
             _logger.LogDebug("Persisted agent trace for {AgentId} (session {SessionId})", _agentId, trace.SessionId);
         }
         catch (Exception ex)

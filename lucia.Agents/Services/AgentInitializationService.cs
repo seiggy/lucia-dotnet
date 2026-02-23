@@ -40,7 +40,7 @@ public class AgentInitializationService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await WaitForHomeAssistantConfigurationAsync(stoppingToken);
+        await WaitForHomeAssistantConfigurationAsync(stoppingToken).ConfigureAwait(false);
 
         _logger.LogInformation("Starting agent initialization...");
 
@@ -51,7 +51,7 @@ public class AgentInitializationService : BackgroundService
         {
             var agentName = agent.GetAgentCard().Name;
 
-            if (await TryInitializeAgentAsync(agent, agentName, stoppingToken))
+            if (await TryInitializeAgentAsync(agent, agentName, stoppingToken).ConfigureAwait(false))
             {
                 succeeded++;
             }

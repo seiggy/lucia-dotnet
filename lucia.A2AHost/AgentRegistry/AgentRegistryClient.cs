@@ -1,5 +1,4 @@
-﻿using System.Net.Http.Json;
-using A2A;
+﻿using A2A;
 
 namespace lucia.A2AHost.AgentRegistry;
 

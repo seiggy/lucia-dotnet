@@ -1,9 +1,6 @@
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using A2A;
-using Microsoft.Agents.AI.Hosting;
-using System.Linq;
-using System.Runtime.CompilerServices;
 
 namespace lucia.Agents.Registry;
 

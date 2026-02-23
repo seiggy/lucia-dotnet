@@ -1,5 +1,3 @@
-
-using A2A;
 using lucia.A2AHost.AgentRegistry;
 using lucia.Agents.Abstractions;
 using lucia.HomeAssistant.Configuration;

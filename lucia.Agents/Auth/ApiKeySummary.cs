@@ -3,7 +3,7 @@ namespace lucia.Agents.Auth;
 /// <summary>
 /// Summary of an API key for listing. Never includes the full key or hash.
 /// </summary>
-public sealed record ApiKeySummaryDto
+public sealed record ApiKeySummary
 {
     public required string Id { get; init; }
     public required string KeyPrefix { get; init; }

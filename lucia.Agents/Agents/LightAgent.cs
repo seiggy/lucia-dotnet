@@ -1,14 +1,12 @@
 using A2A;
 using lucia.Agents.Abstractions;
+using lucia.Agents.Configuration;
+using lucia.Agents.Mcp;
 using lucia.Agents.Orchestration;
+using lucia.Agents.Services;
 using lucia.Agents.Skills;
 using Microsoft.Agents.AI;
-using Microsoft.Agents.AI.A2A;
-using Microsoft.Agents.AI.Hosting;
-using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace lucia.Agents.Agents;
@@ -18,11 +16,15 @@ namespace lucia.Agents.Agents;
 /// </summary>
 public sealed class LightAgent : ILuciaAgent
 {
+    private const string AgentId = "light-agent";
+
     private readonly AgentCard _agent;
     private readonly LightControlSkill _lightPlugin;
+    private readonly IChatClientResolver _clientResolver;
+    private readonly IAgentDefinitionRepository _definitionRepository;
+    private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<LightAgent> _logger;
-    private readonly TaskManager _taskManager;
-    private readonly AIAgent _aiAgent;
+    private volatile AIAgent _aiAgent;
 
     /// <summary>
     /// The system instructions used by this agent.
@@ -35,11 +37,16 @@ public sealed class LightAgent : ILuciaAgent
     public IList<AITool> Tools { get; }
 
     public LightAgent(
-        [FromKeyedServices(OrchestratorServiceKeys.LightModel)] IChatClient chatClient,
+        IChatClient defaultChatClient,
+        IChatClientResolver clientResolver,
+        IAgentDefinitionRepository definitionRepository,
         LightControlSkill lightPlugin,
         ILoggerFactory loggerFactory)
     {
         _lightPlugin = lightPlugin;
+        _clientResolver = clientResolver;
+        _definitionRepository = definitionRepository;
+        _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<LightAgent>();
 
         var lightControlSkill = new AgentSkill()
@@ -61,7 +68,7 @@ public sealed class LightAgent : ILuciaAgent
         _agent = new AgentCard
         {
             Url = "/a2a/light-agent",
-            Name = "light-agent",
+            Name = AgentId,
             Description = "Agent for controlling #lights and #lighting in Home Assistant",
             Capabilities = new AgentCapabilities
             {
@@ -118,21 +125,9 @@ public sealed class LightAgent : ILuciaAgent
         Instructions = instructions;
         Tools = _lightPlugin.GetTools();
 
-        var agentOptions = new ChatClientAgentOptions
-        {
-            Id = "light-agent",
-            Name = "light-agent",
-            Description = "Agent for controlling lights in Home Assistant",
-            ChatOptions = new()
-            {
-                Instructions = Instructions,
-                Tools = Tools,
-                ToolMode = ChatToolMode.RequireAny
-            }
-        };
-
-        _aiAgent = new ChatClientAgent(chatClient, agentOptions, loggerFactory);
-        _taskManager = new TaskManager();
+        // Build initial agent with the default client; InitializeAsync may replace it
+        // with a provider-resolved client from the agent's definition.
+        _aiAgent = BuildAgent(defaultChatClient);
     }
 
     /// <summary>
@@ -151,7 +146,35 @@ public sealed class LightAgent : ILuciaAgent
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Initializing LightAgent...");
-        await _lightPlugin.InitializeAsync(cancellationToken);
+        await _lightPlugin.InitializeAsync(cancellationToken).ConfigureAwait(false);
+
+        // Resolve per-agent model from AgentDefinition if configured
+        var definition = await _definitionRepository.GetAgentDefinitionAsync(AgentId, cancellationToken).ConfigureAwait(false);
+        if (definition is not null && !string.IsNullOrWhiteSpace(definition.ModelConnectionName))
+        {
+            var client = await _clientResolver.ResolveAsync(definition.ModelConnectionName, cancellationToken).ConfigureAwait(false);
+            _aiAgent = BuildAgent(client);
+            _logger.LogInformation("LightAgent: using model provider '{Provider}'", definition.ModelConnectionName);
+        }
+
         _logger.LogInformation("LightAgent initialized successfully");
+    }
+
+    private ChatClientAgent BuildAgent(IChatClient chatClient)
+    {
+        var agentOptions = new ChatClientAgentOptions
+        {
+            Id = AgentId,
+            Name = AgentId,
+            Description = "Agent for controlling lights in Home Assistant",
+            ChatOptions = new()
+            {
+                Instructions = Instructions,
+                Tools = Tools,
+                ToolMode = ChatToolMode.RequireAny
+            }
+        };
+
+        return new ChatClientAgent(chatClient, agentOptions, _loggerFactory);
     }
 }

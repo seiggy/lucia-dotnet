@@ -37,20 +37,20 @@ public sealed class MongoTraceRepository : ITraceRepository
 
     public async Task InsertTraceAsync(ConversationTrace trace, CancellationToken ct = default)
     {
-        await _traces.InsertOneAsync(trace, cancellationToken: ct);
+        await _traces.InsertOneAsync(trace, cancellationToken: ct).ConfigureAwait(false);
     }
 
     public async Task<ConversationTrace?> GetTraceAsync(string traceId, CancellationToken ct = default)
     {
         var filter = Builders<ConversationTrace>.Filter.Eq(t => t.Id, traceId);
-        return await _traces.Find(filter).FirstOrDefaultAsync(ct);
+        return await _traces.Find(filter).FirstOrDefaultAsync(ct).ConfigureAwait(false);
     }
 
     public async Task<List<ConversationTrace>> GetTracesBySessionIdAsync(string sessionId, CancellationToken ct = default)
     {
         var filter = Builders<ConversationTrace>.Filter.Eq(t => t.SessionId, sessionId);
         var sort = Builders<ConversationTrace>.Sort.Ascending(t => t.Timestamp);
-        return await _traces.Find(filter).Sort(sort).ToListAsync(ct);
+        return await _traces.Find(filter).Sort(sort).ToListAsync(ct).ConfigureAwait(false);
     }
 
     public async Task<PagedResult<ConversationTrace>> ListTracesAsync(TraceFilterCriteria filter, CancellationToken ct = default)
@@ -58,14 +58,14 @@ public sealed class MongoTraceRepository : ITraceRepository
         var mongoFilter = BuildTraceFilter(filter);
         var sort = Builders<ConversationTrace>.Sort.Descending(t => t.Timestamp);
 
-        var totalCount = await _traces.CountDocumentsAsync(mongoFilter, cancellationToken: ct);
+        var totalCount = await _traces.CountDocumentsAsync(mongoFilter, cancellationToken: ct).ConfigureAwait(false);
         var skip = (filter.Page - 1) * filter.PageSize;
 
         var items = await _traces.Find(mongoFilter)
             .Sort(sort)
             .Skip(skip)
             .Limit(filter.PageSize)
-            .ToListAsync(ct);
+            .ToListAsync(ct).ConfigureAwait(false);
 
         return new PagedResult<ConversationTrace>
         {
@@ -80,13 +80,13 @@ public sealed class MongoTraceRepository : ITraceRepository
     {
         var filter = Builders<ConversationTrace>.Filter.Eq(t => t.Id, traceId);
         var update = Builders<ConversationTrace>.Update.Set(t => t.Label, label);
-        await _traces.UpdateOneAsync(filter, update, cancellationToken: ct);
+        await _traces.UpdateOneAsync(filter, update, cancellationToken: ct).ConfigureAwait(false);
     }
 
     public async Task DeleteTraceAsync(string traceId, CancellationToken ct = default)
     {
         var filter = Builders<ConversationTrace>.Filter.Eq(t => t.Id, traceId);
-        await _traces.DeleteOneAsync(filter, ct);
+        await _traces.DeleteOneAsync(filter, ct).ConfigureAwait(false);
     }
 
     public async Task<int> DeleteOldUnlabeledAsync(int retentionDays, CancellationToken ct = default)
@@ -96,19 +96,19 @@ public sealed class MongoTraceRepository : ITraceRepository
             Builders<ConversationTrace>.Filter.Eq("Label.Status", LabelStatus.Unlabeled),
             Builders<ConversationTrace>.Filter.Lt(t => t.Timestamp, cutoff));
 
-        var result = await _traces.DeleteManyAsync(filter, ct);
+        var result = await _traces.DeleteManyAsync(filter, ct).ConfigureAwait(false);
         return (int)result.DeletedCount;
     }
 
     public async Task InsertExportRecordAsync(DatasetExportRecord export, CancellationToken ct = default)
     {
-        await _exports.InsertOneAsync(export, cancellationToken: ct);
+        await _exports.InsertOneAsync(export, cancellationToken: ct).ConfigureAwait(false);
     }
 
     public async Task<DatasetExportRecord?> GetExportRecordAsync(string exportId, CancellationToken ct = default)
     {
         var filter = Builders<DatasetExportRecord>.Filter.Eq(e => e.Id, exportId);
-        return await _exports.Find(filter).FirstOrDefaultAsync(ct);
+        return await _exports.Find(filter).FirstOrDefaultAsync(ct).ConfigureAwait(false);
     }
 
     public async Task<List<DatasetExportRecord>> ListExportRecordsAsync(CancellationToken ct = default)
@@ -116,14 +116,14 @@ public sealed class MongoTraceRepository : ITraceRepository
         var sort = Builders<DatasetExportRecord>.Sort.Descending(e => e.Timestamp);
         return await _exports.Find(Builders<DatasetExportRecord>.Filter.Empty)
             .Sort(sort)
-            .ToListAsync(ct);
+            .ToListAsync(ct).ConfigureAwait(false);
     }
 
     public async Task<List<ConversationTrace>> GetTracesForExportAsync(ExportFilterCriteria filter, CancellationToken ct = default)
     {
         var mongoFilter = BuildExportFilter(filter);
         var sort = Builders<ConversationTrace>.Sort.Descending(t => t.Timestamp);
-        return await _traces.Find(mongoFilter).Sort(sort).ToListAsync(ct);
+        return await _traces.Find(mongoFilter).Sort(sort).ToListAsync(ct).ConfigureAwait(false);
     }
 
     public async Task<TraceStats> GetStatsAsync(CancellationToken ct = default)
@@ -140,7 +140,7 @@ public sealed class MongoTraceRepository : ITraceRepository
         var erroredTask = _traces.CountDocumentsAsync(
             fb.Eq(t => t.IsErrored, true), cancellationToken: ct);
 
-        await Task.WhenAll(totalTask, unlabeledTask, positiveTask, negativeTask, erroredTask);
+        await Task.WhenAll(totalTask, unlabeledTask, positiveTask, negativeTask, erroredTask).ConfigureAwait(false);
 
         // Aggregate traces by agent — after Unwind, AgentExecutions is a single object
         var agentPipeline = new MongoDB.Bson.BsonDocument[]
@@ -155,7 +155,7 @@ public sealed class MongoTraceRepository : ITraceRepository
 
         var agentGroups = await _traces
             .Aggregate<MongoDB.Bson.BsonDocument>(agentPipeline)
-            .ToListAsync(ct);
+            .ToListAsync(ct).ConfigureAwait(false);
 
         var byAgent = new Dictionary<string, int>();
         foreach (var group in agentGroups)

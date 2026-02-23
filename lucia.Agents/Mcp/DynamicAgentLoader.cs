@@ -16,7 +16,7 @@ public sealed class DynamicAgentLoader : BackgroundService
     private readonly IAgentRegistry _agentRegistry;
     private readonly IDynamicAgentProvider _dynamicAgentProvider;
     private readonly IChatClient _defaultChatClient;
-    private readonly IModelProviderFactory _providerFactory;
+    private readonly IModelProviderResolver _providerResolver;
     private readonly IModelProviderRepository _providerRepository;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<DynamicAgentLoader> _logger;
@@ -27,7 +27,7 @@ public sealed class DynamicAgentLoader : BackgroundService
         IAgentRegistry agentRegistry,
         IDynamicAgentProvider dynamicAgentProvider,
         IChatClient defaultChatClient,
-        IModelProviderFactory providerFactory,
+        IModelProviderResolver providerResolver,
         IModelProviderRepository providerRepository,
         ILoggerFactory loggerFactory)
     {
@@ -36,7 +36,7 @@ public sealed class DynamicAgentLoader : BackgroundService
         _agentRegistry = agentRegistry;
         _dynamicAgentProvider = dynamicAgentProvider;
         _defaultChatClient = defaultChatClient;
-        _providerFactory = providerFactory;
+        _providerResolver = providerResolver;
         _providerRepository = providerRepository;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<DynamicAgentLoader>();
@@ -99,7 +99,7 @@ public sealed class DynamicAgentLoader : BackgroundService
                     _repository,
                     _toolRegistry,
                     _defaultChatClient,
-                    _providerFactory,
+                    _providerResolver,
                     _providerRepository,
                     _loggerFactory);
 

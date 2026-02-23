@@ -17,15 +17,15 @@ namespace lucia.Agents.Mcp;
 /// Supports OpenAI, Azure OpenAI, Azure AI Inference, Ollama, Anthropic, Google Gemini,
 /// and GitHub Copilot SDK.
 /// </summary>
-public sealed class ModelProviderFactory : IModelProviderFactory
+public sealed class ModelProviderResolver : IModelProviderResolver
 {
     private readonly IHttpClientFactory _httpClientFactory;
-    private readonly ILogger<ModelProviderFactory> _logger;
+    private readonly ILogger<ModelProviderResolver> _logger;
     private readonly IServiceProvider _serviceProvider;
 
-    public ModelProviderFactory(
+    public ModelProviderResolver(
         IHttpClientFactory httpClientFactory,
-        ILogger<ModelProviderFactory> logger,
+        ILogger<ModelProviderResolver> logger,
         IServiceProvider serviceProvider)
     {
         _httpClientFactory = httpClientFactory;
@@ -80,7 +80,7 @@ public sealed class ModelProviderFactory : IModelProviderFactory
         try
         {
             using var client = CreateClient(provider);
-            var response = await client.GetResponseAsync("Say hello in one word.", cancellationToken: ct);
+            var response = await client.GetResponseAsync("Say hello in one word.", cancellationToken: ct).ConfigureAwait(false);
             var text = response.Text?.Trim();
             return new ModelProviderTestResult(true, $"Connection successful. Response: {text}");
         }
@@ -96,7 +96,7 @@ public sealed class ModelProviderFactory : IModelProviderFactory
         try
         {
             var generator = CreateEmbeddingGenerator(provider);
-            var result = await generator.GenerateAsync(["hello world"], cancellationToken: ct);
+            var result = await generator.GenerateAsync(["hello world"], cancellationToken: ct).ConfigureAwait(false);
             var dims = result.FirstOrDefault()?.Vector.Length ?? 0;
             return new ModelProviderTestResult(true, $"Embedding successful. Dimensions: {dims}");
         }

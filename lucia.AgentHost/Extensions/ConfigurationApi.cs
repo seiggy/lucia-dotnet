@@ -37,7 +37,7 @@ public static class ConfigurationApi
         IConfiguration configuration)
     {
         var collection = GetCollection(mongoClient);
-        var entries = await collection.Find(FilterDefinition<ConfigEntry>.Empty).ToListAsync();
+        var entries = await collection.Find(FilterDefinition<ConfigEntry>.Empty).ToListAsync().ConfigureAwait(false);
 
         var sections = entries
             .GroupBy(e => e.Section)
@@ -84,7 +84,7 @@ public static class ConfigurationApi
     {
         var collection = GetCollection(mongoClient);
         var filter = Builders<ConfigEntry>.Filter.Eq(e => e.Section, section);
-        var entries = await collection.Find(filter).ToListAsync();
+        var entries = await collection.Find(filter).ToListAsync().ConfigureAwait(false);
 
         List<ConfigEntryDto> dtos;
 
@@ -186,7 +186,7 @@ public static class ConfigurationApi
                 .SetOnInsert(e => e.Section, section)
                 .SetOnInsert(e => e.IsSensitive, IsSensitiveKey(fullKey));
 
-            await collection.UpdateOneAsync(filter, update, new UpdateOptions { IsUpsert = true });
+            await collection.UpdateOneAsync(filter, update, new UpdateOptions { IsUpsert = true }).ConfigureAwait(false);
             updateCount++;
         }
 
@@ -200,7 +200,7 @@ public static class ConfigurationApi
         IMongoClient mongoClient)
     {
         var collection = GetCollection(mongoClient);
-        var result = await collection.DeleteManyAsync(FilterDefinition<ConfigEntry>.Empty);
+        var result = await collection.DeleteManyAsync(FilterDefinition<ConfigEntry>.Empty).ConfigureAwait(false);
         return TypedResults.Ok($"Deleted {result.DeletedCount} configuration entries. Restart services to re-seed from appsettings.");
     }
 
@@ -237,7 +237,7 @@ public static class ConfigurationApi
             };
 
             var response = await haClient.CallServiceAsync<lucia.Agents.Skills.Models.MusicLibraryResponse>(
-                "music_assistant", "get_library", "return_response=1", serviceRequest, cancellationToken);
+                "music_assistant", "get_library", "return_response=1", serviceRequest, cancellationToken).ConfigureAwait(false);
 
             var trackCount = response.ServiceResponse.Items.Count;
             return TypedResults.Ok(new MusicAssistantTestResult

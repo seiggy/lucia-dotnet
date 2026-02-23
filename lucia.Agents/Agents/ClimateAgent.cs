@@ -1,13 +1,14 @@
 using A2A;
 
 using lucia.Agents.Abstractions;
+using lucia.Agents.Configuration;
+using lucia.Agents.Mcp;
 using lucia.Agents.Orchestration;
+using lucia.Agents.Services;
 using lucia.Agents.Skills;
 
 using Microsoft.Agents.AI;
-using Microsoft.Agents.AI.Hosting;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace lucia.Agents.Agents;
@@ -18,12 +19,16 @@ namespace lucia.Agents.Agents;
 /// </summary>
 public sealed class ClimateAgent : ILuciaAgent
 {
+    private const string AgentId = "climate-agent";
+
     private readonly AgentCard _agent;
     private readonly ClimateControlSkill _climateSkill;
     private readonly FanControlSkill _fanSkill;
+    private readonly IChatClientResolver _clientResolver;
+    private readonly IAgentDefinitionRepository _definitionRepository;
+    private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<ClimateAgent> _logger;
-    private readonly TaskManager _taskManager;
-    private readonly AIAgent _aiAgent;
+    private volatile AIAgent _aiAgent;
 
     /// <summary>
     /// The system instructions used by this agent.
@@ -36,13 +41,18 @@ public sealed class ClimateAgent : ILuciaAgent
     public IList<AITool> Tools { get; }
 
     public ClimateAgent(
-        [FromKeyedServices(OrchestratorServiceKeys.ClimateModel)] IChatClient chatClient,
+        IChatClient defaultChatClient,
+        IChatClientResolver clientResolver,
+        IAgentDefinitionRepository definitionRepository,
         ClimateControlSkill climateSkill,
         FanControlSkill fanSkill,
         ILoggerFactory loggerFactory)
     {
         _climateSkill = climateSkill;
         _fanSkill = fanSkill;
+        _clientResolver = clientResolver;
+        _definitionRepository = definitionRepository;
+        _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<ClimateAgent>();
 
         var climateControlSkillCard = new AgentSkill()
@@ -67,7 +77,7 @@ public sealed class ClimateAgent : ILuciaAgent
         _agent = new AgentCard
         {
             Url = "/a2a/climate-agent",
-            Name = "climate-agent",
+            Name = AgentId,
             Description = "Agent for controlling #climate, #HVAC, #thermostats, #temperature, and #fans in Home Assistant",
             Capabilities = new AgentCapabilities
             {
@@ -159,21 +169,8 @@ public sealed class ClimateAgent : ILuciaAgent
         allTools.AddRange(_fanSkill.GetTools());
         Tools = allTools;
 
-        var agentOptions = new ChatClientAgentOptions
-        {
-            Id = "climate-agent",
-            Name = "climate-agent",
-            Description = "Agent for controlling HVAC systems and fans in Home Assistant",
-            ChatOptions = new()
-            {
-                Instructions = Instructions,
-                Tools = Tools,
-                ToolMode = ChatToolMode.RequireAny
-            }
-        };
-
-        _aiAgent = new ChatClientAgent(chatClient, agentOptions, loggerFactory);
-        _taskManager = new TaskManager();
+        // Build initial agent with the default client; InitializeAsync may replace it
+        _aiAgent = BuildAgent(defaultChatClient);
     }
 
     /// <summary>
@@ -194,7 +191,35 @@ public sealed class ClimateAgent : ILuciaAgent
         _logger.LogInformation("Initializing ClimateAgent...");
         await Task.WhenAll(
             _climateSkill.InitializeAsync(cancellationToken),
-            _fanSkill.InitializeAsync(cancellationToken));
+            _fanSkill.InitializeAsync(cancellationToken)).ConfigureAwait(false);
+
+        // Resolve per-agent model from AgentDefinition if configured
+        var definition = await _definitionRepository.GetAgentDefinitionAsync(AgentId, cancellationToken).ConfigureAwait(false);
+        if (definition is not null && !string.IsNullOrWhiteSpace(definition.ModelConnectionName))
+        {
+            var client = await _clientResolver.ResolveAsync(definition.ModelConnectionName, cancellationToken).ConfigureAwait(false);
+            _aiAgent = BuildAgent(client);
+            _logger.LogInformation("ClimateAgent: using model provider '{Provider}'", definition.ModelConnectionName);
+        }
+
         _logger.LogInformation("ClimateAgent initialized successfully");
+    }
+
+    private ChatClientAgent BuildAgent(IChatClient chatClient)
+    {
+        var agentOptions = new ChatClientAgentOptions
+        {
+            Id = AgentId,
+            Name = AgentId,
+            Description = "Agent for controlling HVAC systems and fans in Home Assistant",
+            ChatOptions = new ChatOptions
+            {
+                Instructions = Instructions,
+                Tools = Tools,
+                ToolMode = ChatToolMode.RequireAny
+            }
+        };
+
+        return new ChatClientAgent(chatClient, agentOptions, _loggerFactory);
     }
 }

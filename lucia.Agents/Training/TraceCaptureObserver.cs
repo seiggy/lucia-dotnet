@@ -164,7 +164,7 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
         // Persist trace — await to surface any errors
         try
         {
-            await PersistTraceAsync(trace);
+            await PersistTraceAsync(trace).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -186,7 +186,7 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
             using var activity = TraceCaptureTelemetry.Source.StartActivity("PersistTrace");
             activity?.SetTag(TraceCaptureTelemetry.TagTraceId, trace.Id);
 
-            await _repository.InsertTraceAsync(trace);
+            await _repository.InsertTraceAsync(trace).ConfigureAwait(false);
 
             TraceCaptureTelemetry.TracesCaptured.Add(1);
 

@@ -118,28 +118,28 @@ public static class ModelProviderApi
     private static async Task<Ok<ModelProviderTestResult>> TestProviderAsync(
         string id,
         [FromServices] IModelProviderRepository repository,
-        [FromServices] IModelProviderFactory factory,
+        [FromServices] IModelProviderResolver resolver,
         CancellationToken ct)
     {
         var provider = await repository.GetProviderAsync(id, ct);
         if (provider is null)
             return TypedResults.Ok(new ModelProviderTestResult(false, $"Provider '{id}' not found"));
 
-        var result = await factory.TestConnectionAsync(provider, ct);
+        var result = await resolver.TestConnectionAsync(provider, ct);
         return TypedResults.Ok(result);
     }
 
     private static async Task<Ok<ModelProviderTestResult>> TestEmbeddingAsync(
         string id,
         [FromServices] IModelProviderRepository repository,
-        [FromServices] IModelProviderFactory factory,
+        [FromServices] IModelProviderResolver resolver,
         CancellationToken ct)
     {
         var provider = await repository.GetProviderAsync(id, ct);
         if (provider is null)
             return TypedResults.Ok(new ModelProviderTestResult(false, $"Provider '{id}' not found"));
 
-        var result = await factory.TestEmbeddingConnectionAsync(provider, ct);
+        var result = await resolver.TestEmbeddingConnectionAsync(provider, ct);
         return TypedResults.Ok(result);
     }
 

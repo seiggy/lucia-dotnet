@@ -6,7 +6,7 @@ namespace lucia.Agents.Mcp;
 /// <summary>
 /// Creates IChatClient and IEmbeddingGenerator instances from stored ModelProvider configurations.
 /// </summary>
-public interface IModelProviderFactory
+public interface IModelProviderResolver
 {
     /// <summary>
     /// Creates an IChatClient for the given provider configuration.

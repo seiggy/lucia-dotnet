@@ -1,8 +1,5 @@
 ﻿using A2A;
 using Microsoft.Agents.AI;
-using System;
-using System.Collections.Generic;
-using System.Text;
 
 namespace lucia.Agents.Abstractions
 {

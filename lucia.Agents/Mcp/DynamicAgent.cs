@@ -21,7 +21,7 @@ public sealed class DynamicAgent : ILuciaAgent
     private readonly IAgentDefinitionRepository _repository;
     private readonly IMcpToolRegistry _toolRegistry;
     private readonly IChatClient _defaultChatClient;
-    private readonly IModelProviderFactory _providerFactory;
+    private readonly IModelProviderResolver _providerResolver;
     private readonly IModelProviderRepository _providerRepository;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<DynamicAgent> _logger;
@@ -36,7 +36,7 @@ public sealed class DynamicAgent : ILuciaAgent
         IAgentDefinitionRepository repository,
         IMcpToolRegistry toolRegistry,
         IChatClient defaultChatClient,
-        IModelProviderFactory providerFactory,
+        IModelProviderResolver providerResolver,
         IModelProviderRepository providerRepository,
         ILoggerFactory loggerFactory)
     {
@@ -44,7 +44,7 @@ public sealed class DynamicAgent : ILuciaAgent
         _repository = repository;
         _toolRegistry = toolRegistry;
         _defaultChatClient = defaultChatClient;
-        _providerFactory = providerFactory;
+        _providerResolver = providerResolver;
         _providerRepository = providerRepository;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<DynamicAgent>();
@@ -127,7 +127,7 @@ public sealed class DynamicAgent : ILuciaAgent
 
         try
         {
-            return _providerFactory.CreateClient(provider);
+            return _providerResolver.CreateClient(provider);
         }
         catch (Exception ex)
         {

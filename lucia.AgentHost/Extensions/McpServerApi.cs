@@ -32,7 +32,7 @@ public static class McpServerApi
     private static async Task<Ok<List<McpToolServerDefinition>>> ListServersAsync(
         [FromServices] IAgentDefinitionRepository repository)
     {
-        var servers = await repository.GetAllToolServersAsync();
+        var servers = await repository.GetAllToolServersAsync().ConfigureAwait(false);
         return TypedResults.Ok(servers);
     }
 
@@ -40,7 +40,7 @@ public static class McpServerApi
         string id,
         [FromServices] IAgentDefinitionRepository repository)
     {
-        var server = await repository.GetToolServerAsync(id);
+        var server = await repository.GetToolServerAsync(id).ConfigureAwait(false);
         return server is not null
             ? TypedResults.Ok(server)
             : TypedResults.NotFound();
@@ -52,7 +52,7 @@ public static class McpServerApi
     {
         server.CreatedAt = DateTime.UtcNow;
         server.UpdatedAt = DateTime.UtcNow;
-        await repository.UpsertToolServerAsync(server);
+        await repository.UpsertToolServerAsync(server).ConfigureAwait(false);
         return TypedResults.Created($"/api/mcp-servers/{server.Id}", server);
     }
 
@@ -61,12 +61,12 @@ public static class McpServerApi
         [FromBody] McpToolServerDefinition server,
         [FromServices] IAgentDefinitionRepository repository)
     {
-        var existing = await repository.GetToolServerAsync(id);
+        var existing = await repository.GetToolServerAsync(id).ConfigureAwait(false);
         if (existing is null) return TypedResults.NotFound();
 
         server.Id = id;
         server.CreatedAt = existing.CreatedAt;
-        await repository.UpsertToolServerAsync(server);
+        await repository.UpsertToolServerAsync(server).ConfigureAwait(false);
         return TypedResults.Ok(server);
     }
 
@@ -74,10 +74,10 @@ public static class McpServerApi
         string id,
         [FromServices] IAgentDefinitionRepository repository)
     {
-        var existing = await repository.GetToolServerAsync(id);
+        var existing = await repository.GetToolServerAsync(id).ConfigureAwait(false);
         if (existing is null) return TypedResults.NotFound();
 
-        await repository.DeleteToolServerAsync(id);
+        await repository.DeleteToolServerAsync(id).ConfigureAwait(false);
         return TypedResults.NoContent();
     }
 
@@ -85,7 +85,7 @@ public static class McpServerApi
         string id,
         [FromServices] IMcpToolRegistry toolRegistry)
     {
-        var tools = await toolRegistry.GetAvailableToolsAsync(id);
+        var tools = await toolRegistry.GetAvailableToolsAsync(id).ConfigureAwait(false);
         return TypedResults.Ok(tools);
     }
 
@@ -93,7 +93,7 @@ public static class McpServerApi
         string id,
         [FromServices] IMcpToolRegistry toolRegistry)
     {
-        await toolRegistry.ConnectServerAsync(id);
+        await toolRegistry.ConnectServerAsync(id).ConfigureAwait(false);
         return TypedResults.Ok("Connected");
     }
 
@@ -101,7 +101,7 @@ public static class McpServerApi
         string id,
         [FromServices] IMcpToolRegistry toolRegistry)
     {
-        await toolRegistry.DisconnectServerAsync(id);
+        await toolRegistry.DisconnectServerAsync(id).ConfigureAwait(false);
         return TypedResults.Ok("Disconnected");
     }
 

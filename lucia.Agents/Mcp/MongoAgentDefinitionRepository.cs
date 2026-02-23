@@ -45,12 +45,12 @@ public sealed class MongoAgentDefinitionRepository : IAgentDefinitionRepository
     {
         return await _toolServers.Find(_ => true)
             .SortBy(s => s.Name)
-            .ToListAsync(ct);
+            .ToListAsync(ct).ConfigureAwait(false);
     }
 
     public async Task<McpToolServerDefinition?> GetToolServerAsync(string id, CancellationToken ct = default)
     {
-        return await _toolServers.Find(s => s.Id == id).FirstOrDefaultAsync(ct);
+        return await _toolServers.Find(s => s.Id == id).FirstOrDefaultAsync(ct).ConfigureAwait(false);
     }
 
     public async Task UpsertToolServerAsync(McpToolServerDefinition server, CancellationToken ct = default)
@@ -60,12 +60,12 @@ public sealed class MongoAgentDefinitionRepository : IAgentDefinitionRepository
             s => s.Id == server.Id,
             server,
             new ReplaceOptions { IsUpsert = true },
-            ct);
+            ct).ConfigureAwait(false);
     }
 
     public async Task DeleteToolServerAsync(string id, CancellationToken ct = default)
     {
-        await _toolServers.DeleteOneAsync(s => s.Id == id, ct);
+        await _toolServers.DeleteOneAsync(s => s.Id == id, ct).ConfigureAwait(false);
     }
 
     // Agent Definitions
@@ -74,19 +74,19 @@ public sealed class MongoAgentDefinitionRepository : IAgentDefinitionRepository
     {
         return await _agentDefinitions.Find(_ => true)
             .SortBy(a => a.Name)
-            .ToListAsync(ct);
+            .ToListAsync(ct).ConfigureAwait(false);
     }
 
     public async Task<List<AgentDefinition>> GetEnabledAgentDefinitionsAsync(CancellationToken ct = default)
     {
         return await _agentDefinitions.Find(a => a.Enabled)
             .SortBy(a => a.Name)
-            .ToListAsync(ct);
+            .ToListAsync(ct).ConfigureAwait(false);
     }
 
     public async Task<AgentDefinition?> GetAgentDefinitionAsync(string id, CancellationToken ct = default)
     {
-        return await _agentDefinitions.Find(a => a.Id == id).FirstOrDefaultAsync(ct);
+        return await _agentDefinitions.Find(a => a.Id == id).FirstOrDefaultAsync(ct).ConfigureAwait(false);
     }
 
     public async Task UpsertAgentDefinitionAsync(AgentDefinition definition, CancellationToken ct = default)
@@ -96,11 +96,11 @@ public sealed class MongoAgentDefinitionRepository : IAgentDefinitionRepository
             a => a.Id == definition.Id,
             definition,
             new ReplaceOptions { IsUpsert = true },
-            ct);
+            ct).ConfigureAwait(false);
     }
 
     public async Task DeleteAgentDefinitionAsync(string id, CancellationToken ct = default)
     {
-        await _agentDefinitions.DeleteOneAsync(a => a.Id == id, ct);
+        await _agentDefinitions.DeleteOneAsync(a => a.Id == id, ct).ConfigureAwait(false);
     }
 }

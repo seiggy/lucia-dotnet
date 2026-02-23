@@ -4,6 +4,7 @@ using lucia.A2AHost.Extensions;
 using lucia.A2AHost.Services;
 using lucia.Agents.Configuration;
 using lucia.Agents.Extensions;
+using lucia.Agents.Mcp;
 using lucia.Agents.Services;
 using lucia.HomeAssistant.Configuration;
 using lucia.HomeAssistant.Services;
@@ -42,6 +43,14 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 builder.AddChatClient("chat");
 
 // Embeddings are now resolved from the Model Provider system via IEmbeddingProviderResolver.
+// Register model provider system so A2A plugins can resolve IChatClient and IEmbeddingGenerator.
+builder.Services.AddSingleton<IModelProviderRepository, MongoModelProviderRepository>();
+builder.Services.AddSingleton<IModelProviderResolver, ModelProviderResolver>();
+builder.Services.AddSingleton<IEmbeddingProviderResolver, EmbeddingProviderResolver>();
+builder.Services.AddSingleton<IChatClientResolver, ChatClientResolver>();
+
+// Register agent definition repository so plugins can load AgentDefinition for model resolution
+builder.Services.AddSingleton<IAgentDefinitionRepository, MongoAgentDefinitionRepository>();
 
 builder.Services.Configure<HomeAssistantOptions>(
     builder.Configuration.GetSection("HomeAssistant"));

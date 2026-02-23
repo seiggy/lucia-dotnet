@@ -30,32 +30,32 @@ public sealed class MongoModelProviderRepository : IModelProviderRepository
     {
         return await _collection.Find(FilterDefinition<ModelProvider>.Empty)
             .SortBy(p => p.Name)
-            .ToListAsync(ct);
+            .ToListAsync(ct).ConfigureAwait(false);
     }
 
     public async Task<List<ModelProvider>> GetEnabledProvidersAsync(CancellationToken ct = default)
     {
         return await _collection.Find(p => p.Enabled)
             .SortBy(p => p.Name)
-            .ToListAsync(ct);
+            .ToListAsync(ct).ConfigureAwait(false);
     }
 
     public async Task<ModelProvider?> GetProviderAsync(string id, CancellationToken ct = default)
     {
-        return await _collection.Find(p => p.Id == id).FirstOrDefaultAsync(ct);
+        return await _collection.Find(p => p.Id == id).FirstOrDefaultAsync(ct).ConfigureAwait(false);
     }
 
     public async Task UpsertProviderAsync(ModelProvider provider, CancellationToken ct = default)
     {
         provider.UpdatedAt = DateTime.UtcNow;
         var options = new ReplaceOptions { IsUpsert = true };
-        await _collection.ReplaceOneAsync(p => p.Id == provider.Id, provider, options, ct);
+        await _collection.ReplaceOneAsync(p => p.Id == provider.Id, provider, options, ct).ConfigureAwait(false);
         _logger.LogInformation("Upserted model provider {ProviderId} ({ProviderName})", provider.Id, provider.Name);
     }
 
     public async Task DeleteProviderAsync(string id, CancellationToken ct = default)
     {
-        await _collection.DeleteOneAsync(p => p.Id == id, ct);
+        await _collection.DeleteOneAsync(p => p.Id == id, ct).ConfigureAwait(false);
         _logger.LogInformation("Deleted model provider {ProviderId}", id);
     }
 }

@@ -37,14 +37,14 @@ public sealed class CopilotChatClientAdapter : IChatClient
         ChatOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        await EnsureSessionAsync(cancellationToken);
+        await EnsureSessionAsync(cancellationToken).ConfigureAwait(false);
 
         // Extract the last user message as the prompt
         var lastUserMessage = chatMessages.LastOrDefault(m => m.Role == ChatRole.User);
         var prompt = lastUserMessage?.Text ?? string.Empty;
 
         var messageOptions = new MessageOptions { Prompt = prompt };
-        var response = await _session!.SendAndWaitAsync(messageOptions, timeout: null, cancellationToken);
+        var response = await _session!.SendAndWaitAsync(messageOptions, timeout: null, cancellationToken).ConfigureAwait(false);
 
         var content = response?.Data?.Content ?? string.Empty;
 
@@ -62,7 +62,7 @@ public sealed class CopilotChatClientAdapter : IChatClient
     {
         // Copilot SDK supports streaming via the On() event handler, but for simplicity
         // we use SendAndWaitAsync and yield the full response as a single update.
-        var response = await GetResponseAsync(chatMessages, options, cancellationToken);
+        var response = await GetResponseAsync(chatMessages, options, cancellationToken).ConfigureAwait(false);
         var text = response.Messages.FirstOrDefault()?.Text ?? string.Empty;
 
         yield return new ChatResponseUpdate
@@ -113,7 +113,7 @@ public sealed class CopilotChatClientAdapter : IChatClient
 
         if (!_started)
         {
-            await _client.StartAsync(cancellationToken);
+            await _client.StartAsync(cancellationToken).ConfigureAwait(false);
             _started = true;
         }
 
@@ -126,6 +126,6 @@ public sealed class CopilotChatClientAdapter : IChatClient
                 : null,
         };
 
-        _session = await _client.CreateSessionAsync(config, cancellationToken);
+        _session = await _client.CreateSessionAsync(config, cancellationToken).ConfigureAwait(false);
     }
 }

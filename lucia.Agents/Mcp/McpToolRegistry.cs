@@ -3,7 +3,6 @@ using lucia.Agents.Configuration;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Client;
-using ModelContextProtocol.Protocol;
 
 namespace lucia.Agents.Mcp;
 
@@ -29,12 +28,12 @@ public sealed class McpToolRegistry : IMcpToolRegistry
 
     public async Task InitializeAsync(CancellationToken ct = default)
     {
-        var servers = await _repository.GetAllToolServersAsync(ct);
+        var servers = await _repository.GetAllToolServersAsync(ct).ConfigureAwait(false);
         foreach (var server in servers.Where(s => s.Enabled))
         {
             try
             {
-                await ConnectServerAsync(server.Id, ct);
+                await ConnectServerAsync(server.Id, ct).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -45,7 +44,7 @@ public sealed class McpToolRegistry : IMcpToolRegistry
 
     public async Task ConnectServerAsync(string serverId, CancellationToken ct = default)
     {
-        var server = await _repository.GetToolServerAsync(serverId, ct);
+        var server = await _repository.GetToolServerAsync(serverId, ct).ConfigureAwait(false);
         if (server is null)
         {
             _logger.LogWarning("MCP server {ServerId} not found in repository", serverId);
@@ -53,7 +52,7 @@ public sealed class McpToolRegistry : IMcpToolRegistry
         }
 
         // Disconnect existing client if reconnecting
-        await DisconnectServerAsync(serverId, ct);
+        await DisconnectServerAsync(serverId, ct).ConfigureAwait(false);
 
         _statuses[serverId] = new McpServerStatus
         {
@@ -65,8 +64,8 @@ public sealed class McpToolRegistry : IMcpToolRegistry
         try
         {
             var transport = CreateTransport(server);
-            var client = await McpClient.CreateAsync(transport, cancellationToken: ct);
-            var tools = await client.ListToolsAsync(cancellationToken: ct);
+            var client = await McpClient.CreateAsync(transport, cancellationToken: ct).ConfigureAwait(false);
+            var tools = await client.ListToolsAsync(cancellationToken: ct).ConfigureAwait(false);
 
             _clients[serverId] = new McpClientEntry(server, client, tools.ToList());
             _statuses[serverId] = new McpServerStatus
@@ -103,7 +102,7 @@ public sealed class McpToolRegistry : IMcpToolRegistry
         {
             try
             {
-                await entry.Client.DisposeAsync();
+                await entry.Client.DisposeAsync().ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -196,7 +195,7 @@ public sealed class McpToolRegistry : IMcpToolRegistry
         {
             try
             {
-                await kvp.Value.Client.DisposeAsync();
+                await kvp.Value.Client.DisposeAsync().ConfigureAwait(false);
             }
             catch (Exception ex)
             {

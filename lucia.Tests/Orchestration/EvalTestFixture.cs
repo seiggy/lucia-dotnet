@@ -4,6 +4,7 @@ using Azure.AI.OpenAI;
 using Azure.Identity;
 using FakeItEasy;
 using lucia.Agents.Agents;
+using lucia.Agents.Mcp;
 using lucia.Agents.Orchestration;
 using lucia.Agents.Registry;
 using lucia.Agents.Skills;
@@ -59,6 +60,8 @@ public sealed class EvalTestFixture : IAsyncLifetime
     private ILoggerFactory _loggerFactory = null!;
     private IServer _mockServer = null!;
     private readonly IDeviceCacheService _mockDeviceCache = A.Fake<IDeviceCacheService>();
+    private readonly IChatClientResolver _mockChatClientResolver = A.Fake<IChatClientResolver>();
+    private readonly IAgentDefinitionRepository _mockDefinitionRepo = A.Fake<IAgentDefinitionRepository>();
 
     private static IOptionsMonitor<MusicAssistantConfig> CreateMusicAssistantOptionsMonitor()
     {
@@ -168,7 +171,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
             _mockEmbeddingResolver,
             _loggerFactory.CreateLogger<LightControlSkill>(),
             _mockDeviceCache);
-        return new LightAgent(chatClient, lightSkill, _loggerFactory);
+        return new LightAgent(chatClient, _mockChatClientResolver, _mockDefinitionRepo, lightSkill, _loggerFactory);
     }
 
     /// <summary>
@@ -184,7 +187,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
             _mockEmbeddingResolver,
             _mockDeviceCache,
             _loggerFactory.CreateLogger<MusicPlaybackSkill>());
-        return new lucia.MusicAgent.MusicAgent(chatClient, musicSkill, _mockServer, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(), _loggerFactory);
+        return new lucia.MusicAgent.MusicAgent(chatClient, _mockChatClientResolver, _mockDefinitionRepo, musicSkill, _mockServer, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(), _loggerFactory);
     }
 
     /// <summary>
@@ -199,7 +202,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
             _mockEmbeddingResolver,
             _loggerFactory.CreateLogger<LightControlSkill>(),
             _mockDeviceCache);
-        return (new LightAgent(chatClient, lightSkill, _loggerFactory), capture);
+        return (new LightAgent(chatClient, _mockChatClientResolver, _mockDefinitionRepo, lightSkill, _loggerFactory), capture);
     }
 
     /// <summary>
@@ -216,7 +219,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
             _mockEmbeddingResolver,
             _mockDeviceCache,
             _loggerFactory.CreateLogger<MusicPlaybackSkill>());
-        return (new lucia.MusicAgent.MusicAgent(chatClient, musicSkill, _mockServer, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(), _loggerFactory), capture);
+        return (new lucia.MusicAgent.MusicAgent(chatClient, _mockChatClientResolver, _mockDefinitionRepo, musicSkill, _mockServer, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(), _loggerFactory), capture);
     }
 
     /// <summary>
@@ -268,7 +271,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
         // Build real agents — all backed by the same deployment for this iteration.
         var lightAgent = CreateLightAgent(deploymentName);
         var musicAgent = CreateMusicAgent(deploymentName);
-        var generalAgent = new GeneralAgent(CreateFunctionInvokingChatClient(deploymentName), _loggerFactory);
+        var generalAgent = new GeneralAgent(CreateFunctionInvokingChatClient(deploymentName), _mockChatClientResolver, _mockDefinitionRepo, _loggerFactory);
 
         var agentProvider = new EvalAgentProvider(
         [
@@ -324,7 +327,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
             _mockHaClient, _mockEmbeddingResolver,
             _loggerFactory.CreateLogger<LightControlSkill>(),
             _mockDeviceCache);
-        var lightAgent = new LightAgent(fakeChatClient, lightSkill, _loggerFactory);
+        var lightAgent = new LightAgent(fakeChatClient, _mockChatClientResolver, _mockDefinitionRepo, lightSkill, _loggerFactory);
         _lightAgentCard = lightAgent.GetAgentCard();
 
         // MusicAgent card
@@ -333,11 +336,11 @@ public sealed class EvalTestFixture : IAsyncLifetime
             _mockHaClient, musicConfig, _mockEmbeddingResolver,
             _mockDeviceCache,
             _loggerFactory.CreateLogger<MusicPlaybackSkill>());
-        var musicAgent = new lucia.MusicAgent.MusicAgent(fakeChatClient, musicSkill, _mockServer, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(), _loggerFactory);
+        var musicAgent = new lucia.MusicAgent.MusicAgent(fakeChatClient, _mockChatClientResolver, _mockDefinitionRepo, musicSkill, _mockServer, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(), _loggerFactory);
         _musicAgentCard = musicAgent.GetAgentCard();
 
         // GeneralAgent card
-        var generalAgent = new GeneralAgent(fakeChatClient, _loggerFactory);
+        var generalAgent = new GeneralAgent(fakeChatClient, _mockChatClientResolver, _mockDefinitionRepo, _loggerFactory);
         _generalAgentCard = generalAgent.GetAgentCard();
     }
 }

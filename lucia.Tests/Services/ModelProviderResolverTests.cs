@@ -10,23 +10,23 @@ using Xunit;
 namespace lucia.Tests.Services;
 
 /// <summary>
-/// Tests for <see cref="ModelProviderFactory"/> — validates that each supported
+/// Tests for <see cref="ModelProviderResolver"/> — validates that each supported
 /// provider type creates a valid IChatClient and that validation rules are enforced.
 /// These tests verify client construction only (no live LLM calls).
 /// </summary>
-public sealed class ModelProviderFactoryTests
+public sealed class ModelProviderResolverTests
 {
-    private readonly ModelProviderFactory _factory;
+    private readonly ModelProviderResolver _resolver;
 
-    public ModelProviderFactoryTests()
+    public ModelProviderResolverTests()
     {
         var services = new ServiceCollection();
         services.AddLogging(b => b.AddProvider(NullLoggerProvider.Instance));
         var serviceProvider = services.BuildServiceProvider();
 
-        _factory = new ModelProviderFactory(
+        _resolver = new ModelProviderResolver(
             new StubHttpClientFactory(),
-            NullLogger<ModelProviderFactory>.Instance,
+            NullLogger<ModelProviderResolver>.Instance,
             serviceProvider);
     }
 
@@ -64,7 +64,7 @@ public sealed class ModelProviderFactoryTests
     public void CreateClient_OpenAI_WithApiKey_ReturnsClient()
     {
         var provider = MakeProvider(ProviderType.OpenAI, model: "gpt-4o");
-        using var client = _factory.CreateClient(provider);
+        using var client = _resolver.CreateClient(provider);
         Assert.NotNull(client);
     }
 
@@ -75,7 +75,7 @@ public sealed class ModelProviderFactoryTests
         var provider = MakeProvider(ProviderType.OpenAI,
             endpoint: "https://openrouter.ai/api/v1",
             model: "openai/gpt-4o");
-        using var client = _factory.CreateClient(provider);
+        using var client = _resolver.CreateClient(provider);
         Assert.NotNull(client);
     }
 
@@ -83,7 +83,7 @@ public sealed class ModelProviderFactoryTests
     public void CreateClient_OpenAI_WithoutApiKey_UsesPlaceholder()
     {
         var provider = MakeProvider(ProviderType.OpenAI, apiKey: null);
-        using var client = _factory.CreateClient(provider);
+        using var client = _resolver.CreateClient(provider);
         Assert.NotNull(client);
     }
 
@@ -97,7 +97,7 @@ public sealed class ModelProviderFactoryTests
         var provider = MakeProvider(ProviderType.AzureOpenAI,
             endpoint: "https://myinstance.openai.azure.com",
             model: "gpt-4o-deployment");
-        using var client = _factory.CreateClient(provider);
+        using var client = _resolver.CreateClient(provider);
         Assert.NotNull(client);
     }
 
@@ -109,7 +109,7 @@ public sealed class ModelProviderFactoryTests
             model: "gpt-4o-deployment",
             apiKey: null,
             useDefaultCredentials: true);
-        using var client = _factory.CreateClient(provider);
+        using var client = _resolver.CreateClient(provider);
         Assert.NotNull(client);
     }
 
@@ -117,7 +117,7 @@ public sealed class ModelProviderFactoryTests
     public void CreateClient_AzureOpenAI_WithoutEndpoint_Throws()
     {
         var provider = MakeProvider(ProviderType.AzureOpenAI, endpoint: null);
-        var ex = Assert.Throws<InvalidOperationException>(() => _factory.CreateClient(provider));
+        var ex = Assert.Throws<InvalidOperationException>(() => _resolver.CreateClient(provider));
         Assert.Contains("endpoint", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -128,7 +128,7 @@ public sealed class ModelProviderFactoryTests
             endpoint: "https://myinstance.openai.azure.com",
             apiKey: null,
             useDefaultCredentials: false);
-        var ex = Assert.Throws<InvalidOperationException>(() => _factory.CreateClient(provider));
+        var ex = Assert.Throws<InvalidOperationException>(() => _resolver.CreateClient(provider));
         Assert.Contains("API key", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -142,7 +142,7 @@ public sealed class ModelProviderFactoryTests
         var provider = MakeProvider(ProviderType.AzureAIInference,
             endpoint: "https://models.inference.ai.azure.com",
             model: "Phi-3-mini-4k-instruct");
-        using var client = _factory.CreateClient(provider);
+        using var client = _resolver.CreateClient(provider);
         Assert.NotNull(client);
     }
 
@@ -154,7 +154,7 @@ public sealed class ModelProviderFactoryTests
             model: "Phi-3-mini-4k-instruct",
             apiKey: null,
             useDefaultCredentials: true);
-        using var client = _factory.CreateClient(provider);
+        using var client = _resolver.CreateClient(provider);
         Assert.NotNull(client);
     }
 
@@ -162,7 +162,7 @@ public sealed class ModelProviderFactoryTests
     public void CreateClient_AzureAIInference_WithoutEndpoint_Throws()
     {
         var provider = MakeProvider(ProviderType.AzureAIInference, endpoint: null);
-        var ex = Assert.Throws<InvalidOperationException>(() => _factory.CreateClient(provider));
+        var ex = Assert.Throws<InvalidOperationException>(() => _resolver.CreateClient(provider));
         Assert.Contains("endpoint", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -173,7 +173,7 @@ public sealed class ModelProviderFactoryTests
             endpoint: "https://models.inference.ai.azure.com",
             apiKey: null,
             useDefaultCredentials: false);
-        var ex = Assert.Throws<InvalidOperationException>(() => _factory.CreateClient(provider));
+        var ex = Assert.Throws<InvalidOperationException>(() => _resolver.CreateClient(provider));
         Assert.Contains("API key", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -188,7 +188,7 @@ public sealed class ModelProviderFactoryTests
             endpoint: "http://localhost:11434",
             model: "llama3.2:3b",
             apiKey: null);
-        using var client = _factory.CreateClient(provider);
+        using var client = _resolver.CreateClient(provider);
         Assert.NotNull(client);
     }
 
@@ -199,7 +199,7 @@ public sealed class ModelProviderFactoryTests
             endpoint: null,
             model: "phi3:mini",
             apiKey: null);
-        using var client = _factory.CreateClient(provider);
+        using var client = _resolver.CreateClient(provider);
         Assert.NotNull(client);
     }
 
@@ -213,7 +213,7 @@ public sealed class ModelProviderFactoryTests
         var provider = MakeProvider(ProviderType.Anthropic,
             model: "claude-sonnet-4-20250514",
             apiKey: "sk-ant-test-key");
-        using var client = _factory.CreateClient(provider);
+        using var client = _resolver.CreateClient(provider);
         Assert.NotNull(client);
     }
 
@@ -221,7 +221,7 @@ public sealed class ModelProviderFactoryTests
     public void CreateClient_Anthropic_WithoutApiKey_Throws()
     {
         var provider = MakeProvider(ProviderType.Anthropic, apiKey: null);
-        var ex = Assert.Throws<InvalidOperationException>(() => _factory.CreateClient(provider));
+        var ex = Assert.Throws<InvalidOperationException>(() => _resolver.CreateClient(provider));
         Assert.Contains("API key", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -235,7 +235,7 @@ public sealed class ModelProviderFactoryTests
         var provider = MakeProvider(ProviderType.GoogleGemini,
             model: "gemini-2.0-flash",
             apiKey: "AIza-test-key");
-        using var client = _factory.CreateClient(provider);
+        using var client = _resolver.CreateClient(provider);
         Assert.NotNull(client);
     }
 
@@ -246,7 +246,7 @@ public sealed class ModelProviderFactoryTests
             endpoint: "https://custom-gemini.example.com/v1/",
             model: "gemini-2.0-flash",
             apiKey: "AIza-test-key");
-        using var client = _factory.CreateClient(provider);
+        using var client = _resolver.CreateClient(provider);
         Assert.NotNull(client);
     }
 
@@ -254,7 +254,7 @@ public sealed class ModelProviderFactoryTests
     public void CreateClient_GoogleGemini_WithoutApiKey_Throws()
     {
         var provider = MakeProvider(ProviderType.GoogleGemini, apiKey: null);
-        var ex = Assert.Throws<InvalidOperationException>(() => _factory.CreateClient(provider));
+        var ex = Assert.Throws<InvalidOperationException>(() => _resolver.CreateClient(provider));
         Assert.Contains("API key", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -268,7 +268,7 @@ public sealed class ModelProviderFactoryTests
         var provider = MakeProvider(ProviderType.GitHubCopilot,
             model: "claude-sonnet-4",
             apiKey: null);
-        using var client = _factory.CreateClient(provider);
+        using var client = _resolver.CreateClient(provider);
         Assert.NotNull(client);
     }
 
@@ -278,7 +278,7 @@ public sealed class ModelProviderFactoryTests
         var provider = MakeProvider(ProviderType.GitHubCopilot,
             model: "gpt-4o",
             apiKey: "ghp_test_token_12345");
-        using var client = _factory.CreateClient(provider);
+        using var client = _resolver.CreateClient(provider);
         Assert.NotNull(client);
     }
 
@@ -290,7 +290,7 @@ public sealed class ModelProviderFactoryTests
     public void CreateClient_UnsupportedProviderType_Throws()
     {
         var provider = MakeProvider((ProviderType)999);
-        Assert.Throws<NotSupportedException>(() => _factory.CreateClient(provider));
+        Assert.Throws<NotSupportedException>(() => _resolver.CreateClient(provider));
     }
 
     [Fact]
@@ -301,7 +301,7 @@ public sealed class ModelProviderFactoryTests
             model: "claude-sonnet-4-20250514",
             apiKey: "sk-ant-fake-key");
 
-        var result = await _factory.TestConnectionAsync(provider);
+        var result = await _resolver.TestConnectionAsync(provider);
 
         Assert.False(result.Success);
         Assert.Contains("failed", result.Message, StringComparison.OrdinalIgnoreCase);
@@ -315,7 +315,7 @@ public sealed class ModelProviderFactoryTests
     public void CreateEmbeddingGenerator_OpenAI_ReturnsGenerator()
     {
         var provider = MakeProvider(ProviderType.OpenAI, model: "text-embedding-3-small");
-        var generator = _factory.CreateEmbeddingGenerator(provider);
+        var generator = _resolver.CreateEmbeddingGenerator(provider);
         Assert.NotNull(generator);
     }
 
@@ -325,7 +325,7 @@ public sealed class ModelProviderFactoryTests
         var provider = MakeProvider(ProviderType.OpenAI,
             endpoint: "https://custom-endpoint.example.com/v1",
             model: "text-embedding-3-small");
-        var generator = _factory.CreateEmbeddingGenerator(provider);
+        var generator = _resolver.CreateEmbeddingGenerator(provider);
         Assert.NotNull(generator);
     }
 
@@ -335,7 +335,7 @@ public sealed class ModelProviderFactoryTests
         var provider = MakeProvider(ProviderType.AzureOpenAI,
             endpoint: "https://myinstance.openai.azure.com",
             model: "text-embedding-ada-002");
-        var generator = _factory.CreateEmbeddingGenerator(provider);
+        var generator = _resolver.CreateEmbeddingGenerator(provider);
         Assert.NotNull(generator);
     }
 
@@ -347,7 +347,7 @@ public sealed class ModelProviderFactoryTests
             model: "text-embedding-ada-002",
             apiKey: null,
             useDefaultCredentials: true);
-        var generator = _factory.CreateEmbeddingGenerator(provider);
+        var generator = _resolver.CreateEmbeddingGenerator(provider);
         Assert.NotNull(generator);
     }
 
@@ -355,7 +355,7 @@ public sealed class ModelProviderFactoryTests
     public void CreateEmbeddingGenerator_AzureOpenAI_RequiresEndpoint()
     {
         var provider = MakeProvider(ProviderType.AzureOpenAI, model: "text-embedding-ada-002");
-        Assert.Throws<InvalidOperationException>(() => _factory.CreateEmbeddingGenerator(provider));
+        Assert.Throws<InvalidOperationException>(() => _resolver.CreateEmbeddingGenerator(provider));
     }
 
     [Fact]
@@ -364,7 +364,7 @@ public sealed class ModelProviderFactoryTests
         var provider = MakeProvider(ProviderType.AzureAIInference,
             endpoint: "https://my-inference.inference.ai.azure.com",
             model: "text-embedding-3-small");
-        var generator = _factory.CreateEmbeddingGenerator(provider);
+        var generator = _resolver.CreateEmbeddingGenerator(provider);
         Assert.NotNull(generator);
     }
 
@@ -372,7 +372,7 @@ public sealed class ModelProviderFactoryTests
     public void CreateEmbeddingGenerator_AzureAIInference_RequiresEndpoint()
     {
         var provider = MakeProvider(ProviderType.AzureAIInference, model: "embed-model");
-        Assert.Throws<InvalidOperationException>(() => _factory.CreateEmbeddingGenerator(provider));
+        Assert.Throws<InvalidOperationException>(() => _resolver.CreateEmbeddingGenerator(provider));
     }
 
     [Fact]
@@ -381,7 +381,7 @@ public sealed class ModelProviderFactoryTests
         var provider = MakeProvider(ProviderType.Ollama,
             model: "nomic-embed-text",
             apiKey: null);
-        var generator = _factory.CreateEmbeddingGenerator(provider);
+        var generator = _resolver.CreateEmbeddingGenerator(provider);
         Assert.NotNull(generator);
     }
 
@@ -392,7 +392,7 @@ public sealed class ModelProviderFactoryTests
             endpoint: "http://gpu-server:11434",
             model: "nomic-embed-text",
             apiKey: null);
-        var generator = _factory.CreateEmbeddingGenerator(provider);
+        var generator = _resolver.CreateEmbeddingGenerator(provider);
         Assert.NotNull(generator);
     }
 
@@ -401,7 +401,7 @@ public sealed class ModelProviderFactoryTests
     {
         var provider = MakeProvider(ProviderType.GoogleGemini,
             model: "text-embedding-004");
-        var generator = _factory.CreateEmbeddingGenerator(provider);
+        var generator = _resolver.CreateEmbeddingGenerator(provider);
         Assert.NotNull(generator);
     }
 
@@ -409,21 +409,21 @@ public sealed class ModelProviderFactoryTests
     public void CreateEmbeddingGenerator_Anthropic_ThrowsNotSupported()
     {
         var provider = MakeProvider(ProviderType.Anthropic, model: "any-model");
-        Assert.Throws<NotSupportedException>(() => _factory.CreateEmbeddingGenerator(provider));
+        Assert.Throws<NotSupportedException>(() => _resolver.CreateEmbeddingGenerator(provider));
     }
 
     [Fact]
     public void CreateEmbeddingGenerator_GitHubCopilot_ThrowsNotSupported()
     {
         var provider = MakeProvider(ProviderType.GitHubCopilot, model: "any-model");
-        Assert.Throws<NotSupportedException>(() => _factory.CreateEmbeddingGenerator(provider));
+        Assert.Throws<NotSupportedException>(() => _resolver.CreateEmbeddingGenerator(provider));
     }
 
     [Fact]
     public async Task TestEmbeddingConnection_WithFakeKey_ReturnsFailed()
     {
         var provider = MakeProvider(ProviderType.OpenAI, model: "text-embedding-3-small");
-        var result = await _factory.TestEmbeddingConnectionAsync(provider);
+        var result = await _resolver.TestEmbeddingConnectionAsync(provider);
         Assert.False(result.Success);
         Assert.Contains("failed", result.Message, StringComparison.OrdinalIgnoreCase);
     }

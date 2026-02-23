@@ -1,14 +1,6 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using A2A;
-using lucia.Agents.Orchestration;
-using lucia.Tests.TestDoubles;
-using Microsoft.Extensions.DependencyInjection;
 using StackExchange.Redis;
 using Testcontainers.Redis;
-using Xunit;
 
 namespace lucia.Tests.Integration;
 

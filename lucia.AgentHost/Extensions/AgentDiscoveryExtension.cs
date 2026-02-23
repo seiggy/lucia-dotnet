@@ -4,9 +4,6 @@ using A2A.AspNetCore;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Agents;
 using lucia.Agents.Registry;
-using Microsoft.Agents.AI.A2A;
-using Microsoft.Agents.AI.Hosting;
-using Microsoft.Agents.AI.Hosting.OpenAI;
 
 namespace lucia.AgentHost.Extensions;
 
@@ -76,7 +73,7 @@ public static class AgentDiscoveryExtension
         routeGroup.MapGet($"{agentDiscoveryPath}/.well-known/agent-card.json", async (HttpRequest request, CancellationToken cancellationToken) =>
         {
             var agentUrl = $"{request.Scheme}://{request.Host}{agentHostPath}";
-            var agentCard = await taskManager.OnAgentCardQuery(agentUrl, cancellationToken);
+            var agentCard = await taskManager.OnAgentCardQuery(agentUrl, cancellationToken).ConfigureAwait(false);
             return Results.Ok(agentCard);
         });
 

@@ -1,14 +1,12 @@
 using System.Diagnostics;
 using A2A;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Agents.AI;
-using Microsoft.Agents.AI.A2A;
 using Microsoft.Extensions.Logging;
-using lucia.Agents.Skills;
-using lucia.Agents.Configuration;
 using lucia.Agents.Abstractions;
-using lucia.Agents.Orchestration;
+using lucia.Agents.Configuration;
+using lucia.Agents.Mcp;
+using lucia.Agents.Services;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.Configuration;
@@ -20,15 +18,18 @@ namespace lucia.MusicAgent;
 /// </summary>
 public class MusicAgent : ILuciaAgent
 {
+    private const string AgentId = "music-agent";
     private static readonly ActivitySource ActivitySource = new("Lucia.Agents.Music", "1.0.0");
 
     private readonly AgentCard _agent;
     private readonly MusicPlaybackSkill _musicSkill;
+    private readonly IChatClientResolver _clientResolver;
+    private readonly IAgentDefinitionRepository _definitionRepository;
+    private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<MusicAgent> _logger;
     private readonly IConfiguration _configuration;
-    private readonly TaskManager _taskManager;
-    private AIAgent _aiAgent;
-    private IServer _server;
+    private readonly IServer _server;
+    private volatile AIAgent _aiAgent;
 
     /// <summary>
     /// The system instructions used by this agent.
@@ -41,13 +42,18 @@ public class MusicAgent : ILuciaAgent
     public IList<AITool> Tools { get; }
 
     public MusicAgent(
-        [FromKeyedServices(OrchestratorServiceKeys.MusicModel)] IChatClient chatClient,
+        IChatClient defaultChatClient,
+        IChatClientResolver clientResolver,
+        IAgentDefinitionRepository definitionRepository,
         MusicPlaybackSkill musicSkill,
         IServer server,
         IConfiguration configuration,
         ILoggerFactory loggerFactory)
     {
         _musicSkill = musicSkill;
+        _clientResolver = clientResolver;
+        _definitionRepository = definitionRepository;
+        _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<MusicAgent>();
         _server = server;
         _configuration = configuration;
@@ -75,7 +81,7 @@ public class MusicAgent : ILuciaAgent
         _agent = new AgentCard
         {
             Url = "pending", // Set to a non-empty placeholder; updated in InitializeAsync
-            Name = "music-agent",
+            Name = AgentId,
             Description = "Agent that orchestrates #Music Assistant #playback on #speaker endpoints",
             DocumentationUrl = "https://github.com/seiggy/lucia-dotnet/",
             IconUrl = "https://github.com/seiggy/lucia-dotnet/blob/master/lucia.png?raw=true",
@@ -120,8 +126,8 @@ public class MusicAgent : ILuciaAgent
 
         var agentOptions = new ChatClientAgentOptions
         {
-            Id = "music-agent",
-            Name = "music-agent",
+            Id = AgentId,
+            Name = AgentId,
             Description = "Handles music playback for MusicAssistant",
             ChatOptions = new()
             {
@@ -130,8 +136,8 @@ public class MusicAgent : ILuciaAgent
             }
         };
 
-        _aiAgent = new ChatClientAgent(chatClient, agentOptions, loggerFactory);
-        _taskManager = new TaskManager();
+        // Build initial agent with the default client; InitializeAsync may replace it
+        _aiAgent = new ChatClientAgent(defaultChatClient, agentOptions, loggerFactory);
     }
 
     /// <summary>
@@ -147,7 +153,7 @@ public class MusicAgent : ILuciaAgent
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         using var activity = ActivitySource.StartActivity("MusicAgent.Initialize", ActivityKind.Internal);
-        activity?.SetTag("agent.id", "music-agent");
+        activity?.SetTag("agent.id", AgentId);
         _logger.LogInformation("Initializing MusicAgent...");
         var selfUrl = _configuration["services:selfUrl"];
         if (!string.IsNullOrWhiteSpace(selfUrl))
@@ -168,7 +174,34 @@ public class MusicAgent : ILuciaAgent
         }
         
         await _musicSkill.InitializeAsync(cancellationToken).ConfigureAwait(false);
+
+        // Resolve per-agent model from AgentDefinition if configured
+        var definition = await _definitionRepository.GetAgentDefinitionAsync(AgentId, cancellationToken).ConfigureAwait(false);
+        if (definition is not null && !string.IsNullOrWhiteSpace(definition.ModelConnectionName))
+        {
+            var client = await _clientResolver.ResolveAsync(definition.ModelConnectionName, cancellationToken).ConfigureAwait(false);
+            _aiAgent = BuildAgent(client);
+            _logger.LogInformation("MusicAgent: using model provider '{Provider}'", definition.ModelConnectionName);
+        }
+
         activity?.SetStatus(ActivityStatusCode.Ok);
         _logger.LogInformation("MusicAgent initialized successfully");
+    }
+
+    private ChatClientAgent BuildAgent(IChatClient chatClient)
+    {
+        var agentOptions = new ChatClientAgentOptions
+        {
+            Id = AgentId,
+            Name = AgentId,
+            Description = "Handles music playback for MusicAssistant",
+            ChatOptions = new()
+            {
+                Instructions = Instructions,
+                Tools = Tools
+            }
+        };
+
+        return new ChatClientAgent(chatClient, agentOptions, _loggerFactory);
     }
 }

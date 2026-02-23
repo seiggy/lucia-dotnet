@@ -1,9 +1,7 @@
-using System.Net;
 using System.Text.Encodings.Web;
 using lucia.AgentHost.Auth;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 

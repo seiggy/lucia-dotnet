@@ -1,5 +1,3 @@
-using lucia.Agents.Abstractions;
-
 namespace lucia.Agents.Mcp;
 
 /// <summary>

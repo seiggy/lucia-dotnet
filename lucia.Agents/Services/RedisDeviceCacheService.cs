@@ -48,7 +48,7 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
         try
         {
             var db = _redis.GetDatabase();
-            var value = await db.StringGetAsync(LightsKey);
+            var value = await db.StringGetAsync(LightsKey).ConfigureAwait(false);
 
             if (value.IsNullOrEmpty)
             {
@@ -94,7 +94,7 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
 
             var json = JsonSerializer.Serialize(dtos);
             var db = _redis.GetDatabase();
-            await db.StringSetAsync(LightsKey, json, ttl);
+            await db.StringSetAsync(LightsKey, json, ttl).ConfigureAwait(false);
         }
         catch (RedisException ex)
         {
@@ -114,7 +114,7 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
         try
         {
             var db = _redis.GetDatabase();
-            var value = await db.StringGetAsync(PlayersKey);
+            var value = await db.StringGetAsync(PlayersKey).ConfigureAwait(false);
 
             if (value.IsNullOrEmpty)
             {
@@ -160,7 +160,7 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
 
             var json = JsonSerializer.Serialize(dtos);
             var db = _redis.GetDatabase();
-            await db.StringSetAsync(PlayersKey, json, ttl);
+            await db.StringSetAsync(PlayersKey, json, ttl).ConfigureAwait(false);
         }
         catch (RedisException ex)
         {
@@ -181,7 +181,7 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
         try
         {
             var db = _redis.GetDatabase();
-            var value = await db.StringGetAsync(EmbeddingKeyPrefix + key);
+            var value = await db.StringGetAsync(EmbeddingKeyPrefix + key).ConfigureAwait(false);
 
             if (value.IsNullOrEmpty)
             {
@@ -215,7 +215,7 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
             var array = embedding.Vector.ToArray();
             var json = JsonSerializer.Serialize(array);
             var db = _redis.GetDatabase();
-            await db.StringSetAsync(EmbeddingKeyPrefix + key, json, ttl);
+            await db.StringSetAsync(EmbeddingKeyPrefix + key, json, ttl).ConfigureAwait(false);
         }
         catch (RedisException ex)
         {
@@ -235,7 +235,7 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
         try
         {
             var db = _redis.GetDatabase();
-            var value = await db.StringGetAsync(AreaEmbeddingsKey);
+            var value = await db.StringGetAsync(AreaEmbeddingsKey).ConfigureAwait(false);
 
             if (value.IsNullOrEmpty)
             {
@@ -275,7 +275,7 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
 
             var json = JsonSerializer.Serialize(raw);
             var db = _redis.GetDatabase();
-            await db.StringSetAsync(AreaEmbeddingsKey, json, ttl);
+            await db.StringSetAsync(AreaEmbeddingsKey, json, ttl).ConfigureAwait(false);
         }
         catch (RedisException ex)
         {
@@ -322,7 +322,7 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
         try
         {
             var db = _redis.GetDatabase();
-            var value = await db.StringGetAsync(ClimateDevicesKey);
+            var value = await db.StringGetAsync(ClimateDevicesKey).ConfigureAwait(false);
 
             if (value.IsNullOrEmpty)
             {
@@ -384,7 +384,7 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
 
             var json = JsonSerializer.Serialize(dtos);
             var db = _redis.GetDatabase();
-            await db.StringSetAsync(ClimateDevicesKey, json, ttl);
+            await db.StringSetAsync(ClimateDevicesKey, json, ttl).ConfigureAwait(false);
         }
         catch (RedisException ex)
         {
@@ -404,7 +404,7 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
         try
         {
             var db = _redis.GetDatabase();
-            var value = await db.StringGetAsync(FansKey);
+            var value = await db.StringGetAsync(FansKey).ConfigureAwait(false);
 
             if (value.IsNullOrEmpty)
             {
@@ -456,7 +456,7 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
 
             var json = JsonSerializer.Serialize(dtos);
             var db = _redis.GetDatabase();
-            await db.StringSetAsync(FansKey, json, ttl);
+            await db.StringSetAsync(FansKey, json, ttl).ConfigureAwait(false);
         }
         catch (RedisException ex)
         {

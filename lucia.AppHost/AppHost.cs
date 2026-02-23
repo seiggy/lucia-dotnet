@@ -1,8 +1,4 @@
-using Aspire.Hosting;
 using Aspire.Hosting.Azure;
-using lucia.AppHost;
-using Projects;
-using Scalar.Aspire;
 
 var builder = DistributedApplication.CreateBuilder(args);
 

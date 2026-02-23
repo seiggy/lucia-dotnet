@@ -1,5 +1,4 @@
 using A2A;
-using System.Runtime.CompilerServices;
 
 namespace lucia.Agents.Registry;
 

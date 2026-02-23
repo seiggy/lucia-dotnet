@@ -13,7 +13,7 @@ namespace lucia.Agents.Services;
 public sealed class EmbeddingProviderResolver : IEmbeddingProviderResolver
 {
     private readonly IModelProviderRepository _providerRepository;
-    private readonly IModelProviderFactory _providerFactory;
+    private readonly IModelProviderResolver _providerResolver;
     private readonly ILogger<EmbeddingProviderResolver> _logger;
 
     /// <summary>
@@ -23,11 +23,11 @@ public sealed class EmbeddingProviderResolver : IEmbeddingProviderResolver
 
     public EmbeddingProviderResolver(
         IModelProviderRepository providerRepository,
-        IModelProviderFactory providerFactory,
+        IModelProviderResolver providerResolver,
         ILogger<EmbeddingProviderResolver> logger)
     {
         _providerRepository = providerRepository;
-        _providerFactory = providerFactory;
+        _providerResolver = providerResolver;
         _logger = logger;
     }
 
@@ -93,7 +93,7 @@ public sealed class EmbeddingProviderResolver : IEmbeddingProviderResolver
     {
         try
         {
-            var generator = _providerFactory.CreateEmbeddingGenerator(provider);
+            var generator = _providerResolver.CreateEmbeddingGenerator(provider);
             _cache[provider.Id] = generator;
             _logger.LogInformation("Created embedding generator for provider '{ProviderId}' ({ProviderType}, model={Model})",
                 provider.Id, provider.ProviderType, provider.ModelName);

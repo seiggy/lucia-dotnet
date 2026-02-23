@@ -1,4 +1,3 @@
-using System.Linq;
 using System.Text.RegularExpressions;
 using A2A;
 using lucia.Agents.Training.Models;
@@ -38,13 +37,13 @@ public sealed class MongoTaskArchiveStore : ITaskArchiveStore
     {
         var archived = MapToArchived(task);
         var filter = Builders<ArchivedTask>.Filter.Eq(t => t.Id, archived.Id);
-        await _tasks.ReplaceOneAsync(filter, archived, new ReplaceOptions { IsUpsert = true }, cancellationToken);
+        await _tasks.ReplaceOneAsync(filter, archived, new ReplaceOptions { IsUpsert = true }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<ArchivedTask?> GetArchivedTaskAsync(string taskId, CancellationToken cancellationToken = default)
     {
         var filter = Builders<ArchivedTask>.Filter.Eq(t => t.Id, taskId);
-        return await _tasks.Find(filter).FirstOrDefaultAsync(cancellationToken);
+        return await _tasks.Find(filter).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<PagedResult<ArchivedTask>> ListArchivedTasksAsync(TaskFilterCriteria filter, CancellationToken cancellationToken = default)
@@ -52,14 +51,14 @@ public sealed class MongoTaskArchiveStore : ITaskArchiveStore
         var mongoFilter = BuildFilter(filter);
         var sort = Builders<ArchivedTask>.Sort.Descending(t => t.ArchivedAt);
 
-        var totalCount = await _tasks.CountDocumentsAsync(mongoFilter, cancellationToken: cancellationToken);
+        var totalCount = await _tasks.CountDocumentsAsync(mongoFilter, cancellationToken: cancellationToken).ConfigureAwait(false);
         var skip = (filter.Page - 1) * filter.PageSize;
 
         var items = await _tasks.Find(mongoFilter)
             .Sort(sort)
             .Skip(skip)
             .Limit(filter.PageSize)
-            .ToListAsync(cancellationToken);
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
 
         return new PagedResult<ArchivedTask>
         {
@@ -79,7 +78,7 @@ public sealed class MongoTaskArchiveStore : ITaskArchiveStore
         var failedTask = _tasks.CountDocumentsAsync(fb.Eq(t => t.Status, "Failed"), cancellationToken: cancellationToken);
         var canceledTask = _tasks.CountDocumentsAsync(fb.Eq(t => t.Status, "Canceled"), cancellationToken: cancellationToken);
 
-        await Task.WhenAll(totalTask, completedTask, failedTask, canceledTask);
+        await Task.WhenAll(totalTask, completedTask, failedTask, canceledTask).ConfigureAwait(false);
 
         // Aggregate by agent
         var agentPipeline = new BsonDocument[]
@@ -94,7 +93,7 @@ public sealed class MongoTaskArchiveStore : ITaskArchiveStore
 
         var agentGroups = await _tasks
             .Aggregate<BsonDocument>(agentPipeline)
-            .ToListAsync(cancellationToken);
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
 
         var byAgent = new Dictionary<string, int>();
         foreach (var group in agentGroups)
@@ -120,7 +119,7 @@ public sealed class MongoTaskArchiveStore : ITaskArchiveStore
     public async Task<bool> IsArchivedAsync(string taskId, CancellationToken cancellationToken = default)
     {
         var filter = Builders<ArchivedTask>.Filter.Eq(t => t.Id, taskId);
-        return await _tasks.CountDocumentsAsync(filter, cancellationToken: cancellationToken) > 0;
+        return await _tasks.CountDocumentsAsync(filter, cancellationToken: cancellationToken).ConfigureAwait(false) > 0;
     }
 
     private static ArchivedTask MapToArchived(AgentTask task)

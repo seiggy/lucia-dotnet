@@ -337,74 +337,15 @@ public static class ServiceCollectionExtensions
         // Register session factory for orchestrator
         builder.Services.AddSingleton<IAgentSessionFactory, InMemorySessionFactory>();
 
-        // Register default keyed IChatClient forwardings for all agent model keys.
-        // Each key forwards to the unkeyed IChatClient so agents resolve successfully
-        // even when no per-agent model is explicitly configured.
-        foreach (var key in OrchestratorServiceKeys.AllAgentModelKeys)
-        {
-            builder.Services.AddKeyedSingleton<IChatClient>(
-                key,
-                (sp, _) => sp.GetRequiredService<IChatClient>());
-        }
+        // Register default keyed IChatClient forwarding for the orchestrator router.
+        // This forwards to the unkeyed IChatClient so the router resolves successfully
+        // even when no per-router model is explicitly configured.
+        builder.Services.AddKeyedSingleton<IChatClient>(
+            OrchestratorServiceKeys.RouterModel,
+            (sp, _) => sp.GetRequiredService<IChatClient>());
 
-        // Apply config-driven per-agent model overrides.
-        // When an agent's AgentConfiguration specifies a ModelConnectionName, register
-        // a real keyed IChatClient for that agent's service key, overriding the default
-        // forwarding above.
-        var agentConfigs = builder.Configuration.GetSection("Agents").Get<List<AgentConfiguration>>() ?? [];
-        var overrideCount = 0;
-        foreach (var agentConfig in agentConfigs)
-        {
-            if (string.IsNullOrWhiteSpace(agentConfig.ModelConnectionName))
-            {
-                Console.WriteLine(
-                    $"[lucia] Agent '{agentConfig.AgentName}': No ModelConnectionName configured — using default model.");
-                continue;
-            }
-
-            var serviceKey = ResolveAgentServiceKey(agentConfig.AgentName);
-            if (serviceKey is null)
-            {
-                Console.WriteLine(
-                    $"[lucia] WARNING: Agent '{agentConfig.AgentName}': Name not recognized — " +
-                    $"cannot map to a keyed IChatClient. ModelConnectionName '{agentConfig.ModelConnectionName}' ignored.");
-                continue;
-            }
-
-            // Verify the connection string exists before attempting registration
-            var connectionString = builder.Configuration.GetConnectionString(agentConfig.ModelConnectionName);
-            if (string.IsNullOrWhiteSpace(connectionString))
-            {
-                Console.WriteLine(
-                    $"[lucia] WARNING: Agent '{agentConfig.AgentName}': ModelConnectionName " +
-                    $"'{agentConfig.ModelConnectionName}' specified but connection string " +
-                    $"'ConnectionStrings:{agentConfig.ModelConnectionName}' not found — falling back to default model.");
-                continue;
-            }
-
-            overrideCount++;
-
-            // Register the keyed chat client from the named connection string.
-            // This overwrites the default forwarding for this key.
-            builder.AddKeyedChatClient(agentConfig.ModelConnectionName);
-
-            // Re-register the agent's service key to resolve from the named connection
-            builder.Services.AddKeyedSingleton<IChatClient>(
-                serviceKey,
-                (sp, _) => sp.GetRequiredKeyedService<IChatClient>(agentConfig.ModelConnectionName));
-
-            Console.WriteLine(
-                $"[lucia] Agent '{agentConfig.AgentName}': Model override applied — " +
-                $"using connection '{agentConfig.ModelConnectionName}' (key: {serviceKey}).");
-        }
-
-        if (overrideCount == 0 && agentConfigs.Count > 0)
-        {
-            Console.WriteLine(
-                $"[lucia] INFO: {agentConfigs.Count} agent(s) configured but none have ModelConnectionName set. " +
-                "All agents will use the default model. Set Agents[].ModelConnectionName in appsettings.json " +
-                "to assign per-agent models.");
-        }
+        // Wrap the router's keyed IChatClient with AgentTracingChatClient
+        WrapAgentChatClientWithTracing(builder.Services, OrchestratorServiceKeys.RouterModel, "orchestrator-router");
 
         // Register orchestrator components and engine
         builder.Services.AddSingleton<SessionManager>();
@@ -430,13 +371,6 @@ public static class ServiceCollectionExtensions
         builder.Services.AddHealthChecks()
             .AddCheck<AgentInitializationHealthCheck>("agent-initialization", tags: ["ready"]);
 
-        // Wrap each agent's keyed IChatClient with AgentTracingChatClient
-        // to capture full conversation traces (prompts, tool calls, results) per agent.
-        WrapAgentChatClientWithTracing(builder.Services, OrchestratorServiceKeys.LightModel, "light-agent");
-        WrapAgentChatClientWithTracing(builder.Services, OrchestratorServiceKeys.MusicModel, "music-agent");
-        WrapAgentChatClientWithTracing(builder.Services, OrchestratorServiceKeys.GeneralModel, "general-assistant");
-        WrapAgentChatClientWithTracing(builder.Services, OrchestratorServiceKeys.ClimateModel, "climate-agent");
-
         // Register MCP tool registry and dynamic agent system
         builder.Services.AddSingleton<IAgentDefinitionRepository, MongoAgentDefinitionRepository>();
         builder.Services.AddSingleton<IMcpToolRegistry, McpToolRegistry>();
@@ -446,12 +380,16 @@ public static class ServiceCollectionExtensions
 
         // Register model provider system
         builder.Services.AddSingleton<IModelProviderRepository, MongoModelProviderRepository>();
-        builder.Services.AddSingleton<IModelProviderFactory, ModelProviderFactory>();
+        builder.Services.AddSingleton<IModelProviderResolver, ModelProviderResolver>();
         builder.Services.AddSingleton<CopilotConnectService>();
 
         // Register embedding provider resolver — skills use this to get IEmbeddingGenerator
         // from the MongoDB-backed model provider system instead of hardcoded connection strings.
         builder.Services.AddSingleton<IEmbeddingProviderResolver, EmbeddingProviderResolver>();
+
+        // Register chat client resolver — built-in agents use this to resolve IChatClient
+        // from their AgentDefinition's ModelConnectionName via the model provider system.
+        builder.Services.AddSingleton<IChatClientResolver, ChatClientResolver>();
     }
 
     /// <summary>
@@ -493,22 +431,4 @@ public static class ServiceCollectionExtensions
         });
     }
 
-    /// <summary>
-    /// Maps a configured agent name to its well-known keyed service key.
-    /// Returns null if the agent name is not recognized.
-    /// </summary>
-    private static string? ResolveAgentServiceKey(string? agentName)
-    {
-        if (string.IsNullOrWhiteSpace(agentName))
-            return null;
-
-        return agentName.ToLowerInvariant() switch
-        {
-            "light-agent" or "lightagent" => OrchestratorServiceKeys.LightModel,
-            "music-agent" or "musicagent" => OrchestratorServiceKeys.MusicModel,
-            "general-assistant" or "generalagent" => OrchestratorServiceKeys.GeneralModel,
-            "router" or "orchestrator" => OrchestratorServiceKeys.RouterModel,
-            _ => null
-        };
-    }
 }
