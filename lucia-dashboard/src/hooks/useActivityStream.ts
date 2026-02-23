@@ -26,6 +26,12 @@ export function useActivityStream() {
     source.onmessage = (e) => {
       try {
         const evt: LiveEvent = JSON.parse(e.data)
+        if (evt.type === 'connected') {
+          // ACK from server — connection is confirmed live
+          setConnectionState('connected')
+          retriesRef.current = 0
+          return
+        }
         setLastEvent(evt)
       } catch { /* ignore */ }
     }

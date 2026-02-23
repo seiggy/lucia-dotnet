@@ -269,7 +269,7 @@ export interface CopilotConnectResult {
 // ── Activity Dashboard Types ──
 
 export interface LiveEvent {
-  type: 'requestStart' | 'routing' | 'agentStart' | 'toolCall' | 'toolResult' | 'agentComplete' | 'requestComplete' | 'error'
+  type: 'connected' | 'requestStart' | 'routing' | 'agentStart' | 'toolCall' | 'toolResult' | 'agentComplete' | 'requestComplete' | 'error'
   agentName?: string
   toolName?: string
   state?: string

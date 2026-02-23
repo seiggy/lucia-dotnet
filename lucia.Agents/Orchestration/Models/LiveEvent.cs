@@ -33,6 +33,7 @@ public sealed class LiveEvent
     public static class Types
     {
         public const string RequestStart = "requestStart";
+        public const string Connected = "connected";
         public const string Routing = "routing";
         public const string AgentStart = "agentStart";
         public const string ToolCall = "toolCall";

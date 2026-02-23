@@ -54,6 +54,15 @@ public static class ActivityApi
         ctx.Response.Headers.CacheControl = "no-cache";
         ctx.Response.Headers.Connection = "keep-alive";
 
+        // Send an immediate ack so the browser triggers EventSource.onopen
+        var ack = JsonSerializer.Serialize(new LiveEvent
+        {
+            Type = LiveEvent.Types.Connected,
+            State = LiveEvent.States.Idle,
+        }, JsonOptions);
+        await ctx.Response.WriteAsync($"data: {ack}\n\n", ct);
+        await ctx.Response.Body.FlushAsync(ct);
+
         await foreach (var evt in channel.ReadAllAsync(ct))
         {
             var json = JsonSerializer.Serialize(evt, JsonOptions);
