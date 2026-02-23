@@ -1,5 +1,6 @@
 using lucia.Agents.Configuration;
 using lucia.Agents.Mcp;
+using lucia.Agents.Registry;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 
@@ -81,12 +82,19 @@ public static class AgentDefinitionApi
 
     private static async Task<Results<NoContent, NotFound>> DeleteDefinitionAsync(
         string id,
-        [FromServices] IAgentDefinitionRepository repository)
+        [FromServices] IAgentDefinitionRepository repository,
+        [FromServices] IDynamicAgentProvider dynamicAgentProvider,
+        [FromServices] IAgentRegistry agentRegistry)
     {
         var existing = await repository.GetAgentDefinitionAsync(id);
         if (existing is null) return TypedResults.NotFound();
 
         await repository.DeleteAgentDefinitionAsync(id);
+
+        // Unregister from in-memory provider and agent registry
+        dynamicAgentProvider.Unregister(existing.Name);
+        await agentRegistry.UnregisterAgentAsync($"/a2a/{existing.Name}");
+
         return TypedResults.NoContent();
     }
 

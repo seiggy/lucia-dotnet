@@ -27,4 +27,9 @@ public interface IDynamicAgentProvider
     /// Removes all registered dynamic agents.
     /// </summary>
     void Clear();
+
+    /// <summary>
+    /// Unregisters a specific dynamic agent by name.
+    /// </summary>
+    bool Unregister(string name);
 }

@@ -31,4 +31,9 @@ public sealed class DynamicAgentProvider : IDynamicAgentProvider
     {
         _agents.Clear();
     }
+
+    public bool Unregister(string name)
+    {
+        return _agents.TryRemove(name, out _);
+    }
 }
