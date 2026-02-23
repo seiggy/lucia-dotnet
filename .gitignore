@@ -285,3 +285,4 @@ fabric.properties
 *.dll
 lucia.AppHost/plugins/**/*.dll
 *.sln.DotSettings.user
+.fuse_hidden*
