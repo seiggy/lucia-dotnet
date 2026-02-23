@@ -22,6 +22,7 @@
   <ItemGroup Label="A2A Protocol">
     <PackageVersion Include="A2A" Version="$(A2AVersion)" />
     <PackageVersion Include="A2A.AspNetCore" Version="$(A2AVersion)" />
+    <PackageVersion Include="GitHub.Copilot.SDK" Version="0.1.25" />
   </ItemGroup>
   <!-- ── .NET Aspire Hosting (AppHost orchestration) ──────────── -->
   <ItemGroup Label="Aspire Hosting">

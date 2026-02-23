@@ -3,6 +3,7 @@ using Anthropic;
 using Azure;
 using Azure.AI.Inference;
 using Azure.Identity;
+using GitHub.Copilot.SDK;
 using lucia.Agents.Configuration;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -13,19 +14,23 @@ namespace lucia.Agents.Mcp;
 
 /// <summary>
 /// Creates IChatClient instances from stored ModelProvider configurations.
-/// Supports OpenAI, Azure OpenAI, Azure AI Inference, Ollama, Anthropic, and Google Gemini.
+/// Supports OpenAI, Azure OpenAI, Azure AI Inference, Ollama, Anthropic, Google Gemini,
+/// and GitHub Copilot SDK.
 /// </summary>
 public sealed class ModelProviderFactory : IModelProviderFactory
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<ModelProviderFactory> _logger;
+    private readonly IServiceProvider _serviceProvider;
 
     public ModelProviderFactory(
         IHttpClientFactory httpClientFactory,
-        ILogger<ModelProviderFactory> logger)
+        ILogger<ModelProviderFactory> logger,
+        IServiceProvider serviceProvider)
     {
         _httpClientFactory = httpClientFactory;
         _logger = logger;
+        _serviceProvider = serviceProvider;
     }
 
     public IChatClient CreateClient(ModelProvider provider)
@@ -41,6 +46,7 @@ public sealed class ModelProviderFactory : IModelProviderFactory
             ProviderType.Ollama => CreateOllamaClient(provider),
             ProviderType.Anthropic => CreateAnthropicClient(provider),
             ProviderType.GoogleGemini => CreateGeminiClient(provider),
+            ProviderType.GitHubCopilot => CreateGitHubCopilotClient(provider),
             _ => throw new NotSupportedException($"Provider type '{provider.ProviderType}' is not supported")
         };
 
@@ -48,7 +54,7 @@ public sealed class ModelProviderFactory : IModelProviderFactory
         return new ChatClientBuilder(inner)
             .UseOpenTelemetry()
             .UseLogging()
-            .Build();
+            .Build(_serviceProvider);
     }
 
     public async Task<ModelProviderTestResult> TestConnectionAsync(ModelProvider provider, CancellationToken ct = default)
@@ -169,5 +175,19 @@ public sealed class ModelProviderFactory : IModelProviderFactory
         var options = new OpenAIClientOptions { Endpoint = new Uri(endpoint) };
         var client = new OpenAIClient(credential, options);
         return client.GetChatClient(provider.ModelName).AsIChatClient();
+    }
+
+    private static IChatClient CreateGitHubCopilotClient(ModelProvider provider)
+    {
+        // GitHub Copilot SDK wraps the copilot CLI process.
+        // Endpoint is used as the CLI path override if provided.
+        var cliPath = !string.IsNullOrWhiteSpace(provider.Endpoint) ? provider.Endpoint : "copilot";
+
+        var options = new CopilotClientOptions
+        {
+            CliPath = cliPath,
+        };
+
+        return new CopilotChatClientAdapter(options, provider.ModelName);
     }
 }

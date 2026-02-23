@@ -17,6 +17,7 @@ const PROVIDER_TYPES: { value: ProviderType; label: string; hint: string }[] = [
   { value: 'Ollama', label: 'Ollama', hint: 'Local Ollama instance (default: http://localhost:11434)' },
   { value: 'Anthropic', label: 'Anthropic', hint: 'Claude models via Anthropic API' },
   { value: 'GoogleGemini', label: 'Google Gemini', hint: 'Gemini models via OpenAI-compatible endpoint' },
+  { value: 'GitHubCopilot', label: 'GitHub Copilot SDK', hint: 'Requires copilot CLI installed and authenticated. Endpoint field overrides CLI path.' },
 ]
 
 const AUTH_TYPES = [

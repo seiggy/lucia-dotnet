@@ -200,7 +200,7 @@ export interface AgentDefinition {
 }
 
 // Model Providers
-export type ProviderType = 'OpenAI' | 'AzureOpenAI' | 'AzureAIInference' | 'Ollama' | 'Anthropic' | 'GoogleGemini';
+export type ProviderType = 'OpenAI' | 'AzureOpenAI' | 'AzureAIInference' | 'Ollama' | 'Anthropic' | 'GoogleGemini' | 'GitHubCopilot';
 
 export interface ModelAuthConfig {
   authType: string;

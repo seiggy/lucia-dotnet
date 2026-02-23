@@ -24,5 +24,8 @@ public enum ProviderType
     Anthropic,
 
     /// <summary>Google Gemini API.</summary>
-    GoogleGemini
+    GoogleGemini,
+
+    /// <summary>GitHub Copilot SDK (requires copilot CLI installed and authenticated).</summary>
+    GitHubCopilot
 }
