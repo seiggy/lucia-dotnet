@@ -24,7 +24,8 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
 - **🧠 Semantic Understanding** — Natural language processing using embeddings and semantic search—no rigid command structures required
 - **🔒 Privacy First** — Fully local operation with optional cloud LLM support; your data stays yours
 - **🏠 Deep Home Assistant Integration** — Native integration via custom component with agent selection, conversation API, and JSON-RPC communication
-- **📊 Management Dashboard** — React-based dark-themed dashboard for agent management, trace inspection, configuration, and dataset exports
+- **📊 Live Activity Dashboard** — Real-time agent mesh visualization with SSE-powered event streaming, summary metrics, and activity timeline
+- **📋 Management Dashboard** — React-based dark-themed dashboard for agent management, trace inspection, configuration, and dataset exports
 - **📦 Kubernetes Ready** — Cloud-native deployment with .NET Aspire, Helm charts, and K8s manifests
 - **🔌 Extensible** — Easy to add new agents and capabilities with standardized A2A protocol
 - **🛠️ Runtime Agent Builder** — Create custom agents via the dashboard with MCP tool integration—no code required
@@ -114,6 +115,12 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
 
 Lucia includes a full-featured React dashboard for managing your agent platform. Built with React 19, Vite 7, TanStack Query, and Tailwind CSS, it runs as part of the Aspire-orchestrated development stack.
 
+### Activity
+
+![Activity Dashboard](docs/images/activity.png)
+
+The default landing page shows real-time platform metrics and a live agent mesh visualization. Summary cards display total requests, error rate, cache hit rate, and task completion. The interactive mesh graph (powered by React Flow) shows the orchestrator, agents, and tools with animated connections during active requests. A live activity feed streams SSE events as they happen—routing decisions, tool calls, agent completions, and errors—all in real time.
+
 ### Traces
 
 ![Traces](docs/images/traces.png)
@@ -126,11 +133,29 @@ Monitor every conversation passing through the orchestrator. Filter by label, ag
 
 View all registered agents with their capabilities, skills, and connection status. Register new A2A agents, refresh agent metadata, and send test messages directly from the dashboard. Each agent card shows its version, endpoint URL, supported capabilities (Push, Streaming, History), and associated skills.
 
+### Agent Definitions
+
+![Agent Definitions](docs/images/agent-definitions.png)
+
+Create and manage custom agents at runtime—no code changes required. Each agent definition includes a name, system prompt, optional model connection override, and a granular MCP tool picker. Tags indicate system vs. user-defined agents. Changes take effect immediately; agents are loaded from MongoDB on each invocation.
+
+### Model Providers
+
+![Model Providers](docs/images/model-providers.png)
+
+Manage LLM provider connections across the platform. Configure Azure AI Foundry, OpenAI, Ollama, and other OpenAI-compatible endpoints. Each provider card shows the model name, endpoint URL, and deployment type. Copilot-connected models display a badge.
+
+### MCP Servers
+
+![MCP Servers](docs/images/mcp-servers.png)
+
+Register and manage MCP (Model Context Protocol) tool servers. Add stdio-based local tools (e.g., `dnx` .NET tools) or remote HTTP/SSE servers. Connect servers to discover available tools, view connection status, and manage environment variables and authentication headers.
+
 ### Configuration
 
 ![Configuration](docs/images/configuration.png)
 
-Schema-driven configuration editor with categorized settings. Manage Home Assistant connection details, orchestration parameters (RouterExecutor, AgentInvoker, ResultAggregator), Redis/MongoDB connection strings, Music Assistant integration, trace capture settings, and agent definitions—all from one page. Sensitive values are masked with a "Show secrets" toggle.
+Schema-driven configuration editor with categorized settings. Manage Home Assistant connection details, orchestration parameters (RouterExecutor, AgentInvoker, ResultAggregator), Redis/MongoDB connection strings, Music Assistant integration, trace capture settings, and agent definitions—all from one page. Sensitive values are masked with a "Show secrets" toggle. Mobile-friendly with a dropdown category selector on small screens.
 
 ### Dataset Exports
 
@@ -149,14 +174,6 @@ Monitor the routing prompt cache that accelerates repeated queries. View cache s
 ![Tasks](docs/images/tasks.png)
 
 Track active and archived tasks with status counters (Active, Completed, Failed, Cancelled). Switch between Active Tasks and Task History views to monitor ongoing work and review completed operations.
-
-### MCP Tool Servers
-
-Manage platform-wide MCP (Model Context Protocol) tool server registrations. Add stdio-based local tools (e.g., `dnx` .NET tools) or remote HTTP/SSE servers. Connect servers to discover available tools, view connection status, and manage environment variables and authentication headers.
-
-### Agent Definitions
-
-Create and manage custom agents at runtime—no code changes required. Each agent definition includes a name, system prompt (instructions), optional model connection override, and a granular MCP tool picker that lets you assign individual tools from registered MCP servers. Agents are loaded from MongoDB on each invocation, so changes take effect immediately.
 
 ## 🏗️ Architecture
 
@@ -244,9 +261,11 @@ lucia-dotnet/
 │   └── Configuration/            # Client settings
 ├── lucia-dashboard/              # React 19 + Vite 7 management dashboard
 │   └── src/
-│       ├── pages/                # Traces, Agents, Config, Exports, Cache, Tasks
+│       ├── pages/                # Activity, Traces, Agents, Config, Exports, Cache, Tasks
+│       ├── components/           # MeshGraph and shared UI components
+│       ├── hooks/                # useActivityStream and custom React hooks
 │       ├── context/              # Auth context and providers
-│       └── components/           # Shared UI components
+│       └── api.ts                # API client functions
 ├── lucia.ServiceDefaults/        # OpenTelemetry, health checks, resilience
 ├── lucia.Tests/                  # xUnit tests (unit, integration, eval)
 ├── custom_components/lucia/      # Home Assistant Python custom component
@@ -432,7 +451,7 @@ Lucia includes OpenTelemetry instrumentation out of the box via the `lucia.Servi
 - **Metrics** — Request rates, agent execution duration, LLM token usage
 - **Logs** — Structured logging with correlation IDs and agent-specific filtering
 
-The Aspire Dashboard provides built-in log aggregation, trace visualization, and metrics during development. For production, export to Prometheus, Grafana, Jaeger, or any OTLP-compatible backend.
+The Aspire Dashboard provides built-in log aggregation, trace visualization, and metrics during development. Lucia's own Activity Dashboard shows a live agent mesh graph and real-time event stream. For production, export to Prometheus, Grafana, Jaeger, or any OTLP-compatible backend.
 
 ## 🗺️ Roadmap
 
