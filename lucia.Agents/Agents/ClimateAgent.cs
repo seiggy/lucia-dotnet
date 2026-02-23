@@ -213,8 +213,9 @@ public sealed class ClimateAgent : ILuciaAgent
 
         if (_aiAgent is null || !string.Equals(_lastModelConnectionName, newConnectionName, StringComparison.Ordinal))
         {
-            var client = await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
-            _aiAgent = BuildAgent(client);
+            var copilotAgent = await _clientResolver.ResolveAIAgentAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
+            _aiAgent = copilotAgent ?? BuildAgent(
+                await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false));
             _logger.LogInformation("ClimateAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
             _lastModelConnectionName = newConnectionName;
         }

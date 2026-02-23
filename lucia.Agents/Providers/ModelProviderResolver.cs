@@ -6,9 +6,11 @@ using Azure.Identity;
 using GitHub.Copilot.SDK;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
-using lucia.Agents.Extensions;
+using lucia.Agents.GitHubCopilot;
 using lucia.Agents.Models;
+using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using OllamaSharp;
 using OpenAI;
@@ -49,7 +51,8 @@ public sealed class ModelProviderResolver : IModelProviderResolver
             ProviderType.Ollama => CreateOllamaClient(provider),
             ProviderType.Anthropic => CreateAnthropicClient(provider),
             ProviderType.GoogleGemini => CreateGeminiClient(provider),
-            ProviderType.GitHubCopilot => CreateGitHubCopilotClient(provider),
+            ProviderType.GitHubCopilot => throw new InvalidOperationException(
+                "GitHub Copilot providers produce AIAgent directly. Use CreateAIAgentAsync() instead of CreateClient()."),
             _ => throw new NotSupportedException($"Provider type '{provider.ProviderType}' is not supported")
         };
 
@@ -214,18 +217,41 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         return client.GetChatClient(provider.ModelName).AsIChatClient();
     }
 
-    private static IChatClient CreateGitHubCopilotClient(ModelProvider provider)
+    public async Task<AIAgent?> CreateAIAgentAsync(ModelProvider provider, CancellationToken ct = default)
     {
-        // GitHub Copilot SDK wraps the copilot CLI process.
-        var options = new CopilotClientOptions();
-
-        // Pass the GitHub token if configured (stored as the API key)
-        if (!string.IsNullOrWhiteSpace(provider.Auth.ApiKey))
+        if (provider.ProviderType != ProviderType.GitHubCopilot)
         {
-            options.GithubToken = provider.Auth.ApiKey;
+            return null;
         }
 
-        return new CopilotChatClientAdapter(options, provider.ModelName);
+        // Resolve optionally — not all hosts register the Copilot lifecycle service
+        var copilotLifecycle = _serviceProvider.GetService<CopilotClientLifecycleService>();
+        if (copilotLifecycle is null)
+        {
+            throw new InvalidOperationException(
+                "GitHub Copilot provider is configured but CopilotClientLifecycleService is not registered. " +
+                "Ensure AddLuciaAgents() is called on the host.");
+        }
+
+        await copilotLifecycle.EnsureStartedAsync(provider, ct).ConfigureAwait(false);
+
+        var client = copilotLifecycle.Client
+            ?? throw new InvalidOperationException("GitHub Copilot CLI is not running. Check logs for startup errors.");
+
+        var sessionConfig = new SessionConfig
+        {
+            Model = provider.ModelName
+        };
+
+        _logger.LogInformation("Creating GitHubCopilotAgent for provider {ProviderId} (model={Model})",
+            provider.Id, provider.ModelName);
+
+        return client.AsAIAgent(
+            sessionConfig,
+            ownsClient: false,
+            id: provider.Id,
+            name: provider.Name,
+            description: $"GitHub Copilot agent using {provider.ModelName}");
     }
 
     #region Embedding generators

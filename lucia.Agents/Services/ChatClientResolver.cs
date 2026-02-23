@@ -1,5 +1,7 @@
 using lucia.Agents.Abstractions;
+using lucia.Agents.Configuration;
 using lucia.Agents.Mcp;
+using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
@@ -54,6 +56,21 @@ public sealed class ChatClientResolver : IChatClientResolver
                 "Configure a default chat model provider in the dashboard.");
         }
 
+        // Copilot providers produce AIAgent, not IChatClient — fall back to default
+        if (provider.ProviderType == ProviderType.GitHubCopilot)
+        {
+            _logger.LogWarning(
+                "Provider '{ProviderName}' is GitHubCopilot (AIAgent-only). " +
+                "Falling back to default chat provider for IChatClient callers.",
+                effectiveName);
+            if (!string.Equals(effectiveName, DefaultChatProviderId, StringComparison.OrdinalIgnoreCase))
+                return await ResolveAsync(DefaultChatProviderId, ct).ConfigureAwait(false);
+
+            throw new InvalidOperationException(
+                "Default chat provider is a GitHubCopilot type which cannot produce an IChatClient. " +
+                "Configure a non-Copilot default chat provider.");
+        }
+
         try
         {
             var client = _resolver.CreateClient(provider);
@@ -76,5 +93,20 @@ public sealed class ChatClientResolver : IChatClientResolver
                 effectiveName);
             throw;
         }
+    }
+
+    public async Task<AIAgent?> ResolveAIAgentAsync(string? providerName, CancellationToken ct = default)
+    {
+        var effectiveName = string.IsNullOrWhiteSpace(providerName) ? DefaultChatProviderId : providerName;
+
+        var provider = await _repository.GetProviderAsync(effectiveName, ct).ConfigureAwait(false);
+
+        if (provider is null || !provider.Enabled)
+            return null;
+
+        if (provider.ProviderType != ProviderType.GitHubCopilot)
+            return null;
+
+        return await _resolver.CreateAIAgentAsync(provider, ct).ConfigureAwait(false);
     }
 }

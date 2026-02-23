@@ -107,8 +107,17 @@ public sealed class DynamicAgent : ILuciaAgent
         activity?.SetTag("agent.tool_count", tools.Count);
 
         // Resolve per-agent chat client from model provider, or fall back to default
-        var chatClient = await ResolveClientAsync(definition, cancellationToken).ConfigureAwait(false);
-        _cachedAgent = BuildAgent(definition, tools, chatClient);
+        // Copilot providers produce an AIAgent directly; skip BuildAgent in that case
+        var copilotAgent = await _clientResolver.ResolveAIAgentAsync(definition.ModelConnectionName, cancellationToken).ConfigureAwait(false);
+        if (copilotAgent is not null)
+        {
+            _cachedAgent = copilotAgent;
+        }
+        else
+        {
+            var chatClient = await ResolveClientAsync(definition, cancellationToken).ConfigureAwait(false);
+            _cachedAgent = BuildAgent(definition, tools, chatClient);
+        }
     }
 
     private async Task<IChatClient> ResolveClientAsync(AgentDefinition definition, CancellationToken ct)

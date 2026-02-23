@@ -145,6 +145,8 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IModelProviderRepository, MongoModelProviderRepository>();
         builder.Services.AddSingleton<IModelProviderResolver, ModelProviderResolver>();
         builder.Services.AddSingleton<CopilotConnectService>();
+        builder.Services.AddSingleton<CopilotClientLifecycleService>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<CopilotClientLifecycleService>());
 
         // Register embedding provider resolver — skills use this to get IEmbeddingGenerator
         // from the MongoDB-backed model provider system instead of hardcoded connection strings.

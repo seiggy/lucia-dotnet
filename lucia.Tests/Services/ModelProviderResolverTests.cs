@@ -264,23 +264,21 @@ public sealed class ModelProviderResolverTests
     #region GitHub Copilot
 
     [Fact]
-    public void CreateClient_GitHubCopilot_ReturnsClient()
+    public void CreateClient_GitHubCopilot_ThrowsInvalidOperation()
     {
+        // Copilot providers produce AIAgent directly; CreateClient should reject them
         var provider = MakeProvider(ProviderType.GitHubCopilot,
             model: "claude-sonnet-4",
             apiKey: null);
-        using var client = _resolver.CreateClient(provider);
-        Assert.NotNull(client);
+        Assert.Throws<InvalidOperationException>(() => _resolver.CreateClient(provider));
     }
 
     [Fact]
-    public void CreateClient_GitHubCopilot_WithToken_ReturnsClient()
+    public async Task CreateAIAgentAsync_NonCopilotProvider_ReturnsNull()
     {
-        var provider = MakeProvider(ProviderType.GitHubCopilot,
-            model: "gpt-4o",
-            apiKey: "ghp_test_token_12345");
-        using var client = _resolver.CreateClient(provider);
-        Assert.NotNull(client);
+        var provider = MakeProvider(ProviderType.OpenAI, model: "gpt-4o");
+        var agent = await _resolver.CreateAIAgentAsync(provider);
+        Assert.Null(agent);
     }
 
     #endregion

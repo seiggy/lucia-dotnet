@@ -123,8 +123,9 @@ public sealed class GeneralAgent : ILuciaAgent
         if (_aiAgent is not null && string.Equals(_lastModelConnectionName, newConnectionName, StringComparison.Ordinal))
             return;
 
-        var client = await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
-        _aiAgent = BuildAgent(client);
+        var copilotAgent = await _clientResolver.ResolveAIAgentAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
+        _aiAgent = copilotAgent ?? BuildAgent(
+            await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false));
         _logger.LogInformation("GeneralAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
         _lastModelConnectionName = newConnectionName;
     }

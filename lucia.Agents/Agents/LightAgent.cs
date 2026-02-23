@@ -168,8 +168,10 @@ public sealed class LightAgent : ILuciaAgent
 
         if (_aiAgent is null || !string.Equals(_lastModelConnectionName, newConnectionName, StringComparison.Ordinal))
         {
-            var client = await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
-            _aiAgent = BuildAgent(client);
+            // Copilot providers produce an AIAgent directly; others go through IChatClient
+            var copilotAgent = await _clientResolver.ResolveAIAgentAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
+            _aiAgent = copilotAgent ?? BuildAgent(
+                await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false));
             _logger.LogInformation("LightAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
             _lastModelConnectionName = newConnectionName;
         }

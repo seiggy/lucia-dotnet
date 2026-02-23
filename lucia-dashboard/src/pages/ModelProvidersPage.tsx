@@ -20,7 +20,8 @@ const PROVIDER_TYPES: { value: ProviderType; label: string; hint: string }[] = [
   { value: 'Ollama', label: 'Ollama', hint: 'Local Ollama instance (default: http://localhost:11434)' },
   { value: 'Anthropic', label: 'Anthropic', hint: 'Claude models via Anthropic API' },
   { value: 'GoogleGemini', label: 'Google Gemini', hint: 'Gemini models via OpenAI-compatible endpoint' },
-  { value: 'GitHubCopilot', label: 'GitHub Copilot SDK', hint: 'Uses bundled Copilot CLI. Requires GitHub Copilot subscription.' },
+  // TODO: Re-enable once Copilot SDK integration is stable
+  // { value: 'GitHubCopilot', label: 'GitHub Copilot SDK', hint: 'Uses bundled Copilot CLI. Requires GitHub Copilot subscription.' },
 ]
 
 const AUTH_TYPES = [
