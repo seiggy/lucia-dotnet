@@ -1,7 +1,6 @@
 namespace lucia.Tests.Services;
 
 using A2A;
-using FakeItEasy;
 using lucia.Agents.Registry;
 using lucia.Agents.Services;
 using Microsoft.Extensions.Logging.Abstractions;

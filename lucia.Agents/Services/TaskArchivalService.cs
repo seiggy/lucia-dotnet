@@ -49,8 +49,8 @@ public sealed class TaskArchivalService : BackgroundService
         {
             try
             {
-                await Task.Delay(_options.SweepInterval, stoppingToken);
-                await SweepAsync(stoppingToken);
+                await Task.Delay(_options.SweepInterval, stoppingToken).ConfigureAwait(false);
+                await SweepAsync(stoppingToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -68,7 +68,7 @@ public sealed class TaskArchivalService : BackgroundService
     private async Task SweepAsync(CancellationToken cancellationToken)
     {
         var db = _redis.GetDatabase();
-        var taskIdValues = await db.SetMembersAsync(TaskIdSetKey);
+        var taskIdValues = await db.SetMembersAsync(TaskIdSetKey).ConfigureAwait(false);
 
         var taskIds = taskIdValues
             .Where(v => v.HasValue)
@@ -87,12 +87,12 @@ public sealed class TaskArchivalService : BackgroundService
             try
             {
                 // Skip if already archived
-                if (await _archive.IsArchivedAsync(taskId, cancellationToken))
+                if (await _archive.IsArchivedAsync(taskId, cancellationToken).ConfigureAwait(false))
                 {
                     continue;
                 }
 
-                var task = await _taskStore.GetTaskAsync(taskId, cancellationToken);
+                var task = await _taskStore.GetTaskAsync(taskId, cancellationToken).ConfigureAwait(false);
                 if (task is null)
                 {
                     // Task expired from Redis but ID remains in the set — clean up
@@ -103,7 +103,7 @@ public sealed class TaskArchivalService : BackgroundService
                 var state = task.Status.State;
                 if (TerminalStates.Contains(state))
                 {
-                    await _archive.ArchiveTaskAsync(task, cancellationToken);
+                    await _archive.ArchiveTaskAsync(task, cancellationToken).ConfigureAwait(false);
                     archivedCount++;
                 }
             }

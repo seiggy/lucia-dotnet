@@ -38,13 +38,8 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 });
 
 // Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.AddChatClient("chat");
-builder.AddEmbeddingsClient("embeddings");
-
-// Register additional model deployments as keyed IChatClient services
-builder.AddKeyedChatClient("phi4");
-builder.AddKeyedChatClient("gpt-5-nano");
+// Chat and embedding clients are resolved at runtime from the Model Provider system
+// (MongoDB-backed) via IChatClientResolver and IEmbeddingProviderResolver.
 
 // Add Lucia multi-agent system
 builder.AddLuciaAgents();
@@ -53,7 +48,14 @@ builder.AddLuciaAgents();
 builder.Services.Configure<TraceCaptureOptions>(
     builder.Configuration.GetSection(TraceCaptureOptions.SectionName));
 builder.Services.AddSingleton<ITraceRepository, MongoTraceRepository>();
-builder.Services.AddSingleton<IOrchestratorObserver, TraceCaptureObserver>();
+builder.Services.AddSingleton<LiveActivityChannel>();
+builder.Services.AddSingleton<TraceCaptureObserver>();
+builder.Services.AddSingleton<LiveActivityObserver>();
+builder.Services.AddSingleton<IOrchestratorObserver>(sp =>
+    new CompositeOrchestratorObserver([
+        sp.GetRequiredService<TraceCaptureObserver>(),
+        sp.GetRequiredService<LiveActivityObserver>(),
+    ]));
 builder.Services.AddHostedService<TraceRetentionService>();
 
 // Task archive services
@@ -71,10 +73,50 @@ builder.Services.AddSingleton<IApiKeyService, MongoApiKeyService>();
 builder.Services.AddSingleton<ISessionService, HmacSessionService>();
 builder.Services.AddSingleton<ConfigStoreWriter>();
 
-builder.Services.AddAuthentication(AuthOptions.AuthenticationScheme)
+// Bind internal token options (injected by Aspire/K8s as env var InternalAuth__Token)
+builder.Services.Configure<InternalTokenOptions>(
+    builder.Configuration.GetSection(InternalTokenOptions.SectionName));
+
+builder.Services.AddAuthentication(options =>
+    {
+        options.DefaultScheme = "MultiScheme";
+        options.DefaultChallengeScheme = "MultiScheme";
+    })
     .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(
-        AuthOptions.AuthenticationScheme, _ => { });
-builder.Services.AddAuthorization();
+        AuthOptions.AuthenticationScheme, _ => { })
+    .AddScheme<AuthenticationSchemeOptions, InternalTokenAuthenticationHandler>(
+        InternalTokenDefaults.AuthenticationScheme, _ => { })
+    .AddPolicyScheme("MultiScheme", "API Key or Internal Token", options =>
+    {
+        // Route to the correct handler based on the request
+        options.ForwardDefaultSelector = context =>
+        {
+            // Bearer token → internal token handler
+            var authHeader = context.Request.Headers.Authorization.ToString();
+            if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            {
+                return InternalTokenDefaults.AuthenticationScheme;
+            }
+
+            // Everything else → API key handler (which also checks session cookies)
+            return AuthOptions.AuthenticationScheme;
+        };
+    });
+
+builder.Services.AddAuthorization(options =>
+{
+    // Internal-only: only platform-injected token (agent → registry)
+    options.AddPolicy("InternalOnly", policy =>
+        policy.AddAuthenticationSchemes(InternalTokenDefaults.AuthenticationScheme)
+              .RequireAuthenticatedUser());
+
+    // External or internal: either API key/session OR internal token
+    options.AddPolicy("ExternalOrInternal", policy =>
+        policy.AddAuthenticationSchemes(
+                AuthOptions.AuthenticationScheme,
+                InternalTokenDefaults.AuthenticationScheme)
+              .RequireAuthenticatedUser());
+});
 
 builder.Services.AddHttpClient("AgentProxy");
 
@@ -133,6 +175,10 @@ app.MapDatasetExportApi();
 app.MapConfigurationApi();
 app.MapPromptCacheApi();
 app.MapTaskManagementApi();
+app.MapMcpServerApi();
+app.MapAgentDefinitionApi();
+app.MapModelProviderApi();
+app.MapActivityApi();
 app.MapDefaultEndpoints();
 
 // SPA hosting: serve React dashboard assets in production

@@ -136,8 +136,8 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
       {toasts.map((t) => (
         <div
           key={t.id}
-          className={`flex items-center gap-3 rounded-lg px-4 py-3 shadow-lg text-sm font-medium transition-all duration-300 ${
-            t.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+          className={`flex items-center gap-3 rounded-xl px-4 py-3 shadow-lg text-sm font-medium transition-all duration-300 ${
+            t.type === 'success' ? 'bg-sage/20 text-light' : 'bg-ember/20 text-light'
           }`}
         >
           <span>{t.type === 'success' ? '✓' : '✕'}</span>
@@ -158,11 +158,11 @@ function CapBadge({ label, enabled }: { label: string; enabled: boolean }) {
     <span
       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
         enabled
-          ? 'bg-green-500/15 text-green-400 border border-green-500/30'
-          : 'bg-gray-700/50 text-gray-500 border border-gray-600/30'
+          ? 'bg-green-500/15 text-sage border border-green-500/30'
+          : 'bg-basalt/50 text-dust border border-stone/30'
       }`}
     >
-      <span className={`inline-block h-1.5 w-1.5 rounded-full ${enabled ? 'bg-green-400' : 'bg-gray-600'}`} />
+      <span className={`inline-block h-1.5 w-1.5 rounded-full ${enabled ? 'bg-green-400' : 'bg-stone'}`} />
       {label}
     </span>
   )
@@ -190,33 +190,33 @@ function AgentCardView({
       onClick={onSelect}
       className={`cursor-pointer rounded-xl border p-4 transition-all ${
         selected
-          ? 'border-indigo-500 bg-indigo-500/5 shadow-lg shadow-indigo-500/10'
-          : 'border-gray-700 bg-gray-800 hover:border-gray-600'
+          ? 'border-amber bg-amber-glow/5 shadow-lg shadow-amber/10'
+          : 'border-stone bg-charcoal hover:border-stone'
       }`}
     >
       <div className="flex items-start justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-white truncate">{agent.name}</h3>
-            <span className="text-[10px] font-mono text-gray-500 bg-gray-700/50 px-1.5 py-0.5 rounded">
+            <h3 className="text-sm font-semibold text-light truncate">{agent.name}</h3>
+            <span className="text-[10px] font-mono text-dust bg-basalt/50 px-1.5 py-0.5 rounded">
               v{agent.version}
             </span>
           </div>
-          <p className="mt-1 text-xs text-gray-400 line-clamp-2">{agent.description}</p>
-          <p className="mt-1.5 text-[11px] font-mono text-gray-600 truncate">{agent.url}</p>
+          <p className="mt-1 text-xs text-dust line-clamp-2">{agent.description}</p>
+          <p className="mt-1.5 text-[11px] font-mono text-dust truncate">{agent.url}</p>
         </div>
         <div className="flex shrink-0 gap-1 ml-3">
           <button
             onClick={(e) => { e.stopPropagation(); onRefresh() }}
             title="Refresh agent card"
-            className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-700 hover:text-indigo-400 transition-colors"
+            className="rounded-xl p-1.5 text-dust hover:bg-basalt hover:text-amber transition-colors"
           >
             ↻
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); onDelete() }}
             title="Unregister agent"
-            className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-700 hover:text-red-400 transition-colors"
+            className="rounded-xl p-1.5 text-dust hover:bg-basalt hover:text-rose transition-colors"
           >
             ✕
           </button>
@@ -236,7 +236,7 @@ function AgentCardView({
           {agent.skills.map((s) => (
             <span
               key={s.id}
-              className="rounded bg-gray-700 px-2 py-0.5 text-[10px] font-medium text-gray-300"
+              className="rounded bg-basalt px-2 py-0.5 text-[10px] font-medium text-fog"
               title={s.description}
             >
               {s.name}
@@ -327,7 +327,7 @@ function HASimulationPanel({
   ]
 
   return (
-    <div className={`border-b transition-colors ${enabled ? 'border-orange-500/30 bg-orange-500/5' : 'border-gray-700'}`}>
+    <div className={`border-b transition-colors ${enabled ? 'border-orange-500/30 bg-orange-500/5' : 'border-stone'}`}>
       {/* Toggle header */}
       <div className="flex items-center justify-between px-4 py-2">
         <div className="flex items-center gap-2">
@@ -337,7 +337,7 @@ function HASimulationPanel({
             aria-checked={enabled}
             onClick={() => onToggle(!enabled)}
             className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${
-              enabled ? 'bg-orange-500' : 'bg-gray-600'
+              enabled ? 'bg-orange-500' : 'bg-stone'
             }`}
           >
             <span
@@ -346,7 +346,7 @@ function HASimulationPanel({
               }`}
             />
           </button>
-          <span className={`text-xs font-medium ${enabled ? 'text-orange-400' : 'text-gray-500'}`}>
+          <span className={`text-xs font-medium ${enabled ? 'text-orange-400' : 'text-dust'}`}>
             🏠 Simulate Home Assistant
           </span>
         </div>
@@ -355,7 +355,7 @@ function HASimulationPanel({
             <button
               onClick={() => { setShowPreview(!showPreview); setShowTemplate(false) }}
               className={`rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${
-                showPreview ? 'bg-orange-500/20 text-orange-400' : 'text-gray-500 hover:text-gray-300'
+                showPreview ? 'bg-orange-500/20 text-orange-400' : 'text-dust hover:text-fog'
               }`}
             >
               Preview
@@ -363,14 +363,14 @@ function HASimulationPanel({
             <button
               onClick={() => { setShowTemplate(!showTemplate); setShowPreview(false) }}
               className={`rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${
-                showTemplate ? 'bg-orange-500/20 text-orange-400' : 'text-gray-500 hover:text-gray-300'
+                showTemplate ? 'bg-orange-500/20 text-orange-400' : 'text-dust hover:text-fog'
               }`}
             >
               Template
             </button>
             <button
               onClick={() => onContextChange(getDefaultHAContext())}
-              className="rounded px-2 py-0.5 text-[10px] font-medium text-gray-500 hover:text-gray-300 transition-colors"
+              className="rounded px-2 py-0.5 text-[10px] font-medium text-dust hover:text-fog transition-colors"
               title="Reset to current time/defaults"
             >
               Reset
@@ -381,16 +381,16 @@ function HASimulationPanel({
 
       {/* Context fields */}
       {enabled && !showPreview && !showTemplate && (
-        <div className="px-4 pb-3 grid grid-cols-3 gap-2">
+        <div className="px-4 pb-3 grid grid-cols-2 sm:grid-cols-3 gap-2">
           {contextFields.map((f) => (
             <div key={f.key}>
-              <label className="block text-[10px] font-medium text-gray-500 mb-0.5">{f.label}</label>
+              <label className="block text-[10px] font-medium text-dust mb-0.5">{f.label}</label>
               <input
                 type="text"
                 value={context[f.key]}
                 onChange={(e) => onContextChange({ ...context, [f.key]: e.target.value })}
                 placeholder={f.placeholder}
-                className="w-full rounded border border-gray-600 bg-gray-700 px-2 py-1 text-[11px] text-white placeholder-gray-500 focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none font-mono"
+                className="w-full rounded border border-stone bg-basalt px-2 py-1 text-[11px] text-light placeholder-dust/60 focus:border-orange-500 focus:ring-1 focus:ring-orange-500 input-focus font-mono"
               />
             </div>
           ))}
@@ -404,9 +404,9 @@ function HASimulationPanel({
             value={template}
             onChange={(e) => onTemplateChange(e.target.value)}
             rows={12}
-            className="w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-[11px] text-white font-mono placeholder-gray-500 focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none resize-y"
+            className="w-full rounded border border-stone bg-basalt px-3 py-2 text-[11px] text-light font-mono placeholder-dust/60 focus:border-orange-500 focus:ring-1 focus:ring-orange-500 input-focus resize-y"
           />
-          <p className="mt-1 text-[10px] text-gray-600">
+          <p className="mt-1 text-[10px] text-dust">
             Tokens: {'{{timestamp}}'} {'{{day_of_week}}'} {'{{location}}'} {'{{device_id}}'} {'{{device_area}}'} {'{{device_type}}'}
           </p>
         </div>
@@ -415,7 +415,7 @@ function HASimulationPanel({
       {/* Rendered preview */}
       {enabled && showPreview && (
         <div className="px-4 pb-3">
-          <pre className="rounded border border-gray-600 bg-gray-900 p-3 text-[11px] text-gray-300 font-mono whitespace-pre-wrap overflow-auto max-h-48">
+          <pre className="rounded border border-stone bg-void/50 p-3 text-[11px] text-fog font-mono whitespace-pre-wrap overflow-auto max-h-48">
             {renderTemplate(template, context)}
           </pre>
         </div>
@@ -461,57 +461,61 @@ function AgentDetailPanel({
   return (
     <div className="flex h-full flex-col">
       {/* Agent info header */}
-      <div className="border-b border-gray-700 p-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-indigo-500/20 text-lg font-bold text-indigo-400">
-            {agent.name.charAt(0).toUpperCase()}
+      <div className="border-b border-stone p-4 md:p-6">
+        <div>
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-glow/20 text-lg font-bold text-amber">
+              {agent.name.charAt(0).toUpperCase()}
+            </div>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-base font-semibold text-light truncate">{agent.name}</h2>
+              <p className="text-xs text-dust font-mono truncate">{agent.url}</p>
+            </div>
           </div>
-          <div className="min-w-0 flex-1">
-            <h2 className="text-base font-semibold text-white truncate">{agent.name}</h2>
-            <p className="text-xs text-gray-500 font-mono truncate">{agent.url}</p>
+          <p className="mt-2 text-sm text-dust">{agent.description}</p>
+
+          {/* Modes */}
+          <div className="mt-3 flex gap-4 text-xs text-dust">
+            <span>Input: {(agent.defaultInputModes ?? ['text']).join(', ')}</span>
+            <span>Output: {(agent.defaultOutputModes ?? ['text']).join(', ')}</span>
           </div>
-        </div>
-        <p className="mt-2 text-sm text-gray-400">{agent.description}</p>
 
-        {/* Modes */}
-        <div className="mt-3 flex gap-4 text-xs text-gray-500">
-          <span>Input: {(agent.defaultInputModes ?? ['text']).join(', ')}</span>
-          <span>Output: {(agent.defaultOutputModes ?? ['text']).join(', ')}</span>
-        </div>
-
-        {/* Skills detail */}
-        {agent.skills && agent.skills.length > 0 && (
-          <div className="mt-3 space-y-2">
-            <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Skills</h4>
-            {agent.skills.map((skill) => (
-              <div key={skill.id} className="rounded-lg bg-gray-750 border border-gray-700 p-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-white">{skill.name}</span>
-                  {skill.tags?.map((tag) => (
-                    <span key={tag} className="rounded bg-indigo-500/10 px-1.5 py-0.5 text-[10px] text-indigo-400">
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-                <p className="mt-1 text-xs text-gray-400">{skill.description}</p>
-                {skill.examples && skill.examples.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {skill.examples.map((ex, i) => (
-                      <button
-                        key={i}
-                        onClick={() => setMessage(ex)}
-                        className="rounded-full bg-gray-700 px-2.5 py-1 text-[11px] text-gray-300 hover:bg-indigo-500/20 hover:text-indigo-300 transition-colors cursor-pointer"
-                        title="Click to use as test message"
-                      >
-                        "{ex}"
-                      </button>
-                    ))}
+          {/* Skills detail */}
+          {agent.skills && agent.skills.length > 0 && (
+            <div className="mt-3 space-y-2">
+              <h4 className="text-xs font-semibold text-dust uppercase tracking-wider">Skills</h4>
+              <div className="grid gap-2 md:grid-cols-2">
+                {agent.skills.map((skill) => (
+                  <div key={skill.id} className="rounded-xl bg-basalt border border-stone p-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-light">{skill.name}</span>
+                      {skill.tags?.map((tag) => (
+                        <span key={tag} className="rounded bg-amber-glow/10 px-1.5 py-0.5 text-[10px] text-amber">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="mt-1 text-xs text-dust">{skill.description}</p>
+                    {skill.examples && skill.examples.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {skill.examples.map((ex, i) => (
+                          <button
+                            key={i}
+                            onClick={() => setMessage(ex)}
+                            className="rounded-full bg-basalt px-2.5 py-1 text-[11px] text-fog hover:bg-amber-glow/20 hover:text-amber transition-colors cursor-pointer"
+                            title="Click to use as test message"
+                          >
+                            "{ex}"
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                )}
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* HA Simulation */}
@@ -525,46 +529,48 @@ function AgentDetailPanel({
       />
 
       {/* Conversation area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {conversationHistory.length === 0 && (
-          <div className="flex h-full items-center justify-center text-sm text-gray-600">
-            Send a message to test this agent
-          </div>
-        )}
-        {conversationHistory.map((msg, i) => (
-          <div
-            key={i}
-            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
+      <div className="flex-1 overflow-y-auto p-4 md:p-6">
+        <div className="space-y-3">
+          {conversationHistory.length === 0 && (
+            <div className="flex h-full items-center justify-center text-sm text-dust min-h-[200px]">
+              Send a message to test this agent
+            </div>
+          )}
+          {conversationHistory.map((msg, i) => (
             <div
-              className={`max-w-[80%] rounded-xl px-4 py-2.5 text-sm ${
-                msg.role === 'user'
-                  ? 'bg-indigo-500 text-white'
-                  : 'bg-gray-700 text-gray-200'
-              }`}
+              key={i}
+              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
-              <p className="whitespace-pre-wrap">{msg.text}</p>
-              <p className={`mt-1 text-[10px] ${msg.role === 'user' ? 'text-indigo-200' : 'text-gray-500'}`}>
-                {msg.timestamp.toLocaleTimeString()}
-              </p>
+              <div
+                className={`max-w-[80%] rounded-xl px-4 py-2.5 text-sm ${
+                  msg.role === 'user'
+                    ? 'bg-amber-glow text-light'
+                    : 'bg-basalt text-light'
+                }`}
+              >
+                <p className="whitespace-pre-wrap">{msg.text}</p>
+                <p className={`mt-1 text-[10px] ${msg.role === 'user' ? 'text-amber' : 'text-dust'}`}>
+                  {msg.timestamp.toLocaleTimeString()}
+                </p>
+              </div>
             </div>
-          </div>
-        ))}
-        {sending && (
-          <div className="flex justify-start">
-            <div className="rounded-xl bg-gray-700 px-4 py-2.5 text-sm text-gray-400">
-              <span className="inline-flex gap-1">
-                <span className="animate-bounce">·</span>
-                <span className="animate-bounce" style={{ animationDelay: '0.1s' }}>·</span>
-                <span className="animate-bounce" style={{ animationDelay: '0.2s' }}>·</span>
-              </span>
+          ))}
+          {sending && (
+            <div className="flex justify-start">
+              <div className="rounded-xl bg-basalt px-4 py-2.5 text-sm text-dust">
+                <span className="inline-flex gap-1">
+                  <span className="animate-bounce">·</span>
+                  <span className="animate-bounce" style={{ animationDelay: '0.1s' }}>·</span>
+                  <span className="animate-bounce" style={{ animationDelay: '0.2s' }}>·</span>
+                </span>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Message input */}
-      <div className="border-t border-gray-700 p-4">
+      <div className="border-t border-stone p-4 md:p-6">
         <div className="flex gap-2">
           <input
             type="text"
@@ -573,15 +579,15 @@ function AgentDetailPanel({
             onKeyDown={(e) => e.key === 'Enter' && handleSend()}
             placeholder="Send a test message to this agent…"
             disabled={sending}
-            className="flex-1 rounded-lg border border-gray-600 bg-gray-700 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none disabled:opacity-50"
+            className="flex-1 rounded-xl border border-stone bg-basalt px-3 py-2.5 text-sm text-light placeholder-dust/60 input-focus focus:ring-1 focus:ring-amber disabled:opacity-50"
           />
           <button
             onClick={handleSend}
             disabled={!message.trim() || sending}
-            className={`rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors ${
+            className={`rounded-xl px-5 py-2.5 text-sm font-medium transition-colors ${
               !message.trim() || sending
-                ? 'bg-indigo-500/40 cursor-not-allowed'
-                : 'bg-indigo-500 hover:bg-indigo-400'
+                ? 'bg-amber-glow/40 text-light/50 cursor-not-allowed'
+                : 'bg-amber-glow text-void hover:brightness-110'
             }`}
           >
             Send
@@ -617,11 +623,11 @@ function RegisterDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="w-full max-w-lg rounded-xl bg-gray-800 p-6 shadow-2xl border border-gray-700">
-        <h3 className="text-lg font-semibold text-white">Register Agent</h3>
-        <p className="mt-1 text-sm text-gray-400">
+      <div className="w-full max-w-lg rounded-xl bg-charcoal p-6 shadow-2xl border border-stone">
+        <h3 className="text-lg font-semibold text-light">Register Agent</h3>
+        <p className="mt-1 text-sm text-dust">
           Enter the base URL of an A2A-compatible agent. The agent card will be fetched from
-          <code className="ml-1 text-xs bg-gray-700 px-1 py-0.5 rounded font-mono text-gray-300">
+          <code className="ml-1 text-xs bg-basalt px-1 py-0.5 rounded font-mono text-fog">
             /.well-known/agent-card.json
           </code>
         </p>
@@ -631,21 +637,21 @@ function RegisterDialog({
           onChange={(e) => setUri(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
           placeholder="https://agent-host:port"
-          className="mt-4 w-full rounded-lg border border-gray-600 bg-gray-700 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none font-mono"
+          className="mt-4 w-full rounded-xl border border-stone bg-basalt px-3 py-2 text-sm text-light placeholder-dust/60 input-focus focus:ring-1 focus:ring-amber input-focus font-mono"
           autoFocus
         />
         <div className="mt-6 flex justify-end gap-3">
           <button
             onClick={onClose}
-            className="rounded-lg bg-gray-700 px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-600 transition-colors"
+            className="rounded-xl bg-basalt px-4 py-2 text-sm font-medium text-fog hover:bg-stone transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={handleSubmit}
             disabled={!uri.trim()}
-            className={`rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors ${
-              !uri.trim() ? 'bg-indigo-500/40 cursor-not-allowed' : 'bg-indigo-500 hover:bg-indigo-400'
+            className={`rounded-xl px-4 py-2 text-sm font-medium text-light transition-colors ${
+              !uri.trim() ? 'bg-amber-glow/40 cursor-not-allowed' : 'bg-amber-glow hover:bg-amber-glow'
             }`}
           >
             Register
@@ -807,8 +813,8 @@ export default function AgentsPage() {
 
   if (loading) {
     return (
-      <div className="flex h-[70vh] items-center justify-center text-gray-400">
-        <svg className="mr-3 h-5 w-5 animate-spin text-indigo-500" viewBox="0 0 24 24" fill="none">
+      <div className="flex h-[70vh] items-center justify-center text-dust">
+        <svg className="mr-3 h-5 w-5 animate-spin text-amber" viewBox="0 0 24 24" fill="none">
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
         </svg>
@@ -820,12 +826,12 @@ export default function AgentsPage() {
   if (error) {
     return (
       <div className="flex h-[70vh] items-center justify-center">
-        <div className="rounded-xl bg-gray-800 p-8 text-center shadow-lg border border-gray-700">
-          <p className="text-red-400 text-lg font-medium">Failed to load agents</p>
-          <p className="mt-2 text-sm text-gray-500">{error}</p>
+        <div className="rounded-xl bg-charcoal p-8 text-center shadow-lg border border-stone">
+          <p className="text-rose text-lg font-medium">Failed to load agents</p>
+          <p className="mt-2 text-sm text-dust">{error}</p>
           <button
             onClick={loadAgents}
-            className="mt-4 rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-400 transition-colors"
+            className="mt-4 rounded-xl bg-amber-glow px-4 py-2 text-sm font-medium text-light hover:bg-amber-glow transition-colors"
           >
             Retry
           </button>
@@ -836,46 +842,60 @@ export default function AgentsPage() {
 
   // ── Main layout ───────────────────────────────────────────────
 
+  // On mobile, when an agent is selected we show the detail panel instead of the list
+  const showMobileDetail = selectedAgent !== null
+
   return (
-    <div className="flex h-[calc(100vh-80px)] flex-col">
+    <div className="-mx-4 -my-6 sm:-mx-6 lg:-mx-8 flex h-[calc(100vh-80px)] flex-col">
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
       <RegisterDialog open={registerOpen} onClose={() => setRegisterOpen(false)} onRegister={handleRegister} />
 
-      {/* Header */}
-      <header className="flex items-center justify-between border-b border-gray-700 px-6 py-4">
-        <div>
-          <h1 className="text-xl font-semibold">Agent Registry</h1>
-          <p className="mt-0.5 text-sm text-gray-400">
-            {agents.length} agent{agents.length !== 1 ? 's' : ''} registered
-          </p>
-        </div>
-        <div className="flex gap-2">
+      {/* Header — stacks on mobile */}
+      <header className="border-b border-stone px-4 py-3 md:px-6 md:py-4">
+        {/* Mobile: back button when viewing agent detail */}
+        {showMobileDetail && (
           <button
-            onClick={loadAgents}
-            className="rounded-lg border border-gray-600 bg-gray-800 px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-700 transition-colors"
+            onClick={() => setSelectedUrl(null)}
+            className="mb-2 flex items-center gap-1.5 text-sm text-amber hover:text-light transition-colors md:hidden"
           >
-            ↻ Refresh
+            ← Back to agents
           </button>
-          <button
-            onClick={() => setRegisterOpen(true)}
-            className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-400 transition-colors"
-          >
-            + Register Agent
-          </button>
+        )}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="font-display text-xl font-semibold text-light">Agent Registry</h1>
+            <p className="mt-0.5 text-sm text-dust">
+              {agents.length} agent{agents.length !== 1 ? 's' : ''} registered
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={loadAgents}
+              className="rounded-xl border border-stone bg-charcoal px-3 py-2 text-sm font-medium text-fog hover:bg-basalt transition-colors"
+            >
+              ↻ Refresh
+            </button>
+            <button
+              onClick={() => setRegisterOpen(true)}
+              className="rounded-xl bg-amber-glow px-3 py-2 text-sm font-medium text-void hover:brightness-110 transition-all"
+            >
+              + Register Agent
+            </button>
+          </div>
         </div>
       </header>
 
-      {/* Body */}
+      {/* Body — side-by-side on desktop, toggle on mobile */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Agent list */}
-        <div className="w-96 shrink-0 overflow-y-auto border-r border-gray-700 bg-gray-800/30 p-3 space-y-2">
+        {/* Agent list — hidden on mobile when an agent is selected */}
+        <div className={`w-full md:w-[30%] md:min-w-[320px] md:max-w-[500px] md:shrink-0 overflow-y-auto md:border-r border-stone bg-void/30 p-3 space-y-2 ${showMobileDetail ? 'hidden md:block' : ''}`}>
           {agents.length === 0 && (
             <div className="flex h-full items-center justify-center">
               <div className="text-center">
-                <p className="text-gray-500 text-sm">No agents registered</p>
+                <p className="text-dust text-sm">No agents registered</p>
                 <button
                   onClick={() => setRegisterOpen(true)}
-                  className="mt-3 rounded-lg bg-indigo-500/10 border border-indigo-500/30 px-4 py-2 text-sm text-indigo-400 hover:bg-indigo-500/20 transition-colors"
+                  className="mt-3 rounded-xl bg-amber-glow/10 border border-amber/30 px-4 py-2 text-sm text-amber hover:bg-amber-glow/20 transition-colors"
                 >
                   Register your first agent
                 </button>
@@ -894,10 +914,10 @@ export default function AgentsPage() {
           ))}
         </div>
 
-        {/* Detail / chat panel */}
-        <div className="flex-1 overflow-hidden bg-gray-900">
+        {/* Detail / chat panel — full width on mobile, flex-1 on desktop */}
+        <div className={`w-full md:flex-1 overflow-hidden bg-void/50 ${!showMobileDetail ? 'hidden md:block' : ''}`}>
           {!selectedAgent ? (
-            <div className="flex h-full items-center justify-center text-gray-600 text-sm">
+            <div className="flex h-full items-center justify-center text-dust text-sm">
               Select an agent to view details and send test messages
             </div>
           ) : (

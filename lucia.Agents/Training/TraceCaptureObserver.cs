@@ -36,7 +36,10 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
     }
 
     /// <inheritdoc />
-    public Task OnRequestStartedAsync(string userRequest, CancellationToken cancellationToken = default)
+    public Task OnRequestStartedAsync(
+        string userRequest,
+        IReadOnlyList<TracedMessage>? conversationHistory = null,
+        CancellationToken cancellationToken = default)
     {
         if (!_options.Enabled)
         {
@@ -51,6 +54,7 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
         {
             SessionId = sessionId,
             UserInput = userRequest,
+            ConversationHistory = conversationHistory?.ToList() ?? [],
             Metadata =
             {
                 ["traceType"] = "orchestrator"
@@ -74,12 +78,17 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
     }
 
     /// <inheritdoc />
-    public Task OnRoutingCompletedAsync(AgentChoiceResult result, CancellationToken cancellationToken = default)
+    public Task OnRoutingCompletedAsync(
+        AgentChoiceResult result,
+        string? systemPrompt = null,
+        CancellationToken cancellationToken = default)
     {
         if (!_options.Enabled || _currentTrace.Value is null)
         {
             return Task.CompletedTask;
         }
+
+        _currentTrace.Value.SystemPrompt = systemPrompt;
 
         // Mutate the existing trace object (do NOT reassign _currentTrace.Value)
         // so that changes are visible in both parent and child async contexts.
@@ -155,7 +164,7 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
         // Persist trace — await to surface any errors
         try
         {
-            await PersistTraceAsync(trace);
+            await PersistTraceAsync(trace).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -177,7 +186,7 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
             using var activity = TraceCaptureTelemetry.Source.StartActivity("PersistTrace");
             activity?.SetTag(TraceCaptureTelemetry.TagTraceId, trace.Id);
 
-            await _repository.InsertTraceAsync(trace);
+            await _repository.InsertTraceAsync(trace).ConfigureAwait(false);
 
             TraceCaptureTelemetry.TracesCaptured.Add(1);
 

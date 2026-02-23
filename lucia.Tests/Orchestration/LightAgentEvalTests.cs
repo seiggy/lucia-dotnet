@@ -1,9 +1,5 @@
 #pragma warning disable AIEVAL001 // Microsoft.Extensions.AI.Evaluation is experimental
 
-using Microsoft.Extensions.AI;
-using Microsoft.Extensions.AI.Evaluation;
-using Microsoft.Extensions.AI.Evaluation.Reporting;
-
 namespace lucia.Tests.Orchestration;
 
 /// <summary>

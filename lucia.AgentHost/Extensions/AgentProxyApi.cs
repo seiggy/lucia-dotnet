@@ -49,8 +49,8 @@ public static class AgentProxyApi
         }
 
         // Verify the agent is registered (try both original and resolved URLs)
-        var agent = await agentRegistry.GetAgentAsync(agentUrl, cancellationToken)
-            ?? await agentRegistry.GetAgentAsync(resolvedUrl, cancellationToken);
+        var agent = await agentRegistry.GetAgentAsync(agentUrl, cancellationToken).ConfigureAwait(false)
+            ?? await agentRegistry.GetAgentAsync(resolvedUrl, cancellationToken).ConfigureAwait(false);
         if (agent is null)
         {
             return TypedResults.NotFound("Agent not found for the specified URL.");
@@ -64,7 +64,7 @@ public static class AgentProxyApi
 
         // Read the raw JSON-RPC body from the incoming request
         using var reader = new StreamReader(request.Body);
-        var body = await reader.ReadToEndAsync(cancellationToken);
+        var body = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
 
         // Forward to the actual A2A agent endpoint
         var client = httpClientFactory.CreateClient("AgentProxy");
@@ -74,8 +74,8 @@ public static class AgentProxyApi
             Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json")
         };
 
-        using var response = await client.SendAsync(forwardRequest, cancellationToken);
-        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+        using var response = await client.SendAsync(forwardRequest, cancellationToken).ConfigureAwait(false);
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
 
         return TypedResults.Content(
             responseBody,

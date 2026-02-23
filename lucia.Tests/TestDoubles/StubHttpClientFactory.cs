@@ -1,6 +1,4 @@
-using System;
 using System.Collections.Concurrent;
-using System.Net.Http;
 
 namespace lucia.Tests.TestDoubles;
 

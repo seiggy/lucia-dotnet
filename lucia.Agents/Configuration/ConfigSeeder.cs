@@ -27,7 +27,6 @@ public sealed class ConfigSeeder : IHostedService
         "AgentInvoker",
         "ResultAggregator",
         "Redis",
-        "Agents",
         "MusicAssistant",
         "Agent",
         "PluginDirectory",
@@ -54,7 +53,7 @@ public sealed class ConfigSeeder : IHostedService
             var collection = database.GetCollection<ConfigEntry>(ConfigEntry.CollectionName);
 
             var existingCount = await collection.CountDocumentsAsync(
-                FilterDefinition<ConfigEntry>.Empty, cancellationToken: cancellationToken);
+                FilterDefinition<ConfigEntry>.Empty, cancellationToken: cancellationToken).ConfigureAwait(false);
 
             if (existingCount > 0)
             {
@@ -69,7 +68,7 @@ public sealed class ConfigSeeder : IHostedService
 
             if (entries.Count > 0)
             {
-                await collection.InsertManyAsync(entries, cancellationToken: cancellationToken);
+                await collection.InsertManyAsync(entries, cancellationToken: cancellationToken).ConfigureAwait(false);
                 _logger.LogInformation("Seeded {Count} configuration entries to MongoDB.", entries.Count);
             }
             else

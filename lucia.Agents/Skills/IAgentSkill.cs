@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace lucia.Agents.Skills
+﻿namespace lucia.Agents.Skills
 {
     internal interface IAgentSkill
     {

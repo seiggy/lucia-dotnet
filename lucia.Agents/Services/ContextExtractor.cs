@@ -36,7 +36,7 @@ public sealed class ContextExtractor
             return current;
 
         var allAgents = new List<AgentCard>();
-        await foreach (var agent in _agentRegistry.GetEnumerableAgentsAsync())
+        await foreach (var agent in _agentRegistry.GetEnumerableAgentsAsync().ConfigureAwait(false))
         {
             allAgents.Add(agent);
         }
@@ -69,14 +69,14 @@ public sealed class ContextExtractor
             metadata["location"] = location;
         }
 
-        var previousAgents = await ExtractPreviousAgentsAsync(task.History);
+        var previousAgents = await ExtractPreviousAgentsAsync(task.History).ConfigureAwait(false);
         if (previousAgents.Count > 0)
         {
             metadata["previousAgents"] = previousAgents;
         }
 
-        var domainAgentMap = await GetDomainAgentMapAsync();
-        var topic = await ExtractConversationTopicAsync(task.History, domainAgentMap);
+        var domainAgentMap = await GetDomainAgentMapAsync().ConfigureAwait(false);
+        var topic = await ExtractConversationTopicAsync(task.History, domainAgentMap).ConfigureAwait(false);
         if (!string.IsNullOrEmpty(topic))
         {
             metadata["conversationTopic"] = topic;
@@ -167,7 +167,7 @@ public sealed class ContextExtractor
                     var text = GetTextFromPart(part);
                     if (!string.IsNullOrEmpty(text))
                     {
-                        var inferredAgents = await InferAgentsFromContentAsync(text);
+                        var inferredAgents = await InferAgentsFromContentAsync(text).ConfigureAwait(false);
                         foreach (var agent in inferredAgents)
                         {
                             agents.Add(agent);
@@ -190,7 +190,7 @@ public sealed class ContextExtractor
     {
         var agents = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var keywords = ExtractKeywords(content);
-        var domainAgentMap = await GetDomainAgentMapAsync();
+        var domainAgentMap = await GetDomainAgentMapAsync().ConfigureAwait(false);
 
         // For each keyword, find matching domains and their agents
         foreach (var keyword in keywords)

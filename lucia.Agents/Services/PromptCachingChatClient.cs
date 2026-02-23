@@ -1,5 +1,3 @@
-using System.Text.Json;
-using lucia.Agents.Orchestration.Models;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
@@ -32,6 +30,6 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
     {
         // This wrapper is kept for compatibility but routing cache is now
         // handled directly inside RouterExecutor. Just forward to inner client.
-        return await base.GetResponseAsync(messages, options, cancellationToken);
+        return await base.GetResponseAsync(messages, options, cancellationToken).ConfigureAwait(false);
     }
 }

@@ -11,7 +11,8 @@
     <A2AVersion>0.3.3-preview</A2AVersion>
     <AspireVersion>13.1.1</AspireVersion>
     <AspirePreviewVersion>13.1.1-preview.1.26105.8</AspirePreviewVersion>
-    <MicrosoftAgentsVersion>1.0.0-preview.260212.1</MicrosoftAgentsVersion>
+    <MicrosoftAgentsVersion>1.0.0-rc1</MicrosoftAgentsVersion>
+    <MicrosoftAgentsHostingVersion>1.0.0-preview.260219.1</MicrosoftAgentsHostingVersion>
     <MicrosoftExtensionsAIVersion>10.3.0</MicrosoftExtensionsAIVersion>
     <MicrosoftExtensionsVersion>10.0.0</MicrosoftExtensionsVersion>
     <MicrosoftExtensionsConfigVersion>10.0.1</MicrosoftExtensionsConfigVersion>
@@ -22,6 +23,7 @@
   <ItemGroup Label="A2A Protocol">
     <PackageVersion Include="A2A" Version="$(A2AVersion)" />
     <PackageVersion Include="A2A.AspNetCore" Version="$(A2AVersion)" />
+    <PackageVersion Include="GitHub.Copilot.SDK" Version="0.1.25" />
   </ItemGroup>
   <!-- ── .NET Aspire Hosting (AppHost orchestration) ──────────── -->
   <ItemGroup Label="Aspire Hosting">
@@ -43,12 +45,13 @@
   <!-- ── Microsoft Agent Framework ────────────────────────────── -->
   <ItemGroup Label="Microsoft Agent Framework">
     <PackageVersion Include="Microsoft.Agents.AI" Version="$(MicrosoftAgentsVersion)" />
-    <PackageVersion Include="Microsoft.Agents.AI.A2A" Version="$(MicrosoftAgentsVersion)" />
+    <PackageVersion Include="Microsoft.Agents.AI.A2A" Version="$(MicrosoftAgentsHostingVersion)" />
     <PackageVersion Include="Microsoft.Agents.AI.Abstractions" Version="$(MicrosoftAgentsVersion)" />
     <PackageVersion Include="Microsoft.Agents.AI.AzureAI" Version="$(MicrosoftAgentsVersion)" />
-    <PackageVersion Include="Microsoft.Agents.AI.Hosting" Version="$(MicrosoftAgentsVersion)" />
-    <PackageVersion Include="Microsoft.Agents.AI.Hosting.A2A.AspNetCore" Version="$(MicrosoftAgentsVersion)" />
-    <PackageVersion Include="Microsoft.Agents.AI.Hosting.OpenAI" Version="1.0.0-alpha.260212.1" />
+    <PackageVersion Include="Microsoft.Agents.AI.GitHub.Copilot" Version="$(MicrosoftAgentsHostingVersion)" />
+    <PackageVersion Include="Microsoft.Agents.AI.Hosting" Version="$(MicrosoftAgentsHostingVersion)" />
+    <PackageVersion Include="Microsoft.Agents.AI.Hosting.A2A.AspNetCore" Version="$(MicrosoftAgentsHostingVersion)" />
+    <PackageVersion Include="Microsoft.Agents.AI.Hosting.OpenAI" Version="1.0.0-alpha.260219.1" />
     <PackageVersion Include="Microsoft.Agents.AI.Workflows" Version="$(MicrosoftAgentsVersion)" />
   </ItemGroup>
   <!-- ── Microsoft.Extensions.AI ──────────────────────────────── -->
@@ -73,7 +76,7 @@
     <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.1" />
     <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.1.0" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.3" />
-    <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.1" />
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.3" />
     <PackageVersion Include="Microsoft.Extensions.ServiceDiscovery" Version="$(MicrosoftExtensionsVersion)" />
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="$(MicrosoftExtensionsVersion)" />
     <PackageVersion Include="Microsoft.Extensions.VectorData.Abstractions" Version="9.7.0" />
@@ -93,6 +96,8 @@
   <!-- ── Data & Infrastructure ────────────────────────────────── -->
   <ItemGroup Label="Data and Infrastructure">
     <PackageVersion Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
+    <PackageVersion Include="Anthropic" Version="12.7.0" />
+    <PackageVersion Include="ModelContextProtocol" Version="0.9.0-preview.1" />
     <PackageVersion Include="MongoDB.Driver" Version="3.6.0" />
     <PackageVersion Include="OllamaSharp" Version="5.4.10" />
     <PackageVersion Include="System.Linq.Async" Version="7.0.0-preview.9" />

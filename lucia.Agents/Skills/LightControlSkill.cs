@@ -19,7 +19,8 @@ namespace lucia.Agents.Skills;
 public class LightControlSkill : IAgentSkill
 {
     private readonly IHomeAssistantClient _homeAssistantClient;
-    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
+    private readonly IEmbeddingProviderResolver _embeddingResolver;
+    private IEmbeddingGenerator<string, Embedding<float>>? _embeddingService;
     private readonly ILogger<LightControlSkill> _logger;
     private readonly IDeviceCacheService _deviceCache;
     private volatile IReadOnlyList<LightEntity> _cachedLights = Array.Empty<LightEntity>();
@@ -45,12 +46,12 @@ public class LightControlSkill : IAgentSkill
 
     public LightControlSkill(
         IHomeAssistantClient homeAssistantClient,
-        IEmbeddingGenerator<string, Embedding<float>> embeddingService,
+        IEmbeddingProviderResolver embeddingResolver,
         ILogger<LightControlSkill> logger,
         IDeviceCacheService deviceCache)
     {
         _homeAssistantClient = homeAssistantClient;
-        _embeddingService = embeddingService;
+        _embeddingResolver = embeddingResolver;
         _logger = logger;
         _deviceCache = deviceCache;
     }
@@ -71,15 +72,35 @@ public class LightControlSkill : IAgentSkill
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Initializing LightControlPlugin and caching light entities...");
-        await RefreshLightCacheAsync(cancellationToken);
+
+        // Resolve the embedding generator from the provider system
+        _embeddingService = await _embeddingResolver.ResolveAsync(ct: cancellationToken).ConfigureAwait(false);
+        if (_embeddingService is null)
+        {
+            _logger.LogWarning("No embedding provider configured — light semantic search will not be available. " +
+                "Configure an Embedding provider in Model Providers to enable this feature.");
+            return;
+        }
+
+        await RefreshLightCacheAsync(cancellationToken).ConfigureAwait(false);
         _logger.LogInformation("LightControlPlugin initialized with {LightCount} light entities", _cachedLights.Count);
+    }
+
+    /// <summary>
+    /// Re-resolves the embedding generator using the specified provider name.
+    /// Called by the owning agent when the embedding configuration changes.
+    /// </summary>
+    public async Task UpdateEmbeddingProviderAsync(string? providerName, CancellationToken cancellationToken = default)
+    {
+        _embeddingService = await _embeddingResolver.ResolveAsync(providerName, cancellationToken).ConfigureAwait(false);
+        _logger.LogInformation("LightControlSkill: embedding provider updated to '{Provider}'", providerName ?? "system-default");
     }
 
     [Description("Find light(s) in an area by name of the Area")]
     public async Task<string> FindLightsByAreaAsync(
         [Description("The Area name (e.g 'kitchen', 'office', 'main bedroom')")] string area)
     {
-        await EnsureCacheIsCurrentAsync();
+        await EnsureCacheIsCurrentAsync().ConfigureAwait(false);
 
         if (!_cachedLights.Any())
         {
@@ -128,7 +149,7 @@ public class LightControlSkill : IAgentSkill
                 {
                     // 3. Embedding similarity fallback — return all areas ≥ 90%
                     const double areaSimilarityThreshold = 0.90;
-                    var searchEmbedding = await GetOrCreateSearchEmbeddingAsync(area);
+                    var searchEmbedding = await GetOrCreateSearchEmbeddingAsync(area).ConfigureAwait(false);
                     activity?.SetTag("search.embedding.dimension", searchEmbedding.Vector.Length);
 
                     matchedAreas = _areaEmbeddings
@@ -235,7 +256,7 @@ public class LightControlSkill : IAgentSkill
     public async Task<string> FindLightAsync(
         [Description("Name or description of the light (e.g., 'living room light', 'kitchen ceiling', 'bedroom lamp')")] string searchTerm)
     {
-        await EnsureCacheIsCurrentAsync();
+        await EnsureCacheIsCurrentAsync().ConfigureAwait(false);
 
         if (!_cachedLights.Any())
         {
@@ -253,7 +274,7 @@ public class LightControlSkill : IAgentSkill
         try
         {
             // Generate (or retrieve cached) embedding for the search term
-            var searchEmbedding = await GetOrCreateSearchEmbeddingAsync(searchTerm);
+            var searchEmbedding = await GetOrCreateSearchEmbeddingAsync(searchTerm).ConfigureAwait(false);
             activity?.SetTag("search.embedding.dimension", searchEmbedding.Vector.Length);
 
             // Search both light names and area names
@@ -275,63 +296,80 @@ public class LightControlSkill : IAgentSkill
                 })
                 .ToList();
 
-            // Find the best overall match (light or area)
-            var bestLightMatch = lightMatches.OrderByDescending(x => x.Similarity).FirstOrDefault();
             var bestAreaMatch = areaMatches.OrderByDescending(x => x.Similarity).FirstOrDefault();
 
             const double similarityThreshold = 0.6;
 
-            // Determine which match is better
-            var useLightMatch = bestLightMatch != null && 
-                                (bestAreaMatch == null || bestLightMatch.Similarity >= bestAreaMatch.Similarity);
+            // Collect ALL lights above the similarity threshold
+            var matchingLights = lightMatches
+                .Where(x => x.Similarity >= similarityThreshold)
+                .OrderByDescending(x => x.Similarity)
+                .ToList();
 
-            if (useLightMatch && bestLightMatch!.Similarity >= similarityThreshold)
+            if (matchingLights.Count > 0 &&
+                (bestAreaMatch == null || matchingLights[0].Similarity >= bestAreaMatch.Similarity))
             {
-                // Return specific light match
-                var light = bestLightMatch.Light;
-                _logger.LogDebug("Found light match: {EntityId} ({FriendlyName}) with similarity {Similarity:F3}",
-                    light.EntityId, light.FriendlyName, bestLightMatch.Similarity);
+                // Return all lights that met the threshold
                 activity?.SetTag("match.type", "light");
-                activity?.SetTag("match.entity_id", light.EntityId);
-                activity?.SetTag("match.friendly_name", light.FriendlyName);
-                activity?.SetTag("match.similarity", bestLightMatch.Similarity);
+                activity?.SetTag("match.count", matchingLights.Count);
+                activity?.SetTag("match.top_similarity", matchingLights[0].Similarity);
 
-                var capabilities = GetCapabilityDescription(light);
-                var state = await _homeAssistantClient.GetEntityStateAsync(light.EntityId)
-                    .ConfigureAwait(false);
-                if (state is null)
-                {
-                    _logger.LogWarning("Light {EntityId} not found when retrieving state after match", light.EntityId);
-                    activity?.SetStatus(ActivityStatusCode.Error, "state-missing");
-                    LightSearchFailures.Add(1, [
-                        new KeyValuePair<string, object?>("reason", "state-missing")
-                    ]);
-                    return $"Light '{light.FriendlyName}' was matched but could not be retrieved from Home Assistant.";
-                }
+                _logger.LogDebug("Found {Count} light(s) above threshold {Threshold} for term '{SearchTerm}'",
+                    matchingLights.Count, similarityThreshold, searchTerm);
 
                 var stringBuilder = new StringBuilder();
-                stringBuilder.Append($"Found light: {light.FriendlyName} (Entity ID: {light.EntityId}){capabilities}, State: {state.State}");
-
-                // Check for brightness
-                if (state.Attributes.TryGetValue("brightness", out var brightnessObj))
+                if (matchingLights.Count == 1)
                 {
-                    if (int.TryParse(brightnessObj?.ToString(), out var brightness))
-                    {
-                        var brightnessPercent = (int)Math.Round(brightness / 255.0 * 100);
-                        stringBuilder.Append($" at {brightnessPercent}% brightness");
-                    }
+                    stringBuilder.Append("Found light: ");
+                }
+                else
+                {
+                    stringBuilder.AppendLine($"Found {matchingLights.Count} matching light(s):");
                 }
 
-                // Check for color temperature
-                if (state.Attributes.TryGetValue("color_temp", out var colorTempObj))
+                foreach (var match in matchingLights)
                 {
-                    stringBuilder.Append($" with color temperature {colorTempObj}");
+                    var light = match.Light;
+                    var capabilities = GetCapabilityDescription(light);
+                    var state = await _homeAssistantClient.GetEntityStateAsync(light.EntityId)
+                        .ConfigureAwait(false);
+                    if (state is null) continue;
+
+                    if (matchingLights.Count == 1)
+                    {
+                        stringBuilder.Append($"{light.FriendlyName} (Entity ID: {light.EntityId}){capabilities}, State: {state.State}");
+                    }
+                    else
+                    {
+                        stringBuilder.Append($"- {light.FriendlyName} (Entity ID: {light.EntityId}){capabilities}, State: {state.State}");
+                    }
+
+                    if (state.Attributes.TryGetValue("brightness", out var brightnessObj))
+                    {
+                        if (int.TryParse(brightnessObj?.ToString(), out var brightness))
+                        {
+                            var brightnessPercent = (int)Math.Round(brightness / 255.0 * 100);
+                            stringBuilder.Append($" at {brightnessPercent}% brightness");
+                        }
+                    }
+
+                    if (state.Attributes.TryGetValue("color_temp", out var colorTempObj))
+                    {
+                        stringBuilder.Append($" with color temperature {colorTempObj}");
+                    }
+
+                    if (matchingLights.Count > 1)
+                    {
+                        stringBuilder.AppendLine();
+                    }
                 }
 
                 LightSearchSuccess.Add(1);
                 activity?.SetStatus(ActivityStatusCode.Ok);
 
-                return stringBuilder.ToString();
+                return matchingLights.Count == 1
+                    ? stringBuilder.ToString()
+                    : stringBuilder.ToString().TrimEnd();
             }
             else if (bestAreaMatch != null && bestAreaMatch.Similarity >= similarityThreshold)
             {
@@ -544,7 +582,7 @@ public class LightControlSkill : IAgentSkill
 
             if (state.ToLower() == "off")
             {
-                await _homeAssistantClient.CallServiceAsync(domain, "turn_off", parameters: null, request);
+                await _homeAssistantClient.CallServiceAsync(domain, "turn_off", parameters: null, request).ConfigureAwait(false);
                 activity?.SetStatus(ActivityStatusCode.Ok);
                 return $"Light '{displayName}' turned off successfully.";
             }
@@ -561,7 +599,7 @@ public class LightControlSkill : IAgentSkill
                     request["color_name"] = color;
                 }
 
-                await _homeAssistantClient.CallServiceAsync(domain, "turn_on", parameters: null, request);
+                await _homeAssistantClient.CallServiceAsync(domain, "turn_on", parameters: null, request).ConfigureAwait(false);
 
                 var result = $"Light '{displayName}' turned on successfully";
                 if (brightness.HasValue && !isSwitch)
@@ -605,13 +643,19 @@ public class LightControlSkill : IAgentSkill
 
     private async Task RefreshLightCacheAsync(CancellationToken cancellationToken = default)
     {
+        if (_embeddingService is null)
+        {
+            _logger.LogWarning("Skipping light cache refresh — no embedding provider available.");
+            return;
+        }
+
         using var activity = ActivitySource.StartActivity("RefreshLightCache", ActivityKind.Internal);
         var start = Stopwatch.GetTimestamp();
         try
         {
             // Try Redis cache first
-            var cachedLights = await _deviceCache.GetCachedLightsAsync(cancellationToken);
-            var cachedAreaEmbeddings = await _deviceCache.GetAreaEmbeddingsAsync(cancellationToken);
+            var cachedLights = await _deviceCache.GetCachedLightsAsync(cancellationToken).ConfigureAwait(false);
+            var cachedAreaEmbeddings = await _deviceCache.GetAreaEmbeddingsAsync(cancellationToken).ConfigureAwait(false);
             if (cachedLights is not null && cachedAreaEmbeddings is not null)
             {
                 _logger.LogInformation("Loaded {LightCount} lights and {AreaCount} area embeddings from Redis cache", cachedLights.Count, cachedAreaEmbeddings.Count);
@@ -621,7 +665,7 @@ public class LightControlSkill : IAgentSkill
                 var allEmbeddingsFound = true;
                 foreach (var light in cachedLights)
                 {
-                    var embedding = await _deviceCache.GetEmbeddingAsync($"light:{light.EntityId}", cancellationToken);
+                    var embedding = await _deviceCache.GetEmbeddingAsync($"light:{light.EntityId}", cancellationToken).ConfigureAwait(false);
                     if (embedding is not null)
                     {
                         light.NameEmbedding = embedding;
@@ -677,9 +721,9 @@ public class LightControlSkill : IAgentSkill
             var newLights = new List<LightEntity>();
 
             var allEntityDataByArea = await _homeAssistantClient.RunTemplateAsync<List<AreaEntityMap>>(
-                    "[{% for id in areas() %}{% if not loop.first %}, {% endif %}{\"area\":\"{{ area_name(id) }}\",\"entities\":[{% for e in area_entities(id) %}{% if not loop.first %}, {% endif %}\"{{ e }}\"{% endfor %}]}{% endfor %}]",
-                    cancellationToken
-                );
+                "[{% for id in areas() %}{% if not loop.first %}, {% endif %}{\"area\":\"{{ area_name(id) }}\",\"entities\":[{% for e in area_entities(id) %}{% if not loop.first %}, {% endif %}\"{{ e }}\"{% endfor %}]}{% endfor %}]",
+                cancellationToken
+            ).ConfigureAwait(false);
 
             foreach (var entity in lightEntities)
             {
@@ -719,7 +763,7 @@ public class LightControlSkill : IAgentSkill
                 }
 
                 // Generate embedding for the friendly name
-                var embedding = await _embeddingService.GenerateAsync(friendlyName, cancellationToken: cancellationToken);
+                var embedding = await _embeddingService.GenerateAsync(friendlyName, cancellationToken: cancellationToken).ConfigureAwait(false);
 
                 var lightEntity = new LightEntity
                 {
@@ -743,7 +787,7 @@ public class LightControlSkill : IAgentSkill
             var newAreaEmbeddings = new Dictionary<string, Embedding<float>>();
             foreach (var area in uniqueAreas)
             {
-                var areaEmbedding = await _embeddingService.GenerateAsync(area, cancellationToken: cancellationToken);
+                var areaEmbedding = await _embeddingService.GenerateAsync(area, cancellationToken: cancellationToken).ConfigureAwait(false);
                 newAreaEmbeddings[area] = areaEmbedding;
             }
 
@@ -755,12 +799,12 @@ public class LightControlSkill : IAgentSkill
             // Save to Redis for next startup
             var deviceCacheTtl = TimeSpan.FromMinutes(30);
             var embeddingCacheTtl = TimeSpan.FromHours(24);
-            await _deviceCache.SetCachedLightsAsync(newLights.ToList(), deviceCacheTtl, cancellationToken);
+            await _deviceCache.SetCachedLightsAsync(newLights.ToList(), deviceCacheTtl, cancellationToken).ConfigureAwait(false);
             foreach (var light in newLights)
             {
-                await _deviceCache.SetEmbeddingAsync($"light:{light.EntityId}", light.NameEmbedding, embeddingCacheTtl, cancellationToken);
+                await _deviceCache.SetEmbeddingAsync($"light:{light.EntityId}", light.NameEmbedding, embeddingCacheTtl, cancellationToken).ConfigureAwait(false);
             }
-            await _deviceCache.SetAreaEmbeddingsAsync(new Dictionary<string, Embedding<float>>(newAreaEmbeddings), embeddingCacheTtl, cancellationToken);
+            await _deviceCache.SetAreaEmbeddingsAsync(new Dictionary<string, Embedding<float>>(newAreaEmbeddings), embeddingCacheTtl, cancellationToken).ConfigureAwait(false);
             _logger.LogInformation("Saved {LightCount} lights and {AreaCount} area embeddings to Redis cache", newLights.Count, newAreaEmbeddings.Count);
 
             activity?.SetTag("cache.size", newLights.Count);
@@ -809,14 +853,14 @@ public class LightControlSkill : IAgentSkill
     {
         if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) > _cacheRefreshInterval)
         {
-            if (!await _refreshLock.WaitAsync(0, cancellationToken))
+            if (!await _refreshLock.WaitAsync(0, cancellationToken).ConfigureAwait(false))
                 return; // Another refresh is already in progress
             try
             {
                 // Double-check after acquiring the lock
                 if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) > _cacheRefreshInterval)
                 {
-                    await RefreshLightCacheAsync(cancellationToken);
+                    await RefreshLightCacheAsync(cancellationToken).ConfigureAwait(false);
                 }
             }
             finally
@@ -879,7 +923,7 @@ public class LightControlSkill : IAgentSkill
             return cached;
         }
 
-        var embedding = await _embeddingService.GenerateAsync(searchTerm);
+        var embedding = await _embeddingService!.GenerateAsync(searchTerm).ConfigureAwait(false);
         _searchTermEmbeddingCache.TryAdd(searchTerm, embedding);
         _logger.LogDebug("Cached search term embedding for '{SearchTerm}' ({Dimensions} dims)",
             searchTerm, embedding.Vector.Length);

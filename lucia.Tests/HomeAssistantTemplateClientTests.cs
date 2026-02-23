@@ -1,5 +1,3 @@
-using System.Net;
-using System.Net.Http;
 using System.Text.Json;
 using FakeItEasy;
 using lucia.HomeAssistant.Models;

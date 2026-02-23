@@ -43,16 +43,17 @@ public sealed class RedisPromptCacheService : IPromptCacheService
     };
 
     private readonly IConnectionMultiplexer _redis;
-    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
+    private readonly IEmbeddingProviderResolver _embeddingResolver;
+    private IEmbeddingGenerator<string, Embedding<float>>? _embeddingGenerator;
     private readonly ILogger<RedisPromptCacheService> _logger;
 
     public RedisPromptCacheService(
         IConnectionMultiplexer redis,
-        IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
+        IEmbeddingProviderResolver embeddingResolver,
         ILogger<RedisPromptCacheService> logger)
     {
         _redis = redis;
-        _embeddingGenerator = embeddingGenerator;
+        _embeddingResolver = embeddingResolver;
         _logger = logger;
     }
 
@@ -73,7 +74,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
             activity?.SetTag("cache.key", cacheKey);
 
             // Exact match
-            var exactValue = await db.StringGetAsync(cacheKey);
+            var exactValue = await db.StringGetAsync(cacheKey).ConfigureAwait(false);
             if (exactValue.HasValue)
             {
                 var entry = JsonSerializer.Deserialize<CachedPromptEntry>(exactValue.ToString(), SerializerOptions);
@@ -81,8 +82,8 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 {
                     entry.HitCount++;
                     entry.LastHitAt = DateTime.UtcNow;
-                    await db.StringSetAsync(cacheKey, JsonSerializer.Serialize(entry, SerializerOptions));
-                    await db.StringIncrementAsync(StatsHitsKey);
+                    await db.StringSetAsync(cacheKey, JsonSerializer.Serialize(entry, SerializerOptions)).ConfigureAwait(false);
+                    await db.StringIncrementAsync(StatsHitsKey).ConfigureAwait(false);
                     HitsCounter.Add(1);
                     activity?.SetTag("cache.hit", true);
                     activity?.SetTag("cache.match_type", "exact");
@@ -98,19 +99,19 @@ public sealed class RedisPromptCacheService : IPromptCacheService
             }
 
             // Semantic similarity fallback
-            var indexMembers = await db.SetMembersAsync(IndexKey);
+            var indexMembers = await db.SetMembersAsync(IndexKey).ConfigureAwait(false);
             if (indexMembers.Length == 0)
             {
-                await db.StringIncrementAsync(StatsMissesKey);
+                await db.StringIncrementAsync(StatsMissesKey).ConfigureAwait(false);
                 MissesCounter.Add(1);
                 activity?.SetTag("cache.hit", false);
                 return null;
             }
 
-            var queryEmbedding = await GenerateEmbeddingAsync(normalizedPrompt, cancellationToken);
+            var queryEmbedding = await GenerateEmbeddingAsync(normalizedPrompt, cancellationToken).ConfigureAwait(false);
             if (queryEmbedding is null)
             {
-                await db.StringIncrementAsync(StatsMissesKey);
+                await db.StringIncrementAsync(StatsMissesKey).ConfigureAwait(false);
                 MissesCounter.Add(1);
                 return null;
             }
@@ -119,7 +120,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
             double bestScore = 0;
 
             var memberKeys = indexMembers.Select(m => (RedisKey)m.ToString()).ToArray();
-            var values = await db.StringGetAsync(memberKeys);
+            var values = await db.StringGetAsync(memberKeys).ConfigureAwait(false);
 
             for (var i = 0; i < values.Length; i++)
             {
@@ -143,8 +144,8 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 bestEntry.HitCount++;
                 bestEntry.LastHitAt = DateTime.UtcNow;
                 var bestKey = $"{KeyPrefix}{bestEntry.CacheKey}";
-                await db.StringSetAsync(bestKey, JsonSerializer.Serialize(bestEntry, SerializerOptions));
-                await db.StringIncrementAsync(StatsHitsKey);
+                await db.StringSetAsync(bestKey, JsonSerializer.Serialize(bestEntry, SerializerOptions)).ConfigureAwait(false);
+                await db.StringIncrementAsync(StatsHitsKey).ConfigureAwait(false);
                 HitsCounter.Add(1);
                 SemanticHitsCounter.Add(1);
                 activity?.SetTag("cache.hit", true);
@@ -160,7 +161,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 };
             }
 
-            await db.StringIncrementAsync(StatsMissesKey);
+            await db.StringIncrementAsync(StatsMissesKey).ConfigureAwait(false);
             MissesCounter.Add(1);
             activity?.SetTag("cache.hit", false);
             return null;
@@ -193,7 +194,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
 
             activity?.SetTag("cache.key", cacheKey);
 
-            var embedding = await GenerateEmbeddingAsync(normalizedPrompt, cancellationToken);
+            var embedding = await GenerateEmbeddingAsync(normalizedPrompt, cancellationToken).ConfigureAwait(false);
 
             var entry = new CachedPromptEntry
             {
@@ -209,8 +210,8 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 LastHitAt = DateTime.UtcNow
             };
 
-            await db.StringSetAsync(cacheKey, JsonSerializer.Serialize(entry, SerializerOptions));
-            await db.SetAddAsync(IndexKey, cacheKey);
+            await db.StringSetAsync(cacheKey, JsonSerializer.Serialize(entry, SerializerOptions)).ConfigureAwait(false);
+            await db.SetAddAsync(IndexKey, cacheKey).ConfigureAwait(false);
 
             _logger.LogInformation("Cached routing decision for prompt key {CacheKey}: agent={AgentId}, confidence={Confidence:F2}",
                 cacheKey, decision.AgentId, decision.Confidence);
@@ -228,12 +229,12 @@ public sealed class RedisPromptCacheService : IPromptCacheService
         try
         {
             var db = _redis.GetDatabase();
-            var members = await db.SetMembersAsync(IndexKey);
+            var members = await db.SetMembersAsync(IndexKey).ConfigureAwait(false);
 
             if (members.Length > 0)
             {
                 var memberKeys = members.Select(m => (RedisKey)m.ToString()).ToArray();
-                var values = await db.StringGetAsync(memberKeys);
+                var values = await db.StringGetAsync(memberKeys).ConfigureAwait(false);
 
                 for (var i = 0; i < values.Length; i++)
                 {
@@ -263,8 +264,8 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 ? cacheKey
                 : $"{KeyPrefix}{cacheKey}";
 
-            var deleted = await db.KeyDeleteAsync(redisKey);
-            await db.SetRemoveAsync(IndexKey, redisKey);
+            var deleted = await db.KeyDeleteAsync(redisKey).ConfigureAwait(false);
+            await db.SetRemoveAsync(IndexKey, redisKey).ConfigureAwait(false);
             return deleted;
         }
         catch (Exception ex)
@@ -279,18 +280,18 @@ public sealed class RedisPromptCacheService : IPromptCacheService
         try
         {
             var db = _redis.GetDatabase();
-            var members = await db.SetMembersAsync(IndexKey);
+            var members = await db.SetMembersAsync(IndexKey).ConfigureAwait(false);
             long count = 0;
 
             if (members.Length > 0)
             {
                 var memberKeys = members.Select(m => (RedisKey)m.ToString()).ToArray();
-                count = await db.KeyDeleteAsync(memberKeys);
+                count = await db.KeyDeleteAsync(memberKeys).ConfigureAwait(false);
             }
 
-            await db.KeyDeleteAsync(IndexKey);
-            await db.KeyDeleteAsync(StatsHitsKey);
-            await db.KeyDeleteAsync(StatsMissesKey);
+            await db.KeyDeleteAsync(IndexKey).ConfigureAwait(false);
+            await db.KeyDeleteAsync(StatsHitsKey).ConfigureAwait(false);
+            await db.KeyDeleteAsync(StatsMissesKey).ConfigureAwait(false);
 
             return count;
         }
@@ -306,9 +307,9 @@ public sealed class RedisPromptCacheService : IPromptCacheService
         try
         {
             var db = _redis.GetDatabase();
-            var totalEntries = await db.SetLengthAsync(IndexKey);
-            var totalHits = (long)await db.StringGetAsync(StatsHitsKey);
-            var totalMisses = (long)await db.StringGetAsync(StatsMissesKey);
+            var totalEntries = await db.SetLengthAsync(IndexKey).ConfigureAwait(false);
+            var totalHits = (long)await db.StringGetAsync(StatsHitsKey).ConfigureAwait(false);
+            var totalMisses = (long)await db.StringGetAsync(StatsMissesKey).ConfigureAwait(false);
 
             return new PromptCacheStats
             {
@@ -374,7 +375,15 @@ public sealed class RedisPromptCacheService : IPromptCacheService
     {
         try
         {
-            var result = await _embeddingGenerator.GenerateAsync(text, cancellationToken: cancellationToken);
+            // Lazy-resolve the embedding generator on first use
+            _embeddingGenerator ??= await _embeddingResolver.ResolveAsync(ct: cancellationToken).ConfigureAwait(false);
+            if (_embeddingGenerator is null)
+            {
+                _logger.LogDebug("No embedding provider configured — prompt cache similarity search disabled.");
+                return null;
+            }
+
+            var result = await _embeddingGenerator.GenerateAsync(text, cancellationToken: cancellationToken).ConfigureAwait(false);
             return result.Vector.ToArray();
         }
         catch (Exception ex)

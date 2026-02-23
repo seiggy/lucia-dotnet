@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using A2A;
 
 namespace lucia.Tests.TestDoubles;

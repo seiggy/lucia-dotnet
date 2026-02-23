@@ -45,14 +45,14 @@ public static class TaskManagementApi
         CancellationToken ct)
     {
         var db = redis.GetDatabase();
-        var taskIdValues = await db.SetMembersAsync(TaskIdSetKey);
+        var taskIdValues = await db.SetMembersAsync(TaskIdSetKey).ConfigureAwait(false);
 
         var tasks = new List<ActiveTaskSummary>();
         foreach (var idValue in taskIdValues)
         {
             if (!idValue.HasValue) continue;
             var taskId = idValue.ToString();
-            var task = await taskStore.GetTaskAsync(taskId, ct);
+            var task = await taskStore.GetTaskAsync(taskId, ct).ConfigureAwait(false);
             if (task is null)
             {
                 // Task expired from Redis but ID remains in the set — clean up
@@ -93,7 +93,7 @@ public static class TaskManagementApi
             PageSize = pageSize ?? 25,
         };
 
-        var result = await archive.ListArchivedTasksAsync(filter, ct);
+        var result = await archive.ListArchivedTasksAsync(filter, ct).ConfigureAwait(false);
         return TypedResults.Ok(result);
     }
 
@@ -107,14 +107,14 @@ public static class TaskManagementApi
         CancellationToken ct)
     {
         // Check active store first
-        var active = await taskStore.GetTaskAsync(id, ct);
+        var active = await taskStore.GetTaskAsync(id, ct).ConfigureAwait(false);
         if (active is not null)
         {
             return TypedResults.Ok<object>(MapToActiveSummary(active));
         }
 
         // Fall back to archive
-        var archived = await archive.GetArchivedTaskAsync(id, ct);
+        var archived = await archive.GetArchivedTaskAsync(id, ct).ConfigureAwait(false);
         if (archived is not null)
         {
             return TypedResults.Ok<object>(archived);
@@ -134,10 +134,10 @@ public static class TaskManagementApi
     {
         // Count active tasks from the SET index
         var db = redis.GetDatabase();
-        var activeCount = await db.SetLengthAsync(TaskIdSetKey);
+        var activeCount = await db.SetLengthAsync(TaskIdSetKey).ConfigureAwait(false);
 
         // Get archived stats
-        var archivedStats = await archive.GetTaskStatsAsync(ct);
+        var archivedStats = await archive.GetTaskStatsAsync(ct).ConfigureAwait(false);
 
         return TypedResults.Ok(new CombinedTaskStats
         {
@@ -154,13 +154,13 @@ public static class TaskManagementApi
         [FromRoute] string id,
         CancellationToken ct)
     {
-        var task = await taskStore.GetTaskAsync(id, ct);
+        var task = await taskStore.GetTaskAsync(id, ct).ConfigureAwait(false);
         if (task is null)
         {
             return TypedResults.NotFound();
         }
 
-        await taskStore.UpdateStatusAsync(id, TaskState.Canceled, cancellationToken: ct);
+        await taskStore.UpdateStatusAsync(id, TaskState.Canceled, cancellationToken: ct).ConfigureAwait(false);
         return TypedResults.Ok();
     }
 

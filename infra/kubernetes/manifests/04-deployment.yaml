@@ -126,7 +126,7 @@ spec:
           # Liveness probe - restart container if failed
           livenessProbe:
             httpGet:
-              path: /health
+              path: /alive
               port: 8080
             initialDelaySeconds: 30
             periodSeconds: 10
@@ -136,7 +136,7 @@ spec:
           # Readiness probe - route traffic only to ready pods
           readinessProbe:
             httpGet:
-              path: /alive
+              path: /health
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 5

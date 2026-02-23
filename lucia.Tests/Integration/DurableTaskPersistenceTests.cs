@@ -1,14 +1,6 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using A2A;
-using lucia.Agents.Orchestration;
-using lucia.Tests.TestDoubles;
-using Microsoft.Extensions.DependencyInjection;
 using StackExchange.Redis;
 using Testcontainers.Redis;
-using Xunit;
 
 namespace lucia.Tests.Integration;
 
@@ -81,14 +73,11 @@ public sealed class DurableTaskPersistenceTests : IAsyncLifetime
             ContextId = sessionId,
             Parts = new List<Part> { new TextPart { Text = userMessage1 } }
         };
-        task1.History = new List<AgentMessage> { message1 };
-        await _taskStore!.SetTaskAsync(task1);  // SAVE before UpdateStatus
 
-        // Update status to working
-        await _taskManager.UpdateStatusAsync(taskId, TaskState.Working);
+        // Update status to working, passing the user message for history persistence
+        await _taskManager.UpdateStatusAsync(taskId, TaskState.Working, message1);
 
-        // Add assistant response - must reload task first
-        var taskAfterWorking = await _taskManager.GetTaskAsync(new TaskQueryParams { Id = taskId });
+        // Add assistant response via UpdateStatusAsync (also persists to history)
         var response1 = new AgentMessage
         {
             Role = MessageRole.Agent,
@@ -97,10 +86,8 @@ public sealed class DurableTaskPersistenceTests : IAsyncLifetime
             ContextId = sessionId,
             Parts = new List<Part> { new TextPart { Text = "I've turned on the bedroom lights." } }
         };
-        taskAfterWorking!.History!.Add(response1);
-        await _taskStore.SetTaskAsync(taskAfterWorking);  // SAVE before UpdateStatus
 
-        // Complete the task
+        // Complete the task — UpdateStatusAsync appends response1 to history
         await _taskManager.UpdateStatusAsync(taskId, TaskState.Completed, response1, final: true);
 
         // Simulate host restart by disposing and recreating TaskManager
@@ -135,13 +122,10 @@ public sealed class DurableTaskPersistenceTests : IAsyncLifetime
             ContextId = sessionId,
             Parts = new List<Part> { new TextPart { Text = userMessage2 } }
         };
-        restoredTask.History!.Add(message2);
-        await _taskStore.SetTaskAsync(restoredTask);  // SAVE before UpdateStatus
 
-        await _taskManager.UpdateStatusAsync(taskId, TaskState.Working);
+        // UpdateStatusAsync appends message2 to history
+        await _taskManager.UpdateStatusAsync(taskId, TaskState.Working, message2);
 
-        // Reload task to get fresh copy after status update
-        var taskAfterWorking2 = await _taskManager.GetTaskAsync(taskQueryParams);
         var response2 = new AgentMessage
         {
             Role = MessageRole.Agent,
@@ -150,9 +134,8 @@ public sealed class DurableTaskPersistenceTests : IAsyncLifetime
             ContextId = sessionId,
             Parts = new List<Part> { new TextPart { Text = "I've dimmed the bedroom lights to 50%." } }
         };
-        taskAfterWorking2!.History!.Add(response2);
-        await _taskStore.SetTaskAsync(taskAfterWorking2);  // SAVE before UpdateStatus
 
+        // UpdateStatusAsync appends response2 to history
         await _taskManager.UpdateStatusAsync(taskId, TaskState.Completed, response2, final: true);
 
         // Assert - Conversation continued with full context

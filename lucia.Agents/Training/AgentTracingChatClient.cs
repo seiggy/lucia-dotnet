@@ -1,4 +1,6 @@
 using System.Text.Json;
+using lucia.Agents.Orchestration;
+using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Training.Models;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -16,6 +18,7 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
     private readonly string _agentId;
     private readonly ITraceRepository _repository;
     private readonly ILogger<AgentTracingChatClient> _logger;
+    private readonly LiveActivityChannel? _liveChannel;
 
     /// <summary>
     /// AsyncLocal session ID shared across the orchestrator request.
@@ -27,12 +30,14 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
         IChatClient innerClient,
         string agentId,
         ITraceRepository repository,
-        ILogger<AgentTracingChatClient> logger)
+        ILogger<AgentTracingChatClient> logger,
+        LiveActivityChannel? liveChannel = null)
         : base(innerClient)
     {
         _agentId = agentId;
         _repository = repository;
         _logger = logger;
+        _liveChannel = liveChannel;
     }
 
     /// <summary>
@@ -82,7 +87,7 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
 
         try
         {
-            var response = await base.GetResponseAsync(requestMessages, options, cancellationToken);
+            var response = await base.GetResponseAsync(requestMessages, options, cancellationToken).ConfigureAwait(false);
 
             var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds;
 
@@ -98,6 +103,7 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
                     });
 
                     CaptureToolContentFromMessage(msg, tracedToolCalls);
+                    EmitLiveToolEvents(msg);
                 }
             }
 
@@ -178,11 +184,43 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
         }
     }
 
+    /// <summary>
+    /// Emits live tool call/result events for real-time dashboard visualization.
+    /// </summary>
+    private void EmitLiveToolEvents(ChatMessage message)
+    {
+        if (_liveChannel is null || message.Contents is null) return;
+
+        foreach (var content in message.Contents)
+        {
+            if (content is FunctionCallContent fc)
+            {
+                _liveChannel.Write(new LiveEvent
+                {
+                    Type = LiveEvent.Types.ToolCall,
+                    AgentName = _agentId,
+                    ToolName = fc.Name,
+                    State = LiveEvent.States.CallingTools,
+                });
+            }
+            else if (content is FunctionResultContent fr)
+            {
+                _liveChannel.Write(new LiveEvent
+                {
+                    Type = LiveEvent.Types.ToolResult,
+                    AgentName = _agentId,
+                    ToolName = fr.CallId ?? "unknown",
+                    State = LiveEvent.States.ProcessingPrompt,
+                });
+            }
+        }
+    }
+
     private async Task PersistTraceAsync(ConversationTrace trace)
     {
         try
         {
-            await _repository.InsertTraceAsync(trace);
+            await _repository.InsertTraceAsync(trace).ConfigureAwait(false);
             _logger.LogDebug("Persisted agent trace for {AgentId} (session {SessionId})", _agentId, trace.SessionId);
         }
         catch (Exception ex)

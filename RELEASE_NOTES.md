@@ -1,4 +1,211 @@
 
+# Release Notes - 2026.02.23
+
+**Release Date:** February 23, 2026  
+**Code Name:** "Solstice"
+
+---
+
+## ☀️ Overview
+
+"Solstice" is a major platform release that builds on Galaxy's foundation with a fully redesigned management dashboard, a configurable **Model Provider** system supporting 7+ LLM backends, runtime **MCP Tool Servers** for dynamic tool integration, user-defined **Agent Definitions** with hot-reload, a real-time **Activity Dashboard** with live agent mesh visualization, a **Climate Agent** for HVAC and fan control, **GitHub Copilot SDK** integration as a first-class provider, and a sweeping mobile-first responsive overhaul of every dashboard page. With 216 files changed across 13,480+ insertions, Solstice transforms Lucia's management experience and makes the platform truly configurable at runtime without code changes.
+
+## 🚀 Highlights
+
+- **Live Activity Dashboard** — Real-time agent mesh visualization powered by React Flow and Server-Sent Events. Watch orchestration requests flow through agents with animated edges, state-colored nodes (🤖 agents, 🔧 tools), and live connection status. Summary cards show request counts, error rates, cache hit rates, and task completions at a glance.
+- **Model Provider System** — MongoDB-backed provider configuration supporting OpenAI, Azure OpenAI, Azure AI Inference, Ollama, Anthropic, and Google Gemini. Connection testing, embedding provider resolution, and per-agent model assignment — all configurable from the dashboard without restarts. (GitHub Copilot SDK provider is WIP and disabled.)
+- **MCP Tool Servers** — Runtime Model Context Protocol integration with stdio and HTTP/SSE transports. Add, connect, and discover tools from external MCP servers. Agents can reference specific tools by server ID and tool name for fine-grained capability assignment.
+- **Agent Definitions** — Define custom agents from the dashboard with system instructions, tool assignments, model connections, and embedding providers. Built-in agents are seeded on startup; user-created agents hot-reload into the running system via `DynamicAgent` and `DynamicAgentLoader`.
+- **Climate Agent** — New domain agent with `ClimateControlSkill` (HVAC modes, temperature, humidity) and `FanControlSkill` (speed, oscillation, direction) for comprehensive climate management via Home Assistant entities.
+- **GitHub Copilot SDK Provider (WIP)** — Experimental Copilot integration via `CopilotClientLifecycleService` with CLI auto-start, model discovery, and native `AIAgent` creation through `client.AsAIAgent()`. Currently disabled pending further development — not functional or supported in this release.
+- **Microsoft Agent Framework RC1** — Upgraded from preview to RC1 with breaking API changes: consolidated agent creation, updated executor patterns, and improved session management.
+- **Mobile-First Dashboard Overhaul** — Every page redesigned for mobile with collapsible sidebar, responsive grids, touch-friendly controls, truncated URLs, stacked metadata on small screens, and tag wrapping fixes across Agent Definitions, Model Providers, MCP Servers, and Configuration pages.
+- **Observatory Theme Refresh** — Refined dark theme with improved contrast, amber accent glow effects, glass-panel components with backdrop blur, and consistent styling across all 12+ dashboard pages.
+
+## ✨ What's New
+
+### 📊 Live Activity Dashboard
+
+- **Real-time mesh graph** with React Flow (@xyflow/react) showing orchestrator → agent → tool topology
+- **Custom AgentNode** components with state indicators: Processing Prompt (amber), Calling Tools (blue), Generating Response (green), Error (red), Idle (gray)
+- **Animated edges** between nodes during active orchestration with directional arrows
+- **🤖 emoji for agents**, **🔧 emoji for tools**, **🌐 badge for remote agents** in the mesh view
+- **ActivityTimeline** component — scrollable feed of recent events with emoji icons, timestamps, and agent/tool names (capped at 100 events)
+- **Summary cards** — Total Requests, Error Rate, Cache Hit Rate, Tasks Completed
+- **Agent activity stats table** — per-agent request counts, error rates, and last activity
+- **SSE ack pattern** — Server sends immediate `connected` event on stream open for reliable status display
+- **useActivityStream hook** — EventSource connection management with exponential backoff reconnection (up to 10 retries, max 30s delay)
+- Default landing page at `/`
+
+### 🔌 Model Provider Configuration
+
+- **6 supported providers**: OpenAI, Azure OpenAI, Azure AI Inference, Ollama, Anthropic, Google Gemini (GitHub Copilot SDK is WIP and disabled)
+- **ModelProviderResolver** creates `IChatClient` and `IEmbeddingGenerator` instances from stored configs with OpenTelemetry wrapping
+- **MongoModelProviderRepository** with CRUD operations and unique name indexing
+- **Connection testing** for both chat and embedding endpoints from the dashboard
+- **Per-agent model assignment** — each agent definition specifies its model connection and embedding provider
+- **EmbeddingProviderResolver** — per-agent embedding provider support replacing the global `IEmbeddingGenerator`
+- **ModelProviderSeedExtensions** — seed default providers on first run or upgrade
+- **Dashboard page** at `/model-providers` with provider type icons, endpoint display, and inline editing
+
+### 🛠️ MCP Tool Servers
+
+- **McpToolRegistry** — manages concurrent MCP client connections with `ConcurrentDictionary` caching
+- **Stdio and HTTP/SSE transports** — `CreateStdioTransport()` for local CLI tools, `CreateHttpTransport()` for remote servers
+- **Tool discovery** — `ResolveToolsAsync()` resolves agent tool references to `AITool` instances at runtime
+- **McpToolServerDefinition** — persisted in MongoDB with command, URL, headers, environment variables, and transport type
+- **Connection lifecycle** — connect, disconnect, and status monitoring from the dashboard
+- **Dashboard page** at `/mcp-servers` with server status indicators, tool counts, and connection controls
+- **Dynamic agent integration** — `DynamicAgent` resolves MCP tools by server ID + tool name from agent definitions
+
+### 🤖 Agent Definitions
+
+- **AgentDefinition** model — Name, DisplayName, Description, Instructions, Tools (per-tool granularity), ModelConnectionName, EmbeddingProviderName, Enabled, IsBuiltIn, IsRemote, IsOrchestrator flags
+- **MongoAgentDefinitionRepository** — dual collection management (`agent_definitions`, `mcp_tool_servers`) with unique name indexing
+- **AgentDefinitionSeedExtensions** — seed built-in agents (General Assistant, Light Controller, Climate Controller, Orchestrator) on startup
+- **DynamicAgent** — runtime-constructed agents from MongoDB definitions with MCP tool resolution and AIAgent caching
+- **DynamicAgentLoader** — `IHostedService` that loads agent definitions, constructs `DynamicAgent` instances, and registers them with the agent registry
+- **Hot-reload** via `/api/agent-definitions/rebuild` endpoint
+- **Dashboard page** at `/agent-definitions` with tag pills for capabilities, inline editing, and tool assignment
+
+### 🌡️ Climate Agent
+
+- **ClimateAgent** (`lucia.Agents/Agents/ClimateAgent.cs`) — domain agent for HVAC and fan control
+- **ClimateControlSkill** — 795 lines covering:
+  - Set temperature, HVAC mode (heat, cool, auto, off, fan_only, dry)
+  - Humidity target and preset modes
+  - Auxiliary heater and swing mode control
+  - Entity discovery via Home Assistant API
+- **FanControlSkill** — 778 lines covering:
+  - Fan speed percentage and named presets
+  - Oscillation toggle and direction control
+  - Entity discovery and state reporting
+- **Embedding-powered entity matching** for natural-language device references
+
+### 🐙 GitHub Copilot SDK Integration (WIP)
+
+> **Note:** This integration is experimental and currently disabled. It is not functional or supported in this release. The infrastructure is in place for future development.
+
+- **CopilotClientLifecycleService** — `IHostedService` managing shared `CopilotClient` lifecycle with CLI binary auto-start
+- **CopilotConnectService** — handles Copilot connection establishment and authentication flow
+- **Native AIAgent creation** — Copilot providers produce `AIAgent` directly via `client.AsAIAgent(SessionConfig)`, bypassing standard `ChatClient` pipeline
+- **CopilotModelMetadata** — stores CLI model info and connection state
+- **Provider hidden from UI** — Copilot provider auto-detected but not manually configurable
+
+### 🔐 Internal Token Authentication
+
+- **InternalTokenAuthenticationHandler** — validates platform-injected Bearer tokens for service-to-service communication between AgentHost and A2AHost
+- **Token generation** — 32-character random secret generated by AppHost and injected via environment variables
+- **Claims identity** with `auth_method: internal_token` for authorization decisions
+
+### 🎨 Dashboard UI Overhaul
+
+- **Observatory theme refinements** — improved contrast on buttons (text-void over text-light), amber glow effects, glass-panel components
+- **Mobile-first responsive layouts** on all pages:
+  - Collapsible sidebar with hamburger menu on mobile
+  - Responsive grids: `grid-cols-1 sm:grid-cols-2 lg:grid-cols-4`
+  - Tag pills wrap (not word-wrap) with `flex-wrap` on agent definition headers
+  - Tags placed below headers on mobile edit views
+  - URL truncation (30-40 chars with `...`) on model provider cards
+  - Stacked metadata (ID, model name, endpoint) on separate lines for mobile
+  - Touch-friendly button sizes and tap targets
+- **New pages**: Activity Dashboard, Agent Definitions, Model Providers, MCP Servers
+- **Restyled pages**: Agents, Configuration (mobile-first rewrite), Traces, Exports, Tasks, Prompt Cache, Login, Setup Wizard
+- **Setup wizard** — all 4 steps (Welcome, Configure, Connect, Done) polished with consistent styling
+
+## ⚡ Improvements
+
+### Orchestration
+
+- **CompositeOrchestratorObserver** — delegates to all registered observers (TraceCaptureObserver, LiveActivityObserver) for extensible pipeline instrumentation
+- **LiveActivityChannel** — bounded channel (capacity 100, DropOldest) bridging pipeline events to SSE dashboard
+- **LiveActivityObserver** — emits lifecycle events: request start, routing decisions, agent dispatch, agent complete/error, response aggregated
+- **AgentTracingChatClient** — now emits tool-level events (toolCall/toolResult) by scanning response messages for `FunctionCallContent`/`FunctionResultContent`
+- **Agent ID matching** — prefer agent `Id` over `Name` for invoker key matching
+- **URI security** — filter agent URIs by HTTP scheme to prevent `file://` invocation
+- **Lazy A2A mapping** — deferred agent card to A2A mapping with agent flags and definition migration
+
+### API Endpoints
+
+- **ActivityApi** (`/api/activity`) — `/live` SSE stream, `/mesh` topology, `/summary` stats, `/agent-stats` per-agent metrics
+- **McpServerApi** (`/api/mcp-servers`) — full CRUD + `/tools` discovery, `/connect`, `/disconnect`, `/status`
+- **ModelProviderApi** (`/api/model-providers`) — CRUD + `/test` connection, `/test-embedding`, `/copilot/connect`
+- **AgentDefinitionApi** (`/api/agent-definitions`) — CRUD + `/rebuild` hot-reload
+- **Enhanced TraceManagementApi** — related traces navigation, fan companion detection, enriched trace metadata
+
+### Dashboard API Client
+
+- **api.ts** — 50+ typed API functions organized by domain (traces, exports, config, auth, setup, API keys, prompt cache, tasks, MCP servers, agent definitions, model providers, activity)
+- **types.ts** — 30+ TypeScript interfaces matching backend models
+- **useActivityStream hook** — dedicated SSE connection management with state tracking
+
+### Infrastructure
+
+- **A2A deployment manifests** — Kubernetes deployment for A2A plugin host with health checks and service discovery
+- **Helm chart A2A template** — `a2a-deployment.yaml` added to Helm chart
+- **ConfigMap updates** — environment variables for internal auth token and A2A configuration
+- **Docker Compose** — added Copilot CLI configuration support
+
+## 🧪 Testing
+
+- **LiveActivityChannelTests** (3 tests) — channel write/read behavior with DrainAsync pattern
+- **LiveActivityObserverTests** (7 tests) — all 4 observer lifecycle hooks, message truncation
+- **CompositeOrchestratorObserverTests** (5 tests) — multi-observer delegation
+- **TraceCaptureObserverTests** — fire-and-forget async trace capture behavior
+- **ModelProviderResolverTests** (431 lines) — provider creation for all 7 provider types, error handling, telemetry wrapping
+- **InternalTokenAuthenticationHandlerTests** — token validation, missing headers, invalid tokens
+- **StubEmbeddingProviderResolver** — test double for embedding provider tests
+- **Updated EvalTestFixture** — aligned with new model provider and embedding resolver patterns
+- **Total: 272 tests passing** (15 new tests added)
+
+## 📦 Dependency Updates
+
+| Package | Previous | Current |
+|---------|----------|---------|
+| Microsoft.Agents.* | 1.0.0-preview.260212.1 | 1.0.0-rc1 |
+| Microsoft.Agents.AI.Hosting | 1.0.0-preview.260219.1 | 1.0.0-preview.260219.1 |
+| Microsoft.Extensions.AI.* | 10.3.0 | 10.3.0 |
+| Aspire.* | 13.1.1 | 13.1.1 |
+| OpenTelemetry.* | 1.10.0 | 1.14.0 |
+| Anthropic | — | 12.7.0 |
+| ModelContextProtocol | — | 0.9.0-preview.1 |
+| Microsoft.ML.Tokenizers | — | 2.0.0 |
+| @xyflow/react | — | 12.10.1 |
+
+## 🔨 Breaking Changes
+
+- **Microsoft Agent Framework RC1** — upgraded from preview to RC1 with consolidated agent creation APIs
+- **Legacy IChatClient DI removed** — all agents now use the model provider system; direct `IChatClient` injection is no longer supported
+- **Global IEmbeddingGenerator removed** — replaced by per-agent `IEmbeddingProviderResolver`
+- **Agent registration refactored** — agents implement `ILuciaAgent` and are auto-discovered via `IEnumerable<ILuciaAgent>` instead of concrete type injection
+
+## 🐛 Bug Fixes
+
+- Fixed button contrast on MCP Servers page (text-light → text-void)
+- Fixed SSE connection showing "Disconnected" until first event (added ack event)
+- Fixed tag pill word-wrapping on mobile — tags now flex-wrap as whole units
+- Fixed edit form tag display on mobile — tags placed on separate line below header
+- Fixed URL overflow on Model Providers mobile view — truncated with ellipsis
+- Fixed metadata cramming on mobile — stacked on separate lines
+- Fixed Configuration page mobile layout — complete mobile-first rewrite
+- Fixed agent URI security — filter by HTTP scheme to prevent file:// invocation
+- Fixed agent ID matching — prefer Id over Name for invoker key resolution
+- Fixed DynamicAgentLoader singleton registration for DI resolution
+- Fixed sync-over-async issues in MCP tool resolution
+- Fixed dynamic agent unregistration from registry on delete
+- Fixed JsonStringEnumConverter for ProviderType serialization
+
+## 📝 Documentation
+
+- **README.md** — complete dashboard section rewrite with 13 fresh screenshots at 1440×900
+- **Setup wizard screenshots** — all 4 steps (Welcome, Configure, Connect, Done) captured
+- **New page screenshots** — Activity Dashboard, Agent Definitions, Model Providers, MCP Servers
+- **Refreshed existing screenshots** — Agents (with chat panel), Configuration, Traces, Exports, Tasks, Prompt Cache, Login
+- **Spec 004** — Activity Dashboard specification and task list (`specs/004-activity-dashboard/`)
+
+---
+---
+
 # Release Notes - 2026.02.20
 
 **Release Date:** February 20, 2026  

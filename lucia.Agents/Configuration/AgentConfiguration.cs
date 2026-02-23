@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace lucia.Agents.Configuration
+﻿namespace lucia.Agents.Configuration
 {
     public sealed class AgentConfiguration
     {
@@ -10,9 +6,9 @@ namespace lucia.Agents.Configuration
         /// Name of the Agent Class
         /// e.g. "Lucia.Agents.LightAgent, Lucia.Agents"
         /// </summary>
-        public string AgentType { get; set; } = default!;
+        public string AgentType { get; set; } = null!;
 
-        public string AgentName { get; set; } = default!;
+        public string AgentName { get; set; } = null!;
 
         /// <summary>
         /// Collection of Skills to create and assign to the Agent

@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
 namespace lucia.Agents.Orchestration.Models;
@@ -39,4 +38,11 @@ public sealed class AgentChoiceResult
     /// </summary>
     [JsonPropertyName("agentInstructions")]
     public List<AgentInstruction>? AgentInstructions { get; set; }
+
+    /// <summary>
+    /// The system prompt used by the router to make this decision.
+    /// Only populated for in-process tracing; excluded from JSON serialization.
+    /// </summary>
+    [JsonIgnore]
+    public string? RouterSystemPrompt { get; set; }
 }

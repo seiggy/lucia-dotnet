@@ -3,7 +3,6 @@ using FakeItEasy;
 using lucia.Agents.Services;
 using StackExchange.Redis;
 using System.Text.Json;
-using Xunit;
 
 namespace lucia.Tests.Services;
 

@@ -22,6 +22,8 @@ public static class TraceManagementApi
 
         group.MapGet("/{id}", GetTraceAsync);
 
+        group.MapGet("/{id}/related", GetRelatedTracesAsync);
+
         group.MapPut("/{id}/label", UpdateLabelAsync);
 
         group.MapDelete("/{id}", DeleteTraceAsync);
@@ -53,7 +55,7 @@ public static class TraceManagementApi
             PageSize = pageSize ?? 25
         };
 
-        var result = await repository.ListTracesAsync(filter, ct);
+        var result = await repository.ListTracesAsync(filter, ct).ConfigureAwait(false);
         return TypedResults.Ok(result);
     }
 
@@ -61,7 +63,7 @@ public static class TraceManagementApi
         [FromServices] ITraceRepository repository,
         CancellationToken ct)
     {
-        var stats = await repository.GetStatsAsync(ct);
+        var stats = await repository.GetStatsAsync(ct).ConfigureAwait(false);
         return TypedResults.Ok(stats);
     }
 
@@ -70,7 +72,7 @@ public static class TraceManagementApi
         [FromRoute] string id,
         CancellationToken ct)
     {
-        var trace = await repository.GetTraceAsync(id, ct);
+        var trace = await repository.GetTraceAsync(id, ct).ConfigureAwait(false);
 
         if (trace is null)
         {
@@ -78,6 +80,50 @@ public static class TraceManagementApi
         }
 
         return TypedResults.Ok(trace);
+    }
+
+    private static async Task<Ok<List<RelatedTraceSummary>>> GetRelatedTracesAsync(
+        [FromServices] ITraceRepository repository,
+        [FromRoute] string id,
+        CancellationToken ct)
+    {
+        var trace = await repository.GetTraceAsync(id, ct).ConfigureAwait(false);
+        if (trace is null)
+        {
+            return TypedResults.Ok(new List<RelatedTraceSummary>());
+        }
+
+        var sessionTraces = await repository.GetTracesBySessionIdAsync(trace.SessionId, ct).ConfigureAwait(false);
+
+        var related = sessionTraces
+            .Where(t => t.Id != id)
+            .Select(t => new RelatedTraceSummary
+            {
+                Id = t.Id,
+                Timestamp = t.Timestamp,
+                TraceType = t.Metadata.GetValueOrDefault("traceType", "unknown"),
+                AgentId = t.Metadata.GetValueOrDefault("agentId"),
+                UserInput = t.UserInput.Length > 120 ? t.UserInput[..120] + "…" : t.UserInput,
+                IsErrored = t.IsErrored,
+                TotalDurationMs = t.TotalDurationMs,
+            })
+            .ToList();
+
+        return TypedResults.Ok(related);
+    }
+
+    /// <summary>
+    /// Lightweight projection of a related trace for cross-navigation.
+    /// </summary>
+    private sealed class RelatedTraceSummary
+    {
+        public required string Id { get; init; }
+        public DateTime Timestamp { get; init; }
+        public required string TraceType { get; init; }
+        public string? AgentId { get; init; }
+        public required string UserInput { get; init; }
+        public bool IsErrored { get; init; }
+        public double TotalDurationMs { get; init; }
     }
 
     private static async Task<NoContent> UpdateLabelAsync(
@@ -94,7 +140,7 @@ public static class TraceManagementApi
             LabeledAt = DateTime.UtcNow
         };
 
-        await repository.UpdateLabelAsync(id, label, ct);
+        await repository.UpdateLabelAsync(id, label, ct).ConfigureAwait(false);
         return TypedResults.NoContent();
     }
 
@@ -103,7 +149,7 @@ public static class TraceManagementApi
         [FromRoute] string id,
         CancellationToken ct)
     {
-        await repository.DeleteTraceAsync(id, ct);
+        await repository.DeleteTraceAsync(id, ct).ConfigureAwait(false);
         return TypedResults.NoContent();
     }
 }

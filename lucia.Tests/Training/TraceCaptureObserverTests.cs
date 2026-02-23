@@ -215,4 +215,90 @@ public sealed class TraceCaptureObserverTests
         A.CallTo(() => _repository.InsertTraceAsync(A<ConversationTrace>._, A<CancellationToken>._))
             .MustNotHaveHappened();
     }
+
+    [Fact]
+    public async Task OnRequestStartedAsync_CapturesConversationHistory()
+    {
+        var observer = CreateObserver();
+
+        var history = new List<TracedMessage>
+        {
+            new() { Role = "user", Content = "turn on the lights" },
+            new() { Role = "assistant", Content = "Done, the lights are on." },
+            new() { Role = "user", Content = "now dim them to 50%" }
+        };
+
+        await observer.OnRequestStartedAsync("now dim them to 50%", history);
+
+        await observer.OnRoutingCompletedAsync(new AgentChoiceResult
+        {
+            AgentId = "light-agent",
+            Reasoning = "dimming request"
+        });
+
+        await observer.OnResponseAggregatedAsync("Dimmed to 50%.");
+        await Task.Delay(200);
+
+        A.CallTo(() => _repository.InsertTraceAsync(
+            A<ConversationTrace>.That.Matches(t =>
+                t.ConversationHistory.Count == 3 &&
+                t.ConversationHistory[0].Role == "user" &&
+                t.ConversationHistory[0].Content == "turn on the lights" &&
+                t.ConversationHistory[2].Content == "now dim them to 50%"),
+            A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task OnRoutingCompletedAsync_CapturesSystemPrompt()
+    {
+        var observer = CreateObserver();
+
+        await observer.OnRequestStartedAsync("set fan to nature mode");
+
+        var systemPrompt = "You are a routing agent. Available agents: climate-agent, light-agent.";
+
+        await observer.OnRoutingCompletedAsync(
+            new AgentChoiceResult
+            {
+                AgentId = "climate-agent",
+                Reasoning = "fan mode request"
+            },
+            systemPrompt);
+
+        await observer.OnResponseAggregatedAsync("Fan set to nature mode.");
+        await Task.Delay(200);
+
+        A.CallTo(() => _repository.InsertTraceAsync(
+            A<ConversationTrace>.That.Matches(t =>
+                t.SystemPrompt == systemPrompt &&
+                t.Routing != null &&
+                t.Routing.SelectedAgentId == "climate-agent"),
+            A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task OnRequestStartedAsync_WithNullHistory_SetsEmptyList()
+    {
+        var observer = CreateObserver();
+
+        await observer.OnRequestStartedAsync("single turn request");
+
+        await observer.OnRoutingCompletedAsync(new AgentChoiceResult
+        {
+            AgentId = "agent-1",
+            Reasoning = "test"
+        });
+
+        await observer.OnResponseAggregatedAsync("response");
+        await Task.Delay(200);
+
+        A.CallTo(() => _repository.InsertTraceAsync(
+            A<ConversationTrace>.That.Matches(t =>
+                t.ConversationHistory.Count == 0 &&
+                t.SystemPrompt == null),
+            A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
 }

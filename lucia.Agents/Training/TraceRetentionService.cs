@@ -39,7 +39,7 @@ public sealed class TraceRetentionService : BackgroundService
             {
                 using var scope = _serviceProvider.CreateScope();
                 var repository = scope.ServiceProvider.GetRequiredService<ITraceRepository>();
-                var deletedCount = await repository.DeleteOldUnlabeledAsync(_options.RetentionDays, stoppingToken);
+                var deletedCount = await repository.DeleteOldUnlabeledAsync(_options.RetentionDays, stoppingToken).ConfigureAwait(false);
                 
                 if (deletedCount > 0)
                 {
@@ -52,7 +52,7 @@ public sealed class TraceRetentionService : BackgroundService
                 _logger.LogError(ex, "Error during trace retention cleanup");
             }
 
-            await Task.Delay(_interval, stoppingToken);
+            await Task.Delay(_interval, stoppingToken).ConfigureAwait(false);
         }
     }
 }

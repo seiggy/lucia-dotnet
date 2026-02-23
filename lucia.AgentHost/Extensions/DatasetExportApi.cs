@@ -38,7 +38,7 @@ public static class DatasetExportApi
         [FromBody] ExportFilterCriteria filter,
         CancellationToken ct)
     {
-        var traces = await repository.GetTracesForExportAsync(filter, ct);
+        var traces = await repository.GetTracesForExportAsync(filter, ct).ConfigureAwait(false);
 
         if (traces.Count == 0)
         {
@@ -56,7 +56,7 @@ public static class DatasetExportApi
             foreach (var trace in traces)
             {
                 var jsonlLine = ConvertTraceToJsonl(trace, filter.IncludeCorrections, filter.AgentFilter);
-                await writer.WriteLineAsync(jsonlLine);
+                await writer.WriteLineAsync(jsonlLine).ConfigureAwait(false);
             }
         }
 
@@ -73,7 +73,7 @@ public static class DatasetExportApi
             IsComplete = true
         };
 
-        await repository.InsertExportRecordAsync(record, ct);
+        await repository.InsertExportRecordAsync(record, ct).ConfigureAwait(false);
 
         return TypedResults.Created($"/api/exports/{record.Id}", record);
     }
@@ -82,7 +82,7 @@ public static class DatasetExportApi
         [FromServices] ITraceRepository repository,
         CancellationToken ct)
     {
-        var exports = await repository.ListExportRecordsAsync(ct);
+        var exports = await repository.ListExportRecordsAsync(ct).ConfigureAwait(false);
         return TypedResults.Ok(exports);
     }
 
@@ -91,7 +91,7 @@ public static class DatasetExportApi
         [FromRoute] string id,
         CancellationToken ct)
     {
-        var record = await repository.GetExportRecordAsync(id, ct);
+        var record = await repository.GetExportRecordAsync(id, ct).ConfigureAwait(false);
 
         if (record is null)
         {
@@ -106,7 +106,7 @@ public static class DatasetExportApi
         [FromRoute] string id,
         CancellationToken ct)
     {
-        var record = await repository.GetExportRecordAsync(id, ct);
+        var record = await repository.GetExportRecordAsync(id, ct).ConfigureAwait(false);
 
         if (record is null || record.FilePath is null || !File.Exists(record.FilePath))
         {

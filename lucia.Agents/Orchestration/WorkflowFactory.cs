@@ -1,11 +1,9 @@
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using A2A;
+using lucia.Agents.Abstractions;
+using lucia.Agents.Mcp;
 using lucia.Agents.Orchestration.Models;
+using lucia.Agents.Providers;
 using lucia.Agents.Registry;
 using lucia.Agents.Services;
 using Microsoft.Agents.AI;
@@ -24,7 +22,8 @@ namespace lucia.Agents.Orchestration;
 /// </summary>
 public sealed class WorkflowFactory
 {
-    private readonly IChatClient _chatClient;
+    private readonly IChatClientResolver _clientResolver;
+    private readonly IAgentDefinitionRepository _definitionRepository;
     private readonly IAgentRegistry _agentRegistry;
     private readonly IServiceProvider _serviceProvider;
     private readonly ILoggerFactory _loggerFactory;
@@ -37,9 +36,11 @@ public sealed class WorkflowFactory
     private readonly IOrchestratorObserver? _observer;
     private readonly IAgentProvider? _agentProvider;
     private readonly IPromptCacheService? _promptCache;
+    private readonly IDynamicAgentProvider? _dynamicAgentProvider;
 
     public WorkflowFactory(
-        [FromKeyedServices(OrchestratorServiceKeys.RouterModel)] IChatClient chatClient,
+        IChatClientResolver clientResolver,
+        IAgentDefinitionRepository definitionRepository,
         IAgentRegistry agentRegistry,
         IServiceProvider serviceProvider,
         ILoggerFactory loggerFactory,
@@ -50,9 +51,11 @@ public sealed class WorkflowFactory
         ITaskManager taskManager,
         IOrchestratorObserver? observer = null,
         IAgentProvider? agentProvider = null,
-        IPromptCacheService? promptCache = null)
+        IPromptCacheService? promptCache = null,
+        IDynamicAgentProvider? dynamicAgentProvider = null)
     {
-        _chatClient = chatClient ?? throw new ArgumentNullException(nameof(chatClient));
+        _clientResolver = clientResolver ?? throw new ArgumentNullException(nameof(clientResolver));
+        _definitionRepository = definitionRepository ?? throw new ArgumentNullException(nameof(definitionRepository));
         _agentRegistry = agentRegistry ?? throw new ArgumentNullException(nameof(agentRegistry));
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
@@ -65,6 +68,7 @@ public sealed class WorkflowFactory
         _observer = observer;
         _agentProvider = agentProvider;
         _promptCache = promptCache;
+        _dynamicAgentProvider = dynamicAgentProvider;
     }
 
     /// <summary>
@@ -86,6 +90,7 @@ public sealed class WorkflowFactory
         {
             try
             {
+                await luciaAgent.RefreshConfigAsync(cancellationToken).ConfigureAwait(false);
                 var aiAgent = luciaAgent.GetAIAgent();
                 if (aiAgent is not null)
                 {
@@ -99,10 +104,11 @@ public sealed class WorkflowFactory
             }
         }
 
-        // Also resolve remote agents with absolute URIs
+        // Also resolve remote agents with absolute HTTP/HTTPS URIs
         foreach (var card in agentCards)
         {
-            if (Uri.TryCreate(card.Url, UriKind.Absolute, out _))
+            if (Uri.TryCreate(card.Url, UriKind.Absolute, out var cardUri)
+                && (cardUri.Scheme == Uri.UriSchemeHttp || cardUri.Scheme == Uri.UriSchemeHttps))
             {
                 try
                 {
@@ -115,11 +121,34 @@ public sealed class WorkflowFactory
             }
         }
 
+        // Resolve dynamic agents (user-defined via MCP) — lazily built from latest Mongo definition
+        if (_dynamicAgentProvider is not null)
+        {
+            foreach (var dynamicAgent in _dynamicAgentProvider.GetAllAgents())
+            {
+                try
+                {
+                    var aiAgent = dynamicAgent.GetAIAgent();
+                    if (aiAgent is not null)
+                    {
+                        resolved.Add(aiAgent);
+                        _logger.LogDebug("Resolved dynamic AIAgent: {AgentName}", aiAgent.Name ?? aiAgent.Id);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to resolve dynamic AIAgent {AgentId}", dynamicAgent.GetAgentCard().Name);
+                }
+            }
+        }
+
         return resolved.AsReadOnly();
     }
 
     /// <summary>
     /// Creates agent invokers (local or remote) keyed by agent name.
+    /// Local agents use <see cref="AIHostAgent"/> for in-process invocation with
+    /// session persistence. Remote agents route through <see cref="ITaskManager"/>.
     /// </summary>
     public Dictionary<string, IAgentInvoker> CreateInvokers(
         IReadOnlyCollection<AgentCard> agentCards,
@@ -127,6 +156,7 @@ public sealed class WorkflowFactory
     {
         var invokers = new Dictionary<string, IAgentInvoker>(StringComparer.OrdinalIgnoreCase);
         var invokerLogger = _loggerFactory.CreateLogger("lucia.Agents.Orchestration.AgentInvoker");
+        var sessionStore = _serviceProvider.GetService<AgentSessionStore>() ?? new NoopAgentSessionStore();
 
         var agentsByKey = aiAgents
             .Select(agent => (Key: NormalizeAgentKey(agent), Agent: agent))
@@ -150,14 +180,18 @@ public sealed class WorkflowFactory
             IAgentInvoker invoker;
             if (agent is not null)
             {
-                invoker = new LocalAgentInvoker(key, agent, invokerLogger, _invokerOptions, _timeProvider);
+                // Local agent: invoke in-process via AIHostAgent with session persistence
+                invoker = new LocalAgentInvoker(key, agent, sessionStore, invokerLogger, _invokerOptions, _timeProvider);
             }
-            else if (card is not null)
+            else if (card is not null && Uri.TryCreate(card.Url, UriKind.Absolute, out var cardUri)
+                     && (cardUri.Scheme == Uri.UriSchemeHttp || cardUri.Scheme == Uri.UriSchemeHttps))
             {
+                // Remote agent: route through TaskManager via HTTP
                 invoker = new RemoteAgentInvoker(key, card, _taskManager, invokerLogger, _invokerOptions, _timeProvider);
             }
             else
             {
+                _logger.LogDebug("Skipping agent {AgentName}: no local match and no absolute URL.", key);
                 continue;
             }
 
@@ -176,11 +210,15 @@ public sealed class WorkflowFactory
         string historyAwareRequest,
         CancellationToken cancellationToken)
     {
+        // Resolve the orchestrator's chat client per-request so model provider changes take effect
+        var definition = await _definitionRepository.GetAgentDefinitionAsync("orchestrator", cancellationToken).ConfigureAwait(false);
+        var chatClient = await _clientResolver.ResolveAsync(definition?.ModelConnectionName, cancellationToken).ConfigureAwait(false);
+
         var routerLogger = _loggerFactory.CreateLogger<RouterExecutor>();
         var dispatchLogger = _loggerFactory.CreateLogger<AgentDispatchExecutor>();
         var aggregatorLogger = _loggerFactory.CreateLogger<ResultAggregatorExecutor>();
-        var router = new RouterExecutor(_chatClient, _agentRegistry, routerLogger, _routerOptions, _promptCache);
-        var dispatch = new AgentDispatchExecutor(invokers, dispatchLogger, _observer);
+        var router = new RouterExecutor(chatClient, _agentRegistry, routerLogger, _routerOptions, _promptCache);
+        var dispatch = new AgentDispatchExecutor(invokers, dispatchLogger, _routerOptions, chatClient, _observer);
         var aggregator = new ResultAggregatorExecutor(aggregatorLogger, _aggregatorOptions);
 
         var chatMessage = new ChatMessage(ChatRole.User, historyAwareRequest);
@@ -276,5 +314,5 @@ public sealed class WorkflowFactory
     }
 
     private static string? NormalizeAgentKey(AIAgent agent)
-        => agent.Name ?? agent.Id;
+        => agent.Id ?? agent.Name;
 }

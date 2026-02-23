@@ -4,7 +4,6 @@ using lucia.Agents.Orchestration.Models;
 using lucia.Tests.TestDoubles;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.Extensions.Options;
-using Xunit;
 
 namespace lucia.Tests.Models;
 

@@ -1,1 +1,122 @@
 @import "tailwindcss";
+
+/* ── Observatory Theme ── */
+@theme {
+  --color-void: #0d0c0a;
+  --color-obsidian: #12110f;
+  --color-basalt: #1a1816;
+  --color-slate-warm: #242220;
+  --color-stone: #2e2b28;
+  --color-ash: #3d3935;
+  --color-dust: #5a5550;
+  --color-fog: #8a8580;
+  --color-mist: #b5b0aa;
+  --color-cloud: #d5d0ca;
+  --color-light: #ece8e2;
+  --color-bright: #f5f2ee;
+
+  --color-amber: #e2a84b;
+  --color-amber-dim: #c4923f;
+  --color-amber-glow: #c49030;
+  --color-amber-pale: #f5deb3;
+
+  --color-rose: #d4756b;
+  --color-rose-dim: #b8635a;
+
+  --color-sage: #7dab8c;
+  --color-sage-dim: #5e8a6c;
+
+  --color-ember: #c45a4a;
+  
+  --font-display: 'Outfit', system-ui, sans-serif;
+  --font-body: 'DM Sans', system-ui, sans-serif;
+}
+
+/* ── Base ── */
+html {
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background: var(--color-void);
+  color: var(--color-cloud);
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-ash);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-dust);
+}
+
+/* ── Utility Classes ── */
+.font-display {
+  font-family: var(--font-display);
+}
+
+.glass-panel {
+  background: color-mix(in srgb, var(--color-basalt) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-stone) 60%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.glass-panel-hover:hover {
+  border-color: color-mix(in srgb, var(--color-amber) 25%, transparent);
+  background: color-mix(in srgb, var(--color-basalt) 90%, transparent);
+}
+
+.glow-amber {
+  box-shadow: 0 0 20px -5px color-mix(in srgb, var(--color-amber) 15%, transparent);
+}
+
+.glow-amber-sm {
+  box-shadow: 0 0 10px -3px color-mix(in srgb, var(--color-amber) 12%, transparent);
+}
+
+/* ── Ambient background for full-page screens ── */
+.bg-observatory {
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 80%, color-mix(in srgb, var(--color-amber) 4%, transparent), transparent),
+    radial-gradient(ellipse 60% 40% at 80% 20%, color-mix(in srgb, var(--color-rose) 3%, transparent), transparent),
+    var(--color-void);
+}
+
+/* ── Input focus ring ── */
+.input-focus:focus {
+  outline: none;
+  border-color: var(--color-amber);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-amber) 30%, transparent);
+}
+
+/* ── Sidebar transition ── */
+.sidebar-transition {
+  transition: transform 300ms cubic-bezier(0.4, 0, 0.2, 1), opacity 200ms ease;
+}
+
+/* ── Nav link active indicator ── */
+.nav-active {
+  color: var(--color-amber);
+  background: color-mix(in srgb, var(--color-amber) 8%, transparent);
+}
+
+.nav-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  background: var(--color-amber);
+  border-radius: 0 2px 2px 0;
+}
