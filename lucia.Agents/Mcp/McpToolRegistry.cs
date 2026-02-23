@@ -249,11 +249,18 @@ public sealed class McpToolRegistry : IMcpToolRegistry
         if (string.IsNullOrWhiteSpace(server.Url))
             throw new InvalidOperationException($"MCP server '{server.Id}' uses HTTP/SSE transport but has no URL configured");
 
-        return new HttpClientTransport(new HttpClientTransportOptions
+        var options = new HttpClientTransportOptions
         {
             Name = server.Name,
             Endpoint = new Uri(server.Url),
-        });
+        };
+
+        if (server.Headers is { Count: > 0 })
+        {
+            options.AdditionalHeaders = new Dictionary<string, string>(server.Headers);
+        }
+
+        return new HttpClientTransport(options);
     }
 
     private sealed record McpClientEntry(

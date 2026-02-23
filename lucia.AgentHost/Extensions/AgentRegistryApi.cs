@@ -7,12 +7,8 @@ namespace lucia.AgentHost.Extensions;
 
 public static class AgentRegistryApi
 {
-    private static ILogger? _logger;
-
     public static IEndpointRouteBuilder MapAgentRegistryApiV1(this WebApplication app)
     {
-        _logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("AgentRegistryApi");
-
         // Internal service-to-service: agents query the registry to verify registration
         app.MapGet("/agents", GetAgentsAsync)
             .RequireAuthorization("ExternalOrInternal");
@@ -46,14 +42,16 @@ public static class AgentRegistryApi
         >> RegisterAgentAsync(
         [FromServices] IAgentRegistry agentRegistry,
         [FromServices] IHttpClientFactory httpClientFactory,
+        [FromServices] ILoggerFactory loggerFactory,
         [FromForm] string agentId,
         CancellationToken cancellationToken = default)
     {
-        _logger?.LogInformation("Received agent registration request for {AgentId}", agentId);
+        var logger = loggerFactory.CreateLogger("AgentRegistryApi");
+        logger.LogInformation("Received agent registration request for {AgentId}", agentId);
 
         if (string.IsNullOrWhiteSpace(agentId))
         {
-            _logger?.LogWarning("Agent registration rejected: empty agentId");
+            logger.LogWarning("Agent registration rejected: empty agentId");
             return TypedResults.BadRequest("Agent URI must be provided");
         }
 
@@ -68,25 +66,25 @@ public static class AgentRegistryApi
         {
             try
             {
-                _logger?.LogInformation("Fetching agent card from {AgentUri} (attempt {Attempt}/{MaxRetries})",
+                logger.LogInformation("Fetching agent card from {AgentUri} (attempt {Attempt}/{MaxRetries})",
                     agentUri, attempt, maxRetries);
                 var resolver = new A2ACardResolver(agentUri, httpClient);
                 agentCard = await resolver.GetAgentCardAsync(cancellationToken).ConfigureAwait(false);
-                _logger?.LogInformation("Successfully fetched agent card for {AgentName} from {AgentUri}",
+                logger.LogInformation("Successfully fetched agent card for {AgentName} from {AgentUri}",
                     agentCard?.Name ?? "unknown", agentUri);
                 break;
             }
             catch (Exception ex) when (attempt < maxRetries)
             {
                 var delay = TimeSpan.FromSeconds(2 * attempt);
-                _logger?.LogWarning(ex,
+                logger.LogWarning(ex,
                     "Failed to fetch agent card from {AgentUri} (attempt {Attempt}/{MaxRetries}). Retrying in {Delay}s...",
                     agentUri, attempt, maxRetries, delay.TotalSeconds);
                 await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex,
+                logger.LogError(ex,
                     "Failed to fetch agent card from {AgentUri} after {MaxRetries} attempts",
                     agentUri, maxRetries);
             }
@@ -94,12 +92,12 @@ public static class AgentRegistryApi
 
         if (agentCard == null)
         {
-            _logger?.LogError("Could not retrieve agent card for {AgentId} after all retries", agentId);
+            logger.LogError("Could not retrieve agent card for {AgentId} after all retries", agentId);
             return TypedResults.Problem($"Could not retrieve agent card for agent: {agentId}");
         }
 
         await agentRegistry.RegisterAgentAsync(agentCard, cancellationToken).ConfigureAwait(false);
-        _logger?.LogInformation("Agent {AgentName} registered successfully with URL {AgentUrl}",
+        logger.LogInformation("Agent {AgentName} registered successfully with URL {AgentUrl}",
             agentCard.Name, agentCard.Url);
 
         return TypedResults.Created();

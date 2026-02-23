@@ -9,9 +9,9 @@ using Microsoft.Extensions.Logging;
 namespace lucia.Agents.Mcp;
 
 /// <summary>
-/// A user-defined agent that is lazily constructed from its MongoDB definition
-/// and resolved MCP tools. Each invocation loads the latest definition, so edits
-/// take effect immediately without restart.
+/// A user-defined agent that is constructed from its MongoDB definition
+/// and resolved MCP tools. The agent is pre-built during initialization
+/// and can be rebuilt on demand for hot-reload.
 /// </summary>
 public sealed class DynamicAgent : ILuciaAgent
 {
@@ -26,6 +26,7 @@ public sealed class DynamicAgent : ILuciaAgent
 
     private AgentCard _agentCard;
     private AgentDefinition? _lastDefinition;
+    private volatile AIAgent _cachedAgent;
 
     public DynamicAgent(
         string agentId,
@@ -44,40 +45,64 @@ public sealed class DynamicAgent : ILuciaAgent
         _lastDefinition = initialDefinition;
 
         _agentCard = BuildAgentCard(initialDefinition);
+
+        // Build an initial agent synchronously from the definition we already have
+        _cachedAgent = BuildAgent(initialDefinition, []);
     }
 
     public AgentCard GetAgentCard() => _agentCard;
 
     /// <summary>
-    /// Lazily constructs a ChatClientAgent from the latest MongoDB definition.
-    /// Resolves MCP tools from the registry on each call for hot-reload support.
+    /// Returns the pre-built cached AIAgent. The agent is rebuilt asynchronously
+    /// via <see cref="RebuildAsync"/> or during <see cref="InitializeAsync"/>.
     /// </summary>
-    public AIAgent GetAIAgent()
+    public AIAgent GetAIAgent() => _cachedAgent;
+
+    /// <summary>
+    /// Loads the latest definition from MongoDB, resolves MCP tools, and caches
+    /// the constructed agent for subsequent <see cref="GetAIAgent"/> calls.
+    /// </summary>
+    public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
-        using var activity = ActivitySource.StartActivity("DynamicAgent.GetAIAgent", ActivityKind.Internal);
+        await RebuildAsync(cancellationToken).ConfigureAwait(false);
+        _logger.LogInformation("Dynamic agent {AgentId} initialized with {ToolCount} tools",
+            _agentId, _lastDefinition?.Tools.Count ?? 0);
+    }
+
+    /// <summary>
+    /// Reloads the agent definition from MongoDB and rebuilds the cached AIAgent
+    /// with the latest MCP tools. Safe to call at runtime for hot-reload.
+    /// </summary>
+    public async Task RebuildAsync(CancellationToken cancellationToken = default)
+    {
+        using var activity = ActivitySource.StartActivity("DynamicAgent.RebuildAsync", ActivityKind.Internal);
         activity?.SetTag("agent.id", _agentId);
 
-        // Load latest definition synchronously (hot path, cached by MongoDB driver)
-        var definition = _repository.GetAgentDefinitionAsync(_agentId).GetAwaiter().GetResult();
+        var definition = await _repository.GetAgentDefinitionAsync(_agentId, cancellationToken)
+            .ConfigureAwait(false);
+
         if (definition is null)
         {
-            _logger.LogWarning("Agent definition {AgentId} not found, using last known definition", _agentId);
+            _logger.LogWarning("Agent definition {AgentId} not found, keeping last known definition", _agentId);
             definition = _lastDefinition ?? throw new InvalidOperationException(
                 $"No definition available for dynamic agent '{_agentId}'");
         }
 
         _lastDefinition = definition;
-
-        // Refresh agent card if definition changed
         _agentCard = BuildAgentCard(definition);
 
-        // Resolve MCP tools
+        // Resolve MCP tools asynchronously
         var tools = definition.Tools.Count > 0
-            ? _toolRegistry.ResolveToolsAsync(definition.Tools).GetAwaiter().GetResult()
+            ? await _toolRegistry.ResolveToolsAsync(definition.Tools, cancellationToken).ConfigureAwait(false)
             : [];
 
         activity?.SetTag("agent.tool_count", tools.Count);
 
+        _cachedAgent = BuildAgent(definition, tools);
+    }
+
+    private AIAgent BuildAgent(AgentDefinition definition, IReadOnlyList<AITool> tools)
+    {
         var chatOptions = new ChatOptions
         {
             Instructions = definition.Instructions ?? "You are a helpful assistant."
@@ -97,12 +122,6 @@ public sealed class DynamicAgent : ILuciaAgent
         };
 
         return new ChatClientAgent(_defaultChatClient, agentOptions, _loggerFactory);
-    }
-
-    public Task InitializeAsync(CancellationToken cancellationToken = default)
-    {
-        _logger.LogInformation("Dynamic agent {AgentId} initialized", _agentId);
-        return Task.CompletedTask;
     }
 
     private static AgentCard BuildAgentCard(AgentDefinition definition)
