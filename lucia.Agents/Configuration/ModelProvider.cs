@@ -29,6 +29,13 @@ public sealed class ModelProvider
     public ProviderType ProviderType { get; set; }
 
     /// <summary>
+    /// Whether this provider produces a chat client or an embedding generator.
+    /// Defaults to <see cref="ModelPurpose.Chat"/> for backward compatibility.
+    /// </summary>
+    [BsonRepresentation(BsonType.String)]
+    public ModelPurpose Purpose { get; set; } = ModelPurpose.Chat;
+
+    /// <summary>
     /// Base endpoint URL. Required for most providers, optional for cloud defaults
     /// (e.g., OpenAI uses api.openai.com by default if null).
     /// </summary>

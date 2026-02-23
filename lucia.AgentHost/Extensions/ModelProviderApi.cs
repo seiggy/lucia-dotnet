@@ -27,6 +27,7 @@ public static class ModelProviderApi
         group.MapPut("/{id}", UpdateProviderAsync);
         group.MapDelete("/{id}", DeleteProviderAsync);
         group.MapPost("/{id}/test", TestProviderAsync);
+        group.MapPost("/{id}/test-embedding", TestEmbeddingAsync);
         group.MapPost("/copilot/connect", CopilotConnectAsync);
 
         return endpoints;
@@ -34,9 +35,14 @@ public static class ModelProviderApi
 
     private static async Task<Ok<List<ModelProvider>>> ListProvidersAsync(
         [FromServices] IModelProviderRepository repository,
+        [FromQuery] ModelPurpose? purpose,
         CancellationToken ct)
     {
         var providers = await repository.GetAllProvidersAsync(ct);
+        if (purpose is not null)
+        {
+            providers = providers.Where(p => p.Purpose == purpose.Value).ToList();
+        }
         return TypedResults.Ok(providers);
     }
 
@@ -120,6 +126,20 @@ public static class ModelProviderApi
             return TypedResults.Ok(new ModelProviderTestResult(false, $"Provider '{id}' not found"));
 
         var result = await factory.TestConnectionAsync(provider, ct);
+        return TypedResults.Ok(result);
+    }
+
+    private static async Task<Ok<ModelProviderTestResult>> TestEmbeddingAsync(
+        string id,
+        [FromServices] IModelProviderRepository repository,
+        [FromServices] IModelProviderFactory factory,
+        CancellationToken ct)
+    {
+        var provider = await repository.GetProviderAsync(id, ct);
+        if (provider is null)
+            return TypedResults.Ok(new ModelProviderTestResult(false, $"Provider '{id}' not found"));
+
+        var result = await factory.TestEmbeddingConnectionAsync(provider, ct);
         return TypedResults.Ok(result);
     }
 

@@ -527,8 +527,9 @@ export async function reloadDynamicAgents(): Promise<void> {
 
 // ── Model Providers ──────────────────────────────────────────────
 
-export async function fetchModelProviders(): Promise<ModelProvider[]> {
-  const res = await fetch(`${BASE}/model-providers`);
+export async function fetchModelProviders(purpose?: import('./types').ModelPurpose): Promise<ModelProvider[]> {
+  const params = purpose ? `?purpose=${purpose}` : '';
+  const res = await fetch(`${BASE}/model-providers${params}`);
   if (!res.ok) throw new Error(`Failed to fetch model providers: ${res.statusText}`);
   return res.json();
 }
@@ -569,6 +570,11 @@ export async function deleteModelProvider(id: string): Promise<void> {
 
 export async function testModelProvider(id: string): Promise<{ success: boolean; message: string }> {
   const res = await fetch(`${BASE}/model-providers/${encodeURIComponent(id)}/test`, { method: 'POST' });
+  return res.json();
+}
+
+export async function testEmbeddingProvider(id: string): Promise<{ success: boolean; message: string }> {
+  const res = await fetch(`${BASE}/model-providers/${encodeURIComponent(id)}/test-embedding`, { method: 'POST' });
   return res.json();
 }
 

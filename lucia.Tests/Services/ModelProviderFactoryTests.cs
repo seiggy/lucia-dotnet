@@ -308,4 +308,125 @@ public sealed class ModelProviderFactoryTests
     }
 
     #endregion
+
+    #region Embedding Generators
+
+    [Fact]
+    public void CreateEmbeddingGenerator_OpenAI_ReturnsGenerator()
+    {
+        var provider = MakeProvider(ProviderType.OpenAI, model: "text-embedding-3-small");
+        var generator = _factory.CreateEmbeddingGenerator(provider);
+        Assert.NotNull(generator);
+    }
+
+    [Fact]
+    public void CreateEmbeddingGenerator_OpenAI_WithCustomEndpoint_ReturnsGenerator()
+    {
+        var provider = MakeProvider(ProviderType.OpenAI,
+            endpoint: "https://custom-endpoint.example.com/v1",
+            model: "text-embedding-3-small");
+        var generator = _factory.CreateEmbeddingGenerator(provider);
+        Assert.NotNull(generator);
+    }
+
+    [Fact]
+    public void CreateEmbeddingGenerator_AzureOpenAI_WithApiKey_ReturnsGenerator()
+    {
+        var provider = MakeProvider(ProviderType.AzureOpenAI,
+            endpoint: "https://myinstance.openai.azure.com",
+            model: "text-embedding-ada-002");
+        var generator = _factory.CreateEmbeddingGenerator(provider);
+        Assert.NotNull(generator);
+    }
+
+    [Fact]
+    public void CreateEmbeddingGenerator_AzureOpenAI_WithDefaultCredentials_ReturnsGenerator()
+    {
+        var provider = MakeProvider(ProviderType.AzureOpenAI,
+            endpoint: "https://myinstance.openai.azure.com",
+            model: "text-embedding-ada-002",
+            apiKey: null,
+            useDefaultCredentials: true);
+        var generator = _factory.CreateEmbeddingGenerator(provider);
+        Assert.NotNull(generator);
+    }
+
+    [Fact]
+    public void CreateEmbeddingGenerator_AzureOpenAI_RequiresEndpoint()
+    {
+        var provider = MakeProvider(ProviderType.AzureOpenAI, model: "text-embedding-ada-002");
+        Assert.Throws<InvalidOperationException>(() => _factory.CreateEmbeddingGenerator(provider));
+    }
+
+    [Fact]
+    public void CreateEmbeddingGenerator_AzureAIInference_WithApiKey_ReturnsGenerator()
+    {
+        var provider = MakeProvider(ProviderType.AzureAIInference,
+            endpoint: "https://my-inference.inference.ai.azure.com",
+            model: "text-embedding-3-small");
+        var generator = _factory.CreateEmbeddingGenerator(provider);
+        Assert.NotNull(generator);
+    }
+
+    [Fact]
+    public void CreateEmbeddingGenerator_AzureAIInference_RequiresEndpoint()
+    {
+        var provider = MakeProvider(ProviderType.AzureAIInference, model: "embed-model");
+        Assert.Throws<InvalidOperationException>(() => _factory.CreateEmbeddingGenerator(provider));
+    }
+
+    [Fact]
+    public void CreateEmbeddingGenerator_Ollama_ReturnsGenerator()
+    {
+        var provider = MakeProvider(ProviderType.Ollama,
+            model: "nomic-embed-text",
+            apiKey: null);
+        var generator = _factory.CreateEmbeddingGenerator(provider);
+        Assert.NotNull(generator);
+    }
+
+    [Fact]
+    public void CreateEmbeddingGenerator_Ollama_WithCustomEndpoint_ReturnsGenerator()
+    {
+        var provider = MakeProvider(ProviderType.Ollama,
+            endpoint: "http://gpu-server:11434",
+            model: "nomic-embed-text",
+            apiKey: null);
+        var generator = _factory.CreateEmbeddingGenerator(provider);
+        Assert.NotNull(generator);
+    }
+
+    [Fact]
+    public void CreateEmbeddingGenerator_GoogleGemini_ReturnsGenerator()
+    {
+        var provider = MakeProvider(ProviderType.GoogleGemini,
+            model: "text-embedding-004");
+        var generator = _factory.CreateEmbeddingGenerator(provider);
+        Assert.NotNull(generator);
+    }
+
+    [Fact]
+    public void CreateEmbeddingGenerator_Anthropic_ThrowsNotSupported()
+    {
+        var provider = MakeProvider(ProviderType.Anthropic, model: "any-model");
+        Assert.Throws<NotSupportedException>(() => _factory.CreateEmbeddingGenerator(provider));
+    }
+
+    [Fact]
+    public void CreateEmbeddingGenerator_GitHubCopilot_ThrowsNotSupported()
+    {
+        var provider = MakeProvider(ProviderType.GitHubCopilot, model: "any-model");
+        Assert.Throws<NotSupportedException>(() => _factory.CreateEmbeddingGenerator(provider));
+    }
+
+    [Fact]
+    public async Task TestEmbeddingConnection_WithFakeKey_ReturnsFailed()
+    {
+        var provider = MakeProvider(ProviderType.OpenAI, model: "text-embedding-3-small");
+        var result = await _factory.TestEmbeddingConnectionAsync(provider);
+        Assert.False(result.Success);
+        Assert.Contains("failed", result.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    #endregion
 }

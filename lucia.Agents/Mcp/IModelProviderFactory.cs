@@ -4,7 +4,7 @@ using Microsoft.Extensions.AI;
 namespace lucia.Agents.Mcp;
 
 /// <summary>
-/// Creates IChatClient instances from stored ModelProvider configurations.
+/// Creates IChatClient and IEmbeddingGenerator instances from stored ModelProvider configurations.
 /// </summary>
 public interface IModelProviderFactory
 {
@@ -15,9 +15,20 @@ public interface IModelProviderFactory
     IChatClient CreateClient(ModelProvider provider);
 
     /// <summary>
-    /// Sends a simple test message to verify connectivity and returns a result.
+    /// Creates an IEmbeddingGenerator for the given provider configuration.
+    /// Only valid for providers with <see cref="ModelPurpose.Embedding"/> purpose.
+    /// </summary>
+    IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGenerator(ModelProvider provider);
+
+    /// <summary>
+    /// Sends a simple test message to verify chat connectivity and returns a result.
     /// </summary>
     Task<ModelProviderTestResult> TestConnectionAsync(ModelProvider provider, CancellationToken ct = default);
+
+    /// <summary>
+    /// Generates a test embedding to verify embedding connectivity and returns a result.
+    /// </summary>
+    Task<ModelProviderTestResult> TestEmbeddingConnectionAsync(ModelProvider provider, CancellationToken ct = default);
 }
 
 /// <summary>

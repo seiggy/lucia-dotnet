@@ -202,6 +202,11 @@ export interface AgentDefinition {
 // Model Providers
 export type ProviderType = 'OpenAI' | 'AzureOpenAI' | 'AzureAIInference' | 'Ollama' | 'Anthropic' | 'GoogleGemini' | 'GitHubCopilot';
 
+export type ModelPurpose = 'Chat' | 'Embedding';
+
+/// Provider types that support embedding generation
+export const EmbeddingCapableProviders: ProviderType[] = ['OpenAI', 'AzureOpenAI', 'AzureAIInference', 'Ollama', 'GoogleGemini'];
+
 export interface ModelAuthConfig {
   authType: string;
   apiKey?: string;
@@ -212,6 +217,7 @@ export interface ModelProvider {
   id: string;
   name: string;
   providerType: ProviderType;
+  purpose: ModelPurpose;
   endpoint?: string;
   modelName: string;
   auth: ModelAuthConfig;

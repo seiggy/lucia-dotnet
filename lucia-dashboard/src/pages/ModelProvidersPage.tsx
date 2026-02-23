@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
-import type { ModelProvider, ProviderType, ModelAuthConfig, CopilotModelInfo } from '../types'
+import type { ModelProvider, ProviderType, ModelPurpose, ModelAuthConfig, CopilotModelInfo } from '../types'
+import { EmbeddingCapableProviders } from '../types'
 import {
   fetchModelProviders,
   createModelProvider,
   updateModelProvider,
   deleteModelProvider,
   testModelProvider,
+  testEmbeddingProvider,
   connectCopilotCli,
 } from '../api'
 
@@ -32,6 +34,7 @@ function emptyProvider(): Partial<ModelProvider> {
     id: '',
     name: '',
     providerType: 'OpenAI',
+    purpose: 'Chat',
     endpoint: '',
     modelName: '',
     auth: { authType: 'api-key', apiKey: '', useDefaultCredentials: false },
@@ -106,7 +109,10 @@ export default function ModelProvidersPage() {
   const handleTest = async (id: string) => {
     try {
       setTesting(id)
-      const result = await testModelProvider(id)
+      const provider = providers.find(p => p.id === id)
+      const result = provider?.purpose === 'Embedding'
+        ? await testEmbeddingProvider(id)
+        : await testModelProvider(id)
       setTestResults(prev => ({ ...prev, [id]: result }))
     } catch (err) {
       setTestResults(prev => ({
@@ -230,6 +236,34 @@ export default function ModelProvidersPage() {
             />
           </div>
 
+          {/* Purpose */}
+          <div>
+            <label className="mb-1 block text-sm text-gray-300">Purpose</label>
+            <select
+              value={form.purpose ?? 'Chat'}
+              onChange={e => {
+                const newPurpose = e.target.value as ModelPurpose
+                setForm(prev => {
+                  const updated = { ...prev, purpose: newPurpose }
+                  // Reset provider type if current one doesn't support embedding
+                  if (newPurpose === 'Embedding' && prev.providerType && !EmbeddingCapableProviders.includes(prev.providerType)) {
+                    updated.providerType = 'OpenAI'
+                  }
+                  return updated
+                })
+              }}
+              className="w-full rounded bg-gray-700 px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="Chat">Chat (LLM text generation)</option>
+              <option value="Embedding">Embedding (vector search)</option>
+            </select>
+            {form.purpose === 'Embedding' && (
+              <p className="mt-1 text-xs text-yellow-400">
+                Embedding providers are used by skills for vector search (e.g. device matching, prompt caching). Agents never use embedding models directly.
+              </p>
+            )}
+          </div>
+
           {/* Provider Type */}
           <div>
             <label className="mb-1 block text-sm text-gray-300">Provider Type</label>
@@ -249,11 +283,13 @@ export default function ModelProvidersPage() {
               }}
               className="w-full rounded bg-gray-700 px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
             >
-              {PROVIDER_TYPES.map(pt => (
-                <option key={pt.value} value={pt.value}>
-                  {pt.label}
-                </option>
-              ))}
+              {PROVIDER_TYPES
+                .filter(pt => form.purpose !== 'Embedding' || EmbeddingCapableProviders.includes(pt.value))
+                .map(pt => (
+                  <option key={pt.value} value={pt.value}>
+                    {pt.label}
+                  </option>
+                ))}
             </select>
             <p className="mt-1 text-xs text-gray-500">
               {PROVIDER_TYPES.find(pt => pt.value === form.providerType)?.hint}
@@ -526,6 +562,11 @@ export default function ModelProvidersPage() {
                     <span className="rounded bg-gray-700 px-2 py-0.5 text-xs text-gray-300">
                       {p.providerType}
                     </span>
+                    {p.purpose === 'Embedding' && (
+                      <span className="rounded bg-purple-900/50 px-2 py-0.5 text-xs text-purple-300">
+                        embedding
+                      </span>
+                    )}
                     <span
                       className={`rounded px-2 py-0.5 text-xs ${
                         p.enabled
@@ -559,7 +600,7 @@ export default function ModelProvidersPage() {
                     disabled={testing === p.id}
                     className="rounded bg-gray-700 px-3 py-1 text-xs text-gray-300 hover:bg-gray-600 disabled:opacity-50"
                   >
-                    {testing === p.id ? 'Testing...' : 'Test'}
+                    {testing === p.id ? 'Testing...' : p.purpose === 'Embedding' ? 'Test Embedding' : 'Test'}
                   </button>
                   <button
                     onClick={() => handleEdit(p)}

@@ -13,7 +13,7 @@ using OpenAI;
 namespace lucia.Agents.Mcp;
 
 /// <summary>
-/// Creates IChatClient instances from stored ModelProvider configurations.
+/// Creates IChatClient and IEmbeddingGenerator instances from stored ModelProvider configurations.
 /// Supports OpenAI, Azure OpenAI, Azure AI Inference, Ollama, Anthropic, Google Gemini,
 /// and GitHub Copilot SDK.
 /// </summary>
@@ -57,6 +57,24 @@ public sealed class ModelProviderFactory : IModelProviderFactory
             .Build(_serviceProvider);
     }
 
+    public IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGenerator(ModelProvider provider)
+    {
+        _logger.LogDebug("Creating IEmbeddingGenerator for provider {ProviderId} (type={ProviderType}, model={Model})",
+            provider.Id, provider.ProviderType, provider.ModelName);
+
+        return provider.ProviderType switch
+        {
+            ProviderType.OpenAI => CreateOpenAIEmbeddingGenerator(provider),
+            ProviderType.AzureOpenAI => CreateAzureOpenAIEmbeddingGenerator(provider),
+            ProviderType.AzureAIInference => CreateAzureAIInferenceEmbeddingGenerator(provider),
+            ProviderType.Ollama => CreateOllamaEmbeddingGenerator(provider),
+            ProviderType.GoogleGemini => CreateGeminiEmbeddingGenerator(provider),
+            _ => throw new NotSupportedException(
+                $"Provider type '{provider.ProviderType}' does not support embedding generation. " +
+                "Supported types: OpenAI, AzureOpenAI, AzureAIInference, Ollama, GoogleGemini.")
+        };
+    }
+
     public async Task<ModelProviderTestResult> TestConnectionAsync(ModelProvider provider, CancellationToken ct = default)
     {
         try
@@ -70,6 +88,22 @@ public sealed class ModelProviderFactory : IModelProviderFactory
         {
             _logger.LogWarning(ex, "Model provider test failed for {ProviderId}", provider.Id);
             return new ModelProviderTestResult(false, $"Connection failed: {ex.Message}");
+        }
+    }
+
+    public async Task<ModelProviderTestResult> TestEmbeddingConnectionAsync(ModelProvider provider, CancellationToken ct = default)
+    {
+        try
+        {
+            var generator = CreateEmbeddingGenerator(provider);
+            var result = await generator.GenerateAsync(["hello world"], cancellationToken: ct);
+            var dims = result.FirstOrDefault()?.Vector.Length ?? 0;
+            return new ModelProviderTestResult(true, $"Embedding successful. Dimensions: {dims}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Embedding provider test failed for {ProviderId}", provider.Id);
+            return new ModelProviderTestResult(false, $"Embedding test failed: {ex.Message}");
         }
     }
 
@@ -190,4 +224,97 @@ public sealed class ModelProviderFactory : IModelProviderFactory
 
         return new CopilotChatClientAdapter(options, provider.ModelName);
     }
+
+    #region Embedding generators
+
+    private static IEmbeddingGenerator<string, Embedding<float>> CreateOpenAIEmbeddingGenerator(ModelProvider provider)
+    {
+        var apiKey = provider.Auth.ApiKey ?? "unused";
+        var credential = new ApiKeyCredential(apiKey);
+
+        var options = new OpenAIClientOptions();
+        if (!string.IsNullOrWhiteSpace(provider.Endpoint))
+        {
+            options.Endpoint = new Uri(provider.Endpoint);
+        }
+
+        var client = new OpenAIClient(credential, options);
+        return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator();
+    }
+
+    private static IEmbeddingGenerator<string, Embedding<float>> CreateAzureOpenAIEmbeddingGenerator(ModelProvider provider)
+    {
+        if (string.IsNullOrWhiteSpace(provider.Endpoint))
+            throw new InvalidOperationException("Azure OpenAI embedding provider requires an endpoint URL");
+
+        var endpoint = new Uri(provider.Endpoint);
+
+        if (provider.Auth is { UseDefaultCredentials: true })
+        {
+            var credential = new DefaultAzureCredential();
+            var client = new Azure.AI.OpenAI.AzureOpenAIClient(endpoint, credential);
+            return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator();
+        }
+
+        if (!string.IsNullOrWhiteSpace(provider.Auth.ApiKey))
+        {
+            var credential = new ApiKeyCredential(provider.Auth.ApiKey);
+            var client = new Azure.AI.OpenAI.AzureOpenAIClient(endpoint, credential);
+            return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator();
+        }
+
+        throw new InvalidOperationException("Azure OpenAI embedding provider requires either an API key or Azure credentials");
+    }
+
+    private static IEmbeddingGenerator<string, Embedding<float>> CreateAzureAIInferenceEmbeddingGenerator(ModelProvider provider)
+    {
+        if (string.IsNullOrWhiteSpace(provider.Endpoint))
+            throw new InvalidOperationException("Azure AI Inference embedding provider requires an endpoint URL");
+
+        var endpoint = new Uri(provider.Endpoint);
+
+        if (provider.Auth is { UseDefaultCredentials: true })
+        {
+            var credential = new DefaultAzureCredential();
+            var client = new EmbeddingsClient(endpoint, credential, new AzureAIInferenceClientOptions());
+            return client.AsIEmbeddingGenerator(provider.ModelName);
+        }
+
+        if (!string.IsNullOrWhiteSpace(provider.Auth.ApiKey))
+        {
+            var credential = new AzureKeyCredential(provider.Auth.ApiKey);
+            var client = new EmbeddingsClient(endpoint, credential, new AzureAIInferenceClientOptions());
+            return client.AsIEmbeddingGenerator(provider.ModelName);
+        }
+
+        throw new InvalidOperationException("Azure AI Inference embedding provider requires either an API key or Azure credentials");
+    }
+
+    private IEmbeddingGenerator<string, Embedding<float>> CreateOllamaEmbeddingGenerator(ModelProvider provider)
+    {
+        var httpClient = _httpClientFactory.CreateClient($"ollama_embed_{provider.Id}");
+        httpClient.BaseAddress = !string.IsNullOrWhiteSpace(provider.Endpoint)
+            ? new Uri(provider.Endpoint)
+            : new Uri("http://localhost:11434");
+
+        return new OllamaApiClient(httpClient, provider.ModelName);
+    }
+
+    private static IEmbeddingGenerator<string, Embedding<float>> CreateGeminiEmbeddingGenerator(ModelProvider provider)
+    {
+        // Google Gemini embedding via OpenAI-compatible endpoint
+        var apiKey = provider.Auth.ApiKey
+            ?? throw new InvalidOperationException("Google Gemini embedding provider requires an API key");
+
+        var endpoint = !string.IsNullOrWhiteSpace(provider.Endpoint)
+            ? provider.Endpoint
+            : "https://generativelanguage.googleapis.com/v1beta/openai/";
+
+        var credential = new ApiKeyCredential(apiKey);
+        var options = new OpenAIClientOptions { Endpoint = new Uri(endpoint) };
+        var client = new OpenAIClient(credential, options);
+        return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator();
+    }
+
+    #endregion
 }
