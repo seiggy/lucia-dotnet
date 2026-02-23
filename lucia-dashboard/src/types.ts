@@ -225,6 +225,7 @@ export interface ModelProvider {
   auth: ModelAuthConfig;
   copilotMetadata?: CopilotModelMetadata;
   enabled: boolean;
+  isBuiltIn: boolean;
   createdAt: string;
   updatedAt: string;
 }

@@ -567,6 +567,11 @@ export default function ModelProvidersPage() {
                         embedding
                       </span>
                     )}
+                    {p.isBuiltIn && (
+                      <span className="rounded bg-blue-900/50 px-2 py-0.5 text-xs text-blue-300">
+                        default
+                      </span>
+                    )}
                     <span
                       className={`rounded px-2 py-0.5 text-xs ${
                         p.enabled
@@ -608,12 +613,14 @@ export default function ModelProvidersPage() {
                   >
                     Edit
                   </button>
-                  <button
-                    onClick={() => handleDelete(p.id)}
-                    className="rounded bg-red-900/50 px-3 py-1 text-xs text-red-300 hover:bg-red-900"
-                  >
-                    Delete
-                  </button>
+                  {!p.isBuiltIn && (
+                    <button
+                      onClick={() => handleDelete(p.id)}
+                      className="rounded bg-red-900/50 px-3 py-1 text-xs text-red-300 hover:bg-red-900"
+                    >
+                      Delete
+                    </button>
+                  )}
                 </div>
               </div>
 

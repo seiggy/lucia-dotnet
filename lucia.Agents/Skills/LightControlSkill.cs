@@ -86,6 +86,16 @@ public class LightControlSkill : IAgentSkill
         _logger.LogInformation("LightControlPlugin initialized with {LightCount} light entities", _cachedLights.Count);
     }
 
+    /// <summary>
+    /// Re-resolves the embedding generator using the specified provider name.
+    /// Called by the owning agent when the embedding configuration changes.
+    /// </summary>
+    public async Task UpdateEmbeddingProviderAsync(string? providerName, CancellationToken cancellationToken = default)
+    {
+        _embeddingService = await _embeddingResolver.ResolveAsync(providerName, cancellationToken).ConfigureAwait(false);
+        _logger.LogInformation("LightControlSkill: embedding provider updated to '{Provider}'", providerName ?? "system-default");
+    }
+
     [Description("Find light(s) in an area by name of the Area")]
     public async Task<string> FindLightsByAreaAsync(
         [Description("The Area name (e.g 'kitchen', 'office', 'main bedroom')")] string area)

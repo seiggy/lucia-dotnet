@@ -88,6 +88,16 @@ public sealed class ClimateControlSkill : IAgentSkill
         _logger.LogInformation("ClimateControlSkill initialized with {DeviceCount} climate entities", _cachedDevices.Count);
     }
 
+    /// <summary>
+    /// Re-resolves the embedding generator using the specified provider name.
+    /// Called by the owning agent when the embedding configuration changes.
+    /// </summary>
+    public async Task UpdateEmbeddingProviderAsync(string? providerName, CancellationToken cancellationToken = default)
+    {
+        _embeddingService = await _embeddingResolver.ResolveAsync(providerName, cancellationToken).ConfigureAwait(false);
+        _logger.LogInformation("ClimateControlSkill: embedding provider updated to '{Provider}'", providerName ?? "system-default");
+    }
+
     [Description("Get the configured comfort adjustment in degrees Fahrenheit used for relative temperature changes like 'I'm cold' or 'I'm hot'")]
     public string GetComfortAdjustment()
     {

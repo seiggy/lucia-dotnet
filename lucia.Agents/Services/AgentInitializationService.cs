@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -22,6 +23,8 @@ public class AgentInitializationService : BackgroundService
     private readonly IAgentRegistry _agentRegistry;
     private readonly IEnumerable<ILuciaAgent> _agents;
     private readonly IAgentDefinitionRepository _definitionRepository;
+    private readonly IModelProviderRepository _providerRepository;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<AgentInitializationService> _logger;
     private readonly IOptionsMonitor<HomeAssistantOptions> _haOptions;
     private readonly AgentInitializationStatus _initStatus;
@@ -30,6 +33,8 @@ public class AgentInitializationService : BackgroundService
         IAgentRegistry agentRegistry,
         IEnumerable<ILuciaAgent> agents,
         IAgentDefinitionRepository definitionRepository,
+        IModelProviderRepository providerRepository,
+        IConfiguration configuration,
         ILogger<AgentInitializationService> logger,
         IOptionsMonitor<HomeAssistantOptions> haOptions,
         AgentInitializationStatus initStatus)
@@ -37,6 +42,8 @@ public class AgentInitializationService : BackgroundService
         _agentRegistry = agentRegistry;
         _agents = agents;
         _definitionRepository = definitionRepository;
+        _providerRepository = providerRepository;
+        _configuration = configuration;
         _logger = logger;
         _haOptions = haOptions;
         _initStatus = initStatus;
@@ -45,6 +52,9 @@ public class AgentInitializationService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await WaitForHomeAssistantConfigurationAsync(stoppingToken).ConfigureAwait(false);
+
+        // Seed default model providers from connection strings if upgrading
+        await _providerRepository.SeedDefaultModelProvidersAsync(_configuration, _logger, stoppingToken).ConfigureAwait(false);
 
         // Seed AgentDefinition documents for any built-in agents missing from MongoDB
         await _definitionRepository.SeedBuiltInAgentDefinitionsAsync(_agents, _logger, stoppingToken).ConfigureAwait(false);

@@ -62,6 +62,12 @@ public sealed class ModelProvider
     /// </summary>
     public bool Enabled { get; set; } = true;
 
+    /// <summary>
+    /// Indicates the provider was seeded from environment/connection-string configuration.
+    /// Built-in providers cannot be deleted, only edited.
+    /// </summary>
+    public bool IsBuiltIn { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

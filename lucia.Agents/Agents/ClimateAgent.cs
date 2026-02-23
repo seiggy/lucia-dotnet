@@ -30,6 +30,7 @@ public sealed class ClimateAgent : ILuciaAgent
     private readonly ILogger<ClimateAgent> _logger;
     private volatile AIAgent _aiAgent;
     private string? _lastModelConnectionName;
+    private string? _lastEmbeddingProviderName;
 
     /// <summary>
     /// The system instructions used by this agent.
@@ -209,18 +210,27 @@ public sealed class ClimateAgent : ILuciaAgent
     {
         var definition = await _definitionRepository.GetAgentDefinitionAsync(AgentId, cancellationToken).ConfigureAwait(false);
         var newConnectionName = definition?.ModelConnectionName;
+        var newEmbeddingName = definition?.EmbeddingProviderName;
 
-        if (string.Equals(_lastModelConnectionName, newConnectionName, StringComparison.Ordinal))
-            return;
-
-        if (!string.IsNullOrWhiteSpace(newConnectionName))
+        if (!string.Equals(_lastModelConnectionName, newConnectionName, StringComparison.Ordinal))
         {
-            var client = await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
-            _aiAgent = BuildAgent(client);
-            _logger.LogInformation("ClimateAgent: using model provider '{Provider}'", newConnectionName);
+            if (!string.IsNullOrWhiteSpace(newConnectionName))
+            {
+                var client = await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
+                _aiAgent = BuildAgent(client);
+                _logger.LogInformation("ClimateAgent: using model provider '{Provider}'", newConnectionName);
+            }
+
+            _lastModelConnectionName = newConnectionName;
         }
 
-        _lastModelConnectionName = newConnectionName;
+        if (!string.Equals(_lastEmbeddingProviderName, newEmbeddingName, StringComparison.Ordinal))
+        {
+            await Task.WhenAll(
+                _climateSkill.UpdateEmbeddingProviderAsync(newEmbeddingName, cancellationToken),
+                _fanSkill.UpdateEmbeddingProviderAsync(newEmbeddingName, cancellationToken)).ConfigureAwait(false);
+            _lastEmbeddingProviderName = newEmbeddingName;
+        }
     }
 
     private ChatClientAgent BuildAgent(IChatClient chatClient)

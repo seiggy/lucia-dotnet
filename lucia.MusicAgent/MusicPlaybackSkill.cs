@@ -82,6 +82,16 @@ public class MusicPlaybackSkill
         await RefreshPlayerCacheAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Re-resolves the embedding generator using the specified provider name.
+    /// Called by the owning agent when the embedding configuration changes.
+    /// </summary>
+    public async Task UpdateEmbeddingProviderAsync(string? providerName, CancellationToken cancellationToken = default)
+    {
+        _embeddingGenerator = await _embeddingResolver.ResolveAsync(providerName, cancellationToken).ConfigureAwait(false);
+        _logger.LogInformation("MusicPlaybackSkill: embedding provider updated to '{Provider}'", providerName ?? "system-default");
+    }
+
     [Description("Stops music on the identified player")]
     public async Task<string> StopMusicAsync(
         [Description("MusicAssistant player name (e.g. 'Loft Speaker')")]

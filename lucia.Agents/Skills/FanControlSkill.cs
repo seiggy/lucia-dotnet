@@ -68,6 +68,16 @@ public sealed class FanControlSkill : IAgentSkill
         _logger.LogInformation("FanControlSkill initialized with {Count} fans", _fans?.Count ?? 0);
     }
 
+    /// <summary>
+    /// Re-resolves the embedding generator using the specified provider name.
+    /// Called by the owning agent when the embedding configuration changes.
+    /// </summary>
+    public async Task UpdateEmbeddingProviderAsync(string? providerName, CancellationToken cancellationToken = default)
+    {
+        _embeddingGenerator = await _embeddingResolver.ResolveAsync(providerName, cancellationToken).ConfigureAwait(false);
+        _logger.LogInformation("FanControlSkill: embedding provider updated to '{Provider}'", providerName ?? "system-default");
+    }
+
     public IList<AITool> GetTools()
     {
         return [

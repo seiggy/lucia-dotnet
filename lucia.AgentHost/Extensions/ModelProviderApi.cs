@@ -102,7 +102,7 @@ public static class ModelProviderApi
         return TypedResults.Ok(provider);
     }
 
-    private static async Task<Results<NoContent, NotFound>> DeleteProviderAsync(
+    private static async Task<Results<NoContent, NotFound, ProblemHttpResult>> DeleteProviderAsync(
         string id,
         [FromServices] IModelProviderRepository repository,
         CancellationToken ct)
@@ -110,6 +110,11 @@ public static class ModelProviderApi
         var existing = await repository.GetProviderAsync(id, ct);
         if (existing is null)
             return TypedResults.NotFound();
+
+        if (existing.IsBuiltIn)
+            return TypedResults.Problem(
+                "Built-in model providers cannot be deleted. You can edit their configuration instead.",
+                statusCode: StatusCodes.Status400BadRequest);
 
         await repository.DeleteProviderAsync(id, ct);
         return TypedResults.NoContent();
