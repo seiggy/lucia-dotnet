@@ -19,6 +19,8 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
 {
     private const string LightsKey = "lucia:cache:lights";
     private const string PlayersKey = "lucia:cache:players";
+    private const string ClimateDevicesKey = "lucia:cache:climate-devices";
+    private const string FansKey = "lucia:cache:fans";
     private const string EmbeddingKeyPrefix = "lucia:cache:embed:";
     private const string AreaEmbeddingsKey = "lucia:cache:area-embeds";
 
@@ -46,7 +48,7 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
         try
         {
             var db = _redis.GetDatabase();
-            var value = await db.StringGetAsync(LightsKey);
+            var value = await db.StringGetAsync(LightsKey).ConfigureAwait(false);
 
             if (value.IsNullOrEmpty)
             {
@@ -92,7 +94,7 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
 
             var json = JsonSerializer.Serialize(dtos);
             var db = _redis.GetDatabase();
-            await db.StringSetAsync(LightsKey, json, ttl);
+            await db.StringSetAsync(LightsKey, json, ttl).ConfigureAwait(false);
         }
         catch (RedisException ex)
         {
@@ -112,7 +114,7 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
         try
         {
             var db = _redis.GetDatabase();
-            var value = await db.StringGetAsync(PlayersKey);
+            var value = await db.StringGetAsync(PlayersKey).ConfigureAwait(false);
 
             if (value.IsNullOrEmpty)
             {
@@ -158,7 +160,7 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
 
             var json = JsonSerializer.Serialize(dtos);
             var db = _redis.GetDatabase();
-            await db.StringSetAsync(PlayersKey, json, ttl);
+            await db.StringSetAsync(PlayersKey, json, ttl).ConfigureAwait(false);
         }
         catch (RedisException ex)
         {
@@ -179,7 +181,7 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
         try
         {
             var db = _redis.GetDatabase();
-            var value = await db.StringGetAsync(EmbeddingKeyPrefix + key);
+            var value = await db.StringGetAsync(EmbeddingKeyPrefix + key).ConfigureAwait(false);
 
             if (value.IsNullOrEmpty)
             {
@@ -213,7 +215,7 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
             var array = embedding.Vector.ToArray();
             var json = JsonSerializer.Serialize(array);
             var db = _redis.GetDatabase();
-            await db.StringSetAsync(EmbeddingKeyPrefix + key, json, ttl);
+            await db.StringSetAsync(EmbeddingKeyPrefix + key, json, ttl).ConfigureAwait(false);
         }
         catch (RedisException ex)
         {
@@ -233,7 +235,7 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
         try
         {
             var db = _redis.GetDatabase();
-            var value = await db.StringGetAsync(AreaEmbeddingsKey);
+            var value = await db.StringGetAsync(AreaEmbeddingsKey).ConfigureAwait(false);
 
             if (value.IsNullOrEmpty)
             {
@@ -273,7 +275,7 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
 
             var json = JsonSerializer.Serialize(raw);
             var db = _redis.GetDatabase();
-            await db.StringSetAsync(AreaEmbeddingsKey, json, ttl);
+            await db.StringSetAsync(AreaEmbeddingsKey, json, ttl).ConfigureAwait(false);
         }
         catch (RedisException ex)
         {
@@ -288,4 +290,181 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
     private sealed record LightCacheDto(string EntityId, string FriendlyName, int SupportedColorModes, string? Area);
 
     private sealed record PlayerCacheDto(string EntityId, string FriendlyName, string? ConfigEntryId, bool IsSatellite);
+
+    private sealed record ClimateCacheDto(
+        string EntityId,
+        string FriendlyName,
+        string? Area,
+        List<string> HvacModes,
+        List<string> FanModes,
+        List<string> SwingModes,
+        List<string> PresetModes,
+        double? MinTemp,
+        double? MaxTemp,
+        double? MinHumidity,
+        double? MaxHumidity,
+        int SupportedFeatures);
+
+    private sealed record FanCacheDto(
+        string EntityId,
+        string FriendlyName,
+        string? Area,
+        int PercentageStep,
+        List<string> PresetModes,
+        string? ModeSelectEntityId,
+        int SupportedFeatures);
+
+    public async Task<List<ClimateEntity>?> GetCachedClimateDevicesAsync(CancellationToken cancellationToken = default)
+    {
+        using var activity = ActivitySource.StartActivity("GetCachedClimateDevices");
+        var start = Stopwatch.GetTimestamp();
+
+        try
+        {
+            var db = _redis.GetDatabase();
+            var value = await db.StringGetAsync(ClimateDevicesKey).ConfigureAwait(false);
+
+            if (value.IsNullOrEmpty)
+            {
+                CacheMisses.Add(1);
+                return null;
+            }
+
+            CacheHits.Add(1);
+            var dtos = JsonSerializer.Deserialize<List<ClimateCacheDto>>((string)value!);
+            if (dtos is null) return null;
+
+            return dtos.Select(d => new ClimateEntity
+            {
+                EntityId = d.EntityId,
+                FriendlyName = d.FriendlyName,
+                Area = d.Area,
+                HvacModes = d.HvacModes,
+                FanModes = d.FanModes,
+                SwingModes = d.SwingModes,
+                PresetModes = d.PresetModes,
+                MinTemp = d.MinTemp,
+                MaxTemp = d.MaxTemp,
+                MinHumidity = d.MinHumidity,
+                MaxHumidity = d.MaxHumidity,
+                SupportedFeatures = d.SupportedFeatures
+            }).ToList();
+        }
+        catch (RedisException ex)
+        {
+            _logger.LogWarning(ex, "Redis error retrieving cached climate devices");
+            return null;
+        }
+        finally
+        {
+            OperationDuration.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+        }
+    }
+
+    public async Task SetCachedClimateDevicesAsync(List<ClimateEntity> devices, TimeSpan ttl, CancellationToken cancellationToken = default)
+    {
+        using var activity = ActivitySource.StartActivity("SetCachedClimateDevices");
+        var start = Stopwatch.GetTimestamp();
+
+        try
+        {
+            var dtos = devices.Select(d => new ClimateCacheDto(
+                d.EntityId,
+                d.FriendlyName,
+                d.Area,
+                d.HvacModes,
+                d.FanModes,
+                d.SwingModes,
+                d.PresetModes,
+                d.MinTemp,
+                d.MaxTemp,
+                d.MinHumidity,
+                d.MaxHumidity,
+                d.SupportedFeatures)).ToList();
+
+            var json = JsonSerializer.Serialize(dtos);
+            var db = _redis.GetDatabase();
+            await db.StringSetAsync(ClimateDevicesKey, json, ttl).ConfigureAwait(false);
+        }
+        catch (RedisException ex)
+        {
+            _logger.LogWarning(ex, "Redis error setting cached climate devices");
+        }
+        finally
+        {
+            OperationDuration.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+        }
+    }
+
+    public async Task<List<FanEntity>?> GetCachedFansAsync(CancellationToken cancellationToken = default)
+    {
+        using var activity = ActivitySource.StartActivity("GetCachedFans");
+        var start = Stopwatch.GetTimestamp();
+
+        try
+        {
+            var db = _redis.GetDatabase();
+            var value = await db.StringGetAsync(FansKey).ConfigureAwait(false);
+
+            if (value.IsNullOrEmpty)
+            {
+                CacheMisses.Add(1);
+                return null;
+            }
+
+            CacheHits.Add(1);
+            var dtos = JsonSerializer.Deserialize<List<FanCacheDto>>((string)value!);
+            if (dtos is null) return null;
+
+            return dtos.Select(d => new FanEntity
+            {
+                EntityId = d.EntityId,
+                FriendlyName = d.FriendlyName,
+                Area = d.Area,
+                PercentageStep = d.PercentageStep,
+                PresetModes = d.PresetModes,
+                ModeSelectEntityId = d.ModeSelectEntityId,
+                SupportedFeatures = d.SupportedFeatures
+            }).ToList();
+        }
+        catch (RedisException ex)
+        {
+            _logger.LogWarning(ex, "Redis error retrieving cached fans");
+            return null;
+        }
+        finally
+        {
+            OperationDuration.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+        }
+    }
+
+    public async Task SetCachedFansAsync(List<FanEntity> fans, TimeSpan ttl, CancellationToken cancellationToken = default)
+    {
+        using var activity = ActivitySource.StartActivity("SetCachedFans");
+        var start = Stopwatch.GetTimestamp();
+
+        try
+        {
+            var dtos = fans.Select(f => new FanCacheDto(
+                f.EntityId,
+                f.FriendlyName,
+                f.Area,
+                f.PercentageStep,
+                f.PresetModes,
+                f.ModeSelectEntityId,
+                f.SupportedFeatures)).ToList();
+
+            var json = JsonSerializer.Serialize(dtos);
+            var db = _redis.GetDatabase();
+            await db.StringSetAsync(FansKey, json, ttl).ConfigureAwait(false);
+        }
+        catch (RedisException ex)
+        {
+            _logger.LogWarning(ex, "Redis error setting cached fans");
+        }
+        finally
+        {
+            OperationDuration.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+        }
+    }
 }

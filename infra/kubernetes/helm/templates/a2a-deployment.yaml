@@ -90,6 +90,25 @@ spec:
               echo "MongoDB failed to become ready"
               exit 1
         {{- end }}
+        - name: wait-for-agenthost
+          image: busybox:1.36
+          command:
+            - 'sh'
+            - '-c'
+            - |
+              echo "Waiting for AgentHost to be healthy..."
+              AGENTHOST_HOST="{{ include "lucia.fullname" . }}"
+              AGENTHOST_PORT="{{ .Values.lucia.service.port }}"
+              for i in $(seq 1 120); do
+                if wget -qO- "http://${AGENTHOST_HOST}:${AGENTHOST_PORT}/health" 2>/dev/null | grep -q "Healthy"; then
+                  echo "AgentHost is healthy"
+                  exit 0
+                fi
+                echo "Attempt $i: AgentHost not ready, retrying in 2 seconds..."
+                sleep 2
+              done
+              echo "AgentHost failed to become healthy"
+              exit 1
 
       containers:
         - name: music-agent
@@ -215,6 +234,25 @@ spec:
               echo "MongoDB failed to become ready"
               exit 1
         {{- end }}
+        - name: wait-for-agenthost
+          image: busybox:1.36
+          command:
+            - 'sh'
+            - '-c'
+            - |
+              echo "Waiting for AgentHost to be healthy..."
+              AGENTHOST_HOST="{{ include "lucia.fullname" . }}"
+              AGENTHOST_PORT="{{ .Values.lucia.service.port }}"
+              for i in $(seq 1 120); do
+                if wget -qO- "http://${AGENTHOST_HOST}:${AGENTHOST_PORT}/health" 2>/dev/null | grep -q "Healthy"; then
+                  echo "AgentHost is healthy"
+                  exit 0
+                fi
+                echo "Attempt $i: AgentHost not ready, retrying in 2 seconds..."
+                sleep 2
+              done
+              echo "AgentHost failed to become healthy"
+              exit 1
 
       containers:
         - name: timer-agent

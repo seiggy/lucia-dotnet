@@ -1,8 +1,11 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using lucia.Agents.Registry;
 using lucia.Agents.Abstractions;
+using lucia.Agents.Mcp;
+using lucia.Agents.Services;
 using lucia.HomeAssistant.Configuration;
 
 namespace lucia.Agents.Extensions;
@@ -19,24 +22,42 @@ public class AgentInitializationService : BackgroundService
 
     private readonly IAgentRegistry _agentRegistry;
     private readonly IEnumerable<ILuciaAgent> _agents;
+    private readonly IAgentDefinitionRepository _definitionRepository;
+    private readonly IModelProviderRepository _providerRepository;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<AgentInitializationService> _logger;
     private readonly IOptionsMonitor<HomeAssistantOptions> _haOptions;
+    private readonly AgentInitializationStatus _initStatus;
 
     public AgentInitializationService(
         IAgentRegistry agentRegistry,
         IEnumerable<ILuciaAgent> agents,
+        IAgentDefinitionRepository definitionRepository,
+        IModelProviderRepository providerRepository,
+        IConfiguration configuration,
         ILogger<AgentInitializationService> logger,
-        IOptionsMonitor<HomeAssistantOptions> haOptions)
+        IOptionsMonitor<HomeAssistantOptions> haOptions,
+        AgentInitializationStatus initStatus)
     {
         _agentRegistry = agentRegistry;
         _agents = agents;
+        _definitionRepository = definitionRepository;
+        _providerRepository = providerRepository;
+        _configuration = configuration;
         _logger = logger;
         _haOptions = haOptions;
+        _initStatus = initStatus;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await WaitForHomeAssistantConfigurationAsync(stoppingToken);
+        await WaitForHomeAssistantConfigurationAsync(stoppingToken).ConfigureAwait(false);
+
+        // Seed default model providers from connection strings if upgrading
+        await _providerRepository.SeedDefaultModelProvidersAsync(_configuration, _logger, stoppingToken).ConfigureAwait(false);
+
+        // Seed AgentDefinition documents for any built-in agents missing from MongoDB
+        await _definitionRepository.SeedBuiltInAgentDefinitionsAsync(_agents, _logger, stoppingToken).ConfigureAwait(false);
 
         _logger.LogInformation("Starting agent initialization...");
 
@@ -47,7 +68,7 @@ public class AgentInitializationService : BackgroundService
         {
             var agentName = agent.GetAgentCard().Name;
 
-            if (await TryInitializeAgentAsync(agent, agentName, stoppingToken))
+            if (await TryInitializeAgentAsync(agent, agentName, stoppingToken).ConfigureAwait(false))
             {
                 succeeded++;
             }
@@ -70,6 +91,9 @@ public class AgentInitializationService : BackgroundService
                 "Agent initialization completed successfully — {Count} agent(s) registered",
                 succeeded);
         }
+
+        // Signal readiness so health checks (and Aspire WaitFor) can proceed
+        _initStatus.MarkReady();
     }
 
     private async Task<bool> TryInitializeAgentAsync(ILuciaAgent agent, string agentName, CancellationToken stoppingToken)

@@ -42,11 +42,11 @@ public sealed class ArchivingTaskStore : ITaskStore
         AgentMessage? message = null,
         CancellationToken cancellationToken = default)
     {
-        var result = await _inner.UpdateStatusAsync(taskId, status, message, cancellationToken);
+        var result = await _inner.UpdateStatusAsync(taskId, status, message, cancellationToken).ConfigureAwait(false);
 
         if (TerminalStates.Contains(status))
         {
-            await TryArchiveAsync(taskId, cancellationToken);
+            await TryArchiveAsync(taskId, cancellationToken).ConfigureAwait(false);
         }
 
         return result;
@@ -68,14 +68,14 @@ public sealed class ArchivingTaskStore : ITaskStore
     {
         try
         {
-            var task = await _inner.GetTaskAsync(taskId, cancellationToken);
+            var task = await _inner.GetTaskAsync(taskId, cancellationToken).ConfigureAwait(false);
             if (task is null)
             {
                 _logger.LogWarning("Cannot archive task {TaskId}: not found in primary store.", taskId);
                 return;
             }
 
-            await _archive.ArchiveTaskAsync(task, cancellationToken);
+            await _archive.ArchiveTaskAsync(task, cancellationToken).ConfigureAwait(false);
             _logger.LogInformation("Archived task {TaskId} with status {Status}.", taskId, task.Status.State);
         }
         catch (Exception ex)

@@ -2,7 +2,6 @@ using FakeItEasy;
 using lucia.AgentHost.Auth;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace lucia.Tests.Auth;
@@ -20,6 +19,8 @@ public class OnboardingMiddlewareTests
     [InlineData("/_framework/blazor.js")]
     [InlineData("/openapi/v1.json")]
     [InlineData("/scalar/v1")]
+    [InlineData("/agents/register")]
+    [InlineData("/agents/lucia")]
     public async Task ExemptPaths_PassThroughWithoutRedirect(string path)
     {
         var nextCalled = false;
@@ -52,7 +53,6 @@ public class OnboardingMiddlewareTests
 
     [Theory]
     [InlineData("/api/agents/list")]
-    [InlineData("/agents/lucia")]
     public async Task ApiPaths_Get503WhenSetupIncomplete(string path)
     {
         var next = CreateNext();

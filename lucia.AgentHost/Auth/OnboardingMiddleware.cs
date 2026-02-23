@@ -17,7 +17,7 @@ public sealed class OnboardingMiddleware
         "/api/setup",
         "/api/auth/status",
         "/api/auth/login",
-        "/agents/register",
+        "/agents",
         "/setup",
         "/health",
         "/alive",

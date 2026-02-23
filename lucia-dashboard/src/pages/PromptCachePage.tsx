@@ -5,6 +5,7 @@ import {
   evictPromptCacheEntry,
   evictAllPromptCache,
 } from '../api'
+import { Database, Target, Crosshair, X, Loader2, Trash2 } from 'lucide-react'
 
 interface PromptCacheEntry {
   cacheKey: string
@@ -81,51 +82,65 @@ export default function PromptCachePage() {
 
   return (
     <div className="space-y-6">
+      <h1 className="font-display text-2xl font-bold text-light">Prompt Cache</h1>
+
       {/* Stats bar */}
       {stats && (
-        <div className="flex flex-wrap gap-3">
-          <div className="rounded-lg bg-gray-800 px-4 py-2">
-            <span className="text-xs text-gray-400">Total Entries</span>
-            <p className="text-lg font-semibold">{stats.totalEntries}</p>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="glass-panel rounded-xl p-4">
+            <div className="mb-1 flex items-center gap-1.5">
+              <Database className="h-3.5 w-3.5 text-fog" />
+              <span className="text-xs font-medium uppercase tracking-wider text-dust">Total Entries</span>
+            </div>
+            <p className="font-display text-2xl font-bold text-light">{stats.totalEntries}</p>
           </div>
-          <div className="rounded-lg bg-gray-800 px-4 py-2">
-            <span className="text-xs text-indigo-400">Hit Rate</span>
-            <p className="text-lg font-semibold text-indigo-400">
+          <div className="glass-panel rounded-xl p-4">
+            <div className="mb-1 flex items-center gap-1.5">
+              <Target className="h-3.5 w-3.5 text-amber" />
+              <span className="text-xs font-medium uppercase tracking-wider text-dust">Hit Rate</span>
+            </div>
+            <p className="font-display text-2xl font-bold text-amber">
               {(stats.hitRate * 100).toFixed(1)}%
             </p>
           </div>
-          <div className="rounded-lg bg-gray-800 px-4 py-2">
-            <span className="text-xs text-green-400">Total Hits</span>
-            <p className="text-lg font-semibold text-green-400">{stats.totalHits}</p>
+          <div className="glass-panel rounded-xl p-4">
+            <div className="mb-1 flex items-center gap-1.5">
+              <Crosshair className="h-3.5 w-3.5 text-sage" />
+              <span className="text-xs font-medium uppercase tracking-wider text-dust">Total Hits</span>
+            </div>
+            <p className="font-display text-2xl font-bold text-sage">{stats.totalHits}</p>
           </div>
-          <div className="rounded-lg bg-gray-800 px-4 py-2">
-            <span className="text-xs text-red-400">Total Misses</span>
-            <p className="text-lg font-semibold text-red-400">{stats.totalMisses}</p>
+          <div className="glass-panel rounded-xl p-4">
+            <div className="mb-1 flex items-center gap-1.5">
+              <X className="h-3.5 w-3.5 text-rose" />
+              <span className="text-xs font-medium uppercase tracking-wider text-dust">Total Misses</span>
+            </div>
+            <p className="font-display text-2xl font-bold text-rose">{stats.totalMisses}</p>
           </div>
         </div>
       )}
 
       {/* Actions */}
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Cached Entries</h2>
+        <h2 className="font-display text-lg font-semibold text-light">Cached Entries</h2>
         <button
           onClick={handleClearAll}
           disabled={entries.length === 0}
-          className="rounded bg-red-600 px-3 py-1.5 text-sm font-medium hover:bg-red-700 disabled:opacity-40"
+          className="flex items-center gap-1.5 rounded-xl bg-ember/15 px-4 py-2 text-sm font-medium text-rose transition-colors hover:bg-ember/25 disabled:opacity-40"
         >
-          Clear All
+          <Trash2 className="h-4 w-4" /> Clear All
         </button>
       </div>
 
       {/* Loading / Error */}
-      {loading && <p className="text-gray-400">Loading cache entries…</p>}
-      {error && <p className="text-red-400">{error}</p>}
+      {loading && <p className="flex items-center gap-2 text-dust"><Loader2 className="h-4 w-4 animate-spin" /> Loading cache entries…</p>}
+      {error && <p className="text-rose">{error}</p>}
 
       {/* Table */}
       {!loading && (
-        <div className="overflow-x-auto rounded-lg border border-gray-700">
+        <div className="glass-panel overflow-x-auto rounded-xl">
           <table className="w-full text-left text-sm">
-            <thead className="bg-gray-800 text-xs uppercase text-gray-400">
+            <thead className="border-b border-stone text-xs font-medium uppercase tracking-wider text-dust">
               <tr>
                 <th className="px-4 py-3">Prompt</th>
                 <th className="px-4 py-3">Routed Agent</th>
@@ -136,33 +151,33 @@ export default function PromptCachePage() {
                 <th className="px-4 py-3">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-700">
+            <tbody className="divide-y divide-stone/50">
               {entries.map((entry) => (
-                <tr key={entry.cacheKey} className="bg-gray-900 hover:bg-gray-800">
-                  <td className="px-4 py-3" title={entry.normalizedPrompt}>
+                <tr key={entry.cacheKey} className="transition-colors hover:bg-basalt/60">
+                  <td className="px-4 py-3 text-fog" title={entry.normalizedPrompt}>
                     {truncate(entry.normalizedPrompt, 80)}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3">
-                    <span className="rounded bg-indigo-900/50 px-2 py-0.5 text-xs font-medium text-indigo-300">
+                    <span className="rounded-md bg-amber/15 px-2 py-0.5 text-xs font-medium text-amber">
                       {entry.agentId}
                     </span>
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-gray-300">
+                  <td className="whitespace-nowrap px-4 py-3 text-fog">
                     {(entry.confidence * 100).toFixed(0)}%
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-gray-300">
+                  <td className="whitespace-nowrap px-4 py-3 text-fog">
                     {entry.hitCount}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-gray-300">
+                  <td className="whitespace-nowrap px-4 py-3 text-dust">
                     {formatDate(entry.createdAt)}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-gray-300">
+                  <td className="whitespace-nowrap px-4 py-3 text-dust">
                     {formatDate(entry.lastHitAt)}
                   </td>
                   <td className="px-4 py-3">
                     <button
                       onClick={() => handleEvict(entry.cacheKey)}
-                      className="rounded bg-gray-700 px-2.5 py-1 text-xs font-medium text-red-400 hover:bg-gray-600"
+                      className="rounded-lg border border-stone bg-basalt px-2.5 py-1 text-xs font-medium text-rose transition-colors hover:bg-ember/15"
                     >
                       Evict
                     </button>
@@ -171,7 +186,7 @@ export default function PromptCachePage() {
               ))}
               {entries.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={7} className="px-4 py-12 text-center text-dust">
                     No cached entries found.
                   </td>
                 </tr>

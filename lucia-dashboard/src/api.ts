@@ -8,6 +8,11 @@ import type {
   ActiveTaskSummary,
   ArchivedTask,
   CombinedTaskStats,
+  McpToolServerDefinition,
+  McpToolInfo,
+  McpServerStatus,
+  AgentDefinition,
+  ModelProvider,
 } from './types';
 
 const BASE = '/api';
@@ -24,6 +29,22 @@ export async function fetchTraces(
 export async function fetchTrace(id: string): Promise<ConversationTrace> {
   const res = await fetch(`${BASE}/traces/${id}`);
   if (!res.ok) throw new Error(`Trace not found`);
+  return res.json();
+}
+
+export interface RelatedTraceSummary {
+  id: string;
+  timestamp: string;
+  traceType: string;
+  agentId: string | null;
+  userInput: string;
+  isErrored: boolean;
+  totalDurationMs: number;
+}
+
+export async function fetchRelatedTraces(id: string): Promise<RelatedTraceSummary[]> {
+  const res = await fetch(`${BASE}/traces/${id}/related`);
+  if (!res.ok) throw new Error(`Failed to fetch related traces`);
   return res.json();
 }
 
@@ -394,4 +415,212 @@ export async function fetchTaskStats(): Promise<CombinedTaskStats> {
 export async function cancelTask(id: string): Promise<void> {
   const res = await fetch(`${BASE}/tasks/${id}/cancel`, { method: 'POST' });
   if (!res.ok) throw new Error(`Failed to cancel task: ${res.statusText}`);
+}
+
+// ── MCP Servers ──────────────────────────────────────────────────────
+
+export async function fetchMcpServers(): Promise<McpToolServerDefinition[]> {
+  const res = await fetch(`${BASE}/mcp-servers`);
+  if (!res.ok) throw new Error(`Failed to fetch MCP servers: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchMcpServer(id: string): Promise<McpToolServerDefinition> {
+  const res = await fetch(`${BASE}/mcp-servers/${id}`);
+  if (!res.ok) throw new Error(`MCP server not found`);
+  return res.json();
+}
+
+export async function createMcpServer(server: Partial<McpToolServerDefinition>): Promise<McpToolServerDefinition> {
+  const res = await fetch(`${BASE}/mcp-servers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(server),
+  });
+  if (!res.ok) throw new Error(`Failed to create MCP server: ${res.statusText}`);
+  return res.json();
+}
+
+export async function updateMcpServer(id: string, server: Partial<McpToolServerDefinition>): Promise<McpToolServerDefinition> {
+  const res = await fetch(`${BASE}/mcp-servers/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(server),
+  });
+  if (!res.ok) throw new Error(`Failed to update MCP server: ${res.statusText}`);
+  return res.json();
+}
+
+export async function deleteMcpServer(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/mcp-servers/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to delete MCP server: ${res.statusText}`);
+}
+
+export async function discoverMcpTools(serverId: string): Promise<McpToolInfo[]> {
+  const res = await fetch(`${BASE}/mcp-servers/${serverId}/tools`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to discover tools: ${res.statusText}`);
+  return res.json();
+}
+
+export async function connectMcpServer(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/mcp-servers/${id}/connect`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to connect MCP server: ${res.statusText}`);
+}
+
+export async function disconnectMcpServer(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/mcp-servers/${id}/disconnect`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to disconnect MCP server: ${res.statusText}`);
+}
+
+export async function fetchMcpServerStatuses(): Promise<Record<string, McpServerStatus>> {
+  const res = await fetch(`${BASE}/mcp-servers/status`);
+  if (!res.ok) throw new Error(`Failed to fetch statuses: ${res.statusText}`);
+  return res.json();
+}
+
+// ── Agent Definitions ────────────────────────────────────────────────
+
+export async function fetchAgentDefinitions(): Promise<AgentDefinition[]> {
+  const res = await fetch(`${BASE}/agent-definitions`);
+  if (!res.ok) throw new Error(`Failed to fetch agent definitions: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchAgentDefinition(id: string): Promise<AgentDefinition> {
+  const res = await fetch(`${BASE}/agent-definitions/${id}`);
+  if (!res.ok) throw new Error(`Agent definition not found`);
+  return res.json();
+}
+
+export async function createAgentDefinition(definition: Partial<AgentDefinition>): Promise<AgentDefinition> {
+  const res = await fetch(`${BASE}/agent-definitions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(definition),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Failed to create agent definition: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function updateAgentDefinition(id: string, definition: Partial<AgentDefinition>): Promise<AgentDefinition> {
+  const res = await fetch(`${BASE}/agent-definitions/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(definition),
+  });
+  if (!res.ok) throw new Error(`Failed to update agent definition: ${res.statusText}`);
+  return res.json();
+}
+
+export async function deleteAgentDefinition(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/agent-definitions/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to delete agent definition: ${res.statusText}`);
+}
+
+export async function reloadDynamicAgents(): Promise<void> {
+  const res = await fetch(`${BASE}/agent-definitions/reload`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to reload agents: ${res.statusText}`);
+}
+
+// ── Model Providers ──────────────────────────────────────────────
+
+export async function fetchModelProviders(purpose?: import('./types').ModelPurpose): Promise<ModelProvider[]> {
+  const params = purpose ? `?purpose=${purpose}` : '';
+  const res = await fetch(`${BASE}/model-providers${params}`);
+  if (!res.ok) throw new Error(`Failed to fetch model providers: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchModelProvider(id: string): Promise<ModelProvider> {
+  const res = await fetch(`${BASE}/model-providers/${encodeURIComponent(id)}`);
+  if (!res.ok) throw new Error(`Failed to fetch model provider: ${res.statusText}`);
+  return res.json();
+}
+
+export async function createModelProvider(provider: Partial<ModelProvider>): Promise<ModelProvider> {
+  const res = await fetch(`${BASE}/model-providers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(provider),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Failed to create model provider: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function updateModelProvider(id: string, provider: Partial<ModelProvider>): Promise<ModelProvider> {
+  const res = await fetch(`${BASE}/model-providers/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(provider),
+  });
+  if (!res.ok) throw new Error(`Failed to update model provider: ${res.statusText}`);
+  return res.json();
+}
+
+export async function deleteModelProvider(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/model-providers/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to delete model provider: ${res.statusText}`);
+}
+
+export async function testModelProvider(id: string): Promise<{ success: boolean; message: string }> {
+  const res = await fetch(`${BASE}/model-providers/${encodeURIComponent(id)}/test`, { method: 'POST' });
+  return res.json();
+}
+
+export async function testEmbeddingProvider(id: string): Promise<{ success: boolean; message: string }> {
+  const res = await fetch(`${BASE}/model-providers/${encodeURIComponent(id)}/test-embedding`, { method: 'POST' });
+  return res.json();
+}
+
+export async function connectCopilotCli(githubToken?: string): Promise<import('./types').CopilotConnectResult> {
+  const res = await fetch(`${BASE}/model-providers/copilot/connect`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ githubToken: githubToken || null }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Failed to connect to Copilot CLI: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+// ── Activity Dashboard ──
+
+export async function fetchActivitySummary(): Promise<import('./types').ActivitySummary> {
+  const res = await fetch(`${BASE}/activity/summary`);
+  if (!res.ok) throw new Error(`Failed to fetch activity summary: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchAgentMesh(): Promise<import('./types').MeshTopology> {
+  const res = await fetch(`${BASE}/activity/mesh`);
+  if (!res.ok) throw new Error(`Failed to fetch agent mesh: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchAgentActivityStats(): Promise<import('./types').AgentActivityStatsMap> {
+  const res = await fetch(`${BASE}/activity/agent-stats`);
+  if (!res.ok) throw new Error(`Failed to fetch agent stats: ${res.statusText}`);
+  return res.json();
+}
+
+export function connectActivityStream(
+  onEvent: (event: import('./types').LiveEvent) => void,
+  onError?: (err: Event) => void,
+): EventSource {
+  const source = new EventSource(`${BASE}/activity/live`);
+  source.onmessage = (e) => {
+    try {
+      onEvent(JSON.parse(e.data));
+    } catch { /* ignore parse errors */ }
+  };
+  if (onError) source.onerror = onError;
+  return source;
 }

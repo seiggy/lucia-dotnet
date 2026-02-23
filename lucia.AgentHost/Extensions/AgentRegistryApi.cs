@@ -9,16 +9,20 @@ public static class AgentRegistryApi
 {
     public static IEndpointRouteBuilder MapAgentRegistryApiV1(this WebApplication app)
     {
+        // Internal service-to-service: agents query the registry to verify registration
         app.MapGet("/agents", GetAgentsAsync)
-            .RequireAuthorization();
+            .RequireAuthorization("ExternalOrInternal");
+        // Internal only: agents register themselves via platform-injected token
         app.MapPost("/agents/register", RegisterAgentAsync)
             .DisableAntiforgery()
-            .AllowAnonymous();
+            .RequireAuthorization("InternalOnly");
+        // External only: dashboard/admin updates an agent card
         app.MapPut("/agents/{agentId}", UpdateAgentAsync)
             .RequireAuthorization();
+        // Internal only: agents unregister on shutdown
         app.MapDelete("/agents/{agentId}", UnregisterAgentAsync)
             .DisableAntiforgery()
-            .AllowAnonymous();
+            .RequireAuthorization("InternalOnly");
 
         return app;
     }
@@ -27,7 +31,7 @@ public static class AgentRegistryApi
         [FromServices] IAgentRegistry agentRegistry,
         CancellationToken cancellationToken = default)
     {
-        var agents = await agentRegistry.GetAllAgentsAsync(cancellationToken);
+        var agents = await agentRegistry.GetAllAgentsAsync(cancellationToken).ConfigureAwait(false);
         return TypedResults.Ok(agents.ToList());
     }
 
@@ -37,26 +41,64 @@ public static class AgentRegistryApi
             ProblemHttpResult
         >> RegisterAgentAsync(
         [FromServices] IAgentRegistry agentRegistry,
+        [FromServices] IHttpClientFactory httpClientFactory,
+        [FromServices] ILoggerFactory loggerFactory,
         [FromForm] string agentId,
         CancellationToken cancellationToken = default)
     {
+        var logger = loggerFactory.CreateLogger("AgentRegistryApi");
+        logger.LogInformation("Received agent registration request for {AgentId}", agentId);
+
         if (string.IsNullOrWhiteSpace(agentId))
         {
+            logger.LogWarning("Agent registration rejected: empty agentId");
             return TypedResults.BadRequest("Agent URI must be provided");
         }
 
-        // Download the Agent Card for the provided URI
+        // Fetch the agent card using an HttpClient from DI so that
+        // Aspire service discovery can resolve logical service names
         var agentUri = new Uri(agentId);
-        var resolver = new A2ACardResolver(agentUri);
+        AgentCard? agentCard = null;
+        var httpClient = httpClientFactory.CreateClient("AgentProxy");
+        const int maxRetries = 3;
 
-        var agentCard = await resolver.GetAgentCardAsync(cancellationToken);
+        for (var attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            try
+            {
+                logger.LogInformation("Fetching agent card from {AgentUri} (attempt {Attempt}/{MaxRetries})",
+                    agentUri, attempt, maxRetries);
+                var resolver = new A2ACardResolver(agentUri, httpClient);
+                agentCard = await resolver.GetAgentCardAsync(cancellationToken).ConfigureAwait(false);
+                logger.LogInformation("Successfully fetched agent card for {AgentName} from {AgentUri}",
+                    agentCard?.Name ?? "unknown", agentUri);
+                break;
+            }
+            catch (Exception ex) when (attempt < maxRetries)
+            {
+                var delay = TimeSpan.FromSeconds(2 * attempt);
+                logger.LogWarning(ex,
+                    "Failed to fetch agent card from {AgentUri} (attempt {Attempt}/{MaxRetries}). Retrying in {Delay}s...",
+                    agentUri, attempt, maxRetries, delay.TotalSeconds);
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex,
+                    "Failed to fetch agent card from {AgentUri} after {MaxRetries} attempts",
+                    agentUri, maxRetries);
+            }
+        }
 
         if (agentCard == null)
         {
+            logger.LogError("Could not retrieve agent card for {AgentId} after all retries", agentId);
             return TypedResults.Problem($"Could not retrieve agent card for agent: {agentId}");
         }
 
-        await agentRegistry.RegisterAgentAsync(agentCard, cancellationToken);
+        await agentRegistry.RegisterAgentAsync(agentCard, cancellationToken).ConfigureAwait(false);
+        logger.LogInformation("Agent {AgentName} registered successfully with URL {AgentUrl}",
+            agentCard.Name, agentCard.Url);
 
         return TypedResults.Created();
     }
@@ -67,6 +109,7 @@ public static class AgentRegistryApi
             ProblemHttpResult
         >> UpdateAgentAsync(
             [FromServices] IAgentRegistry agentRegistry,
+            [FromServices] IHttpClientFactory httpClientFactory,
             [FromRoute] string agentId,
             CancellationToken cancellationToken = default)
     {
@@ -75,25 +118,21 @@ public static class AgentRegistryApi
             return TypedResults.BadRequest("Agent URI must be provided");
         }
 
-        var agent = await agentRegistry.GetAgentAsync(agentId, cancellationToken);
+        var agent = await agentRegistry.GetAgentAsync(agentId, cancellationToken).ConfigureAwait(false);
 
         if (agent == null)
         {
             return TypedResults.Problem($"Agent not found: {agentId}", statusCode: 404);
         }
 
-        // Download the Agent Card for the provided URI
+        // Use DI HttpClient for service discovery resolution
         var agentUri = new Uri(agentId);
-        var resolver = new A2ACardResolver(agentUri);
+        var httpClient = httpClientFactory.CreateClient("AgentProxy");
+        var resolver = new A2ACardResolver(agentUri, httpClient);
 
-        var agentCard = await resolver.GetAgentCardAsync(cancellationToken);
+        var agentCard = await resolver.GetAgentCardAsync(cancellationToken).ConfigureAwait(false);
 
-        if (agentCard == null)
-        {
-            return TypedResults.Problem($"Could not retrieve agent card for agent: {agentId}");
-        }
-
-        await agentRegistry.RegisterAgentAsync(agentCard, cancellationToken);
+        await agentRegistry.RegisterAgentAsync(agentCard, cancellationToken).ConfigureAwait(false);
         return TypedResults.Ok();
     }
 
@@ -111,7 +150,7 @@ public static class AgentRegistryApi
             return TypedResults.BadRequest("Agent URI must be provided");
         }
 
-        await agentRegistry.UnregisterAgentAsync(agentId, cancellationToken);
+        await agentRegistry.UnregisterAgentAsync(agentId, cancellationToken).ConfigureAwait(false);
         return TypedResults.Ok();
     }
 

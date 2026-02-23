@@ -1,13 +1,7 @@
-using System;
-using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
-using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Threading;
-using System.Threading.Tasks;
 using AgentCard = A2A.AgentCard;
 using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Registry;
@@ -68,8 +62,8 @@ public sealed class RouterExecutor : Executor
         _schema = AIJsonUtilities.CreateJsonSchema(typeof(AgentChoiceResult));
     }
 
-    protected override RouteBuilder ConfigureRoutes(RouteBuilder routeBuilder)
-        => routeBuilder.AddHandler<ChatMessage, AgentChoiceResult>(HandleAsync);
+    protected override ProtocolBuilder ConfigureProtocol(ProtocolBuilder protocolBuilder)
+        => protocolBuilder.ConfigureRoutes(rb => rb.AddHandler<ChatMessage, AgentChoiceResult>(HandleAsync));
 
     public async ValueTask<AgentChoiceResult> HandleAsync(ChatMessage message, IWorkflowContext context, CancellationToken cancellationToken = default)
     {
@@ -90,7 +84,7 @@ public sealed class RouterExecutor : Executor
             try
             {
                 var cacheMessages = new List<ChatMessage> { new(ChatRole.User, userRequest) };
-                var cached = await _promptCache.TryGetCachedResponseAsync(cacheMessages, cancellationToken);
+                var cached = await _promptCache.TryGetCachedResponseAsync(cacheMessages, cancellationToken).ConfigureAwait(false);
                 if (cached is not null && IsKnownAgent(cached.RoutingDecision.AgentId, availableAgents))
                 {
                     // Skip stale cache entries that route to multiple agents but lack per-agent instructions
@@ -159,6 +153,10 @@ public sealed class RouterExecutor : Executor
 
         NormalizeAdditionalAgents(parsed, availableAgents);
 
+        // Attach the router system prompt for trace capture
+        var systemMessage = chatMessages.FirstOrDefault(m => m.Role == ChatRole.System);
+        parsed.RouterSystemPrompt = systemMessage?.Text;
+
         _logger.LogInformation(
             "RouterExecutor result: agentId={AgentId}, additionalAgents=[{Additional}], hasInstructions={HasInstructions}, confidence={Confidence}",
             parsed.AgentId,
@@ -181,7 +179,7 @@ public sealed class RouterExecutor : Executor
             try
             {
                 var cacheMessages = new List<ChatMessage> { new(ChatRole.User, userRequest) };
-                await _promptCache.CacheRoutingDecisionAsync(cacheMessages, parsed, CancellationToken.None);
+                await _promptCache.CacheRoutingDecisionAsync(cacheMessages, parsed, CancellationToken.None).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

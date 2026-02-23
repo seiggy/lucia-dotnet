@@ -1,13 +1,14 @@
 using System.Diagnostics;
 using A2A;
 using lucia.Agents.Abstractions;
+using lucia.Agents.Mcp;
 using lucia.Agents.Orchestration;
+using lucia.Agents.Services;
 using Microsoft.Agents.AI;
-using Microsoft.Agents.AI.Hosting;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace lucia.TimerAgent;
@@ -21,8 +22,13 @@ public sealed class TimerAgent : ILuciaAgent
 
     private readonly AgentCard _agent;
     private readonly ILogger<TimerAgent> _logger;
-    private readonly AIAgent _aiAgent;
+    private readonly ILoggerFactory _loggerFactory;
+    private readonly IConfiguration _configuration;
+    private readonly IChatClientResolver _clientResolver;
+    private readonly IAgentDefinitionRepository _definitionRepository;
     private readonly IServer _server;
+    private volatile AIAgent _aiAgent;
+    private string? _lastModelConnectionName;
 
     /// <summary>
     /// The system instructions used by this agent.
@@ -35,13 +41,19 @@ public sealed class TimerAgent : ILuciaAgent
     public IList<AITool> Tools { get; }
 
     public TimerAgent(
-        [FromKeyedServices(OrchestratorServiceKeys.TimerModel)] IChatClient chatClient,
+        IChatClientResolver clientResolver,
+        IAgentDefinitionRepository definitionRepository,
         TimerSkill timerSkill,
         IServer server,
+        IConfiguration configuration,
         ILoggerFactory loggerFactory)
     {
+        _clientResolver = clientResolver;
+        _definitionRepository = definitionRepository;
+        _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<TimerAgent>();
         _server = server;
+        _configuration = configuration;
 
         var timerControlSkill = new AgentSkill
         {
@@ -117,31 +129,76 @@ public sealed class TimerAgent : ILuciaAgent
             }
         };
 
-        _aiAgent = new ChatClientAgent(chatClient, agentOptions, loggerFactory);
+        // _aiAgent is built during InitializeAsync via ApplyDefinitionAsync
+        _aiAgent = null!;
     }
 
     public AgentCard GetAgentCard() => _agent;
 
     public AIAgent GetAIAgent() => _aiAgent;
 
-    public Task InitializeAsync(CancellationToken cancellationToken = default)
+    public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         using var activity = ActivitySource.StartActivity("TimerAgent.Initialize", ActivityKind.Internal);
         activity?.SetTag("agent.id", "timer-agent");
         _logger.LogInformation("Initializing TimerAgent...");
 
-        var addressesFeature = _server?.Features?.Get<IServerAddressesFeature>();
-        if (addressesFeature?.Addresses != null && addressesFeature.Addresses.Any())
+        var selfUrl = _configuration["services:selfUrl"];
+        if (!string.IsNullOrWhiteSpace(selfUrl))
         {
-            _agent.Url = addressesFeature.Addresses.First();
+            _agent.Url = selfUrl;
         }
         else
         {
-            _agent.Url = "unknown";
+            var addressesFeature = _server?.Features?.Get<IServerAddressesFeature>();
+            if (addressesFeature?.Addresses != null && addressesFeature.Addresses.Any())
+            {
+                _agent.Url = addressesFeature.Addresses.First();
+            }
+            else
+            {
+                _agent.Url = "unknown";
+            }
         }
+
+        await ApplyDefinitionAsync(cancellationToken).ConfigureAwait(false);
 
         activity?.SetStatus(ActivityStatusCode.Ok);
         _logger.LogInformation("TimerAgent initialized successfully");
-        return Task.CompletedTask;
+    }
+
+    public async Task RefreshConfigAsync(CancellationToken cancellationToken = default)
+    {
+        await ApplyDefinitionAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task ApplyDefinitionAsync(CancellationToken cancellationToken)
+    {
+        var definition = await _definitionRepository.GetAgentDefinitionAsync("timer-agent", cancellationToken).ConfigureAwait(false);
+        var newConnectionName = definition?.ModelConnectionName;
+
+        if (_aiAgent is not null && string.Equals(_lastModelConnectionName, newConnectionName, StringComparison.Ordinal))
+            return;
+
+        var client = await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
+        _aiAgent = BuildAgent(client);
+        _logger.LogInformation("TimerAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
+        _lastModelConnectionName = newConnectionName;
+    }
+
+    private ChatClientAgent BuildAgent(IChatClient chatClient)
+    {
+        var agentOptions = new ChatClientAgentOptions
+        {
+            Id = "timer-agent",
+            Name = "timer-agent",
+            Description = "Sets timed announcements on satellite devices",
+            ChatOptions = new()
+            {
+                Instructions = Instructions,
+                Tools = Tools
+            }
+        };
+        return new ChatClientAgent(chatClient, agentOptions, _loggerFactory);
     }
 }

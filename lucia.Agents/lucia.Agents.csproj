@@ -11,12 +11,15 @@
   <ItemGroup>
     <PackageReference Include="A2A" />
     <PackageReference Include="A2A.AspNetCore" />
+    <PackageReference Include="Anthropic" />
     <PackageReference Include="Aspire.Azure.AI.OpenAI" />
     <PackageReference Include="Azure.Identity" />
+    <PackageReference Include="GitHub.Copilot.SDK" />
     <PackageReference Include="Microsoft.Agents.AI" />
     <PackageReference Include="Microsoft.Agents.AI.A2A" />
     <PackageReference Include="Microsoft.Agents.AI.Abstractions" />
     <PackageReference Include="Microsoft.Agents.AI.AzureAI" />
+    <PackageReference Include="Microsoft.Agents.AI.GitHub.Copilot" />
     <PackageReference Include="Microsoft.Agents.AI.Hosting" />
     <PackageReference Include="Microsoft.Agents.AI.Workflows" />
     <PackageReference Include="Microsoft.Extensions.AI" />
@@ -26,6 +29,7 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.VectorData.Abstractions" />
     <PackageReference Include="Microsoft.ML.Tokenizers" />
+    <PackageReference Include="ModelContextProtocol" />
     <PackageReference Include="MongoDB.Driver" />
     <PackageReference Include="OllamaSharp" />
     <PackageReference Include="System.Linq.Async">

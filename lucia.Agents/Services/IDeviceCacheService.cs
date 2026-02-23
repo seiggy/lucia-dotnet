@@ -17,6 +17,12 @@ public interface IDeviceCacheService
     Task<Embedding<float>?> GetEmbeddingAsync(string key, CancellationToken cancellationToken = default);
     Task SetEmbeddingAsync(string key, Embedding<float> embedding, TimeSpan ttl, CancellationToken cancellationToken = default);
 
+    Task<List<ClimateEntity>?> GetCachedClimateDevicesAsync(CancellationToken cancellationToken = default);
+    Task SetCachedClimateDevicesAsync(List<ClimateEntity> devices, TimeSpan ttl, CancellationToken cancellationToken = default);
+
+    Task<List<FanEntity>?> GetCachedFansAsync(CancellationToken cancellationToken = default);
+    Task SetCachedFansAsync(List<FanEntity> fans, TimeSpan ttl, CancellationToken cancellationToken = default);
+
     Task<Dictionary<string, Embedding<float>>?> GetAreaEmbeddingsAsync(CancellationToken cancellationToken = default);
     Task SetAreaEmbeddingsAsync(Dictionary<string, Embedding<float>> areaEmbeddings, TimeSpan ttl, CancellationToken cancellationToken = default);
 }

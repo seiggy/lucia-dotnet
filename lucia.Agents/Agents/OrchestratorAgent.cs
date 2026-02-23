@@ -9,7 +9,6 @@ using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace lucia.Agents.Agents;
 
@@ -24,15 +23,14 @@ public sealed class OrchestratorAgent : AIAgent, ILuciaAgent
     private readonly IAgentSessionFactory _sessionFactory;
     private readonly ILogger<OrchestratorAgent> _logger;
     private readonly IServer _server;
-    private AgentCard _agentCard;
+    private readonly AgentCard _agentCard;
 
-    public override string? Name => "Orchestrator";
-    public override string? Description => "Intelligent orchestrator that routes requests to specialized agents based on intent and capabilities";
+    public override string Name => "Orchestrator";
+    public override string Description => "Intelligent orchestrator that routes requests to specialized agents based on intent and capabilities";
 
     public OrchestratorAgent(
         LuciaEngine engine,
         IAgentSessionFactory sessionFactory,
-        IOptions<RouterExecutorOptions> routerExecutorOptions,
         IServer server,
         ILoggerFactory loggerFactory)
     {
@@ -122,7 +120,7 @@ public sealed class OrchestratorAgent : AIAgent, ILuciaAgent
         AgentRunOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        session ??= await CreateSessionAsync(cancellationToken);
+        session ??= await CreateSessionAsync(cancellationToken).ConfigureAwait(false);
 
         var userMessage = messages.LastOrDefault(m => m.Role == ChatRole.User)
             ?? throw new InvalidOperationException("No user message found in chat messages.");
@@ -133,7 +131,7 @@ public sealed class OrchestratorAgent : AIAgent, ILuciaAgent
             userMessage.Text,
             taskId: null,
             sessionId: sessionId,
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
 
         var responseMessage = new ChatMessage(ChatRole.Assistant, responseText.Text)
         {
@@ -159,7 +157,7 @@ public sealed class OrchestratorAgent : AIAgent, ILuciaAgent
         AgentRunOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        session ??= await CreateSessionAsync(cancellationToken);
+        session ??= await CreateSessionAsync(cancellationToken).ConfigureAwait(false);
 
         var userMessage = messages.LastOrDefault(m => m.Role == ChatRole.User)
             ?? throw new InvalidOperationException("No user message found in chat messages.");
@@ -169,7 +167,7 @@ public sealed class OrchestratorAgent : AIAgent, ILuciaAgent
             userMessage.Text,
             taskId: null,
             sessionId: streamSessionId,
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
 
         var responseMessage = new ChatMessage(ChatRole.Assistant, responseText.Text)
         {
@@ -196,7 +194,7 @@ public sealed class OrchestratorAgent : AIAgent, ILuciaAgent
 
     private string ResolveServerUrl()
     {
-        var serverAddressesFeature = _server?.Features?.Get<IServerAddressesFeature>();
+        var serverAddressesFeature = _server.Features.Get<IServerAddressesFeature>();
         if (serverAddressesFeature?.Addresses != null && serverAddressesFeature.Addresses.Any())
         {
             return serverAddressesFeature.Addresses.First();

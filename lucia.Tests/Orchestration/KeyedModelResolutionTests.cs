@@ -5,7 +5,6 @@ using lucia.Agents.Configuration;
 using lucia.Agents.Orchestration;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace lucia.Tests.Orchestration;
 

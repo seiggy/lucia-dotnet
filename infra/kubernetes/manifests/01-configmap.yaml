@@ -34,6 +34,10 @@ data:
   # MongoDB Configuration
   ConnectionStrings__luciatraces: "mongodb://lucia-mongodb:27017/luciatraces"
   ConnectionStrings__luciaconfig: "mongodb://lucia-mongodb:27017/luciaconfig"
+  ConnectionStrings__luciatasks: "mongodb://lucia-mongodb:27017/luciatasks"
+
+  # Agent Host Service URL (used by A2A agents to register with the orchestrator)
+  services__registryApi: "http://lucia:80"
 
   # Session Cache Configuration
   SessionCache__SessionCacheLengthMinutes: "5"

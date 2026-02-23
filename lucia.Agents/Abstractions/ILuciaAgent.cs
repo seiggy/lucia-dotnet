@@ -1,8 +1,5 @@
 ﻿using A2A;
 using Microsoft.Agents.AI;
-using System;
-using System.Collections.Generic;
-using System.Text;
 
 namespace lucia.Agents.Abstractions
 {
@@ -11,5 +8,12 @@ namespace lucia.Agents.Abstractions
         AgentCard GetAgentCard();
         AIAgent GetAIAgent();
         Task InitializeAsync(CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Re-reads the agent's <see cref="lucia.Agents.Configuration.AgentDefinition"/>
+        /// from the store and rebuilds the underlying <see cref="AIAgent"/> when the
+        /// model or embedding provider has changed. Called before every request.
+        /// </summary>
+        Task RefreshConfigAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 }

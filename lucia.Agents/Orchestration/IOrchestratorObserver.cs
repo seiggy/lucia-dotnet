@@ -1,4 +1,5 @@
 using lucia.Agents.Orchestration.Models;
+using lucia.Agents.Training.Models;
 
 namespace lucia.Agents.Orchestration;
 
@@ -16,15 +17,23 @@ public interface IOrchestratorObserver
     /// correctly into the workflow child contexts.
     /// </summary>
     /// <param name="userRequest">The original user request text.</param>
+    /// <param name="conversationHistory">Prior conversation turns for multi-turn context.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    Task OnRequestStartedAsync(string userRequest, CancellationToken cancellationToken = default);
+    Task OnRequestStartedAsync(
+        string userRequest,
+        IReadOnlyList<TracedMessage>? conversationHistory = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Called after the router has selected an agent (or agents) for the request.
     /// </summary>
     /// <param name="result">The routing decision including agent ID, confidence, reasoning, and additional agents.</param>
+    /// <param name="systemPrompt">The system prompt used by the router for this decision.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    Task OnRoutingCompletedAsync(AgentChoiceResult result, CancellationToken cancellationToken = default);
+    Task OnRoutingCompletedAsync(
+        AgentChoiceResult result,
+        string? systemPrompt = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Called after each individual agent has completed (or failed) execution.

@@ -1,7 +1,6 @@
 namespace lucia.Agents.Configuration;
 
 using A2A;
-using Microsoft.Agents.AI.Hosting;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;

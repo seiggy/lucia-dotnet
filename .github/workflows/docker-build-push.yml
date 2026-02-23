@@ -19,15 +19,34 @@ permissions:
   pull-requests: write
   security-events: write
 
-env:
-  DOCKER_IMAGE: seiggy/lucia
-  DOCKERFILE_PATH: ./infra/docker/Dockerfile
-
 jobs:
+  # ==========================================================================
+  # Build all platform images using a matrix strategy
+  # ==========================================================================
   build-and-push:
-    name: Build and Push Multi-Platform Docker Image
+    name: Build ${{ matrix.image }}
     runs-on: ubuntu-latest
-    
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - image: seiggy/lucia-agenthost
+            dockerfile: ./infra/docker/Dockerfile
+            title: Lucia Agent Host
+            description: AI-powered Home Assistant agent orchestration
+          - image: seiggy/lucia-a2ahost
+            dockerfile: ./infra/docker/Dockerfile.a2ahost
+            title: Lucia A2A Host (base)
+            description: Base A2A agent host runtime (no plugins)
+          - image: seiggy/lucia-music-agent
+            dockerfile: ./infra/docker/Dockerfile.music-agent
+            title: Lucia Music Agent
+            description: A2A music playback agent plugin
+          - image: seiggy/lucia-timer-agent
+            dockerfile: ./infra/docker/Dockerfile.timer-agent
+            title: Lucia Timer Agent
+            description: A2A timer and announcement agent plugin
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -52,12 +71,12 @@ jobs:
         with:
           driver-opts: |
             image=moby/buildkit:latest
-          
+
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.DOCKER_IMAGE }}
+          images: ${{ matrix.image }}
           tags: |
             type=match,pattern=\d{4}\.\d{1,2}\.\d{1,2},group=0
             type=raw,value={{date 'YYYY.MM.DD'}},enable=${{ github.event_name != 'pull_request' }}
@@ -66,8 +85,8 @@ jobs:
             type=sha,prefix={{date 'YYYY.MM.DD'}}-
             type=raw,value=latest,enable=${{ github.event_name != 'pull_request' }}
           labels: |
-            org.opencontainers.image.title=Lucia
-            org.opencontainers.image.description=AI-powered Home Assistant agent orchestration
+            org.opencontainers.image.title=${{ matrix.title }}
+            org.opencontainers.image.description=${{ matrix.description }}
             org.opencontainers.image.vendor=Lucia Project
             org.opencontainers.image.licenses=MIT
 
@@ -76,7 +95,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ${{ env.DOCKERFILE_PATH }}
+          file: ${{ matrix.dockerfile }}
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
@@ -88,47 +107,27 @@ jobs:
             VCS_REF=${{ github.sha }}
             VERSION=${{ steps.meta.outputs.version }}
 
-      ## Not sure why, can't get attestation to work... we'll figure it out later
       - name: Generate artifact attestation
         if: github.event_name != 'pull_request'
         uses: actions/attest-build-provenance@v3
         continue-on-error: true
         with:
-          subject-name: docker.io/${{ env.DOCKER_IMAGE }}
+          subject-name: docker.io/${{ matrix.image }}
           subject-digest: ${{ steps.build-push.outputs.digest }}
           push-to-registry: true
 
       - name: Image digest
-        run: echo ${{ steps.build-push.outputs.digest }}
+        run: echo "${{ matrix.image }}@${{ steps.build-push.outputs.digest }}"
 
-      - name: Comment PR with image info
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const output = `#### Docker Build Results 🐳
-            
-            **Image:** \`${{ env.DOCKER_IMAGE }}\`
-            **Platforms:** \`linux/amd64\`, \`linux/arm64\`
-            **Digest:** \`${{ steps.build-push.outputs.digest }}\`
-            
-            ✅ Multi-platform build completed successfully!
-            
-            *Image was built but not pushed (PR builds are for validation only)*`;
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: output
-            });
-
+  # ==========================================================================
+  # Test the main AgentHost image on PRs
+  # ==========================================================================
   test-image:
     name: Test Docker Image
     runs-on: ubuntu-latest
     needs: build-and-push
     if: github.event_name == 'pull_request'
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -140,36 +139,32 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ${{ env.DOCKERFILE_PATH }}
+          file: ./infra/docker/Dockerfile
           load: true
-          tags: lucia:test
+          tags: lucia-agenthost:test
           cache-from: type=gha
 
       - name: Test image structure
         run: |
           echo "Testing Docker image structure..."
-          
-          # Check if image exists
-          docker image inspect lucia:test
-          
-          # Check image size (should be reasonable)
-          SIZE=$(docker image inspect lucia:test --format='{{.Size}}')
+
+          docker image inspect lucia-agenthost:test
+
+          SIZE=$(docker image inspect lucia-agenthost:test --format='{{.Size}}')
           echo "Image size: $(($SIZE / 1024 / 1024)) MB"
-          
-          # Verify non-root user
-          USER=$(docker run --rm lucia:test whoami)
-          if [ "$USER" = "app" ]; then
+
+          USER=$(docker run --rm lucia-agenthost:test whoami)
+          if [ "$USER" = "appuser" ]; then
             echo "✅ Running as non-root user"
           else
-            echo "❌ Not running as non-root user"
+            echo "❌ Running as '$USER', expected 'appuser'"
             exit 1
           fi
 
       - name: Test container startup
         run: |
           echo "Testing container startup..."
-          
-          # Start container in background
+
           docker run -d --name lucia-test \
             -e HomeAssistant__BaseUrl=http://localhost:8123 \
             -e HomeAssistant__AccessToken=test-token \
@@ -177,25 +172,53 @@ jobs:
             -e OpenAI__ModelId=gpt-4o \
             -e OpenAI__EmbeddingModelId=text-embedding-3-small \
             -e Redis__ConnectionString=localhost:6379 \
-            lucia:test || echo "Expected failure without Redis"
-          
-          # Check logs
+            lucia-agenthost:test || echo "Expected failure without Redis"
+
           docker logs lucia-test || true
-          
-          # Cleanup
+
           docker rm -f lucia-test || true
 
+      - name: Comment PR with image info
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const output = `#### Docker Build Results 🐳
+
+            **Images Built:**
+            | Image | Status |
+            |-------|--------|
+            | \`seiggy/lucia-agenthost\` | ✅ Built |
+            | \`seiggy/lucia-a2ahost\` | ✅ Built |
+            | \`seiggy/lucia-music-agent\` | ✅ Built |
+            | \`seiggy/lucia-timer-agent\` | ✅ Built |
+
+            **Platforms:** \`linux/amd64\`, \`linux/arm64\`
+
+            ✅ All multi-platform builds completed successfully!
+
+            *Images were built but not pushed (PR builds are for validation only)*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
+
+  # ==========================================================================
+  # Security scan on push to main
+  # ==========================================================================
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
     needs: build-and-push
     if: github.event_name != 'pull_request'
-    
+
     steps:
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.DOCKER_IMAGE }}:latest
+          image-ref: seiggy/lucia-agenthost:latest
           format: 'sarif'
           output: 'trivy-results.sarif'
 

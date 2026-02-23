@@ -4,7 +4,6 @@ using Microsoft.Extensions.Logging;
 using lucia.Agents.Services;
 using lucia.Agents.Skills;
 using lucia.Tests.TestDoubles;
-using Xunit;
 using Xunit.Abstractions;
 
 namespace lucia.Tests.Diagnostics;
@@ -119,7 +118,7 @@ public sealed class EmbeddingMatchingTests
         var loggerFactory = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Trace));
         var logger = loggerFactory.CreateLogger<LightControlSkill>();
 
-        var skill = new LightControlSkill(haClient, embGen, logger, A.Fake<IDeviceCacheService>());
+        var skill = new LightControlSkill(haClient, new StubEmbeddingProviderResolver(embGen), logger, A.Fake<IDeviceCacheService>());
 
         _output.WriteLine($"Calling FindLightAsync('{searchTerm}')...");
         var result = await skill.FindLightAsync(searchTerm);

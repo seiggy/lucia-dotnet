@@ -1,15 +1,17 @@
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Microsoft.Agents.AI;
 
 namespace lucia.Agents.Integration;
 
 /// <summary>
 /// In-memory session implementation for orchestrator agent.
-/// Used for Phase 3 MVP. Phase 4 will introduce Redis-backed sessions for persistence.
+/// Uses <see cref="AgentSessionStateBag"/> to persist the session identifier
+/// across multi-turn A2A conversations.
 /// </summary>
-internal sealed class OrchestratorInMemorySession : InMemoryAgentSession
+internal sealed class OrchestratorInMemorySession : AgentSession
 {
+    private const string SessionIdKey = "sessionId";
+
     /// <summary>
     /// Stable session identifier used for Redis conversation cache keying.
     /// </summary>
@@ -18,41 +20,34 @@ internal sealed class OrchestratorInMemorySession : InMemoryAgentSession
     internal OrchestratorInMemorySession()
     {
         SessionId = Guid.NewGuid().ToString("N");
+        StateBag.SetValue(SessionIdKey, SessionId);
     }
 
     internal OrchestratorInMemorySession(
-        JsonElement serializedThreadState,
+        JsonElement serializedSessionState,
         JsonSerializerOptions? jsonSerializerOptions = null)
-        : base(serializedThreadState, jsonSerializerOptions)
     {
-        // Try to extract the sessionId from serialized state, or generate a new one
-        if (serializedThreadState.TryGetProperty("sessionId", out var idElement)
-            && idElement.GetString() is { } id)
+        // Rehydrate state bag from serialized state
+        var bag = AgentSessionStateBag.Deserialize(serializedSessionState);
+        if (bag.TryGetValue<string>(SessionIdKey, out var existingId) && existingId is not null)
         {
-            SessionId = id;
+            SessionId = existingId;
         }
         else
         {
             SessionId = Guid.NewGuid().ToString("N");
         }
+
+        StateBag.SetValue(SessionIdKey, SessionId);
     }
 
     /// <summary>
     /// Serializes session state including our custom SessionId so it persists
     /// across multi-turn A2A conversations (contextId reuse).
     /// </summary>
-    internal new JsonElement Serialize(JsonSerializerOptions? jsonSerializerOptions = null)
+    internal JsonElement Serialize(JsonSerializerOptions? jsonSerializerOptions = null)
     {
-        var baseElement = base.Serialize(jsonSerializerOptions);
-
-        // Inject sessionId into the serialized JSON object
-        var obj = JsonNode.Parse(baseElement.GetRawText())?.AsObject();
-        if (obj is not null)
-        {
-            obj["sessionId"] = SessionId;
-            return JsonSerializer.SerializeToElement(obj);
-        }
-
-        return baseElement;
+        StateBag.SetValue(SessionIdKey, SessionId);
+        return StateBag.Serialize();
     }
 }

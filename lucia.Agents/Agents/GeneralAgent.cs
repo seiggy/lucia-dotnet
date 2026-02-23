@@ -1,22 +1,28 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using A2A;
 using lucia.Agents.Abstractions;
+using lucia.Agents.Configuration;
+using lucia.Agents.Mcp;
 using lucia.Agents.Orchestration;
+using lucia.Agents.Services;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace lucia.Agents.Agents;
 
 public sealed class GeneralAgent : ILuciaAgent
 {
+    private const string AgentId = "general-assistant";
     private static readonly ActivitySource ActivitySource = new("Lucia.Agents.General", "1.0.0");
 
     private readonly AgentCard _agent;
+    private readonly IChatClientResolver _clientResolver;
+    private readonly IAgentDefinitionRepository _definitionRepository;
+    private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<GeneralAgent> _logger;
-    private readonly TaskManager _taskManager;
-    private readonly AIAgent _aiAgent;
+    private volatile AIAgent _aiAgent;
+    private string? _lastModelConnectionName;
 
     /// <summary>
     /// The system instructions used by this agent.
@@ -29,16 +35,20 @@ public sealed class GeneralAgent : ILuciaAgent
     public IList<AITool> Tools { get; }
 
     public GeneralAgent(
-        [FromKeyedServices(OrchestratorServiceKeys.GeneralModel)] IChatClient chatClient,
+        IChatClientResolver clientResolver,
+        IAgentDefinitionRepository definitionRepository,
         ILoggerFactory loggerFactory)
     {
+        _clientResolver = clientResolver;
+        _definitionRepository = definitionRepository;
+        _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<GeneralAgent>();
 
         // Create the agent card for registration
         _agent = new AgentCard
         {
             Url = "/a2a/general-assistant",
-            Name = "general-assistant",
+            Name = AgentId,
             Description = "Agent for handling #general-knowledge questions in Home Assistant",
             Capabilities = new AgentCapabilities
             {
@@ -70,19 +80,8 @@ public sealed class GeneralAgent : ILuciaAgent
         Instructions = instructions;
         Tools = new List<AITool>();
 
-        var agentOptions = new ChatClientAgentOptions
-        {
-            Id = "general-assistant",
-            Name = "general-assistant",
-            Description = "Agent for answering general knowledge questions in Home Assistant",
-            ChatOptions = new()
-            {
-                Instructions = Instructions
-            }
-        };
-
-        _aiAgent = new ChatClientAgent(chatClient, agentOptions, loggerFactory);
-        _taskManager = new TaskManager();
+        // _aiAgent is built during InitializeAsync via ApplyDefinitionAsync
+        _aiAgent = null!;
     }
 
     /// <summary>
@@ -98,14 +97,52 @@ public sealed class GeneralAgent : ILuciaAgent
     /// <summary>
     /// Initialize the agent
     /// </summary>
-    public Task InitializeAsync(CancellationToken cancellationToken = default)
+    public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
-        using var activity = ActivitySource.StartActivity("GeneralAgent.Initialize", ActivityKind.Internal);
+        using var activity = ActivitySource.StartActivity();
         _logger.LogInformation("Initializing General Knowledge Agent...");
         
-        activity?.SetTag("agent.id", "general-assistant");
+        await ApplyDefinitionAsync(cancellationToken).ConfigureAwait(false);
+
+        activity?.SetTag("agent.id", AgentId);
         activity?.SetStatus(ActivityStatusCode.Ok);
         _logger.LogInformation("General Knowledge initialized successfully");
-        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public async Task RefreshConfigAsync(CancellationToken cancellationToken = default)
+    {
+        await ApplyDefinitionAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task ApplyDefinitionAsync(CancellationToken cancellationToken)
+    {
+        var definition = await _definitionRepository.GetAgentDefinitionAsync(AgentId, cancellationToken).ConfigureAwait(false);
+        var newConnectionName = definition?.ModelConnectionName;
+
+        if (_aiAgent is not null && string.Equals(_lastModelConnectionName, newConnectionName, StringComparison.Ordinal))
+            return;
+
+        var copilotAgent = await _clientResolver.ResolveAIAgentAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
+        _aiAgent = copilotAgent ?? BuildAgent(
+            await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false));
+        _logger.LogInformation("GeneralAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
+        _lastModelConnectionName = newConnectionName;
+    }
+
+    private ChatClientAgent BuildAgent(IChatClient chatClient)
+    {
+        var agentOptions = new ChatClientAgentOptions
+        {
+            Id = AgentId,
+            Name = AgentId,
+            Description = "Agent for answering general knowledge questions in Home Assistant",
+            ChatOptions = new ChatOptions
+            {
+                Instructions = Instructions
+            }
+        };
+
+        return new ChatClientAgent(chatClient, agentOptions, _loggerFactory);
     }
 }

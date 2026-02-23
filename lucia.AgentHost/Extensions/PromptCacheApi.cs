@@ -31,7 +31,7 @@ public static class PromptCacheApi
         [FromServices] IPromptCacheService cacheService,
         CancellationToken ct)
     {
-        var entries = await cacheService.GetAllCachedEntriesAsync(ct);
+        var entries = await cacheService.GetAllCachedEntriesAsync(ct).ConfigureAwait(false);
         return TypedResults.Ok(entries);
     }
 
@@ -39,7 +39,7 @@ public static class PromptCacheApi
         [FromServices] IPromptCacheService cacheService,
         CancellationToken ct)
     {
-        var stats = await cacheService.GetStatsAsync(ct);
+        var stats = await cacheService.GetStatsAsync(ct).ConfigureAwait(false);
         return TypedResults.Ok(stats);
     }
 
@@ -48,7 +48,7 @@ public static class PromptCacheApi
         [FromRoute] string cacheKey,
         CancellationToken ct)
     {
-        var found = await cacheService.EvictAsync(cacheKey, ct);
+        var found = await cacheService.EvictAsync(cacheKey, ct).ConfigureAwait(false);
         return TypedResults.Ok<object>(new { evicted = found });
     }
 
@@ -56,7 +56,7 @@ public static class PromptCacheApi
         [FromServices] IPromptCacheService cacheService,
         CancellationToken ct)
     {
-        var count = await cacheService.EvictAllAsync(ct);
+        var count = await cacheService.EvictAllAsync(ct).ConfigureAwait(false);
         return TypedResults.Ok<object>(new { evicted = count });
     }
 }

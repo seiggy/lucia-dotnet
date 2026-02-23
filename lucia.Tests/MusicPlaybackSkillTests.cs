@@ -1,11 +1,7 @@
-using System.Linq;
 using System.Text.Json;
 using FakeItEasy;
-using lucia.Agents.Configuration;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
-using lucia.Agents.Models;
-using lucia.Agents.Skills;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
 using lucia.Agents.Services;
@@ -35,7 +31,7 @@ public class MusicPlaybackSkillTests
         _skill = new MusicPlaybackSkill(
             _homeAssistantClient,
             optionsMonitor,
-            _embeddingGenerator,
+            new StubEmbeddingProviderResolver(_embeddingGenerator),
             _deviceCache,
             NullLogger<MusicPlaybackSkill>.Instance);
     }

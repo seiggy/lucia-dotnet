@@ -14,31 +14,31 @@ public sealed class ApiKeyEntry
     /// </summary>
     [BsonId]
     [BsonRepresentation(BsonType.ObjectId)]
-    public string Id { get; set; } = default!;
+    public string Id { get; init; } = null!;
 
     /// <summary>
     /// SHA-256 hash of the full API key. Used for validation lookups.
     /// </summary>
     [BsonElement("keyHash")]
-    public string KeyHash { get; set; } = default!;
+    public string KeyHash { get; set; } = null!;
 
     /// <summary>
     /// First 8 characters of the key for display/identification (e.g., "lk_a3b9...").
     /// </summary>
     [BsonElement("keyPrefix")]
-    public string KeyPrefix { get; set; } = default!;
+    public string KeyPrefix { get; set; } = null!;
 
     /// <summary>
     /// User-assigned label (e.g., "Dashboard", "Home Assistant", "My Laptop").
     /// </summary>
     [BsonElement("name")]
-    public string Name { get; set; } = default!;
+    public string Name { get; set; } = null!;
 
     /// <summary>
     /// When this key was created.
     /// </summary>
     [BsonElement("createdAt")]
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
 
     /// <summary>
     /// When this key was last used for authentication. Null if never used.

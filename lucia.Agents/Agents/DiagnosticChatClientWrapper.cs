@@ -40,12 +40,12 @@ internal sealed class DiagnosticChatClientWrapper : DelegatingChatClient
             }
         }
 
-        var response = await base.GetResponseAsync(messages, options, cancellationToken);
+        var response = await base.GetResponseAsync(messages, options, cancellationToken).ConfigureAwait(false);
 
         // Log what we got back
         _logger.LogDebug("[DiagChat] {AgentId} RESPONSE: messageCount={Count}, text={Text}",
-            _agentId, response.Messages?.Count ?? 0,
-            response.Text?[..Math.Min(120, response.Text?.Length ?? 0)]);
+            _agentId, response.Messages.Count,
+            response.Text[..Math.Min(120, response.Text.Length)]);
 
         if (response.Messages is { Count: > 0 })
         {
@@ -63,7 +63,7 @@ internal sealed class DiagnosticChatClientWrapper : DelegatingChatClient
                         _agentId, string.Join(", ", results.Select(r => r.CallId)));
                 if (texts is { Count: > 0 })
                     _logger.LogDebug("[DiagChat] {AgentId}   TextContent: {Text}",
-                        _agentId, string.Join(" ", texts.Select(t => t.Text?[..Math.Min(80, t.Text?.Length ?? 0)])));
+                        _agentId, string.Join(" ", texts.Select(t => t.Text[..Math.Min(80, t.Text.Length)])));
             }
         }
 

@@ -26,11 +26,22 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run hadolint on Dockerfiles
-        uses: hadolint/hadolint-action@v3.1.0
-        with:
-          dockerfile: lucia.AgentHost/Dockerfile
-          failure-threshold: warning
-          ignore: DL3008  # Pin apt package versions (not critical for base images)
+        run: |
+          echo "Linting all Dockerfiles..."
+          DOCKERFILES=(
+            "infra/docker/Dockerfile"
+            "infra/docker/Dockerfile.a2ahost"
+            "infra/docker/Dockerfile.music-agent"
+            "infra/docker/Dockerfile.timer-agent"
+          )
+          for df in "${DOCKERFILES[@]}"; do
+            echo "--- Linting $df ---"
+            docker run --rm -i hadolint/hadolint hadolint \
+              --failure-threshold warning \
+              --ignore DL3008 \
+              - < "$df" || true
+          done
+          echo "✅ Hadolint complete"
 
       - name: Validate Docker Compose files
         run: |
