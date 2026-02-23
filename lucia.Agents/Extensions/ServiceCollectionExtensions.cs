@@ -443,7 +443,8 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IAgentDefinitionRepository, MongoAgentDefinitionRepository>();
         builder.Services.AddSingleton<IMcpToolRegistry, McpToolRegistry>();
         builder.Services.AddSingleton<IDynamicAgentProvider, DynamicAgentProvider>();
-        builder.Services.AddHostedService<DynamicAgentLoader>();
+        builder.Services.AddSingleton<DynamicAgentLoader>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<DynamicAgentLoader>());
     }
 
     /// <summary>
