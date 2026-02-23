@@ -265,3 +265,45 @@ export interface CopilotConnectResult {
   message: string;
   models: CopilotModelInfo[];
 }
+
+// ── Activity Dashboard Types ──
+
+export interface LiveEvent {
+  type: 'requestStart' | 'routing' | 'agentStart' | 'toolCall' | 'toolResult' | 'agentComplete' | 'requestComplete' | 'error'
+  agentName?: string
+  toolName?: string
+  state?: string
+  message?: string
+  isRemote?: boolean
+  confidence?: number
+  durationMs?: number
+  timestamp: string
+  errorMessage?: string
+}
+
+export interface MeshNode {
+  id: string
+  label: string
+  nodeType: 'orchestrator' | 'agent' | 'tool'
+  isRemote?: boolean
+}
+
+export interface MeshEdge {
+  source: string
+  target: string
+}
+
+export interface MeshTopology {
+  nodes: MeshNode[]
+  edges: MeshEdge[]
+}
+
+export interface ActivitySummary {
+  traces: TraceStats
+  tasks: { totalTasks: number; completedCount: number; failedCount: number }
+  cache: { totalEntries: number; totalHits: number; totalMisses: number; hitRate: number }
+}
+
+export interface AgentActivityStatsMap {
+  [agentId: string]: { requestCount: number; errorRate: number }
+}

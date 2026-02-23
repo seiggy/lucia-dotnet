@@ -3,7 +3,7 @@ import { NavLink, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import {
   Activity, Download, Settings, Bot, Database, Server,
-  Layers, Boxes, ListTodo, Menu, X, LogOut, Sparkles
+  Layers, Boxes, ListTodo, Menu, X, LogOut, Sparkles, BarChart3
 } from 'lucide-react'
 import LoginPage from './pages/LoginPage'
 import SetupPage from './pages/SetupPage'
@@ -17,9 +17,11 @@ import TasksPage from './pages/TasksPage'
 import McpServersPage from './pages/McpServersPage'
 import AgentDefinitionsPage from './pages/AgentDefinitionsPage'
 import ModelProvidersPage from './pages/ModelProvidersPage'
+import ActivityPage from './pages/ActivityPage'
 
 const NAV_ITEMS = [
-  { to: '/', label: 'Traces', icon: Activity, end: true },
+  { to: '/', label: 'Activity', icon: BarChart3, end: true },
+  { to: '/traces', label: 'Traces', icon: Activity },
   { to: '/agent-dashboard', label: 'Agents', icon: Bot },
   { to: '/agent-definitions', label: 'Definitions', icon: Layers },
   { to: '/model-providers', label: 'Providers', icon: Boxes },
@@ -162,7 +164,8 @@ function AppRoutes() {
 
         <main className="flex-1 overflow-auto px-4 py-6 sm:px-6 lg:px-8">
           <Routes>
-            <Route path="/" element={<TraceListPage />} />
+            <Route path="/" element={<ActivityPage />} />
+            <Route path="/traces" element={<TraceListPage />} />
             <Route path="/traces/:id" element={<TraceDetailPage />} />
             <Route path="/exports" element={<ExportPage />} />
             <Route path="/configuration" element={<ConfigurationPage />} />

@@ -590,3 +590,37 @@ export async function connectCopilotCli(githubToken?: string): Promise<import('.
   }
   return res.json();
 }
+
+// ── Activity Dashboard ──
+
+export async function fetchActivitySummary(): Promise<import('./types').ActivitySummary> {
+  const res = await fetch(`${BASE}/activity/summary`);
+  if (!res.ok) throw new Error(`Failed to fetch activity summary: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchAgentMesh(): Promise<import('./types').MeshTopology> {
+  const res = await fetch(`${BASE}/activity/mesh`);
+  if (!res.ok) throw new Error(`Failed to fetch agent mesh: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchAgentActivityStats(): Promise<import('./types').AgentActivityStatsMap> {
+  const res = await fetch(`${BASE}/activity/agent-stats`);
+  if (!res.ok) throw new Error(`Failed to fetch agent stats: ${res.statusText}`);
+  return res.json();
+}
+
+export function connectActivityStream(
+  onEvent: (event: import('./types').LiveEvent) => void,
+  onError?: (err: Event) => void,
+): EventSource {
+  const source = new EventSource(`${BASE}/activity/live`);
+  source.onmessage = (e) => {
+    try {
+      onEvent(JSON.parse(e.data));
+    } catch { /* ignore parse errors */ }
+  };
+  if (onError) source.onerror = onError;
+  return source;
+}

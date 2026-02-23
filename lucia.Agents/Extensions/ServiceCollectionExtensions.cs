@@ -192,7 +192,8 @@ public static class ServiceCollectionExtensions
 
             var repository = sp.GetRequiredService<ITraceRepository>();
             var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<AgentTracingChatClient>>();
-            return new AgentTracingChatClient(inner, agentId, repository, logger);
+            var liveChannel = sp.GetService<Orchestration.LiveActivityChannel>();
+            return new AgentTracingChatClient(inner, agentId, repository, logger, liveChannel);
         });
     }
 

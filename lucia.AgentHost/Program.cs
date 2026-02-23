@@ -48,7 +48,14 @@ builder.AddLuciaAgents();
 builder.Services.Configure<TraceCaptureOptions>(
     builder.Configuration.GetSection(TraceCaptureOptions.SectionName));
 builder.Services.AddSingleton<ITraceRepository, MongoTraceRepository>();
-builder.Services.AddSingleton<IOrchestratorObserver, TraceCaptureObserver>();
+builder.Services.AddSingleton<LiveActivityChannel>();
+builder.Services.AddSingleton<TraceCaptureObserver>();
+builder.Services.AddSingleton<LiveActivityObserver>();
+builder.Services.AddSingleton<IOrchestratorObserver>(sp =>
+    new CompositeOrchestratorObserver([
+        sp.GetRequiredService<TraceCaptureObserver>(),
+        sp.GetRequiredService<LiveActivityObserver>(),
+    ]));
 builder.Services.AddHostedService<TraceRetentionService>();
 
 // Task archive services
@@ -171,6 +178,7 @@ app.MapTaskManagementApi();
 app.MapMcpServerApi();
 app.MapAgentDefinitionApi();
 app.MapModelProviderApi();
+app.MapActivityApi();
 app.MapDefaultEndpoints();
 
 // SPA hosting: serve React dashboard assets in production
