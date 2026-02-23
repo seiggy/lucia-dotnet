@@ -12,6 +12,7 @@ import type {
   McpToolInfo,
   McpServerStatus,
   AgentDefinition,
+  ModelProvider,
 } from './types';
 
 const BASE = '/api';
@@ -522,4 +523,51 @@ export async function deleteAgentDefinition(id: string): Promise<void> {
 export async function reloadDynamicAgents(): Promise<void> {
   const res = await fetch(`${BASE}/agent-definitions/reload`, { method: 'POST' });
   if (!res.ok) throw new Error(`Failed to reload agents: ${res.statusText}`);
+}
+
+// ── Model Providers ──────────────────────────────────────────────
+
+export async function fetchModelProviders(): Promise<ModelProvider[]> {
+  const res = await fetch(`${BASE}/model-providers`);
+  if (!res.ok) throw new Error(`Failed to fetch model providers: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchModelProvider(id: string): Promise<ModelProvider> {
+  const res = await fetch(`${BASE}/model-providers/${encodeURIComponent(id)}`);
+  if (!res.ok) throw new Error(`Failed to fetch model provider: ${res.statusText}`);
+  return res.json();
+}
+
+export async function createModelProvider(provider: Partial<ModelProvider>): Promise<ModelProvider> {
+  const res = await fetch(`${BASE}/model-providers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(provider),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Failed to create model provider: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function updateModelProvider(id: string, provider: Partial<ModelProvider>): Promise<ModelProvider> {
+  const res = await fetch(`${BASE}/model-providers/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(provider),
+  });
+  if (!res.ok) throw new Error(`Failed to update model provider: ${res.statusText}`);
+  return res.json();
+}
+
+export async function deleteModelProvider(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/model-providers/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to delete model provider: ${res.statusText}`);
+}
+
+export async function testModelProvider(id: string): Promise<{ success: boolean; message: string }> {
+  const res = await fetch(`${BASE}/model-providers/${encodeURIComponent(id)}/test`, { method: 'POST' });
+  return res.json();
 }

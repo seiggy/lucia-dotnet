@@ -1,4 +1,3 @@
-using System;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using lucia.Agents.Abstractions;
@@ -15,7 +14,6 @@ using Microsoft.Extensions.Logging;
 using Azure;
 using Azure.AI.Inference;
 using lucia.HomeAssistant.Services;
-using Microsoft.Agents.AI.Hosting;
 using OllamaSharp;
 using A2A;
 using lucia.Agents.Configuration;
@@ -24,7 +22,6 @@ using lucia.HomeAssistant.Configuration;
 using Azure.Identity;
 using Microsoft.Extensions.Options;
 using OpenAI;
-using OpenAI.Embeddings;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 
@@ -445,6 +442,10 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IDynamicAgentProvider, DynamicAgentProvider>();
         builder.Services.AddSingleton<DynamicAgentLoader>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<DynamicAgentLoader>());
+
+        // Register model provider system
+        builder.Services.AddSingleton<IModelProviderRepository, MongoModelProviderRepository>();
+        builder.Services.AddSingleton<IModelProviderFactory, ModelProviderFactory>();
     }
 
     /// <summary>

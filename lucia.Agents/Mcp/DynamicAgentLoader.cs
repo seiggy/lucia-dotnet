@@ -1,7 +1,5 @@
-using lucia.Agents.Abstractions;
 using lucia.Agents.Registry;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -18,6 +16,8 @@ public sealed class DynamicAgentLoader : BackgroundService
     private readonly IAgentRegistry _agentRegistry;
     private readonly IDynamicAgentProvider _dynamicAgentProvider;
     private readonly IChatClient _defaultChatClient;
+    private readonly IModelProviderFactory _providerFactory;
+    private readonly IModelProviderRepository _providerRepository;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<DynamicAgentLoader> _logger;
 
@@ -27,6 +27,8 @@ public sealed class DynamicAgentLoader : BackgroundService
         IAgentRegistry agentRegistry,
         IDynamicAgentProvider dynamicAgentProvider,
         IChatClient defaultChatClient,
+        IModelProviderFactory providerFactory,
+        IModelProviderRepository providerRepository,
         ILoggerFactory loggerFactory)
     {
         _repository = repository;
@@ -34,6 +36,8 @@ public sealed class DynamicAgentLoader : BackgroundService
         _agentRegistry = agentRegistry;
         _dynamicAgentProvider = dynamicAgentProvider;
         _defaultChatClient = defaultChatClient;
+        _providerFactory = providerFactory;
+        _providerRepository = providerRepository;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<DynamicAgentLoader>();
     }
@@ -41,13 +45,13 @@ public sealed class DynamicAgentLoader : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // Give built-in agents a head start
-        await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken);
+        await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken).ConfigureAwait(false);
 
         _logger.LogInformation("Starting MCP tool server connections...");
 
         try
         {
-            await _toolRegistry.InitializeAsync(stoppingToken);
+            await _toolRegistry.InitializeAsync(stoppingToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -58,7 +62,7 @@ public sealed class DynamicAgentLoader : BackgroundService
 
         try
         {
-            await LoadAndRegisterAgentsAsync(stoppingToken);
+            await LoadAndRegisterAgentsAsync(stoppingToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -73,12 +77,12 @@ public sealed class DynamicAgentLoader : BackgroundService
     public async Task ReloadAsync(CancellationToken ct = default)
     {
         _logger.LogInformation("Reloading dynamic agent definitions...");
-        await LoadAndRegisterAgentsAsync(ct);
+        await LoadAndRegisterAgentsAsync(ct).ConfigureAwait(false);
     }
 
     private async Task LoadAndRegisterAgentsAsync(CancellationToken ct)
     {
-        var definitions = await _repository.GetEnabledAgentDefinitionsAsync(ct);
+        var definitions = await _repository.GetEnabledAgentDefinitionsAsync(ct).ConfigureAwait(false);
         var registered = 0;
         var failed = 0;
 
@@ -95,10 +99,12 @@ public sealed class DynamicAgentLoader : BackgroundService
                     _repository,
                     _toolRegistry,
                     _defaultChatClient,
+                    _providerFactory,
+                    _providerRepository,
                     _loggerFactory);
 
-                await agent.InitializeAsync(ct);
-                await _agentRegistry.RegisterAgentAsync(agent.GetAgentCard(), ct);
+                await agent.InitializeAsync(ct).ConfigureAwait(false);
+                await _agentRegistry.RegisterAgentAsync(agent.GetAgentCard(), ct).ConfigureAwait(false);
                 _dynamicAgentProvider.Register(agent);
 
                 registered++;

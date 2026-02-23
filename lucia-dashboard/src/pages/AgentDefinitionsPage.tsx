@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import type { AgentDefinition, AgentToolReference, McpToolInfo } from '../types'
+import type { AgentDefinition, AgentToolReference, McpToolInfo, ModelProvider } from '../types'
 import {
   fetchAgentDefinitions,
   createAgentDefinition,
@@ -9,6 +9,7 @@ import {
   fetchMcpServers,
   discoverMcpTools,
   fetchMcpServerStatuses,
+  fetchModelProviders,
 } from '../api'
 import type { McpToolServerDefinition, McpServerStatus } from '../types'
 
@@ -20,12 +21,17 @@ export default function AgentDefinitionsPage() {
   const [editingDef, setEditingDef] = useState<AgentDefinition | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [providers, setProviders] = useState<ModelProvider[]>([])
 
   const loadData = useCallback(async () => {
     try {
       setLoading(true)
-      const data = await fetchAgentDefinitions()
+      const [data, providerData] = await Promise.all([
+        fetchAgentDefinitions(),
+        fetchModelProviders(),
+      ])
       setDefinitions(data)
+      setProviders(providerData.filter(p => p.enabled))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
     } finally {
@@ -58,6 +64,7 @@ export default function AgentDefinitionsPage() {
     return (
       <AgentForm
         definition={editingDef}
+        providers={providers}
         onSave={async (def) => {
           if (mode === 'edit' && editingDef) {
             await updateAgentDefinition(editingDef.id, def)
@@ -159,10 +166,12 @@ export default function AgentDefinitionsPage() {
 
 function AgentForm({
   definition,
+  providers,
   onSave,
   onCancel,
 }: {
   definition: AgentDefinition | null
+  providers: ModelProvider[]
   onSave: (def: Partial<AgentDefinition>) => Promise<void>
   onCancel: () => void
 }) {
@@ -291,13 +300,19 @@ function AgentForm({
               />
             </label>
             <label className="block">
-              <span className="text-sm text-gray-400">Model Connection (blank = default)</span>
-              <input
+              <span className="text-sm text-gray-400">Model Provider</span>
+              <select
                 value={form.modelConnectionName}
                 onChange={e => setForm(f => ({ ...f, modelConnectionName: e.target.value }))}
-                placeholder="Leave blank for default"
                 className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm"
-              />
+              >
+                <option value="">Default (system model)</option>
+                {providers.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.providerType} · {p.modelName})
+                  </option>
+                ))}
+              </select>
             </label>
           </div>
 

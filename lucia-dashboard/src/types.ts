@@ -198,3 +198,24 @@ export interface AgentDefinition {
   createdAt: string;
   updatedAt: string;
 }
+
+// Model Providers
+export type ProviderType = 'OpenAI' | 'AzureOpenAI' | 'AzureAIInference' | 'Ollama' | 'Anthropic' | 'GoogleGemini';
+
+export interface ModelAuthConfig {
+  authType: string;
+  apiKey?: string;
+  useDefaultCredentials: boolean;
+}
+
+export interface ModelProvider {
+  id: string;
+  name: string;
+  providerType: ProviderType;
+  endpoint?: string;
+  modelName: string;
+  auth: ModelAuthConfig;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}

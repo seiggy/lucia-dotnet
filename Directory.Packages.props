@@ -93,6 +93,7 @@
   <!-- ── Data & Infrastructure ────────────────────────────────── -->
   <ItemGroup Label="Data and Infrastructure">
     <PackageVersion Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
+    <PackageVersion Include="Anthropic" Version="12.7.0" />
     <PackageVersion Include="ModelContextProtocol" Version="0.9.0-preview.1" />
     <PackageVersion Include="MongoDB.Driver" Version="3.6.0" />
     <PackageVersion Include="OllamaSharp" Version="5.4.10" />

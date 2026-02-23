@@ -21,6 +21,8 @@ public sealed class DynamicAgent : ILuciaAgent
     private readonly IAgentDefinitionRepository _repository;
     private readonly IMcpToolRegistry _toolRegistry;
     private readonly IChatClient _defaultChatClient;
+    private readonly IModelProviderFactory _providerFactory;
+    private readonly IModelProviderRepository _providerRepository;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<DynamicAgent> _logger;
 
@@ -34,12 +36,16 @@ public sealed class DynamicAgent : ILuciaAgent
         IAgentDefinitionRepository repository,
         IMcpToolRegistry toolRegistry,
         IChatClient defaultChatClient,
+        IModelProviderFactory providerFactory,
+        IModelProviderRepository providerRepository,
         ILoggerFactory loggerFactory)
     {
         _agentId = agentId;
         _repository = repository;
         _toolRegistry = toolRegistry;
         _defaultChatClient = defaultChatClient;
+        _providerFactory = providerFactory;
+        _providerRepository = providerRepository;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<DynamicAgent>();
         _lastDefinition = initialDefinition;
@@ -47,7 +53,7 @@ public sealed class DynamicAgent : ILuciaAgent
         _agentCard = BuildAgentCard(initialDefinition);
 
         // Build an initial agent synchronously from the definition we already have
-        _cachedAgent = BuildAgent(initialDefinition, []);
+        _cachedAgent = BuildAgent(initialDefinition, [], _defaultChatClient);
     }
 
     public AgentCard GetAgentCard() => _agentCard;
@@ -98,10 +104,39 @@ public sealed class DynamicAgent : ILuciaAgent
 
         activity?.SetTag("agent.tool_count", tools.Count);
 
-        _cachedAgent = BuildAgent(definition, tools);
+        // Resolve per-agent chat client from model provider, or fall back to default
+        var chatClient = await ResolveClientAsync(definition, cancellationToken).ConfigureAwait(false);
+        _cachedAgent = BuildAgent(definition, tools, chatClient);
     }
 
-    private AIAgent BuildAgent(AgentDefinition definition, IReadOnlyList<AITool> tools)
+    private async Task<IChatClient> ResolveClientAsync(AgentDefinition definition, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(definition.ModelConnectionName))
+            return _defaultChatClient;
+
+        var provider = await _providerRepository.GetProviderAsync(definition.ModelConnectionName, ct)
+            .ConfigureAwait(false);
+
+        if (provider is null || !provider.Enabled)
+        {
+            _logger.LogWarning(
+                "Model provider '{ProviderId}' not found or disabled for agent {AgentId}, using default",
+                definition.ModelConnectionName, _agentId);
+            return _defaultChatClient;
+        }
+
+        try
+        {
+            return _providerFactory.CreateClient(provider);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to create client for provider '{ProviderId}', falling back to default", provider.Id);
+            return _defaultChatClient;
+        }
+    }
+
+    private AIAgent BuildAgent(AgentDefinition definition, IReadOnlyList<AITool> tools, IChatClient chatClient)
     {
         var chatOptions = new ChatOptions
         {
@@ -121,7 +156,7 @@ public sealed class DynamicAgent : ILuciaAgent
             ChatOptions = chatOptions
         };
 
-        return new ChatClientAgent(_defaultChatClient, agentOptions, _loggerFactory);
+        return new ChatClientAgent(chatClient, agentOptions, _loggerFactory);
     }
 
     private static AgentCard BuildAgentCard(AgentDefinition definition)

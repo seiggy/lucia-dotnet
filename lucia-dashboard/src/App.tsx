@@ -11,6 +11,7 @@ import PromptCachePage from './pages/PromptCachePage'
 import TasksPage from './pages/TasksPage'
 import McpServersPage from './pages/McpServersPage'
 import AgentDefinitionsPage from './pages/AgentDefinitionsPage'
+import ModelProvidersPage from './pages/ModelProvidersPage'
 
 function App() {
   return (
@@ -115,6 +116,14 @@ function AppRoutes() {
             Agent Definitions
           </NavLink>
           <NavLink
+            to="/model-providers"
+            className={({ isActive }) =>
+              `text-sm font-medium ${isActive ? 'text-white' : 'text-gray-400 hover:text-gray-200'}`
+            }
+          >
+            Model Providers
+          </NavLink>
+          <NavLink
             to="/tasks"
             className={({ isActive }) =>
               `text-sm font-medium ${isActive ? 'text-white' : 'text-gray-400 hover:text-gray-200'}`
@@ -144,6 +153,7 @@ function AppRoutes() {
           <Route path="/tasks" element={<TasksPage />} />
           <Route path="/mcp-servers" element={<McpServersPage />} />
           <Route path="/agent-definitions" element={<AgentDefinitionsPage />} />
+          <Route path="/model-providers" element={<ModelProvidersPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
