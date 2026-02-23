@@ -18,7 +18,7 @@ const PROVIDER_TYPES: { value: ProviderType; label: string; hint: string }[] = [
   { value: 'Ollama', label: 'Ollama', hint: 'Local Ollama instance (default: http://localhost:11434)' },
   { value: 'Anthropic', label: 'Anthropic', hint: 'Claude models via Anthropic API' },
   { value: 'GoogleGemini', label: 'Google Gemini', hint: 'Gemini models via OpenAI-compatible endpoint' },
-  { value: 'GitHubCopilot', label: 'GitHub Copilot SDK', hint: 'Requires copilot CLI installed and authenticated. Endpoint field overrides CLI path.' },
+  { value: 'GitHubCopilot', label: 'GitHub Copilot SDK', hint: 'Uses bundled Copilot CLI. Requires GitHub Copilot subscription.' },
 ]
 
 const AUTH_TYPES = [
@@ -297,7 +297,7 @@ export default function ModelProvidersPage() {
                   {copilotMessage}
                   {!copilotConnected && copilotMessage.includes('not found') && (
                     <a
-                      href="https://docs.github.com/en/copilot/managing-copilot/configure-personal-settings/installing-the-github-copilot-extension-for-your-cli"
+                      href="https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="ml-2 underline text-blue-400 hover:text-blue-300"

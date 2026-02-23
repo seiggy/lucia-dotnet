@@ -42,29 +42,17 @@ public sealed class CopilotConnectService
     }
 
     /// <summary>
-    /// Checks for the copilot CLI binary and lists available models.
+    /// Starts the bundled Copilot CLI and lists available models.
+    /// The SDK ships its own CLI binary — no system-level installation required.
     /// </summary>
     /// <param name="githubToken">Optional GitHub token. If null, uses the logged-in user's credentials.</param>
     /// <param name="ct">Cancellation token.</param>
     public async Task<CopilotConnectResult> ConnectAndListModelsAsync(string? githubToken, CancellationToken ct)
     {
-        // First, check if the copilot CLI is in PATH
-        if (!await IsCopilotCliAvailableAsync(ct))
-        {
-            return new CopilotConnectResult(
-                false,
-                "GitHub Copilot CLI ('copilot') not found in PATH. " +
-                "Install it from: https://docs.github.com/en/copilot/managing-copilot/configure-personal-settings/installing-the-github-copilot-extension-for-your-cli",
-                []);
-        }
-
         CopilotClient? client = null;
         try
         {
-            var options = new CopilotClientOptions
-            {
-                AutoStart = false,
-            };
+            var options = new CopilotClientOptions();
 
             if (!string.IsNullOrWhiteSpace(githubToken))
             {
@@ -111,27 +99,4 @@ public sealed class CopilotConnectService
         }
     }
 
-    private static async Task<bool> IsCopilotCliAvailableAsync(CancellationToken ct)
-    {
-        try
-        {
-            using var process = new System.Diagnostics.Process();
-            process.StartInfo = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "copilot",
-                Arguments = "--version",
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            process.Start();
-            await process.WaitForExitAsync(ct);
-            return process.ExitCode == 0;
-        }
-        catch
-        {
-            return false;
-        }
-    }
 }
