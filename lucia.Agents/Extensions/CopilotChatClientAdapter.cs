@@ -2,7 +2,7 @@ using System.Runtime.CompilerServices;
 using GitHub.Copilot.SDK;
 using Microsoft.Extensions.AI;
 
-namespace lucia.Agents.Mcp;
+namespace lucia.Agents.Extensions;
 
 /// <summary>
 /// Adapts the GitHub Copilot SDK's <see cref="CopilotClient"/>/<see cref="CopilotSession"/>

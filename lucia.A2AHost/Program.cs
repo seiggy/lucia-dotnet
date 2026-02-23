@@ -10,6 +10,8 @@ using lucia.HomeAssistant.Configuration;
 using lucia.HomeAssistant.Services;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
+using lucia.Agents.Abstractions;
+using lucia.Agents.Providers;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Options;
@@ -40,10 +42,8 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
         ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
 });
 
-builder.AddChatClient("chat");
-
-// Embeddings are now resolved from the Model Provider system via IEmbeddingProviderResolver.
-// Register model provider system so A2A plugins can resolve IChatClient and IEmbeddingGenerator.
+// Chat and embedding clients are resolved at runtime from the Model Provider system
+// (MongoDB-backed) via IChatClientResolver and IEmbeddingProviderResolver.
 builder.Services.AddSingleton<IModelProviderRepository, MongoModelProviderRepository>();
 builder.Services.AddSingleton<IModelProviderResolver, ModelProviderResolver>();
 builder.Services.AddSingleton<IEmbeddingProviderResolver, EmbeddingProviderResolver>();

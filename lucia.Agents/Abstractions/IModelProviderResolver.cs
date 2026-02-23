@@ -1,7 +1,9 @@
 using lucia.Agents.Configuration;
+using lucia.Agents.Mcp;
+using lucia.Agents.Models;
 using Microsoft.Extensions.AI;
 
-namespace lucia.Agents.Mcp;
+namespace lucia.Agents.Abstractions;
 
 /// <summary>
 /// Creates IChatClient and IEmbeddingGenerator instances from stored ModelProvider configurations.
@@ -30,8 +32,3 @@ public interface IModelProviderResolver
     /// </summary>
     Task<ModelProviderTestResult> TestEmbeddingConnectionAsync(ModelProvider provider, CancellationToken ct = default);
 }
-
-/// <summary>
-/// Result of a model provider connection test.
-/// </summary>
-public sealed record ModelProviderTestResult(bool Success, string Message);

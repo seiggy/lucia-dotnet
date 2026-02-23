@@ -1,7 +1,8 @@
+using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
 using MongoDB.Driver;
 
-namespace lucia.Agents.Mcp;
+namespace lucia.Agents.Providers;
 
 /// <summary>
 /// MongoDB implementation of <see cref="IAgentDefinitionRepository"/>.

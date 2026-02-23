@@ -35,7 +35,6 @@ public sealed class GeneralAgent : ILuciaAgent
     public IList<AITool> Tools { get; }
 
     public GeneralAgent(
-        IChatClient defaultChatClient,
         IChatClientResolver clientResolver,
         IAgentDefinitionRepository definitionRepository,
         ILoggerFactory loggerFactory)
@@ -81,8 +80,8 @@ public sealed class GeneralAgent : ILuciaAgent
         Instructions = instructions;
         Tools = new List<AITool>();
 
-        // Build initial agent with the default client; InitializeAsync may replace it
-        _aiAgent = BuildAgent(defaultChatClient);
+        // _aiAgent is built during InitializeAsync via ApplyDefinitionAsync
+        _aiAgent = null!;
     }
 
     /// <summary>
@@ -121,16 +120,12 @@ public sealed class GeneralAgent : ILuciaAgent
         var definition = await _definitionRepository.GetAgentDefinitionAsync(AgentId, cancellationToken).ConfigureAwait(false);
         var newConnectionName = definition?.ModelConnectionName;
 
-        if (string.Equals(_lastModelConnectionName, newConnectionName, StringComparison.Ordinal))
+        if (_aiAgent is not null && string.Equals(_lastModelConnectionName, newConnectionName, StringComparison.Ordinal))
             return;
 
-        if (!string.IsNullOrWhiteSpace(newConnectionName))
-        {
-            var client = await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
-            _aiAgent = BuildAgent(client);
-            _logger.LogInformation("GeneralAgent: using model provider '{Provider}'", newConnectionName);
-        }
-
+        var client = await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
+        _aiAgent = BuildAgent(client);
+        _logger.LogInformation("GeneralAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
         _lastModelConnectionName = newConnectionName;
     }
 

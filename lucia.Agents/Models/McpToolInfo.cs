@@ -1,4 +1,4 @@
-namespace lucia.Agents.Mcp;
+namespace lucia.Agents.Models;
 
 /// <summary>
 /// Describes a tool available from an MCP server (for the UI catalog).

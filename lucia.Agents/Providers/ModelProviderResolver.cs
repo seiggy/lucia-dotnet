@@ -4,13 +4,16 @@ using Azure;
 using Azure.AI.Inference;
 using Azure.Identity;
 using GitHub.Copilot.SDK;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
+using lucia.Agents.Extensions;
+using lucia.Agents.Models;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using OllamaSharp;
 using OpenAI;
 
-namespace lucia.Agents.Mcp;
+namespace lucia.Agents.Providers;
 
 /// <summary>
 /// Creates IChatClient and IEmbeddingGenerator instances from stored ModelProvider configurations.

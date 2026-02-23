@@ -1,5 +1,6 @@
 using lucia.Agents.Configuration;
 using lucia.Agents.Mcp;
+using lucia.Agents.Providers;
 using lucia.Tests.TestDoubles;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;

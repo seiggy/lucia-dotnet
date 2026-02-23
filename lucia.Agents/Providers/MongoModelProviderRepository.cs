@@ -1,8 +1,9 @@
+using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
 using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 
-namespace lucia.Agents.Mcp;
+namespace lucia.Agents.Providers;
 
 /// <summary>
 /// MongoDB-backed repository for model provider configurations.

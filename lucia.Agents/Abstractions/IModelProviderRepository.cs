@@ -1,6 +1,6 @@
 using lucia.Agents.Configuration;
 
-namespace lucia.Agents.Mcp;
+namespace lucia.Agents.Abstractions;
 
 /// <summary>
 /// Repository for CRUD operations on user-configured model providers.

@@ -38,15 +38,8 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 });
 
 // Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.AddChatClient("chat");
-
-// Embeddings are now resolved from the Model Provider system via IEmbeddingProviderResolver.
-// No legacy AddEmbeddingsClient() call needed.
-
-// Register additional model deployments as keyed IChatClient services
-builder.AddKeyedChatClient("phi4");
-builder.AddKeyedChatClient("gpt-5-nano");
+// Chat and embedding clients are resolved at runtime from the Model Provider system
+// (MongoDB-backed) via IChatClientResolver and IEmbeddingProviderResolver.
 
 // Add Lucia multi-agent system
 builder.AddLuciaAgents();

@@ -1,6 +1,6 @@
 using lucia.Agents.Configuration;
 
-namespace lucia.Agents.Mcp;
+namespace lucia.Agents.Abstractions;
 
 /// <summary>
 /// Repository for managing agent definitions and MCP tool server configurations.

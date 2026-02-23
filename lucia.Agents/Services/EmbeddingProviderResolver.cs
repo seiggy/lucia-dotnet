@@ -1,3 +1,4 @@
+using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
 using lucia.Agents.Mcp;
 using Microsoft.Extensions.AI;

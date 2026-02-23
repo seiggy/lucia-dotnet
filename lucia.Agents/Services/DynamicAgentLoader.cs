@@ -1,9 +1,12 @@
+using lucia.Agents.Abstractions;
+using lucia.Agents.Agents;
+using lucia.Agents.Mcp;
+using lucia.Agents.Providers;
 using lucia.Agents.Registry;
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace lucia.Agents.Mcp;
+namespace lucia.Agents.Services;
 
 /// <summary>
 /// Background service that connects MCP tool servers and registers dynamic agents
@@ -15,7 +18,7 @@ public sealed class DynamicAgentLoader : BackgroundService
     private readonly IMcpToolRegistry _toolRegistry;
     private readonly IAgentRegistry _agentRegistry;
     private readonly IDynamicAgentProvider _dynamicAgentProvider;
-    private readonly IChatClient _defaultChatClient;
+    private readonly IChatClientResolver _clientResolver;
     private readonly IModelProviderResolver _providerResolver;
     private readonly IModelProviderRepository _providerRepository;
     private readonly ILoggerFactory _loggerFactory;
@@ -26,7 +29,7 @@ public sealed class DynamicAgentLoader : BackgroundService
         IMcpToolRegistry toolRegistry,
         IAgentRegistry agentRegistry,
         IDynamicAgentProvider dynamicAgentProvider,
-        IChatClient defaultChatClient,
+        IChatClientResolver clientResolver,
         IModelProviderResolver providerResolver,
         IModelProviderRepository providerRepository,
         ILoggerFactory loggerFactory)
@@ -35,7 +38,7 @@ public sealed class DynamicAgentLoader : BackgroundService
         _toolRegistry = toolRegistry;
         _agentRegistry = agentRegistry;
         _dynamicAgentProvider = dynamicAgentProvider;
-        _defaultChatClient = defaultChatClient;
+        _clientResolver = clientResolver;
         _providerResolver = providerResolver;
         _providerRepository = providerRepository;
         _loggerFactory = loggerFactory;
@@ -91,6 +94,10 @@ public sealed class DynamicAgentLoader : BackgroundService
 
         foreach (var definition in definitions)
         {
+            // Skip built-in, remote, and orchestrator agents — they are managed separately
+            if (definition.IsBuiltIn || definition.IsRemote || definition.IsOrchestrator)
+                continue;
+
             try
             {
                 var agent = new DynamicAgent(
@@ -98,7 +105,7 @@ public sealed class DynamicAgentLoader : BackgroundService
                     definition,
                     _repository,
                     _toolRegistry,
-                    _defaultChatClient,
+                    _clientResolver,
                     _providerResolver,
                     _providerRepository,
                     _loggerFactory);

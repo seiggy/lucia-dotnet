@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using A2A;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Mcp;
 using lucia.Agents.Orchestration.Models;
+using lucia.Agents.Providers;
 using lucia.Agents.Registry;
 using lucia.Agents.Services;
 using Microsoft.Agents.AI;
@@ -20,7 +22,8 @@ namespace lucia.Agents.Orchestration;
 /// </summary>
 public sealed class WorkflowFactory
 {
-    private readonly IChatClient _chatClient;
+    private readonly IChatClientResolver _clientResolver;
+    private readonly IAgentDefinitionRepository _definitionRepository;
     private readonly IAgentRegistry _agentRegistry;
     private readonly IServiceProvider _serviceProvider;
     private readonly ILoggerFactory _loggerFactory;
@@ -36,7 +39,8 @@ public sealed class WorkflowFactory
     private readonly IDynamicAgentProvider? _dynamicAgentProvider;
 
     public WorkflowFactory(
-        [FromKeyedServices(OrchestratorServiceKeys.RouterModel)] IChatClient chatClient,
+        IChatClientResolver clientResolver,
+        IAgentDefinitionRepository definitionRepository,
         IAgentRegistry agentRegistry,
         IServiceProvider serviceProvider,
         ILoggerFactory loggerFactory,
@@ -50,7 +54,8 @@ public sealed class WorkflowFactory
         IPromptCacheService? promptCache = null,
         IDynamicAgentProvider? dynamicAgentProvider = null)
     {
-        _chatClient = chatClient ?? throw new ArgumentNullException(nameof(chatClient));
+        _clientResolver = clientResolver ?? throw new ArgumentNullException(nameof(clientResolver));
+        _definitionRepository = definitionRepository ?? throw new ArgumentNullException(nameof(definitionRepository));
         _agentRegistry = agentRegistry ?? throw new ArgumentNullException(nameof(agentRegistry));
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
@@ -205,11 +210,15 @@ public sealed class WorkflowFactory
         string historyAwareRequest,
         CancellationToken cancellationToken)
     {
+        // Resolve the orchestrator's chat client per-request so model provider changes take effect
+        var definition = await _definitionRepository.GetAgentDefinitionAsync("orchestrator", cancellationToken).ConfigureAwait(false);
+        var chatClient = await _clientResolver.ResolveAsync(definition?.ModelConnectionName, cancellationToken).ConfigureAwait(false);
+
         var routerLogger = _loggerFactory.CreateLogger<RouterExecutor>();
         var dispatchLogger = _loggerFactory.CreateLogger<AgentDispatchExecutor>();
         var aggregatorLogger = _loggerFactory.CreateLogger<ResultAggregatorExecutor>();
-        var router = new RouterExecutor(_chatClient, _agentRegistry, routerLogger, _routerOptions, _promptCache);
-        var dispatch = new AgentDispatchExecutor(invokers, dispatchLogger, _routerOptions, _chatClient, _observer);
+        var router = new RouterExecutor(chatClient, _agentRegistry, routerLogger, _routerOptions, _promptCache);
+        var dispatch = new AgentDispatchExecutor(invokers, dispatchLogger, _routerOptions, chatClient, _observer);
         var aggregator = new ResultAggregatorExecutor(aggregatorLogger, _aggregatorOptions);
 
         var chatMessage = new ChatMessage(ChatRole.User, historyAwareRequest);

@@ -43,7 +43,6 @@ public sealed class ClimateAgent : ILuciaAgent
     public IList<AITool> Tools { get; }
 
     public ClimateAgent(
-        IChatClient defaultChatClient,
         IChatClientResolver clientResolver,
         IAgentDefinitionRepository definitionRepository,
         ClimateControlSkill climateSkill,
@@ -171,8 +170,8 @@ public sealed class ClimateAgent : ILuciaAgent
         allTools.AddRange(_fanSkill.GetTools());
         Tools = allTools;
 
-        // Build initial agent with the default client; InitializeAsync may replace it
-        _aiAgent = BuildAgent(defaultChatClient);
+        // _aiAgent is built during InitializeAsync via ApplyDefinitionAsync
+        _aiAgent = null!;
     }
 
     /// <summary>
@@ -212,15 +211,11 @@ public sealed class ClimateAgent : ILuciaAgent
         var newConnectionName = definition?.ModelConnectionName;
         var newEmbeddingName = definition?.EmbeddingProviderName;
 
-        if (!string.Equals(_lastModelConnectionName, newConnectionName, StringComparison.Ordinal))
+        if (_aiAgent is null || !string.Equals(_lastModelConnectionName, newConnectionName, StringComparison.Ordinal))
         {
-            if (!string.IsNullOrWhiteSpace(newConnectionName))
-            {
-                var client = await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
-                _aiAgent = BuildAgent(client);
-                _logger.LogInformation("ClimateAgent: using model provider '{Provider}'", newConnectionName);
-            }
-
+            var client = await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
+            _aiAgent = BuildAgent(client);
+            _logger.LogInformation("ClimateAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
             _lastModelConnectionName = newConnectionName;
         }
 

@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
+using lucia.Agents.Agents;
+using lucia.Agents.Mcp;
 
-namespace lucia.Agents.Mcp;
+namespace lucia.Agents.Providers;
 
 /// <summary>
 /// Thread-safe in-memory store for dynamically loaded agents.

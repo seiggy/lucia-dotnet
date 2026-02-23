@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
+using lucia.Agents.Models;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Client;

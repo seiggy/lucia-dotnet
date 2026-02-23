@@ -1,6 +1,8 @@
+using lucia.Agents.Mcp;
+using lucia.Agents.Models;
 using Microsoft.Extensions.AI;
 
-namespace lucia.Agents.Mcp;
+namespace lucia.Agents.Abstractions;
 
 /// <summary>
 /// Platform-wide registry for MCP tool servers. Manages client connections

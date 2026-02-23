@@ -1,4 +1,6 @@
-namespace lucia.Agents.Mcp;
+using lucia.Agents.Agents;
+
+namespace lucia.Agents.Providers;
 
 /// <summary>
 /// Provides runtime access to dynamically loaded agents so the orchestrator

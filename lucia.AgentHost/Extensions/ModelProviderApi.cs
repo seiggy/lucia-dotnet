@@ -1,5 +1,9 @@
+using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
+using lucia.Agents.GitHubCopilot;
+using lucia.Agents.GitHubCopilot.Models;
 using lucia.Agents.Mcp;
+using lucia.Agents.Models;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 

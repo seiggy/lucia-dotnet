@@ -2,11 +2,13 @@ using System.Diagnostics;
 using A2A;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
+using lucia.Agents.Mcp;
+using lucia.Agents.Services;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
-namespace lucia.Agents.Mcp;
+namespace lucia.Agents.Agents;
 
 /// <summary>
 /// A user-defined agent that is constructed from its MongoDB definition
@@ -20,7 +22,7 @@ public sealed class DynamicAgent : ILuciaAgent
     private readonly string _agentId;
     private readonly IAgentDefinitionRepository _repository;
     private readonly IMcpToolRegistry _toolRegistry;
-    private readonly IChatClient _defaultChatClient;
+    private readonly IChatClientResolver _clientResolver;
     private readonly IModelProviderResolver _providerResolver;
     private readonly IModelProviderRepository _providerRepository;
     private readonly ILoggerFactory _loggerFactory;
@@ -35,7 +37,7 @@ public sealed class DynamicAgent : ILuciaAgent
         AgentDefinition initialDefinition,
         IAgentDefinitionRepository repository,
         IMcpToolRegistry toolRegistry,
-        IChatClient defaultChatClient,
+        IChatClientResolver clientResolver,
         IModelProviderResolver providerResolver,
         IModelProviderRepository providerRepository,
         ILoggerFactory loggerFactory)
@@ -43,7 +45,7 @@ public sealed class DynamicAgent : ILuciaAgent
         _agentId = agentId;
         _repository = repository;
         _toolRegistry = toolRegistry;
-        _defaultChatClient = defaultChatClient;
+        _clientResolver = clientResolver;
         _providerResolver = providerResolver;
         _providerRepository = providerRepository;
         _loggerFactory = loggerFactory;
@@ -52,8 +54,8 @@ public sealed class DynamicAgent : ILuciaAgent
 
         _agentCard = BuildAgentCard(initialDefinition);
 
-        // Build an initial agent synchronously from the definition we already have
-        _cachedAgent = BuildAgent(initialDefinition, [], _defaultChatClient);
+        // _cachedAgent is built during InitializeAsync
+        _cachedAgent = null!;
     }
 
     public AgentCard GetAgentCard() => _agentCard;
@@ -112,7 +114,7 @@ public sealed class DynamicAgent : ILuciaAgent
     private async Task<IChatClient> ResolveClientAsync(AgentDefinition definition, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(definition.ModelConnectionName))
-            return _defaultChatClient;
+            return await _clientResolver.ResolveAsync(null, ct).ConfigureAwait(false);
 
         var provider = await _providerRepository.GetProviderAsync(definition.ModelConnectionName, ct)
             .ConfigureAwait(false);
@@ -122,7 +124,7 @@ public sealed class DynamicAgent : ILuciaAgent
             _logger.LogWarning(
                 "Model provider '{ProviderId}' not found or disabled for agent {AgentId}, using default",
                 definition.ModelConnectionName, _agentId);
-            return _defaultChatClient;
+            return await _clientResolver.ResolveAsync(null, ct).ConfigureAwait(false);
         }
 
         try
@@ -132,7 +134,7 @@ public sealed class DynamicAgent : ILuciaAgent
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to create client for provider '{ProviderId}', falling back to default", provider.Id);
-            return _defaultChatClient;
+            return await _clientResolver.ResolveAsync(null, ct).ConfigureAwait(false);
         }
     }
 

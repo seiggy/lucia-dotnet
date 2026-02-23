@@ -1,4 +1,4 @@
-namespace lucia.Agents.Mcp;
+namespace lucia.Agents.Models;
 
 /// <summary>
 /// Connection status for an MCP tool server.
@@ -11,12 +11,4 @@ public sealed class McpServerStatus
     public string? ErrorMessage { get; init; }
     public int ToolCount { get; init; }
     public DateTime? ConnectedAt { get; init; }
-}
-
-public enum McpConnectionState
-{
-    Disconnected,
-    Connecting,
-    Connected,
-    Error
 }

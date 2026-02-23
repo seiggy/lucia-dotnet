@@ -39,7 +39,6 @@ public sealed class LightAgent : ILuciaAgent
     public IList<AITool> Tools { get; }
 
     public LightAgent(
-        IChatClient defaultChatClient,
         IChatClientResolver clientResolver,
         IAgentDefinitionRepository definitionRepository,
         LightControlSkill lightPlugin,
@@ -127,9 +126,8 @@ public sealed class LightAgent : ILuciaAgent
         Instructions = instructions;
         Tools = _lightPlugin.GetTools();
 
-        // Build initial agent with the default client; InitializeAsync may replace it
-        // with a provider-resolved client from the agent's definition.
-        _aiAgent = BuildAgent(defaultChatClient);
+        // _aiAgent is built during InitializeAsync via ApplyDefinitionAsync
+        _aiAgent = null!;
     }
 
     /// <summary>
@@ -168,15 +166,11 @@ public sealed class LightAgent : ILuciaAgent
         var newConnectionName = definition?.ModelConnectionName;
         var newEmbeddingName = definition?.EmbeddingProviderName;
 
-        if (!string.Equals(_lastModelConnectionName, newConnectionName, StringComparison.Ordinal))
+        if (_aiAgent is null || !string.Equals(_lastModelConnectionName, newConnectionName, StringComparison.Ordinal))
         {
-            if (!string.IsNullOrWhiteSpace(newConnectionName))
-            {
-                var client = await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
-                _aiAgent = BuildAgent(client);
-                _logger.LogInformation("LightAgent: using model provider '{Provider}'", newConnectionName);
-            }
-
+            var client = await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
+            _aiAgent = BuildAgent(client);
+            _logger.LogInformation("LightAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
             _lastModelConnectionName = newConnectionName;
         }
 

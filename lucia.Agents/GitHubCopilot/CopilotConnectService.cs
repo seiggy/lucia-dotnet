@@ -1,32 +1,8 @@
 using GitHub.Copilot.SDK;
+using lucia.Agents.GitHubCopilot.Models;
 using Microsoft.Extensions.Logging;
 
-namespace lucia.Agents.Mcp;
-
-/// <summary>
-/// DTO returned from the Copilot CLI connect + list-models flow.
-/// </summary>
-public sealed record CopilotModelInfo(
-    string Id,
-    string Name,
-    bool SupportsVision,
-    bool SupportsReasoningEffort,
-    double? MaxPromptTokens,
-    double? MaxOutputTokens,
-    double MaxContextWindowTokens,
-    string? PolicyState,
-    string? PolicyTerms,
-    double BillingMultiplier,
-    List<string> SupportedReasoningEfforts,
-    string? DefaultReasoningEffort);
-
-/// <summary>
-/// Result of the Copilot CLI connect operation.
-/// </summary>
-public sealed record CopilotConnectResult(
-    bool Success,
-    string Message,
-    List<CopilotModelInfo> Models);
+namespace lucia.Agents.GitHubCopilot;
 
 /// <summary>
 /// Validates the GitHub Copilot CLI is available and retrieves the list of models
