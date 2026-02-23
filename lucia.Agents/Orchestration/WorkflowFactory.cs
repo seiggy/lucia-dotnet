@@ -1,9 +1,4 @@
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using A2A;
 using lucia.Agents.Mcp;
 using lucia.Agents.Orchestration.Models;
@@ -103,10 +98,11 @@ public sealed class WorkflowFactory
             }
         }
 
-        // Also resolve remote agents with absolute URIs
+        // Also resolve remote agents with absolute HTTP/HTTPS URIs
         foreach (var card in agentCards)
         {
-            if (Uri.TryCreate(card.Url, UriKind.Absolute, out _))
+            if (Uri.TryCreate(card.Url, UriKind.Absolute, out var cardUri)
+                && (cardUri.Scheme == Uri.UriSchemeHttp || cardUri.Scheme == Uri.UriSchemeHttps))
             {
                 try
                 {
@@ -181,7 +177,8 @@ public sealed class WorkflowFactory
                 // Local agent: invoke in-process via AIHostAgent with session persistence
                 invoker = new LocalAgentInvoker(key, agent, sessionStore, invokerLogger, _invokerOptions, _timeProvider);
             }
-            else if (card is not null && Uri.TryCreate(card.Url, UriKind.Absolute, out _))
+            else if (card is not null && Uri.TryCreate(card.Url, UriKind.Absolute, out var cardUri)
+                     && (cardUri.Scheme == Uri.UriSchemeHttp || cardUri.Scheme == Uri.UriSchemeHttps))
             {
                 // Remote agent: route through TaskManager via HTTP
                 invoker = new RemoteAgentInvoker(key, card, _taskManager, invokerLogger, _invokerOptions, _timeProvider);
