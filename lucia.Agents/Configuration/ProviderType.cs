@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using MongoDB.Bson;
 using MongoDB.Bson.Serialization.Attributes;
 
@@ -6,6 +7,7 @@ namespace lucia.Agents.Configuration;
 /// <summary>
 /// Supported LLM provider types. Determines which SDK is used to create the IChatClient.
 /// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum ProviderType
 {
     /// <summary>OpenAI API (or any OpenAI-compatible endpoint like OpenRouter, GitHub Models).</summary>
