@@ -273,12 +273,11 @@ public sealed class ModelProviderFactoryTests
     }
 
     [Fact]
-    public void CreateClient_GitHubCopilot_WithCustomCliPath_ReturnsClient()
+    public void CreateClient_GitHubCopilot_WithToken_ReturnsClient()
     {
         var provider = MakeProvider(ProviderType.GitHubCopilot,
-            endpoint: "/usr/local/bin/copilot",
             model: "gpt-4o",
-            apiKey: null);
+            apiKey: "ghp_test_token_12345");
         using var client = _factory.CreateClient(provider);
         Assert.NotNull(client);
     }

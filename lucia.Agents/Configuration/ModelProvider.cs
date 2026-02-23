@@ -45,6 +45,12 @@ public sealed class ModelProvider
     public ModelAuthConfig Auth { get; set; } = new();
 
     /// <summary>
+    /// Optional metadata from GitHub Copilot CLI model discovery.
+    /// Only populated for <see cref="ProviderType.GitHubCopilot"/> providers.
+    /// </summary>
+    public CopilotModelMetadata? CopilotMetadata { get; set; }
+
+    /// <summary>
     /// Whether this provider is available for use by agents.
     /// </summary>
     public bool Enabled { get; set; } = true;

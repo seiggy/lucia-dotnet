@@ -180,13 +180,13 @@ public sealed class ModelProviderFactory : IModelProviderFactory
     private static IChatClient CreateGitHubCopilotClient(ModelProvider provider)
     {
         // GitHub Copilot SDK wraps the copilot CLI process.
-        // Endpoint is used as the CLI path override if provided.
-        var cliPath = !string.IsNullOrWhiteSpace(provider.Endpoint) ? provider.Endpoint : "copilot";
+        var options = new CopilotClientOptions();
 
-        var options = new CopilotClientOptions
+        // Pass the GitHub token if configured (stored as the API key)
+        if (!string.IsNullOrWhiteSpace(provider.Auth.ApiKey))
         {
-            CliPath = cliPath,
-        };
+            options.GithubToken = provider.Auth.ApiKey;
+        }
 
         return new CopilotChatClientAdapter(options, provider.ModelName);
     }

@@ -6,6 +6,11 @@ using Microsoft.AspNetCore.Mvc;
 namespace lucia.AgentHost.Extensions;
 
 /// <summary>
+/// Request body for the Copilot CLI connect endpoint.
+/// </summary>
+public sealed record CopilotConnectRequest(string? GithubToken);
+
+/// <summary>
 /// CRUD endpoints for user-configured model providers.
 /// </summary>
 public static class ModelProviderApi
@@ -22,6 +27,7 @@ public static class ModelProviderApi
         group.MapPut("/{id}", UpdateProviderAsync);
         group.MapDelete("/{id}", DeleteProviderAsync);
         group.MapPost("/{id}/test", TestProviderAsync);
+        group.MapPost("/copilot/connect", CopilotConnectAsync);
 
         return endpoints;
     }
@@ -114,6 +120,15 @@ public static class ModelProviderApi
             return TypedResults.Ok(new ModelProviderTestResult(false, $"Provider '{id}' not found"));
 
         var result = await factory.TestConnectionAsync(provider, ct);
+        return TypedResults.Ok(result);
+    }
+
+    private static async Task<Ok<CopilotConnectResult>> CopilotConnectAsync(
+        [FromBody] CopilotConnectRequest request,
+        [FromServices] CopilotConnectService connectService,
+        CancellationToken ct)
+    {
+        var result = await connectService.ConnectAndListModelsAsync(request.GithubToken, ct);
         return TypedResults.Ok(result);
     }
 }

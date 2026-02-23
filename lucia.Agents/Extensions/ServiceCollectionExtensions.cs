@@ -446,6 +446,7 @@ public static class ServiceCollectionExtensions
         // Register model provider system
         builder.Services.AddSingleton<IModelProviderRepository, MongoModelProviderRepository>();
         builder.Services.AddSingleton<IModelProviderFactory, ModelProviderFactory>();
+        builder.Services.AddSingleton<CopilotConnectService>();
     }
 
     /// <summary>

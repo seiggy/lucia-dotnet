@@ -215,7 +215,42 @@ export interface ModelProvider {
   endpoint?: string;
   modelName: string;
   auth: ModelAuthConfig;
+  copilotMetadata?: CopilotModelMetadata;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CopilotModelMetadata {
+  supportsVision: boolean;
+  supportsReasoningEffort: boolean;
+  maxPromptTokens?: number;
+  maxOutputTokens?: number;
+  maxContextWindowTokens: number;
+  policyState?: string;
+  policyTerms?: string;
+  billingMultiplier: number;
+  supportedReasoningEfforts: string[];
+  defaultReasoningEffort?: string;
+}
+
+export interface CopilotModelInfo {
+  id: string;
+  name: string;
+  supportsVision: boolean;
+  supportsReasoningEffort: boolean;
+  maxPromptTokens?: number;
+  maxOutputTokens?: number;
+  maxContextWindowTokens: number;
+  policyState?: string;
+  policyTerms?: string;
+  billingMultiplier: number;
+  supportedReasoningEfforts: string[];
+  defaultReasoningEffort?: string;
+}
+
+export interface CopilotConnectResult {
+  success: boolean;
+  message: string;
+  models: CopilotModelInfo[];
 }

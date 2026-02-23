@@ -571,3 +571,16 @@ export async function testModelProvider(id: string): Promise<{ success: boolean;
   const res = await fetch(`${BASE}/model-providers/${encodeURIComponent(id)}/test`, { method: 'POST' });
   return res.json();
 }
+
+export async function connectCopilotCli(githubToken?: string): Promise<import('./types').CopilotConnectResult> {
+  const res = await fetch(`${BASE}/model-providers/copilot/connect`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ githubToken: githubToken || null }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Failed to connect to Copilot CLI: ${res.statusText}`);
+  }
+  return res.json();
+}
