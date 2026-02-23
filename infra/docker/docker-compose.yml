@@ -153,20 +153,6 @@ services:
 
 
   # ========================================================================
-  # A2A Host Base Image Build (build-only, not a running service)
-  # Agent-specific images layer their plugins on top of this.
-  # ========================================================================
-  a2ahost-base:
-    build:
-      context: ../..
-      dockerfile: infra/docker/Dockerfile.a2ahost
-      args:
-        BUILD_CONFIGURATION: Release
-    image: lucia-a2ahost:latest
-    # This service exists only to produce the base image; it exits immediately.
-    entrypoint: ["true"]
-
-  # ========================================================================
   # Lucia Agent Host Service - Main Application
   # ========================================================================
   lucia:
@@ -310,15 +296,12 @@ services:
       dockerfile: infra/docker/Dockerfile.music-agent
       args:
         BUILD_CONFIGURATION: Release
-        A2AHOST_IMAGE: lucia-a2ahost:latest
 
     image: lucia-music-agent:latest
 
     container_name: lucia-music-agent
 
     depends_on:
-      a2ahost-base:
-        condition: service_completed_successfully
       redis:
         condition: service_healthy
       mongo:
@@ -386,15 +369,12 @@ services:
       dockerfile: infra/docker/Dockerfile.timer-agent
       args:
         BUILD_CONFIGURATION: Release
-        A2AHOST_IMAGE: lucia-a2ahost:latest
 
     image: lucia-timer-agent:latest
 
     container_name: lucia-timer-agent
 
     depends_on:
-      a2ahost-base:
-        condition: service_completed_successfully
       redis:
         condition: service_healthy
       mongo:

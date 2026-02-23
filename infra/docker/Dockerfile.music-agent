@@ -1,14 +1,23 @@
 # Lucia Music Agent
-# Builds the music-agent plugin and layers it onto the A2AHost base image.
+# Self-contained build: compiles A2AHost + plugin in a single image.
+# No external base image dependency required.
 #
 # Build (from repo root):
-#   docker build -f infra/docker/Dockerfile.a2ahost -t lucia-a2ahost:latest .
 #   docker build -f infra/docker/Dockerfile.music-agent -t lucia-music-agent:latest .
 
-ARG A2AHOST_IMAGE=lucia-a2ahost:latest
+# ============================================================================
+# Stage 1: Runtime base
+# ============================================================================
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
+
+WORKDIR /app
+
+RUN useradd -m -u 1100 appuser
+
+EXPOSE 8080 8081
 
 # ============================================================================
-# Stage 1: Build the plugin
+# Stage 2: Build A2AHost + plugin from source
 # ============================================================================
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 
@@ -20,30 +29,54 @@ WORKDIR /src
 COPY ["Directory.Build.props", "."]
 COPY ["Directory.Packages.props", "."]
 
-# Copy project files for restore layer caching
+# Copy project files for restore layer caching (A2AHost + plugin + shared deps)
+COPY ["lucia.A2AHost/lucia.A2AHost.csproj", "lucia.A2AHost/"]
 COPY ["lucia.MusicAgent/lucia.MusicAgent.csproj", "lucia.MusicAgent/"]
 COPY ["lucia.Agents/lucia.Agents.csproj", "lucia.Agents/"]
 COPY ["lucia.HomeAssistant/lucia.HomeAssistant.csproj", "lucia.HomeAssistant/"]
+COPY ["lucia.ServiceDefaults/lucia.ServiceDefaults.csproj", "lucia.ServiceDefaults/"]
 
-RUN dotnet restore "./lucia.MusicAgent/lucia.MusicAgent.csproj"
+RUN dotnet restore "./lucia.A2AHost/lucia.A2AHost.csproj" \
+ && dotnet restore "./lucia.MusicAgent/lucia.MusicAgent.csproj"
 
-# Copy source and publish
+# Copy source and publish both projects
 COPY . .
+
+RUN dotnet publish "./lucia.A2AHost/lucia.A2AHost.csproj" \
+    -c $BUILD_CONFIGURATION \
+    -o /app/host-publish \
+    /p:UseAppHost=false
 
 RUN dotnet publish "./lucia.MusicAgent/lucia.MusicAgent.csproj" \
     -c $BUILD_CONFIGURATION \
-    -o /plugin/publish \
+    -o /app/plugin-publish \
     /p:UseAppHost=false
 
 # ============================================================================
-# Stage 2: Layer plugin onto A2AHost base
+# Stage 3: Final production image
 # ============================================================================
-FROM ${A2AHOST_IMAGE} AS final
+FROM base AS final
 
+LABEL maintainer="Lucia Project"
 LABEL description="Lucia Music Agent - A2A music playback plugin"
+LABEL version="1.0.0"
 
-# Only copy the plugin DLL itself — the A2AHost base already has all shared dependencies.
-# Copying transitive deps causes assembly version conflicts at runtime.
-USER root
-COPY --from=build --chown=appuser:appuser /plugin/publish/lucia.MusicAgent.dll /app/plugins/
+ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false \
+    DOTNET_RUNNING_IN_CONTAINER=true \
+    ASPNETCORE_URLS=http://+:8080 \
+    COMPlus_EnableDiagnostics=0 \
+    PluginDirectory=/app/plugins
+
+# Copy A2AHost application
+COPY --from=build --chown=appuser:appuser /app/host-publish .
+
+# Create plugins directory and copy plugin DLL
+RUN mkdir -p /app/plugins && chown appuser:appuser /app/plugins
+COPY --from=build --chown=appuser:appuser /app/plugin-publish/lucia.MusicAgent.dll /app/plugins/
+
 USER appuser
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+ENTRYPOINT ["dotnet", "lucia.A2AHost.dll"]
