@@ -187,59 +187,59 @@ export default function ModelProvidersPage() {
   }
 
   if (loading && providers.length === 0) {
-    return <div className="text-gray-400">Loading model providers...</div>
+    return <div className="text-dust">Loading model providers...</div>
   }
 
   if (mode !== 'list') {
     return (
       <div className="space-y-6">
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             onClick={() => setMode('list')}
-            className="text-sm text-gray-400 hover:text-white"
+            className="text-sm text-dust hover:text-light"
           >
             ← Back
           </button>
-          <h1 className="text-xl font-semibold text-white">
+          <h1 className="font-display text-xl font-semibold text-light">
             {mode === 'create' ? 'Add Model Provider' : `Edit: ${editingId}`}
           </h1>
         </div>
 
         {error && (
-          <div className="rounded bg-red-900/50 px-4 py-2 text-sm text-red-300">{error}</div>
+          <div className="rounded bg-ember/15 px-4 py-2 text-sm text-rose">{error}</div>
         )}
 
-        <div className="space-y-4 rounded-lg bg-gray-800 p-6">
+        <div className="space-y-4 rounded-xl bg-charcoal p-6">
           {/* ID (only on create) */}
           {mode === 'create' && (
             <div>
-              <label className="mb-1 block text-sm text-gray-300">Provider ID</label>
+              <label className="mb-1 block text-sm text-fog">Provider ID</label>
               <input
                 type="text"
                 value={form.id ?? ''}
                 onChange={e => setForm(prev => ({ ...prev, id: e.target.value }))}
                 placeholder={form.providerType === 'GitHubCopilot' ? 'e.g. copilot-gpt4o' : 'e.g. gpt4o-prod, ollama-local'}
-                className="w-full rounded bg-gray-700 px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full rounded bg-basalt px-3 py-2 text-sm text-light placeholder-dust/60 input-focus focus:ring-1 focus:ring-blue-500"
               />
-              <p className="mt-1 text-xs text-gray-500">Unique key used to reference this provider</p>
+              <p className="mt-1 text-xs text-dust">Unique key used to reference this provider</p>
             </div>
           )}
 
           {/* Name */}
           <div>
-            <label className="mb-1 block text-sm text-gray-300">Display Name</label>
+            <label className="mb-1 block text-sm text-fog">Display Name</label>
             <input
               type="text"
               value={form.name ?? ''}
               onChange={e => setForm(prev => ({ ...prev, name: e.target.value }))}
               placeholder={form.providerType === 'GitHubCopilot' ? 'e.g. Copilot GPT-4o' : 'e.g. GPT-4o Production'}
-              className="w-full rounded bg-gray-700 px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full rounded bg-basalt px-3 py-2 text-sm text-light placeholder-dust/60 input-focus focus:ring-1 focus:ring-blue-500"
             />
           </div>
 
           {/* Purpose */}
           <div>
-            <label className="mb-1 block text-sm text-gray-300">Purpose</label>
+            <label className="mb-1 block text-sm text-fog">Purpose</label>
             <select
               value={form.purpose ?? 'Chat'}
               onChange={e => {
@@ -253,13 +253,13 @@ export default function ModelProvidersPage() {
                   return updated
                 })
               }}
-              className="w-full rounded bg-gray-700 px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full rounded bg-basalt px-3 py-2 text-sm text-light input-focus focus:ring-1 focus:ring-blue-500"
             >
               <option value="Chat">Chat (LLM text generation)</option>
               <option value="Embedding">Embedding (vector search)</option>
             </select>
             {form.purpose === 'Embedding' && (
-              <p className="mt-1 text-xs text-yellow-400">
+              <p className="mt-1 text-xs text-amber">
                 Embedding providers are used by skills for vector search (e.g. device matching, prompt caching). Agents never use embedding models directly.
               </p>
             )}
@@ -267,7 +267,7 @@ export default function ModelProvidersPage() {
 
           {/* Provider Type */}
           <div>
-            <label className="mb-1 block text-sm text-gray-300">Provider Type</label>
+            <label className="mb-1 block text-sm text-fog">Provider Type</label>
             <select
               value={form.providerType ?? 'OpenAI'}
               onChange={e => {
@@ -282,7 +282,7 @@ export default function ModelProvidersPage() {
                 }))
                 if (newType !== 'GitHubCopilot') resetCopilotState()
               }}
-              className="w-full rounded bg-gray-700 px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full rounded bg-basalt px-3 py-2 text-sm text-light input-focus focus:ring-1 focus:ring-blue-500"
             >
               {PROVIDER_TYPES
                 .filter(pt => form.purpose !== 'Embedding' || EmbeddingCapableProviders.includes(pt.value))
@@ -292,7 +292,7 @@ export default function ModelProvidersPage() {
                   </option>
                 ))}
             </select>
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-xs text-dust">
               {PROVIDER_TYPES.find(pt => pt.value === form.providerType)?.hint}
             </p>
           </div>
@@ -302,17 +302,17 @@ export default function ModelProvidersPage() {
             <div className="space-y-4">
               {/* GitHub Token (optional) */}
               <div>
-                <label className="mb-1 block text-sm text-gray-300">
-                  GitHub Token <span className="text-gray-500">(optional)</span>
+                <label className="mb-1 block text-sm text-fog">
+                  GitHub Token <span className="text-dust">(optional)</span>
                 </label>
                 <input
                   type="password"
                   value={form.auth?.apiKey ?? ''}
                   onChange={e => updateAuth({ apiKey: e.target.value, authType: 'api-key' })}
                   placeholder="ghp_... (leave blank to use logged-in user)"
-                  className="w-full rounded bg-gray-700 px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full rounded bg-basalt px-3 py-2 text-sm text-light placeholder-dust/60 input-focus focus:ring-1 focus:ring-blue-500"
                 />
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="mt-1 text-xs text-dust">
                   If empty, the Copilot CLI will use your currently authenticated GitHub session.
                 </p>
               </div>
@@ -322,7 +322,7 @@ export default function ModelProvidersPage() {
                 <button
                   onClick={handleCopilotConnect}
                   disabled={copilotConnecting}
-                  className="rounded bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-500 disabled:opacity-50"
+                  className="rounded bg-rose/20 px-4 py-2 text-sm font-medium text-light hover:bg-purple-500 disabled:opacity-50"
                 >
                   {copilotConnecting ? 'Connecting...' : copilotConnected ? '↻ Refresh Models' : '⚡ Connect to Copilot CLI'}
                 </button>
@@ -330,14 +330,14 @@ export default function ModelProvidersPage() {
 
               {/* Connection status message */}
               {copilotMessage && (
-                <div className={`rounded px-4 py-2 text-sm ${copilotConnected ? 'bg-green-900/30 text-green-300' : 'bg-red-900/30 text-red-300'}`}>
+                <div className={`rounded px-4 py-2 text-sm ${copilotConnected ? 'bg-green-900/30 text-sage' : 'bg-red-900/30 text-rose'}`}>
                   {copilotMessage}
                   {!copilotConnected && copilotMessage.includes('not found') && (
                     <a
                       href="https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="ml-2 underline text-blue-400 hover:text-blue-300"
+                      className="ml-2 underline text-amber hover:text-amber"
                     >
                       Installation guide →
                     </a>
@@ -348,7 +348,7 @@ export default function ModelProvidersPage() {
               {/* Model selection */}
               {copilotConnected && copilotModels.length > 0 && (
                 <div className="space-y-3">
-                  <h3 className="text-sm font-medium text-gray-300">Select a Model</h3>
+                  <h3 className="text-sm font-medium text-fog">Select a Model</h3>
                   <div className="max-h-96 space-y-2 overflow-y-auto">
                     {copilotModels.map(model => (
                       <button
@@ -360,29 +360,29 @@ export default function ModelProvidersPage() {
                         className={`w-full rounded p-3 text-left transition-colors ${
                           selectedCopilotModel?.id === model.id
                             ? 'bg-purple-900/50 ring-1 ring-purple-500'
-                            : 'bg-gray-700 hover:bg-gray-650'
+                            : 'bg-basalt hover:bg-basalt'
                         }`}
                       >
                         <div className="flex items-center justify-between">
-                          <div className="font-medium text-white">{model.name}</div>
-                          <div className="flex items-center gap-2">
+                          <div className="font-medium text-light">{model.name}</div>
+                          <div className="flex flex-wrap items-center gap-2">
                             {model.supportsVision && (
-                              <span className="rounded bg-blue-900/50 px-1.5 py-0.5 text-[10px] text-blue-300">Vision</span>
+                              <span className="whitespace-nowrap rounded bg-blue-900/50 px-1.5 py-0.5 text-[10px] text-amber">Vision</span>
                             )}
                             {model.supportsReasoningEffort && (
-                              <span className="rounded bg-amber-900/50 px-1.5 py-0.5 text-[10px] text-amber-300">Reasoning</span>
+                              <span className="whitespace-nowrap rounded bg-amber-900/50 px-1.5 py-0.5 text-[10px] text-amber-300">Reasoning</span>
                             )}
                             {model.policyState && (
-                              <span className={`rounded px-1.5 py-0.5 text-[10px] ${
-                                model.policyState === 'enabled' ? 'bg-green-900/50 text-green-300' : 'bg-gray-600 text-gray-400'
+                              <span className={`whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] ${
+                                model.policyState === 'enabled' ? 'bg-green-900/50 text-sage' : 'bg-stone text-dust'
                               }`}>
                                 {model.policyState}
                               </span>
                             )}
                           </div>
                         </div>
-                        <div className="mt-1 text-xs text-gray-400 font-mono">{model.id}</div>
-                        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                        <div className="mt-1 text-xs text-dust font-mono">{model.id}</div>
+                        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-dust">
                           <span>Context: {(model.maxContextWindowTokens / 1000).toFixed(0)}k tokens</span>
                           {model.maxPromptTokens && <span>Max prompt: {(model.maxPromptTokens / 1000).toFixed(0)}k</span>}
                           <span>Billing: {model.billingMultiplier}x</span>
@@ -391,8 +391,8 @@ export default function ModelProvidersPage() {
                           )}
                         </div>
                         {model.policyTerms && (
-                          <div className="mt-1 text-[10px] text-gray-600">
-                            <a href={model.policyTerms} target="_blank" rel="noopener noreferrer" className="hover:text-gray-400">
+                          <div className="mt-1 text-[10px] text-dust">
+                            <a href={model.policyTerms} target="_blank" rel="noopener noreferrer" className="hover:text-dust">
                               Terms & Conditions
                             </a>
                           </div>
@@ -406,8 +406,8 @@ export default function ModelProvidersPage() {
               {/* Selected model summary */}
               {selectedCopilotModel && (
                 <div className="rounded bg-purple-900/20 px-4 py-3 text-sm">
-                  <div className="text-purple-300 font-medium">Selected: {selectedCopilotModel.name}</div>
-                  <div className="text-xs text-gray-400 font-mono mt-1">{selectedCopilotModel.id}</div>
+                  <div className="text-rose font-medium">Selected: {selectedCopilotModel.name}</div>
+                  <div className="text-xs text-dust font-mono mt-1">{selectedCopilotModel.id}</div>
                 </div>
               )}
             </div>
@@ -416,9 +416,9 @@ export default function ModelProvidersPage() {
               {/* ──── Standard provider fields ──── */}
               {/* Endpoint */}
               <div>
-                <label className="mb-1 block text-sm text-gray-300">
+                <label className="mb-1 block text-sm text-fog">
                   Endpoint URL
-                  {form.providerType === 'Ollama' && <span className="text-gray-500"> (default: http://localhost:11434)</span>}
+                  {form.providerType === 'Ollama' && <span className="text-dust"> (default: http://localhost:11434)</span>}
                 </label>
                 <input
                   type="text"
@@ -431,28 +431,28 @@ export default function ModelProvidersPage() {
                         ? 'Leave blank for api.openai.com, or set custom (e.g. https://openrouter.ai/api/v1)'
                         : 'https://...'
                   }
-                  className="w-full rounded bg-gray-700 px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full rounded bg-basalt px-3 py-2 text-sm text-light placeholder-dust/60 input-focus focus:ring-1 focus:ring-blue-500"
                 />
               </div>
 
               {/* Model Name */}
               <div>
-                <label className="mb-1 block text-sm text-gray-300">Model / Deployment Name</label>
+                <label className="mb-1 block text-sm text-fog">Model / Deployment Name</label>
                 <input
                   type="text"
                   value={form.modelName ?? ''}
                   onChange={e => setForm(prev => ({ ...prev, modelName: e.target.value }))}
                   placeholder="e.g. gpt-4o, claude-sonnet-4-20250514, llama3.2:3b"
-                  className="w-full rounded bg-gray-700 px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full rounded bg-basalt px-3 py-2 text-sm text-light placeholder-dust/60 input-focus focus:ring-1 focus:ring-blue-500"
                 />
               </div>
 
               {/* Auth Config */}
-              <div className="space-y-3 rounded bg-gray-750 p-4">
-                <h3 className="text-sm font-medium text-gray-300">Authentication</h3>
+              <div className="space-y-3 rounded bg-basalt p-4">
+                <h3 className="text-sm font-medium text-fog">Authentication</h3>
 
                 <div>
-                  <label className="mb-1 block text-xs text-gray-400">Auth Type</label>
+                  <label className="mb-1 block text-xs text-dust">Auth Type</label>
                   <select
                     value={form.auth?.authType ?? 'api-key'}
                     onChange={e => {
@@ -463,7 +463,7 @@ export default function ModelProvidersPage() {
                         apiKey: authType === 'none' ? '' : form.auth?.apiKey,
                       })
                     }}
-                    className="w-full rounded bg-gray-700 px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    className="w-full rounded bg-basalt px-3 py-2 text-sm text-light input-focus focus:ring-1 focus:ring-blue-500"
                   >
                     {AUTH_TYPES.map(at => (
                       <option key={at.value} value={at.value}>
@@ -475,19 +475,19 @@ export default function ModelProvidersPage() {
 
                 {form.auth?.authType === 'api-key' && (
                   <div>
-                    <label className="mb-1 block text-xs text-gray-400">API Key</label>
+                    <label className="mb-1 block text-xs text-dust">API Key</label>
                     <input
                       type="password"
                       value={form.auth?.apiKey ?? ''}
                       onChange={e => updateAuth({ apiKey: e.target.value })}
                       placeholder="sk-... or your API key"
-                      className="w-full rounded bg-gray-700 px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      className="w-full rounded bg-basalt px-3 py-2 text-sm text-light placeholder-dust/60 input-focus focus:ring-1 focus:ring-blue-500"
                     />
                   </div>
                 )}
 
                 {form.auth?.authType === 'azure-credential' && (
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-dust">
                     Uses DefaultAzureCredential — works with Managed Identity, Azure CLI, environment variables, etc.
                   </p>
                 )}
@@ -496,12 +496,12 @@ export default function ModelProvidersPage() {
           )}
 
           {/* Enabled */}
-          <label className="flex items-center gap-2 text-sm text-gray-300">
+          <label className="flex items-center gap-2 text-sm text-fog">
             <input
               type="checkbox"
               checked={form.enabled ?? true}
               onChange={e => setForm(prev => ({ ...prev, enabled: e.target.checked }))}
-              className="rounded bg-gray-700"
+              className="rounded bg-basalt"
             />
             Enabled
           </label>
@@ -511,13 +511,13 @@ export default function ModelProvidersPage() {
             <button
               onClick={handleSave}
               disabled={form.providerType === 'GitHubCopilot' && !selectedCopilotModel && mode === 'create'}
-              className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="rounded bg-amber px-4 py-2 text-sm font-medium text-void hover:bg-amber-glow disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {mode === 'create' ? 'Create Provider' : 'Save Changes'}
             </button>
             <button
               onClick={() => setMode('list')}
-              className="rounded bg-gray-700 px-4 py-2 text-sm text-gray-300 hover:bg-gray-600"
+              className="rounded bg-basalt px-4 py-2 text-sm text-fog hover:bg-stone"
             >
               Cancel
             </button>
@@ -530,22 +530,22 @@ export default function ModelProvidersPage() {
   // List mode
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-white">Model Providers</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="font-display text-xl font-semibold text-light">Model Providers</h1>
         <button
           onClick={handleCreate}
-          className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500"
+          className="rounded bg-amber px-4 py-2 text-sm font-medium text-void hover:bg-amber-glow"
         >
           + Add Provider
         </button>
       </div>
 
       {error && (
-        <div className="rounded bg-red-900/50 px-4 py-2 text-sm text-red-300">{error}</div>
+        <div className="rounded bg-ember/15 px-4 py-2 text-sm text-rose">{error}</div>
       )}
 
       {providers.length === 0 ? (
-        <div className="rounded-lg bg-gray-800 p-8 text-center text-gray-400">
+        <div className="rounded-xl bg-charcoal p-8 text-center text-dust">
           <p>No model providers configured yet.</p>
           <p className="mt-1 text-sm">Add a provider to connect your agents to LLMs.</p>
         </div>
@@ -554,70 +554,82 @@ export default function ModelProvidersPage() {
           {providers.map(p => (
             <div
               key={p.id}
-              className="rounded-lg bg-gray-800 p-4"
+              className="rounded-xl bg-charcoal p-4"
             >
-              <div className="flex items-start justify-between">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-white">{p.name}</span>
-                    <span className="rounded bg-gray-700 px-2 py-0.5 text-xs text-gray-300">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-light">{p.name}</span>
+                    <span className="whitespace-nowrap rounded bg-basalt px-2 py-0.5 text-xs text-fog">
                       {p.providerType}
                     </span>
                     {p.purpose === 'Embedding' && (
-                      <span className="rounded bg-purple-900/50 px-2 py-0.5 text-xs text-purple-300">
+                      <span className="whitespace-nowrap rounded bg-purple-900/50 px-2 py-0.5 text-xs text-rose">
                         embedding
                       </span>
                     )}
                     {p.isBuiltIn && (
-                      <span className="rounded bg-blue-900/50 px-2 py-0.5 text-xs text-blue-300">
+                      <span className="whitespace-nowrap rounded bg-blue-900/50 px-2 py-0.5 text-xs text-amber">
                         default
                       </span>
                     )}
                     <span
-                      className={`rounded px-2 py-0.5 text-xs ${
+                      className={`whitespace-nowrap rounded px-2 py-0.5 text-xs ${
                         p.enabled
-                          ? 'bg-green-900/50 text-green-300'
-                          : 'bg-gray-700 text-gray-500'
+                          ? 'bg-green-900/50 text-sage'
+                          : 'bg-basalt text-dust'
                       }`}
                     >
                       {p.enabled ? 'enabled' : 'disabled'}
                     </span>
                   </div>
-                  <div className="text-sm text-gray-400">
+                  <div className="text-sm text-dust">
                     <span className="font-mono text-xs">{p.id}</span>
-                    {' · '}
-                    Model: <span className="text-gray-300">{p.modelName}</span>
-                    {p.endpoint && (
-                      <>
-                        {' · '}
-                        <span className="text-gray-500">{p.endpoint}</span>
-                      </>
-                    )}
+                    <span className="hidden sm:inline">
+                      {' · '}
+                      Model: <span className="text-fog">{p.modelName}</span>
+                      {p.endpoint && (
+                        <>
+                          {' · '}
+                          <span className="text-dust" title={p.endpoint}>
+                            {p.endpoint.length > 40 ? p.endpoint.slice(0, 40) + '…' : p.endpoint}
+                          </span>
+                        </>
+                      )}
+                    </span>
                   </div>
-                  <div className="text-xs text-gray-500">
+                  <div className="text-xs text-dust sm:hidden">
+                    Model: <span className="text-fog">{p.modelName}</span>
+                  </div>
+                  {p.endpoint && (
+                    <div className="text-xs text-dust sm:hidden" title={p.endpoint}>
+                      {p.endpoint.length > 35 ? p.endpoint.slice(0, 35) + '…' : p.endpoint}
+                    </div>
+                  )}
+                  <div className="text-xs text-dust">
                     Auth: {p.auth.authType}
                     {p.auth.useDefaultCredentials && ' (Azure credential)'}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex shrink-0 items-center gap-2">
                   <button
                     onClick={() => handleTest(p.id)}
                     disabled={testing === p.id}
-                    className="rounded bg-gray-700 px-3 py-1 text-xs text-gray-300 hover:bg-gray-600 disabled:opacity-50"
+                    className="rounded bg-basalt px-3 py-1 text-xs text-fog hover:bg-stone disabled:opacity-50"
                   >
                     {testing === p.id ? 'Testing...' : p.purpose === 'Embedding' ? 'Test Embedding' : 'Test'}
                   </button>
                   <button
                     onClick={() => handleEdit(p)}
-                    className="rounded bg-gray-700 px-3 py-1 text-xs text-gray-300 hover:bg-gray-600"
+                    className="rounded bg-basalt px-3 py-1 text-xs text-fog hover:bg-stone"
                   >
                     Edit
                   </button>
                   {!p.isBuiltIn && (
                     <button
                       onClick={() => handleDelete(p.id)}
-                      className="rounded bg-red-900/50 px-3 py-1 text-xs text-red-300 hover:bg-red-900"
+                      className="rounded bg-ember/15 px-3 py-1 text-xs text-rose hover:bg-red-900"
                     >
                       Delete
                     </button>
@@ -630,8 +642,8 @@ export default function ModelProvidersPage() {
                 <div
                   className={`mt-2 rounded px-3 py-2 text-xs ${
                     testResults[p.id].success
-                      ? 'bg-green-900/30 text-green-300'
-                      : 'bg-red-900/30 text-red-300'
+                      ? 'bg-green-900/30 text-sage'
+                      : 'bg-red-900/30 text-rose'
                   }`}
                 >
                   {testResults[p.id].message}

@@ -30,10 +30,10 @@ function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
       {toasts.map((t) => (
         <div
           key={t.id}
-          className={`flex items-center gap-3 rounded-lg px-4 py-3 shadow-lg text-sm font-medium transition-all duration-300 ${
+          className={`flex items-center gap-3 rounded-xl px-4 py-3 shadow-lg text-sm font-medium transition-all duration-300 ${
             t.type === 'success'
-              ? 'bg-green-600 text-white'
-              : 'bg-red-600 text-white'
+              ? 'bg-sage/20 text-light'
+              : 'bg-ember/20 text-light'
           }`}
         >
           <span>{t.type === 'success' ? '✓' : '✕'}</span>
@@ -70,19 +70,19 @@ function ConfirmDialog({
   if (!open) return null
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="w-full max-w-md rounded-xl bg-gray-800 p-6 shadow-2xl border border-gray-700">
-        <h3 className="text-lg font-semibold text-white">{title}</h3>
-        <p className="mt-2 text-sm text-gray-400">{message}</p>
+      <div className="w-full max-w-md rounded-xl bg-charcoal p-6 shadow-2xl border border-stone">
+        <h3 className="text-lg font-semibold text-light">{title}</h3>
+        <p className="mt-2 text-sm text-dust">{message}</p>
         <div className="mt-6 flex justify-end gap-3">
           <button
             onClick={onCancel}
-            className="rounded-lg bg-gray-700 px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-600 transition-colors"
+            className="rounded-xl bg-basalt px-4 py-2 text-sm font-medium text-fog hover:bg-stone transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={onConfirm}
-            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 transition-colors"
+            className="rounded-xl bg-ember/20 px-4 py-2 text-sm font-medium text-light hover:bg-red-500 transition-colors"
           >
             Reset All
           </button>
@@ -112,8 +112,8 @@ function ToggleSwitch({
       aria-checked={checked}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-gray-900 ${
-        checked ? 'bg-indigo-500' : 'bg-gray-600'
+      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 input-focus focus:ring-2 focus:ring-amber focus:ring-offset-2 focus:ring-offset-void ${
+        checked ? 'bg-amber-glow' : 'bg-stone'
       } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
     >
       <span
@@ -167,12 +167,12 @@ function ConnectionStringsEditor({
         const isSensitive = sensitiveKeys.has(key)
         const isMasked = isSensitive && value === '********'
         return (
-          <div key={key} className="rounded-lg border border-gray-600 bg-gray-750 p-4">
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-medium text-indigo-400">
+          <div key={key} className="rounded-xl border border-stone bg-basalt p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <label className="text-sm font-medium text-amber">
                 {key}
                 {isSensitive && (
-                  <span className="ml-2 rounded bg-yellow-600/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-yellow-400">
+                  <span className="ml-2 rounded bg-amber/20/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber">
                     sensitive
                   </span>
                 )}
@@ -180,7 +180,7 @@ function ConnectionStringsEditor({
               <button
                 type="button"
                 onClick={() => handleRemove(key)}
-                className="text-xs text-red-400 hover:text-red-300 transition-colors"
+                className="text-xs text-rose hover:text-rose transition-colors"
               >
                 Remove
               </button>
@@ -189,7 +189,7 @@ function ConnectionStringsEditor({
               type={isSensitive && !showSecrets ? 'password' : 'text'}
               value={isMasked ? '' : (value ?? '')}
               onChange={(e) => handleValueChange(key, e.target.value)}
-              className="w-full rounded-lg border border-gray-600 bg-gray-700 px-3 py-2 text-sm text-white font-mono placeholder-gray-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+              className="w-full rounded-xl border border-stone bg-basalt px-3 py-2 text-sm text-light font-mono placeholder-dust/60 input-focus focus:ring-1 focus:ring-amber input-focus"
               placeholder={isMasked ? '••••••••  (enter new value to change)' : 'Server=...;Database=...;...'}
             />
           </div>
@@ -198,7 +198,7 @@ function ConnectionStringsEditor({
       <button
         type="button"
         onClick={handleAddNew}
-        className="flex items-center gap-2 rounded-lg border border-dashed border-gray-600 px-4 py-2 text-sm text-gray-400 hover:border-indigo-500 hover:text-indigo-400 transition-colors"
+        className="flex items-center gap-2 rounded-xl border border-dashed border-stone px-4 py-2 text-sm text-dust hover:border-amber hover:text-amber transition-colors"
       >
         <span className="text-lg leading-none">+</span>
         Add Connection String
@@ -306,16 +306,16 @@ function ArraySectionForm({
       {items.map((item, idx) => (
         <div
           key={idx}
-          className="rounded-lg border border-gray-600 bg-gray-750 p-4"
+          className="rounded-xl border border-stone bg-basalt p-4"
         >
           <div className="mb-4 flex items-center justify-between">
-            <span className="text-sm font-semibold text-indigo-400">
+            <span className="text-sm font-semibold text-amber">
               Item {idx}
             </span>
             <button
               type="button"
               onClick={() => handleRemoveItem(idx)}
-              className="text-xs text-red-400 hover:text-red-300 transition-colors"
+              className="text-xs text-rose hover:text-rose transition-colors"
             >
               Remove
             </button>
@@ -333,14 +333,14 @@ function ArraySectionForm({
         </div>
       ))}
       {items.length === 0 && (
-        <p className="py-4 text-center text-sm text-gray-500">
+        <p className="py-4 text-center text-sm text-dust">
           No items configured
         </p>
       )}
       <button
         type="button"
         onClick={handleAddItem}
-        className="flex items-center gap-2 rounded-lg border border-dashed border-gray-600 px-4 py-2 text-sm text-gray-400 hover:border-indigo-500 hover:text-indigo-400 transition-colors"
+        className="flex items-center gap-2 rounded-xl border border-dashed border-stone px-4 py-2 text-sm text-dust hover:border-amber hover:text-amber transition-colors"
       >
         <span className="text-lg leading-none">+</span>
         Add Item
@@ -417,16 +417,16 @@ function FieldEditor({
 
   const labelNode = (
     <div className="mb-1.5">
-      <label className="block text-sm font-medium text-gray-200">
+      <label className="block text-sm font-medium text-light">
         {name}
         {isSensitive && (
-          <span className="ml-2 rounded bg-yellow-600/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-yellow-400">
+          <span className="ml-2 rounded bg-amber/20/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber">
             sensitive
           </span>
         )}
       </label>
       {description && (
-        <p className="mt-0.5 text-xs text-gray-500">{description}</p>
+        <p className="mt-0.5 text-xs text-dust">{description}</p>
       )}
     </div>
   )
@@ -441,12 +441,12 @@ function FieldEditor({
             checked={checked}
             onChange={(val) => onChange(val ? 'true' : 'false')}
           />
-          <span className="text-sm text-gray-400">
+          <span className="text-sm text-dust">
             {checked ? 'Enabled' : 'Disabled'}
           </span>
         </div>
         {defaultValue !== undefined && defaultValue !== '' && (
-          <p className="mt-1 text-xs text-gray-600">Default: {defaultValue}</p>
+          <p className="mt-1 text-xs text-dust">Default: {defaultValue}</p>
         )}
       </div>
     )
@@ -461,10 +461,10 @@ function FieldEditor({
           value={displayValue}
           onChange={(e) => onChange(e.target.value || null)}
           placeholder={defaultValue || '0'}
-          className="w-full max-w-xs rounded-lg border border-gray-600 bg-gray-700 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+          className="w-full max-w-xs rounded-xl border border-stone bg-basalt px-3 py-2 text-sm text-light placeholder-dust/60 input-focus focus:ring-1 focus:ring-amber input-focus"
         />
         {defaultValue !== undefined && defaultValue !== '' && (
-          <p className="mt-1 text-xs text-gray-600">Default: {defaultValue}</p>
+          <p className="mt-1 text-xs text-dust">Default: {defaultValue}</p>
         )}
       </div>
     )
@@ -479,11 +479,11 @@ function FieldEditor({
           value={displayValue}
           onChange={(e) => onChange(e.target.value || null)}
           placeholder={defaultValue || 'value1, value2, value3'}
-          className="w-full rounded-lg border border-gray-600 bg-gray-700 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+          className="w-full rounded-xl border border-stone bg-basalt px-3 py-2 text-sm text-light placeholder-dust/60 input-focus focus:ring-1 focus:ring-amber input-focus"
         />
-        <p className="mt-1 text-xs text-gray-500">Comma-separated values</p>
+        <p className="mt-1 text-xs text-dust">Comma-separated values</p>
         {defaultValue !== undefined && defaultValue !== '' && (
-          <p className="mt-0.5 text-xs text-gray-600">Default: {defaultValue}</p>
+          <p className="mt-0.5 text-xs text-dust">Default: {defaultValue}</p>
         )}
       </div>
     )
@@ -498,10 +498,10 @@ function FieldEditor({
         value={isMasked ? '' : displayValue}
         onChange={(e) => onChange(e.target.value || null)}
         placeholder={isMasked ? '••••••••  (enter new value to change)' : defaultValue || ''}
-        className="w-full rounded-lg border border-gray-600 bg-gray-700 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+        className="w-full rounded-xl border border-stone bg-basalt px-3 py-2 text-sm text-light placeholder-dust/60 input-focus focus:ring-1 focus:ring-amber input-focus"
       />
       {defaultValue !== undefined && defaultValue !== '' && !isSensitive && (
-        <p className="mt-1 text-xs text-gray-600">Default: {defaultValue}</p>
+        <p className="mt-1 text-xs text-dust">Default: {defaultValue}</p>
       )}
     </div>
   )
@@ -532,21 +532,21 @@ function MusicAssistantTestButton({ integrationId }: { integrationId: string }) 
   }
 
   return (
-    <div className="mt-4 rounded-xl border border-gray-700 bg-gray-800 p-4">
-      <div className="flex items-center justify-between">
+    <div className="mt-4 rounded-xl border border-stone bg-charcoal p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h3 className="text-sm font-medium text-gray-200">Test Integration</h3>
-          <p className="mt-0.5 text-xs text-gray-500">
+          <h3 className="text-sm font-medium text-light">Test Integration</h3>
+          <p className="mt-0.5 text-xs text-dust">
             Validates the IntegrationId by querying the Music Assistant library
           </p>
         </div>
         <button
           onClick={handleTest}
           disabled={testing || !integrationId}
-          className={`rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+          className={`shrink-0 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
             testing || !integrationId
-              ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-              : 'bg-indigo-500 text-white hover:bg-indigo-400'
+              ? 'bg-stone text-dust cursor-not-allowed'
+              : 'bg-amber text-void hover:bg-amber-glow'
           }`}
         >
           {testing ? (
@@ -564,10 +564,10 @@ function MusicAssistantTestButton({ integrationId }: { integrationId: string }) 
       </div>
       {result && (
         <div
-          className={`mt-3 rounded-lg px-4 py-3 text-sm ${
+          className={`mt-3 rounded-xl px-4 py-3 text-sm ${
             result.success
-              ? 'bg-green-500/10 border border-green-500/30 text-green-400'
-              : 'bg-red-500/10 border border-red-500/30 text-red-400'
+              ? 'bg-green-500/10 border border-green-500/30 text-sage'
+              : 'bg-ember/10 border border-red-500/30 text-rose'
           }`}
         >
           {result.success ? '✓' : '✕'} {result.message}
@@ -800,9 +800,9 @@ export default function ConfigurationPage() {
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center bg-gray-900 text-gray-400">
+      <div className="flex h-full items-center justify-center bg-void/50 text-dust">
         <svg
-          className="mr-3 h-5 w-5 animate-spin text-indigo-500"
+          className="mr-3 h-5 w-5 animate-spin text-amber"
           viewBox="0 0 24 24"
           fill="none"
         >
@@ -816,10 +816,10 @@ export default function ConfigurationPage() {
 
   if (error) {
     return (
-      <div className="flex h-full items-center justify-center bg-gray-900">
-        <div className="rounded-xl bg-gray-800 p-8 text-center shadow-lg border border-gray-700">
-          <p className="text-red-400 text-lg font-medium">Failed to load configuration</p>
-          <p className="mt-2 text-sm text-gray-500">{error}</p>
+      <div className="flex h-full items-center justify-center bg-void/50">
+        <div className="rounded-xl bg-charcoal p-8 text-center shadow-lg border border-stone">
+          <p className="text-rose text-lg font-medium">Failed to load configuration</p>
+          <p className="mt-2 text-sm text-dust">{error}</p>
         </div>
       </div>
     )
@@ -828,7 +828,7 @@ export default function ConfigurationPage() {
   // ── Main layout ───────────────────────────────────────────────────
 
   return (
-    <div className="flex h-full flex-col bg-gray-900 text-white">
+    <div className="flex h-full flex-col bg-void/50 text-light">
       {/* Toast notifications */}
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
@@ -842,19 +842,19 @@ export default function ConfigurationPage() {
       />
 
       {/* Header */}
-      <header className="flex items-center justify-between border-b border-gray-700 px-6 py-4">
+      <header className="flex flex-col gap-3 border-b border-stone px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <div>
-          <h1 className="text-xl font-semibold">Configuration</h1>
-          <p className="mt-0.5 text-sm text-gray-400">
+          <h1 className="font-display text-xl font-semibold text-light">Configuration</h1>
+          <p className="mt-0.5 text-sm text-dust">
             Manage platform settings and connection strings
           </p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
             <ToggleSwitch checked={showSecrets} onChange={setShowSecrets} />
-            <span className="text-sm text-gray-400">
+            <span className="text-sm text-dust">
               {showSecrets ? (
-                <span className="flex items-center gap-1 text-yellow-400">
+                <span className="flex items-center gap-1 text-amber">
                   <span>👁</span> Secrets visible
                 </span>
               ) : (
@@ -864,7 +864,7 @@ export default function ConfigurationPage() {
           </div>
           <button
             onClick={() => setResetDialogOpen(true)}
-            className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-400 hover:bg-red-500/20 transition-colors"
+            className="rounded-xl border border-red-500/30 bg-ember/10 px-4 py-2 text-sm font-medium text-rose hover:bg-ember/15 transition-colors"
           >
             Reset All
           </button>
@@ -872,9 +872,25 @@ export default function ConfigurationPage() {
       </header>
 
       {/* Body: sidebar + form */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Section sidebar */}
-        <nav className="w-64 shrink-0 overflow-y-auto border-r border-gray-700 bg-gray-800/50 py-2">
+      <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
+        {/* Mobile section selector */}
+        <div className="border-b border-stone bg-basalt/60 px-4 py-3 md:hidden">
+          <label className="mb-1 block text-xs text-dust">Section</label>
+          <select
+            value={activeSection ?? ''}
+            onChange={(e) => handleSectionChange(e.target.value)}
+            className="w-full rounded-xl border border-stone bg-basalt px-3 py-2 text-sm text-light"
+          >
+            {schemas.map((s) => (
+              <option key={s.section} value={s.section}>
+                {s.section}{s.description ? ` — ${s.description}` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Desktop section sidebar */}
+        <nav className="hidden w-64 shrink-0 overflow-y-auto border-r border-stone bg-basalt/60 py-2 md:block">
           {schemas.map((s) => {
             const isActive = s.section === activeSection
             return (
@@ -883,15 +899,15 @@ export default function ConfigurationPage() {
                 onClick={() => handleSectionChange(s.section)}
                 className={`flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors ${
                   isActive
-                    ? 'bg-indigo-500/10 border-r-2 border-indigo-500 text-white font-medium'
-                    : 'text-gray-400 hover:bg-gray-700/50 hover:text-gray-200'
+                    ? 'bg-amber-glow/10 border-r-2 border-amber text-light font-medium'
+                    : 'text-dust hover:bg-basalt/50 hover:text-light'
                 }`}
               >
                 <span
-                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold ${
+                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-xs font-bold ${
                     isActive
-                      ? 'bg-indigo-500/20 text-indigo-400'
-                      : 'bg-gray-700 text-gray-500'
+                      ? 'bg-amber-glow/20 text-amber'
+                      : 'bg-basalt text-dust'
                   }`}
                 >
                   {s.section.charAt(0).toUpperCase()}
@@ -899,7 +915,7 @@ export default function ConfigurationPage() {
                 <div className="min-w-0 flex-1">
                   <span className="block truncate">{s.section}</span>
                   {s.description && (
-                    <span className="block truncate text-xs text-gray-500">
+                    <span className="block truncate text-xs text-dust">
                       {s.description}
                     </span>
                   )}
@@ -908,22 +924,22 @@ export default function ConfigurationPage() {
             )
           })}
           {schemas.length === 0 && (
-            <p className="px-4 py-6 text-center text-sm text-gray-600">
+            <p className="px-4 py-6 text-center text-sm text-dust">
               No configuration sections found
             </p>
           )}
         </nav>
 
         {/* Form panel */}
-        <main className="flex-1 overflow-y-auto p-6">
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6">
           {!activeSchema ? (
-            <div className="flex h-full items-center justify-center text-gray-600">
+            <div className="flex h-full items-center justify-center text-dust">
               Select a section to configure
             </div>
           ) : sectionLoading ? (
-            <div className="flex h-full items-center justify-center text-gray-400">
+            <div className="flex h-full items-center justify-center text-dust">
               <svg
-                className="mr-3 h-5 w-5 animate-spin text-indigo-500"
+                className="mr-3 h-5 w-5 animate-spin text-amber"
                 viewBox="0 0 24 24"
                 fill="none"
               >
@@ -936,14 +952,14 @@ export default function ConfigurationPage() {
             <div className="mx-auto max-w-3xl">
               {/* Section header */}
               <div className="mb-6">
-                <h2 className="text-lg font-semibold text-white">{activeSchema.section}</h2>
+                <h2 className="text-lg font-semibold text-light">{activeSchema.section}</h2>
                 {activeSchema.description && (
-                  <p className="mt-1 text-sm text-gray-400">{activeSchema.description}</p>
+                  <p className="mt-1 text-sm text-dust">{activeSchema.description}</p>
                 )}
               </div>
 
               {/* Form */}
-              <div className="rounded-xl border border-gray-700 bg-gray-800 p-6">
+              <div className="rounded-xl border border-stone bg-charcoal p-4 sm:p-6">
                 <SectionForm
                   schema={activeSchema}
                   values={formValues}
@@ -961,10 +977,10 @@ export default function ConfigurationPage() {
               )}
 
               {/* Action bar */}
-              <div className="mt-6 flex items-center justify-between">
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   {isDirty() && (
-                    <span className="flex items-center gap-2 text-sm text-yellow-400">
+                    <span className="flex items-center gap-2 text-sm text-amber">
                       <span className="inline-block h-2 w-2 rounded-full bg-yellow-400" />
                       Unsaved changes
                     </span>
@@ -974,7 +990,7 @@ export default function ConfigurationPage() {
                   {isDirty() && (
                     <button
                       onClick={handleDiscard}
-                      className="rounded-lg bg-gray-700 px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-600 transition-colors"
+                      className="rounded-xl bg-basalt px-4 py-2 text-sm font-medium text-fog hover:bg-stone transition-colors"
                     >
                       Discard
                     </button>
@@ -982,10 +998,10 @@ export default function ConfigurationPage() {
                   <button
                     onClick={handleSave}
                     disabled={saving || !isDirty()}
-                    className={`rounded-lg px-5 py-2 text-sm font-medium text-white transition-colors ${
+                    className={`rounded-xl px-5 py-2 text-sm font-medium transition-colors ${
                       saving || !isDirty()
-                        ? 'bg-indigo-500/40 cursor-not-allowed'
-                        : 'bg-indigo-500 hover:bg-indigo-400'
+                        ? 'bg-amber/40 text-dust cursor-not-allowed'
+                        : 'bg-amber text-void hover:bg-amber-glow'
                     }`}
                   >
                     {saving ? (

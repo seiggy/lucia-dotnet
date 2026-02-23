@@ -82,18 +82,18 @@ export default function AgentDefinitionsPage() {
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Agent Definitions</h1>
-        <div className="flex gap-2">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <h1 className="font-display text-2xl font-bold text-light">Agent Definitions</h1>
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={handleReload}
-            className="rounded bg-gray-700 px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-600"
+            className="rounded bg-basalt px-4 py-2 text-sm font-medium text-fog hover:bg-stone"
           >
             ↻ Reload Agents
           </button>
           <button
             onClick={() => setMode('create')}
-            className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500"
+            className="rounded bg-amber px-4 py-2 text-sm font-medium text-void hover:bg-amber-glow"
           >
             + New Agent
           </button>
@@ -101,69 +101,69 @@ export default function AgentDefinitionsPage() {
       </div>
 
       {error && (
-        <div className="mb-4 rounded bg-red-900/50 px-4 py-2 text-red-300">
+        <div className="mb-4 rounded bg-ember/15 px-4 py-2 text-rose">
           {error}
-          <button onClick={() => setError(null)} className="ml-2 text-red-400 hover:text-red-200">✕</button>
+          <button onClick={() => setError(null)} className="ml-2 text-rose hover:text-rose">✕</button>
         </div>
       )}
 
       {loading ? (
-        <div className="text-gray-400">Loading...</div>
+        <div className="text-dust">Loading...</div>
       ) : definitions.length === 0 ? (
-        <div className="rounded border border-gray-700 bg-gray-800 p-8 text-center text-gray-400">
+        <div className="rounded border border-stone bg-charcoal p-8 text-center text-dust">
           No custom agents defined. Click "New Agent" to create one.
         </div>
       ) : (
         <div className="space-y-4">
           {definitions.map(def => (
-            <div key={def.id} className="rounded border border-gray-700 bg-gray-800 p-4">
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="flex items-center gap-3">
+            <div key={def.id} className="rounded border border-stone bg-charcoal p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
                     <h3 className="text-lg font-semibold">{def.displayName || def.name}</h3>
-                    <code className="text-xs text-gray-500">{def.name}</code>
+                    <code className="text-xs text-dust">{def.name}</code>
                     {def.isBuiltIn && (
-                      <span className="rounded bg-blue-900/50 px-2 py-0.5 text-xs text-blue-300">System</span>
+                      <span className="whitespace-nowrap rounded bg-blue-900/50 px-2 py-0.5 text-xs text-amber">System</span>
                     )}
                     {def.isOrchestrator && (
-                      <span className="rounded bg-amber-900/50 px-2 py-0.5 text-xs text-amber-300">Orchestrator</span>
+                      <span className="whitespace-nowrap rounded bg-amber-900/50 px-2 py-0.5 text-xs text-amber-300">Orchestrator</span>
                     )}
                     {def.isRemote && (
-                      <span className="rounded bg-purple-900/50 px-2 py-0.5 text-xs text-purple-300">Remote</span>
+                      <span className="whitespace-nowrap rounded bg-purple-900/50 px-2 py-0.5 text-xs text-rose">Remote</span>
                     )}
                     {!def.enabled && (
-                      <span className="rounded bg-yellow-900/50 px-2 py-0.5 text-xs text-yellow-400">disabled</span>
+                      <span className="whitespace-nowrap rounded bg-yellow-900/50 px-2 py-0.5 text-xs text-amber">disabled</span>
                     )}
                   </div>
-                  <p className="mt-1 text-sm text-gray-400">{def.description || 'No description'}</p>
+                  <p className="mt-1 text-sm text-dust">{def.description || 'No description'}</p>
                   <div className="mt-2 flex flex-wrap gap-1">
                     {def.tools.map((tool, i) => (
-                      <span key={i} className="rounded bg-indigo-900/40 px-2 py-0.5 text-xs text-indigo-300">
+                      <span key={i} className="whitespace-nowrap rounded bg-amber/15 px-2 py-0.5 text-xs text-amber">
                         {tool.serverId}/{tool.toolName}
                       </span>
                     ))}
                     {def.tools.length === 0 && (
-                      <span className="text-xs text-gray-500">No tools assigned</span>
+                      <span className="text-xs text-dust">No tools assigned</span>
                     )}
                   </div>
                   {def.modelConnectionName && (
-                    <p className="mt-1 text-xs text-gray-500">Model: {def.modelConnectionName}</p>
+                    <p className="mt-1 text-xs text-dust">Model: {def.modelConnectionName}</p>
                   )}
                   {def.embeddingProviderName && (
-                    <p className="mt-1 text-xs text-purple-400">Embedding: {def.embeddingProviderName}</p>
+                    <p className="mt-1 text-xs text-rose">Embedding: {def.embeddingProviderName}</p>
                   )}
                 </div>
-                <div className="flex gap-2">
+                <div className="flex shrink-0 gap-2">
                   <button
                     onClick={() => { setEditingDef(def); setMode('edit') }}
-                    className="rounded bg-gray-700 px-3 py-1 text-xs hover:bg-gray-600"
+                    className="rounded bg-basalt px-3 py-1 text-xs hover:bg-stone"
                   >
                     Edit
                   </button>
                   {!def.isBuiltIn && (
                     <button
                       onClick={() => handleDelete(def.id)}
-                      className="rounded bg-red-900/50 px-3 py-1 text-xs text-red-300 hover:bg-red-800"
+                      className="rounded bg-ember/15 px-3 py-1 text-xs text-rose hover:bg-red-800"
                     >
                       Delete
                     </button>
@@ -274,61 +274,65 @@ function AgentForm({
 
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-bold">
-        {isBuiltIn ? 'Configure' : definition ? 'Edit' : 'Create'} Agent Definition
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold">
+          {isBuiltIn ? 'Configure' : definition ? 'Edit' : 'Create'} Agent Definition
+        </h1>
         {isBuiltIn && (
-          <span className="ml-3 rounded bg-blue-900/50 px-2 py-1 text-sm font-normal text-blue-300">System Agent</span>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <span className="whitespace-nowrap rounded bg-blue-900/50 px-2 py-1 text-sm font-normal text-amber">System Agent</span>
+          </div>
         )}
-      </h1>
+      </div>
 
       {error && (
-        <div className="mb-4 rounded bg-red-900/50 px-4 py-2 text-red-300">{error}</div>
+        <div className="mb-4 rounded bg-ember/15 px-4 py-2 text-rose">{error}</div>
       )}
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="rounded border border-gray-700 bg-gray-800 p-6 space-y-4">
-          <h2 className="text-lg font-semibold text-gray-200">Agent Details</h2>
-          <div className="grid grid-cols-2 gap-4">
+        <div className="rounded border border-stone bg-charcoal p-6 space-y-4">
+          <h2 className="text-lg font-semibold text-light">Agent Details</h2>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label className="block">
-              <span className="text-sm text-gray-400">Agent ID</span>
+              <span className="text-sm text-dust">Agent ID</span>
               <input
                 value={form.id}
                 onChange={e => setForm(f => ({ ...f, id: e.target.value }))}
                 placeholder="Auto-generated from name"
                 disabled={!!definition || isBuiltIn}
-                className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm disabled:opacity-50"
+                className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 text-sm disabled:opacity-50"
               />
             </label>
             <label className="block">
-              <span className="text-sm text-gray-400">Name *</span>
+              <span className="text-sm text-dust">Name *</span>
               <input
                 value={form.name}
                 onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
                 required
                 placeholder="e.g. research-agent"
                 disabled={isBuiltIn}
-                className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm disabled:opacity-50"
+                className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 text-sm disabled:opacity-50"
               />
             </label>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <label className="block">
-              <span className="text-sm text-gray-400">Display Name</span>
+              <span className="text-sm text-dust">Display Name</span>
               <input
                 value={form.displayName}
                 onChange={e => setForm(f => ({ ...f, displayName: e.target.value }))}
                 placeholder="Research Agent"
                 disabled={isBuiltIn}
-                className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm disabled:opacity-50"
+                className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 text-sm disabled:opacity-50"
               />
             </label>
             <label className="block">
-              <span className="text-sm text-gray-400">Model Provider</span>
+              <span className="text-sm text-dust">Model Provider</span>
               <select
                 value={form.modelConnectionName}
                 onChange={e => setForm(f => ({ ...f, modelConnectionName: e.target.value }))}
-                className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm"
+                className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 text-sm"
               >
                 <option value="">— Select a model provider —</option>
                 {providers.filter(p => p.purpose !== 'Embedding').map(p => (
@@ -339,11 +343,11 @@ function AgentForm({
               </select>
             </label>
             <label className="block">
-              <span className="text-sm text-purple-400">Embedding Provider</span>
+              <span className="text-sm text-rose">Embedding Provider</span>
               <select
                 value={form.embeddingProviderName}
                 onChange={e => setForm(f => ({ ...f, embeddingProviderName: e.target.value }))}
-                className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm"
+                className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 text-sm"
               >
                 <option value="">— Select an embedding provider —</option>
                 {providers.filter(p => p.purpose === 'Embedding').map(p => (
@@ -352,32 +356,32 @@ function AgentForm({
                   </option>
                 ))}
               </select>
-              <p className="mt-1 text-xs text-gray-500">Used by skills for vector search (device matching, semantic lookup)</p>
+              <p className="mt-1 text-xs text-dust">Used by skills for vector search (device matching, semantic lookup)</p>
             </label>
           </div>
 
           <label className="block">
-            <span className="text-sm text-gray-400">Description</span>
+            <span className="text-sm text-dust">Description</span>
             <input
               value={form.description}
               onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
               placeholder="What does this agent do?"
               disabled={isBuiltIn}
-              className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm disabled:opacity-50"
+              className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 text-sm disabled:opacity-50"
             />
           </label>
 
           <label className="block">
-            <span className="text-sm text-gray-400">Instructions (System Prompt Override)</span>
+            <span className="text-sm text-dust">Instructions (System Prompt Override)</span>
             <textarea
               value={form.instructions}
               onChange={e => setForm(f => ({ ...f, instructions: e.target.value }))}
               rows={6}
               placeholder={isBuiltIn ? "Leave empty to use the agent's built-in instructions" : "You are a helpful assistant that..."}
-              className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm font-mono"
+              className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 text-sm font-mono"
             />
             {isBuiltIn && (
-              <p className="mt-1 text-xs text-gray-500">Leave empty to use the agent's built-in instructions. Any text here will override them.</p>
+              <p className="mt-1 text-xs text-dust">Leave empty to use the agent's built-in instructions. Any text here will override them.</p>
             )}
           </label>
 
@@ -389,24 +393,24 @@ function AgentForm({
               disabled={isBuiltIn}
               className="h-4 w-4"
             />
-            <span className="text-sm text-gray-400">Enabled</span>
+            <span className="text-sm text-dust">Enabled</span>
           </label>
         </div>
 
         {/* MCP Tool Picker — hidden for built-in agents (tools come from code) */}
         {!isBuiltIn && (
-        <div className="rounded border border-gray-700 bg-gray-800 p-6 space-y-4">
-          <h2 className="text-lg font-semibold text-gray-200">
+        <div className="rounded border border-stone bg-charcoal p-6 space-y-4">
+          <h2 className="text-lg font-semibold text-light">
             MCP Tools
             {selectedTools.length > 0 && (
-              <span className="ml-2 text-sm font-normal text-gray-400">
+              <span className="ml-2 text-sm font-normal text-dust">
                 ({selectedTools.length} selected)
               </span>
             )}
           </h2>
 
           {mcpServers.length === 0 ? (
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-dust">
               No MCP servers configured. Add servers in the MCP Servers page first.
             </p>
           ) : (
@@ -415,13 +419,13 @@ function AgentForm({
                 const status = serverStatuses[server.id]
                 const tools = serverTools[server.id] ?? []
                 return (
-                  <div key={server.id} className="rounded border border-gray-600 bg-gray-750 p-3">
+                  <div key={server.id} className="rounded border border-stone bg-basalt p-3">
                     <div className="flex items-center gap-2 mb-2">
                       <h3 className="text-sm font-medium">{server.name}</h3>
                       <span className={`rounded px-1.5 py-0.5 text-xs ${
                         status?.state === 'Connected'
-                          ? 'bg-green-900/50 text-green-400'
-                          : 'bg-gray-700 text-gray-400'
+                          ? 'bg-green-900/50 text-sage'
+                          : 'bg-basalt text-dust'
                       }`}>
                         {status?.state ?? 'Disconnected'}
                       </span>
@@ -429,20 +433,20 @@ function AgentForm({
                     {tools.length > 0 ? (
                       <div className="grid gap-1">
                         {tools.map(tool => (
-                          <label key={tool.toolName} className="flex items-center gap-2 cursor-pointer rounded px-2 py-1 hover:bg-gray-700">
+                          <label key={tool.toolName} className="flex items-center gap-2 cursor-pointer rounded px-2 py-1 hover:bg-basalt">
                             <input
                               type="checkbox"
                               checked={isToolSelected(server.id, tool.toolName)}
                               onChange={() => toggleTool(server.id, tool.toolName)}
                               className="h-3.5 w-3.5"
                             />
-                            <code className="text-xs font-mono text-indigo-400">{tool.toolName}</code>
-                            <span className="text-xs text-gray-500 truncate">{tool.description || ''}</span>
+                            <code className="text-xs font-mono text-amber">{tool.toolName}</code>
+                            <span className="text-xs text-dust truncate">{tool.description || ''}</span>
                           </label>
                         ))}
                       </div>
                     ) : (
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-dust">
                         {status?.state === 'Connected' ? 'No tools found' : 'Server not connected'}
                       </p>
                     )}
@@ -458,14 +462,14 @@ function AgentForm({
           <button
             type="submit"
             disabled={saving}
-            className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+            className="rounded bg-amber px-4 py-2 text-sm font-medium text-void hover:bg-amber-glow disabled:opacity-50"
           >
             {saving ? 'Saving...' : definition ? 'Update Agent' : 'Create Agent'}
           </button>
           <button
             type="button"
             onClick={onCancel}
-            className="rounded bg-gray-700 px-4 py-2 text-sm text-gray-300 hover:bg-gray-600"
+            className="rounded bg-basalt px-4 py-2 text-sm text-fog hover:bg-stone"
           >
             Cancel
           </button>

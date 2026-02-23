@@ -99,26 +99,26 @@ export default function McpServersPage() {
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">MCP Tool Servers</h1>
+        <h1 className="font-display text-2xl font-bold text-light">MCP Tool Servers</h1>
         <button
           onClick={() => setMode('create')}
-          className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500"
+          className="rounded bg-amber px-4 py-2 text-sm font-medium text-light hover:bg-amber-glow"
         >
           + Add Server
         </button>
       </div>
 
       {error && (
-        <div className="mb-4 rounded bg-red-900/50 px-4 py-2 text-red-300">
+        <div className="mb-4 rounded bg-ember/15 px-4 py-2 text-rose">
           {error}
-          <button onClick={() => setError(null)} className="ml-2 text-red-400 hover:text-red-200">✕</button>
+          <button onClick={() => setError(null)} className="ml-2 text-rose hover:text-rose">✕</button>
         </div>
       )}
 
       {loading ? (
-        <div className="text-gray-400">Loading...</div>
+        <div className="text-dust">Loading...</div>
       ) : servers.length === 0 ? (
-        <div className="rounded border border-gray-700 bg-gray-800 p-8 text-center text-gray-400">
+        <div className="rounded border border-stone bg-charcoal p-8 text-center text-dust">
           No MCP servers configured. Click "Add Server" to register one.
         </div>
       ) : (
@@ -127,71 +127,71 @@ export default function McpServersPage() {
             const status = statuses[server.id]
             const tools = discoveredTools[server.id]
             return (
-              <div key={server.id} className="rounded border border-gray-700 bg-gray-800 p-4">
+              <div key={server.id} className="rounded border border-stone bg-charcoal p-4">
                 <div className="flex items-start justify-between">
                   <div>
                     <div className="flex items-center gap-3">
                       <h3 className="text-lg font-semibold">{server.name}</h3>
                       <StatusBadge state={status?.state ?? 'Disconnected'} />
-                      <span className="rounded bg-gray-700 px-2 py-0.5 text-xs text-gray-300">
+                      <span className="rounded bg-basalt px-2 py-0.5 text-xs text-fog">
                         {server.transportType}
                       </span>
                       {!server.enabled && (
-                        <span className="rounded bg-yellow-900/50 px-2 py-0.5 text-xs text-yellow-400">disabled</span>
+                        <span className="rounded bg-yellow-900/50 px-2 py-0.5 text-xs text-amber">disabled</span>
                       )}
                     </div>
-                    <p className="mt-1 text-sm text-gray-400">{server.description || 'No description'}</p>
-                    <p className="mt-1 text-xs text-gray-500">
+                    <p className="mt-1 text-sm text-dust">{server.description || 'No description'}</p>
+                    <p className="mt-1 text-xs text-dust">
                       {server.transportType === 'stdio'
                         ? `Command: ${server.command} ${(server.arguments || []).join(' ')}`
                         : `URL: ${server.url || 'N/A'}`}
                     </p>
                     {status?.toolCount ? (
-                      <p className="mt-1 text-xs text-gray-500">{status.toolCount} tools available</p>
+                      <p className="mt-1 text-xs text-dust">{status.toolCount} tools available</p>
                     ) : null}
                   </div>
                   <div className="flex gap-2">
                     {status?.state === 'Connected' ? (
                       <>
-                        <button onClick={() => handleDiscover(server.id)} className="rounded bg-gray-700 px-3 py-1 text-xs hover:bg-gray-600">
+                        <button onClick={() => handleDiscover(server.id)} className="rounded bg-basalt px-3 py-1 text-xs hover:bg-stone">
                           Discover Tools
                         </button>
-                        <button onClick={() => handleDisconnect(server.id)} className="rounded bg-gray-700 px-3 py-1 text-xs hover:bg-gray-600">
+                        <button onClick={() => handleDisconnect(server.id)} className="rounded bg-basalt px-3 py-1 text-xs hover:bg-stone">
                           Disconnect
                         </button>
                       </>
                     ) : (
-                      <button onClick={() => handleConnect(server.id)} className="rounded bg-indigo-700 px-3 py-1 text-xs hover:bg-indigo-600">
+                      <button onClick={() => handleConnect(server.id)} className="rounded bg-amber px-3 py-1 text-xs hover:bg-amber">
                         Connect
                       </button>
                     )}
                     <button
                       onClick={() => { setEditingServer(server); setMode('edit') }}
-                      className="rounded bg-gray-700 px-3 py-1 text-xs hover:bg-gray-600"
+                      className="rounded bg-basalt px-3 py-1 text-xs hover:bg-stone"
                     >
                       Edit
                     </button>
                     <button
                       onClick={() => handleDelete(server.id)}
-                      className="rounded bg-red-900/50 px-3 py-1 text-xs text-red-300 hover:bg-red-800"
+                      className="rounded bg-ember/15 px-3 py-1 text-xs text-rose hover:bg-red-800"
                     >
                       Delete
                     </button>
                   </div>
                 </div>
                 {status?.state === 'Error' && status.errorMessage && (
-                  <div className="mt-2 rounded bg-red-900/30 px-3 py-1 text-xs text-red-400">
+                  <div className="mt-2 rounded bg-red-900/30 px-3 py-1 text-xs text-rose">
                     Error: {status.errorMessage}
                   </div>
                 )}
                 {tools && tools.length > 0 && (
-                  <div className="mt-3 border-t border-gray-700 pt-3">
-                    <h4 className="mb-2 text-sm font-medium text-gray-300">Available Tools ({tools.length})</h4>
+                  <div className="mt-3 border-t border-stone pt-3">
+                    <h4 className="mb-2 text-sm font-medium text-fog">Available Tools ({tools.length})</h4>
                     <div className="grid gap-1">
                       {tools.map(tool => (
                         <div key={tool.toolName} className="flex items-baseline gap-2 text-xs">
-                          <code className="font-mono text-indigo-400">{tool.toolName}</code>
-                          <span className="text-gray-500">{tool.description || ''}</span>
+                          <code className="font-mono text-amber">{tool.toolName}</code>
+                          <span className="text-dust">{tool.description || ''}</span>
                         </div>
                       ))}
                     </div>
@@ -208,10 +208,10 @@ export default function McpServersPage() {
 
 function StatusBadge({ state }: { state: string }) {
   const colors: Record<string, string> = {
-    Connected: 'bg-green-900/50 text-green-400',
-    Connecting: 'bg-yellow-900/50 text-yellow-400',
-    Disconnected: 'bg-gray-700 text-gray-400',
-    Error: 'bg-red-900/50 text-red-400',
+    Connected: 'bg-green-900/50 text-sage',
+    Connecting: 'bg-yellow-900/50 text-amber',
+    Disconnected: 'bg-basalt text-dust',
+    Error: 'bg-ember/15 text-rose',
   }
   return (
     <span className={`rounded px-2 py-0.5 text-xs ${colors[state] ?? colors.Disconnected}`}>
@@ -291,48 +291,48 @@ function ServerForm({
       <h1 className="mb-6 text-2xl font-bold">{server ? 'Edit' : 'Add'} MCP Server</h1>
 
       {error && (
-        <div className="mb-4 rounded bg-red-900/50 px-4 py-2 text-red-300">{error}</div>
+        <div className="mb-4 rounded bg-ember/15 px-4 py-2 text-rose">{error}</div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-4 rounded border border-gray-700 bg-gray-800 p-6">
+      <form onSubmit={handleSubmit} className="space-y-4 rounded border border-stone bg-charcoal p-6">
         <div className="grid grid-cols-2 gap-4">
           <label className="block">
-            <span className="text-sm text-gray-400">Server ID</span>
+            <span className="text-sm text-dust">Server ID</span>
             <input
               value={form.id}
               onChange={e => setForm(f => ({ ...f, id: e.target.value }))}
               placeholder="Auto-generated from name"
               disabled={!!server}
-              className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm disabled:opacity-50"
+              className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 text-sm disabled:opacity-50"
             />
           </label>
           <label className="block">
-            <span className="text-sm text-gray-400">Name *</span>
+            <span className="text-sm text-dust">Name *</span>
             <input
               value={form.name}
               onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
               required
-              className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm"
+              className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 text-sm"
             />
           </label>
         </div>
 
         <label className="block">
-          <span className="text-sm text-gray-400">Description</span>
+          <span className="text-sm text-dust">Description</span>
           <input
             value={form.description}
             onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-            className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm"
+            className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 text-sm"
           />
         </label>
 
         <div className="grid grid-cols-2 gap-4">
           <label className="block">
-            <span className="text-sm text-gray-400">Transport Type</span>
+            <span className="text-sm text-dust">Transport Type</span>
             <select
               value={form.transportType}
               onChange={e => setForm(f => ({ ...f, transportType: e.target.value }))}
-              className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm"
+              className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 text-sm"
             >
               <option value="stdio">stdio (local process)</option>
               <option value="http">HTTP/SSE (remote)</option>
@@ -345,73 +345,73 @@ function ServerForm({
               onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))}
               className="h-4 w-4"
             />
-            <span className="text-sm text-gray-400">Enabled</span>
+            <span className="text-sm text-dust">Enabled</span>
           </label>
         </div>
 
         {form.transportType === 'stdio' ? (
           <>
             <label className="block">
-              <span className="text-sm text-gray-400">Command *</span>
+              <span className="text-sm text-dust">Command *</span>
               <input
                 value={form.command}
                 onChange={e => setForm(f => ({ ...f, command: e.target.value }))}
                 placeholder="e.g. npx, dnx, python"
                 required
-                className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm font-mono"
+                className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 text-sm font-mono"
               />
             </label>
             <label className="block">
-              <span className="text-sm text-gray-400">Arguments (space-separated)</span>
+              <span className="text-sm text-dust">Arguments (space-separated)</span>
               <input
                 value={form.arguments}
                 onChange={e => setForm(f => ({ ...f, arguments: e.target.value }))}
                 placeholder="e.g. -y @modelcontextprotocol/server-github"
-                className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm font-mono"
+                className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 text-sm font-mono"
               />
             </label>
             <label className="block">
-              <span className="text-sm text-gray-400">Working Directory</span>
+              <span className="text-sm text-dust">Working Directory</span>
               <input
                 value={form.workingDirectory}
                 onChange={e => setForm(f => ({ ...f, workingDirectory: e.target.value }))}
-                className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm font-mono"
+                className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 text-sm font-mono"
               />
             </label>
           </>
         ) : (
           <label className="block">
-            <span className="text-sm text-gray-400">URL *</span>
+            <span className="text-sm text-dust">URL *</span>
             <input
               value={form.url}
               onChange={e => setForm(f => ({ ...f, url: e.target.value }))}
               placeholder="https://mcp-server.example.com"
               required
-              className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm font-mono"
+              className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 text-sm font-mono"
             />
           </label>
         )}
 
         <label className="block">
-          <span className="text-sm text-gray-400">Environment Variables (KEY=VALUE per line)</span>
+          <span className="text-sm text-dust">Environment Variables (KEY=VALUE per line)</span>
           <textarea
             value={form.environmentVariables}
             onChange={e => setForm(f => ({ ...f, environmentVariables: e.target.value }))}
             rows={3}
             placeholder={"GITHUB_TOKEN=ghp_...\nAPI_KEY=sk-..."}
-            className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm font-mono"
+            className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 text-sm font-mono"
           />
         </label>
 
         {form.transportType !== 'stdio' && (
           <label className="block">
-            <span className="text-sm text-gray-400">Headers (Key: Value per line)</span>
+            <span className="text-sm text-dust">Headers (Key: Value per line)</span>
             <textarea
               value={form.headers}
               onChange={e => setForm(f => ({ ...f, headers: e.target.value }))}
               rows={2}
               placeholder="Authorization: Bearer ..."
-              className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm font-mono"
+              className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 text-sm font-mono"
             />
           </label>
         )}
@@ -420,14 +420,14 @@ function ServerForm({
           <button
             type="submit"
             disabled={saving}
-            className="rounded bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+            className="rounded bg-amber px-4 py-2 text-sm font-medium text-light hover:bg-amber-glow disabled:opacity-50"
           >
             {saving ? 'Saving...' : server ? 'Update Server' : 'Create Server'}
           </button>
           <button
             type="button"
             onClick={onCancel}
-            className="rounded bg-gray-700 px-4 py-2 text-sm text-gray-300 hover:bg-gray-600"
+            className="rounded bg-basalt px-4 py-2 text-sm text-fog hover:bg-stone"
           >
             Cancel
           </button>
