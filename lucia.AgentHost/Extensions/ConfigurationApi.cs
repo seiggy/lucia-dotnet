@@ -351,20 +351,6 @@ public static class ConfigurationApi
                 new("ollama-phi3-mini", "string", "Ollama Phi-3 mini connection", ""),
                 new("ollama-llama3-2-3b", "string", "Ollama LLaMA 3.2 3B connection", "")
             ]
-        },
-        new()
-        {
-            Section = "Agents",
-            Description = "Agent configuration array — each agent has name, type, skills, and optional model override",
-            IsArray = true,
-            Properties =
-            [
-                new("AgentName", "string", "Agent identifier name", ""),
-                new("AgentType", "string", "Fully qualified agent class name", ""),
-                new("AgentSkills", "array", "List of skill class names", ""),
-                new("AgentConfig", "string", "Optional config section name for agent options", ""),
-                new("ModelConnectionName", "string", "Optional connection name for per-agent model override", "")
-            ]
         }
     ];
 

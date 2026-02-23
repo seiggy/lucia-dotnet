@@ -85,6 +85,7 @@ public sealed class WorkflowFactory
         {
             try
             {
+                await luciaAgent.RefreshConfigAsync(cancellationToken).ConfigureAwait(false);
                 var aiAgent = luciaAgent.GetAIAgent();
                 if (aiAgent is not null)
                 {

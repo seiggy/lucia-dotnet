@@ -251,6 +251,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
 
         if (provider.Auth is { UseDefaultCredentials: true })
         {
+            // DefaultAzureCredential requires AzureOpenAIClient for token-based auth
             var credential = new DefaultAzureCredential();
             var client = new Azure.AI.OpenAI.AzureOpenAIClient(endpoint, credential);
             return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator();
@@ -258,9 +259,13 @@ public sealed class ModelProviderResolver : IModelProviderResolver
 
         if (!string.IsNullOrWhiteSpace(provider.Auth.ApiKey))
         {
-            var credential = new ApiKeyCredential(provider.Auth.ApiKey);
-            var client = new Azure.AI.OpenAI.AzureOpenAIClient(endpoint, credential);
-            return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator();
+            // Use the documented pattern: EmbeddingClient with OpenAIClientOptions.Endpoint
+            // This sends the model name in the request body rather than constructing
+            // a deployment-name-based URL, matching the Azure OpenAI SDK docs.
+            var credential = new AzureKeyCredential(provider.Auth.ApiKey);
+            var options = new OpenAIClientOptions { Endpoint = endpoint };
+            return new OpenAI.Embeddings.EmbeddingClient(provider.ModelName, credential, options)
+                .AsIEmbeddingGenerator();
         }
 
         throw new InvalidOperationException("Azure OpenAI embedding provider requires either an API key or Azure credentials");

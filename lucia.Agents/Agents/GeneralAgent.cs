@@ -22,6 +22,7 @@ public sealed class GeneralAgent : ILuciaAgent
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<GeneralAgent> _logger;
     private volatile AIAgent _aiAgent;
+    private string? _lastModelConnectionName;
 
     /// <summary>
     /// The system instructions used by this agent.
@@ -102,18 +103,35 @@ public sealed class GeneralAgent : ILuciaAgent
         using var activity = ActivitySource.StartActivity();
         _logger.LogInformation("Initializing General Knowledge Agent...");
         
-        // Resolve per-agent model from AgentDefinition if configured
-        var definition = await _definitionRepository.GetAgentDefinitionAsync(AgentId, cancellationToken).ConfigureAwait(false);
-        if (definition is not null && !string.IsNullOrWhiteSpace(definition.ModelConnectionName))
-        {
-            var client = await _clientResolver.ResolveAsync(definition.ModelConnectionName, cancellationToken).ConfigureAwait(false);
-            _aiAgent = BuildAgent(client);
-            _logger.LogInformation("GeneralAgent: using model provider '{Provider}'", definition.ModelConnectionName);
-        }
+        await ApplyDefinitionAsync(cancellationToken).ConfigureAwait(false);
 
         activity?.SetTag("agent.id", AgentId);
         activity?.SetStatus(ActivityStatusCode.Ok);
         _logger.LogInformation("General Knowledge initialized successfully");
+    }
+
+    /// <inheritdoc />
+    public async Task RefreshConfigAsync(CancellationToken cancellationToken = default)
+    {
+        await ApplyDefinitionAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task ApplyDefinitionAsync(CancellationToken cancellationToken)
+    {
+        var definition = await _definitionRepository.GetAgentDefinitionAsync(AgentId, cancellationToken).ConfigureAwait(false);
+        var newConnectionName = definition?.ModelConnectionName;
+
+        if (string.Equals(_lastModelConnectionName, newConnectionName, StringComparison.Ordinal))
+            return;
+
+        if (!string.IsNullOrWhiteSpace(newConnectionName))
+        {
+            var client = await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
+            _aiAgent = BuildAgent(client);
+            _logger.LogInformation("GeneralAgent: using model provider '{Provider}'", newConnectionName);
+        }
+
+        _lastModelConnectionName = newConnectionName;
     }
 
     private ChatClientAgent BuildAgent(IChatClient chatClient)

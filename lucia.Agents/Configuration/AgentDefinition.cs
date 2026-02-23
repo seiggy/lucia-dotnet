@@ -60,6 +60,12 @@ public sealed class AgentDefinition
     /// </summary>
     public bool Enabled { get; set; } = true;
 
+    /// <summary>
+    /// Indicates the definition was seeded by the system for a built-in agent.
+    /// Built-in definitions cannot be deleted, only customized.
+    /// </summary>
+    public bool IsBuiltIn { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

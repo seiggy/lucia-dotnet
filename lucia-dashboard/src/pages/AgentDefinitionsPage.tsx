@@ -122,6 +122,9 @@ export default function AgentDefinitionsPage() {
                   <div className="flex items-center gap-3">
                     <h3 className="text-lg font-semibold">{def.displayName || def.name}</h3>
                     <code className="text-xs text-gray-500">{def.name}</code>
+                    {def.isBuiltIn && (
+                      <span className="rounded bg-blue-900/50 px-2 py-0.5 text-xs text-blue-300">System</span>
+                    )}
                     {!def.enabled && (
                       <span className="rounded bg-yellow-900/50 px-2 py-0.5 text-xs text-yellow-400">disabled</span>
                     )}
@@ -151,12 +154,14 @@ export default function AgentDefinitionsPage() {
                   >
                     Edit
                   </button>
-                  <button
-                    onClick={() => handleDelete(def.id)}
-                    className="rounded bg-red-900/50 px-3 py-1 text-xs text-red-300 hover:bg-red-800"
-                  >
-                    Delete
-                  </button>
+                  {!def.isBuiltIn && (
+                    <button
+                      onClick={() => handleDelete(def.id)}
+                      className="rounded bg-red-900/50 px-3 py-1 text-xs text-red-300 hover:bg-red-800"
+                    >
+                      Delete
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -188,6 +193,7 @@ function AgentForm({
     embeddingProviderName: definition?.embeddingProviderName ?? '',
     enabled: definition?.enabled ?? true,
   })
+  const isBuiltIn = definition?.isBuiltIn ?? false
   const [selectedTools, setSelectedTools] = useState<AgentToolReference[]>(definition?.tools ?? [])
   const [mcpServers, setMcpServers] = useState<McpToolServerDefinition[]>([])
   const [serverStatuses, setServerStatuses] = useState<Record<string, McpServerStatus>>({})
@@ -262,7 +268,12 @@ function AgentForm({
 
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-bold">{definition ? 'Edit' : 'Create'} Agent Definition</h1>
+      <h1 className="mb-6 text-2xl font-bold">
+        {isBuiltIn ? 'Configure' : definition ? 'Edit' : 'Create'} Agent Definition
+        {isBuiltIn && (
+          <span className="ml-3 rounded bg-blue-900/50 px-2 py-1 text-sm font-normal text-blue-300">System Agent</span>
+        )}
+      </h1>
 
       {error && (
         <div className="mb-4 rounded bg-red-900/50 px-4 py-2 text-red-300">{error}</div>
@@ -278,7 +289,7 @@ function AgentForm({
                 value={form.id}
                 onChange={e => setForm(f => ({ ...f, id: e.target.value }))}
                 placeholder="Auto-generated from name"
-                disabled={!!definition}
+                disabled={!!definition || isBuiltIn}
                 className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm disabled:opacity-50"
               />
             </label>
@@ -289,7 +300,8 @@ function AgentForm({
                 onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
                 required
                 placeholder="e.g. research-agent"
-                className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm"
+                disabled={isBuiltIn}
+                className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm disabled:opacity-50"
               />
             </label>
           </div>
@@ -301,7 +313,8 @@ function AgentForm({
                 value={form.displayName}
                 onChange={e => setForm(f => ({ ...f, displayName: e.target.value }))}
                 placeholder="Research Agent"
-                className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm"
+                disabled={isBuiltIn}
+                className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm disabled:opacity-50"
               />
             </label>
             <label className="block">
@@ -343,19 +356,23 @@ function AgentForm({
               value={form.description}
               onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
               placeholder="What does this agent do?"
-              className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm"
+              disabled={isBuiltIn}
+              className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm disabled:opacity-50"
             />
           </label>
 
           <label className="block">
-            <span className="text-sm text-gray-400">Instructions (System Prompt)</span>
+            <span className="text-sm text-gray-400">Instructions (System Prompt Override)</span>
             <textarea
               value={form.instructions}
               onChange={e => setForm(f => ({ ...f, instructions: e.target.value }))}
               rows={6}
-              placeholder="You are a helpful assistant that..."
+              placeholder={isBuiltIn ? "Leave empty to use the agent's built-in instructions" : "You are a helpful assistant that..."}
               className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm font-mono"
             />
+            {isBuiltIn && (
+              <p className="mt-1 text-xs text-gray-500">Leave empty to use the agent's built-in instructions. Any text here will override them.</p>
+            )}
           </label>
 
           <label className="flex items-center gap-2">
@@ -363,13 +380,15 @@ function AgentForm({
               type="checkbox"
               checked={form.enabled}
               onChange={e => setForm(f => ({ ...f, enabled: e.target.checked }))}
+              disabled={isBuiltIn}
               className="h-4 w-4"
             />
             <span className="text-sm text-gray-400">Enabled</span>
           </label>
         </div>
 
-        {/* MCP Tool Picker */}
+        {/* MCP Tool Picker — hidden for built-in agents (tools come from code) */}
+        {!isBuiltIn && (
         <div className="rounded border border-gray-700 bg-gray-800 p-6 space-y-4">
           <h2 className="text-lg font-semibold text-gray-200">
             MCP Tools
@@ -427,6 +446,7 @@ function AgentForm({
             </div>
           )}
         </div>
+        )}
 
         <div className="flex gap-3 pt-2">
           <button

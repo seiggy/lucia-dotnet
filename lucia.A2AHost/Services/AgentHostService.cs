@@ -1,5 +1,7 @@
 using lucia.A2AHost.AgentRegistry;
 using lucia.Agents.Abstractions;
+using lucia.Agents.Extensions;
+using lucia.Agents.Mcp;
 using lucia.HomeAssistant.Configuration;
 using Microsoft.Extensions.Options;
 
@@ -13,17 +15,20 @@ namespace lucia.A2AHost.Services
 
         private readonly ILogger<AgentHostService> _logger;
         private readonly AgentRegistryClient _agentRegistryClient;
+        private readonly IAgentDefinitionRepository _definitionRepository;
         private readonly List<ILuciaAgent> _hostedAgents;
         private readonly IOptionsMonitor<HomeAssistantOptions> _haOptions;
 
         public AgentHostService(
             ILogger<AgentHostService> logger,
             AgentRegistryClient agentRegistryClient,
+            IAgentDefinitionRepository definitionRepository,
             IServiceProvider serviceProvider,
             IOptionsMonitor<HomeAssistantOptions> haOptions)
         {
             _logger = logger;
             _agentRegistryClient = agentRegistryClient;
+            _definitionRepository = definitionRepository;
             _haOptions = haOptions;
 
             _hostedAgents = serviceProvider.GetServices<ILuciaAgent>()
@@ -40,6 +45,9 @@ namespace lucia.A2AHost.Services
             _logger.LogInformation("AgentHostService has started.");
 
             await WaitForHomeAssistantConfigurationAsync(cancellationToken);
+
+            // Seed AgentDefinition documents for any plugin agents missing from MongoDB
+            await _definitionRepository.SeedBuiltInAgentDefinitionsAsync(_hostedAgents, _logger, cancellationToken);
 
             foreach (var agent in _hostedAgents)
             {

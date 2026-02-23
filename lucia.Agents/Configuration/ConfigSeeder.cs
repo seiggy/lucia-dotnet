@@ -27,7 +27,6 @@ public sealed class ConfigSeeder : IHostedService
         "AgentInvoker",
         "ResultAggregator",
         "Redis",
-        "Agents",
         "MusicAssistant",
         "Agent",
         "PluginDirectory",

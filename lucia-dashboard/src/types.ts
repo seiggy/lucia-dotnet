@@ -196,6 +196,7 @@ export interface AgentDefinition {
   modelConnectionName?: string;
   embeddingProviderName?: string;
   enabled: boolean;
+  isBuiltIn: boolean;
   createdAt: string;
   updatedAt: string;
 }
