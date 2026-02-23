@@ -11,7 +11,8 @@
     <A2AVersion>0.3.3-preview</A2AVersion>
     <AspireVersion>13.1.1</AspireVersion>
     <AspirePreviewVersion>13.1.1-preview.1.26105.8</AspirePreviewVersion>
-    <MicrosoftAgentsVersion>1.0.0-preview.260212.1</MicrosoftAgentsVersion>
+    <MicrosoftAgentsVersion>1.0.0-rc1</MicrosoftAgentsVersion>
+    <MicrosoftAgentsHostingVersion>1.0.0-preview.260219.1</MicrosoftAgentsHostingVersion>
     <MicrosoftExtensionsAIVersion>10.3.0</MicrosoftExtensionsAIVersion>
     <MicrosoftExtensionsVersion>10.0.0</MicrosoftExtensionsVersion>
     <MicrosoftExtensionsConfigVersion>10.0.1</MicrosoftExtensionsConfigVersion>
@@ -44,12 +45,13 @@
   <!-- ── Microsoft Agent Framework ────────────────────────────── -->
   <ItemGroup Label="Microsoft Agent Framework">
     <PackageVersion Include="Microsoft.Agents.AI" Version="$(MicrosoftAgentsVersion)" />
-    <PackageVersion Include="Microsoft.Agents.AI.A2A" Version="$(MicrosoftAgentsVersion)" />
+    <PackageVersion Include="Microsoft.Agents.AI.A2A" Version="$(MicrosoftAgentsHostingVersion)" />
     <PackageVersion Include="Microsoft.Agents.AI.Abstractions" Version="$(MicrosoftAgentsVersion)" />
     <PackageVersion Include="Microsoft.Agents.AI.AzureAI" Version="$(MicrosoftAgentsVersion)" />
-    <PackageVersion Include="Microsoft.Agents.AI.Hosting" Version="$(MicrosoftAgentsVersion)" />
-    <PackageVersion Include="Microsoft.Agents.AI.Hosting.A2A.AspNetCore" Version="$(MicrosoftAgentsVersion)" />
-    <PackageVersion Include="Microsoft.Agents.AI.Hosting.OpenAI" Version="1.0.0-alpha.260212.1" />
+    <PackageVersion Include="Microsoft.Agents.AI.GitHub.Copilot" Version="$(MicrosoftAgentsHostingVersion)" />
+    <PackageVersion Include="Microsoft.Agents.AI.Hosting" Version="$(MicrosoftAgentsHostingVersion)" />
+    <PackageVersion Include="Microsoft.Agents.AI.Hosting.A2A.AspNetCore" Version="$(MicrosoftAgentsHostingVersion)" />
+    <PackageVersion Include="Microsoft.Agents.AI.Hosting.OpenAI" Version="1.0.0-alpha.260219.1" />
     <PackageVersion Include="Microsoft.Agents.AI.Workflows" Version="$(MicrosoftAgentsVersion)" />
   </ItemGroup>
   <!-- ── Microsoft.Extensions.AI ──────────────────────────────── -->

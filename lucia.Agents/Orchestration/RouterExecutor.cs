@@ -62,8 +62,8 @@ public sealed class RouterExecutor : Executor
         _schema = AIJsonUtilities.CreateJsonSchema(typeof(AgentChoiceResult));
     }
 
-    protected override RouteBuilder ConfigureRoutes(RouteBuilder routeBuilder)
-        => routeBuilder.AddHandler<ChatMessage, AgentChoiceResult>(HandleAsync);
+    protected override ProtocolBuilder ConfigureProtocol(ProtocolBuilder protocolBuilder)
+        => protocolBuilder.ConfigureRoutes(rb => rb.AddHandler<ChatMessage, AgentChoiceResult>(HandleAsync));
 
     public async ValueTask<AgentChoiceResult> HandleAsync(ChatMessage message, IWorkflowContext context, CancellationToken cancellationToken = default)
     {

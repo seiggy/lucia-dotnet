@@ -31,8 +31,8 @@ public sealed class ResultAggregatorExecutor : Executor
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
     }
 
-    protected override RouteBuilder ConfigureRoutes(RouteBuilder routeBuilder)
-        => routeBuilder.AddHandler<List<OrchestratorAgentResponse>, OrchestratorResult>(HandleAsync);
+    protected override ProtocolBuilder ConfigureProtocol(ProtocolBuilder protocolBuilder)
+        => protocolBuilder.ConfigureRoutes(rb => rb.AddHandler<List<OrchestratorAgentResponse>, OrchestratorResult>(HandleAsync));
 
     public async ValueTask<OrchestratorResult> HandleAsync(List<OrchestratorAgentResponse> responses, IWorkflowContext context, CancellationToken cancellationToken)
     {

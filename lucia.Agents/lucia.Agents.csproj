@@ -19,6 +19,7 @@
     <PackageReference Include="Microsoft.Agents.AI.A2A" />
     <PackageReference Include="Microsoft.Agents.AI.Abstractions" />
     <PackageReference Include="Microsoft.Agents.AI.AzureAI" />
+    <PackageReference Include="Microsoft.Agents.AI.GitHub.Copilot" />
     <PackageReference Include="Microsoft.Agents.AI.Hosting" />
     <PackageReference Include="Microsoft.Agents.AI.Workflows" />
     <PackageReference Include="Microsoft.Extensions.AI" />

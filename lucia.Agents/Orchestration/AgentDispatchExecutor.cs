@@ -58,8 +58,8 @@ public sealed class AgentDispatchExecutor : Executor
         _observer = observer;
     }
 
-    protected override RouteBuilder ConfigureRoutes(RouteBuilder routeBuilder)
-        => routeBuilder.AddHandler<AgentChoiceResult, List<OrchestratorAgentResponse>>(HandleAsync);
+    protected override ProtocolBuilder ConfigureProtocol(ProtocolBuilder protocolBuilder)
+        => protocolBuilder.ConfigureRoutes(rb => rb.AddHandler<AgentChoiceResult, List<OrchestratorAgentResponse>>(HandleAsync));
 
     /// <summary>
     /// Sets the user message for subsequent agent invocations
