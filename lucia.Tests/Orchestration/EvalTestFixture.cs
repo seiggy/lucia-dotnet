@@ -5,14 +5,12 @@ using Azure.Identity;
 using FakeItEasy;
 using lucia.Agents.Agents;
 using lucia.Agents.Orchestration;
-using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Registry;
 using lucia.Agents.Skills;
 using lucia.Agents.Services;
 using lucia.HomeAssistant.Services;
 using lucia.MusicAgent;
 using lucia.Tests.TestDoubles;
-using Microsoft.Agents.AI;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.AI.Evaluation;
@@ -57,6 +55,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
 
     private IHomeAssistantClient _mockHaClient = null!;
     private IEmbeddingGenerator<string, Embedding<float>> _mockEmbedding = null!;
+    private IEmbeddingProviderResolver _mockEmbeddingResolver = null!;
     private ILoggerFactory _loggerFactory = null!;
     private IServer _mockServer = null!;
     private readonly IDeviceCacheService _mockDeviceCache = A.Fake<IDeviceCacheService>();
@@ -108,6 +107,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
             ? FakeHomeAssistantClient.FromSnapshotFile(snapshotPath)
             : A.Fake<IHomeAssistantClient>();
         _mockEmbedding = new DeterministicEmbeddingGenerator();
+        _mockEmbeddingResolver = new StubEmbeddingProviderResolver(_mockEmbedding);
         _loggerFactory = LoggerFactory.Create(_ => { });
         _mockServer = A.Fake<IServer>();
 
@@ -165,7 +165,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
         var chatClient = CreateFunctionInvokingChatClient(deploymentName);
         var lightSkill = new LightControlSkill(
             _mockHaClient,
-            _mockEmbedding,
+            _mockEmbeddingResolver,
             _loggerFactory.CreateLogger<LightControlSkill>(),
             _mockDeviceCache);
         return new LightAgent(chatClient, lightSkill, _loggerFactory);
@@ -181,7 +181,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
         var musicSkill = new MusicPlaybackSkill(
             _mockHaClient,
             musicConfig,
-            _mockEmbedding,
+            _mockEmbeddingResolver,
             _mockDeviceCache,
             _loggerFactory.CreateLogger<MusicPlaybackSkill>());
         return new lucia.MusicAgent.MusicAgent(chatClient, musicSkill, _mockServer, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(), _loggerFactory);
@@ -196,7 +196,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
         var (chatClient, capture) = CreateCapturingChatClient(deploymentName);
         var lightSkill = new LightControlSkill(
             _mockHaClient,
-            _mockEmbedding,
+            _mockEmbeddingResolver,
             _loggerFactory.CreateLogger<LightControlSkill>(),
             _mockDeviceCache);
         return (new LightAgent(chatClient, lightSkill, _loggerFactory), capture);
@@ -213,7 +213,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
         var musicSkill = new MusicPlaybackSkill(
             _mockHaClient,
             musicConfig,
-            _mockEmbedding,
+            _mockEmbeddingResolver,
             _mockDeviceCache,
             _loggerFactory.CreateLogger<MusicPlaybackSkill>());
         return (new lucia.MusicAgent.MusicAgent(chatClient, musicSkill, _mockServer, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(), _loggerFactory), capture);
@@ -321,7 +321,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
 
         // LightAgent card
         var lightSkill = new LightControlSkill(
-            _mockHaClient, _mockEmbedding,
+            _mockHaClient, _mockEmbeddingResolver,
             _loggerFactory.CreateLogger<LightControlSkill>(),
             _mockDeviceCache);
         var lightAgent = new LightAgent(fakeChatClient, lightSkill, _loggerFactory);
@@ -330,7 +330,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
         // MusicAgent card
         var musicConfig = CreateMusicAssistantOptionsMonitor();
         var musicSkill = new MusicPlaybackSkill(
-            _mockHaClient, musicConfig, _mockEmbedding,
+            _mockHaClient, musicConfig, _mockEmbeddingResolver,
             _mockDeviceCache,
             _loggerFactory.CreateLogger<MusicPlaybackSkill>());
         var musicAgent = new lucia.MusicAgent.MusicAgent(fakeChatClient, musicSkill, _mockServer, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(), _loggerFactory);

@@ -140,6 +140,9 @@ export default function AgentDefinitionsPage() {
                   {def.modelConnectionName && (
                     <p className="mt-1 text-xs text-gray-500">Model: {def.modelConnectionName}</p>
                   )}
+                  {def.embeddingProviderName && (
+                    <p className="mt-1 text-xs text-purple-400">Embedding: {def.embeddingProviderName}</p>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <button
@@ -182,6 +185,7 @@ function AgentForm({
     description: definition?.description ?? '',
     instructions: definition?.instructions ?? '',
     modelConnectionName: definition?.modelConnectionName ?? '',
+    embeddingProviderName: definition?.embeddingProviderName ?? '',
     enabled: definition?.enabled ?? true,
   })
   const [selectedTools, setSelectedTools] = useState<AgentToolReference[]>(definition?.tools ?? [])
@@ -246,6 +250,7 @@ function AgentForm({
         instructions: form.instructions || undefined,
         tools: selectedTools,
         modelConnectionName: form.modelConnectionName || undefined,
+        embeddingProviderName: form.embeddingProviderName || undefined,
         enabled: form.enabled,
       })
     } catch (err) {
@@ -307,12 +312,28 @@ function AgentForm({
                 className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm"
               >
                 <option value="">Default (system model)</option>
-                {providers.map(p => (
+                {providers.filter(p => p.purpose !== 'Embedding').map(p => (
                   <option key={p.id} value={p.id}>
                     {p.name} ({p.providerType} · {p.modelName})
                   </option>
                 ))}
               </select>
+            </label>
+            <label className="block">
+              <span className="text-sm text-purple-400">Embedding Provider</span>
+              <select
+                value={form.embeddingProviderName}
+                onChange={e => setForm(f => ({ ...f, embeddingProviderName: e.target.value }))}
+                className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm"
+              >
+                <option value="">Default (system embedding)</option>
+                {providers.filter(p => p.purpose === 'Embedding').map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.providerType} · {p.modelName})
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-gray-500">Used by skills for vector search (device matching, semantic lookup)</p>
             </label>
           </div>
 

@@ -49,6 +49,13 @@ public sealed class AgentDefinition
     public string? ModelConnectionName { get; set; }
 
     /// <summary>
+    /// Optional ID of a <see cref="ModelProvider"/> (purpose = Embedding) used by
+    /// this agent's skills for vector search. When null, the system default
+    /// embedding provider is used.
+    /// </summary>
+    public string? EmbeddingProviderName { get; set; }
+
+    /// <summary>
     /// Whether this agent is enabled for routing and invocation.
     /// </summary>
     public bool Enabled { get; set; } = true;

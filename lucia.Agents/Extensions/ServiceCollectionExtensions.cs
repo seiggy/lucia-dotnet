@@ -29,6 +29,7 @@ namespace lucia.Agents.Extensions;
 
 public static class ServiceCollectionExtensions
 {
+    [Obsolete("Use the Model Provider system (IEmbeddingProviderResolver) instead. This will be removed in a future release.")]
     public static void AddEmbeddingsClient(this IHostApplicationBuilder builder, string connectionName)
     {
         var connectionString = builder.Configuration.GetConnectionString(connectionName);
@@ -447,6 +448,10 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IModelProviderRepository, MongoModelProviderRepository>();
         builder.Services.AddSingleton<IModelProviderFactory, ModelProviderFactory>();
         builder.Services.AddSingleton<CopilotConnectService>();
+
+        // Register embedding provider resolver — skills use this to get IEmbeddingGenerator
+        // from the MongoDB-backed model provider system instead of hardcoded connection strings.
+        builder.Services.AddSingleton<IEmbeddingProviderResolver, EmbeddingProviderResolver>();
     }
 
     /// <summary>

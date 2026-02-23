@@ -40,7 +40,8 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 });
 
 builder.AddChatClient("chat");
-builder.AddEmbeddingsClient("embeddings");
+
+// Embeddings are now resolved from the Model Provider system via IEmbeddingProviderResolver.
 
 builder.Services.Configure<HomeAssistantOptions>(
     builder.Configuration.GetSection("HomeAssistant"));

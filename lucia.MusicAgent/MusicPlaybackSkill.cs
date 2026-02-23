@@ -3,9 +3,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Globalization;
-using System.Linq;
 using System.Text.Json;
-using lucia.Agents.Configuration;
 using lucia.Agents.Services;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -31,7 +29,8 @@ public class MusicPlaybackSkill
 
     private const string? ReturnResponseToken = "return_response=1";
     private readonly IHomeAssistantClient _homeAssistantClient;
-    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
+    private readonly IEmbeddingProviderResolver _embeddingResolver;
+    private IEmbeddingGenerator<string, Embedding<float>>? _embeddingGenerator;
     private readonly ILogger<MusicPlaybackSkill> _logger;
     private readonly IDeviceCacheService _deviceCache;
     private volatile IReadOnlyList<MusicPlayerEntity> _cachedPlayers = Array.Empty<MusicPlayerEntity>();
@@ -44,12 +43,12 @@ public class MusicPlaybackSkill
     public MusicPlaybackSkill(
         IHomeAssistantClient homeAssistantClient,
         IOptionsMonitor<MusicAssistantConfig> config,
-        IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
+        IEmbeddingProviderResolver embeddingResolver,
         IDeviceCacheService deviceCache,
         ILogger<MusicPlaybackSkill> logger)
     {
         _homeAssistantClient = homeAssistantClient;
-        _embeddingGenerator = embeddingGenerator;
+        _embeddingResolver = embeddingResolver;
         _deviceCache = deviceCache;
         _logger = logger;
         _config = config;
@@ -73,6 +72,13 @@ public class MusicPlaybackSkill
     /// </summary>
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
+        _embeddingGenerator = await _embeddingResolver.ResolveAsync(ct: cancellationToken).ConfigureAwait(false);
+        if (_embeddingGenerator is null)
+        {
+            _logger.LogWarning("No embedding provider configured — music player semantic search will not be available.");
+            return;
+        }
+
         await RefreshPlayerCacheAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -469,6 +475,12 @@ public class MusicPlaybackSkill
     
     private async Task RefreshPlayerCacheAsync(CancellationToken cancellationToken)
     {
+        if (_embeddingGenerator is null)
+        {
+            _logger.LogWarning("Skipping player cache refresh — no embedding provider available.");
+            return;
+        }
+
         try
         {
             _logger.LogInformation("Refreshing Music Assistant player cache...");
@@ -518,7 +530,7 @@ public class MusicPlaybackSkill
                 var friendlyName = GetFriendlyName(state);
                 try
                 {
-                    var embedding = await _embeddingGenerator.GenerateAsync(friendlyName, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    var embedding = await _embeddingGenerator!.GenerateAsync(friendlyName, cancellationToken: cancellationToken).ConfigureAwait(false);
                     var entity = new MusicPlayerEntity
                     {
                         EntityId = state.EntityId,
@@ -751,7 +763,7 @@ public class MusicPlaybackSkill
             return cached;
         }
 
-        var embedding = await _embeddingGenerator.GenerateAsync(searchTerm).ConfigureAwait(false);
+        var embedding = await _embeddingGenerator!.GenerateAsync(searchTerm).ConfigureAwait(false);
         _searchTermEmbeddingCache.TryAdd(searchTerm, embedding);
         _logger.LogDebug("Cached search term embedding for '{SearchTerm}' ({Dimensions} dims)",
             searchTerm, embedding.Vector.Length);

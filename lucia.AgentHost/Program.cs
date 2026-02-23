@@ -40,7 +40,9 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.AddChatClient("chat");
-builder.AddEmbeddingsClient("embeddings");
+
+// Embeddings are now resolved from the Model Provider system via IEmbeddingProviderResolver.
+// No legacy AddEmbeddingsClient() call needed.
 
 // Register additional model deployments as keyed IChatClient services
 builder.AddKeyedChatClient("phi4");

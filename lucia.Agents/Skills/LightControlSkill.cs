@@ -19,7 +19,8 @@ namespace lucia.Agents.Skills;
 public class LightControlSkill : IAgentSkill
 {
     private readonly IHomeAssistantClient _homeAssistantClient;
-    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
+    private readonly IEmbeddingProviderResolver _embeddingResolver;
+    private IEmbeddingGenerator<string, Embedding<float>>? _embeddingService;
     private readonly ILogger<LightControlSkill> _logger;
     private readonly IDeviceCacheService _deviceCache;
     private volatile IReadOnlyList<LightEntity> _cachedLights = Array.Empty<LightEntity>();
@@ -45,12 +46,12 @@ public class LightControlSkill : IAgentSkill
 
     public LightControlSkill(
         IHomeAssistantClient homeAssistantClient,
-        IEmbeddingGenerator<string, Embedding<float>> embeddingService,
+        IEmbeddingProviderResolver embeddingResolver,
         ILogger<LightControlSkill> logger,
         IDeviceCacheService deviceCache)
     {
         _homeAssistantClient = homeAssistantClient;
-        _embeddingService = embeddingService;
+        _embeddingResolver = embeddingResolver;
         _logger = logger;
         _deviceCache = deviceCache;
     }
@@ -71,6 +72,16 @@ public class LightControlSkill : IAgentSkill
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Initializing LightControlPlugin and caching light entities...");
+
+        // Resolve the embedding generator from the provider system
+        _embeddingService = await _embeddingResolver.ResolveAsync(ct: cancellationToken).ConfigureAwait(false);
+        if (_embeddingService is null)
+        {
+            _logger.LogWarning("No embedding provider configured — light semantic search will not be available. " +
+                "Configure an Embedding provider in Model Providers to enable this feature.");
+            return;
+        }
+
         await RefreshLightCacheAsync(cancellationToken).ConfigureAwait(false);
         _logger.LogInformation("LightControlPlugin initialized with {LightCount} light entities", _cachedLights.Count);
     }
@@ -622,6 +633,12 @@ public class LightControlSkill : IAgentSkill
 
     private async Task RefreshLightCacheAsync(CancellationToken cancellationToken = default)
     {
+        if (_embeddingService is null)
+        {
+            _logger.LogWarning("Skipping light cache refresh — no embedding provider available.");
+            return;
+        }
+
         using var activity = ActivitySource.StartActivity("RefreshLightCache", ActivityKind.Internal);
         var start = Stopwatch.GetTimestamp();
         try
@@ -896,7 +913,7 @@ public class LightControlSkill : IAgentSkill
             return cached;
         }
 
-        var embedding = await _embeddingService.GenerateAsync(searchTerm).ConfigureAwait(false);
+        var embedding = await _embeddingService!.GenerateAsync(searchTerm).ConfigureAwait(false);
         _searchTermEmbeddingCache.TryAdd(searchTerm, embedding);
         _logger.LogDebug("Cached search term embedding for '{SearchTerm}' ({Dimensions} dims)",
             searchTerm, embedding.Vector.Length);

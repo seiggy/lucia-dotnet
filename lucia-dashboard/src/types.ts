@@ -194,6 +194,7 @@ export interface AgentDefinition {
   instructions?: string;
   tools: AgentToolReference[];
   modelConnectionName?: string;
+  embeddingProviderName?: string;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;

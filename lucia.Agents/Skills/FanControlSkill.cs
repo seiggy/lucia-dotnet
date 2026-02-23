@@ -31,7 +31,8 @@ public sealed class FanControlSkill : IAgentSkill
     private static readonly Counter<long> CacheRefreshes = Meter.CreateCounter<long>("fan.cache.refreshes");
 
     private readonly IHomeAssistantClient _homeAssistantClient;
-    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator;
+    private readonly IEmbeddingProviderResolver _embeddingResolver;
+    private IEmbeddingGenerator<string, Embedding<float>>? _embeddingGenerator;
     private readonly IDeviceCacheService _cacheService;
     private readonly ILogger<FanControlSkill> _logger;
 
@@ -42,12 +43,12 @@ public sealed class FanControlSkill : IAgentSkill
 
     public FanControlSkill(
         IHomeAssistantClient homeAssistantClient,
-        IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator,
+        IEmbeddingProviderResolver embeddingResolver,
         IDeviceCacheService cacheService,
         ILogger<FanControlSkill> logger)
     {
         _homeAssistantClient = homeAssistantClient;
-        _embeddingGenerator = embeddingGenerator;
+        _embeddingResolver = embeddingResolver;
         _cacheService = cacheService;
         _logger = logger;
     }
@@ -55,6 +56,14 @@ public sealed class FanControlSkill : IAgentSkill
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Initializing FanControlSkill...");
+
+        _embeddingGenerator = await _embeddingResolver.ResolveAsync(ct: cancellationToken).ConfigureAwait(false);
+        if (_embeddingGenerator is null)
+        {
+            _logger.LogWarning("No embedding provider configured — fan semantic search will not be available.");
+            return;
+        }
+
         await RefreshFanCacheAsync(cancellationToken).ConfigureAwait(false);
         _logger.LogInformation("FanControlSkill initialized with {Count} fans", _fans?.Count ?? 0);
     }
@@ -90,7 +99,7 @@ public sealed class FanControlSkill : IAgentSkill
             if (fans is null || fans.Count == 0)
                 return "No fans found. The fan cache may be empty.";
 
-            var searchEmbedding = await _embeddingGenerator.GenerateAsync(searchTerm).ConfigureAwait(false);
+            var searchEmbedding = await _embeddingGenerator!.GenerateAsync(searchTerm).ConfigureAwait(false);
 
             var matches = fans
                 .Select(f => new { Fan = f, Similarity = CosineSimilarity(searchEmbedding.Vector.Span, f.NameEmbedding.Vector.Span) })
@@ -169,7 +178,7 @@ public sealed class FanControlSkill : IAgentSkill
             if (fans is null || fans.Count == 0)
                 return "No fans found. The fan cache may be empty.";
 
-            var searchEmbedding = await _embeddingGenerator.GenerateAsync(areaName).ConfigureAwait(false);
+            var searchEmbedding = await _embeddingGenerator!.GenerateAsync(areaName).ConfigureAwait(false);
             var areaEmbeddings = _areaEmbeddings;
 
             string? bestArea = null;
@@ -499,6 +508,12 @@ public sealed class FanControlSkill : IAgentSkill
 
     private async Task RefreshFanCacheAsync(CancellationToken cancellationToken = default)
     {
+        if (_embeddingGenerator is null)
+        {
+            _logger.LogWarning("Skipping fan cache refresh — no embedding provider available.");
+            return;
+        }
+
         using var activity = ActivitySource.StartActivity();
         CacheRefreshes.Add(1);
 

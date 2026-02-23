@@ -20,7 +20,8 @@ namespace lucia.Agents.Skills;
 public sealed class ClimateControlSkill : IAgentSkill
 {
     private readonly IHomeAssistantClient _homeAssistantClient;
-    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingService;
+    private readonly IEmbeddingProviderResolver _embeddingResolver;
+    private IEmbeddingGenerator<string, Embedding<float>>? _embeddingService;
     private readonly ILogger<ClimateControlSkill> _logger;
     private readonly IDeviceCacheService _deviceCache;
     private readonly int _comfortAdjustmentF;
@@ -44,13 +45,13 @@ public sealed class ClimateControlSkill : IAgentSkill
 
     public ClimateControlSkill(
         IHomeAssistantClient homeAssistantClient,
-        IEmbeddingGenerator<string, Embedding<float>> embeddingService,
+        IEmbeddingProviderResolver embeddingResolver,
         ILogger<ClimateControlSkill> logger,
         IDeviceCacheService deviceCache,
         IConfiguration configuration)
     {
         _homeAssistantClient = homeAssistantClient;
-        _embeddingService = embeddingService;
+        _embeddingResolver = embeddingResolver;
         _logger = logger;
         _deviceCache = deviceCache;
         _comfortAdjustmentF = configuration.GetValue("ClimateAgent:ComfortAdjustmentF", 3);
@@ -75,6 +76,14 @@ public sealed class ClimateControlSkill : IAgentSkill
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Initializing ClimateControlSkill and caching climate entities...");
+
+        _embeddingService = await _embeddingResolver.ResolveAsync(ct: cancellationToken).ConfigureAwait(false);
+        if (_embeddingService is null)
+        {
+            _logger.LogWarning("No embedding provider configured — climate semantic search will not be available.");
+            return;
+        }
+
         await RefreshCacheAsync(cancellationToken).ConfigureAwait(false);
         _logger.LogInformation("ClimateControlSkill initialized with {DeviceCount} climate entities", _cachedDevices.Count);
     }
@@ -427,7 +436,7 @@ public sealed class ClimateControlSkill : IAgentSkill
                 ["preset_mode"] = presetMode
             };
 
-            await _homeAssistantClient.CallServiceAsync("climate", "set_preset_mode", request: request);
+            await _homeAssistantClient.CallServiceAsync("climate", "set_preset_mode", request: request).ConfigureAwait(false);
 
             _logger.LogInformation("Set preset mode for {EntityId} to {PresetMode}", entityId, presetMode);
             activity?.SetStatus(ActivityStatusCode.Ok);
@@ -464,7 +473,7 @@ public sealed class ClimateControlSkill : IAgentSkill
                 ["swing_mode"] = swingMode
             };
 
-            await _homeAssistantClient.CallServiceAsync("climate", "set_swing_mode", request: request);
+            await _homeAssistantClient.CallServiceAsync("climate", "set_swing_mode", request: request).ConfigureAwait(false);
 
             _logger.LogInformation("Set swing mode for {EntityId} to {SwingMode}", entityId, swingMode);
             activity?.SetStatus(ActivityStatusCode.Ok);
@@ -537,6 +546,12 @@ public sealed class ClimateControlSkill : IAgentSkill
 
     private async Task RefreshCacheAsync(CancellationToken cancellationToken = default)
     {
+        if (_embeddingService is null)
+        {
+            _logger.LogWarning("Skipping climate cache refresh — no embedding provider available.");
+            return;
+        }
+
         using var activity = ActivitySource.StartActivity();
         var start = Stopwatch.GetTimestamp();
         try
@@ -693,7 +708,7 @@ public sealed class ClimateControlSkill : IAgentSkill
         if (_searchTermEmbeddingCache.TryGetValue(searchTerm, out var cached))
             return cached;
 
-        var embedding = await _embeddingService.GenerateAsync(searchTerm).ConfigureAwait(false);
+        var embedding = await _embeddingService!.GenerateAsync(searchTerm).ConfigureAwait(false);
         _searchTermEmbeddingCache.TryAdd(searchTerm, embedding);
         return embedding;
     }
