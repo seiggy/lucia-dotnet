@@ -4,6 +4,35 @@
 #
 # Build (from repo root):
 #   docker build -f infra/docker/Dockerfile.music-agent -t lucia-music-agent:latest .
+#
+# Build args:
+#   INCLUDE_COPILOT_CLI - Include Copilot CLI binary (default: true)
+#   COPILOT_CLI_VERSION - Copilot CLI version to download (default: 0.0.411)
+
+# ============================================================================
+# Stage 0: Download Copilot CLI binary (resilient, downloaded once)
+# ============================================================================
+FROM alpine:3.21 AS copilot-cli
+
+ARG INCLUDE_COPILOT_CLI=true
+ARG COPILOT_CLI_VERSION=0.0.411
+ARG TARGETARCH
+
+RUN if [ "$INCLUDE_COPILOT_CLI" = "true" ]; then \
+      apk add --no-cache curl && \
+      PLATFORM=$(case "$TARGETARCH" in amd64) echo "linux-x64";; arm64) echo "linux-arm64";; *) echo "linux-x64";; esac) && \
+      RID=$(case "$TARGETARCH" in amd64) echo "linux-x64";; arm64) echo "linux-arm64";; *) echo "linux-x64";; esac) && \
+      mkdir -p /copilot-out/runtimes/${RID}/native && \
+      echo "Downloading Copilot CLI ${COPILOT_CLI_VERSION} for ${PLATFORM}..." && \
+      curl -fSL --retry 5 --retry-delay 10 --retry-max-time 300 \
+        "https://registry.npmjs.org/@github/copilot-${PLATFORM}/-/copilot-${PLATFORM}-${COPILOT_CLI_VERSION}.tgz" \
+        -o /tmp/copilot.tgz && \
+      tar -xzf /tmp/copilot.tgz --strip-components=1 -C /copilot-out/runtimes/${RID}/native && \
+      chmod +x /copilot-out/runtimes/${RID}/native/copilot && \
+      rm /tmp/copilot.tgz; \
+    else \
+      mkdir -p /copilot-out; \
+    fi
 
 # ============================================================================
 # Stage 1: Runtime base
@@ -37,7 +66,9 @@ COPY ["lucia.HomeAssistant/lucia.HomeAssistant.csproj", "lucia.HomeAssistant/"]
 COPY ["lucia.ServiceDefaults/lucia.ServiceDefaults.csproj", "lucia.ServiceDefaults/"]
 
 RUN dotnet restore "./lucia.A2AHost/lucia.A2AHost.csproj" \
- && dotnet restore "./lucia.MusicAgent/lucia.MusicAgent.csproj"
+    /p:CopilotSkipCliDownload=true \
+ && dotnet restore "./lucia.MusicAgent/lucia.MusicAgent.csproj" \
+    /p:CopilotSkipCliDownload=true
 
 # Copy source and publish both projects
 COPY . .
@@ -45,12 +76,14 @@ COPY . .
 RUN dotnet publish "./lucia.A2AHost/lucia.A2AHost.csproj" \
     -c $BUILD_CONFIGURATION \
     -o /app/host-publish \
-    /p:UseAppHost=false
+    /p:UseAppHost=false \
+    /p:CopilotSkipCliDownload=true
 
 RUN dotnet publish "./lucia.MusicAgent/lucia.MusicAgent.csproj" \
     -c $BUILD_CONFIGURATION \
     -o /app/plugin-publish \
-    /p:UseAppHost=false
+    /p:UseAppHost=false \
+    /p:CopilotSkipCliDownload=true
 
 # ============================================================================
 # Stage 3: Final production image
@@ -69,6 +102,9 @@ ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false \
 
 # Copy A2AHost application
 COPY --from=build --chown=appuser:appuser /app/host-publish .
+
+# Copy Copilot CLI binary (if INCLUDE_COPILOT_CLI=true)
+COPY --from=copilot-cli --chown=appuser:appuser /copilot-out/ ./
 
 # Create plugins directory and copy plugin DLL
 RUN mkdir -p /app/plugins && chown appuser:appuser /app/plugins
