@@ -2,14 +2,46 @@
 # Purpose: Create optimized production image for lucia.AgentHost service
 # 
 # Stages:
+#   - copilot-cli: Download Copilot CLI binary (optional, resilient)
 #   - node-build: Build the React SPA dashboard with Node.js
 #   - base: ASP.NET 10.0 runtime base image with non-root user
 #   - build: Build the application with .NET SDK
 #   - publish: Publish optimized release build
 #   - final: Production image with health checks and security hardening
+#
+# Build args:
+#   INCLUDE_COPILOT_CLI - Include Copilot CLI binary (default: true)
+#   COPILOT_CLI_VERSION - Copilot CLI version to download (default: 0.0.411)
+#   BUILD_CONFIGURATION - Debug or Release (default: Release)
+#   BUILD_TARGET_FRAMEWORK - Target framework version (default: net10.0)
 
 # ============================================================================
-# Stage 0: Node.js Build Stage (React SPA Dashboard)
+# Stage 0a: Download Copilot CLI binary (resilient, downloaded once)
+# ============================================================================
+FROM alpine:3.21 AS copilot-cli
+
+ARG INCLUDE_COPILOT_CLI=true
+ARG COPILOT_CLI_VERSION=0.0.411
+ARG TARGETARCH
+
+RUN if [ "$INCLUDE_COPILOT_CLI" = "true" ]; then \
+      apk add --no-cache curl && \
+      PLATFORM=$(case "$TARGETARCH" in amd64) echo "linux-x64";; arm64) echo "linux-arm64";; *) echo "linux-x64";; esac) && \
+      RID=$(case "$TARGETARCH" in amd64) echo "linux-x64";; arm64) echo "linux-arm64";; *) echo "linux-x64";; esac) && \
+      mkdir -p /copilot-out/runtimes/${RID}/native && \
+      echo "Downloading Copilot CLI ${COPILOT_CLI_VERSION} for ${PLATFORM}..." && \
+      curl -fSL --retry 5 --retry-delay 10 --retry-max-time 300 \
+        "https://registry.npmjs.org/@github/copilot-${PLATFORM}/-/copilot-${PLATFORM}-${COPILOT_CLI_VERSION}.tgz" \
+        -o /tmp/copilot.tgz && \
+      tar -xzf /tmp/copilot.tgz --strip-components=1 -C /copilot-out/runtimes/${RID}/native && \
+      chmod +x /copilot-out/runtimes/${RID}/native/copilot && \
+      rm /tmp/copilot.tgz; \
+    else \
+      mkdir -p /copilot-out; \
+    fi
+
+# ============================================================================
+# Stage 0b: Node.js Build Stage (React SPA Dashboard)
 # ============================================================================
 FROM node:22-alpine AS node-build
 
@@ -64,11 +96,12 @@ COPY ["lucia.Agents/lucia.Agents.csproj", "lucia.Agents/"]
 COPY ["lucia.HomeAssistant/lucia.HomeAssistant.csproj", "lucia.HomeAssistant/"]
 COPY ["lucia.ServiceDefaults/lucia.ServiceDefaults.csproj", "lucia.ServiceDefaults/"]
 
-# Restore dependencies
+# Restore dependencies (skip Copilot CLI download — handled in copilot-cli stage)
 # This layer is cached unless .csproj files change
 RUN dotnet restore "./lucia.AgentHost/lucia.AgentHost.csproj" \
     --runtime linux-x64 \
-    /p:PublishReadyToRun=true
+    /p:PublishReadyToRun=true \
+    /p:CopilotSkipCliDownload=true
 
 # Copy entire source tree
 COPY . .
@@ -81,7 +114,8 @@ RUN dotnet build "./lucia.AgentHost/lucia.AgentHost.csproj" \
     -o /app/build \
     --runtime linux-x64 \
     --framework $BUILD_TARGET_FRAMEWORK \
-    --no-restore
+    --no-restore \
+    /p:CopilotSkipCliDownload=true
 
 # ============================================================================
 # Stage 3: Publish Stage
@@ -102,7 +136,8 @@ RUN dotnet publish "./lucia.AgentHost/lucia.AgentHost.csproj" \
     --runtime linux-x64 \
     /p:UseAppHost=false \
     /p:PublishTrimmed=false \
-    /p:PublishReadyToRun=true
+    /p:PublishReadyToRun=true \
+    /p:CopilotSkipCliDownload=true
 
 # ============================================================================
 # Stage 4: Final Production Image
@@ -123,6 +158,9 @@ ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false \
 # Copy published application from publish stage
 COPY --from=publish --chown=appuser:appuser /app/publish .
 
+# Copy Copilot CLI binary (if INCLUDE_COPILOT_CLI=true)
+COPY --from=copilot-cli --chown=appuser:appuser /copilot-out/ ./
+
 # Copy built SPA dashboard into wwwroot for static file serving
 COPY --from=node-build --chown=appuser:appuser /app/dist ./wwwroot/
 
@@ -141,13 +179,15 @@ ENTRYPOINT ["dotnet", "lucia.AgentHost.dll"]
 # Build arguments documentation:
 # BUILD_CONFIGURATION - "Debug" or "Release" (default: Release)
 # BUILD_TARGET_FRAMEWORK - Target framework version (default: net10.0)
+# INCLUDE_COPILOT_CLI - Include Copilot CLI binary (default: true, set false for smaller image)
+# COPILOT_CLI_VERSION - Copilot CLI version (default: 0.0.411)
 #
 # Usage examples:
 #   # Standard production build
 #   docker build -t lucia:latest -f infra/docker/Dockerfile .
 #
+#   # Build without Copilot CLI (smaller image)
+#   docker build --build-arg INCLUDE_COPILOT_CLI=false -t lucia:latest -f infra/docker/Dockerfile .
+#
 #   # Debug build for troubleshooting
 #   docker build --build-arg BUILD_CONFIGURATION=Debug -t lucia:debug -f infra/docker/Dockerfile .
-#
-#   # Specific framework (if supporting multiple)
-#   docker build --build-arg BUILD_TARGET_FRAMEWORK=net10.0 -t lucia:net10 -f infra/docker/Dockerfile .
