@@ -197,6 +197,8 @@ export interface AgentDefinition {
   embeddingProviderName?: string;
   enabled: boolean;
   isBuiltIn: boolean;
+  isRemote: boolean;
+  isOrchestrator: boolean;
   createdAt: string;
   updatedAt: string;
 }

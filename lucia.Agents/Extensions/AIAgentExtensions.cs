@@ -158,11 +158,174 @@ namespace lucia.Agents.Extensions
             }
         }
 
+        /// <summary>
+        /// Lazy variant of MapA2ACore that defers AIHostAgent creation until the first request,
+        /// allowing agents to be initialized after endpoint mapping.
+        /// </summary>
+        private static ITaskManager MapA2ACoreLazy(
+            Func<AIAgent> agentFactory,
+            ITaskManager? taskManager,
+            ILoggerFactory? loggerFactory,
+            AgentCard? agentCard)
+        {
+            AIHostAgent? hostAgent = null;
+            object lockObj = new();
+
+            taskManager ??= new TaskManager();
+            taskManager.OnMessageReceived += OnMessageReceivedAsync;
+
+            if (agentCard is not null)
+            {
+                taskManager.OnAgentCardQuery += (context, query) =>
+                {
+                    if (string.IsNullOrEmpty(agentCard.Url))
+                    {
+                        var agentCardUrl = context.TrimEnd('/');
+                        if (!context.EndsWith("/v1/card", StringComparison.Ordinal))
+                        {
+                            agentCardUrl += "/v1/card";
+                        }
+                        agentCard.Url = agentCardUrl;
+                    }
+                    return Task.FromResult(agentCard);
+                };
+            }
+
+            return taskManager;
+
+            AIHostAgent EnsureHostAgent()
+            {
+                if (hostAgent is not null) return hostAgent;
+                lock (lockObj)
+                {
+                    hostAgent ??= new AIHostAgent(
+                        innerAgent: agentFactory(),
+                        sessionStore: new NoopAgentSessionStore());
+                }
+                return hostAgent;
+            }
+
+            async Task<A2AResponse> OnMessageReceivedAsync(MessageSendParams messageSendParams, CancellationToken cancellationToken)
+            {
+                var resolved = EnsureHostAgent();
+                var contextId = messageSendParams.Message.ContextId ?? Guid.NewGuid().ToString("N");
+                var session = await resolved.GetOrCreateSessionAsync(contextId, cancellationToken).ConfigureAwait(false);
+
+                var chatMessages = messageSendParams.ToChatMessages();
+                foreach (var msg in chatMessages)
+                {
+                    msg.AdditionalProperties ??= new AdditionalPropertiesDictionary();
+                    msg.AdditionalProperties["a2a.contextId"] = contextId;
+                }
+
+                var response = await resolved.RunAsync(
+                    chatMessages,
+                    session: session,
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+
+                await resolved.SaveSessionAsync(contextId, session, cancellationToken).ConfigureAwait(false);
+
+                var needsInput = response.Messages
+                    .Any(m => m.AdditionalProperties?.TryGetValue("lucia.needsInput", out var val) == true
+                              && val is true);
+
+                var parts = response.Messages.ToParts();
+                var responseId = response.ResponseId ?? Guid.NewGuid().ToString("N");
+
+                if (needsInput)
+                {
+                    var taskId = Guid.NewGuid().ToString("N");
+                    var agentMessage = new AgentMessage
+                    {
+                        MessageId = responseId,
+                        ContextId = contextId,
+                        TaskId = taskId,
+                        Role = MessageRole.Agent,
+                        Parts = parts
+                    };
+
+                    return new AgentTask
+                    {
+                        Id = taskId,
+                        ContextId = contextId,
+                        Status = new AgentTaskStatus
+                        {
+                            State = TaskState.InputRequired,
+                            Message = agentMessage,
+                            Timestamp = DateTimeOffset.UtcNow
+                        },
+                        History = [agentMessage]
+                    };
+                }
+
+                var hasLongRunningCapabilities = agentCard?.Capabilities is { } caps
+                    && (caps.PushNotifications == true || caps.StateTransitionHistory == true);
+
+                var performedAction = response.Messages
+                    .Any(m => m.Contents.OfType<FunctionResultContent>().Any());
+
+                if (hasLongRunningCapabilities && performedAction)
+                {
+                    var taskId = Guid.NewGuid().ToString("N");
+                    var agentMessage = new AgentMessage
+                    {
+                        MessageId = responseId,
+                        ContextId = contextId,
+                        TaskId = taskId,
+                        Role = MessageRole.Agent,
+                        Parts = parts
+                    };
+
+                    return new AgentTask
+                    {
+                        Id = taskId,
+                        ContextId = contextId,
+                        Status = new AgentTaskStatus
+                        {
+                            State = TaskState.Working,
+                            Message = agentMessage,
+                            Timestamp = DateTimeOffset.UtcNow
+                        },
+                        History = [agentMessage]
+                    };
+                }
+
+                return new AgentMessage
+                {
+                    MessageId = responseId,
+                    ContextId = contextId,
+                    Role = MessageRole.Agent,
+                    Parts = parts
+                };
+            }
+        }
+
         public static IEndpointConventionBuilder MapA2A(this IEndpointRouteBuilder endpoints, AIAgent agent, string path)
         => endpoints.MapA2A(agent, path, agentCard: null, _ => { });
 
         public static IEndpointConventionBuilder MapA2A(this IEndpointRouteBuilder endpoints, AIAgent agent, string path, AgentCard agentCard)
         => endpoints.MapA2A(agent, path, agentCard, _ => { });
+
+        public static IEndpointConventionBuilder MapA2ALazy(this IEndpointRouteBuilder endpoints, Func<AIAgent> agentFactory, string path, AgentCard agentCard)
+        => endpoints.MapA2ALazy(agentFactory, path, agentCard, _ => { });
+
+        /// <summary>
+        /// Maps an A2A endpoint with lazy agent resolution. The <paramref name="agentFactory"/>
+        /// is invoked on the first request, allowing the agent to be initialized after app startup.
+        /// </summary>
+        public static IEndpointConventionBuilder MapA2ALazy(this IEndpointRouteBuilder endpoints, Func<AIAgent> agentFactory, string path, AgentCard agentCard, Action<ITaskManager> configureTaskManager)
+        {
+            ArgumentNullException.ThrowIfNull(endpoints);
+            ArgumentNullException.ThrowIfNull(agentFactory);
+
+            var loggerFactory = endpoints.ServiceProvider.GetRequiredService<ILoggerFactory>();
+            var taskManager = MapA2ACoreLazy(agentFactory, taskManager: null, loggerFactory, agentCard);
+            var endpointConventionBuilder = endpoints.MapA2A(taskManager, path);
+
+            configureTaskManager(taskManager);
+
+            return endpointConventionBuilder;
+        }
 
         public static IEndpointConventionBuilder MapA2A(this IEndpointRouteBuilder endpoints, AIAgent agent, string path, AgentCard? agentCard, Action<ITaskManager> configureTaskManager)
         {

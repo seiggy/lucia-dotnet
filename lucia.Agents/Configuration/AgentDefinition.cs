@@ -66,6 +66,19 @@ public sealed class AgentDefinition
     /// </summary>
     public bool IsBuiltIn { get; set; }
 
+    /// <summary>
+    /// Indicates the agent is hosted in a separate process (e.g. A2AHost plugin).
+    /// Remote agents register themselves on startup and should not be instantiated
+    /// by the main AgentHost's dynamic loader or initialization service.
+    /// </summary>
+    public bool IsRemote { get; set; }
+
+    /// <summary>
+    /// Indicates this agent is the orchestrator. The orchestrator is not instantiated
+    /// by the dynamic agent loader and has its own specialized endpoint mapping.
+    /// </summary>
+    public bool IsOrchestrator { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;

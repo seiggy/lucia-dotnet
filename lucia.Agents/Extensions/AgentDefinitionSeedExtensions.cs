@@ -16,14 +16,19 @@ public static class AgentDefinitionSeedExtensions
     /// <see cref="AgentDefinition"/> in MongoDB. Existing definitions are
     /// never overwritten, preserving user customizations.
     /// </summary>
+    /// <param name="isRemote">
+    /// When <c>true</c>, marks seeded definitions as remotely hosted (A2AHost plugins).
+    /// Remote agents are not instantiated by the main AgentHost's dynamic loader.
+    /// </param>
     public static async Task SeedBuiltInAgentDefinitionsAsync(
         this IAgentDefinitionRepository repository,
         IEnumerable<ILuciaAgent> agents,
         ILogger logger,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        bool isRemote = false)
     {
         var existing = await repository.GetAllAgentDefinitionsAsync(ct).ConfigureAwait(false);
-        var existingIds = new HashSet<string>(existing.Select(d => d.Id), StringComparer.OrdinalIgnoreCase);
+        var existingById = existing.ToDictionary(d => d.Id, StringComparer.OrdinalIgnoreCase);
 
         foreach (var agent in agents)
         {
@@ -33,8 +38,25 @@ public static class AgentDefinitionSeedExtensions
             if (string.IsNullOrWhiteSpace(agentId))
                 continue;
 
-            if (existingIds.Contains(agentId))
+            var isOrchestrator = agent is Agents.OrchestratorAgent;
+
+            if (existingById.TryGetValue(agentId, out var existingDef))
+            {
+                // Ensure flags are up-to-date on pre-existing definitions (migration)
+                var needsUpdate = false;
+                if (!existingDef.IsBuiltIn) { existingDef.IsBuiltIn = true; needsUpdate = true; }
+                if (existingDef.IsRemote != isRemote) { existingDef.IsRemote = isRemote; needsUpdate = true; }
+                if (existingDef.IsOrchestrator != isOrchestrator) { existingDef.IsOrchestrator = isOrchestrator; needsUpdate = true; }
+
+                if (needsUpdate)
+                {
+                    existingDef.UpdatedAt = DateTime.UtcNow;
+                    await repository.UpsertAgentDefinitionAsync(existingDef, ct).ConfigureAwait(false);
+                    logger.LogInformation("Updated flags on existing AgentDefinition '{AgentId}'.", agentId);
+                }
+
                 continue;
+            }
 
             var definition = new AgentDefinition
             {
@@ -44,6 +66,8 @@ public static class AgentDefinitionSeedExtensions
                 Description = card.Description ?? $"Built-in {agentId} agent",
                 Instructions = string.Empty,
                 IsBuiltIn = true,
+                IsRemote = isRemote,
+                IsOrchestrator = isOrchestrator,
                 Enabled = true,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow

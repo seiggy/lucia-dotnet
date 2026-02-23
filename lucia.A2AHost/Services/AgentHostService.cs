@@ -47,7 +47,8 @@ namespace lucia.A2AHost.Services
             await WaitForHomeAssistantConfigurationAsync(cancellationToken);
 
             // Seed AgentDefinition documents for any plugin agents missing from MongoDB
-            await _definitionRepository.SeedBuiltInAgentDefinitionsAsync(_hostedAgents, _logger, cancellationToken);
+            // Mark as remote since these agents are hosted in this separate A2AHost process
+            await _definitionRepository.SeedBuiltInAgentDefinitionsAsync(_hostedAgents, _logger, cancellationToken, isRemote: true);
 
             foreach (var agent in _hostedAgents)
             {

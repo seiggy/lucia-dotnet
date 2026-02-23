@@ -125,6 +125,12 @@ export default function AgentDefinitionsPage() {
                     {def.isBuiltIn && (
                       <span className="rounded bg-blue-900/50 px-2 py-0.5 text-xs text-blue-300">System</span>
                     )}
+                    {def.isOrchestrator && (
+                      <span className="rounded bg-amber-900/50 px-2 py-0.5 text-xs text-amber-300">Orchestrator</span>
+                    )}
+                    {def.isRemote && (
+                      <span className="rounded bg-purple-900/50 px-2 py-0.5 text-xs text-purple-300">Remote</span>
+                    )}
                     {!def.enabled && (
                       <span className="rounded bg-yellow-900/50 px-2 py-0.5 text-xs text-yellow-400">disabled</span>
                     )}
@@ -324,7 +330,7 @@ function AgentForm({
                 onChange={e => setForm(f => ({ ...f, modelConnectionName: e.target.value }))}
                 className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm"
               >
-                <option value="">Default (system model)</option>
+                <option value="">— Select a model provider —</option>
                 {providers.filter(p => p.purpose !== 'Embedding').map(p => (
                   <option key={p.id} value={p.id}>
                     {p.name} ({p.providerType} · {p.modelName})
@@ -339,7 +345,7 @@ function AgentForm({
                 onChange={e => setForm(f => ({ ...f, embeddingProviderName: e.target.value }))}
                 className="mt-1 block w-full rounded border border-gray-600 bg-gray-700 px-3 py-2 text-sm"
               >
-                <option value="">Default (system embedding)</option>
+                <option value="">— Select an embedding provider —</option>
                 {providers.filter(p => p.purpose === 'Embedding').map(p => (
                   <option key={p.id} value={p.id}>
                     {p.name} ({p.providerType} · {p.modelName})

@@ -3,6 +3,7 @@ using A2A;
 using A2A.AspNetCore;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Agents;
+using lucia.Agents.Extensions;
 using lucia.Agents.Registry;
 
 namespace lucia.AgentHost.Extensions;
@@ -20,7 +21,7 @@ public static class AgentDiscoveryExtension
                 .OfType<OrchestratorAgent>()
                 .Single();
             var orchestratorCard = orchestratorAgent.GetAgentCard();
-            app.MapA2A(orchestratorAgent.GetAIAgent(), path: "/agent", agentCard: orchestratorCard,
+            app.MapA2ALazy(() => orchestratorAgent.GetAIAgent(), path: "/agent", agentCard: orchestratorCard,
                 taskManager => app.MapWellKnownAgentCard(taskManager, "/agent"));
 
             // Map A2A endpoints for all other in-process agents with relative paths
@@ -34,7 +35,7 @@ public static class AgentDiscoveryExtension
                 var card = agent.GetAgentCard();
                 if (card.Url is not null && card.Url.StartsWith('/'))
                 {
-                    app.MapA2A(agent.GetAIAgent(), path: card.Url, agentCard: card);
+                    app.MapA2ALazy(() => agent.GetAIAgent(), path: card.Url, agentCard: card);
                     logger.LogInformation("Mapped in-process A2A endpoint at {Path} for agent {Name}", card.Url, card.Name);
                 }
             }

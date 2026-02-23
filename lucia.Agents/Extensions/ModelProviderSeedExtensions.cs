@@ -1,3 +1,4 @@
+using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
 using lucia.Agents.Mcp;
 using Microsoft.Extensions.Configuration;
@@ -8,16 +9,19 @@ namespace lucia.Agents.Extensions;
 /// <summary>
 /// Seeds <see cref="ModelProvider"/> documents from environment/connection-string
 /// configuration when upgrading from a version that didn't use the provider system.
-/// Only runs when setup is complete (not first-run wizard) and no providers exist yet.
+/// Checks for each built-in provider by ID so it works regardless of whether the
+/// user has already created their own providers.
 /// </summary>
 public static class ModelProviderSeedExtensions
 {
     private const string DefaultChatProviderId = "default-chat";
     private const string DefaultChatProviderName = "Default Chat Model";
+    private const string DefaultEmbeddingProviderId = "default-embeddings";
+    private const string DefaultEmbeddingProviderName = "Default Embedding Model";
 
     /// <summary>
-    /// If the system has completed onboarding but has no model providers in MongoDB,
-    /// creates built-in providers from the environment-configured connection strings.
+    /// If the system has completed onboarding, checks for missing built-in providers
+    /// and creates them from the environment-configured connection strings.
     /// </summary>
     public static async Task SeedDefaultModelProvidersAsync(
         this IModelProviderRepository repository,
@@ -33,35 +37,57 @@ public static class ModelProviderSeedExtensions
             return;
         }
 
-        var existing = await repository.GetAllProvidersAsync(ct).ConfigureAwait(false);
-        if (existing.Count > 0)
-        {
-            logger.LogDebug("Model providers already exist ({Count}) — skipping seed.", existing.Count);
-            return;
-        }
+        // Seed each built-in provider independently — check by ID so existing
+        // user-created providers don't block seeding of the defaults.
+        await SeedProviderFromConnectionStringAsync(
+            repository, configuration, logger,
+            connectionName: "chat",
+            providerId: DefaultChatProviderId,
+            providerName: DefaultChatProviderName,
+            purpose: ModelPurpose.Chat,
+            ct).ConfigureAwait(false);
 
-        logger.LogInformation("No model providers found after setup. Seeding defaults from connection strings...");
-
-        // Seed the default chat provider from the "chat" connection string
-        await SeedChatProviderAsync(repository, configuration, logger, ct).ConfigureAwait(false);
+        await SeedProviderFromConnectionStringAsync(
+            repository, configuration, logger,
+            connectionName: "embeddings",
+            providerId: DefaultEmbeddingProviderId,
+            providerName: DefaultEmbeddingProviderName,
+            purpose: ModelPurpose.Embedding,
+            ct).ConfigureAwait(false);
     }
 
-    private static async Task SeedChatProviderAsync(
+    private static async Task SeedProviderFromConnectionStringAsync(
         IModelProviderRepository repository,
         IConfiguration configuration,
         ILogger logger,
+        string connectionName,
+        string providerId,
+        string providerName,
+        ModelPurpose purpose,
         CancellationToken ct)
     {
-        var connectionString = configuration.GetConnectionString("chat");
+        // Check if this specific built-in provider already exists
+        var existing = await repository.GetProviderAsync(providerId, ct).ConfigureAwait(false);
+        if (existing is not null)
+        {
+            logger.LogDebug("Built-in provider '{Id}' already exists — skipping seed.", providerId);
+            return;
+        }
+
+        var connectionString = configuration.GetConnectionString(connectionName);
         if (string.IsNullOrWhiteSpace(connectionString))
         {
-            logger.LogWarning("No 'chat' connection string found — cannot seed default chat provider.");
+            logger.LogWarning(
+                "No '{ConnectionName}' connection string found — cannot seed built-in provider '{Id}'.",
+                connectionName, providerId);
             return;
         }
 
         if (!ChatClientConnectionInfo.TryParse(connectionString, out var info))
         {
-            logger.LogWarning("Could not parse 'chat' connection string — cannot seed default chat provider.");
+            logger.LogWarning(
+                "Could not parse '{ConnectionName}' connection string — cannot seed built-in provider '{Id}'.",
+                connectionName, providerId);
             return;
         }
 
@@ -76,22 +102,24 @@ public static class ModelProviderSeedExtensions
 
         if (providerType is null)
         {
-            logger.LogWarning("Unsupported provider type '{Provider}' in chat connection string — skipping seed.",
-                info.Provider);
+            logger.LogWarning(
+                "Unsupported provider type '{Provider}' in '{ConnectionName}' connection string — skipping seed.",
+                info.Provider, connectionName);
             return;
         }
 
         var provider = new ModelProvider
         {
-            Id = DefaultChatProviderId,
-            Name = DefaultChatProviderName,
+            Id = providerId,
+            Name = providerName,
             ProviderType = providerType.Value,
-            Purpose = ModelPurpose.Chat,
+            Purpose = purpose,
             Endpoint = info.Endpoint?.ToString(),
             ModelName = info.SelectedModel,
             Auth = new ModelAuthConfig
             {
-                ApiKey = info.AccessKey
+                ApiKey = info.AccessKey,
+                UseDefaultCredentials = string.IsNullOrWhiteSpace(info.AccessKey)
             },
             Enabled = true,
             IsBuiltIn = true,
@@ -101,7 +129,7 @@ public static class ModelProviderSeedExtensions
 
         await repository.UpsertProviderAsync(provider, ct).ConfigureAwait(false);
         logger.LogInformation(
-            "Seeded default chat provider '{Id}' ({ProviderType}, model={Model}, endpoint={Endpoint})",
-            provider.Id, provider.ProviderType, provider.ModelName, provider.Endpoint ?? "(default)");
+            "Seeded built-in {Purpose} provider '{Id}' ({ProviderType}, model={Model}, endpoint={Endpoint})",
+            purpose, provider.Id, provider.ProviderType, provider.ModelName, provider.Endpoint ?? "(default)");
     }
 }
