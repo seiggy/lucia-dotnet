@@ -83,7 +83,11 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
 
    **Step 2 — Configure:** Generate a Dashboard API key and connect to your Home Assistant instance by entering its URL and a long-lived access token.
 
-   **Step 3 — Connect HA Plugin:** Set up the Home Assistant custom component to communicate back to Lucia.
+   ![Setup Wizard — Connect](docs/images/setup-connect.png)
+
+   **Step 3 — Connect HA Plugin:** Generate an API key for the Home Assistant custom component, configure it in HA, and wait for the plugin to connect back to Lucia.
+
+   ![Setup Wizard — Done](docs/images/setup-done.png)
 
    **Step 4 — Done:** Setup is complete. You'll use the generated API key to sign in.
 
