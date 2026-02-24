@@ -8,7 +8,7 @@ import {
   invalidateEntityLocationCache,
 } from '../api'
 import {
-  MapPin, Building2, Layers, Hash, Loader2, RefreshCw, Search, Clock,
+  MapPin, Building2, Layers, Hash, Loader2, RefreshCw, Search, Clock, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 
 interface FloorInfo {
@@ -24,7 +24,8 @@ interface AreaInfo {
   name: string
   floorId: string | null
   aliases: string[]
-  entityIds: string[]
+  entityIds?: string[]
+  entityCount?: number
   icon: string | null
   labels: string[]
 }
@@ -80,6 +81,8 @@ export default function EntityLocationPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [searchDomain, setSearchDomain] = useState('')
   const [domainFilter, setDomainFilter] = useState('')
+  const [entityPage, setEntityPage] = useState(0)
+  const entityPageSize = 50
 
   const loadSummary = useCallback(async () => {
     try {
@@ -97,7 +100,11 @@ export default function EntityLocationPage() {
     try {
       if (tab === 'floors') setFloors(await fetchEntityLocationFloors())
       else if (tab === 'areas') setAreas(await fetchEntityLocationAreas())
-      else if (tab === 'entities') setEntities(await fetchEntityLocationEntities(domainFilter || undefined))
+      else if (tab === 'entities') {
+        const result = await fetchEntityLocationEntities(domainFilter || undefined)
+        setEntities(result)
+        setEntityPage(0)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
     } finally {
@@ -134,13 +141,17 @@ export default function EntityLocationPage() {
     setSearching(true)
     setError(null)
     try {
-      setSearchResults(await searchEntityLocation(searchTerm.trim(), searchDomain || undefined))
+      const data = await searchEntityLocation(searchTerm.trim(), searchDomain || undefined)
+      setSearchResults(data.entities ?? data)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Search failed')
     } finally {
       setSearching(false)
     }
   }
+
+  const entityPageCount = Math.max(1, Math.ceil(entities.length / entityPageSize))
+  const pagedEntities = entities.slice(entityPage * entityPageSize, (entityPage + 1) * entityPageSize)
 
   const tabs: { id: Tab; label: string; icon: typeof Layers }[] = [
     { id: 'floors', label: 'Floors', icon: Layers },
@@ -280,7 +291,7 @@ export default function EntityLocationPage() {
                     <td className="px-4 py-3 font-medium text-light">{a.name}</td>
                     <td className="px-4 py-3 text-dust">{a.areaId}</td>
                     <td className="px-4 py-3 text-fog">{a.floorId ?? '—'}</td>
-                    <td className="px-4 py-3"><Badge color="sky">{a.entityIds.length}</Badge></td>
+                    <td className="px-4 py-3"><Badge color="sky">{a.entityCount ?? a.entityIds?.length ?? 0}</Badge></td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">
                         {a.aliases.length > 0
@@ -321,39 +332,81 @@ export default function EntityLocationPage() {
           {loading ? (
             <p className="flex items-center gap-2 text-dust"><Loader2 className="h-4 w-4 animate-spin" /> Loading entities…</p>
           ) : (
-            <div className="glass-panel overflow-x-auto rounded-xl">
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-stone text-xs font-medium uppercase tracking-wider text-dust">
-                  <tr>
-                    <th className="px-4 py-3">Entity ID</th>
-                    <th className="px-4 py-3">Friendly Name</th>
-                    <th className="px-4 py-3">Domain</th>
-                    <th className="px-4 py-3">Area</th>
-                    <th className="px-4 py-3">Aliases</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone/50">
-                  {entities.map((e) => (
-                    <tr key={e.entityId} className="transition-colors hover:bg-basalt/60">
-                      <td className="px-4 py-3 font-mono text-xs text-fog">{e.entityId}</td>
-                      <td className="px-4 py-3 text-light">{e.friendlyName}</td>
-                      <td className="px-4 py-3"><Badge>{e.domain}</Badge></td>
-                      <td className="px-4 py-3 text-fog">{e.areaId ?? '—'}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-1">
-                          {e.aliases.length > 0
-                            ? e.aliases.map((a) => <Badge key={a} color="sage">{a}</Badge>)
-                            : <span className="text-dust">—</span>}
-                        </div>
-                      </td>
+            <>
+              <div className="glass-panel overflow-x-auto rounded-xl">
+                <table className="w-full text-left text-sm">
+                  <thead className="border-b border-stone text-xs font-medium uppercase tracking-wider text-dust">
+                    <tr>
+                      <th className="px-4 py-3">Entity ID</th>
+                      <th className="px-4 py-3">Friendly Name</th>
+                      <th className="px-4 py-3">Domain</th>
+                      <th className="px-4 py-3">Area</th>
+                      <th className="px-4 py-3">Aliases</th>
                     </tr>
-                  ))}
-                  {entities.length === 0 && (
-                    <tr><td colSpan={5} className="px-4 py-12 text-center text-dust">No entities found.</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-stone/50">
+                    {pagedEntities.map((e) => (
+                      <tr key={e.entityId} className="transition-colors hover:bg-basalt/60">
+                        <td className="px-4 py-3 font-mono text-xs text-fog">{e.entityId}</td>
+                        <td className="px-4 py-3 text-light">{e.friendlyName}</td>
+                        <td className="px-4 py-3"><Badge>{e.domain}</Badge></td>
+                        <td className="px-4 py-3 text-fog">{e.areaId ?? '—'}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap gap-1">
+                            {e.aliases.length > 0
+                              ? e.aliases.map((a) => <Badge key={a} color="sage">{a}</Badge>)
+                              : <span className="text-dust">—</span>}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {entities.length === 0 && (
+                      <tr><td colSpan={5} className="px-4 py-12 text-center text-dust">No entities found.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {entityPageCount > 1 && (
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-dust">
+                    Showing {entityPage * entityPageSize + 1}–{Math.min((entityPage + 1) * entityPageSize, entities.length)} of {entities.length}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setEntityPage(p => Math.max(0, p - 1))}
+                      disabled={entityPage === 0}
+                      className="rounded-lg border border-stone bg-basalt p-1.5 text-fog hover:bg-stone/40 disabled:opacity-30"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    {Array.from({ length: entityPageCount }, (_, i) => (
+                      <button
+                        key={i}
+                        onClick={() => setEntityPage(i)}
+                        className={`min-w-[2rem] rounded-lg border px-2 py-1 text-xs font-medium ${
+                          i === entityPage
+                            ? 'border-amber bg-amber/15 text-amber'
+                            : 'border-stone bg-basalt text-dust hover:bg-stone/40'
+                        }`}
+                      >
+                        {i + 1}
+                      </button>
+                    )).slice(
+                      Math.max(0, entityPage - 2),
+                      Math.min(entityPageCount, entityPage + 3)
+                    )}
+                    {entityPage + 3 < entityPageCount && <span className="px-1 text-xs text-dust">…</span>}
+                    <button
+                      onClick={() => setEntityPage(p => Math.min(entityPageCount - 1, p + 1))}
+                      disabled={entityPage >= entityPageCount - 1}
+                      className="rounded-lg border border-stone bg-basalt p-1.5 text-fog hover:bg-stone/40 disabled:opacity-30"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </>
       )}

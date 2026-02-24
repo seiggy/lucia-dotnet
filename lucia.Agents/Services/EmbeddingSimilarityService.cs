@@ -9,8 +9,11 @@ namespace lucia.Agents.Services;
 /// </summary>
 public sealed class EmbeddingSimilarityService : IEmbeddingSimilarityService
 {
-    public double ComputeSimilarity(Embedding<float> a, Embedding<float> b)
+    public double ComputeSimilarity(Embedding<float>? a, Embedding<float>? b)
     {
+        if (a is null || b is null)
+            return 0.0;
+
         var spanA = a.Vector.Span;
         var spanB = b.Vector.Span;
 

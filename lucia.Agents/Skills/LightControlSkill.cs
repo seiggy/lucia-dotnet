@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
@@ -24,7 +25,7 @@ public class LightControlSkill : IAgentSkill
     private readonly IDeviceCacheService _deviceCache;
     private readonly IEntityLocationService _locationService;
     private readonly IEmbeddingSimilarityService _similarity;
-    private volatile IReadOnlyList<LightEntity> _cachedLights = Array.Empty<LightEntity>();
+    private ImmutableArray<LightEntity> _cachedLights = [];
     private long _lastCacheUpdateTicks = DateTime.MinValue.Ticks;
     private readonly TimeSpan _cacheRefreshInterval = TimeSpan.FromMinutes(30);
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
@@ -86,7 +87,7 @@ public class LightControlSkill : IAgentSkill
         }
 
         await RefreshLightCacheAsync(cancellationToken).ConfigureAwait(false);
-        _logger.LogInformation("LightControlPlugin initialized with {LightCount} light entities", _cachedLights.Count);
+        _logger.LogInformation("LightControlPlugin initialized with {LightCount} light entities", _cachedLights.Length);
     }
 
     /// <summary>
@@ -105,7 +106,7 @@ public class LightControlSkill : IAgentSkill
     {
         await EnsureCacheIsCurrentAsync().ConfigureAwait(false);
 
-        if (!_cachedLights.Any())
+        if (_cachedLights.IsEmpty)
         {
             LightSearchFailures.Add(1, [
                 new KeyValuePair<string, object?>("reason", "empty-cache")
@@ -164,7 +165,7 @@ public class LightControlSkill : IAgentSkill
 
                     if (state.Attributes.TryGetValue("brightness", out var brightnessObj))
                     {
-                        if (int.TryParse(brightnessObj.ToString(), out var brightness))
+                        if (int.TryParse(brightnessObj?.ToString(), out var brightness))
                         {
                             var brightnessPercent = (int)Math.Round(brightness / 255.0 * 100);
                             stringBuilder.Append($" at {brightnessPercent}% brightness");
@@ -203,7 +204,7 @@ public class LightControlSkill : IAgentSkill
     {
         await EnsureCacheIsCurrentAsync().ConfigureAwait(false);
 
-        if (!_cachedLights.Any())
+        if (_cachedLights.IsEmpty)
         {
             LightSearchFailures.Add(1, [
                 new KeyValuePair<string, object?>("reason", "empty-cache")
@@ -264,7 +265,7 @@ public class LightControlSkill : IAgentSkill
                     stringBuilder.Append(entry);
 
                     if (state.Attributes.TryGetValue("brightness", out var brightnessObj) &&
-                        int.TryParse(brightnessObj.ToString(), out var brightness))
+                        int.TryParse(brightnessObj?.ToString(), out var brightness))
                     {
                         stringBuilder.Append($" at {(int)Math.Round(brightness / 255.0 * 100)}% brightness");
                     }
@@ -304,7 +305,7 @@ public class LightControlSkill : IAgentSkill
                         var capabilities = GetCapabilityDescription(light);
                         stringBuilder.Append($"- {light.FriendlyName} (Entity ID: {light.EntityId}){capabilities}, State: {state.State}");
                         if (state.Attributes.TryGetValue("brightness", out var brightnessObj) &&
-                            int.TryParse(brightnessObj.ToString(), out var brightness))
+                            int.TryParse(brightnessObj?.ToString(), out var brightness))
                         {
                             stringBuilder.Append($" at {(int)Math.Round(brightness / 255.0 * 100)}% brightness");
                         }
@@ -378,7 +379,7 @@ public class LightControlSkill : IAgentSkill
                 // Check for brightness
                 if (state.Attributes.TryGetValue("brightness", out var brightnessObj))
                 {
-                    if (int.TryParse(brightnessObj.ToString(), out var brightness))
+                    if (int.TryParse(brightnessObj?.ToString(), out var brightness))
                     {
                         var brightnessPercent = (int)Math.Round(brightness / 255.0 * 100);
                         result += $" at {brightnessPercent}% brightness";
@@ -551,7 +552,7 @@ public class LightControlSkill : IAgentSkill
                 
                 if (allEmbeddingsFound && newLightsFromCache.Count == cachedLights.Count)
                 {
-                    _cachedLights = newLightsFromCache;
+                    _cachedLights = [.. newLightsFromCache];
                     Volatile.Write(ref _lastCacheUpdateTicks, DateTime.UtcNow.Ticks);
                     return;
                 }
@@ -617,16 +618,16 @@ public class LightControlSkill : IAgentSkill
             }
 
             // Atomically swap
-            _cachedLights = newLights;
+            _cachedLights = [.. newLights];
             Volatile.Write(ref _lastCacheUpdateTicks, DateTime.UtcNow.Ticks);
 
             // Save light device data to Redis
             var deviceCacheTtl = TimeSpan.FromMinutes(30);
             var embeddingCacheTtl = TimeSpan.FromHours(24);
             await _deviceCache.SetCachedLightsAsync(newLights.ToList(), deviceCacheTtl, cancellationToken).ConfigureAwait(false);
-            foreach (var light in newLights)
+            foreach (var light in newLights.Where(l => l.NameEmbedding is not null))
             {
-                await _deviceCache.SetEmbeddingAsync($"light:{light.EntityId}", light.NameEmbedding, embeddingCacheTtl, cancellationToken).ConfigureAwait(false);
+                await _deviceCache.SetEmbeddingAsync($"light:{light.EntityId}", light.NameEmbedding!, embeddingCacheTtl, cancellationToken).ConfigureAwait(false);
             }
             _logger.LogInformation("Saved {LightCount} lights to Redis cache", newLights.Count);
 
@@ -665,7 +666,7 @@ public class LightControlSkill : IAgentSkill
             activity?.AddEvent(new ActivityEvent("cache.refresh.completed", tags: new ActivityTagsCollection
             {
                 { "elapsed_ms", elapsedMs },
-                { "cache.size", _cachedLights.Count }
+                { "cache.size", _cachedLights.Length }
             }));
         }
     }

@@ -10,7 +10,7 @@ public sealed class LightEntity
     public string EntityId { get; set; } = string.Empty;
     public string FriendlyName { get; set; } = string.Empty;
     public SupportedColorModes SupportedColorModes { get; set; } = SupportedColorModes.None;
-    public Embedding<float> NameEmbedding { get; set; } = null!;
+    public Embedding<float>? NameEmbedding { get; set; }
     public string? Area { get; set; }
 
     /// <summary>

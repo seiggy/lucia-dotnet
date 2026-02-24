@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
@@ -26,7 +27,7 @@ public sealed class ClimateControlSkill : IAgentSkill
     private readonly IEntityLocationService _locationService;
     private readonly IEmbeddingSimilarityService _similarity;
     private readonly int _comfortAdjustmentF;
-    private volatile IReadOnlyList<ClimateEntity> _cachedDevices = Array.Empty<ClimateEntity>();
+    private ImmutableArray<ClimateEntity> _cachedDevices = [];
     private long _lastCacheUpdateTicks = DateTime.MinValue.Ticks;
     private readonly TimeSpan _cacheRefreshInterval = TimeSpan.FromMinutes(30);
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
@@ -66,6 +67,8 @@ public sealed class ClimateControlSkill : IAgentSkill
             AIFunctionFactory.Create(FindClimateDeviceAsync),
             AIFunctionFactory.Create(FindClimateDevicesByAreaAsync),
             AIFunctionFactory.Create(GetClimateStateAsync),
+            AIFunctionFactory.Create(GetAreaClimateSensorsAsync),
+            AIFunctionFactory.Create(GetSensorStateAsync),
             AIFunctionFactory.Create(SetClimateTemperatureAsync),
             AIFunctionFactory.Create(SetClimateHvacModeAsync),
             AIFunctionFactory.Create(SetClimateFanModeAsync),
@@ -88,7 +91,7 @@ public sealed class ClimateControlSkill : IAgentSkill
         }
 
         await RefreshCacheAsync(cancellationToken).ConfigureAwait(false);
-        _logger.LogInformation("ClimateControlSkill initialized with {DeviceCount} climate entities", _cachedDevices.Count);
+        _logger.LogInformation("ClimateControlSkill initialized with {DeviceCount} climate entities", _cachedDevices.Length);
     }
 
     /// <summary>
@@ -113,7 +116,7 @@ public sealed class ClimateControlSkill : IAgentSkill
     {
         await EnsureCacheIsCurrentAsync().ConfigureAwait(false);
 
-        if (!_cachedDevices.Any())
+        if (_cachedDevices.IsEmpty)
         {
             ClimateSearchFailures.Add(1);
             return "No climate devices available in the system.";
@@ -217,7 +220,7 @@ public sealed class ClimateControlSkill : IAgentSkill
     {
         await EnsureCacheIsCurrentAsync().ConfigureAwait(false);
 
-        if (!_cachedDevices.Any())
+        if (_cachedDevices.IsEmpty)
             return "No climate devices available in the system.";
 
         using var activity = ActivitySource.StartActivity();
@@ -281,6 +284,80 @@ public sealed class ClimateControlSkill : IAgentSkill
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting climate state for {EntityId}", entityId);
+            return $"Error getting state for '{entityId}': {ex.Message}";
+        }
+    }
+
+    [Description("Find temperature and humidity sensors in a specific area/room. Returns sensor entity IDs and their current readings.")]
+    public async Task<string> GetAreaClimateSensorsAsync(
+        [Description("The area/room name to search (e.g., 'living room', 'upstairs', 'bedroom')")] string areaName)
+    {
+        using var activity = ActivitySource.StartActivity();
+        activity?.SetTag("search.area", areaName);
+
+        try
+        {
+            var locationEntities = await _locationService.FindEntitiesByLocationAsync(
+                areaName, (IReadOnlyList<string>)["sensor"], CancellationToken.None).ConfigureAwait(false);
+
+            var climateSensors = locationEntities
+                .Where(e => e.EntityId.Contains("temperature", StringComparison.OrdinalIgnoreCase)
+                         || e.EntityId.Contains("humidity", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (climateSensors.Count == 0)
+                return $"No temperature or humidity sensors found in '{areaName}'.";
+
+            var sb = new StringBuilder();
+            sb.AppendLine($"Found {climateSensors.Count} climate sensor(s) in '{areaName}':");
+
+            foreach (var sensor in climateSensors)
+            {
+                var state = await _homeAssistantClient.GetEntityStateAsync(sensor.EntityId).ConfigureAwait(false);
+                if (state is null) continue;
+
+                var unit = state.Attributes.TryGetValue("unit_of_measurement", out var u) ? u?.ToString() : "";
+                var friendlyName = state.Attributes.TryGetValue("friendly_name", out var fn) ? fn?.ToString() : sensor.EntityId;
+                sb.AppendLine($"- {friendlyName}: {state.State}{unit} (Entity ID: {sensor.EntityId})");
+            }
+
+            activity?.SetStatus(ActivityStatusCode.Ok);
+            return sb.ToString().TrimEnd();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error finding climate sensors in area: {AreaName}", areaName);
+            return $"Error searching for climate sensors in area: {ex.Message}";
+        }
+    }
+
+    [Description("Get the current reading of a specific sensor entity (e.g., temperature or humidity sensor). Sensors are read-only.")]
+    public async Task<string> GetSensorStateAsync(
+        [Description("The entity ID of the sensor (e.g., 'sensor.living_room_temperature', 'sensor.bedroom_humidity')")] string entityId)
+    {
+        using var activity = ActivitySource.StartActivity();
+        activity?.SetTag("entity_id", entityId);
+
+        try
+        {
+            var state = await _homeAssistantClient.GetEntityStateAsync(entityId).ConfigureAwait(false);
+            if (state is null)
+                return $"Sensor '{entityId}' not found.";
+
+            var unit = state.Attributes.TryGetValue("unit_of_measurement", out var u) ? u?.ToString() : "";
+            var friendlyName = state.Attributes.TryGetValue("friendly_name", out var fn) ? fn?.ToString() : entityId;
+            var deviceClass = state.Attributes.TryGetValue("device_class", out var dc) ? dc?.ToString() : null;
+
+            var result = $"Sensor '{friendlyName}': {state.State}{unit}";
+            if (deviceClass is not null)
+                result += $" (type: {deviceClass})";
+
+            activity?.SetStatus(ActivityStatusCode.Ok);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting sensor state for {EntityId}", entityId);
             return $"Error getting state for '{entityId}': {ex.Message}";
         }
     }
@@ -593,7 +670,7 @@ public sealed class ClimateControlSkill : IAgentSkill
 
                 if (allEmbeddingsFound)
                 {
-                    _cachedDevices = cached;
+                    _cachedDevices = [.. cached];
                     Volatile.Write(ref _lastCacheUpdateTicks, DateTime.UtcNow.Ticks);
                     _logger.LogInformation("Loaded {Count} climate devices from Redis cache", cached.Count);
                     return;
@@ -613,7 +690,7 @@ public sealed class ClimateControlSkill : IAgentSkill
             foreach (var entity in climateEntities)
             {
                 var friendlyName = entity.Attributes.TryGetValue("friendly_name", out var nameObj)
-                    ? nameObj.ToString() ?? entity.EntityId
+                    ? nameObj?.ToString() ?? entity.EntityId
                     : entity.EntityId;
 
                 var hvacModes = ParseStringListAttribute(entity.Attributes, "hvac_modes");
@@ -622,19 +699,19 @@ public sealed class ClimateControlSkill : IAgentSkill
                 var presetModes = ParseStringListAttribute(entity.Attributes, "preset_modes");
 
                 double? minTemp = null, maxTemp = null;
-                if (entity.Attributes.TryGetValue("min_temp", out var minObj) && double.TryParse(minObj.ToString(), out var min))
+                if (entity.Attributes.TryGetValue("min_temp", out var minObj) && double.TryParse(minObj?.ToString(), out var min))
                     minTemp = min;
-                if (entity.Attributes.TryGetValue("max_temp", out var maxObj) && double.TryParse(maxObj.ToString(), out var max))
+                if (entity.Attributes.TryGetValue("max_temp", out var maxObj) && double.TryParse(maxObj?.ToString(), out var max))
                     maxTemp = max;
 
                 double? minHumidity = null, maxHumidity = null;
-                if (entity.Attributes.TryGetValue("min_humidity", out var minHumObj) && double.TryParse(minHumObj.ToString(), out var minH))
+                if (entity.Attributes.TryGetValue("min_humidity", out var minHumObj) && double.TryParse(minHumObj?.ToString(), out var minH))
                     minHumidity = minH;
-                if (entity.Attributes.TryGetValue("max_humidity", out var maxHumObj) && double.TryParse(maxHumObj.ToString(), out var maxH))
+                if (entity.Attributes.TryGetValue("max_humidity", out var maxHumObj) && double.TryParse(maxHumObj?.ToString(), out var maxH))
                     maxHumidity = maxH;
 
                 var supportedFeatures = 0;
-                if (entity.Attributes.TryGetValue("supported_features", out var featObj) && int.TryParse(featObj.ToString(), out var feat))
+                if (entity.Attributes.TryGetValue("supported_features", out var featObj) && int.TryParse(featObj?.ToString(), out var feat))
                     supportedFeatures = feat;
 
                 // Resolve area from the shared entity location service
@@ -660,14 +737,14 @@ public sealed class ClimateControlSkill : IAgentSkill
                 });
             }
 
-            _cachedDevices = newDevices;
+            _cachedDevices = [.. newDevices];
             Volatile.Write(ref _lastCacheUpdateTicks, DateTime.UtcNow.Ticks);
 
             var ttl = TimeSpan.FromMinutes(30);
             var embedTtl = TimeSpan.FromHours(24);
             await _deviceCache.SetCachedClimateDevicesAsync(newDevices, ttl, cancellationToken).ConfigureAwait(false);
-            foreach (var device in newDevices)
-                await _deviceCache.SetEmbeddingAsync($"climate:{device.EntityId}", device.NameEmbedding, embedTtl, cancellationToken).ConfigureAwait(false);
+            foreach (var device in newDevices.Where(d => d.NameEmbedding is not null))
+                await _deviceCache.SetEmbeddingAsync($"climate:{device.EntityId}", device.NameEmbedding!, embedTtl, cancellationToken).ConfigureAwait(false);
 
             _logger.LogInformation("Cached {Count} climate devices", newDevices.Count);
         }
@@ -727,7 +804,7 @@ public sealed class ClimateControlSkill : IAgentSkill
             }
 
             // Fallback: try deserializing the string representation
-            var json = value.ToString() ?? "[]";
+            var json = value?.ToString() ?? "[]";
             var modes = JsonSerializer.Deserialize<JsonElement>(json);
             if (modes.ValueKind == JsonValueKind.Array)
             {

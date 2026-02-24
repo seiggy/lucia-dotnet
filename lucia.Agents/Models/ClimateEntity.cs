@@ -10,7 +10,7 @@ public sealed class ClimateEntity
 {
     public string EntityId { get; set; } = string.Empty;
     public string FriendlyName { get; set; } = string.Empty;
-    public Embedding<float> NameEmbedding { get; set; } = null!;
+    public Embedding<float>? NameEmbedding { get; set; }
     public string? Area { get; set; }
 
     // HVAC capabilities

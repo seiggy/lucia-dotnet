@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
@@ -37,8 +38,8 @@ public sealed class FanControlSkill : IAgentSkill
     private readonly IEmbeddingSimilarityService _similarity;
     private readonly ILogger<FanControlSkill> _logger;
 
-    private volatile List<FanEntity>? _fans;
-    private DateTime _lastCacheRefresh = DateTime.MinValue;
+    private ImmutableArray<FanEntity> _fans = [];
+    private long _lastCacheRefreshTicks = DateTime.MinValue.Ticks;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
 
     public FanControlSkill(
@@ -69,7 +70,7 @@ public sealed class FanControlSkill : IAgentSkill
         }
 
         await RefreshFanCacheAsync(cancellationToken).ConfigureAwait(false);
-        _logger.LogInformation("FanControlSkill initialized with {Count} fans", _fans?.Count ?? 0);
+        _logger.LogInformation("FanControlSkill initialized with {Count} fans", _fans.Length);
     }
 
     /// <summary>
@@ -110,7 +111,7 @@ public sealed class FanControlSkill : IAgentSkill
             await EnsureCacheIsCurrentAsync().ConfigureAwait(false);
 
             var fans = _fans;
-            if (fans is null || fans.Count == 0)
+            if (fans.IsEmpty)
                 return "No fans found. The fan cache may be empty.";
 
             var searchEmbedding = await _embeddingGenerator!.GenerateAsync(searchTerm).ConfigureAwait(false);
@@ -183,7 +184,7 @@ public sealed class FanControlSkill : IAgentSkill
             await EnsureCacheIsCurrentAsync().ConfigureAwait(false);
 
             var fans = _fans;
-            if (fans is null || fans.Count == 0)
+            if (fans.IsEmpty)
                 return "No fans found. The fan cache may be empty.";
 
             var locationEntities = await _locationService.FindEntitiesByLocationAsync(
@@ -242,7 +243,7 @@ public sealed class FanControlSkill : IAgentSkill
                 return $"Fan '{entityId}' not found.";
 
             var fans = _fans;
-            var device = fans?.FirstOrDefault(f => f.EntityId == entityId);
+            var device = fans.FirstOrDefault(f => f.EntityId == entityId);
 
             activity?.SetStatus(ActivityStatusCode.Ok);
             return FormatFanState(state, device);
@@ -418,7 +419,7 @@ public sealed class FanControlSkill : IAgentSkill
         try
         {
             await EnsureCacheIsCurrentAsync().ConfigureAwait(false);
-            var fan = _fans?.FirstOrDefault(f => f.EntityId.Equals(entityId, StringComparison.OrdinalIgnoreCase));
+            var fan = _fans.FirstOrDefault(f => f.EntityId.Equals(entityId, StringComparison.OrdinalIgnoreCase));
 
             // If the fan has a companion select entity for modes, use that instead
             if (fan?.ModeSelectEntityId is { Length: > 0 } selectEntityId)
@@ -528,8 +529,8 @@ public sealed class FanControlSkill : IAgentSkill
                     cachedFans[i].NameEmbedding = embeddings[i];
                 }
 
-                _fans = cachedFans;
-                _lastCacheRefresh = DateTime.UtcNow;
+                _fans = [.. cachedFans];
+                Volatile.Write(ref _lastCacheRefreshTicks, DateTime.UtcNow.Ticks);
                 _logger.LogInformation("Loaded {Count} fans from Redis cache", cachedFans.Count);
                 return;
             }
@@ -559,7 +560,7 @@ public sealed class FanControlSkill : IAgentSkill
             foreach (var entity in fanEntities)
             {
                 var friendlyName = entity.Attributes.TryGetValue("friendly_name", out var nameObj)
-                    ? nameObj.ToString() ?? entity.EntityId
+                    ? nameObj?.ToString() ?? entity.EntityId
                     : entity.EntityId;
 
                 // Resolve area from the shared entity location service
@@ -567,7 +568,7 @@ public sealed class FanControlSkill : IAgentSkill
                 var area = areaInfo?.Name;
 
                 var percentageStep = 1;
-                if (entity.Attributes.TryGetValue("percentage_step", out var stepObj) && int.TryParse(stepObj.ToString(), out var step))
+                if (entity.Attributes.TryGetValue("percentage_step", out var stepObj) && int.TryParse(stepObj?.ToString(), out var step))
                     percentageStep = step;
 
                 var presetModes = ParseStringListAttribute(entity.Attributes, "preset_modes");
@@ -584,7 +585,7 @@ public sealed class FanControlSkill : IAgentSkill
                 }
 
                 var supportedFeatures = 0;
-                if (entity.Attributes.TryGetValue("supported_features", out var featObj) && int.TryParse(featObj.ToString(), out var feat))
+                if (entity.Attributes.TryGetValue("supported_features", out var featObj) && int.TryParse(featObj?.ToString(), out var feat))
                     supportedFeatures = feat;
 
                 var embedding = await _embeddingGenerator.GenerateAsync(friendlyName, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -603,8 +604,8 @@ public sealed class FanControlSkill : IAgentSkill
             }
 
             // Atomic swap
-            _fans = newFans;
-            _lastCacheRefresh = DateTime.UtcNow;
+            _fans = [.. newFans];
+            Volatile.Write(ref _lastCacheRefreshTicks, DateTime.UtcNow.Ticks);
 
             // Persist to Redis
             await _cacheService.SetCachedFansAsync(newFans, CacheTtl, cancellationToken).ConfigureAwait(false);
@@ -619,13 +620,13 @@ public sealed class FanControlSkill : IAgentSkill
 
     private async Task EnsureCacheIsCurrentAsync(CancellationToken cancellationToken = default)
     {
-        if (_fans is not null && DateTime.UtcNow - _lastCacheRefresh < CacheTtl)
+        if (!_fans.IsEmpty && DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheRefreshTicks), DateTimeKind.Utc) < CacheTtl)
             return;
 
         await _refreshLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_fans is not null && DateTime.UtcNow - _lastCacheRefresh < CacheTtl)
+            if (!_fans.IsEmpty && DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheRefreshTicks), DateTimeKind.Utc) < CacheTtl)
                 return;
 
             await RefreshFanCacheAsync(cancellationToken).ConfigureAwait(false);
@@ -663,7 +664,7 @@ public sealed class FanControlSkill : IAgentSkill
                     .ToList();
             }
 
-            var json = value.ToString() ?? "[]";
+            var json = value?.ToString() ?? "[]";
             var modes = JsonSerializer.Deserialize<JsonElement>(json);
             if (modes.ValueKind == JsonValueKind.Array)
             {
