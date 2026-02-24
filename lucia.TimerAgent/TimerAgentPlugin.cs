@@ -24,10 +24,6 @@ public sealed class TimerAgentPlugin : IAgentPlugin
             OrchestratorServiceKeys.TimerModel,
             (sp, _) => sp.GetRequiredService<IChatClient>());
 
-        // Wrap with tracing to capture conversation traces for this agent
-        ServiceCollectionExtensions.WrapAgentChatClientWithTracing(
-            builder.Services, OrchestratorServiceKeys.TimerModel, AgentId);
-
         builder.Services.AddSingleton<TimerSkill>();
         builder.Services.AddSingleton<ILuciaAgent, TimerAgent>();
         builder.Services.AddHostedService<TimerRecoveryService>();

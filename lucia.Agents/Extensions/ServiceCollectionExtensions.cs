@@ -159,46 +159,9 @@ public static class ServiceCollectionExtensions
         // Register chat client resolver — built-in agents use this to resolve IChatClient
         // from their AgentDefinition's ModelConnectionName via the model provider system.
         builder.Services.AddSingleton<IChatClientResolver, ChatClientResolver>();
-    }
 
-    /// <summary>
-    /// Wraps a keyed IChatClient registration with <see cref="AgentTracingChatClient"/>
-    /// by removing the existing registration and re-adding one that decorates the original.
-    /// </summary>
-    public static void WrapAgentChatClientWithTracing(IServiceCollection services, string serviceKey, string agentId)
-    {
-        // Find the existing keyed registration for this service key
-        var existing = services.LastOrDefault(d =>
-            d.ServiceType == typeof(IChatClient) &&
-            d.IsKeyedService &&
-            string.Equals(d.ServiceKey?.ToString(), serviceKey, StringComparison.Ordinal));
-
-        if (existing is null)
-            return;
-
-        // Capture the original factory
-        var originalFactory = existing.KeyedImplementationFactory;
-        var originalInstance = existing.KeyedImplementationInstance;
-
-        // Remove the original registration
-        services.Remove(existing);
-
-        // Re-register with tracing wrapper
-        services.AddKeyedSingleton<IChatClient>(serviceKey, (sp, key) =>
-        {
-            IChatClient inner;
-            if (originalFactory is not null)
-                inner = (IChatClient)originalFactory(sp, key);
-            else if (originalInstance is IChatClient instance)
-                inner = instance;
-            else
-                inner = sp.GetRequiredService<IChatClient>();
-
-            var repository = sp.GetRequiredService<ITraceRepository>();
-            var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<AgentTracingChatClient>>();
-            var liveChannel = sp.GetService<Orchestration.LiveActivityChannel>();
-            return new AgentTracingChatClient(inner, agentId, repository, logger, liveChannel);
-        });
+        // Factory that wraps IChatClient with tracing for tool-call SSE events
+        builder.Services.AddSingleton<TracingChatClientFactory>();
     }
 
 }

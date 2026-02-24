@@ -111,26 +111,9 @@ public static class ActivityApi
                 Target = agentId,
             });
 
-            // Add tool nodes from agent skills
-            if (agent.Skills is { Count: > 0 })
-            {
-                foreach (var skill in agent.Skills)
-                {
-                    var toolId = $"{agentId}:{skill.Id}";
-                    nodes.Add(new MeshNode
-                    {
-                        Id = toolId,
-                        Label = skill.Name ?? skill.Id,
-                        NodeType = "tool",
-                    });
-
-                    edges.Add(new MeshEdge
-                    {
-                        Source = agentId,
-                        Target = toolId,
-                    });
-                }
-            }
+            // Tool nodes are added dynamically by the frontend when
+            // toolCall SSE events arrive — A2A skills are capability
+            // metadata, not actual tool definitions.
         }
 
         return TypedResults.Ok(new MeshTopology { Nodes = nodes, Edges = edges });
