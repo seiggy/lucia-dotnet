@@ -33,6 +33,7 @@ public sealed class AgentDispatchExecutor : Executor
     private readonly IOrchestratorObserver? _observer;
     private readonly string _clarificationAgentId;
     private ChatMessage? _userMessage;
+    private string? _requestId;
 
     /// <summary>
     /// Creates a new AgentDispatchExecutor instance.
@@ -71,6 +72,14 @@ public sealed class AgentDispatchExecutor : Executor
     }
 
     /// <summary>
+    /// Sets the request ID for observer correlation across the workflow boundary.
+    /// </summary>
+    public void SetRequestId(string? requestId)
+    {
+        _requestId = requestId;
+    }
+
+    /// <summary>
     /// Dispatches agents in parallel and collects responses.
     /// </summary>
     public async ValueTask<List<OrchestratorAgentResponse>> HandleAsync(
@@ -83,9 +92,9 @@ public sealed class AgentDispatchExecutor : Executor
 
         await context.AddEventAsync(new ExecutorInvokedEvent(this.Id, agentChoice), cancellationToken).ConfigureAwait(false);
 
-        if (_observer is not null)
+        if (_observer is not null && _requestId is not null)
         {
-            await _observer.OnRoutingCompletedAsync(agentChoice, agentChoice.RouterSystemPrompt, cancellationToken).ConfigureAwait(false);
+            await _observer.OnRoutingCompletedAsync(_requestId, agentChoice, agentChoice.RouterSystemPrompt, cancellationToken).ConfigureAwait(false);
         }
 
         if (_userMessage is null)
@@ -132,11 +141,11 @@ public sealed class AgentDispatchExecutor : Executor
         var responses = new List<OrchestratorAgentResponse>(results);
 
         // Notify observer for each completed agent
-        if (_observer is not null)
+        if (_observer is not null && _requestId is not null)
         {
             foreach (var response in responses)
             {
-                await _observer.OnAgentExecutionCompletedAsync(response, cancellationToken).ConfigureAwait(false);
+                await _observer.OnAgentExecutionCompletedAsync(_requestId, response, cancellationToken).ConfigureAwait(false);
             }
         }
 

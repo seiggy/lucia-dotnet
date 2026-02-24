@@ -28,16 +28,17 @@ public sealed class OrchestratorEvalObserver : IOrchestratorObserver
 
     public string? UserRequest { get; private set; }
 
-    public Task OnRequestStartedAsync(
+    public Task<string> OnRequestStartedAsync(
         string userRequest,
         IReadOnlyList<TracedMessage>? conversationHistory = null,
         CancellationToken cancellationToken = default)
     {
         UserRequest = userRequest;
-        return Task.CompletedTask;
+        return Task.FromResult(Guid.NewGuid().ToString("N"));
     }
 
     public Task OnRoutingCompletedAsync(
+        string requestId,
         AgentChoiceResult result,
         string? systemPrompt = null,
         CancellationToken cancellationToken = default)
@@ -46,13 +47,13 @@ public sealed class OrchestratorEvalObserver : IOrchestratorObserver
         return Task.CompletedTask;
     }
 
-    public Task OnAgentExecutionCompletedAsync(OrchestratorAgentResponse response, CancellationToken cancellationToken = default)
+    public Task OnAgentExecutionCompletedAsync(string requestId, OrchestratorAgentResponse response, CancellationToken cancellationToken = default)
     {
         AgentResponses.Add(response);
         return Task.CompletedTask;
     }
 
-    public Task OnResponseAggregatedAsync(string aggregatedResponse, CancellationToken cancellationToken = default)
+    public Task OnResponseAggregatedAsync(string requestId, string aggregatedResponse, CancellationToken cancellationToken = default)
     {
         AggregatedResponse = aggregatedResponse;
         return Task.CompletedTask;

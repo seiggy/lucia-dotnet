@@ -208,6 +208,7 @@ public sealed class WorkflowFactory
     public async Task<OrchestratorResult?> BuildAndExecuteAsync(
         Dictionary<string, IAgentInvoker> invokers,
         string historyAwareRequest,
+        string? requestId,
         CancellationToken cancellationToken)
     {
         // Resolve the orchestrator's chat client per-request so model provider changes take effect
@@ -223,6 +224,7 @@ public sealed class WorkflowFactory
 
         var chatMessage = new ChatMessage(ChatRole.User, historyAwareRequest);
         dispatch.SetUserMessage(chatMessage);
+        dispatch.SetRequestId(requestId);
 
         var builder = new WorkflowBuilder(router)
             .WithName("LuciaOrchestratorWorkflow")
@@ -314,5 +316,5 @@ public sealed class WorkflowFactory
     }
 
     private static string? NormalizeAgentKey(AIAgent agent)
-        => agent.Id ?? agent.Name;
+        => agent.Name ?? agent.Id;
 }
