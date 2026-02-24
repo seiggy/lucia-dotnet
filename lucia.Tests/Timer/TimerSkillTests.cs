@@ -1,5 +1,6 @@
 using A2A;
 using FakeItEasy;
+using lucia.Agents.Services;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
 using lucia.TimerAgent;
@@ -14,6 +15,7 @@ namespace lucia.Tests.Timer;
 public sealed class TimerSkillTests
 {
     private readonly IHomeAssistantClient _haClient = A.Fake<IHomeAssistantClient>();
+    private readonly IEntityLocationService _entityLocationService = A.Fake<IEntityLocationService>();
     private readonly ITaskStore _taskStore = A.Fake<ITaskStore>();
     private readonly FakeTimeProvider _timeProvider = new();
     private readonly ILogger<TimerSkill> _logger = A.Fake<ILogger<TimerSkill>>();
@@ -22,7 +24,7 @@ public sealed class TimerSkillTests
     public TimerSkillTests()
     {
         _timeProvider.SetUtcNow(new DateTimeOffset(2025, 7, 15, 12, 0, 0, TimeSpan.Zero));
-        _skill = new TimerSkill(_haClient, _taskStore, _timeProvider, _logger);
+        _skill = new TimerSkill(_haClient, _entityLocationService, _taskStore, _timeProvider, _logger);
     }
 
     [Fact]
@@ -68,7 +70,7 @@ public sealed class TimerSkillTests
     {
         var result = await _skill.SetTimerAsync(60, "Test", "");
 
-        Assert.Equal("Entity ID for the satellite device is required.", result);
+        Assert.Equal("Entity ID or location for the satellite device is required.", result);
         Assert.Equal(0, _skill.ActiveTimerCount);
     }
 

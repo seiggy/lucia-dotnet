@@ -81,6 +81,8 @@ builder.Services.AddHttpClient<IHomeAssistantClient, HomeAssistantClient>((sp, c
     return handler;
 });
 builder.Services.AddSingleton<IDeviceCacheService, RedisDeviceCacheService>();
+builder.Services.AddSingleton<IEmbeddingSimilarityService, EmbeddingSimilarityService>();
+builder.Services.AddSingleton<IEntityLocationService, EntityLocationService>();
 
 // Register Redis task store for A2A task persistence (used by TimerAgent)
 builder.Services.AddSingleton<ITaskStore, RedisTaskStore>();

@@ -311,7 +311,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
             Options.Create(new AgentInvokerOptions()),
             Options.Create(new ResultAggregatorOptions()),
             TimeProvider.System,
-            taskManager,
+            A.Fake<IHttpClientFactory>(),
             observer,
             agentProvider);
 

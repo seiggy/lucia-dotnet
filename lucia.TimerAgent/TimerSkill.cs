@@ -2,6 +2,8 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using A2A;
+using lucia.Agents.Models;
+using lucia.Agents.Services;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
 using Microsoft.Extensions.AI;
@@ -19,6 +21,7 @@ public sealed class TimerSkill
     private static readonly ActivitySource ActivitySource = new("Lucia.Skills.Timer", "1.0.0");
 
     private readonly IHomeAssistantClient _haClient;
+    private readonly IEntityLocationService _entityLocationService;
     private readonly ITaskStore _taskStore;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<TimerSkill> _logger;
@@ -26,11 +29,13 @@ public sealed class TimerSkill
 
     public TimerSkill(
         IHomeAssistantClient haClient,
+        IEntityLocationService entityLocationService,
         ITaskStore taskStore,
         TimeProvider timeProvider,
         ILogger<TimerSkill> logger)
     {
         _haClient = haClient ?? throw new ArgumentNullException(nameof(haClient));
+        _entityLocationService = entityLocationService ?? throw new ArgumentNullException(nameof(entityLocationService));
         _taskStore = taskStore ?? throw new ArgumentNullException(nameof(taskStore));
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -51,7 +56,8 @@ public sealed class TimerSkill
                     Use this when the user asks to set a timer, reminder, or alarm for a specific duration.
                     The durationSeconds parameter is the number of seconds until the timer fires.
                     The message parameter is a friendly announcement message to play when the timer expires (e.g. "Your pizza timer is done!").
-                    The entityId parameter is the Home Assistant entity_id of the assist_satellite device to announce on.
+                    The entityId parameter is the location name or area where the announcement should play (e.g. "office", "bedroom").
+                    It can also be a full Home Assistant entity_id (e.g. "assist_satellite.my_satellite").
                     """
             }),
             AIFunctionFactory.Create(CancelTimerAsync, new AIFunctionFactoryOptions
@@ -86,8 +92,17 @@ public sealed class TimerSkill
 
         if (string.IsNullOrWhiteSpace(entityId))
         {
-            return "Entity ID for the satellite device is required.";
+            return "Entity ID or location for the satellite device is required.";
         }
+
+        // Resolve location name to an actual assist_satellite entity_id
+        var resolvedEntityId = await ResolveSatelliteEntityAsync(entityId).ConfigureAwait(false);
+        if (resolvedEntityId is null)
+        {
+            return $"Could not find an assist_satellite device in '{entityId}'. Available satellites can be found in areas with voice assistant devices.";
+        }
+
+        _logger.LogInformation("Resolved satellite '{Input}' to entity '{EntityId}'", entityId, resolvedEntityId);
 
         var timerId = Guid.NewGuid().ToString("N")[..8];
         var taskId = Guid.NewGuid().ToString("N");
@@ -96,7 +111,7 @@ public sealed class TimerSkill
         activity?.SetTag("timer.id", timerId);
         activity?.SetTag("timer.task_id", taskId);
         activity?.SetTag("timer.duration_seconds", durationSeconds);
-        activity?.SetTag("timer.entity_id", entityId);
+        activity?.SetTag("timer.entity_id", resolvedEntityId);
 
         // Persist as an A2A task so the timer survives process restarts
         var agentTask = new AgentTask
@@ -119,7 +134,7 @@ public sealed class TimerSkill
                 ["timer.agentId"] = JsonSerializer.SerializeToElement("timer-agent"),
                 ["timer.durationSeconds"] = JsonSerializer.SerializeToElement(durationSeconds),
                 ["timer.message"] = JsonSerializer.SerializeToElement(message),
-                ["timer.entityId"] = JsonSerializer.SerializeToElement(entityId),
+                ["timer.entityId"] = JsonSerializer.SerializeToElement(resolvedEntityId),
                 ["timer.expiresAtUtc"] = JsonSerializer.SerializeToElement(expiresAt.UtcDateTime.ToString("O")),
                 ["timer.timerId"] = JsonSerializer.SerializeToElement(timerId),
             }
@@ -133,7 +148,7 @@ public sealed class TimerSkill
             Id = timerId,
             TaskId = taskId,
             Message = message,
-            EntityId = entityId,
+            EntityId = resolvedEntityId,
             DurationSeconds = durationSeconds,
             ExpiresAt = expiresAt,
             Cts = cts
@@ -143,7 +158,7 @@ public sealed class TimerSkill
 
         _logger.LogInformation(
             "Timer {TimerId} (task {TaskId}) set for {Duration}s on {EntityId}: {Message}",
-            timerId, taskId, durationSeconds, entityId, message);
+            timerId, taskId, durationSeconds, resolvedEntityId, message);
 
         // Fire the background task; don't await — it runs independently
         _ = RunTimerAsync(timer);
@@ -321,6 +336,37 @@ public sealed class TimerSkill
             parameters: null,
             request: request,
             cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Resolves a location name or entity_id to an actual assist_satellite entity_id.
+    /// If the input already looks like a valid entity_id (contains a dot), returns it as-is.
+    /// Otherwise, searches the entity location service for assist_satellite entities in that area.
+    /// </summary>
+    private async Task<string?> ResolveSatelliteEntityAsync(string input)
+    {
+        // Already a full entity_id — use as-is
+        if (input.Contains('.'))
+        {
+            return input;
+        }
+
+        // Search for assist_satellite entities in the requested location
+        var entities = await _entityLocationService.FindEntitiesByLocationAsync(
+            input,
+            domainFilter: ["assist_satellite"],
+            ct: default).ConfigureAwait(false);
+
+        if (entities.Count > 0)
+        {
+            _logger.LogDebug(
+                "Found {Count} satellite(s) in '{Location}': {Entities}",
+                entities.Count, input, string.Join(", ", entities.Select(e => e.EntityId)));
+            return entities[0].EntityId;
+        }
+
+        _logger.LogWarning("No assist_satellite entity found for location '{Location}'", input);
+        return null;
     }
 
     private static string FormatDuration(TimeSpan ts)
