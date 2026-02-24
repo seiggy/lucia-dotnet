@@ -4,7 +4,7 @@ namespace lucia.HomeAssistant.Models;
 
 /// <summary>
 /// An entity entry from the Home Assistant config registry.
-/// Retrieved via POST /api/config/entity_registry/list.
+/// Retrieved via Jinja template using area_entities() and states template functions.
 /// </summary>
 public sealed class EntityRegistryEntry
 {

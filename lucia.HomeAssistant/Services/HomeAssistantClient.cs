@@ -270,24 +270,67 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
         }
     }
 
-    // ── Config Registries ────────────────────────────────────────────
+    // ── Config Registries (via Jinja templates — WebSocket-only in HA REST API) ─
+
+    // The config registries (floor, area, entity) are WebSocket-only commands in
+    // Home Assistant and have no REST API equivalents. We use the /api/template
+    // endpoint with Jinja2 templates that call HA's built-in template functions
+    // (floors(), areas(), area_entities(), floor_areas(), etc.) to produce JSON
+    // matching our model shapes.
+
+    private const string FloorRegistryTemplate =
+        """
+        {% set ns = namespace(r=[]) -%}
+        {% for fid in floors() -%}
+          {% set ns.r = ns.r + [{"floor_id": fid, "name": floor_name(fid), "level": none, "icon": none, "aliases": []}] -%}
+        {% endfor -%}
+        {{ ns.r | to_json }}
+        """;
+
+    private const string AreaRegistryTemplate =
+        """
+        {% set ns = namespace(r=[], fa={}) -%}
+        {% for fid in floors() -%}
+          {% for aid in floor_areas(fid) -%}
+            {% set ns.fa = dict(ns.fa, **{aid: fid}) -%}
+          {% endfor -%}
+        {% endfor -%}
+        {% for aid in areas() -%}
+          {% set ns.r = ns.r + [{"area_id": aid, "name": area_name(aid), "floor_id": ns.fa.get(aid, none), "aliases": [], "icon": none, "labels": []}] -%}
+        {% endfor -%}
+        {{ ns.r | to_json }}
+        """;
+
+    private const string EntityRegistryTemplate =
+        """
+        {% set ns = namespace(r=[]) -%}
+        {% for aid in areas() -%}
+          {% for eid in area_entities(aid) -%}
+            {% set ns.r = ns.r + [{"entity_id": eid, "name": state_attr(eid, "friendly_name"), "original_name": none, "area_id": aid, "device_id": none, "aliases": [], "labels": [], "disabled_by": none, "hidden_by": none, "platform": none}] -%}
+          {% endfor -%}
+        {% endfor -%}
+        {{ ns.r | to_json }}
+        """;
 
     /// <summary>Returns all floor entries from the config registry.</summary>
     public async Task<FloorRegistryEntry[]> GetFloorRegistryAsync(CancellationToken cancellationToken = default)
     {
-        return await PostArrayAsync<FloorRegistryEntry>("/api/config/floor_registry/list", cancellationToken: cancellationToken);
+        var json = await RenderTemplateAsync(new TemplateRenderRequest { Template = FloorRegistryTemplate }, cancellationToken);
+        return JsonSerializer.Deserialize<FloorRegistryEntry[]>(json.Trim(), HomeAssistantJsonOptions.Default) ?? [];
     }
 
     /// <summary>Returns all area entries from the config registry.</summary>
     public async Task<AreaRegistryEntry[]> GetAreaRegistryAsync(CancellationToken cancellationToken = default)
     {
-        return await PostArrayAsync<AreaRegistryEntry>("/api/config/area_registry/list", cancellationToken: cancellationToken);
+        var json = await RenderTemplateAsync(new TemplateRenderRequest { Template = AreaRegistryTemplate }, cancellationToken);
+        return JsonSerializer.Deserialize<AreaRegistryEntry[]>(json.Trim(), HomeAssistantJsonOptions.Default) ?? [];
     }
 
     /// <summary>Returns all entity entries from the config registry.</summary>
     public async Task<EntityRegistryEntry[]> GetEntityRegistryAsync(CancellationToken cancellationToken = default)
     {
-        return await PostArrayAsync<EntityRegistryEntry>("/api/config/entity_registry/list", cancellationToken: cancellationToken);
+        var json = await RenderTemplateAsync(new TemplateRenderRequest { Template = EntityRegistryTemplate }, cancellationToken);
+        return JsonSerializer.Deserialize<EntityRegistryEntry[]>(json.Trim(), HomeAssistantJsonOptions.Default) ?? [];
     }
 
     // ── IHomeAssistantClient explicit implementations ───────────────

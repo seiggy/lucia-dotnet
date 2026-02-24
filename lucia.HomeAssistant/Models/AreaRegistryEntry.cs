@@ -4,7 +4,7 @@ namespace lucia.HomeAssistant.Models;
 
 /// <summary>
 /// An area entry from the Home Assistant config registry.
-/// Retrieved via POST /api/config/area_registry/list.
+/// Retrieved via Jinja template using the areas() and floor_areas() template functions.
 /// </summary>
 public sealed class AreaRegistryEntry
 {
