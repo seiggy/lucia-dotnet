@@ -76,6 +76,7 @@ public static class Extensions
                     .AddSource("Lucia.Agents.Music")
                     .AddSource("Lucia.Skills.LightControl")
                     .AddSource("Lucia.Skills.MusicPlayback")
+                    .AddSource("Lucia.Services.EntityLocation")
                     .AddSource("Microsoft.Agents.AI*")
                     .AddSource("A2A*")
                     .AddSource("Microsoft.Agents.AI.Hosting*")
