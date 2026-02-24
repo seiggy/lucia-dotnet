@@ -1,7 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
-using System.Numerics.Tensors;
 using System.Text;
 using System.Text.Json;
 using lucia.Agents.Models;
@@ -35,6 +34,7 @@ public sealed class FanControlSkill : IAgentSkill
     private IEmbeddingGenerator<string, Embedding<float>>? _embeddingGenerator;
     private readonly IDeviceCacheService _cacheService;
     private readonly IEntityLocationService _locationService;
+    private readonly IEmbeddingSimilarityService _similarity;
     private readonly ILogger<FanControlSkill> _logger;
 
     private volatile List<FanEntity>? _fans;
@@ -46,12 +46,14 @@ public sealed class FanControlSkill : IAgentSkill
         IEmbeddingProviderResolver embeddingResolver,
         IDeviceCacheService cacheService,
         IEntityLocationService locationService,
+        IEmbeddingSimilarityService similarity,
         ILogger<FanControlSkill> logger)
     {
         _homeAssistantClient = homeAssistantClient;
         _embeddingResolver = embeddingResolver;
         _cacheService = cacheService;
         _locationService = locationService;
+        _similarity = similarity;
         _logger = logger;
     }
 
@@ -114,7 +116,7 @@ public sealed class FanControlSkill : IAgentSkill
             var searchEmbedding = await _embeddingGenerator!.GenerateAsync(searchTerm).ConfigureAwait(false);
 
             var matches = fans
-                .Select(f => new { Fan = f, Similarity = CosineSimilarity(searchEmbedding.Vector.Span, f.NameEmbedding.Vector.Span) })
+                .Select(f => new { Fan = f, Similarity = _similarity.ComputeSimilarity(searchEmbedding, f.NameEmbedding) })
                 .Where(m => m.Similarity >= SimilarityThreshold)
                 .OrderByDescending(m => m.Similarity)
                 .ToList();
@@ -632,14 +634,6 @@ public sealed class FanControlSkill : IAgentSkill
         {
             _refreshLock.Release();
         }
-    }
-
-    private static float CosineSimilarity(ReadOnlySpan<float> a, ReadOnlySpan<float> b)
-    {
-        if (a.Length != b.Length || a.Length == 0)
-            return 0f;
-
-        return TensorPrimitives.CosineSimilarity(a, b);
     }
 
     /// <summary>

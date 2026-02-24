@@ -24,6 +24,7 @@ public sealed class ClimateControlSkill : IAgentSkill
     private readonly ILogger<ClimateControlSkill> _logger;
     private readonly IDeviceCacheService _deviceCache;
     private readonly IEntityLocationService _locationService;
+    private readonly IEmbeddingSimilarityService _similarity;
     private readonly int _comfortAdjustmentF;
     private volatile IReadOnlyList<ClimateEntity> _cachedDevices = Array.Empty<ClimateEntity>();
     private long _lastCacheUpdateTicks = DateTime.MinValue.Ticks;
@@ -47,6 +48,7 @@ public sealed class ClimateControlSkill : IAgentSkill
         ILogger<ClimateControlSkill> logger,
         IDeviceCacheService deviceCache,
         IEntityLocationService locationService,
+        IEmbeddingSimilarityService similarity,
         IConfiguration configuration)
     {
         _homeAssistantClient = homeAssistantClient;
@@ -54,6 +56,7 @@ public sealed class ClimateControlSkill : IAgentSkill
         _logger = logger;
         _deviceCache = deviceCache;
         _locationService = locationService;
+        _similarity = similarity;
         _comfortAdjustmentF = configuration.GetValue("ClimateAgent:ComfortAdjustmentF", 3);
     }
 
@@ -126,7 +129,7 @@ public sealed class ClimateControlSkill : IAgentSkill
             var searchEmbedding = await _embeddingService!.GenerateAsync(searchTerm, cancellationToken: CancellationToken.None).ConfigureAwait(false);
 
             var deviceMatches = _cachedDevices
-                .Select(device => new { Device = device, Similarity = CosineSimilarity(searchEmbedding, device.NameEmbedding) })
+                .Select(device => new { Device = device, Similarity = _similarity.ComputeSimilarity(searchEmbedding, device.NameEmbedding) })
                 .ToList();
 
             const double similarityThreshold = 0.6;
@@ -694,28 +697,6 @@ public sealed class ClimateControlSkill : IAgentSkill
                 _refreshLock.Release();
             }
         }
-    }
-
-    private static double CosineSimilarity(Embedding<float> vector1, Embedding<float> vector2)
-    {
-        var span1 = vector1.Vector.Span;
-        var span2 = vector2.Vector.Span;
-        if (span1.Length != span2.Length) return 0.0;
-
-        var dotProduct = 0.0;
-        var magnitude1 = 0.0;
-        var magnitude2 = 0.0;
-
-        for (var i = 0; i < span1.Length; i++)
-        {
-            dotProduct += span1[i] * span2[i];
-            magnitude1 += span1[i] * span1[i];
-            magnitude2 += span2[i] * span2[i];
-        }
-
-        return magnitude1 == 0.0 || magnitude2 == 0.0
-            ? 0.0
-            : dotProduct / (Math.Sqrt(magnitude1) * Math.Sqrt(magnitude2));
     }
 
     /// <summary>

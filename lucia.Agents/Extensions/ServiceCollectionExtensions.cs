@@ -77,6 +77,7 @@ public static class ServiceCollectionExtensions
 
         // Register entity location service (shared singleton for floor/area/entity resolution)
         builder.Services.AddSingleton<IEntityLocationService, EntityLocationService>();
+        builder.Services.AddSingleton<IEmbeddingSimilarityService, EmbeddingSimilarityService>();
 
         // Register A2A TaskManager (T037)
         builder.Services.AddSingleton<ITaskManager>(sp =>

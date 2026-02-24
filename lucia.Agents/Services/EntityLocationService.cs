@@ -40,6 +40,7 @@ public sealed class EntityLocationService : IEntityLocationService
     private readonly IHomeAssistantClient _haClient;
     private readonly IConnectionMultiplexer _redis;
     private readonly IEmbeddingProviderResolver _embeddingResolver;
+    private readonly IEmbeddingSimilarityService _similarity;
     private readonly ILogger<EntityLocationService> _logger;
     private readonly SemaphoreSlim _loadLock = new(1, 1);
 
@@ -62,11 +63,13 @@ public sealed class EntityLocationService : IEntityLocationService
         IHomeAssistantClient haClient,
         IConnectionMultiplexer redis,
         IEmbeddingProviderResolver embeddingResolver,
+        IEmbeddingSimilarityService similarity,
         ILogger<EntityLocationService> logger)
     {
         _haClient = haClient;
         _redis = redis;
         _embeddingResolver = embeddingResolver;
+        _similarity = similarity;
         _logger = logger;
     }
 
@@ -529,7 +532,7 @@ public sealed class EntityLocationService : IEntityLocationService
 
         // Score all location names
         var matches = embeddings
-            .Select(kvp => (Name: kvp.Key, Similarity: CosineSimilarity(queryEmbedding, kvp.Value)))
+            .Select(kvp => (Name: kvp.Key, Similarity: _similarity.ComputeSimilarity(queryEmbedding, kvp.Value)))
             .Where(m => m.Similarity >= EmbeddingSimilarityThreshold)
             .OrderByDescending(m => m.Similarity)
             .ToList();
@@ -742,33 +745,6 @@ public sealed class EntityLocationService : IEntityLocationService
         {
             _logger.LogWarning(ex, "Failed to save location data to Redis — data is available in-memory only");
         }
-    }
-
-    // ── Private: Math ───────────────────────────────────────────────
-
-    private static double CosineSimilarity(Embedding<float> vector1, Embedding<float> vector2)
-    {
-        var span1 = vector1.Vector.Span;
-        var span2 = vector2.Vector.Span;
-
-        if (span1.Length != span2.Length)
-            return 0.0;
-
-        var dotProduct = 0.0;
-        var magnitude1 = 0.0;
-        var magnitude2 = 0.0;
-
-        for (var i = 0; i < span1.Length; i++)
-        {
-            dotProduct += span1[i] * span2[i];
-            magnitude1 += span1[i] * span1[i];
-            magnitude2 += span2[i] * span2[i];
-        }
-
-        if (magnitude1 == 0.0 || magnitude2 == 0.0)
-            return 0.0;
-
-        return dotProduct / (Math.Sqrt(magnitude1) * Math.Sqrt(magnitude2));
     }
 
     // ── Private: Jinja DTOs ─────────────────────────────────────────

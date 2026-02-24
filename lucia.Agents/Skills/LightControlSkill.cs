@@ -23,6 +23,7 @@ public class LightControlSkill : IAgentSkill
     private readonly ILogger<LightControlSkill> _logger;
     private readonly IDeviceCacheService _deviceCache;
     private readonly IEntityLocationService _locationService;
+    private readonly IEmbeddingSimilarityService _similarity;
     private volatile IReadOnlyList<LightEntity> _cachedLights = Array.Empty<LightEntity>();
     private long _lastCacheUpdateTicks = DateTime.MinValue.Ticks;
     private readonly TimeSpan _cacheRefreshInterval = TimeSpan.FromMinutes(30);
@@ -47,13 +48,15 @@ public class LightControlSkill : IAgentSkill
         IEmbeddingProviderResolver embeddingResolver,
         ILogger<LightControlSkill> logger,
         IDeviceCacheService deviceCache,
-        IEntityLocationService locationService)
+        IEntityLocationService locationService,
+        IEmbeddingSimilarityService similarity)
     {
         _homeAssistantClient = homeAssistantClient;
         _embeddingResolver = embeddingResolver;
         _logger = logger;
         _deviceCache = deviceCache;
         _locationService = locationService;
+        _similarity = similarity;
     }
 
     public IList<AITool> GetTools()
@@ -230,7 +233,7 @@ public class LightControlSkill : IAgentSkill
             // Search light names by embedding similarity
             const double similarityThreshold = 0.6;
             var matchingLights = _cachedLights
-                .Select(light => new { Light = light, Similarity = CosineSimilarity(searchEmbedding, light.NameEmbedding) })
+                .Select(light => new { Light = light, Similarity = _similarity.ComputeSimilarity(searchEmbedding, light.NameEmbedding) })
                 .Where(x => x.Similarity >= similarityThreshold)
                 .OrderByDescending(x => x.Similarity)
                 .ToList();
@@ -702,31 +705,6 @@ public class LightControlSkill : IAgentSkill
             capabilities.Add("color");
 
         return capabilities.Any() ? $" (supports: {string.Join(", ", capabilities)})" : "";
-    }
-
-    private static double CosineSimilarity(Embedding<float> vector1, Embedding<float> vector2)
-    {
-        var span1 = vector1.Vector.Span;
-        var span2 = vector2.Vector.Span;
-
-        if (span1.Length != span2.Length)
-            return 0.0;
-
-        var dotProduct = 0.0;
-        var magnitude1 = 0.0;
-        var magnitude2 = 0.0;
-
-        for (var i = 0; i < span1.Length; i++)
-        {
-            dotProduct += span1[i] * span2[i];
-            magnitude1 += span1[i] * span1[i];
-            magnitude2 += span2[i] * span2[i];
-        }
-
-        if (magnitude1 == 0.0 || magnitude2 == 0.0)
-            return 0.0;
-
-        return dotProduct / (Math.Sqrt(magnitude1) * Math.Sqrt(magnitude2));
     }
 
 }
