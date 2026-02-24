@@ -624,3 +624,43 @@ export function connectActivityStream(
   if (onError) source.onerror = onError;
   return source;
 }
+
+// ── Entity Location Cache ──────────────────────────────────────────
+
+export async function fetchEntityLocationSummary() {
+  const res = await fetch(`${BASE}/entity-location`);
+  if (!res.ok) throw new Error(`Failed to fetch location summary: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchEntityLocationFloors() {
+  const res = await fetch(`${BASE}/entity-location/floors`);
+  if (!res.ok) throw new Error(`Failed to fetch floors: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchEntityLocationAreas() {
+  const res = await fetch(`${BASE}/entity-location/areas`);
+  if (!res.ok) throw new Error(`Failed to fetch areas: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchEntityLocationEntities(domain?: string) {
+  const params = domain ? `?domain=${encodeURIComponent(domain)}` : '';
+  const res = await fetch(`${BASE}/entity-location/entities${params}`);
+  if (!res.ok) throw new Error(`Failed to fetch entities: ${res.statusText}`);
+  return res.json();
+}
+
+export async function searchEntityLocation(term: string, domain?: string) {
+  const params = domain ? `?domain=${encodeURIComponent(domain)}` : '';
+  const res = await fetch(`${BASE}/entity-location/search/${encodeURIComponent(term)}${params}`);
+  if (!res.ok) throw new Error(`Failed to search locations: ${res.statusText}`);
+  return res.json();
+}
+
+export async function invalidateEntityLocationCache() {
+  const res = await fetch(`${BASE}/entity-location/invalidate`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to invalidate location cache: ${res.statusText}`);
+  return res.json();
+}

@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
@@ -24,10 +23,9 @@ public sealed class ClimateControlSkill : IAgentSkill
     private IEmbeddingGenerator<string, Embedding<float>>? _embeddingService;
     private readonly ILogger<ClimateControlSkill> _logger;
     private readonly IDeviceCacheService _deviceCache;
+    private readonly IEntityLocationService _locationService;
     private readonly int _comfortAdjustmentF;
     private volatile IReadOnlyList<ClimateEntity> _cachedDevices = Array.Empty<ClimateEntity>();
-    private volatile IReadOnlyDictionary<string, Embedding<float>> _areaEmbeddings = new Dictionary<string, Embedding<float>>();
-    private readonly ConcurrentDictionary<string, Embedding<float>> _searchTermEmbeddingCache = new(StringComparer.OrdinalIgnoreCase);
     private long _lastCacheUpdateTicks = DateTime.MinValue.Ticks;
     private readonly TimeSpan _cacheRefreshInterval = TimeSpan.FromMinutes(30);
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
@@ -48,12 +46,14 @@ public sealed class ClimateControlSkill : IAgentSkill
         IEmbeddingProviderResolver embeddingResolver,
         ILogger<ClimateControlSkill> logger,
         IDeviceCacheService deviceCache,
+        IEntityLocationService locationService,
         IConfiguration configuration)
     {
         _homeAssistantClient = homeAssistantClient;
         _embeddingResolver = embeddingResolver;
         _logger = logger;
         _deviceCache = deviceCache;
+        _locationService = locationService;
         _comfortAdjustmentF = configuration.GetValue("ClimateAgent:ComfortAdjustmentF", 3);
     }
 
@@ -123,17 +123,12 @@ public sealed class ClimateControlSkill : IAgentSkill
 
         try
         {
-            var searchEmbedding = await GetOrCreateSearchEmbeddingAsync(searchTerm).ConfigureAwait(false);
+            var searchEmbedding = await _embeddingService!.GenerateAsync(searchTerm, cancellationToken: CancellationToken.None).ConfigureAwait(false);
 
             var deviceMatches = _cachedDevices
                 .Select(device => new { Device = device, Similarity = CosineSimilarity(searchEmbedding, device.NameEmbedding) })
                 .ToList();
 
-            var areaMatches = _areaEmbeddings
-                .Select(kvp => new { AreaName = kvp.Key, Similarity = CosineSimilarity(searchEmbedding, kvp.Value) })
-                .ToList();
-
-            var bestAreaMatch = areaMatches.OrderByDescending(x => x.Similarity).FirstOrDefault();
             const double similarityThreshold = 0.6;
 
             var matchingDevices = deviceMatches
@@ -141,8 +136,7 @@ public sealed class ClimateControlSkill : IAgentSkill
                 .OrderByDescending(x => x.Similarity)
                 .ToList();
 
-            if (matchingDevices.Count > 0 &&
-                (bestAreaMatch == null || matchingDevices[0].Similarity >= bestAreaMatch.Similarity))
+            if (matchingDevices.Count > 0)
             {
                 activity?.SetTag("match.type", "device");
                 activity?.SetTag("match.count", matchingDevices.Count);
@@ -171,25 +165,32 @@ public sealed class ClimateControlSkill : IAgentSkill
                 activity?.SetStatus(ActivityStatusCode.Ok);
                 return matchingDevices.Count == 1 ? sb.ToString() : sb.ToString().TrimEnd();
             }
-            else if (bestAreaMatch != null && bestAreaMatch.Similarity >= similarityThreshold)
+
+            // Fallback: use location service for area-based search
+            var locationEntities = await _locationService.FindEntitiesByLocationAsync(
+                searchTerm, (IReadOnlyList<string>)["climate"], CancellationToken.None).ConfigureAwait(false);
+
+            if (locationEntities.Count > 0)
             {
-                var areaDevices = _cachedDevices.Where(d => d.Area == bestAreaMatch.AreaName).ToList();
-                if (!areaDevices.Any())
-                    return $"Found area '{bestAreaMatch.AreaName}' but it contains no climate devices.";
+                var matchedEntityIds = locationEntities.Select(e => e.EntityId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var areaDevices = _cachedDevices.Where(d => matchedEntityIds.Contains(d.EntityId)).ToList();
 
-                var sb = new StringBuilder();
-                sb.AppendLine($"Found {areaDevices.Count} climate device(s) in area '{bestAreaMatch.AreaName}':");
-
-                foreach (var device in areaDevices)
+                if (areaDevices.Count > 0)
                 {
-                    var state = await _homeAssistantClient.GetEntityStateAsync(device.EntityId).ConfigureAwait(false);
-                    if (state is null) continue;
-                    sb.AppendLine($"- {device.FriendlyName} (Entity ID: {device.EntityId}), {FormatClimateState(state, device)}");
-                }
+                    var sb = new StringBuilder();
+                    sb.AppendLine($"Found {areaDevices.Count} climate device(s) matching '{searchTerm}':");
 
-                ClimateSearchSuccess.Add(1);
-                activity?.SetStatus(ActivityStatusCode.Ok);
-                return sb.ToString().TrimEnd();
+                    foreach (var device in areaDevices)
+                    {
+                        var state = await _homeAssistantClient.GetEntityStateAsync(device.EntityId).ConfigureAwait(false);
+                        if (state is null) continue;
+                        sb.AppendLine($"- {device.FriendlyName} (Entity ID: {device.EntityId}), {FormatClimateState(state, device)}");
+                    }
+
+                    ClimateSearchSuccess.Add(1);
+                    activity?.SetStatus(ActivityStatusCode.Ok);
+                    return sb.ToString().TrimEnd();
+                }
             }
 
             ClimateSearchFailures.Add(1);
@@ -221,23 +222,25 @@ public sealed class ClimateControlSkill : IAgentSkill
 
         try
         {
-            var searchEmbedding = await GetOrCreateSearchEmbeddingAsync(areaName).ConfigureAwait(false);
+            var locationEntities = await _locationService.FindEntitiesByLocationAsync(
+                areaName, (IReadOnlyList<string>)["climate"], CancellationToken.None).ConfigureAwait(false);
 
-            var areaMatches = _areaEmbeddings
-                .Select(kvp => new { AreaName = kvp.Key, Similarity = CosineSimilarity(searchEmbedding, kvp.Value) })
-                .OrderByDescending(x => x.Similarity)
-                .ToList();
+            if (locationEntities.Count == 0)
+            {
+                var availableAreas = _cachedDevices
+                    .Where(d => !string.IsNullOrEmpty(d.Area))
+                    .Select(d => d.Area!)
+                    .Distinct();
+                return $"No area found matching '{areaName}'. Available areas with climate devices: {string.Join(", ", availableAreas)}";
+            }
 
-            var bestMatch = areaMatches.FirstOrDefault();
-            if (bestMatch == null || bestMatch.Similarity < 0.6)
-                return $"No area found matching '{areaName}'. Available areas with climate devices: {string.Join(", ", _areaEmbeddings.Keys)}";
-
-            var areaDevices = _cachedDevices.Where(d => d.Area == bestMatch.AreaName).ToList();
+            var matchedEntityIds = locationEntities.Select(e => e.EntityId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var areaDevices = _cachedDevices.Where(d => matchedEntityIds.Contains(d.EntityId)).ToList();
             if (!areaDevices.Any())
-                return $"Area '{bestMatch.AreaName}' has no climate devices.";
+                return $"No climate devices found in the matched location for '{areaName}'.";
 
             var sb = new StringBuilder();
-            sb.AppendLine($"Found {areaDevices.Count} climate device(s) in '{bestMatch.AreaName}':");
+            sb.AppendLine($"Found {areaDevices.Count} climate device(s) matching '{areaName}':");
 
             foreach (var device in areaDevices)
             {
@@ -432,7 +435,7 @@ public sealed class ClimateControlSkill : IAgentSkill
         [Description("The entity ID of the climate device")] string entityId,
         [Description("The preset mode to set (e.g., 'none', 'sleep', 'eco', 'away')")] string presetMode)
     {
-        using var activity = ActivitySource.StartActivity("SetClimatePresetMode", ActivityKind.Internal);
+        using var activity = ActivitySource.StartActivity();
         activity?.SetTag("entity_id", entityId);
         activity?.SetTag("preset_mode", presetMode);
         var start = Stopwatch.GetTimestamp();
@@ -469,7 +472,7 @@ public sealed class ClimateControlSkill : IAgentSkill
         [Description("The entity ID of the climate device")] string entityId,
         [Description("The swing mode to set (e.g., 'on', 'off', 'Auto', 'Position 1')")] string swingMode)
     {
-        using var activity = ActivitySource.StartActivity("SetClimateSwingMode", ActivityKind.Internal);
+        using var activity = ActivitySource.StartActivity();
         activity?.SetTag("entity_id", entityId);
         activity?.SetTag("swing_mode", swingMode);
         var start = Stopwatch.GetTimestamp();
@@ -566,10 +569,9 @@ public sealed class ClimateControlSkill : IAgentSkill
         var start = Stopwatch.GetTimestamp();
         try
         {
-            // Try Redis cache first
+            // Try Redis cache first (device data only — areas come from IEntityLocationService)
             var cached = await _deviceCache.GetCachedClimateDevicesAsync(cancellationToken).ConfigureAwait(false);
-            var cachedAreaEmbeddings = await _deviceCache.GetAreaEmbeddingsAsync(cancellationToken).ConfigureAwait(false);
-            if (cached is not null && cachedAreaEmbeddings is not null)
+            if (cached is not null)
             {
                 var allEmbeddingsFound = true;
                 foreach (var device in cached)
@@ -589,7 +591,6 @@ public sealed class ClimateControlSkill : IAgentSkill
                 if (allEmbeddingsFound)
                 {
                     _cachedDevices = cached;
-                    _areaEmbeddings = new Dictionary<string, Embedding<float>>(cachedAreaEmbeddings);
                     Volatile.Write(ref _lastCacheUpdateTicks, DateTime.UtcNow.Ticks);
                     _logger.LogInformation("Loaded {Count} climate devices from Redis cache", cached.Count);
                     return;
@@ -603,10 +604,6 @@ public sealed class ClimateControlSkill : IAgentSkill
             var climateEntities = allStates
                 .Where(s => s.EntityId.StartsWith("climate."))
                 .ToList();
-
-            var allEntityDataByArea = await _homeAssistantClient.RunTemplateAsync<List<AreaEntityMap>>(
-                "[{% for id in areas() %}{% if not loop.first %}, {% endif %}{\"area\":\"{{ area_name(id) }}\",\"entities\":[{% for e in area_entities(id) %}{% if not loop.first %}, {% endif %}\"{{ e }}\"{% endfor %}]}{% endfor %}]",
-                cancellationToken).ConfigureAwait(false);
 
             var newDevices = new List<ClimateEntity>();
 
@@ -622,22 +619,23 @@ public sealed class ClimateControlSkill : IAgentSkill
                 var presetModes = ParseStringListAttribute(entity.Attributes, "preset_modes");
 
                 double? minTemp = null, maxTemp = null;
-                if (entity.Attributes.TryGetValue("min_temp", out var minObj) && double.TryParse(minObj?.ToString(), out var min))
+                if (entity.Attributes.TryGetValue("min_temp", out var minObj) && double.TryParse(minObj.ToString(), out var min))
                     minTemp = min;
-                if (entity.Attributes.TryGetValue("max_temp", out var maxObj) && double.TryParse(maxObj?.ToString(), out var max))
+                if (entity.Attributes.TryGetValue("max_temp", out var maxObj) && double.TryParse(maxObj.ToString(), out var max))
                     maxTemp = max;
 
                 double? minHumidity = null, maxHumidity = null;
-                if (entity.Attributes.TryGetValue("min_humidity", out var minHumObj) && double.TryParse(minHumObj?.ToString(), out var minH))
+                if (entity.Attributes.TryGetValue("min_humidity", out var minHumObj) && double.TryParse(minHumObj.ToString(), out var minH))
                     minHumidity = minH;
-                if (entity.Attributes.TryGetValue("max_humidity", out var maxHumObj) && double.TryParse(maxHumObj?.ToString(), out var maxH))
+                if (entity.Attributes.TryGetValue("max_humidity", out var maxHumObj) && double.TryParse(maxHumObj.ToString(), out var maxH))
                     maxHumidity = maxH;
 
                 var supportedFeatures = 0;
-                if (entity.Attributes.TryGetValue("supported_features", out var featObj) && int.TryParse(featObj?.ToString(), out var feat))
+                if (entity.Attributes.TryGetValue("supported_features", out var featObj) && int.TryParse(featObj.ToString(), out var feat))
                     supportedFeatures = feat;
 
-                var area = (from areaMap in allEntityDataByArea where areaMap.Entities.Contains(entity.EntityId) select areaMap.Area).FirstOrDefault();
+                // Resolve area from the shared entity location service
+                var areaInfo = _locationService.GetAreaForEntity(entity.EntityId);
 
                 var embedding = await _embeddingService.GenerateAsync(friendlyName, cancellationToken: cancellationToken).ConfigureAwait(false);
 
@@ -646,7 +644,7 @@ public sealed class ClimateControlSkill : IAgentSkill
                     EntityId = entity.EntityId,
                     FriendlyName = friendlyName,
                     NameEmbedding = embedding,
-                    Area = area,
+                    Area = areaInfo?.Name,
                     HvacModes = hvacModes,
                     FanModes = fanModes,
                     SwingModes = swingModes,
@@ -659,21 +657,7 @@ public sealed class ClimateControlSkill : IAgentSkill
                 });
             }
 
-            var uniqueAreas = newDevices
-                .Where(d => !string.IsNullOrEmpty(d.Area))
-                .Select(d => d.Area!)
-                .Distinct()
-                .ToList();
-
-            var newAreaEmbeddings = new Dictionary<string, Embedding<float>>();
-            foreach (var area in uniqueAreas)
-            {
-                var areaEmbedding = await _embeddingService.GenerateAsync(area, cancellationToken: cancellationToken).ConfigureAwait(false);
-                newAreaEmbeddings[area] = areaEmbedding;
-            }
-
             _cachedDevices = newDevices;
-            _areaEmbeddings = newAreaEmbeddings;
             Volatile.Write(ref _lastCacheUpdateTicks, DateTime.UtcNow.Ticks);
 
             var ttl = TimeSpan.FromMinutes(30);
@@ -681,9 +665,8 @@ public sealed class ClimateControlSkill : IAgentSkill
             await _deviceCache.SetCachedClimateDevicesAsync(newDevices, ttl, cancellationToken).ConfigureAwait(false);
             foreach (var device in newDevices)
                 await _deviceCache.SetEmbeddingAsync($"climate:{device.EntityId}", device.NameEmbedding, embedTtl, cancellationToken).ConfigureAwait(false);
-            await _deviceCache.SetAreaEmbeddingsAsync(new Dictionary<string, Embedding<float>>(newAreaEmbeddings), embedTtl, cancellationToken).ConfigureAwait(false);
 
-            _logger.LogInformation("Cached {Count} climate devices across {AreaCount} areas", newDevices.Count, newAreaEmbeddings.Count);
+            _logger.LogInformation("Cached {Count} climate devices", newDevices.Count);
         }
         catch (Exception ex)
         {
@@ -711,16 +694,6 @@ public sealed class ClimateControlSkill : IAgentSkill
                 _refreshLock.Release();
             }
         }
-    }
-
-    private async Task<Embedding<float>> GetOrCreateSearchEmbeddingAsync(string searchTerm)
-    {
-        if (_searchTermEmbeddingCache.TryGetValue(searchTerm, out var cached))
-            return cached;
-
-        var embedding = await _embeddingService!.GenerateAsync(searchTerm).ConfigureAwait(false);
-        _searchTermEmbeddingCache.TryAdd(searchTerm, embedding);
-        return embedding;
     }
 
     private static double CosineSimilarity(Embedding<float> vector1, Embedding<float> vector2)
@@ -751,7 +724,7 @@ public sealed class ClimateControlSkill : IAgentSkill
     /// </summary>
     private static List<string> ParseStringListAttribute(Dictionary<string, object> attributes, string key)
     {
-        if (!attributes.TryGetValue(key, out var value) || value is null)
+        if (!attributes.TryGetValue(key, out var value))
             return [];
 
         try
@@ -761,18 +734,15 @@ public sealed class ClimateControlSkill : IAgentSkill
                 if (jsonElement.ValueKind != JsonValueKind.Array)
                     return [];
 
-                var result = new List<string>();
-                foreach (var item in jsonElement.EnumerateArray())
-                {
-                    var str = item.ValueKind switch
+                return jsonElement.EnumerateArray()
+                    .Select(item => item.ValueKind switch
                     {
                         JsonValueKind.String => item.GetString(),
                         JsonValueKind.Number => item.GetRawText(),
                         _ => item.GetRawText()
-                    };
-                    if (str is not null) result.Add(str);
-                }
-                return result;
+                    })
+                    .OfType<string>()
+                    .ToList();
             }
 
             // Fallback: try deserializing the string representation

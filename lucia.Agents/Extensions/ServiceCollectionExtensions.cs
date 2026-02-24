@@ -75,6 +75,9 @@ public static class ServiceCollectionExtensions
         // Register Redis device cache service
         builder.Services.AddSingleton<IDeviceCacheService, RedisDeviceCacheService>();
 
+        // Register entity location service (shared singleton for floor/area/entity resolution)
+        builder.Services.AddSingleton<IEntityLocationService, EntityLocationService>();
+
         // Register A2A TaskManager (T037)
         builder.Services.AddSingleton<ITaskManager>(sp =>
         {

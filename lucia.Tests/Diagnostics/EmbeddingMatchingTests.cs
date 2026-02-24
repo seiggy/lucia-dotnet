@@ -118,7 +118,7 @@ public sealed class EmbeddingMatchingTests
         var loggerFactory = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Trace));
         var logger = loggerFactory.CreateLogger<LightControlSkill>();
 
-        var skill = new LightControlSkill(haClient, new StubEmbeddingProviderResolver(embGen), logger, A.Fake<IDeviceCacheService>());
+        var skill = new LightControlSkill(haClient, new StubEmbeddingProviderResolver(embGen), logger, A.Fake<IDeviceCacheService>(), A.Fake<IEntityLocationService>());
 
         _output.WriteLine($"Calling FindLightAsync('{searchTerm}')...");
         var result = await skill.FindLightAsync(searchTerm);

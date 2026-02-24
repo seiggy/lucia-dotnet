@@ -61,6 +61,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
     private ILoggerFactory _loggerFactory = null!;
     private IServer _mockServer = null!;
     private readonly IDeviceCacheService _mockDeviceCache = A.Fake<IDeviceCacheService>();
+    private readonly IEntityLocationService _mockLocationService = A.Fake<IEntityLocationService>();
     private readonly IChatClientResolver _mockChatClientResolver = A.Fake<IChatClientResolver>();
     private readonly IAgentDefinitionRepository _mockDefinitionRepo = A.Fake<IAgentDefinitionRepository>();
 
@@ -171,7 +172,8 @@ public sealed class EvalTestFixture : IAsyncLifetime
             _mockHaClient,
             _mockEmbeddingResolver,
             _loggerFactory.CreateLogger<LightControlSkill>(),
-            _mockDeviceCache);
+            _mockDeviceCache,
+            _mockLocationService);
         return new LightAgent(_mockChatClientResolver, _mockDefinitionRepo, lightSkill, _loggerFactory);
     }
 
@@ -202,7 +204,8 @@ public sealed class EvalTestFixture : IAsyncLifetime
             _mockHaClient,
             _mockEmbeddingResolver,
             _loggerFactory.CreateLogger<LightControlSkill>(),
-            _mockDeviceCache);
+            _mockDeviceCache,
+            _mockLocationService);
         return (new LightAgent(_mockChatClientResolver, _mockDefinitionRepo, lightSkill, _loggerFactory), capture);
     }
 
@@ -331,7 +334,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
         var lightSkill = new LightControlSkill(
             _mockHaClient, _mockEmbeddingResolver,
             _loggerFactory.CreateLogger<LightControlSkill>(),
-            _mockDeviceCache);
+            _mockDeviceCache, _mockLocationService);
         var lightAgent = new LightAgent(_mockChatClientResolver, _mockDefinitionRepo, lightSkill, _loggerFactory);
         _lightAgentCard = lightAgent.GetAgentCard();
 

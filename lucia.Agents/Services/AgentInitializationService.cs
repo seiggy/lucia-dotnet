@@ -24,6 +24,7 @@ public class AgentInitializationService : BackgroundService
     private readonly IEnumerable<ILuciaAgent> _agents;
     private readonly IAgentDefinitionRepository _definitionRepository;
     private readonly IModelProviderRepository _providerRepository;
+    private readonly IEntityLocationService _entityLocationService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AgentInitializationService> _logger;
     private readonly IOptionsMonitor<HomeAssistantOptions> _haOptions;
@@ -34,6 +35,7 @@ public class AgentInitializationService : BackgroundService
         IEnumerable<ILuciaAgent> agents,
         IAgentDefinitionRepository definitionRepository,
         IModelProviderRepository providerRepository,
+        IEntityLocationService entityLocationService,
         IConfiguration configuration,
         ILogger<AgentInitializationService> logger,
         IOptionsMonitor<HomeAssistantOptions> haOptions,
@@ -43,6 +45,7 @@ public class AgentInitializationService : BackgroundService
         _agents = agents;
         _definitionRepository = definitionRepository;
         _providerRepository = providerRepository;
+        _entityLocationService = entityLocationService;
         _configuration = configuration;
         _logger = logger;
         _haOptions = haOptions;
@@ -58,6 +61,16 @@ public class AgentInitializationService : BackgroundService
 
         // Seed AgentDefinition documents for any built-in agents missing from MongoDB
         await _definitionRepository.SeedBuiltInAgentDefinitionsAsync(_agents, _logger, stoppingToken).ConfigureAwait(false);
+
+        // Initialize entity location cache before agents (skills depend on it)
+        try
+        {
+            await _entityLocationService.InitializeAsync(stoppingToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Entity location service initialization failed — skills will operate without location cache");
+        }
 
         _logger.LogInformation("Starting agent initialization...");
 

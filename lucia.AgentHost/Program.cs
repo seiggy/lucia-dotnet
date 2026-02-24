@@ -174,6 +174,7 @@ app.MapTraceManagementApi();
 app.MapDatasetExportApi();
 app.MapConfigurationApi();
 app.MapPromptCacheApi();
+app.MapEntityLocationCacheApi();
 app.MapTaskManagementApi();
 app.MapMcpServerApi();
 app.MapAgentDefinitionApi();
