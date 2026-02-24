@@ -226,7 +226,20 @@ export default function ActivityPage() {
         break
       case 'toolCall':
         if (evt.agentName) updateNode(evt.agentName, 'Calling Tools...', true)
-        if (evt.agentName && evt.toolName) updateNode(`${evt.agentName}:${evt.toolName}`, 'Processing...', true)
+        if (evt.agentName && evt.toolName) {
+          const toolNodeId = `${evt.agentName}:${evt.toolName}`
+          // Dynamically add tool node to topology if it doesn't exist yet
+          setTopology(prev => {
+            if (!prev) return prev
+            if (prev.nodes.some(n => n.id === toolNodeId)) return prev
+            return {
+              ...prev,
+              nodes: [...prev.nodes, { id: toolNodeId, label: evt.toolName!, nodeType: 'tool', isRemote: false }],
+              edges: [...prev.edges, { source: evt.agentName!, target: toolNodeId }],
+            }
+          })
+          updateNode(toolNodeId, 'Processing...', true)
+        }
         break
       case 'toolResult':
         if (evt.agentName && evt.toolName) updateNode(`${evt.agentName}:${evt.toolName}`, 'Idle', false)
@@ -243,6 +256,15 @@ export default function ActivityPage() {
         if (clearTimeoutRef.current) clearTimeout(clearTimeoutRef.current)
         clearTimeoutRef.current = setTimeout(() => {
           setNodeStates({})
+          // Remove dynamic tool nodes from topology
+          setTopology(prev => {
+            if (!prev) return prev
+            return {
+              ...prev,
+              nodes: prev.nodes.filter(n => n.nodeType !== 'tool'),
+              edges: prev.edges.filter(e => !prev.nodes.some(n => n.nodeType === 'tool' && n.id === e.target)),
+            }
+          })
         }, 3000)
         updateNode('orchestrator', 'Idle', false)
         break
