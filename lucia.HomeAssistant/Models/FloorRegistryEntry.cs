@@ -4,7 +4,7 @@ namespace lucia.HomeAssistant.Models;
 
 /// <summary>
 /// A floor entry from the Home Assistant config registry.
-/// Retrieved via Jinja template using the floors() template function.
+/// Retrieved via WebSocket command config/floor_registry/list.
 /// </summary>
 public sealed class FloorRegistryEntry
 {

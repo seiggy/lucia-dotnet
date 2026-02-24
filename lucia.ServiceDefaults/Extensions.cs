@@ -118,7 +118,11 @@ public static class Extensions
 
                             AddHeaders(activity, "http.response.header.", response.Headers);
 
-                            if (response.Content is null)
+                            // Skip body capture for WebSocket upgrade responses — their
+                            // content stream is a duplex network stream that must remain
+                            // writeable for the WebSocket to function.
+                            if (response.Content is null
+                                || response.StatusCode == System.Net.HttpStatusCode.SwitchingProtocols)
                             {
                                 return;
                             }

@@ -36,4 +36,22 @@ public static partial class HomeAssistantClientLogMessages
         Level = LogLevel.Error,
         Message = "Deserialization failed for {Method} {Endpoint}")]
     public static partial void DeserializationFailed(this ILogger logger, Exception ex, string method, string endpoint);
+
+    [LoggerMessage(
+        EventId = 1010,
+        Level = LogLevel.Debug,
+        Message = "Opening WebSocket connection to {Endpoint}")]
+    public static partial void WebSocketConnecting(this ILogger logger, string endpoint);
+
+    [LoggerMessage(
+        EventId = 1011,
+        Level = LogLevel.Debug,
+        Message = "Sending WebSocket command: {CommandType}")]
+    public static partial void WebSocketCommand(this ILogger logger, string commandType);
+
+    [LoggerMessage(
+        EventId = 1012,
+        Level = LogLevel.Error,
+        Message = "WebSocket command '{CommandType}' failed: {ErrorMessage}")]
+    public static partial void WebSocketCommandFailed(this ILogger logger, string commandType, string errorMessage);
 }

@@ -1,9 +1,11 @@
 using System.Net.Http.Json;
+using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using lucia.HomeAssistant.Configuration;
 using lucia.HomeAssistant.Models;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace lucia.HomeAssistant.Services;
 
@@ -15,11 +17,13 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<HomeAssistantClient> _logger;
+    private readonly HomeAssistantOptions _options;
 
-    public HomeAssistantClient(HttpClient httpClient, ILogger<HomeAssistantClient> logger)
+    public HomeAssistantClient(HttpClient httpClient, ILogger<HomeAssistantClient> logger, IOptions<HomeAssistantOptions> options)
     {
         _httpClient = httpClient;
         _logger = logger;
+        _options = options.Value;
     }
 
     // ── Status & Config ─────────────────────────────────────────────
@@ -270,36 +274,30 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
         }
     }
 
-    // ── Config Registries (via Jinja templates — WebSocket-only in HA REST API) ─
+    // ── Config Registries ────────────────────────────────────────────
+    //
+    // Floor and area registries use the HA WebSocket API because the REST API
+    // does not expose these endpoints and the Jinja template engine does not
+    // provide access to aliases. A short-lived WebSocket connection is opened,
+    // authenticated, and the registry command is sent/received.
+    //
+    // Entity registry continues to use Jinja templates because area_entities()
+    // includes device-inherited area assignments, which the raw entity registry
+    // does not.
 
-    // The config registries (floor, area, entity) are WebSocket-only commands in
-    // Home Assistant and have no REST API equivalents. We use the /api/template
-    // endpoint with Jinja2 templates that call HA's built-in template functions
-    // (floors(), areas(), area_entities(), floor_areas(), etc.) to produce JSON
-    // matching our model shapes.
+    /// <summary>Returns all floor entries from the config registry via WebSocket.</summary>
+    public async Task<FloorRegistryEntry[]> GetFloorRegistryAsync(CancellationToken cancellationToken = default)
+    {
+        return await SendWebSocketCommandAsync<FloorRegistryEntry[]>(
+            "config/floor_registry/list", cancellationToken) ?? [];
+    }
 
-    private const string FloorRegistryTemplate =
-        """
-        {% set ns = namespace(r=[]) -%}
-        {% for fid in floors() -%}
-          {% set ns.r = ns.r + [{"floor_id": fid, "name": floor_name(fid), "level": none, "icon": none, "aliases": []}] -%}
-        {% endfor -%}
-        {{ ns.r | to_json }}
-        """;
-
-    private const string AreaRegistryTemplate =
-        """
-        {% set ns = namespace(r=[], fa={}) -%}
-        {% for fid in floors() -%}
-          {% for aid in floor_areas(fid) -%}
-            {% set ns.fa = dict(ns.fa, **{aid: fid}) -%}
-          {% endfor -%}
-        {% endfor -%}
-        {% for aid in areas() -%}
-          {% set ns.r = ns.r + [{"area_id": aid, "name": area_name(aid), "floor_id": ns.fa.get(aid, none), "aliases": [], "icon": none, "labels": []}] -%}
-        {% endfor -%}
-        {{ ns.r | to_json }}
-        """;
+    /// <summary>Returns all area entries from the config registry via WebSocket.</summary>
+    public async Task<AreaRegistryEntry[]> GetAreaRegistryAsync(CancellationToken cancellationToken = default)
+    {
+        return await SendWebSocketCommandAsync<AreaRegistryEntry[]>(
+            "config/area_registry/list", cancellationToken) ?? [];
+    }
 
     private const string EntityRegistryTemplate =
         """
@@ -311,20 +309,6 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
         {% endfor -%}
         {{ ns.r | to_json }}
         """;
-
-    /// <summary>Returns all floor entries from the config registry.</summary>
-    public async Task<FloorRegistryEntry[]> GetFloorRegistryAsync(CancellationToken cancellationToken = default)
-    {
-        var json = await RenderTemplateAsync(new TemplateRenderRequest { Template = FloorRegistryTemplate }, cancellationToken);
-        return JsonSerializer.Deserialize<FloorRegistryEntry[]>(json.Trim(), HomeAssistantJsonOptions.Default) ?? [];
-    }
-
-    /// <summary>Returns all area entries from the config registry.</summary>
-    public async Task<AreaRegistryEntry[]> GetAreaRegistryAsync(CancellationToken cancellationToken = default)
-    {
-        var json = await RenderTemplateAsync(new TemplateRenderRequest { Template = AreaRegistryTemplate }, cancellationToken);
-        return JsonSerializer.Deserialize<AreaRegistryEntry[]>(json.Trim(), HomeAssistantJsonOptions.Default) ?? [];
-    }
 
     /// <summary>Returns all entity entries from the config registry.</summary>
     public async Task<EntityRegistryEntry[]> GetEntityRegistryAsync(CancellationToken cancellationToken = default)
@@ -492,5 +476,111 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
                 parts.Add($"{key}={Uri.EscapeDataString(value.ToString() ?? string.Empty)}");
         }
         return parts.Count > 0 ? "?" + string.Join("&", parts) : "";
+    }
+
+    // ── WebSocket helpers for config registry commands ───────────────
+
+    /// <summary>
+    /// Opens a short-lived WebSocket connection to HA, authenticates, sends a
+    /// single command, deserializes the result, and disconnects.
+    /// Uses .NET 10 per-message <see cref="WebSocketStream"/> for clean I/O.
+    /// </summary>
+    private async Task<T?> SendWebSocketCommandAsync<T>(string commandType, CancellationToken ct)
+    {
+        var baseUrl = _options.BaseUrl.TrimEnd('/');
+        var wsScheme = baseUrl.StartsWith("https", StringComparison.OrdinalIgnoreCase) ? "wss" : "ws";
+        var uri = new Uri(baseUrl);
+        var wsUri = new Uri($"{wsScheme}://{uri.Host}:{uri.Port}/api/websocket");
+
+        _logger.WebSocketConnecting(wsUri.ToString());
+
+        using var ws = new ClientWebSocket();
+        await ws.ConnectAsync(wsUri, ct);
+
+        try
+        {
+            // Step 1: Receive auth_required message
+            var authRequired = await WsReadJsonAsync(ws, ct);
+            var msgType = GetJsonStringProperty(authRequired, "type");
+            if (msgType != "auth_required")
+                throw new InvalidOperationException($"Expected 'auth_required', got '{msgType}'");
+
+            // Step 2: Send auth
+            await WsWriteJsonAsync(ws, new { type = "auth", access_token = _options.AccessToken }, ct);
+
+            // Step 3: Receive auth result
+            var authResult = await WsReadJsonAsync(ws, ct);
+            msgType = GetJsonStringProperty(authResult, "type");
+            if (msgType != "auth_ok")
+            {
+                var authMsg = GetJsonStringProperty(authResult, "message");
+                throw new InvalidOperationException($"WebSocket auth failed: {authMsg}");
+            }
+
+            // Step 4: Send command
+            _logger.WebSocketCommand(commandType);
+            await WsWriteJsonAsync(ws, new { id = 1, type = commandType }, ct);
+
+            // Step 5: Receive command result
+            var result = await WsReadJsonAsync(ws, ct);
+            var success = result.RootElement.TryGetProperty("success", out var successProp)
+                          && successProp.GetBoolean();
+
+            if (!success)
+            {
+                var errorMsg = result.RootElement.TryGetProperty("error", out var errorProp)
+                    ? errorProp.ToString()
+                    : "Unknown WebSocket error";
+                _logger.WebSocketCommandFailed(commandType, errorMsg);
+                throw new InvalidOperationException($"WebSocket command '{commandType}' failed: {errorMsg}");
+            }
+
+            if (result.RootElement.TryGetProperty("result", out var resultProp))
+            {
+                return JsonSerializer.Deserialize<T>(resultProp.GetRawText(), HomeAssistantJsonOptions.Default);
+            }
+
+            return default;
+        }
+        finally
+        {
+            if (ws.State == WebSocketState.Open)
+            {
+                try
+                {
+                    await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None);
+                }
+                catch
+                {
+                    // Best-effort close; don't mask the real exception
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Reads a single WebSocket message as a <see cref="JsonDocument"/> using
+    /// .NET 10 <see cref="WebSocketStream.CreateReadableMessageStream"/>.
+    /// </summary>
+    private static async Task<JsonDocument> WsReadJsonAsync(ClientWebSocket ws, CancellationToken ct)
+    {
+        await using var stream = WebSocketStream.CreateReadableMessageStream(ws);
+        return await JsonSerializer.DeserializeAsync<JsonDocument>(stream, HomeAssistantJsonOptions.Default, ct)
+               ?? throw new InvalidOperationException("Received empty WebSocket message");
+    }
+
+    /// <summary>
+    /// Writes a single JSON payload as one WebSocket text message using
+    /// .NET 10 <see cref="WebSocketStream.CreateWritableMessageStream"/>.
+    /// </summary>
+    private static async Task WsWriteJsonAsync(ClientWebSocket ws, object payload, CancellationToken ct)
+    {
+        await using var stream = WebSocketStream.CreateWritableMessageStream(ws, WebSocketMessageType.Text);
+        await stream.WriteAsync(JsonSerializer.SerializeToUtf8Bytes(payload, HomeAssistantJsonOptions.Default), ct);
+    }
+
+    private static string? GetJsonStringProperty(JsonDocument doc, string propertyName)
+    {
+        return doc.RootElement.TryGetProperty(propertyName, out var prop) ? prop.GetString() : null;
     }
 }
