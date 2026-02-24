@@ -256,15 +256,6 @@ export default function ActivityPage() {
         if (clearTimeoutRef.current) clearTimeout(clearTimeoutRef.current)
         clearTimeoutRef.current = setTimeout(() => {
           setNodeStates({})
-          // Remove dynamic tool nodes from topology
-          setTopology(prev => {
-            if (!prev) return prev
-            return {
-              ...prev,
-              nodes: prev.nodes.filter(n => n.nodeType !== 'tool'),
-              edges: prev.edges.filter(e => !prev.nodes.some(n => n.nodeType === 'tool' && n.id === e.target)),
-            }
-          })
         }, 3000)
         updateNode('orchestrator', 'Idle', false)
         break
