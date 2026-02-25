@@ -504,6 +504,8 @@ Lucia supports two deployment topologies controlled by the `Deployment__Mode` en
 | **Standalone** (default) | `standalone` | All agents (Music, Timer, etc.) run embedded in the main AgentHost process. Simplest setup — single container plus Redis and MongoDB. Recommended for most users. |
 | **Mesh** | `mesh` | Agents run as separate A2A containers that register with the AgentHost over the network. Used for Kubernetes deployments, horizontal scaling, or multi-node distribution. |
 
+> **⚠️ Single-Instance Constraint:** The AgentHost must run as a **single instance** (no horizontal scaling via replicas). The in-memory `ScheduledTaskStore` and `ActiveTimerStore` hold active alarms and timers — running multiple replicas would split scheduled task state across instances. For high availability, use a single replica with fast restart policies rather than multiple replicas behind a load balancer. This constraint applies to both standalone and mesh modes (the AgentHost itself must be single-instance; mesh agents can scale independently).
+
 **When to use each mode:**
 
 - **Standalone** — Home lab, single-server, Docker Compose, or any deployment where simplicity matters. External A2A agents can still connect to a standalone AgentHost.
@@ -565,12 +567,16 @@ The Aspire Dashboard provides built-in log aggregation, trace visualization, and
 - Dataset export for fine-tuning workflows
 - Schema-driven configuration system
 - Playwright E2E tests for all agent routing modes
+- Scheduled Task System with CRON scheduling and MongoDB persistence
+- Alarm Clock System with volume ramping and voice dismissal
+- Presence Detection Service with auto-discovered sensors and confidence levels
+- Alarm Clocks dashboard page with CRON builder and sound management
+- Presence Detection dashboard page with sensor management
 
 ### 🔄 In Progress
 
 - WebSocket real-time event streaming from Home Assistant
 - HACS store listing for one-click installation
-- SecurityAgent (alarm, locks, cameras)
 
 ### ⏳ Planned
 

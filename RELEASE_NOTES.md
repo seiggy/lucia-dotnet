@@ -14,6 +14,9 @@
 
 - **Entity Location Service** — New `IEntityLocationService` providing semantic entity resolution with floor, area, alias, and `supported_features` bitmask data. Agents can now find entities by natural language name, filter by capabilities (e.g., `Announce`), and resolve physical locations—all backed by a Redis-cached entity registry populated via HA Jinja templates.
 - **Timer BackgroundService** — Complete timer lifecycle refactor: timers now run in a dedicated `TimerExecutionService` (BackgroundService) with a thread-safe `ActiveTimerStore` singleton, fully decoupled from the HTTP request lifecycle. Timers survive request completion and announce via resolved satellite entities with proper feature detection.
+- **Scheduled Task System** — New `ScheduledTaskStore` / `ScheduledTaskExecutionService` providing CRON-based scheduling with MongoDB persistence and crash recovery. Supports Alarm, Timer, and AgentTask types with automatic re-scheduling on startup.
+- **Alarm Clock System** — Full alarm clock implementation with CRON recurring schedules, volume ramping (`media_player.volume_set` gradual increase), presence-based speaker routing, voice dismissal/snooze (works without specifying alarm name), auto-dismiss timeout, and sound library management.
+- **Presence Detection** — Auto-discovers motion/occupancy/mmWave radar sensors from Home Assistant, maps them to areas with confidence levels (Highest→Low), and provides room-level occupancy data for alarm routing and future automations.
 - **Full LLM Trace Visibility** — `UseOpenTelemetry()` wired into every agent's `ChatClientAgent` builder plus the `ModelProviderResolver`, emitting `gen_ai.*` spans for all LLM calls. The `Microsoft.Extensions.AI` activity source is now registered in ServiceDefaults, and Azure IMDS credential probe noise is filtered from traces.
 - **Dynamic Agent Fix** — Fixed `NormalizeAgentKey` to prefer `agent.Id` over `agent.Name`, resolving the mismatch where dynamic agents (e.g., joke-agent) were registered under their display name instead of their machine name.
 - **Per-Agent Error Metrics** — Error rate calculation in the Activity Dashboard now tracks errors per agent via a new MongoDB aggregation pipeline, replacing the incorrect global average.
@@ -36,6 +39,32 @@
 - **TimerExecutionService** — `BackgroundService` polling every 1 second, fully independent of HTTP request lifecycle
 - **Satellite resolution** — `ResolveSatelliteEntityAsync` filters by `HasFlag(Announce)` with `OrderByDescending` feature tiebreaker to prefer physical satellites
 - **TimerRecoveryService** — Now uses `ActiveTimerStore` for consistent state across recovery and new timers
+
+### 📅 Scheduled Task System
+
+- **ScheduledTaskStore** — In-memory store for active scheduled tasks (alarms, timers, agent tasks) with type-based querying
+- **ScheduledTaskExecutionService** — `BackgroundService` polling every second, dispatches expired tasks with `IServiceScope` per execution
+- **ScheduledTaskRecoveryService** — Restores pending tasks from MongoDB on startup via `ScheduledTaskFactory`
+- **CronScheduleService** — CRON expression parsing, validation, next-fire-at computation, and human-readable descriptions
+- **AgentScheduledTask** — Scheduled tasks that invoke LLM agents with a prompt at a specified time
+
+### ⏰ Alarm Clock System
+
+- **AlarmClock model** — Alarm definitions with CRON recurring schedules, target entity, sound selection, and volume ramp settings
+- **AlarmScheduledTask** — Alarm execution with `media_player.play_media` (announce mode) and `assist_satellite.announce` TTS fallback
+- **Volume ramping** — Gradual volume increase via `media_player.volume_set` from configurable start to end volume over a ramp duration
+- **Voice dismissal** — `DismissAlarm` and `SnoozeAlarm` AI tools accept optional alarm ID; omitting auto-targets whichever alarm is ringing
+- **Presence-based routing** — Alarms with `targetEntity=presence` resolve to the occupied room's media player at fire time
+- **AlarmClockApi** — Full REST API for alarm CRUD, enable/disable, dismiss/snooze, sound library management
+- **Alarm Clocks dashboard** — React page with CRON builder (presets: daily/weekdays/weekends/custom), sound management, volume ramp controls
+
+### 📡 Presence Detection
+
+- **IPresenceDetectionService** — Auto-discovers presence sensors from Home Assistant by entity pattern and device class
+- **Confidence levels** — Sensors classified as Highest (mmWave target count), High (mmWave binary), Medium (motion), Low (occupancy)
+- **IPresenceSensorRepository** — MongoDB persistence for sensor-to-area mappings with user override support
+- **PresenceApi** — REST API for sensor CRUD, occupied areas query, re-scan, and global enable/disable
+- **Presence dashboard** — React page with occupied areas summary, sensors grouped by area, confidence selector, and enable/disable toggle
 
 ### 📡 OpenTelemetry Improvements
 
@@ -60,6 +89,7 @@
 - **WebSocket floor/area registries** — HA client uses .NET 10 `WebSocketStream` for config registry endpoints
 - **Mesh tool nodes disappearing** — Dashboard dynamically creates tool nodes on `toolCall` events and keeps them visible after requests complete
 - **Trace persistence race condition** — Replaced `AsyncLocal` with `ConcurrentDictionary` for trace capture across workflow boundaries
+- **Light agent area search** — `FindLightsByArea` now falls back to `EntityLocationService` when the embedding-based light cache is empty, fixing "No lights available" responses for area-based queries
 
 ---
 

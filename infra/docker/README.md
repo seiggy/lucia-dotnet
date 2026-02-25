@@ -247,4 +247,4 @@ The `docker-compose.yml` includes security hardening by default:
 2. **Test** — Use [TESTING.md](TESTING.md) or [TESTING-CHECKLIST.md](TESTING-CHECKLIST.md)
 3. **Verify** — Run `./verify-mvp.sh`
 4. **Monitor** — Setup OpenTelemetry integration
-5. **Scale** — Consider [Kubernetes](../kubernetes/README.md) for HA and mesh mode
+5. **Scale** — Consider [Kubernetes](../kubernetes/README.md) for mesh mode (note: AgentHost must run as a single instance due to in-memory scheduled task state)
