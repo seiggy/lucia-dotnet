@@ -2,6 +2,7 @@ using FakeItEasy;
 using lucia.AgentHost.Auth;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace lucia.Tests.Auth;
@@ -156,6 +157,11 @@ public class OnboardingMiddlewareTests
             .Build();
 
         services.AddSingleton<IConfiguration>(config);
+
+        // Note: ConfigStoreWriter is not registered here. The middleware's
+        // direct MongoDB check (race-window fix) will catch the missing service
+        // and fall back gracefully. When setupComplete:true, IConfiguration
+        // already returns "true" so ConfigStoreWriter is never reached.
 
         var context = new DefaultHttpContext
         {
