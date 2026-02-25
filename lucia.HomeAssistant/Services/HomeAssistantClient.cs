@@ -17,13 +17,50 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<HomeAssistantClient> _logger;
-    private readonly HomeAssistantOptions _options;
+    private readonly IOptionsMonitor<HomeAssistantOptions> _optionsMonitor;
 
-    public HomeAssistantClient(HttpClient httpClient, ILogger<HomeAssistantClient> logger, IOptions<HomeAssistantOptions> options)
+    /// <summary>Current config snapshot — always reads latest from the options monitor.</summary>
+    private HomeAssistantOptions Options => _optionsMonitor.CurrentValue;
+
+    public HomeAssistantClient(HttpClient httpClient, ILogger<HomeAssistantClient> logger, IOptionsMonitor<HomeAssistantOptions> optionsMonitor)
     {
         _httpClient = httpClient;
         _logger = logger;
-        _options = options.Value;
+        _optionsMonitor = optionsMonitor;
+    }
+
+    /// <summary>
+    /// Ensures the HttpClient has the latest BaseAddress and Authorization header
+    /// from the current options. Called before every HTTP request so wizard-configured
+    /// credentials are picked up without restarting the app.
+    /// </summary>
+    private void EnsureHttpClientConfigured()
+    {
+        var options = Options;
+        if (string.IsNullOrWhiteSpace(options.BaseUrl))
+            return;
+
+        var expected = new Uri(options.BaseUrl.TrimEnd('/') + "/");
+
+        // BaseAddress can only be set before the first request, so wrap in try/catch
+        // for the case where the URL changed after the client was already used.
+        if (_httpClient.BaseAddress != expected)
+        {
+            try
+            {
+                _httpClient.BaseAddress = expected;
+            }
+            catch (InvalidOperationException)
+            {
+                // HttpClient already started — BaseAddress is immutable now.
+                // This is expected when config changes after first use.
+            }
+        }
+
+        // Auth header can always be refreshed
+        _httpClient.DefaultRequestHeaders.Remove("Authorization");
+        if (!string.IsNullOrWhiteSpace(options.AccessToken))
+            _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", $"Bearer {options.AccessToken}");
     }
 
     // ── Status & Config ─────────────────────────────────────────────
@@ -87,6 +124,7 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
             path += "?return_response";
 
         _logger.PostRequest(path);
+        EnsureHttpClientConfigured();
         var json = request is not null
             ? JsonSerializer.Serialize(request, HomeAssistantJsonOptions.Default)
             : "{}";
@@ -125,6 +163,7 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
             ("significant_changes_only", significantChangesOnly));
 
         var path = $"/api/history/period/{Uri.EscapeDataString(timestamp)}{qs}";
+        EnsureHttpClientConfigured();
         _logger.GetRequest(path);
         try
         {
@@ -167,6 +206,7 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
     public async Task<HomeAssistantState?> GetStateAsync(string entityId, CancellationToken cancellationToken = default)
     {
         var path = $"/api/states/{Uri.EscapeDataString(entityId)}";
+        EnsureHttpClientConfigured();
         _logger.GetRequest(path);
         try
         {
@@ -198,6 +238,7 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
     public async Task<byte[]> GetCameraProxyAsync(string cameraEntityId, CancellationToken cancellationToken = default)
     {
         var path = $"/api/camera_proxy/{Uri.EscapeDataString(cameraEntityId)}";
+        EnsureHttpClientConfigured();
         _logger.GetRequest(path);
         try
         {
@@ -237,6 +278,7 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
     /// <summary>Render a Home Assistant Jinja2 template.</summary>
     public async Task<string> RenderTemplateAsync(TemplateRenderRequest request, CancellationToken cancellationToken = default)
     {
+        EnsureHttpClientConfigured();
         _logger.PostRequest("/api/template");
         var json = JsonSerializer.Serialize(request, HomeAssistantJsonOptions.Default);
         using var content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -258,6 +300,7 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
     /// <summary>Handle an intent.</summary>
     public async Task<string> HandleIntentAsync(IntentRequest request, CancellationToken cancellationToken = default)
     {
+        EnsureHttpClientConfigured();
         _logger.PostRequest("/api/intent/handle");
         var json = JsonSerializer.Serialize(request, HomeAssistantJsonOptions.Default);
         using var content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -339,6 +382,7 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
         CancellationToken cancellationToken = default)
     {
         _logger.PostRequest("/api/media_source/local_source/upload");
+        EnsureHttpClientConfigured();
 
         using var form = new MultipartFormDataContent();
         form.Add(new StringContent(targetDirectory), "media_content_id");
@@ -424,6 +468,7 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
 
     private async Task<T> GetAsync<T>(string path, CancellationToken cancellationToken)
     {
+        EnsureHttpClientConfigured();
         _logger.GetRequest(path);
         try
         {
@@ -444,6 +489,7 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
 
     private async Task<T[]> GetArrayAsync<T>(string path, CancellationToken cancellationToken)
     {
+        EnsureHttpClientConfigured();
         _logger.GetRequest(path);
         try
         {
@@ -464,6 +510,7 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
 
     private async Task<T> PostAsync<T>(string path, object? payload = null, CancellationToken cancellationToken = default)
     {
+        EnsureHttpClientConfigured();
         _logger.PostRequest(path);
         var json = payload is not null
             ? JsonSerializer.Serialize(payload, HomeAssistantJsonOptions.Default)
@@ -492,6 +539,7 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
 
     private async Task<T[]> PostArrayAsync<T>(string path, object? payload = null, CancellationToken cancellationToken = default)
     {
+        EnsureHttpClientConfigured();
         _logger.PostRequest(path);
         var json = payload is not null
             ? JsonSerializer.Serialize(payload, HomeAssistantJsonOptions.Default)
@@ -543,7 +591,7 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
 
     private async Task<T?> SendWebSocketCommandAsync<T>(string commandType, object? payload, CancellationToken ct)
     {
-        var baseUrl = _options.BaseUrl.TrimEnd('/');
+        var baseUrl = Options.BaseUrl.TrimEnd('/');
         var wsScheme = baseUrl.StartsWith("https", StringComparison.OrdinalIgnoreCase) ? "wss" : "ws";
         var uri = new Uri(baseUrl);
         var wsUri = new Uri($"{wsScheme}://{uri.Host}:{uri.Port}/api/websocket");
@@ -562,7 +610,7 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
                 throw new InvalidOperationException($"Expected 'auth_required', got '{msgType}'");
 
             // Step 2: Send auth
-            await WsWriteJsonAsync(ws, new { type = "auth", access_token = _options.AccessToken }, ct);
+            await WsWriteJsonAsync(ws, new { type = "auth", access_token = Options.AccessToken }, ct);
 
             // Step 3: Receive auth result
             var authResult = await WsReadJsonAsync(ws, ct);
