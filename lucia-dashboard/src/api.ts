@@ -664,3 +664,127 @@ export async function invalidateEntityLocationCache() {
   if (!res.ok) throw new Error(`Failed to invalidate location cache: ${res.statusText}`);
   return res.json();
 }
+
+// ── Alarm Clocks API ───────────────────────────────────────────────
+
+export async function fetchAlarms(): Promise<import('./types').AlarmClock[]> {
+  const res = await fetch(`${BASE}/alarms`);
+  if (!res.ok) throw new Error(`Failed to fetch alarms: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchAlarm(id: string): Promise<import('./types').AlarmClock> {
+  const res = await fetch(`${BASE}/alarms/${id}`);
+  if (!res.ok) throw new Error(`Alarm not found`);
+  return res.json();
+}
+
+export async function createAlarm(alarm: {
+  name: string;
+  targetEntity: string;
+  alarmSoundId?: string | null;
+  cronSchedule?: string | null;
+  nextFireAt?: string | null;
+  playbackInterval?: string;
+  autoDismissAfter?: string;
+  isEnabled?: boolean;
+}): Promise<import('./types').AlarmClock> {
+  const res = await fetch(`${BASE}/alarms`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(alarm),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Failed to create alarm: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function updateAlarm(id: string, alarm: {
+  name?: string;
+  targetEntity?: string;
+  alarmSoundId?: string | null;
+  cronSchedule?: string | null;
+  nextFireAt?: string | null;
+  playbackInterval?: string;
+  autoDismissAfter?: string;
+  isEnabled?: boolean;
+}): Promise<import('./types').AlarmClock> {
+  const res = await fetch(`${BASE}/alarms/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(alarm),
+  });
+  if (!res.ok) throw new Error(`Failed to update alarm: ${res.statusText}`);
+  return res.json();
+}
+
+export async function deleteAlarm(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/alarms/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to delete alarm: ${res.statusText}`);
+}
+
+export async function enableAlarm(id: string): Promise<import('./types').AlarmClock> {
+  const res = await fetch(`${BASE}/alarms/${id}/enable`, { method: 'PUT' });
+  if (!res.ok) throw new Error(`Failed to enable alarm: ${res.statusText}`);
+  return res.json();
+}
+
+export async function disableAlarm(id: string): Promise<import('./types').AlarmClock> {
+  const res = await fetch(`${BASE}/alarms/${id}/disable`, { method: 'PUT' });
+  if (!res.ok) throw new Error(`Failed to disable alarm: ${res.statusText}`);
+  return res.json();
+}
+
+export async function dismissAlarm(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/alarms/${id}/dismiss`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to dismiss alarm: ${res.statusText}`);
+}
+
+export async function snoozeAlarm(id: string, duration?: string): Promise<import('./types').AlarmClock> {
+  const res = await fetch(`${BASE}/alarms/${id}/snooze`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(duration ? { duration } : {}),
+  });
+  if (!res.ok) throw new Error(`Failed to snooze alarm: ${res.statusText}`);
+  return res.json();
+}
+
+// ── Alarm Sounds API ─────────────────────────────────────────────
+
+export async function fetchAlarmSounds(): Promise<import('./types').AlarmSound[]> {
+  const res = await fetch(`${BASE}/alarms/sounds`);
+  if (!res.ok) throw new Error(`Failed to fetch alarm sounds: ${res.statusText}`);
+  return res.json();
+}
+
+export async function createAlarmSound(sound: {
+  name: string;
+  mediaSourceUri: string;
+  uploadedViaLucia?: boolean;
+  isDefault?: boolean;
+}): Promise<import('./types').AlarmSound> {
+  const res = await fetch(`${BASE}/alarms/sounds`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(sound),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Failed to create alarm sound: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function deleteAlarmSound(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/alarms/sounds/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to delete alarm sound: ${res.statusText}`);
+}
+
+export async function setDefaultAlarmSound(id: string): Promise<import('./types').AlarmSound> {
+  const res = await fetch(`${BASE}/alarms/sounds/${id}/default`, { method: 'PUT' });
+  if (!res.ok) throw new Error(`Failed to set default sound: ${res.statusText}`);
+  return res.json();
+}
