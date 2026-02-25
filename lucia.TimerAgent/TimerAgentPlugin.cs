@@ -31,6 +31,7 @@ public sealed class TimerAgentPlugin : IAgentPlugin
 
         // Scheduled task infrastructure (shared by timer, alarm, and future task types)
         builder.Services.AddSingleton<ScheduledTaskStore>();
+        builder.Services.AddSingleton<CronScheduleService>();
         builder.Services.AddSingleton<IScheduledTaskRepository, MongoScheduledTaskRepository>();
         builder.Services.AddSingleton<IAlarmClockRepository, MongoAlarmClockRepository>();
         builder.Services.AddHostedService<ScheduledTaskService>();

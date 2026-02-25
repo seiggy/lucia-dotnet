@@ -8,4 +8,8 @@
     <ProjectReference Include="..\lucia.Agents\lucia.Agents.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Cronos" />
+  </ItemGroup>
+
 </Project>
