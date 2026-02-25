@@ -82,6 +82,8 @@ public static class Extensions
                     .AddSource("A2A*")
                     .AddSource("Microsoft.Agents.AI.Hosting*")
                     .AddSource("Microsoft.Agents.AI.Workflows*")
+                    .AddSource("Microsoft.Agents.AI.Runtime.InProcess")
+                    .AddSource("Microsoft.Agents.AI.Runtime.Abstractions.InMemoryActorStateStorage")
                     .AddAspNetCoreInstrumentation(tracing =>
                         // Exclude health check requests from tracing
                         tracing.Filter = context =>

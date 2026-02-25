@@ -141,7 +141,10 @@ public sealed class DynamicAgent : ILuciaAgent
 
         try
         {
-            return _providerResolver.CreateClient(provider);
+            return _providerResolver.CreateClient(provider)
+                .AsBuilder()
+                .UseOpenTelemetry()
+                .Build();
         }
         catch (Exception ex)
         {
@@ -171,7 +174,10 @@ public sealed class DynamicAgent : ILuciaAgent
             ChatOptions = chatOptions
         };
 
-        return new ChatClientAgent(traced, agentOptions, _loggerFactory);
+        return new ChatClientAgent(traced, agentOptions, _loggerFactory)
+            .AsBuilder()
+            .UseOpenTelemetry()
+            .Build();
     }
 
     private static AgentCard BuildAgentCard(AgentDefinition definition)

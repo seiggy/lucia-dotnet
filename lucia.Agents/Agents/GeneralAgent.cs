@@ -128,12 +128,15 @@ public sealed class GeneralAgent : ILuciaAgent
 
         var copilotAgent = await _clientResolver.ResolveAIAgentAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
         _aiAgent = copilotAgent ?? BuildAgent(
-            await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false));
+            await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false))
+            .AsBuilder()
+            .UseOpenTelemetry()
+            .Build();
         _logger.LogInformation("GeneralAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
         _lastModelConnectionName = newConnectionName;
     }
 
-    private ChatClientAgent BuildAgent(IChatClient chatClient)
+    private AIAgent BuildAgent(IChatClient chatClient)
     {
         var traced = _tracingFactory.Wrap(chatClient, AgentId);
         var agentOptions = new ChatClientAgentOptions
@@ -147,6 +150,9 @@ public sealed class GeneralAgent : ILuciaAgent
             }
         };
 
-        return new ChatClientAgent(traced, agentOptions, _loggerFactory);
+        return new ChatClientAgent(traced, agentOptions, _loggerFactory)
+            .AsBuilder()
+            .UseOpenTelemetry()
+            .Build();
     }
 }

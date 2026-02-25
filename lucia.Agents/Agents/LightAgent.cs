@@ -174,7 +174,11 @@ public sealed class LightAgent : ILuciaAgent
             // Copilot providers produce an AIAgent directly; others go through IChatClient
             var copilotAgent = await _clientResolver.ResolveAIAgentAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
             _aiAgent = copilotAgent ?? BuildAgent(
-                await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false));
+                await _clientResolver.ResolveAsync(newConnectionName, cancellationToken)
+                    .ConfigureAwait(false))
+                .AsBuilder()
+                .UseOpenTelemetry()
+                .Build();
             _logger.LogInformation("LightAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
             _lastModelConnectionName = newConnectionName;
         }
@@ -186,7 +190,7 @@ public sealed class LightAgent : ILuciaAgent
         }
     }
 
-    private ChatClientAgent BuildAgent(IChatClient chatClient)
+    private AIAgent BuildAgent(IChatClient chatClient)
     {
         var traced = _tracingFactory.Wrap(chatClient, AgentId);
         var agentOptions = new ChatClientAgentOptions
@@ -202,6 +206,9 @@ public sealed class LightAgent : ILuciaAgent
             }
         };
 
-        return new ChatClientAgent(traced, agentOptions, _loggerFactory);
+        return new ChatClientAgent(traced, agentOptions, _loggerFactory)
+            .AsBuilder()
+            .UseOpenTelemetry()
+            .Build();
     }
 }
