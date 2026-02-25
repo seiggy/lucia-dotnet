@@ -352,6 +352,17 @@ internal sealed class FakeHomeAssistantClient : IHomeAssistantClient
         };
     }
 
+    // ── Media Source stubs ──────────────────────────────────────────
+
+    public Task<MediaBrowseResult?> BrowseMediaAsync(string? mediaContentId = null, CancellationToken cancellationToken = default)
+        => Task.FromResult<MediaBrowseResult?>(new MediaBrowseResult { Title = "Local Media", CanExpand = true, Children = [] });
+
+    public Task<MediaUploadResponse> UploadMediaAsync(string targetDirectory, string fileName, Stream fileContent, string contentType, CancellationToken cancellationToken = default)
+        => Task.FromResult(new MediaUploadResponse { MediaContentId = $"{targetDirectory}/{fileName}" });
+
+    public Task DeleteMediaAsync(string mediaContentId, CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
+
     /// <summary>
     /// Internal model for deserializing the areas array from the snapshot.
     /// </summary>

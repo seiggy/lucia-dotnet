@@ -317,6 +317,57 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
         return JsonSerializer.Deserialize<EntityRegistryEntry[]>(json.Trim(), HomeAssistantJsonOptions.Default) ?? [];
     }
 
+    // ── Media Source ───────────────────────────────────────────────────
+
+    /// <inheritdoc />
+    public async Task<MediaBrowseResult?> BrowseMediaAsync(string? mediaContentId = null, CancellationToken cancellationToken = default)
+    {
+        var payload = string.IsNullOrWhiteSpace(mediaContentId)
+            ? new { media_content_id = (string?)null, media_content_type = (string?)null }
+            : (object)new { media_content_id = mediaContentId, media_content_type = "music" };
+
+        return await SendWebSocketCommandAsync<MediaBrowseResult>(
+            "media_source/browse_media", payload, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<MediaUploadResponse> UploadMediaAsync(
+        string targetDirectory,
+        string fileName,
+        Stream fileContent,
+        string contentType,
+        CancellationToken cancellationToken = default)
+    {
+        _logger.PostRequest("/api/media_source/local_source/upload");
+
+        using var form = new MultipartFormDataContent();
+        form.Add(new StringContent(targetDirectory), "media_content_id");
+        form.Add(new StreamContent(fileContent) { Headers = { { "Content-Type", contentType } } }, "file", fileName);
+
+        try
+        {
+            var response = await _httpClient.PostAsync("/api/media_source/local_source/upload", form, cancellationToken);
+            response.EnsureSuccessStatusCode();
+
+            return await response.Content.ReadFromJsonAsync<MediaUploadResponse>(
+                HomeAssistantJsonOptions.Default, cancellationToken)
+                ?? throw new InvalidOperationException("Upload succeeded but response was empty");
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.HttpRequestFailed(ex, "POST", "/api/media_source/local_source/upload");
+            throw;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task DeleteMediaAsync(string mediaContentId, CancellationToken cancellationToken = default)
+    {
+        var payload = new { media_content_id = mediaContentId };
+        await SendWebSocketCommandAsync<object>(
+            "media_source/local_source/remove", payload, cancellationToken);
+    }
+
     // ── IHomeAssistantClient explicit implementations ───────────────
 
     async Task<IEnumerable<HomeAssistantState>> IHomeAssistantClient.GetAllEntityStatesAsync(CancellationToken cancellationToken)
@@ -487,6 +538,11 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
     /// </summary>
     private async Task<T?> SendWebSocketCommandAsync<T>(string commandType, CancellationToken ct)
     {
+        return await SendWebSocketCommandAsync<T>(commandType, payload: null, ct);
+    }
+
+    private async Task<T?> SendWebSocketCommandAsync<T>(string commandType, object? payload, CancellationToken ct)
+    {
         var baseUrl = _options.BaseUrl.TrimEnd('/');
         var wsScheme = baseUrl.StartsWith("https", StringComparison.OrdinalIgnoreCase) ? "wss" : "ws";
         var uri = new Uri(baseUrl);
@@ -517,9 +573,10 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
                 throw new InvalidOperationException($"WebSocket auth failed: {authMsg}");
             }
 
-            // Step 4: Send command
+            // Step 4: Send command (merge payload properties into command message)
             _logger.WebSocketCommand(commandType);
-            await WsWriteJsonAsync(ws, new { id = 1, type = commandType }, ct);
+            var command = BuildWsCommand(1, commandType, payload);
+            await WsWriteJsonAsync(ws, command, ct);
 
             // Step 5: Receive command result
             var result = await WsReadJsonAsync(ws, ct);
@@ -582,5 +639,33 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
     private static string? GetJsonStringProperty(JsonDocument doc, string propertyName)
     {
         return doc.RootElement.TryGetProperty(propertyName, out var prop) ? prop.GetString() : null;
+    }
+
+    /// <summary>
+    /// Builds a WebSocket command dictionary with id, type, and merged payload properties.
+    /// </summary>
+    private static Dictionary<string, object?> BuildWsCommand(int id, string type, object? payload)
+    {
+        var command = new Dictionary<string, object?> { ["id"] = id, ["type"] = type };
+
+        if (payload is null) return command;
+
+        // Serialize payload to JSON and merge properties
+        var json = JsonSerializer.SerializeToUtf8Bytes(payload, HomeAssistantJsonOptions.Default);
+        using var doc = JsonDocument.Parse(json);
+        foreach (var prop in doc.RootElement.EnumerateObject())
+        {
+            command[prop.Name] = prop.Value.ValueKind switch
+            {
+                JsonValueKind.String => prop.Value.GetString(),
+                JsonValueKind.Number => prop.Value.GetDecimal(),
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                JsonValueKind.Null => null,
+                _ => JsonSerializer.Deserialize<object>(prop.Value.GetRawText(), HomeAssistantJsonOptions.Default)
+            };
+        }
+
+        return command;
     }
 }
