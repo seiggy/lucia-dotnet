@@ -8,7 +8,7 @@
 [![Agent Framework](https://img.shields.io/badge/Agent%20Framework-1.0.0-blue)](https://learn.microsoft.com/agent-framework/)
 [![License](https://img.shields.io/github/license/seiggy/lucia-dotnet)](LICENSE)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Compatible-41BDF5)](https://www.home-assistant.io/)
-![Latest Version](https://img.shields.io/badge/v2026.02.20-cornflowerblue?logo=homeassistantcommunitystore&label=Release)
+![Latest Version](https://img.shields.io/badge/v2026.02.25_Aurora-cornflowerblue?logo=homeassistantcommunitystore&label=Release)
 
 Lucia *(pronounced LOO-sha)* is an open-source, privacy-focused AI assistant that serves as a complete replacement for Amazon Alexa and Google Home. Built on the [Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/) with a multi-agent architecture, Lucia provides autonomous whole-home automation management through deep integration with Home Assistant. A full-featured React dashboard lets you manage agents, inspect traces, tune configuration, and export training data—all from a single UI.
 
@@ -194,6 +194,7 @@ graph TB
     O <--> Agg[ResultAggregatorExecutor]
 
     Dispatch <--> LA[LightAgent]
+    Dispatch <--> CA[ClimateAgent]
     Dispatch <--> GA[GeneralAgent]
     Dispatch <-->|A2A| A2A[A2AHost]
 
@@ -463,27 +464,32 @@ The Aspire Dashboard provides built-in log aggregation, trace visualization, and
 
 - Multi-agent orchestration with Router → Dispatch → Aggregator pipeline
 - LightAgent with semantic entity search
+- ClimateAgent with HVAC and fan control
 - MusicAgent for Music Assistant playback
-- TimerAgent for announcements and reminders
+- TimerAgent with background timer lifecycle and satellite announce
+- Entity Location Service with floor/area/alias/feature resolution
+- Runtime MCP tool server registration and dynamic agent definitions
 - A2A Protocol (JSON-RPC 2.0) implementation
 - Home Assistant custom component with agent selection
 - React management dashboard with traces, exports, configuration
+- Live Activity Dashboard with real-time agent mesh visualization
+- Full OpenTelemetry coverage for LLM calls (gen_ai.* spans)
+- Per-agent error rate metrics and observability
 - Prompt caching for routing acceleration
 - Helm charts and Kubernetes manifests
 - Multi-LLM support (Azure AI Foundry, OpenAI, Ollama)
 - Dataset export for fine-tuning workflows
 - Schema-driven configuration system
+- Playwright E2E tests for all agent routing modes
 
 ### 🔄 In Progress
 
-- Runtime MCP tool server registration and dynamic agent definitions
-- ClimateAgent (HVAC and temperature control)
 - WebSocket real-time event streaming from Home Assistant
 - HACS store listing for one-click installation
+- SecurityAgent (alarm, locks, cameras)
 
 ### ⏳ Planned
 
-- SecurityAgent (alarm, locks, cameras)
 - SceneAgent (scene activation and management)
 - Pattern recognition and automation suggestions
 - Local LLM optimization (Ollama performance tuning)
@@ -505,7 +511,7 @@ We welcome contributions! Whether you're fixing bugs, adding agents, or improvin
 
 ### Areas for Contribution
 
-- 🤖 New specialized agents (climate, security, calendar, etc.)
+- 🤖 New specialized agents (security, scene, calendar, etc.)
 - 🧠 Additional LLM provider integrations
 - 🏠 Enhanced Home Assistant integrations
 - 📊 Dashboard features and improvements
