@@ -287,6 +287,3 @@ lucia.AppHost/plugins/**/*.dll
 *.sln.DotSettings.user
 .fuse_hidden*
 test-results/
-
-# Playwright E2E test workspace (contains local secrets)
-lucia-playwright/
