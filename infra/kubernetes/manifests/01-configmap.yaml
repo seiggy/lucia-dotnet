@@ -36,6 +36,9 @@ data:
   ConnectionStrings__luciaconfig: "mongodb://lucia-mongodb:27017/luciaconfig"
   ConnectionStrings__luciatasks: "mongodb://lucia-mongodb:27017/luciatasks"
 
+  # Deployment Mode: "mesh" for multi-container A2A agents, "standalone" to embed all agents in AgentHost
+  Deployment__Mode: "mesh"
+
   # Agent Host Service URL (used by A2A agents to register with the orchestrator)
   services__registryApi: "http://lucia:80"
 

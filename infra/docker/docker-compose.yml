@@ -1,16 +1,16 @@
 # Lucia Agent Host - Docker Compose Configuration
 #
+# Default deployment runs in "standalone" mode where all agents (music, timer)
+# are embedded in the main AgentHost process. No separate A2A containers needed.
+#
+# For mesh/multi-container deployment with separate A2A agents, set
+# Deployment__Mode=mesh on the lucia service and add your agent containers.
+# See the Kubernetes Helm chart for a full mesh deployment example.
+#
 # Services:
-#   - lucia: Agent Host API (main application)
+#   - lucia: Agent Host API (all agents embedded in standalone mode)
 #   - redis: Task persistence and session state
 #   - mongo: Trace capture and configuration storage
-#
-# Features:
-#   - Health checks for automatic restart
-#   - Volume mounts for persistent data
-#   - Environment-based configuration
-#   - Network isolation with shared network
-#   - Resource limits for stability
 #
 # Usage:
 #   # Start all services
@@ -285,152 +285,6 @@ services:
   #   volumes:
   #     - homeassistant-data:/config
   #   restart: unless-stopped
-
-
-  # ========================================================================
-  # Music Agent - A2A Plugin Host (Music Playback)
-  # ========================================================================
-  music-agent:
-    build:
-      context: ../..
-      dockerfile: infra/docker/Dockerfile.music-agent
-      args:
-        BUILD_CONFIGURATION: Release
-
-    image: lucia-music-agent:latest
-
-    container_name: lucia-music-agent
-
-    depends_on:
-      redis:
-        condition: service_healthy
-      mongo:
-        condition: service_healthy
-
-    networks:
-      - lucia-network
-
-    ports:
-      - "127.0.0.1:5010:8080"
-
-    env_file:
-      - ../../.env
-
-    environment:
-      - ASPNETCORE_ENVIRONMENT=Production
-      - ASPNETCORE_URLS=http://+:8080
-      - ConnectionStrings__redis=lucia-redis:6379
-      - ConnectionStrings__luciatraces=mongodb://lucia-mongo:27017/luciatraces
-      - ConnectionStrings__luciaconfig=mongodb://lucia-mongo:27017/luciaconfig
-      - ConnectionStrings__luciatasks=mongodb://lucia-mongo:27017/luciatasks
-      - DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
-      - DOTNET_RUNNING_IN_CONTAINER=true
-      - COMPlus_EnableDiagnostics=0
-
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 128M
-
-    restart: unless-stopped
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-        tag: "music-agent"
-
-    security_opt:
-      - no-new-privileges:true
-
-    read_only: true
-    tmpfs:
-      - /tmp
-
-
-  # ========================================================================
-  # Timer Agent - A2A Plugin Host (Timers & Announcements)
-  # ========================================================================
-  timer-agent:
-    build:
-      context: ../..
-      dockerfile: infra/docker/Dockerfile.timer-agent
-      args:
-        BUILD_CONFIGURATION: Release
-
-    image: lucia-timer-agent:latest
-
-    container_name: lucia-timer-agent
-
-    depends_on:
-      redis:
-        condition: service_healthy
-      mongo:
-        condition: service_healthy
-
-    networks:
-      - lucia-network
-
-    ports:
-      - "127.0.0.1:5011:8080"
-
-    env_file:
-      - ../../.env
-
-    environment:
-      - ASPNETCORE_ENVIRONMENT=Production
-      - ASPNETCORE_URLS=http://+:8080
-      - ConnectionStrings__redis=lucia-redis:6379
-      - ConnectionStrings__luciatraces=mongodb://lucia-mongo:27017/luciatraces
-      - ConnectionStrings__luciaconfig=mongodb://lucia-mongo:27017/luciaconfig
-      - ConnectionStrings__luciatasks=mongodb://lucia-mongo:27017/luciatasks
-      - DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
-      - DOTNET_RUNNING_IN_CONTAINER=true
-      - COMPlus_EnableDiagnostics=0
-
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 128M
-
-    restart: unless-stopped
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-        tag: "timer-agent"
-
-    security_opt:
-      - no-new-privileges:true
-
-    read_only: true
-    tmpfs:
-      - /tmp
 
 
 # ============================================================================

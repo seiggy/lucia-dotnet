@@ -422,6 +422,29 @@ When running via Aspire AppHost:
 
 ## 🐳 Deployment
 
+### Deployment Modes
+
+Lucia supports two deployment topologies controlled by the `Deployment__Mode` environment variable:
+
+| Mode | Value | Description |
+|------|-------|-------------|
+| **Standalone** (default) | `standalone` | All agents (Music, Timer, etc.) run embedded in the main AgentHost process. Simplest setup — single container plus Redis and MongoDB. Recommended for most users. |
+| **Mesh** | `mesh` | Agents run as separate A2A containers that register with the AgentHost over the network. Used for Kubernetes deployments, horizontal scaling, or multi-node distribution. |
+
+**When to use each mode:**
+
+- **Standalone** — Home lab, single-server, Docker Compose, or any deployment where simplicity matters. External A2A agents can still connect to a standalone AgentHost.
+- **Mesh** — Kubernetes clusters, multi-node setups, or when you want to scale individual agents independently. The Helm chart and K8s manifests default to mesh mode.
+
+To switch modes, set the environment variable:
+```bash
+# Standalone (default — no env var needed)
+Deployment__Mode=standalone
+
+# Mesh (set explicitly for multi-container deployments)
+Deployment__Mode=mesh
+```
+
 ### Docker Compose
 
 ```bash
@@ -429,7 +452,7 @@ cd infra/docker
 docker compose up -d
 ```
 
-See [`infra/docker/`](infra/docker/) for individual Dockerfiles (AgentHost, A2AHost, Music-Agent, Timer-Agent) and the compose configuration.
+The default Docker Compose configuration runs in **standalone mode** — all agents are embedded in the AgentHost container. See [`infra/docker/`](infra/docker/) for individual Dockerfiles and the compose configuration.
 
 ### Kubernetes
 
@@ -442,7 +465,7 @@ helm install lucia infra/kubernetes/helm/lucia-helm \
   --namespace lucia --create-namespace
 ```
 
-See [`infra/kubernetes/`](infra/kubernetes/) for manifests and Helm chart documentation.
+The Kubernetes deployment runs in **mesh mode** by default, with Music Agent and Timer Agent as separate pods. See [`infra/kubernetes/`](infra/kubernetes/) for manifests and Helm chart documentation.
 
 ### systemd
 
