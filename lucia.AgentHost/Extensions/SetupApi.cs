@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using lucia.Agents.Auth;
+using lucia.Agents.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace lucia.AgentHost.Extensions;
@@ -157,8 +158,11 @@ public static class SetupApi
     private static async Task<IResult> TestHaConnectionAsync(
         ConfigStoreWriter configStore,
         IHttpClientFactory httpClientFactory,
+        IEntityLocationService entityLocationService,
         HttpContext httpContext)
     {
+        var connected = false;
+
         try
         {
             var ct = httpContext.RequestAborted;
@@ -204,6 +208,8 @@ public static class SetupApi
                 // Config fetch is best-effort
             }
 
+            connected = true;
+
             return Results.Ok(new
             {
                 connected = true,
@@ -227,6 +233,24 @@ public static class SetupApi
                 connected = false,
                 error = $"Unexpected error: {ex.Message}",
             });
+        }
+        finally
+        {
+            // Pre-populate the entity location cache now that HA is confirmed reachable
+            if (connected)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await entityLocationService.InvalidateAndReloadAsync().ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                        // Best-effort — the cache will self-heal on next access if this fails
+                    }
+                });
+            }
         }
     }
 
