@@ -79,6 +79,10 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IEntityLocationService, EntityLocationService>();
         builder.Services.AddSingleton<IEmbeddingSimilarityService, EmbeddingSimilarityService>();
 
+        // Register presence detection service (auto-discovers sensors, maps to areas)
+        builder.Services.AddSingleton<IPresenceSensorRepository, MongoPresenceSensorRepository>();
+        builder.Services.AddSingleton<IPresenceDetectionService, PresenceDetectionService>();
+
         // Register A2A TaskManager (T037)
         builder.Services.AddSingleton<ITaskManager>(sp =>
         {

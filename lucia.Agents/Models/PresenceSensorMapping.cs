@@ -1,3 +1,5 @@
+using MongoDB.Bson.Serialization.Attributes;
+
 namespace lucia.Agents.Models;
 
 /// <summary>
@@ -7,6 +9,7 @@ namespace lucia.Agents.Models;
 public sealed class PresenceSensorMapping
 {
     /// <summary>Home Assistant entity ID (e.g., "sensor.satellite1_91b604_presence_target_count").</summary>
+    [BsonId]
     public required string EntityId { get; init; }
 
     /// <summary>Home Assistant area ID this sensor is mapped to.</summary>
