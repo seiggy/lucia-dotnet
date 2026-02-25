@@ -27,6 +27,9 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
 - **📊 Live Activity Dashboard** — Real-time agent mesh visualization with SSE-powered event streaming, summary metrics, and activity timeline
 - **📋 Management Dashboard** — React-based dark-themed dashboard for agent management, trace inspection, configuration, and dataset exports
 - **📦 Kubernetes Ready** — Cloud-native deployment with .NET Aspire, Helm charts, and K8s manifests
+- **⏰ Alarm Clock System** — CRON-scheduled alarms with volume ramping, voice dismissal/snooze, presence-based speaker routing, and sound library with file upload
+- **📡 Presence Detection** — Auto-discovered motion/occupancy/mmWave sensors with room-level confidence scoring for context-aware automations
+- **📅 Scheduled Task System** — Extensible CRON-based scheduler with MongoDB persistence supporting alarms, timers, and deferred agent actions
 - **🔌 Extensible** — Easy to add new agents and capabilities with standardized A2A protocol
 - **🛠️ Runtime Agent Builder** — Create custom agents via the dashboard with MCP tool integration—no code required
 - **🧭 General Knowledge Fallback** — Built-in `general-assistant` handles open-ended requests when no specialist is a clean match
@@ -292,6 +295,8 @@ graph TB
 | **Dashboard** (`lucia-dashboard`) | React 19 SPA for management, traces, exports, and configuration |
 | **Home Assistant Integration** (`custom_components/lucia`) | Python custom component with conversation platform |
 | **HomeAssistant Client** (`lucia.HomeAssistant`) | Strongly-typed .NET client for the HA REST API |
+| **Alarm Clock System** (`lucia.Agents/Alarms`) | CRON-scheduled alarms with volume ramping, sound library, and voice dismissal |
+| **Presence Detection** (`lucia.Agents/Services`) | Auto-discovered room-level presence with confidence-weighted sensor fusion |
 
 ## 📁 Project Structure
 
@@ -321,7 +326,7 @@ lucia-dotnet/
 │   └── Configuration/            # Client settings
 ├── lucia-dashboard/              # React 19 + Vite 7 management dashboard
 │   └── src/
-│       ├── pages/                # Activity, Traces, Agents, Config, Exports, Cache, Tasks
+│       ├── pages/                # Activity, Traces, Agents, Config, Exports, Cache, Tasks, Alarms, Presence
 │       ├── components/           # MeshGraph and shared UI components
 │       ├── hooks/                # useActivityStream and custom React hooks
 │       ├── context/              # Auth context and providers
@@ -572,6 +577,8 @@ The Aspire Dashboard provides built-in log aggregation, trace visualization, and
 - Presence Detection Service with auto-discovered sensors and confidence levels
 - Alarm Clocks dashboard page with CRON builder and sound management
 - Presence Detection dashboard page with sensor management
+- Alarm sound file upload with HA media library integration
+- Mesh mode deployment hardening (conditional service registration, URL resolution, endpoint deduplication)
 
 ### 🔄 In Progress
 
