@@ -183,7 +183,7 @@ services:
     
     # Port exposure (HTTP only — HTTPS handled by reverse proxy in production)
     ports:
-      - "127.0.0.1:7233:8080"
+      - "7233:8080"
     
     # All user configuration (LLM keys, Home Assistant connection, etc.) is handled
     # by the setup wizard on first launch and stored in MongoDB. No .env file needed.

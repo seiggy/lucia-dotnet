@@ -59,7 +59,7 @@ curl http://localhost:7233/health
 ### lucia (Agent Host)
 
 - Image: Built from `Dockerfile` (multi-stage, optimized)
-- Port: `127.0.0.1:7233` → `8080` (HTTP API)
+- Port: `0.0.0.0:7233` → `8080` (HTTP API, LAN-accessible)
 - Mode: Standalone (all agents in-process) by default
 - Health: `/health` endpoint
 - Restart: Unless stopped
@@ -233,7 +233,7 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for comprehensive troubleshooting.
 
 The `docker-compose.yml` includes security hardening by default:
 
-- ✅ Localhost-only port binding (`127.0.0.1:7233`)
+- ✅ LAN-accessible AgentHost port (`0.0.0.0:7233`), localhost-only backing services
 - ✅ Read-only filesystem with tmpfs mounts
 - ✅ `no-new-privileges` security option
 - ✅ Dropped capabilities (`NET_RAW`, `SYS_PTRACE`, `SYS_ADMIN`)

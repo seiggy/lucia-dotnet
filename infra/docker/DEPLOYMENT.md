@@ -412,10 +412,14 @@ curl http://localhost:11434/api/tags
 ### Restrict Port Access
 
 ```bash
-# Default: 127.0.0.1:7233 (localhost only, safe)
-# DO NOT change to 0.0.0.0:7233 without authentication
+# Default: 0.0.0.0:7233 (LAN-accessible — required for Home Assistant integration)
+# Redis/MongoDB remain localhost-only (127.0.0.1)
 
-# For remote access, use:
+# To restrict AgentHost to localhost only, change in docker-compose.yml:
+# ports:
+#   - "127.0.0.1:7233:8080"
+
+# For internet-facing deployments, use:
 # - nginx/Caddy reverse proxy with authentication
 # - VPN to Docker host
 # - Cloudflare Tunnel
