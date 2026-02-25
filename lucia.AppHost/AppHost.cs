@@ -26,6 +26,7 @@ var internalToken = builder.AddParameter("internal-api-token",
     new GenerateParameterDefault { MinLength = 32, Special = false }, secret: true, persist: true);
 
 var registryApi = builder.AddProject<Projects.lucia_AgentHost>("lucia-agenthost")
+    .WithEnvironment("Deployment__Mode", "mesh")
     .WithEnvironment("InternalAuth__Token", internalToken)
     .WithReference(redis)
     .WaitFor(redis)
@@ -68,6 +69,7 @@ var timerAgent = builder.AddProject<Projects.lucia_A2AHost>("timer-agent")
     .WaitFor(registryApi)
     .WithReference(tracesDb)
     .WithReference(configDb)
+    .WithReference(tasksDb)
     .WaitFor(mongodb)
     .WithHttpHealthCheck("/health")
     .WithExternalHttpEndpoints();

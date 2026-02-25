@@ -1,3 +1,5 @@
+using MongoDB.Bson.Serialization.Attributes;
+
 namespace lucia.TimerAgent.ScheduledTasks;
 
 /// <summary>
@@ -8,6 +10,7 @@ namespace lucia.TimerAgent.ScheduledTasks;
 public sealed class ScheduledTaskDocument
 {
     /// <summary>Unique task instance ID (MongoDB _id).</summary>
+    [BsonId]
     public required string Id { get; init; }
 
     /// <summary>A2A task ID for external status tracking.</summary>
