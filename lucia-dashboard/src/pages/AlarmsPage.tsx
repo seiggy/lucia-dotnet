@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   AlarmClock as AlarmClockIcon, Plus, Trash2, Pencil, Power, PowerOff,
-  Volume2, Star, X, Clock, Speaker, Bell, BellOff, Pause, Music
+  Volume2, Star, X, Clock, Speaker, Bell, BellOff, Pause, Music, Upload
 } from 'lucide-react'
 import type { AlarmClock, AlarmSound } from '../types'
 import {
   fetchAlarms, createAlarm, updateAlarm, deleteAlarm, enableAlarm, disableAlarm,
   dismissAlarm, snoozeAlarm,
-  fetchAlarmSounds, createAlarmSound, deleteAlarmSound, setDefaultAlarmSound,
+  fetchAlarmSounds, createAlarmSound, uploadAlarmSound, deleteAlarmSound, setDefaultAlarmSound,
 } from '../api'
 
 // ── Toast notifications ──
@@ -152,6 +152,8 @@ export default function AlarmsPage() {
   // Sound form state
   const [showSoundForm, setShowSoundForm] = useState(false)
   const [soundForm, setSoundForm] = useState({ name: '', mediaSourceUri: '', isDefault: false })
+  const [soundMode, setSoundMode] = useState<'upload' | 'uri'>('upload')
+  const [soundFile, setSoundFile] = useState<File | null>(null)
 
   // Delete confirmation
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'alarm' | 'sound'; id: string; name: string } | null>(null)
@@ -333,16 +335,30 @@ export default function AlarmsPage() {
 
   function openSoundForm() {
     setSoundForm({ name: '', mediaSourceUri: '', isDefault: false })
+    setSoundMode('upload')
+    setSoundFile(null)
     setShowSoundForm(true)
   }
 
   async function saveSound() {
-    if (!soundForm.name.trim() || !soundForm.mediaSourceUri.trim()) {
-      addToast('Name and media source URI are required', 'error')
+    if (!soundForm.name.trim()) {
+      addToast('Name is required', 'error')
+      return
+    }
+    if (soundMode === 'upload' && !soundFile) {
+      addToast('Please select an audio file to upload', 'error')
+      return
+    }
+    if (soundMode === 'uri' && !soundForm.mediaSourceUri.trim()) {
+      addToast('Media source URI is required', 'error')
       return
     }
     try {
-      await createAlarmSound(soundForm)
+      if (soundMode === 'upload' && soundFile) {
+        await uploadAlarmSound(soundFile, soundForm.name, soundForm.isDefault)
+      } else {
+        await createAlarmSound(soundForm)
+      }
       addToast('Sound added', 'success')
       setShowSoundForm(false)
       await loadData()
@@ -597,6 +613,11 @@ export default function AlarmsPage() {
                             <Music className="h-4 w-4 text-amber" />
                           </div>
                           <span className="font-medium text-light">{sound.name}</span>
+                          {sound.uploadedViaLucia && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-teal-500/10 px-2 py-0.5 text-[10px] font-medium text-teal-400">
+                              <Upload className="h-2.5 w-2.5" /> Uploaded
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-3 text-fog">
@@ -874,16 +895,58 @@ export default function AlarmsPage() {
                   className="w-full rounded-lg border border-stone/40 bg-basalt px-3 py-2.5 text-sm text-light placeholder:text-stone input-focus"
                 />
               </div>
-              <div>
-                <label className="block text-xs font-medium uppercase tracking-wider text-dust mb-1.5">Media Source URI</label>
-                <input
-                  value={soundForm.mediaSourceUri}
-                  onChange={e => setSoundForm(f => ({ ...f, mediaSourceUri: e.target.value }))}
-                  placeholder="media-source://media_source/local/alarm-gentle.mp3"
-                  className="w-full rounded-lg border border-stone/40 bg-basalt px-3 py-2.5 text-sm text-light placeholder:text-stone input-focus font-mono text-xs"
-                />
-                <p className="mt-1 text-xs text-dust">Home Assistant media-source:// URI</p>
+
+              {/* Mode toggle */}
+              <div className="flex gap-1 rounded-lg border border-stone/40 bg-obsidian p-1">
+                <button
+                  onClick={() => setSoundMode('upload')}
+                  className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors ${soundMode === 'upload' ? 'bg-amber/10 text-amber' : 'text-dust hover:text-fog'}`}
+                >
+                  <Upload className="h-3.5 w-3.5" /> Upload File
+                </button>
+                <button
+                  onClick={() => setSoundMode('uri')}
+                  className={`flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors ${soundMode === 'uri' ? 'bg-amber/10 text-amber' : 'text-dust hover:text-fog'}`}
+                >
+                  <Music className="h-3.5 w-3.5" /> HA Media URI
+                </button>
               </div>
+
+              {soundMode === 'upload' ? (
+                <div>
+                  <label className="block text-xs font-medium uppercase tracking-wider text-dust mb-1.5">Audio File</label>
+                  <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed border-stone/40 bg-basalt px-4 py-6 text-sm text-fog transition-colors hover:border-amber/40 hover:bg-stone/10">
+                    <Upload className="h-5 w-5 text-dust" />
+                    <span>{soundFile ? soundFile.name : 'Choose audio file (.mp3, .wav, .ogg)'}</span>
+                    <input
+                      type="file"
+                      accept="audio/*"
+                      className="hidden"
+                      onChange={e => {
+                        const file = e.target.files?.[0] || null
+                        setSoundFile(file)
+                        if (file && !soundForm.name.trim()) {
+                          const nameWithoutExt = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ')
+                          setSoundForm(f => ({ ...f, name: nameWithoutExt }))
+                        }
+                      }}
+                    />
+                  </label>
+                  <p className="mt-1 text-xs text-dust">Uploaded to Home Assistant media library at /local/alarms/</p>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-medium uppercase tracking-wider text-dust mb-1.5">Media Source URI</label>
+                  <input
+                    value={soundForm.mediaSourceUri}
+                    onChange={e => setSoundForm(f => ({ ...f, mediaSourceUri: e.target.value }))}
+                    placeholder="media-source://media_source/local/alarm-gentle.mp3"
+                    className="w-full rounded-lg border border-stone/40 bg-basalt px-3 py-2.5 text-sm text-light placeholder:text-stone input-focus font-mono text-xs"
+                  />
+                  <p className="mt-1 text-xs text-dust">Home Assistant media-source:// URI for an existing file</p>
+                </div>
+              )}
+
               <label className="flex items-center gap-3 cursor-pointer">
                 <input
                   type="checkbox"

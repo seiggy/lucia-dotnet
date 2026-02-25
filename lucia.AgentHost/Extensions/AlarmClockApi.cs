@@ -1,3 +1,4 @@
+using lucia.HomeAssistant.Services;
 using lucia.TimerAgent.ScheduledTasks;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
@@ -28,8 +29,9 @@ public static class AlarmClockApi
 
         // Alarm Sounds
         group.MapGet("/sounds", ListSoundsAsync);
-        group.MapGet("/sounds/{id}", GetSoundAsync);
         group.MapPost("/sounds", CreateSoundAsync);
+        group.MapPost("/sounds/upload", UploadSoundAsync).DisableAntiforgery();
+        group.MapGet("/sounds/{id}", GetSoundAsync);
         group.MapDelete("/sounds/{id}", DeleteSoundAsync);
         group.MapPut("/sounds/{id}/default", SetDefaultSoundAsync);
 
@@ -310,14 +312,66 @@ public static class AlarmClockApi
         return TypedResults.Created($"/api/alarms/sounds/{sound.Id}", sound);
     }
 
+    private static async Task<Results<Created<AlarmSound>, BadRequest<string>>> UploadSoundAsync(
+        IFormFile file,
+        [FromForm] string name,
+        [FromForm] bool isDefault,
+        [FromServices] IAlarmClockRepository repo,
+        [FromServices] IHomeAssistantClient haClient,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return TypedResults.BadRequest("Name is required");
+
+        if (file is null || file.Length == 0)
+            return TypedResults.BadRequest("A file is required");
+
+        const string targetDirectory = "media-source://media_source/local/alarms";
+
+        using var stream = file.OpenReadStream();
+        var uploadResult = await haClient.UploadMediaAsync(
+            targetDirectory, file.FileName, stream, file.ContentType, ct).ConfigureAwait(false);
+
+        var sound = new AlarmSound
+        {
+            Id = Guid.NewGuid().ToString("N")[..12],
+            Name = name,
+            MediaSourceUri = uploadResult.MediaContentId,
+            UploadedViaLucia = true,
+            IsDefault = isDefault
+        };
+
+        if (sound.IsDefault)
+        {
+            await ClearDefaultSoundsAsync(repo, ct).ConfigureAwait(false);
+        }
+
+        await repo.UpsertSoundAsync(sound, ct).ConfigureAwait(false);
+        return TypedResults.Created($"/api/alarms/sounds/{sound.Id}", sound);
+    }
+
     private static async Task<Results<NoContent, NotFound>> DeleteSoundAsync(
         [FromRoute] string id,
         [FromServices] IAlarmClockRepository repo,
+        [FromServices] IHomeAssistantClient haClient,
         CancellationToken ct)
     {
         var sound = await repo.GetSoundAsync(id, ct).ConfigureAwait(false);
         if (sound is null)
             return TypedResults.NotFound();
+
+        // Clean up HA media file if it was uploaded via Lucia
+        if (sound.UploadedViaLucia && !string.IsNullOrWhiteSpace(sound.MediaSourceUri))
+        {
+            try
+            {
+                await haClient.DeleteMediaAsync(sound.MediaSourceUri, ct).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Best-effort cleanup — don't fail the delete if HA media removal fails
+            }
+        }
 
         await repo.DeleteSoundAsync(id, ct).ConfigureAwait(false);
         return TypedResults.NoContent();

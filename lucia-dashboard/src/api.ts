@@ -778,6 +778,22 @@ export async function createAlarmSound(sound: {
   return res.json();
 }
 
+export async function uploadAlarmSound(file: File, name: string, isDefault: boolean): Promise<import('./types').AlarmSound> {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('name', name);
+  form.append('isDefault', String(isDefault));
+  const res = await fetch(`${BASE}/alarms/sounds/upload`, {
+    method: 'POST',
+    body: form,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Failed to upload alarm sound: ${res.statusText}`);
+  }
+  return res.json();
+}
+
 export async function deleteAlarmSound(id: string): Promise<void> {
   const res = await fetch(`${BASE}/alarms/sounds/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`Failed to delete alarm sound: ${res.statusText}`);
