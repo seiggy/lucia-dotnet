@@ -154,11 +154,12 @@ public static class ActivityApi
         {
             if (agentId == "orchestration") continue;
 
+            var agentErrors = stats.ErrorsByAgent.GetValueOrDefault(agentId, 0);
             result[agentId] = new AgentActivityStats
             {
                 RequestCount = count,
-                ErrorRate = stats.ErroredCount > 0 && stats.TotalTraces > 0
-                    ? Math.Round((double)stats.ErroredCount / stats.TotalTraces * 100, 1)
+                ErrorRate = agentErrors > 0 && count > 0
+                    ? Math.Round((double)agentErrors / count * 100, 1)
                     : 0,
             };
         }

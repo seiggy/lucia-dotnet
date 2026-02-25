@@ -168,6 +168,33 @@ public sealed class MongoTraceRepository : ITraceRepository
             }
         }
 
+        // Aggregate per-agent errors (where AgentExecutions.Success == false)
+        var errorPipeline = new MongoDB.Bson.BsonDocument[]
+        {
+            new("$unwind", "$AgentExecutions"),
+            new("$match", new MongoDB.Bson.BsonDocument("AgentExecutions.Success", false)),
+            new("$group", new MongoDB.Bson.BsonDocument
+            {
+                { "_id", "$AgentExecutions.AgentId" },
+                { "Count", new MongoDB.Bson.BsonDocument("$sum", 1) }
+            })
+        };
+
+        var errorGroups = await _traces
+            .Aggregate<MongoDB.Bson.BsonDocument>(errorPipeline)
+            .ToListAsync(ct).ConfigureAwait(false);
+
+        var errorsByAgent = new Dictionary<string, int>();
+        foreach (var group in errorGroups)
+        {
+            var agentId = group["_id"].AsString;
+            var count = group["Count"].AsInt32;
+            if (!string.IsNullOrEmpty(agentId))
+            {
+                errorsByAgent[agentId] = count;
+            }
+        }
+
         return new TraceStats
         {
             TotalTraces = (int)totalTask.Result,
@@ -176,6 +203,7 @@ public sealed class MongoTraceRepository : ITraceRepository
             NegativeCount = (int)negativeTask.Result,
             ErroredCount = (int)erroredTask.Result,
             ByAgent = byAgent,
+            ErrorsByAgent = errorsByAgent,
         };
     }
 

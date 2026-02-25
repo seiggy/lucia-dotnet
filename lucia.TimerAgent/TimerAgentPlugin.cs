@@ -24,8 +24,10 @@ public sealed class TimerAgentPlugin : IAgentPlugin
             OrchestratorServiceKeys.TimerModel,
             (sp, _) => sp.GetRequiredService<IChatClient>());
 
+        builder.Services.AddSingleton<ActiveTimerStore>();
         builder.Services.AddSingleton<TimerSkill>();
         builder.Services.AddSingleton<ILuciaAgent, TimerAgent>();
+        builder.Services.AddHostedService<TimerExecutionService>();
         builder.Services.AddHostedService<TimerRecoveryService>();
     }
 

@@ -11,4 +11,5 @@ public sealed class TraceStats
     public int NegativeCount { get; set; }
     public int ErroredCount { get; set; }
     public Dictionary<string, int> ByAgent { get; set; } = [];
+    public Dictionary<string, int> ErrorsByAgent { get; set; } = [];
 }

@@ -37,4 +37,7 @@ public sealed class EntityRegistryEntry
 
     [JsonPropertyName("platform")]
     public string? Platform { get; set; }
+
+    [JsonPropertyName("supported_features")]
+    public int SupportedFeatures { get; set; }
 }

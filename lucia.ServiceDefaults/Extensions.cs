@@ -77,6 +77,7 @@ public static class Extensions
                     .AddSource("Lucia.Skills.LightControl")
                     .AddSource("Lucia.Skills.MusicPlayback")
                     .AddSource("Lucia.Services.EntityLocation")
+                    .AddSource("Microsoft.Extensions.AI")
                     .AddSource("Microsoft.Agents.AI*")
                     .AddSource("A2A*")
                     .AddSource("Microsoft.Agents.AI.Hosting*")
@@ -91,6 +92,10 @@ public static class Extensions
                     //.AddGrpcClientInstrumentation()
                     .AddHttpClientInstrumentation(options =>
                     {
+                        // Filter out Azure IMDS credential probe requests (noisy locally)
+                        options.FilterHttpRequestMessage = request =>
+                            request.RequestUri?.Host != "169.254.169.254";
+
                         options.EnrichWithHttpRequestMessage = (activity, request) =>
                         {
                             if (!IsRecorded(activity))

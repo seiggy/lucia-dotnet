@@ -1,3 +1,5 @@
+using lucia.HomeAssistant.Models;
+
 namespace lucia.Agents.Models;
 
 /// <summary>
@@ -14,4 +16,5 @@ public sealed class EntityLocationInfo
     public IReadOnlyList<string> Aliases { get; init; } = [];
     public string? AreaId { get; init; }
     public string? Platform { get; init; }
+    public SupportedFeaturesFlags SupportedFeatures { get; init; }
 }

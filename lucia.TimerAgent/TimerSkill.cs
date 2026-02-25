@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using A2A;
@@ -13,30 +12,29 @@ namespace lucia.TimerAgent;
 
 /// <summary>
 /// Skill that creates timed announcements on Home Assistant assist satellite devices.
-/// When a timer expires, it calls assist_satellite.announce on the originating device.
+/// Timers are added to <see cref="ActiveTimerStore"/> and executed by <see cref="TimerExecutionService"/>.
 /// Timers are persisted as A2A tasks in ITaskStore for durability across restarts.
 /// </summary>
 public sealed class TimerSkill
 {
     private static readonly ActivitySource ActivitySource = new("Lucia.Skills.Timer", "1.0.0");
 
-    private readonly IHomeAssistantClient _haClient;
     private readonly IEntityLocationService _entityLocationService;
     private readonly ITaskStore _taskStore;
+    private readonly ActiveTimerStore _timerStore;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<TimerSkill> _logger;
-    private readonly ConcurrentDictionary<string, ActiveTimer> _activeTimers = new();
 
     public TimerSkill(
-        IHomeAssistantClient haClient,
         IEntityLocationService entityLocationService,
         ITaskStore taskStore,
+        ActiveTimerStore timerStore,
         TimeProvider timeProvider,
         ILogger<TimerSkill> logger)
     {
-        _haClient = haClient ?? throw new ArgumentNullException(nameof(haClient));
         _entityLocationService = entityLocationService ?? throw new ArgumentNullException(nameof(entityLocationService));
         _taskStore = taskStore ?? throw new ArgumentNullException(nameof(taskStore));
+        _timerStore = timerStore ?? throw new ArgumentNullException(nameof(timerStore));
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -75,6 +73,7 @@ public sealed class TimerSkill
 
     /// <summary>
     /// Sets a timer that will play a TTS announcement on the specified satellite device when it expires.
+    /// The timer is added to <see cref="ActiveTimerStore"/> and executed by <see cref="TimerExecutionService"/>.
     /// </summary>
     public async Task<string> SetTimerAsync(int durationSeconds, string message, string entityId)
     {
@@ -142,7 +141,6 @@ public sealed class TimerSkill
 
         await _taskStore.SetTaskAsync(agentTask).ConfigureAwait(false);
 
-        var cts = new CancellationTokenSource();
         var timer = new ActiveTimer
         {
             Id = timerId,
@@ -151,17 +149,14 @@ public sealed class TimerSkill
             EntityId = resolvedEntityId,
             DurationSeconds = durationSeconds,
             ExpiresAt = expiresAt,
-            Cts = cts
+            Cts = new CancellationTokenSource()
         };
 
-        _activeTimers[timerId] = timer;
+        _timerStore.Add(timer);
 
         _logger.LogInformation(
             "Timer {TimerId} (task {TaskId}) set for {Duration}s on {EntityId}: {Message}",
             timerId, taskId, durationSeconds, resolvedEntityId, message);
-
-        // Fire the background task; don't await — it runs independently
-        _ = RunTimerAsync(timer);
 
         var friendlyDuration = FormatDuration(TimeSpan.FromSeconds(durationSeconds));
         return $"Timer '{timerId}' set for {friendlyDuration}. I'll announce \"{message}\" when it's done.";
@@ -172,7 +167,7 @@ public sealed class TimerSkill
     /// </summary>
     public async Task<string> CancelTimerAsync(string timerId)
     {
-        if (_activeTimers.TryRemove(timerId, out var timer))
+        if (_timerStore.TryRemove(timerId, out var timer) && timer is not null)
         {
             timer.Cts.Cancel();
             timer.Cts.Dispose();
@@ -198,13 +193,14 @@ public sealed class TimerSkill
     /// </summary>
     public Task<string> ListTimers()
     {
-        if (_activeTimers.IsEmpty)
+        var timers = _timerStore.GetAll();
+        if (timers.Count == 0)
         {
             return Task.FromResult("No active timers.");
         }
 
         var now = _timeProvider.GetUtcNow();
-        var lines = _activeTimers.Values
+        var lines = timers
             .OrderBy(t => t.ExpiresAt)
             .Select(t =>
             {
@@ -221,127 +217,13 @@ public sealed class TimerSkill
     /// <summary>
     /// Gets the count of currently active timers (for testing).
     /// </summary>
-    internal int ActiveTimerCount => _activeTimers.Count;
-
-    /// <summary>
-    /// Resumes a timer from persisted state (used by TimerRecoveryService on startup).
-    /// </summary>
-    internal void ResumeTimer(string timerId, string taskId, string message, string entityId, int durationSeconds, DateTimeOffset expiresAt)
-    {
-        var cts = new CancellationTokenSource();
-        var timer = new ActiveTimer
-        {
-            Id = timerId,
-            TaskId = taskId,
-            Message = message,
-            EntityId = entityId,
-            DurationSeconds = durationSeconds,
-            ExpiresAt = expiresAt,
-            Cts = cts
-        };
-
-        if (_activeTimers.TryAdd(timerId, timer))
-        {
-            _logger.LogInformation("Resuming timer {TimerId} (task {TaskId}), expires at {ExpiresAt}", timerId, taskId, expiresAt);
-            _ = RunTimerAsync(timer);
-        }
-        else
-        {
-            cts.Dispose();
-            _logger.LogDebug("Timer {TimerId} already active, skipping resume", timerId);
-        }
-    }
-
-    /// <summary>
-    /// Runs the timer delay then calls Home Assistant to announce.
-    /// </summary>
-    internal async Task RunTimerAsync(ActiveTimer timer)
-    {
-        try
-        {
-            var delay = timer.ExpiresAt - _timeProvider.GetUtcNow();
-            if (delay > TimeSpan.Zero)
-            {
-                await Task.Delay(delay, _timeProvider, timer.Cts.Token).ConfigureAwait(false);
-            }
-
-            await AnnounceAsync(timer.EntityId, timer.Message, timer.Cts.Token).ConfigureAwait(false);
-
-            _logger.LogInformation("Timer {TimerId} (task {TaskId}) fired successfully on {EntityId}", timer.Id, timer.TaskId, timer.EntityId);
-
-            try
-            {
-                var completedMessage = new AgentMessage
-                {
-                    MessageId = Guid.NewGuid().ToString("N"),
-                    Role = MessageRole.Agent,
-                    Parts = [new TextPart { Text = $"Timer fired: \"{timer.Message}\" announced on {timer.EntityId}" }]
-                };
-                await _taskStore.UpdateStatusAsync(timer.TaskId, TaskState.Completed, completedMessage).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to update task {TaskId} status to Completed", timer.TaskId);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            _logger.LogDebug("Timer {TimerId} was cancelled", timer.Id);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Timer {TimerId} (task {TaskId}) failed to announce on {EntityId}", timer.Id, timer.TaskId, timer.EntityId);
-
-            try
-            {
-                var failedMessage = new AgentMessage
-                {
-                    MessageId = Guid.NewGuid().ToString("N"),
-                    Role = MessageRole.Agent,
-                    Parts = [new TextPart { Text = $"Timer failed: {ex.Message}" }]
-                };
-                await _taskStore.UpdateStatusAsync(timer.TaskId, TaskState.Failed, failedMessage).ConfigureAwait(false);
-            }
-            catch (Exception updateEx)
-            {
-                _logger.LogWarning(updateEx, "Failed to update task {TaskId} status to Failed", timer.TaskId);
-            }
-        }
-        finally
-        {
-            _activeTimers.TryRemove(timer.Id, out _);
-            timer.Cts.Dispose();
-        }
-    }
-
-    /// <summary>
-    /// Calls the Home Assistant assist_satellite.announce service.
-    /// </summary>
-    internal async Task AnnounceAsync(string entityId, string message, CancellationToken cancellationToken)
-    {
-        using var activity = ActivitySource.StartActivity("TimerSkill.Announce", ActivityKind.Client);
-        activity?.SetTag("ha.domain", "assist_satellite");
-        activity?.SetTag("ha.service", "announce");
-        activity?.SetTag("ha.entity_id", entityId);
-
-        var request = new ServiceCallRequest
-        {
-            EntityId = entityId,
-            ["message"] = message
-        };
-
-        await _haClient.CallServiceAsync(
-            "assist_satellite",
-            "announce",
-            parameters: null,
-            request: request,
-            cancellationToken: cancellationToken).ConfigureAwait(false);
-    }
+    internal int ActiveTimerCount => _timerStore.Count;
 
     /// <summary>
     /// Resolves a location name or entity_id to an actual assist_satellite entity_id.
     /// If the input already looks like a valid entity_id (contains a dot), returns it as-is.
-    /// Otherwise, searches the entity location service for assist_satellite entities in that area.
+    /// Otherwise, searches the entity location service for assist_satellite entities in that area,
+    /// filtering to those that support the <see cref="AssistSatelliteFeature.Announce"/> capability.
     /// </summary>
     private async Task<string?> ResolveSatelliteEntityAsync(string input)
     {
@@ -361,8 +243,24 @@ public sealed class TimerSkill
         {
             _logger.LogDebug(
                 "Found {Count} satellite(s) in '{Location}': {Entities}",
-                entities.Count, input, string.Join(", ", entities.Select(e => e.EntityId)));
-            return entities[0].EntityId;
+                entities.Count, input,
+                string.Join(", ", entities.Select(e => $"{e.EntityId} (features={e.SupportedFeatures})")));
+
+            // Filter to satellites that support announce, prefer those with more capabilities
+            var announceable = entities
+                .Where(e => e.SupportedFeatures.HasFlag(SupportedFeaturesFlags.Announce))
+                .OrderByDescending(e => e.SupportedFeatures)
+                .ToList();
+
+            if (announceable.Count > 0)
+            {
+                return announceable[0].EntityId;
+            }
+
+            _logger.LogWarning(
+                "Found {Count} satellite(s) in '{Location}' but none support announce",
+                entities.Count, input);
+            return null;
         }
 
         _logger.LogWarning("No assist_satellite entity found for location '{Location}'", input);

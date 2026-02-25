@@ -453,7 +453,8 @@ public sealed class EntityLocationService : IEntityLocationService
                 AreaId = entityToArea.TryGetValue(e.EntityId, out var jinjaArea)
                     ? jinjaArea
                     : e.AreaId,
-                Platform = e.Platform
+                Platform = e.Platform,
+                SupportedFeatures = (SupportedFeaturesFlags)e.SupportedFeatures
             }).ToImmutableArray();
     }
 

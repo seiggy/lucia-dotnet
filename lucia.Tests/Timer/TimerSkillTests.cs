@@ -14,9 +14,9 @@ namespace lucia.Tests.Timer;
 /// </summary>
 public sealed class TimerSkillTests
 {
-    private readonly IHomeAssistantClient _haClient = A.Fake<IHomeAssistantClient>();
     private readonly IEntityLocationService _entityLocationService = A.Fake<IEntityLocationService>();
     private readonly ITaskStore _taskStore = A.Fake<ITaskStore>();
+    private readonly ActiveTimerStore _timerStore = new();
     private readonly FakeTimeProvider _timeProvider = new();
     private readonly ILogger<TimerSkill> _logger = A.Fake<ILogger<TimerSkill>>();
     private readonly TimerSkill _skill;
@@ -24,7 +24,7 @@ public sealed class TimerSkillTests
     public TimerSkillTests()
     {
         _timeProvider.SetUtcNow(new DateTimeOffset(2025, 7, 15, 12, 0, 0, TimeSpan.Zero));
-        _skill = new TimerSkill(_haClient, _entityLocationService, _taskStore, _timeProvider, _logger);
+        _skill = new TimerSkill(_entityLocationService, _taskStore, _timerStore, _timeProvider, _logger);
     }
 
     [Fact]
@@ -75,35 +75,16 @@ public sealed class TimerSkillTests
     }
 
     [Fact]
-    public async Task RunTimerAsync_WhenTimerExpires_CallsAnnounceService()
+    public async Task SetTimerAsync_ValidInput_AddsTimerToStore()
     {
-        A.CallTo(() => _haClient.CallServiceAsync(
-            A<string>.Ignored,
-            A<string>.Ignored,
-            A<string?>.Ignored,
-            A<ServiceCallRequest>.Ignored,
-            A<CancellationToken>.Ignored))
-            .Returns(Task.FromResult(Array.Empty<object>()));
-
         await _skill.SetTimerAsync(60, "Timer done!", "assist_satellite.office");
 
-        // Advance time past the timer expiry
-        _timeProvider.Advance(TimeSpan.FromSeconds(61));
-
-        // Give the background task time to complete
-        await Task.Delay(200);
-
-        A.CallTo(() => _haClient.CallServiceAsync(
-            "assist_satellite",
-            "announce",
-            A<string?>.Ignored,
-            A<ServiceCallRequest>.That.Matches(r =>
-                r.EntityId == "assist_satellite.office" &&
-                r["message"].ToString() == "Timer done!"),
-            A<CancellationToken>.Ignored))
-            .MustHaveHappenedOnceExactly();
-
-        Assert.Equal(0, _skill.ActiveTimerCount);
+        Assert.Equal(1, _timerStore.Count);
+        var timers = _timerStore.GetAll();
+        var timer = timers.First();
+        Assert.Equal("assist_satellite.office", timer.EntityId);
+        Assert.Equal("Timer done!", timer.Message);
+        Assert.Equal(60, timer.DurationSeconds);
     }
 
     [Fact]
@@ -127,33 +108,15 @@ public sealed class TimerSkillTests
     }
 
     [Fact]
-    public async Task CancelTimerAsync_PreventsAnnounce()
+    public async Task CancelTimerAsync_RemovesTimerFromStore()
     {
-        A.CallTo(() => _haClient.CallServiceAsync(
-            A<string>.Ignored,
-            A<string>.Ignored,
-            A<string?>.Ignored,
-            A<ServiceCallRequest>.Ignored,
-            A<CancellationToken>.Ignored))
-            .Returns(Task.FromResult(Array.Empty<object>()));
-
         var setResult = await _skill.SetTimerAsync(60, "Cancelled!", "assist_satellite.office");
         var timerId = ExtractTimerId(setResult);
+        Assert.Equal(1, _timerStore.Count);
 
         await _skill.CancelTimerAsync(timerId);
 
-        // Advance past expiry
-        _timeProvider.Advance(TimeSpan.FromSeconds(120));
-        await Task.Delay(200);
-
-        // The announce should NOT have been called
-        A.CallTo(() => _haClient.CallServiceAsync(
-            "assist_satellite",
-            "announce",
-            A<string?>.Ignored,
-            A<ServiceCallRequest>.Ignored,
-            A<CancellationToken>.Ignored))
-            .MustNotHaveHappened();
+        Assert.Equal(0, _timerStore.Count);
     }
 
     [Fact]

@@ -304,7 +304,7 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
         {% set ns = namespace(r=[]) -%}
         {% for aid in areas() -%}
           {% for eid in area_entities(aid) -%}
-            {% set ns.r = ns.r + [{"entity_id": eid, "name": state_attr(eid, "friendly_name"), "original_name": none, "area_id": aid, "device_id": none, "aliases": [], "labels": [], "disabled_by": none, "hidden_by": none, "platform": none}] -%}
+            {% set ns.r = ns.r + [{"entity_id": eid, "name": state_attr(eid, "friendly_name"), "original_name": none, "area_id": aid, "device_id": none, "aliases": [], "labels": [], "disabled_by": none, "hidden_by": none, "platform": none, "supported_features": state_attr(eid, "supported_features") | default(0, true) | int(0)}] -%}
           {% endfor -%}
         {% endfor -%}
         {{ ns.r | to_json }}

@@ -306,5 +306,5 @@ public sealed class WorkflowFactory
     }
 
     private static string? NormalizeAgentKey(AIAgent agent)
-        => agent.Name ?? agent.Id;
+        => agent.Id ?? agent.Name;
 }
