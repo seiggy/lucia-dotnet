@@ -335,3 +335,24 @@ export interface AlarmSound {
   isDefault: boolean
   createdAt: string
 }
+
+// --- Presence Detection ---
+
+export type PresenceConfidence = 'None' | 'Low' | 'Medium' | 'High' | 'Highest'
+
+export interface PresenceSensorMapping {
+  entityId: string
+  areaId: string
+  areaName: string | null
+  confidence: PresenceConfidence
+  isUserOverride: boolean
+  isDisabled: boolean
+}
+
+export interface OccupiedArea {
+  areaId: string
+  areaName: string
+  isOccupied: boolean
+  occupantCount: number | null
+  confidence: PresenceConfidence
+}

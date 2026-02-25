@@ -788,3 +788,56 @@ export async function setDefaultAlarmSound(id: string): Promise<import('./types'
   if (!res.ok) throw new Error(`Failed to set default sound: ${res.statusText}`);
   return res.json();
 }
+
+// ────────────────────────── Presence Detection ──────────────────────────
+
+export async function fetchOccupiedAreas(): Promise<import('./types').OccupiedArea[]> {
+  const res = await fetch(`${BASE}/presence/occupied`);
+  if (!res.ok) throw new Error(`Failed to fetch occupied areas: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchAreaOccupancy(areaId: string): Promise<{ areaId: string; isOccupied: boolean | null; occupantCount: number | null }> {
+  const res = await fetch(`${BASE}/presence/occupied/${areaId}`);
+  if (!res.ok) throw new Error(`Failed to fetch area occupancy: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchPresenceSensors(): Promise<import('./types').PresenceSensorMapping[]> {
+  const res = await fetch(`${BASE}/presence/sensors`);
+  if (!res.ok) throw new Error(`Failed to fetch presence sensors: ${res.statusText}`);
+  return res.json();
+}
+
+export async function updatePresenceSensor(entityId: string, body: Record<string, unknown>): Promise<import('./types').PresenceSensorMapping> {
+  const res = await fetch(`${BASE}/presence/sensors/${encodeURIComponent(entityId)}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Failed to update sensor: ${res.statusText}`);
+  return res.json();
+}
+
+export async function deletePresenceSensor(entityId: string): Promise<void> {
+  const res = await fetch(`${BASE}/presence/sensors/${encodeURIComponent(entityId)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to delete sensor: ${res.statusText}`);
+}
+
+export async function refreshPresenceSensors(): Promise<import('./types').PresenceSensorMapping[]> {
+  const res = await fetch(`${BASE}/presence/sensors/refresh`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to refresh sensors: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchPresenceConfig(): Promise<{ enabled: boolean }> {
+  const res = await fetch(`${BASE}/presence/config`);
+  if (!res.ok) throw new Error(`Failed to fetch presence config: ${res.statusText}`);
+  return res.json();
+}
+
+export async function updatePresenceConfig(body: { enabled?: boolean }): Promise<{ enabled: boolean }> {
+  const res = await fetch(`${BASE}/presence/config`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Failed to update presence config: ${res.statusText}`);
+  return res.json();
+}

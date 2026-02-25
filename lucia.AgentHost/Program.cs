@@ -212,6 +212,7 @@ app.MapAgentDefinitionApi();
 app.MapModelProviderApi();
 app.MapActivityApi();
 app.MapAlarmClockApi();
+app.MapPresenceApi();
 app.MapDefaultEndpoints();
 
 // SPA hosting: serve React dashboard assets in production
