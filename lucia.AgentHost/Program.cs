@@ -9,6 +9,7 @@ using lucia.Agents.Training;
 using lucia.Agents.Services;
 using lucia.MusicAgent;
 using lucia.TimerAgent;
+using lucia.TimerAgent.ScheduledTasks;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.HttpOverrides;
 using Scalar.AspNetCore;
@@ -65,6 +66,17 @@ if (isStandalone)
     var timerPlugin = new TimerAgentPlugin();
     timerPlugin.ConfigureAgentHost(builder);
     builder.Services.AddSingleton<IAgentPlugin>(timerPlugin);
+}
+else
+{
+    // In mesh mode, plugin agents run in separate A2AHost processes. The AgentHost
+    // still hosts the dashboard REST APIs (AlarmClockApi, etc.) that need data-access
+    // services. Register only the repositories and query services — NOT the execution
+    // services (ScheduledTaskService, BackgroundServices) which run in the agent process.
+    builder.Services.AddSingleton<ScheduledTaskStore>();
+    builder.Services.AddSingleton<CronScheduleService>();
+    builder.Services.AddSingleton<IScheduledTaskRepository, MongoScheduledTaskRepository>();
+    builder.Services.AddSingleton<IAlarmClockRepository, MongoAlarmClockRepository>();
 }
 
 // Trace capture services

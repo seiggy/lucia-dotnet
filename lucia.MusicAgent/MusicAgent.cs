@@ -164,14 +164,15 @@ public class MusicAgent : ILuciaAgent
         var isStandalone = string.IsNullOrWhiteSpace(deploymentMode)
             || deploymentMode.Equals("standalone", StringComparison.OrdinalIgnoreCase);
 
-        if (isStandalone)
+        if (!string.IsNullOrWhiteSpace(selfUrl))
+        {
+            // Explicit selfUrl takes precedence — used in mesh mode with Aspire service discovery
+            _agent.Url = selfUrl;
+        }
+        else if (isStandalone)
         {
             // In standalone mode, plugin runs in-process — use relative path
             _agent.Url = "/a2a/music-agent";
-        }
-        else if (!string.IsNullOrWhiteSpace(selfUrl))
-        {
-            _agent.Url = selfUrl;
         }
         else
         {
