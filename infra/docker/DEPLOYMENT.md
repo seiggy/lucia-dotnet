@@ -438,6 +438,7 @@ Re-run the setup wizard or update environment variables:
 ### Container Security
 
 The docker-compose.yml includes security hardening by default:
+
 - `read_only: true` filesystem (except tmpfs mounts)
 - `no-new-privileges` security option
 - Dropped `NET_RAW`, `SYS_PTRACE`, `SYS_ADMIN` capabilities
