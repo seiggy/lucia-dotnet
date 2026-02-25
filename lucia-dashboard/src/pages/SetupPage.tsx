@@ -16,7 +16,7 @@ import { Sparkles, ArrowRight, Key, Plug, CheckCircle2, Copy, Check, Loader2, Ra
 type WizardStep = 'welcome' | 'lucia-ha' | 'ha-plugin' | 'done'
 
 export default function SetupPage() {
-  const { refresh } = useAuth()
+  const { refresh, login } = useAuth()
   const [step, setStep] = useState<WizardStep>('welcome')
   const [status, setStatus] = useState<SetupStatus | null>(null)
   const [loading, setLoading] = useState(true)
@@ -52,6 +52,7 @@ export default function SetupPage() {
           {step === 'lucia-ha' && (
             <LuciaHaStep
               status={status}
+              login={login}
               onComplete={(s) => {
                 setStatus(s)
                 setStep('ha-plugin')
@@ -153,9 +154,11 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
 
 function LuciaHaStep({
   status,
+  login,
   onComplete,
 }: {
   status: SetupStatus | null
+  login: (apiKey: string) => Promise<void>
   onComplete: (s: SetupStatus) => void
 }) {
   const [dashboardKey, setDashboardKey] = useState<GenerateKeyResponse | null>(null)
@@ -175,6 +178,8 @@ function LuciaHaStep({
     try {
       const result = await generateDashboardKey()
       setDashboardKey(result)
+      // Auto-login so the session cookie is set for subsequent authenticated setup calls
+      await login(result.key)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to generate key')
     } finally {
@@ -188,6 +193,8 @@ function LuciaHaStep({
     try {
       const result = await regenerateDashboardKey()
       setDashboardKey(result)
+      // Re-login with the new key (old session is invalidated)
+      await login(result.key)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to regenerate key')
     } finally {

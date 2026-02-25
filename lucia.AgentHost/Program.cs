@@ -1,11 +1,15 @@
 using lucia.AgentHost.Auth;
 using lucia.AgentHost.Extensions;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Auth;
 using lucia.Agents.Configuration;
 using lucia.Agents.Extensions;
 using lucia.Agents.Orchestration;
 using lucia.Agents.Training;
 using lucia.Agents.Services;
+using lucia.MusicAgent;
+using lucia.TimerAgent;
+using lucia.TimerAgent.ScheduledTasks;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.HttpOverrides;
 using Scalar.AspNetCore;
@@ -43,6 +47,37 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 
 // Add Lucia multi-agent system
 builder.AddLuciaAgents();
+
+// Deployment mode: "standalone" (default) embeds plugin agents in-process,
+// "mesh" expects external A2A agent containers to register over the network.
+builder.Services.Configure<DeploymentOptions>(
+    builder.Configuration.GetSection(DeploymentOptions.SectionName));
+
+var deploymentMode = builder.Configuration
+    .GetValue<string>("Deployment:Mode") ?? "standalone";
+var isStandalone = deploymentMode.Equals("standalone", StringComparison.OrdinalIgnoreCase);
+
+if (isStandalone)
+{
+    var musicPlugin = new MusicAgentPlugin();
+    musicPlugin.ConfigureAgentHost(builder);
+    builder.Services.AddSingleton<IAgentPlugin>(musicPlugin);
+
+    var timerPlugin = new TimerAgentPlugin();
+    timerPlugin.ConfigureAgentHost(builder);
+    builder.Services.AddSingleton<IAgentPlugin>(timerPlugin);
+}
+else
+{
+    // In mesh mode, plugin agents run in separate A2AHost processes. The AgentHost
+    // still hosts the dashboard REST APIs (AlarmClockApi, etc.) that need data-access
+    // services. Register only the repositories and query services — NOT the execution
+    // services (ScheduledTaskService, BackgroundServices) which run in the agent process.
+    builder.Services.AddSingleton<ScheduledTaskStore>();
+    builder.Services.AddSingleton<CronScheduleService>();
+    builder.Services.AddSingleton<IScheduledTaskRepository, MongoScheduledTaskRepository>();
+    builder.Services.AddSingleton<IAlarmClockRepository, MongoAlarmClockRepository>();
+}
 
 // Trace capture services
 builder.Services.Configure<TraceCaptureOptions>(
@@ -170,6 +205,14 @@ app.MapApiKeyManagementApi();
 app.MapAgentRegistryApiV1();
 app.MapAgentProxyApi();
 app.MapAgentDiscovery();
+
+// In standalone mode, map plugin agent A2A endpoints in-process
+if (isStandalone)
+{
+    foreach (var plugin in app.Services.GetServices<IAgentPlugin>())
+        plugin.MapAgentEndpoints(app);
+}
+
 app.MapTraceManagementApi();
 app.MapDatasetExportApi();
 app.MapConfigurationApi();
@@ -180,6 +223,8 @@ app.MapMcpServerApi();
 app.MapAgentDefinitionApi();
 app.MapModelProviderApi();
 app.MapActivityApi();
+app.MapAlarmClockApi();
+app.MapPresenceApi();
 app.MapDefaultEndpoints();
 
 // SPA hosting: serve React dashboard assets in production

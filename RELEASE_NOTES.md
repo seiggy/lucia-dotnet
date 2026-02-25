@@ -1,4 +1,100 @@
 
+
+# Release Notes - 2026.02.26
+
+**Release Date:** February 26, 2026  
+**Code Name:** "Zenith"
+
+---
+
+## 🌄 Overview
+
+"Zenith" is a major feature release that introduces a full alarm clock system, CRON-based scheduled tasks, room-level presence detection, and deployment hardening for both standalone and mesh topologies. Named after the highest point the sun reaches in the sky—Zenith represents the peak of Lucia's home automation capabilities, bringing autonomous scheduling, presence-aware actions, and rock-solid multi-process deployment.
+
+## 🚀 Highlights
+
+- **Scheduled Task System** — New `ScheduledTaskStore` / `ScheduledTaskExecutionService` providing CRON-based scheduling with MongoDB persistence and crash recovery. Supports Alarm, Timer, and AgentTask types with automatic re-scheduling on startup.
+- **Alarm Clock System** — Full alarm clock implementation with CRON recurring schedules, volume ramping, presence-based speaker routing, voice dismissal/snooze, auto-dismiss timeout, sound library with file upload, and a dedicated dashboard page.
+- **Presence Detection** — Auto-discovers motion/occupancy/mmWave radar sensors from Home Assistant, maps them to areas with confidence levels (Highest→Low), and provides room-level occupancy data for alarm routing and future automations.
+- **Mesh Mode Hardened** — Six bug fixes addressing service registration, agent URL resolution, duplicate endpoint mapping, conditional MongoDB clients, and JSON deserialization in mesh (Aspire multi-process) deployments.
+- **Resilient Initialization** — Agent startup waits for chat providers, HA credentials refresh dynamically via `IOptionsMonitor`, and entity caches auto-reload on reconnection.
+
+## ✨ What's New
+
+### 📅 Scheduled Task System
+
+- **ScheduledTaskStore** — In-memory store for active scheduled tasks (alarms, timers, agent tasks) with type-based querying
+- **ScheduledTaskExecutionService** — `BackgroundService` polling every second, dispatches expired tasks with `IServiceScope` per execution
+- **ScheduledTaskRecoveryService** — Restores pending tasks from MongoDB on startup via `ScheduledTaskFactory`
+- **CronScheduleService** — CRON expression parsing, validation, next-fire-at computation, and human-readable descriptions
+- **AgentScheduledTask** — Scheduled tasks that invoke LLM agents with a prompt at a specified time
+- **SchedulerSkill** — AI tool for scheduling deferred agent actions from natural language ("remind me to check the oven in 30 minutes")
+
+### ⏰ Alarm Clock System
+
+- **AlarmClock model** — Alarm definitions with CRON recurring schedules, target entity, sound selection, and volume ramp settings
+- **AlarmScheduledTask** — Alarm execution with `media_player.play_media` (announce mode) and `assist_satellite.announce` TTS fallback
+- **Volume ramping** — Gradual volume increase via `media_player.volume_set` from configurable start to end volume over a ramp duration
+- **Voice dismissal** — `DismissAlarm` and `SnoozeAlarm` AI tools accept optional alarm ID; omitting auto-targets whichever alarm is currently ringing
+- **Presence-based routing** — Alarms with `targetEntity=presence` resolve to the occupied room's media player at fire time
+- **AlarmClockApi** — Full REST API for alarm CRUD, enable/disable, dismiss/snooze, sound library management
+- **Alarm Clocks dashboard** — React page with CRON builder (presets: daily/weekdays/weekends/custom), sound management, volume ramp controls
+
+### 🔊 Alarm Sound Upload
+
+- **`POST /api/alarms/sounds/upload`** — New multipart form-data endpoint accepting an audio file, name, and isDefault flag
+- **HA Media Proxy** — Uploaded files are sent to Home Assistant's media library at `/local/alarms/` via `UploadMediaAsync`
+- **Upload tracking** — Sounds created via upload have `UploadedViaLucia=true`; delete operations clean up the corresponding HA media file (best-effort)
+- **Dashboard upload UI** — Sound form has an Upload File / HA Media URI toggle with file picker and auto-name detection from filename
+- **Upload badge** — Uploaded sounds display an "Uploaded" badge in the sounds table
+
+### 📡 Presence Detection
+
+- **IPresenceDetectionService** — Auto-discovers presence sensors from Home Assistant by entity pattern and device class
+- **Confidence levels** — Sensors classified as Highest (mmWave target count), High (mmWave binary), Medium (motion), Low (occupancy)
+- **IPresenceSensorRepository** — MongoDB persistence for sensor-to-area mappings with user override support
+- **PresenceApi** — REST API for sensor CRUD, occupied areas query, re-scan, and global enable/disable
+- **Presence dashboard** — React page with occupied areas summary, sensors grouped by area, confidence selector, and enable/disable toggle
+- **Auto-scan on startup** — `AgentInitializationService` calls `RefreshSensorMappingsAsync()` after entity locations load; graceful failure on scan errors
+
+### 🏠 Standalone/Mesh Deployment
+
+- **Deployment mode flag** — `Deployment__Mode` environment variable controls topology: `standalone` (default) embeds all agents in AgentHost; `mesh` runs agents as separate A2AHost processes
+- **Dual-mode agent hosting** — Timer and Music agents detect their hosting context and configure URLs, endpoints, and service registrations accordingly
+- **Conditional service registration** — MongoDB clients and data-access services register based on available connection strings and deployment mode, preventing startup crashes
+
+### 🔄 Resilience & Initialization
+
+- **Dynamic credential refresh** — `HomeAssistantClient` uses `IOptionsMonitor<HomeAssistantOptions>` for live HA token/URL updates without restart
+- **Entity cache auto-reload** — Location cache reloads automatically on HA WebSocket reconnection and on empty cache access
+- **Chat provider readiness** — `AgentInitializationService` waits for the chat completion provider before initializing agents, preventing null-reference failures on cold start
+- **Light agent fallback** — `FindLightsByArea` falls back to `EntityLocationService` when the embedding-based light cache is empty
+
+### 📦 HA Media Integration
+
+- **Media browse** — `BrowseMediaAsync` for navigating HA media library directories
+- **Media upload** — `UploadMediaAsync` for pushing audio files to HA's local media source
+- **Media delete** — `DeleteMediaAsync` via WebSocket command for cleanup on sound removal
+
+## 🐛 Bug Fixes
+
+### Mesh Mode (Aspire Multi-Process)
+
+- **Alarm data services not registered** — `IAlarmClockRepository`, `CronScheduleService`, and `ScheduledTaskStore` were only registered inside the standalone code path; now registered in both modes so dashboard REST APIs work in mesh deployments
+- **Agent URL resolution** — TimerAgent and MusicAgent checked `isStandalone` before `selfUrl`, causing A2AHost agents to ignore their assigned service URL; reordered to check `selfUrl` first
+- **Duplicate agent-card endpoints** — TimerAgentPlugin and MusicAgentPlugin both mapped `/a2a/*` mirror routes that collided with `AgentDiscoveryExtension`, causing `AmbiguousMatchException`; removed mirror paths from plugins
+- **Music-agent startup hang** — `AddMongoDBClient("luciatasks")` was unconditional in A2AHost, but music-agent doesn't receive that connection string; made registration conditional on connection string availability
+- **PresenceConfidence JSON deserialization** — Dashboard sent enum values as strings ("High") but `System.Text.Json` defaulted to integer parsing; added `[JsonConverter(typeof(JsonStringEnumConverter))]` to the `PresenceConfidence` enum
+
+### Other
+
+- **Presence sensors not visible on startup** — Sensors required a manual UI refresh; now auto-discovered during initialization
+- **Light agent area search** — `FindLightsByArea` now falls back to `EntityLocationService` when the embedding-based light cache is empty, fixing "No lights available" responses for area-based queries
+- **Docker port binding** — AgentHost now binds to `0.0.0.0` instead of `localhost` for LAN access from other containers
+- **Docker Compose .env dependency** — Removed `.env` file requirement; all configuration is inline in `docker-compose.yml`
+
+---
+
 # Release Notes - 2026.02.25
 
 **Release Date:** February 25, 2026  

@@ -106,14 +106,6 @@ public class LightControlSkill : IAgentSkill
     {
         await EnsureCacheIsCurrentAsync().ConfigureAwait(false);
 
-        if (_cachedLights.IsEmpty)
-        {
-            LightSearchFailures.Add(1, [
-                new KeyValuePair<string, object?>("reason", "empty-cache")
-            ]);
-            return "No lights available in the system";
-        }
-        
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("search.area", area);
         var start = Stopwatch.GetTimestamp();
@@ -133,8 +125,19 @@ public class LightControlSkill : IAgentSkill
                 return $"No areas found matching '{area}'.";
             }
 
+            // When the light device cache is populated, intersect with it for capability info.
+            // When it's empty (e.g. no embedding provider yet), fall back to location service
+            // results directly so area-based searches still work.
             var matchedEntityIds = locationMatches.Select(e => e.EntityId).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var areaLights = _cachedLights.Where(l => matchedEntityIds.Contains(l.EntityId)).ToList();
+
+            if (areaLights.Count == 0 && _cachedLights.IsEmpty)
+            {
+                // Light device cache is empty — fall back to location service entities directly
+                activity?.SetTag("match.fallback", true);
+                return await BuildAreaResponseFromLocationServiceAsync(area, locationMatches, activity)
+                    .ConfigureAwait(false);
+            }
 
             if (areaLights.Count == 0)
             {
@@ -512,6 +515,51 @@ public class LightControlSkill : IAgentSkill
             LightControlDurationMs.Record(elapsedMs);
             activity?.SetTag("elapsed_ms", elapsedMs);
         }
+    }
+
+    /// <summary>
+    /// Fallback path when the light device cache is empty (e.g. no embedding provider at startup).
+    /// Uses entity location service results directly + live HA state to produce a response,
+    /// without requiring the embedding-dependent device cache.
+    /// </summary>
+    private async Task<string> BuildAreaResponseFromLocationServiceAsync(
+        string area,
+        IReadOnlyList<EntityLocationInfo> locationMatches,
+        Activity? activity)
+    {
+        _logger.LogInformation(
+            "Light device cache empty — using location service fallback for area '{Area}' ({Count} entities)",
+            area, locationMatches.Count);
+
+        var stringBuilder = new StringBuilder();
+        stringBuilder.AppendLine($"Found {locationMatches.Count} light(s) in area '{area}':");
+
+        foreach (var entity in locationMatches)
+        {
+            var state = await _homeAssistantClient.GetEntityStateAsync(entity.EntityId)
+                .ConfigureAwait(false);
+            if (state is null) continue;
+
+            stringBuilder.Append($"- {entity.FriendlyName} (Entity ID: {entity.EntityId}), State: {state.State}");
+
+            if (state.Attributes.TryGetValue("brightness", out var brightnessObj))
+            {
+                if (int.TryParse(brightnessObj?.ToString(), out var brightness))
+                {
+                    var brightnessPercent = (int)Math.Round(brightness / 255.0 * 100);
+                    stringBuilder.Append($" at {brightnessPercent}% brightness");
+                }
+            }
+
+            stringBuilder.AppendLine();
+        }
+
+        activity?.SetTag("match.type", "area_fallback");
+        activity?.SetTag("match.light_count", locationMatches.Count);
+        LightSearchSuccess.Add(1);
+        activity?.SetStatus(ActivityStatusCode.Ok);
+
+        return stringBuilder.ToString().TrimEnd();
     }
 
     private async Task RefreshLightCacheAsync(CancellationToken cancellationToken = default)

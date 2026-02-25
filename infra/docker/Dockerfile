@@ -94,7 +94,9 @@ COPY ["Directory.Packages.props", "."]
 COPY ["lucia.AgentHost/lucia.AgentHost.csproj", "lucia.AgentHost/"]
 COPY ["lucia.Agents/lucia.Agents.csproj", "lucia.Agents/"]
 COPY ["lucia.HomeAssistant/lucia.HomeAssistant.csproj", "lucia.HomeAssistant/"]
+COPY ["lucia.MusicAgent/lucia.MusicAgent.csproj", "lucia.MusicAgent/"]
 COPY ["lucia.ServiceDefaults/lucia.ServiceDefaults.csproj", "lucia.ServiceDefaults/"]
+COPY ["lucia.TimerAgent/lucia.TimerAgent.csproj", "lucia.TimerAgent/"]
 
 # Restore dependencies (skip Copilot CLI download — handled in copilot-cli stage)
 # This layer is cached unless .csproj files change

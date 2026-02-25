@@ -28,6 +28,14 @@ builder.AddMongoDBClient(connectionName: "luciaconfig");
 // MongoDB for trace capture (per-agent training data)
 builder.AddMongoDBClient(connectionName: "luciatraces");
 builder.Services.AddSingleton<lucia.Agents.Training.ITraceRepository, lucia.Agents.Training.MongoTraceRepository>();
+
+// MongoDB for task persistence (scheduled tasks, alarm clocks).
+// Only register when the connection string is available — not all agent
+// containers receive the luciatasks reference (e.g., music-agent doesn't need it).
+if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("luciatasks")))
+{
+    builder.AddMongoDBClient(connectionName: "luciatasks");
+}
 builder.Services.AddSingleton<lucia.Agents.Services.TracingChatClientFactory>();
 
 // Add MongoDB configuration as highest-priority source (overrides appsettings)

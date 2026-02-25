@@ -25,6 +25,7 @@ public class AgentInitializationService : BackgroundService
     private readonly IAgentDefinitionRepository _definitionRepository;
     private readonly IModelProviderRepository _providerRepository;
     private readonly IEntityLocationService _entityLocationService;
+    private readonly IPresenceDetectionService _presenceDetectionService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AgentInitializationService> _logger;
     private readonly IOptionsMonitor<HomeAssistantOptions> _haOptions;
@@ -36,6 +37,7 @@ public class AgentInitializationService : BackgroundService
         IAgentDefinitionRepository definitionRepository,
         IModelProviderRepository providerRepository,
         IEntityLocationService entityLocationService,
+        IPresenceDetectionService presenceDetectionService,
         IConfiguration configuration,
         ILogger<AgentInitializationService> logger,
         IOptionsMonitor<HomeAssistantOptions> haOptions,
@@ -46,6 +48,7 @@ public class AgentInitializationService : BackgroundService
         _definitionRepository = definitionRepository;
         _providerRepository = providerRepository;
         _entityLocationService = entityLocationService;
+        _presenceDetectionService = presenceDetectionService;
         _configuration = configuration;
         _logger = logger;
         _haOptions = haOptions;
@@ -59,6 +62,9 @@ public class AgentInitializationService : BackgroundService
         // Seed default model providers from connection strings if upgrading
         await _providerRepository.SeedDefaultModelProvidersAsync(_configuration, _logger, stoppingToken).ConfigureAwait(false);
 
+        // Wait for at least one chat provider to be configured (may come from wizard or seed)
+        await WaitForChatProviderAsync(stoppingToken).ConfigureAwait(false);
+
         // Seed AgentDefinition documents for any built-in agents missing from MongoDB
         await _definitionRepository.SeedBuiltInAgentDefinitionsAsync(_agents, _logger, stoppingToken).ConfigureAwait(false);
 
@@ -70,6 +76,16 @@ public class AgentInitializationService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Entity location service initialization failed — skills will operate without location cache");
+        }
+
+        // Auto-discover presence sensors now that entity locations are loaded
+        try
+        {
+            await _presenceDetectionService.RefreshSensorMappingsAsync(stoppingToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Presence sensor scan failed — presence detection will be unavailable until manually refreshed");
         }
 
         _logger.LogInformation("Starting agent initialization...");
@@ -165,5 +181,22 @@ public class AgentInitializationService : BackgroundService
         var options = _haOptions.CurrentValue;
         return !string.IsNullOrWhiteSpace(options.BaseUrl)
             && !string.IsNullOrWhiteSpace(options.AccessToken);
+    }
+
+    private async Task WaitForChatProviderAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            var providers = await _providerRepository.GetEnabledProvidersAsync(stoppingToken).ConfigureAwait(false);
+            if (providers.Any(p => p.Purpose == Configuration.ModelPurpose.Chat))
+            {
+                _logger.LogInformation("Chat model provider detected. Proceeding with agent initialization.");
+                return;
+            }
+
+            _logger.LogInformation(
+                "Waiting for a chat model provider... (Configure one in the dashboard at /model-providers to continue.)");
+            await Task.Delay(ConfigPollInterval, stoppingToken).ConfigureAwait(false);
+        }
     }
 }

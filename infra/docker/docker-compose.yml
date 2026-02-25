@@ -1,16 +1,16 @@
 # Lucia Agent Host - Docker Compose Configuration
 #
-# Services:
-#   - lucia: Agent Host API (main application)
-#   - redis: Task persistence and session state
-#   - mongo: Trace capture and configuration storage
+# Default deployment runs in "standalone" mode where all agents (music, timer)
+# are embedded in the main AgentHost process. No separate A2A containers needed.
 #
-# Features:
-#   - Health checks for automatic restart
-#   - Volume mounts for persistent data
-#   - Environment-based configuration
-#   - Network isolation with shared network
-#   - Resource limits for stability
+# For mesh/multi-container deployment with separate A2A agents, set
+# Deployment__Mode=mesh on the lucia service and add your agent containers.
+# See the Kubernetes Helm chart for a full mesh deployment example.
+#
+# Services:
+#   - lucia: Agent Host API (all agents embedded in standalone mode)
+#   - lucia-redis: Task persistence and session state
+#   - lucia-mongo: Trace capture and configuration storage
 #
 # Usage:
 #   # Start all services
@@ -30,7 +30,7 @@ services:
   # ========================================================================
   # Redis Service - Task Persistence and Session State
   # ========================================================================
-  redis:
+  lucia-redis:
     # Use official Redis 8.2 image with alpine for minimal size
     image: redis:8.2-alpine
     
@@ -56,7 +56,7 @@ services:
     
     # Volume for persistent data storage
     volumes:
-      - redis-data:/data
+      - lucia-redis-data:/data
     
     # Health check for automatic restart
     healthcheck:
@@ -85,7 +85,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-        tag: "redis"
+        tag: "lucia-redis"
     
     # Security options
     security_opt:
@@ -100,7 +100,7 @@ services:
   # ========================================================================
   # MongoDB Service - Trace Capture and Configuration Storage
   # ========================================================================
-  mongo:
+  lucia-mongo:
     # Use official MongoDB 8.0 image
     image: mongo:8.0
     
@@ -116,7 +116,7 @@ services:
     
     # Volume for persistent data storage
     volumes:
-      - mongo-data:/data/db
+      - lucia-mongo-data:/data/db
     
     # Health check for automatic restart
     healthcheck:
@@ -145,7 +145,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-        tag: "mongo"
+        tag: "lucia-mongo"
     
     # Security options
     security_opt:
@@ -172,51 +172,33 @@ services:
 
     # Depends on Redis and MongoDB being healthy
     depends_on:
-      redis:
+      lucia-redis:
         condition: service_healthy
-      mongo:
+      lucia-mongo:
         condition: service_healthy
     
     # Network configuration
     networks:
       - lucia-network
     
-    # Port exposure
+    # Port exposure (HTTP only — HTTPS handled by reverse proxy in production)
     ports:
-      - "127.0.0.1:5000:8080"  # HTTP API
-      - "127.0.0.1:5001:8081"  # HTTPS (disabled in MVP)
+      - "7233:8080"
     
-    # Volume mounts
-    volumes:
-      # Configuration (read-only)
-      - ../../.env:/app/.env:ro
-    
-    # Environment variables from .env file
-    env_file:
-      - ../../.env
-    
-    # Additional environment variables
+    # All user configuration (LLM keys, Home Assistant connection, etc.) is handled
+    # by the setup wizard on first launch and stored in MongoDB. No .env file needed.
     environment:
       # ASP.NET Core configuration
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:8080
       
-      # Connection strings (must be set via .env)
-      # - ConnectionStrings__chat-model=Endpoint=...;AccessKey=...;Model=...;Provider=openai
-      # - ConnectionStrings__home-assistant=http://homeassistant:8123
-      # - ConnectionStrings__redis=redis://redis:6379
-      
-      # MongoDB connection strings
+      # MongoDB connection strings (infrastructure — not user-configurable)
       - ConnectionStrings__luciatraces=mongodb://lucia-mongo:27017/luciatraces
       - ConnectionStrings__luciaconfig=mongodb://lucia-mongo:27017/luciaconfig
       - ConnectionStrings__luciatasks=mongodb://lucia-mongo:27017/luciatasks
       
-      # Logging
-      - LUCIA_LOG_LEVEL=Information
-      
-      # Observability
-      - OTEL_ENABLED=true
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+      # Redis connection string
+      - ConnectionStrings__redis=lucia-redis:6379
       
       # .NET Runtime
       - DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
@@ -287,152 +269,6 @@ services:
   #   restart: unless-stopped
 
 
-  # ========================================================================
-  # Music Agent - A2A Plugin Host (Music Playback)
-  # ========================================================================
-  music-agent:
-    build:
-      context: ../..
-      dockerfile: infra/docker/Dockerfile.music-agent
-      args:
-        BUILD_CONFIGURATION: Release
-
-    image: lucia-music-agent:latest
-
-    container_name: lucia-music-agent
-
-    depends_on:
-      redis:
-        condition: service_healthy
-      mongo:
-        condition: service_healthy
-
-    networks:
-      - lucia-network
-
-    ports:
-      - "127.0.0.1:5010:8080"
-
-    env_file:
-      - ../../.env
-
-    environment:
-      - ASPNETCORE_ENVIRONMENT=Production
-      - ASPNETCORE_URLS=http://+:8080
-      - ConnectionStrings__redis=lucia-redis:6379
-      - ConnectionStrings__luciatraces=mongodb://lucia-mongo:27017/luciatraces
-      - ConnectionStrings__luciaconfig=mongodb://lucia-mongo:27017/luciaconfig
-      - ConnectionStrings__luciatasks=mongodb://lucia-mongo:27017/luciatasks
-      - DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
-      - DOTNET_RUNNING_IN_CONTAINER=true
-      - COMPlus_EnableDiagnostics=0
-
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 128M
-
-    restart: unless-stopped
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-        tag: "music-agent"
-
-    security_opt:
-      - no-new-privileges:true
-
-    read_only: true
-    tmpfs:
-      - /tmp
-
-
-  # ========================================================================
-  # Timer Agent - A2A Plugin Host (Timers & Announcements)
-  # ========================================================================
-  timer-agent:
-    build:
-      context: ../..
-      dockerfile: infra/docker/Dockerfile.timer-agent
-      args:
-        BUILD_CONFIGURATION: Release
-
-    image: lucia-timer-agent:latest
-
-    container_name: lucia-timer-agent
-
-    depends_on:
-      redis:
-        condition: service_healthy
-      mongo:
-        condition: service_healthy
-
-    networks:
-      - lucia-network
-
-    ports:
-      - "127.0.0.1:5011:8080"
-
-    env_file:
-      - ../../.env
-
-    environment:
-      - ASPNETCORE_ENVIRONMENT=Production
-      - ASPNETCORE_URLS=http://+:8080
-      - ConnectionStrings__redis=lucia-redis:6379
-      - ConnectionStrings__luciatraces=mongodb://lucia-mongo:27017/luciatraces
-      - ConnectionStrings__luciaconfig=mongodb://lucia-mongo:27017/luciaconfig
-      - ConnectionStrings__luciatasks=mongodb://lucia-mongo:27017/luciatasks
-      - DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
-      - DOTNET_RUNNING_IN_CONTAINER=true
-      - COMPlus_EnableDiagnostics=0
-
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 128M
-
-    restart: unless-stopped
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-        tag: "timer-agent"
-
-    security_opt:
-      - no-new-privileges:true
-
-    read_only: true
-    tmpfs:
-      - /tmp
-
-
 # ============================================================================
 # Networks
 # ============================================================================
@@ -449,11 +285,11 @@ networks:
 # ============================================================================
 volumes:
   # Redis persistent data
-  redis-data:
+  lucia-redis-data:
     driver: local
   
   # MongoDB persistent data
-  mongo-data:
+  lucia-mongo-data:
     driver: local
   
   # Uncomment for Home Assistant persistent data

@@ -8,7 +8,7 @@
 [![Agent Framework](https://img.shields.io/badge/Agent%20Framework-1.0.0-blue)](https://learn.microsoft.com/agent-framework/)
 [![License](https://img.shields.io/github/license/seiggy/lucia-dotnet)](LICENSE)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Compatible-41BDF5)](https://www.home-assistant.io/)
-![Latest Version](https://img.shields.io/badge/v2026.02.25_Aurora-cornflowerblue?logo=homeassistantcommunitystore&label=Release)
+![Latest Version](https://img.shields.io/badge/v2026.02.26_Zenith-cornflowerblue?logo=homeassistantcommunitystore&label=Release)
 
 Lucia *(pronounced LOO-sha)* is an open-source, privacy-focused AI assistant that serves as a complete replacement for Amazon Alexa and Google Home. Built on the [Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/) with a multi-agent architecture, Lucia provides autonomous whole-home automation management through deep integration with Home Assistant. A full-featured React dashboard lets you manage agents, inspect traces, tune configuration, and export training data—all from a single UI.
 
@@ -27,6 +27,9 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
 - **📊 Live Activity Dashboard** — Real-time agent mesh visualization with SSE-powered event streaming, summary metrics, and activity timeline
 - **📋 Management Dashboard** — React-based dark-themed dashboard for agent management, trace inspection, configuration, and dataset exports
 - **📦 Kubernetes Ready** — Cloud-native deployment with .NET Aspire, Helm charts, and K8s manifests
+- **⏰ Alarm Clock System** — CRON-scheduled alarms with volume ramping, voice dismissal/snooze, presence-based speaker routing, and sound library with file upload
+- **📡 Presence Detection** — Auto-discovered motion/occupancy/mmWave sensors with room-level confidence scoring for context-aware automations
+- **📅 Scheduled Task System** — Extensible CRON-based scheduler with MongoDB persistence supporting alarms, timers, and deferred agent actions
 - **🔌 Extensible** — Easy to add new agents and capabilities with standardized A2A protocol
 - **🛠️ Runtime Agent Builder** — Create custom agents via the dashboard with MCP tool integration—no code required
 - **🧭 General Knowledge Fallback** — Built-in `general-assistant` handles open-ended requests when no specialist is a clean match
@@ -48,32 +51,87 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
 
 ### Prerequisites
 
-- [.NET 10 SDK](https://dotnet.microsoft.com/download) or later
-- [Node.js 22+](https://nodejs.org/) (for the dashboard)
-- [Docker](https://www.docker.com/) (required for Redis and MongoDB via Aspire)
+- [Docker](https://www.docker.com/) and Docker Compose
 - Home Assistant instance (2024.1 or later)
-- An LLM provider API key (Azure AI Foundry, OpenAI, etc.)
+- An LLM provider API key (Azure AI Foundry, OpenAI, Ollama, etc.)
 
 ### Installation
 
-1. **Clone the repository**
+1. **Create a `docker-compose.yml`** anywhere on your machine:
 
-   ```bash
-   git clone https://github.com/seiggy/lucia-dotnet.git
-   cd lucia-dotnet
+   ```yaml
+   services:
+     lucia-redis:
+       image: redis:8.2-alpine
+       container_name: lucia-redis
+       networks: [lucia-network]
+       ports: ["127.0.0.1:6379:6379"]
+       command: >
+         redis-server --appendonly yes
+         --maxmemory 256mb --maxmemory-policy allkeys-lru
+       volumes: [lucia-redis-data:/data]
+       healthcheck:
+         test: ["CMD", "redis-cli", "PING"]
+         interval: 30s
+         timeout: 10s
+         retries: 3
+       restart: unless-stopped
+
+     lucia-mongo:
+       image: mongo:8.0
+       container_name: lucia-mongo
+       networks: [lucia-network]
+       ports: ["127.0.0.1:27017:27017"]
+       volumes: [lucia-mongo-data:/data/db]
+       healthcheck:
+         test: ["CMD", "mongosh", "--eval", "db.runCommand('ping').ok"]
+         interval: 30s
+         timeout: 10s
+         retries: 3
+       restart: unless-stopped
+
+     lucia:
+       image: seiggy/lucia-agenthost:latest
+       container_name: lucia
+       depends_on:
+         lucia-redis: { condition: service_healthy }
+         lucia-mongo: { condition: service_healthy }
+       networks: [lucia-network]
+       ports: ["7233:8080"]
+       environment:
+         - ASPNETCORE_ENVIRONMENT=Production
+         - ASPNETCORE_URLS=http://+:8080
+         - ConnectionStrings__luciatraces=mongodb://lucia-mongo:27017/luciatraces
+         - ConnectionStrings__luciaconfig=mongodb://lucia-mongo:27017/luciaconfig
+         - ConnectionStrings__luciatasks=mongodb://lucia-mongo:27017/luciatasks
+         - ConnectionStrings__redis=lucia-redis:6379
+         - DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
+         - DOTNET_RUNNING_IN_CONTAINER=true
+       healthcheck:
+         test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+         interval: 30s
+         timeout: 10s
+         retries: 3
+       restart: unless-stopped
+
+   networks:
+     lucia-network:
+       driver: bridge
+
+   volumes:
+     lucia-redis-data:
+     lucia-mongo-data:
    ```
 
-2. **Run the application via Aspire**
+2. **Start the stack**
 
    ```bash
-   dotnet run --project lucia.AppHost
+   docker compose up -d
    ```
-
-   This starts the full stack: AgentHost, A2A satellite agents (Music, Timer), the React dashboard, Redis, and MongoDB—all orchestrated via .NET Aspire.
 
 3. **Open the Lucia Dashboard**
 
-   The Aspire console output will show the dashboard URL. On first launch, the setup wizard guides you through configuration:
+   Navigate to `http://localhost:7233`. On first launch, the setup wizard guides you through configuration:
 
    ![Setup Wizard — Welcome](docs/images/setup-welcome.png)
 
@@ -237,6 +295,8 @@ graph TB
 | **Dashboard** (`lucia-dashboard`) | React 19 SPA for management, traces, exports, and configuration |
 | **Home Assistant Integration** (`custom_components/lucia`) | Python custom component with conversation platform |
 | **HomeAssistant Client** (`lucia.HomeAssistant`) | Strongly-typed .NET client for the HA REST API |
+| **Alarm Clock System** (`lucia.Agents/Alarms`) | CRON-scheduled alarms with volume ramping, sound library, and voice dismissal |
+| **Presence Detection** (`lucia.Agents/Services`) | Auto-discovered room-level presence with confidence-weighted sensor fusion |
 
 ## 📁 Project Structure
 
@@ -266,7 +326,7 @@ lucia-dotnet/
 │   └── Configuration/            # Client settings
 ├── lucia-dashboard/              # React 19 + Vite 7 management dashboard
 │   └── src/
-│       ├── pages/                # Activity, Traces, Agents, Config, Exports, Cache, Tasks
+│       ├── pages/                # Activity, Traces, Agents, Config, Exports, Cache, Tasks, Alarms, Presence
 │       ├── components/           # MeshGraph and shared UI components
 │       ├── hooks/                # useActivityStream and custom React hooks
 │       ├── context/              # Auth context and providers
@@ -386,13 +446,19 @@ RUN apt-get update && apt-get install -y nodejs npm
 
 ## 🧪 Development
 
+### Prerequisites
+
+- [.NET 10 SDK](https://dotnet.microsoft.com/download) or later
+- [Node.js 22+](https://nodejs.org/) (for the dashboard)
+- [Docker](https://www.docker.com/) (required for Redis and MongoDB via Aspire)
+
 ### Building from Source
 
 ```bash
 # Build the entire solution
 dotnet build lucia-dotnet.slnx
 
-# Run via Aspire (recommended — starts all services)
+# Run via Aspire (recommended — starts all services in mesh mode)
 dotnet run --project lucia.AppHost
 
 # Run tests (excludes slow eval tests)
@@ -420,16 +486,41 @@ When running via Aspire AppHost:
 | API Documentation (Scalar) | — | `https://localhost:7235/scalar` |
 | Health Check | `http://localhost:5151/health` | — |
 
-## 🐳 Deployment
+### Building the Docker Image Locally
 
-### Docker Compose
+To build from source instead of using the pre-built image:
 
 ```bash
-cd infra/docker
+git clone https://github.com/seiggy/lucia-dotnet.git
+cd lucia-dotnet/infra/docker
 docker compose up -d
 ```
 
-See [`infra/docker/`](infra/docker/) for individual Dockerfiles (AgentHost, A2AHost, Music-Agent, Timer-Agent) and the compose configuration.
+The [`docker-compose.yml`](infra/docker/docker-compose.yml) in the repo builds the image from the local Dockerfile. See [`infra/docker/DEPLOYMENT.md`](infra/docker/DEPLOYMENT.md) for the full deployment guide.
+
+## 🐳 Deployment
+
+### Deployment Modes
+
+Lucia supports two deployment topologies controlled by the `Deployment__Mode` environment variable:
+
+| Mode | Value | Description |
+|------|-------|-------------|
+| **Standalone** (default) | `standalone` | All agents (Music, Timer, etc.) run embedded in the main AgentHost process. Simplest setup — single container plus Redis and MongoDB. Recommended for most users. |
+| **Mesh** | `mesh` | Agents run as separate A2A containers that register with the AgentHost over the network. Used for Kubernetes deployments, horizontal scaling, or multi-node distribution. |
+
+> **⚠️ Single-Instance Constraint:** The AgentHost must run as a **single instance** (no horizontal scaling via replicas). The in-memory `ScheduledTaskStore` and `ActiveTimerStore` hold active alarms and timers — running multiple replicas would split scheduled task state across instances. For high availability, use a single replica with fast restart policies rather than multiple replicas behind a load balancer. This constraint applies to both standalone and mesh modes (the AgentHost itself must be single-instance; mesh agents can scale independently).
+
+**When to use each mode:**
+
+- **Standalone** — Home lab, single-server, Docker Compose, or any deployment where simplicity matters. External A2A agents can still connect to a standalone AgentHost.
+- **Mesh** — Kubernetes clusters, multi-node setups, or when you want to scale individual agents independently. The Helm chart and K8s manifests default to mesh mode.
+
+To switch modes, add the environment variable to your `docker-compose.yml`:
+```yaml
+environment:
+  - Deployment__Mode=mesh
+```
 
 ### Kubernetes
 
@@ -442,7 +533,7 @@ helm install lucia infra/kubernetes/helm/lucia-helm \
   --namespace lucia --create-namespace
 ```
 
-See [`infra/kubernetes/`](infra/kubernetes/) for manifests and Helm chart documentation.
+The Kubernetes deployment runs in **mesh mode** by default, with Music Agent and Timer Agent as separate pods. See [`infra/kubernetes/`](infra/kubernetes/) for manifests and Helm chart documentation.
 
 ### systemd
 
@@ -481,12 +572,18 @@ The Aspire Dashboard provides built-in log aggregation, trace visualization, and
 - Dataset export for fine-tuning workflows
 - Schema-driven configuration system
 - Playwright E2E tests for all agent routing modes
+- Scheduled Task System with CRON scheduling and MongoDB persistence
+- Alarm Clock System with volume ramping and voice dismissal
+- Presence Detection Service with auto-discovered sensors and confidence levels
+- Alarm Clocks dashboard page with CRON builder and sound management
+- Presence Detection dashboard page with sensor management
+- Alarm sound file upload with HA media library integration
+- Mesh mode deployment hardening (conditional service registration, URL resolution, endpoint deduplication)
 
 ### 🔄 In Progress
 
 - WebSocket real-time event streaming from Home Assistant
 - HACS store listing for one-click installation
-- SecurityAgent (alarm, locks, cameras)
 
 ### ⏳ Planned
 

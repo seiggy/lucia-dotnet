@@ -3,7 +3,8 @@ import { NavLink, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import {
   Activity, Download, Settings, Bot, Database, Server,
-  Layers, Boxes, ListTodo, Menu, X, LogOut, Sparkles, BarChart3, MapPin
+  Layers, Boxes, ListTodo, Menu, X, LogOut, Sparkles, BarChart3, MapPin,
+  AlarmClock, Radio
 } from 'lucide-react'
 import LoginPage from './pages/LoginPage'
 import SetupPage from './pages/SetupPage'
@@ -19,6 +20,8 @@ import AgentDefinitionsPage from './pages/AgentDefinitionsPage'
 import ModelProvidersPage from './pages/ModelProvidersPage'
 import ActivityPage from './pages/ActivityPage'
 import EntityLocationPage from './pages/EntityLocationPage'
+import AlarmsPage from './pages/AlarmsPage'
+import PresencePage from './pages/PresencePage'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Activity', icon: BarChart3, end: true },
@@ -29,6 +32,8 @@ const NAV_ITEMS = [
   { to: '/mcp-servers', label: 'MCP Servers', icon: Server },
   { to: '/prompt-cache', label: 'Prompt Cache', icon: Database },
   { to: '/entity-location', label: 'Entity Locations', icon: MapPin },
+  { to: '/presence', label: 'Presence', icon: Radio },
+  { to: '/alarms', label: 'Alarms', icon: AlarmClock },
   { to: '/tasks', label: 'Tasks', icon: ListTodo },
   { to: '/exports', label: 'Exports', icon: Download },
   { to: '/configuration', label: 'Configuration', icon: Settings },
@@ -174,6 +179,8 @@ function AppRoutes() {
             <Route path="/agent-dashboard" element={<AgentsPage />} />
             <Route path="/prompt-cache" element={<PromptCachePage />} />
             <Route path="/entity-location" element={<EntityLocationPage />} />
+            <Route path="/alarms" element={<AlarmsPage />} />
+            <Route path="/presence" element={<PresencePage />} />
             <Route path="/tasks" element={<TasksPage />} />
             <Route path="/mcp-servers" element={<McpServersPage />} />
             <Route path="/agent-definitions" element={<AgentDefinitionsPage />} />

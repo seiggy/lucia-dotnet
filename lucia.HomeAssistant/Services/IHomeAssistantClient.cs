@@ -115,4 +115,35 @@ public interface IHomeAssistantClient
 
     /// <summary>Returns all entity entries from the config registry.</summary>
     Task<EntityRegistryEntry[]> GetEntityRegistryAsync(CancellationToken cancellationToken = default);
+
+    // ── Media Source ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Browse the HA media library. Pass a media-source:// path to browse a subdirectory,
+    /// or null/empty to browse the root.
+    /// </summary>
+    Task<MediaBrowseResult?> BrowseMediaAsync(string? mediaContentId = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Upload a media file to a HA media directory.
+    /// </summary>
+    /// <param name="targetDirectory">Target directory as media-source:// URI (e.g., "media-source://media_source/local/alarms").</param>
+    /// <param name="fileName">File name including extension (e.g., "alarm.wav").</param>
+    /// <param name="fileContent">The file content stream.</param>
+    /// <param name="contentType">MIME type (e.g., "audio/wav").</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The upload response with the media_content_id of the uploaded file.</returns>
+    Task<MediaUploadResponse> UploadMediaAsync(
+        string targetDirectory,
+        string fileName,
+        Stream fileContent,
+        string contentType,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Delete a media file from HA media source via WebSocket command.
+    /// </summary>
+    /// <param name="mediaContentId">The media-source:// URI of the file to delete.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    Task DeleteMediaAsync(string mediaContentId, CancellationToken cancellationToken = default);
 }

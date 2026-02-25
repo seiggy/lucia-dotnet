@@ -2,6 +2,7 @@ using A2A.AspNetCore;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Extensions;
 using lucia.Agents.Orchestration;
+using lucia.TimerAgent.ScheduledTasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
@@ -24,17 +25,28 @@ public sealed class TimerAgentPlugin : IAgentPlugin
             OrchestratorServiceKeys.TimerModel,
             (sp, _) => sp.GetRequiredService<IChatClient>());
 
-        builder.Services.AddSingleton<ActiveTimerStore>();
+        // Timer and alarm skills + agent
         builder.Services.AddSingleton<TimerSkill>();
+        builder.Services.AddSingleton<AlarmSkill>();
+        builder.Services.AddSingleton<SchedulerSkill>();
         builder.Services.AddSingleton<ILuciaAgent, TimerAgent>();
-        builder.Services.AddHostedService<TimerExecutionService>();
-        builder.Services.AddHostedService<TimerRecoveryService>();
+
+        // Scheduled task infrastructure (shared by timer, alarm, and future task types)
+        builder.Services.AddSingleton<ScheduledTaskStore>();
+        builder.Services.AddSingleton<CronScheduleService>();
+        builder.Services.AddSingleton<IScheduledTaskRepository, MongoScheduledTaskRepository>();
+        builder.Services.AddSingleton<IAlarmClockRepository, MongoAlarmClockRepository>();
+        builder.Services.AddHostedService<ScheduledTaskService>();
+        builder.Services.AddHostedService<ScheduledTaskRecoveryService>();
     }
 
     public void MapAgentEndpoints(WebApplication app)
     {
         var timerAgent = app.Services.GetServices<ILuciaAgent>()
             .First(a => a.GetAgentCard().Name == "timer-agent");
+        // Primary A2A endpoint — used by mesh mode (A2AHost) and standalone mode alike.
+        // In standalone mode, AgentDiscoveryExtension separately maps the /a2a/timer-agent
+        // path from the agent card URL, so no mirror mapping is needed here.
         app.MapA2ALazy(() => timerAgent.GetAIAgent(), path: "/timers", agentCard: timerAgent.GetAgentCard(), taskManager => app.MapWellKnownAgentCard(taskManager, "/timers"));
     }
 }

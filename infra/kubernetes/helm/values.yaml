@@ -9,6 +9,10 @@ global:
 
 ## Lucia Agent Host Configuration
 lucia:
+  # Deployment mode: "standalone" embeds all agents in AgentHost,
+  # "mesh" expects separate A2A agent containers.
+  deploymentMode: mesh
+  
   # Image configuration for lucia.AgentHost
   image:
     # Image repository

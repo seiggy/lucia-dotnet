@@ -1,3 +1,5 @@
+using lucia.Agents.Auth;
+
 namespace lucia.AgentHost.Auth;
 
 /// <summary>
@@ -10,11 +12,18 @@ public sealed class OnboardingMiddleware
     private readonly ILogger<OnboardingMiddleware> _logger;
 
     /// <summary>
+    /// One-way latch: once setup is detected as complete, stays true forever.
+    /// Avoids repeated MongoDB round-trips after setup finishes.
+    /// </summary>
+    private volatile bool _setupCompleteLatch;
+
+    /// <summary>
     /// Paths that are always accessible regardless of setup state.
+    /// Setup endpoints (/api/setup) are NOT in this list — they are
+    /// handled separately to enforce auth and block after completion.
     /// </summary>
     private static readonly string[] ExemptPrefixes =
     [
-        "/api/setup",
         "/api/auth/status",
         "/api/auth/login",
         "/agents",
@@ -44,32 +53,79 @@ public sealed class OnboardingMiddleware
     {
         var path = context.Request.Path.Value ?? "/";
 
-        // Always allow exempt paths and static files
+        // Always allow exempt paths and static files (health, auth, etc.)
         if (IsExemptPath(path))
         {
             await _next(context).ConfigureAwait(false);
             return;
         }
 
-        // Check if setup is complete
-        var configuration = context.RequestServices.GetRequiredService<IConfiguration>();
-
-        try
+        // Determine setup state — fast path uses cached IConfiguration
+        var setupComplete = _setupCompleteLatch;
+        if (!setupComplete)
         {
-            var setupComplete = configuration["Auth:SetupComplete"];
-            if (string.Equals(setupComplete, "true", StringComparison.OrdinalIgnoreCase))
+            try
             {
-                await _next(context).ConfigureAwait(false);
-                return;
+                var configuration = context.RequestServices.GetRequiredService<IConfiguration>();
+                setupComplete = string.Equals(
+                    configuration["Auth:SetupComplete"], "true", StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception ex)
+            {
+                // MongoDB may be unreachable on first boot — show error, don't crash
+                _logger.LogWarning(ex, "Failed to check setup status — config store may be unavailable");
             }
         }
-        catch (Exception ex)
+
+        // Setup endpoints: permanently disabled after setup completes,
+        // allowed during setup (individual endpoints enforce their own auth)
+        if (path.StartsWith("/api/setup", StringComparison.OrdinalIgnoreCase))
         {
-            // MongoDB may be unreachable on first boot — show error, don't crash
-            _logger.LogWarning(ex, "Failed to check setup status — config store may be unavailable");
+            // Close the IConfiguration poll race window: for setup paths,
+            // double-check MongoDB directly if the cached config says "not complete"
+            if (!setupComplete)
+            {
+                try
+                {
+                    var configStore = context.RequestServices.GetRequiredService<ConfigStoreWriter>();
+                    var directValue = await configStore.GetAsync("Auth:SetupComplete", context.RequestAborted)
+                        .ConfigureAwait(false);
+                    setupComplete = string.Equals(directValue, "true", StringComparison.OrdinalIgnoreCase);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed direct setup-complete check from config store");
+                }
+            }
+
+            if (setupComplete)
+            {
+                _setupCompleteLatch = true;
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                context.Response.ContentType = "application/json";
+                await context.Response.WriteAsJsonAsync(new
+                {
+                    error = "setup_complete",
+                    message = "Setup has already been completed. Setup endpoints are permanently disabled.",
+                }).ConfigureAwait(false);
+                return;
+            }
+
+            // Setup not yet complete — pass through to endpoint handlers
+            // (individual endpoints enforce AllowAnonymous or RequireAuthorization)
+            await _next(context).ConfigureAwait(false);
+            return;
         }
 
-        // Setup not complete — redirect API requests with 503, browser requests to /setup
+        // Setup complete — let auth middleware handle the rest
+        if (setupComplete)
+        {
+            _setupCompleteLatch = true;
+            await _next(context).ConfigureAwait(false);
+            return;
+        }
+
+        // Setup NOT complete — block non-setup requests
         if (path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase)
             || path.StartsWith("/agents/", StringComparison.OrdinalIgnoreCase))
         {

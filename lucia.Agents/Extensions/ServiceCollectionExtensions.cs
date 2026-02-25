@@ -34,12 +34,16 @@ public static class ServiceCollectionExtensions
         builder.Services.AddHttpClient<IHomeAssistantClient, HomeAssistantClient>((sp, client) =>
         {
             var options = sp.GetRequiredService<IOptions<HomeAssistantOptions>>().Value;
-            if (!string.IsNullOrWhiteSpace(options.BaseUrl))
+            client.DefaultRequestHeaders.Add("Accept", "application/json");
+            client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds > 0 ? options.TimeoutSeconds : 60);
+
+            // Only set BaseAddress if fully configured (URL + token).
+            // During wizard flow, these are empty at DI time and will be set
+            // per-request via EnsureHttpClientConfigured() once the wizard saves config.
+            if (!string.IsNullOrWhiteSpace(options.BaseUrl) && !string.IsNullOrWhiteSpace(options.AccessToken))
             {
-                client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/'));
-                client.DefaultRequestHeaders.Add("Authorization", $"Bearer {options.AccessToken}");
-                client.DefaultRequestHeaders.Add("Accept", "application/json");
-                client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+                client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/') + "/");
+                client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", $"Bearer {options.AccessToken}");
             }
         })
         .ConfigurePrimaryHttpMessageHandler(sp =>
@@ -78,6 +82,10 @@ public static class ServiceCollectionExtensions
         // Register entity location service (shared singleton for floor/area/entity resolution)
         builder.Services.AddSingleton<IEntityLocationService, EntityLocationService>();
         builder.Services.AddSingleton<IEmbeddingSimilarityService, EmbeddingSimilarityService>();
+
+        // Register presence detection service (auto-discovers sensors, maps to areas)
+        builder.Services.AddSingleton<IPresenceSensorRepository, MongoPresenceSensorRepository>();
+        builder.Services.AddSingleton<IPresenceDetectionService, PresenceDetectionService>();
 
         // Register A2A TaskManager (T037)
         builder.Services.AddSingleton<ITaskManager>(sp =>
