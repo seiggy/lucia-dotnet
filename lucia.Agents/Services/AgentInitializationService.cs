@@ -59,6 +59,9 @@ public class AgentInitializationService : BackgroundService
         // Seed default model providers from connection strings if upgrading
         await _providerRepository.SeedDefaultModelProvidersAsync(_configuration, _logger, stoppingToken).ConfigureAwait(false);
 
+        // Wait for at least one chat provider to be configured (may come from wizard or seed)
+        await WaitForChatProviderAsync(stoppingToken).ConfigureAwait(false);
+
         // Seed AgentDefinition documents for any built-in agents missing from MongoDB
         await _definitionRepository.SeedBuiltInAgentDefinitionsAsync(_agents, _logger, stoppingToken).ConfigureAwait(false);
 
@@ -165,5 +168,22 @@ public class AgentInitializationService : BackgroundService
         var options = _haOptions.CurrentValue;
         return !string.IsNullOrWhiteSpace(options.BaseUrl)
             && !string.IsNullOrWhiteSpace(options.AccessToken);
+    }
+
+    private async Task WaitForChatProviderAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            var providers = await _providerRepository.GetEnabledProvidersAsync(stoppingToken).ConfigureAwait(false);
+            if (providers.Any(p => p.Purpose == Configuration.ModelPurpose.Chat))
+            {
+                _logger.LogInformation("Chat model provider detected. Proceeding with agent initialization.");
+                return;
+            }
+
+            _logger.LogInformation(
+                "Waiting for a chat model provider... (Configure one in the dashboard at /model-providers to continue.)");
+            await Task.Delay(ConfigPollInterval, stoppingToken).ConfigureAwait(false);
+        }
     }
 }
