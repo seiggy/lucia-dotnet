@@ -202,6 +202,11 @@ export default function AlarmsPage() {
       const adMatch = alarm.autoDismissAfter?.match(/^(\d+):(\d+):(\d+)/)
       const adMin = adMatch ? Math.round((Number(adMatch[1]) * 3600 + Number(adMatch[2]) * 60 + Number(adMatch[3])) / 60) : 10
 
+      // Parse volume ramp duration
+      const vrMatch = alarm.volumeRampDuration?.match(/^(\d+):(\d+):(\d+)/)
+      const vrSec = vrMatch ? Number(vrMatch[1]) * 3600 + Number(vrMatch[2]) * 60 + Number(vrMatch[3]) : 30
+      const hasVolumeRamp = alarm.volumeStart != null && alarm.volumeEnd != null
+
       setAlarmForm({
         name: alarm.name, targetEntity: alarm.targetEntity,
         alarmSoundId: alarm.alarmSoundId || '',
@@ -211,6 +216,10 @@ export default function AlarmsPage() {
         cronCustom: custom,
         nextFireAt: alarm.nextFireAt ? new Date(alarm.nextFireAt).toISOString().slice(0, 16) : '',
         playbackIntervalSec: piSec, autoDismissMin: adMin,
+        volumeRampEnabled: hasVolumeRamp,
+        volumeStart: alarm.volumeStart ?? 0.2,
+        volumeEnd: alarm.volumeEnd ?? 0.8,
+        volumeRampDurationSec: vrSec,
       })
     } else {
       setEditingAlarm(null)
@@ -219,13 +228,14 @@ export default function AlarmsPage() {
         scheduleType: 'cron', cronPreset: 'Every day',
         cronHour: '07', cronMinute: '00', cronCustom: '',
         nextFireAt: '', playbackIntervalSec: 30, autoDismissMin: 10,
+        volumeRampEnabled: false, volumeStart: 0.2, volumeEnd: 0.8, volumeRampDurationSec: 30,
       })
     }
     setShowAlarmForm(true)
   }
 
   async function saveAlarm() {
-    const { name, targetEntity, alarmSoundId, scheduleType, cronPreset, cronHour, cronMinute, cronCustom, nextFireAt, playbackIntervalSec, autoDismissMin } = alarmForm
+    const { name, targetEntity, alarmSoundId, scheduleType, cronPreset, cronHour, cronMinute, cronCustom, nextFireAt, playbackIntervalSec, autoDismissMin, volumeRampEnabled, volumeStart, volumeEnd, volumeRampDurationSec } = alarmForm
 
     if (!name.trim() || !targetEntity.trim()) {
       addToast('Name and target entity are required', 'error')
@@ -262,6 +272,11 @@ export default function AlarmsPage() {
         cronSchedule, nextFireAt: fireAt,
         playbackInterval: `00:${String(Math.floor(playbackIntervalSec / 60)).padStart(2, '0')}:${String(playbackIntervalSec % 60).padStart(2, '0')}`,
         autoDismissAfter: `00:${String(autoDismissMin).padStart(2, '0')}:00`,
+        volumeStart: volumeRampEnabled ? volumeStart : null,
+        volumeEnd: volumeRampEnabled ? volumeEnd : null,
+        volumeRampDuration: volumeRampEnabled
+          ? `00:${String(Math.floor(volumeRampDurationSec / 60)).padStart(2, '0')}:${String(volumeRampDurationSec % 60).padStart(2, '0')}`
+          : null,
       }
 
       if (editingAlarm) {
@@ -481,6 +496,9 @@ export default function AlarmsPage() {
                         <span>Next: {formatNextFire(alarm.nextFireAt)}</span>
                         <span>Repeat: {formatTimeSpan(alarm.playbackInterval)}</span>
                         <span>Auto-dismiss: {formatTimeSpan(alarm.autoDismissAfter)}</span>
+                        {alarm.volumeStart != null && alarm.volumeEnd != null && (
+                          <span>🔊 {Math.round(alarm.volumeStart * 100)}%→{Math.round(alarm.volumeEnd * 100)}%</span>
+                        )}
                       </div>
                     </div>
 
@@ -767,6 +785,50 @@ export default function AlarmsPage() {
                       className="w-full rounded-lg border border-stone/40 bg-basalt px-3 py-2 text-sm text-light input-focus"
                     />
                   </div>
+                </div>
+
+                {/* Volume Ramping */}
+                <div className="mt-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={alarmForm.volumeRampEnabled}
+                      onChange={e => setAlarmForm(f => ({ ...f, volumeRampEnabled: e.target.checked }))}
+                      className="rounded border-stone/40 bg-basalt text-amber focus:ring-amber/50"
+                    />
+                    <span className="text-sm text-fog">Enable volume ramping</span>
+                  </label>
+                  {alarmForm.volumeRampEnabled && (
+                    <div className="grid grid-cols-3 gap-3 mt-3">
+                      <div>
+                        <label className="block text-xs text-dust mb-1">Start volume ({Math.round(alarmForm.volumeStart * 100)}%)</label>
+                        <input
+                          type="range" min="0" max="1" step="0.05"
+                          value={alarmForm.volumeStart}
+                          onChange={e => setAlarmForm(f => ({ ...f, volumeStart: Number(e.target.value) }))}
+                          className="w-full accent-amber"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-dust mb-1">End volume ({Math.round(alarmForm.volumeEnd * 100)}%)</label>
+                        <input
+                          type="range" min="0" max="1" step="0.05"
+                          value={alarmForm.volumeEnd}
+                          onChange={e => setAlarmForm(f => ({ ...f, volumeEnd: Number(e.target.value) }))}
+                          className="w-full accent-amber"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-dust mb-1">Ramp duration (sec)</label>
+                        <input
+                          type="number" min="5" max="300"
+                          value={alarmForm.volumeRampDurationSec}
+                          onChange={e => setAlarmForm(f => ({ ...f, volumeRampDurationSec: Number(e.target.value) }))}
+                          className="w-full rounded-lg border border-stone/40 bg-basalt px-3 py-2 text-sm text-light input-focus"
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               </details>
             </div>

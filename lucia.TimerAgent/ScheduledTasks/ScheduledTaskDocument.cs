@@ -65,6 +65,15 @@ public sealed class ScheduledTaskDocument
     /// <summary>How long the alarm rings before auto-dismissing.</summary>
     public TimeSpan? AutoDismissAfter { get; init; }
 
+    /// <summary>Starting volume for volume ramping (0.0–1.0). Null = no ramping.</summary>
+    public double? VolumeStart { get; init; }
+
+    /// <summary>Target volume for volume ramping (0.0–1.0). Null = no ramping.</summary>
+    public double? VolumeEnd { get; init; }
+
+    /// <summary>Duration over which volume ramps from start to end.</summary>
+    public TimeSpan? VolumeRampDuration { get; init; }
+
     // --- AgentTask fields ---
 
     /// <summary>The original user prompt to replay through the orchestrator.</summary>

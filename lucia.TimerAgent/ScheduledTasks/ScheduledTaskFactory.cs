@@ -53,7 +53,10 @@ public static class ScheduledTaskFactory
             TargetEntity = doc.TargetEntity,
             AlarmSoundUri = doc.AlarmSoundUri,
             PlaybackInterval = doc.PlaybackInterval ?? TimeSpan.FromSeconds(30),
-            AutoDismissAfter = doc.AutoDismissAfter ?? TimeSpan.FromMinutes(10)
+            AutoDismissAfter = doc.AutoDismissAfter ?? TimeSpan.FromMinutes(10),
+            VolumeStart = doc.VolumeStart,
+            VolumeEnd = doc.VolumeEnd,
+            VolumeRampDuration = doc.VolumeRampDuration ?? TimeSpan.FromSeconds(30)
         };
     }
 

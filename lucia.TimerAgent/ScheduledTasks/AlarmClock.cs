@@ -67,6 +67,24 @@ public sealed class AlarmClock
     /// <summary>Whether the alarm is currently enabled.</summary>
     public bool IsEnabled { get; set; } = true;
 
+    /// <summary>
+    /// Starting volume for volume ramping (0.0–1.0). Null = no volume ramping (use device default).
+    /// E.g., 0.2 = alarm starts at 20% volume.
+    /// </summary>
+    public double? VolumeStart { get; set; }
+
+    /// <summary>
+    /// Target volume for volume ramping (0.0–1.0). Null = no ramping.
+    /// E.g., 0.8 = alarm ramps up to 80% volume.
+    /// </summary>
+    public double? VolumeEnd { get; set; }
+
+    /// <summary>
+    /// Duration over which volume ramps from VolumeStart to VolumeEnd.
+    /// E.g., 30 seconds — volume gradually increases over the first 30 seconds.
+    /// </summary>
+    public TimeSpan VolumeRampDuration { get; set; } = TimeSpan.FromSeconds(30);
+
     /// <summary>When the alarm was created.</summary>
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 }

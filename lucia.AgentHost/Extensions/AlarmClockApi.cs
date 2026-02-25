@@ -87,7 +87,10 @@ public static class AlarmClockApi
             NextFireAt = request.NextFireAt,
             PlaybackInterval = request.PlaybackInterval ?? TimeSpan.FromSeconds(30),
             AutoDismissAfter = request.AutoDismissAfter ?? TimeSpan.FromMinutes(10),
-            IsEnabled = request.IsEnabled ?? true
+            IsEnabled = request.IsEnabled ?? true,
+            VolumeStart = request.VolumeStart,
+            VolumeEnd = request.VolumeEnd,
+            VolumeRampDuration = request.VolumeRampDuration ?? TimeSpan.FromSeconds(30)
         };
 
         // Compute NextFireAt from CRON if schedule is provided
@@ -127,6 +130,12 @@ public static class AlarmClockApi
             alarm.AutoDismissAfter = request.AutoDismissAfter.Value;
         if (request.IsEnabled is not null)
             alarm.IsEnabled = request.IsEnabled.Value;
+        if (request.VolumeStart is not null)
+            alarm.VolumeStart = request.VolumeStart;
+        if (request.VolumeEnd is not null)
+            alarm.VolumeEnd = request.VolumeEnd;
+        if (request.VolumeRampDuration is not null)
+            alarm.VolumeRampDuration = request.VolumeRampDuration.Value;
 
         // Update schedule
         if (request.CronSchedule is not null)

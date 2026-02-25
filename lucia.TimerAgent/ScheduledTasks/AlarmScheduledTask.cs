@@ -45,6 +45,15 @@ public sealed class AlarmScheduledTask : IScheduledTask
     /// <summary>How long the alarm rings before auto-dismissing.</summary>
     public TimeSpan AutoDismissAfter { get; init; } = TimeSpan.FromMinutes(10);
 
+    /// <summary>Starting volume for volume ramping (0.0–1.0). Null = no ramping.</summary>
+    public double? VolumeStart { get; init; }
+
+    /// <summary>Target volume for volume ramping (0.0–1.0). Null = no ramping.</summary>
+    public double? VolumeEnd { get; init; }
+
+    /// <summary>Duration over which volume ramps from VolumeStart to VolumeEnd.</summary>
+    public TimeSpan VolumeRampDuration { get; init; } = TimeSpan.FromSeconds(30);
+
     public bool IsExpired(DateTimeOffset now) => FireAt <= now;
 
     public async Task ExecuteAsync(IServiceProvider services, CancellationToken cancellationToken)
@@ -163,8 +172,26 @@ public sealed class AlarmScheduledTask : IScheduledTask
         ILogger logger,
         CancellationToken ct)
     {
+        var startedAt = DateTimeOffset.UtcNow;
+        var hasVolumeRamp = VolumeStart.HasValue && VolumeEnd.HasValue && VolumeStart < VolumeEnd;
+
+        // Set initial volume before first play
+        if (hasVolumeRamp)
+        {
+            await SetVolumeAsync(haClient, resolvedEntity, VolumeStart!.Value, logger, ct).ConfigureAwait(false);
+        }
+
         while (!ct.IsCancellationRequested)
         {
+            // Ramp volume before each playback iteration
+            if (hasVolumeRamp)
+            {
+                var elapsed = DateTimeOffset.UtcNow - startedAt;
+                var progress = Math.Clamp(elapsed / VolumeRampDuration, 0.0, 1.0);
+                var volume = VolumeStart!.Value + (VolumeEnd!.Value - VolumeStart.Value) * progress;
+                await SetVolumeAsync(haClient, resolvedEntity, volume, logger, ct).ConfigureAwait(false);
+            }
+
             try
             {
                 if (AlarmSoundUri is not null)
@@ -184,6 +211,37 @@ public sealed class AlarmScheduledTask : IScheduledTask
             }
 
             await Task.Delay(PlaybackInterval, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Sets the volume on a media_player entity.
+    /// </summary>
+    private static async Task SetVolumeAsync(
+        IHomeAssistantClient haClient,
+        string entity,
+        double volume,
+        ILogger logger,
+        CancellationToken ct)
+    {
+        try
+        {
+            var request = new ServiceCallRequest
+            {
+                EntityId = entity,
+                ["volume_level"] = Math.Round(volume, 2)
+            };
+
+            await haClient.CallServiceAsync(
+                "media_player",
+                "volume_set",
+                parameters: null,
+                request: request,
+                cancellationToken: ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Failed to set volume to {Volume} on {Entity}", volume, entity);
         }
     }
 
@@ -239,6 +297,9 @@ public sealed class AlarmScheduledTask : IScheduledTask
         TargetEntity = TargetEntity,
         AlarmSoundUri = AlarmSoundUri,
         PlaybackInterval = PlaybackInterval,
-        AutoDismissAfter = AutoDismissAfter
+        AutoDismissAfter = AutoDismissAfter,
+        VolumeStart = VolumeStart,
+        VolumeEnd = VolumeEnd,
+        VolumeRampDuration = VolumeRampDuration
     };
 }

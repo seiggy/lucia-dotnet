@@ -74,6 +74,7 @@ public sealed class AlarmSkill
                     Dismisses a currently ringing alarm or disables a scheduled alarm.
                     Use when the user says "dismiss alarm", "stop alarm", "turn off alarm", etc.
                     The alarmId can be the alarm ID or the alarm name.
+                    If alarmId is omitted, automatically dismisses whichever alarm is currently ringing.
                     """
             }),
             AIFunctionFactory.Create(SnoozeAlarmAsync, new AIFunctionFactoryOptions
@@ -84,6 +85,7 @@ public sealed class AlarmSkill
                     The alarm will stop ringing now and fire again after the snooze period.
                     Default snooze duration is 9 minutes if not specified.
                     The alarmId can be the alarm ID or the alarm name.
+                    If alarmId is omitted, automatically snoozes whichever alarm is currently ringing.
                     """
             }),
             AIFunctionFactory.Create(ListAlarmsAsync, new AIFunctionFactoryOptions
@@ -198,10 +200,24 @@ public sealed class AlarmSkill
 
     /// <summary>
     /// Dismisses a ringing alarm (stops playback) or disables a scheduled alarm.
+    /// If alarmId is null or empty, auto-dismisses any currently ringing alarm.
     /// </summary>
-    public async Task<string> DismissAlarmAsync(string alarmId)
+    public async Task<string> DismissAlarmAsync(string? alarmId = null)
     {
         using var activity = ActivitySource.StartActivity("AlarmSkill.DismissAlarm", ActivityKind.Internal);
+
+        // If no alarm specified, find any currently ringing alarm
+        if (string.IsNullOrWhiteSpace(alarmId))
+        {
+            var ringing = _taskStore.GetByType(ScheduledTaskType.Alarm)
+                .OfType<AlarmScheduledTask>()
+                .FirstOrDefault();
+
+            if (ringing is null)
+                return "No alarm is currently ringing.";
+
+            alarmId = ringing.AlarmClockId;
+        }
 
         var alarm = await ResolveAlarmAsync(alarmId).ConfigureAwait(false);
         if (alarm is null)
@@ -259,13 +275,27 @@ public sealed class AlarmSkill
 
     /// <summary>
     /// Snoozes a ringing alarm — stops it now and re-schedules after snooze duration.
+    /// If alarmId is null or empty, auto-snoozes any currently ringing alarm.
     /// </summary>
-    public async Task<string> SnoozeAlarmAsync(string alarmId, int snoozeMinutes = 9)
+    public async Task<string> SnoozeAlarmAsync(string? alarmId = null, int snoozeMinutes = 9)
     {
         using var activity = ActivitySource.StartActivity("AlarmSkill.SnoozeAlarm", ActivityKind.Internal);
 
         if (snoozeMinutes <= 0)
             return "Snooze duration must be greater than zero.";
+
+        // If no alarm specified, find any currently ringing alarm
+        if (string.IsNullOrWhiteSpace(alarmId))
+        {
+            var ringing = _taskStore.GetByType(ScheduledTaskType.Alarm)
+                .OfType<AlarmScheduledTask>()
+                .FirstOrDefault();
+
+            if (ringing is null)
+                return "No alarm is currently ringing.";
+
+            alarmId = ringing.AlarmClockId;
+        }
 
         var alarm = await ResolveAlarmAsync(alarmId).ConfigureAwait(false);
         if (alarm is null)
@@ -383,7 +413,10 @@ public sealed class AlarmSkill
             TargetEntity = alarm.TargetEntity,
             AlarmSoundUri = soundUri,
             PlaybackInterval = alarm.PlaybackInterval,
-            AutoDismissAfter = alarm.AutoDismissAfter
+            AutoDismissAfter = alarm.AutoDismissAfter,
+            VolumeStart = alarm.VolumeStart,
+            VolumeEnd = alarm.VolumeEnd,
+            VolumeRampDuration = alarm.VolumeRampDuration
         };
 
         // Remove any existing task for this alarm before scheduling new one

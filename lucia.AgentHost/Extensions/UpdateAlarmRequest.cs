@@ -14,4 +14,7 @@ public sealed class UpdateAlarmRequest
     public TimeSpan? PlaybackInterval { get; set; }
     public TimeSpan? AutoDismissAfter { get; set; }
     public bool? IsEnabled { get; set; }
+    public double? VolumeStart { get; set; }
+    public double? VolumeEnd { get; set; }
+    public TimeSpan? VolumeRampDuration { get; set; }
 }

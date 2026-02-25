@@ -322,6 +322,9 @@ export interface AlarmClock {
   lastDismissedAt: string | null
   isEnabled: boolean
   createdAt: string
+  volumeStart: number | null
+  volumeEnd: number | null
+  volumeRampDuration: string
 }
 
 export interface AlarmSound {
