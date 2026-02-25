@@ -1,4 +1,68 @@
 
+# Release Notes - 2026.02.25
+
+**Release Date:** February 25, 2026  
+**Code Name:** "Aurora"
+
+---
+
+## 🌅 Overview
+
+"Aurora" is a reliability and observability release that hardens Lucia's agent platform with deep entity intelligence, bulletproof timer lifecycle management, full OpenTelemetry coverage for LLM calls, and end-to-end Playwright testing across all three agent routing modes. Named after the aurora borealis—the northern lights that dance across the sky with precision and brilliance—this release brings the same level of visibility and coordination to Lucia's multi-agent orchestration.
+
+## 🚀 Highlights
+
+- **Entity Location Service** — New `IEntityLocationService` providing semantic entity resolution with floor, area, alias, and `supported_features` bitmask data. Agents can now find entities by natural language name, filter by capabilities (e.g., `Announce`), and resolve physical locations—all backed by a Redis-cached entity registry populated via HA Jinja templates.
+- **Timer BackgroundService** — Complete timer lifecycle refactor: timers now run in a dedicated `TimerExecutionService` (BackgroundService) with a thread-safe `ActiveTimerStore` singleton, fully decoupled from the HTTP request lifecycle. Timers survive request completion and announce via resolved satellite entities with proper feature detection.
+- **Full LLM Trace Visibility** — `UseOpenTelemetry()` wired into every agent's `ChatClientAgent` builder plus the `ModelProviderResolver`, emitting `gen_ai.*` spans for all LLM calls. The `Microsoft.Extensions.AI` activity source is now registered in ServiceDefaults, and Azure IMDS credential probe noise is filtered from traces.
+- **Dynamic Agent Fix** — Fixed `NormalizeAgentKey` to prefer `agent.Id` over `agent.Name`, resolving the mismatch where dynamic agents (e.g., joke-agent) were registered under their display name instead of their machine name.
+- **Per-Agent Error Metrics** — Error rate calculation in the Activity Dashboard now tracks errors per agent via a new MongoDB aggregation pipeline, replacing the incorrect global average.
+- **Playwright E2E Tests** — New `AgentRoutingTests` covering all three agent dispatch modes: in-process (light-agent), remote A2A (timer-agent), and dynamic (joke-agent). Each test exercises the full stack through the dashboard UI.
+
+## ✨ What's New
+
+### 🗺️ Entity Location Service
+
+- **IEntityLocationService** — Semantic entity resolution with floor/area/alias lookups
+- **IEmbeddingSimilarityService** — Shared cosine similarity service extracted from per-skill implementations
+- **SupportedFeaturesFlags** — `[Flags]` enum for HA `supported_features` bitmask (`Announce`, `StartConversation`)
+- **EntityLocationInfo** — Now includes typed `SupportedFeaturesFlags` property for capability-based filtering
+- **Jinja template enrichment** — `supported_features` fetched via `state_attr()` in the entity registry template
+- **Redis-cached registry** — Floor, area, and entity data cached with configurable TTL
+
+### ⏱️ Timer Agent Overhaul
+
+- **ActiveTimerStore** — Thread-safe singleton with `ConcurrentDictionary` for active timer management
+- **TimerExecutionService** — `BackgroundService` polling every 1 second, fully independent of HTTP request lifecycle
+- **Satellite resolution** — `ResolveSatelliteEntityAsync` filters by `HasFlag(Announce)` with `OrderByDescending` feature tiebreaker to prefer physical satellites
+- **TimerRecoveryService** — Now uses `ActiveTimerStore` for consistent state across recovery and new timers
+
+### 📡 OpenTelemetry Improvements
+
+- **UseOpenTelemetry()** on all agents — ClimateAgent, DynamicAgent, GeneralAgent, LightAgent all emit `gen_ai.*` spans
+- **ModelProviderResolver** — Chat clients created with OpenTelemetry wrapping at the provider level
+- **Microsoft.Extensions.AI activity source** — Registered in ServiceDefaults for LLM call trace visibility
+- **IMDS noise filter** — Azure managed identity probes to `169.254.169.254` excluded from HTTP traces
+- **Per-agent error tracking** — `TraceStats.ErrorsByAgent` dictionary with MongoDB aggregation pipeline
+
+### 🧪 Playwright Integration Tests
+
+- **AgentRoutingTests** — 3 tests validating all agent dispatch modes via the dashboard chat UI
+- **TimerAgentA2ATests** — A2A round-trip validation for the timer agent
+- **Error indicator assertions** — Tests verify responses don't contain error patterns (NOT AVAILABLE, CONNECTION REFUSED, etc.)
+
+## 🐛 Bug Fixes
+
+- **Dynamic agent "not available"** — `NormalizeAgentKey` changed from `agent.Name ?? agent.Id` to `agent.Id ?? agent.Name`, fixing display name vs. machine name mismatch
+- **Same error rate for all agents** — ActivityApi now computes per-agent error rates instead of applying global average
+- **A2A service discovery** — Remote agents now use `A2AClient` with Aspire service-discovery-enabled `HttpClient` instead of card URLs
+- **Thread-safe entity caches** — `LightControlSkill`, `ClimateControlSkill`, `FanControlSkill` caches converted to `ConcurrentDictionary`
+- **WebSocket floor/area registries** — HA client uses .NET 10 `WebSocketStream` for config registry endpoints
+- **Mesh tool nodes disappearing** — Dashboard dynamically creates tool nodes on `toolCall` events and keeps them visible after requests complete
+- **Trace persistence race condition** — Replaced `AsyncLocal` with `ConcurrentDictionary` for trace capture across workflow boundaries
+
+---
+
 # Release Notes - 2026.02.23
 
 **Release Date:** February 23, 2026  
