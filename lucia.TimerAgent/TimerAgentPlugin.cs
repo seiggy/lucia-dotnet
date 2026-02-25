@@ -45,5 +45,7 @@ public sealed class TimerAgentPlugin : IAgentPlugin
         var timerAgent = app.Services.GetServices<ILuciaAgent>()
             .First(a => a.GetAgentCard().Name == "timer-agent");
         app.MapA2ALazy(() => timerAgent.GetAIAgent(), path: "/timers", agentCard: timerAgent.GetAgentCard(), taskManager => app.MapWellKnownAgentCard(taskManager, "/timers"));
+        // Mirror under /a2a/ prefix for standalone mode consistency with built-in agents
+        app.MapA2ALazy(() => timerAgent.GetAIAgent(), path: "/a2a/timer-agent", agentCard: timerAgent.GetAgentCard(), taskManager => app.MapWellKnownAgentCard(taskManager, "/a2a/timer-agent"));
     }
 }

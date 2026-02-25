@@ -25,8 +25,11 @@ namespace lucia.MusicAgent
 
         public void MapAgentEndpoints(WebApplication app)
         {
-            var musicAgent = app.Services.GetRequiredService<ILuciaAgent>();
+            var musicAgent = app.Services.GetServices<ILuciaAgent>()
+                .First(a => a.GetAgentCard().Name == "music-agent");
             app.MapA2ALazy(() => musicAgent.GetAIAgent(), path: "/music", agentCard: musicAgent.GetAgentCard(), taskManager => app.MapWellKnownAgentCard(taskManager, "/music"));
+            // Mirror under /a2a/ prefix for standalone mode consistency with built-in agents
+            app.MapA2ALazy(() => musicAgent.GetAIAgent(), path: "/a2a/music-agent", agentCard: musicAgent.GetAgentCard(), taskManager => app.MapWellKnownAgentCard(taskManager, "/a2a/music-agent"));
         }
     }
 }

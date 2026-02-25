@@ -146,6 +146,7 @@ export default function AlarmsPage() {
     cronHour: '07', cronMinute: '00', cronCustom: '',
     nextFireAt: '',
     playbackIntervalSec: 30, autoDismissMin: 10,
+    volumeRampEnabled: false, volumeStart: 0.2, volumeEnd: 0.8, volumeRampDurationSec: 30,
   })
 
   // Sound form state

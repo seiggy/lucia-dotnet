@@ -208,7 +208,16 @@ public sealed class TimerAgent : ILuciaAgent
         _logger.LogInformation("Initializing TimerAgent...");
 
         var selfUrl = _configuration["services:selfUrl"];
-        if (!string.IsNullOrWhiteSpace(selfUrl))
+        var deploymentMode = _configuration["Deployment:Mode"];
+        var isStandalone = string.IsNullOrWhiteSpace(deploymentMode)
+            || deploymentMode.Equals("standalone", StringComparison.OrdinalIgnoreCase);
+
+        if (isStandalone)
+        {
+            // In standalone mode, plugin runs in-process — use relative path
+            _agent.Url = "/a2a/timer-agent";
+        }
+        else if (!string.IsNullOrWhiteSpace(selfUrl))
         {
             _agent.Url = selfUrl;
         }
