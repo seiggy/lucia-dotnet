@@ -128,6 +128,180 @@ public sealed class AlarmScheduledTaskTests
             $"Expected auto-dismiss within ~200ms, took {sw.Elapsed}");
     }
 
+    [Fact]
+    public async Task ExecuteAsync_PlaysMultipleTimes_AtPlaybackInterval()
+    {
+        var task = CreateAlarmTask(
+            alarmSoundUri: "media-source://media_source/local/alarms/alarm.wav",
+            playbackInterval: TimeSpan.FromMilliseconds(30),
+            autoDismissAfter: TimeSpan.FromMilliseconds(200));
+
+        var haClient = A.Fake<IHomeAssistantClient>();
+        var sp = BuildServiceProvider(haClient);
+
+        await task.ExecuteAsync(sp, CancellationToken.None);
+
+        // With 30ms interval and 200ms timeout, expect at least 2 plays
+        A.CallTo(() => haClient.CallServiceAsync(
+            "media_player",
+            "play_media",
+            A<string?>._,
+            A<ServiceCallRequest?>._,
+            A<CancellationToken>._)).MustHaveHappenedANumberOfTimesMatching(n => n >= 2);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ContinuesLoop_WhenPlaybackFails()
+    {
+        var callCount = 0;
+        var haClient = A.Fake<IHomeAssistantClient>();
+        A.CallTo(() => haClient.CallServiceAsync(
+            "media_player",
+            "play_media",
+            A<string?>._,
+            A<ServiceCallRequest?>._,
+            A<CancellationToken>._))
+            .Invokes(() =>
+            {
+                callCount++;
+                if (callCount == 1) throw new HttpRequestException("Network error");
+            });
+
+        var task = CreateAlarmTask(
+            alarmSoundUri: "media-source://media_source/local/alarms/alarm.wav",
+            playbackInterval: TimeSpan.FromMilliseconds(20),
+            autoDismissAfter: TimeSpan.FromMilliseconds(200));
+
+        var sp = BuildServiceProvider(haClient);
+        await task.ExecuteAsync(sp, CancellationToken.None);
+
+        // Should have retried after the first failure
+        Assert.True(callCount >= 2, $"Expected at least 2 play attempts, got {callCount}");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_ExternalCancellation_CompletesQuickly()
+    {
+        // When externally cancelled, the alarm should stop promptly
+        var task = CreateAlarmTask(
+            alarmSoundUri: "media-source://media_source/local/alarms/alarm.wav",
+            playbackInterval: TimeSpan.FromSeconds(30),
+            autoDismissAfter: TimeSpan.FromMinutes(10));
+
+        var haClient = A.Fake<IHomeAssistantClient>();
+        var sp = BuildServiceProvider(haClient);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(50));
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            await task.ExecuteAsync(sp, cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // External cancellation may propagate — that's acceptable
+        }
+        sw.Stop();
+
+        // Should complete quickly due to cancellation, not wait for 10min auto-dismiss
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(3),
+            $"Expected quick completion on external cancel, took {sw.Elapsed}");
+    }
+
+    [Fact]
+    public void ToDocument_NullSoundUri_PreservesNull()
+    {
+        var task = CreateAlarmTask(alarmSoundUri: null);
+        var doc = task.ToDocument();
+
+        Assert.Null(doc.AlarmSoundUri);
+    }
+
+    // -- AlarmClock model tests --
+
+    [Fact]
+    public void AlarmClock_Defaults_AreCorrect()
+    {
+        var alarm = new AlarmClock
+        {
+            Id = "a1",
+            Name = "Test",
+            TargetEntity = "media_player.bedroom"
+        };
+
+        Assert.Equal(TimeSpan.FromSeconds(30), alarm.PlaybackInterval);
+        Assert.Equal(TimeSpan.FromMinutes(10), alarm.AutoDismissAfter);
+        Assert.True(alarm.IsEnabled);
+        Assert.Null(alarm.CronSchedule);
+        Assert.Null(alarm.NextFireAt);
+        Assert.Null(alarm.AlarmSoundId);
+        Assert.Null(alarm.LastDismissedAt);
+    }
+
+    [Fact]
+    public void AlarmClock_OneShotSchedule_HasNullCron()
+    {
+        var alarm = new AlarmClock
+        {
+            Id = "a2",
+            Name = "One-shot",
+            TargetEntity = "media_player.bedroom",
+            NextFireAt = DateTimeOffset.UtcNow.AddHours(8)
+        };
+
+        Assert.Null(alarm.CronSchedule);
+        Assert.NotNull(alarm.NextFireAt);
+    }
+
+    [Fact]
+    public void AlarmClock_RecurringSchedule_HasCronAndNextFireAt()
+    {
+        var alarm = new AlarmClock
+        {
+            Id = "a3",
+            Name = "Recurring",
+            TargetEntity = "media_player.bedroom",
+            CronSchedule = "0 7 * * 1-5",
+            NextFireAt = DateTimeOffset.UtcNow.AddDays(1)
+        };
+
+        Assert.NotNull(alarm.CronSchedule);
+        Assert.NotNull(alarm.NextFireAt);
+    }
+
+    // -- AlarmSound model tests --
+
+    [Fact]
+    public void AlarmSound_Defaults_AreCorrect()
+    {
+        var sound = new AlarmSound
+        {
+            Id = "s1",
+            Name = "Gentle",
+            MediaSourceUri = "media-source://local/gentle.wav"
+        };
+
+        Assert.False(sound.UploadedViaLucia);
+        Assert.False(sound.IsDefault);
+    }
+
+    [Fact]
+    public void AlarmSound_DefaultMarkedCorrectly()
+    {
+        var sound = new AlarmSound
+        {
+            Id = "s2",
+            Name = "Default Alarm",
+            MediaSourceUri = "media-source://local/default.wav",
+            IsDefault = true,
+            UploadedViaLucia = true
+        };
+
+        Assert.True(sound.IsDefault);
+        Assert.True(sound.UploadedViaLucia);
+    }
+
     // -- Helpers --
 
     private static AlarmScheduledTask CreateAlarmTask(
