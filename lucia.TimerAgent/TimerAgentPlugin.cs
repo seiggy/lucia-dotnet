@@ -28,6 +28,7 @@ public sealed class TimerAgentPlugin : IAgentPlugin
         // Timer and alarm skills + agent
         builder.Services.AddSingleton<TimerSkill>();
         builder.Services.AddSingleton<AlarmSkill>();
+        builder.Services.AddSingleton<SchedulerSkill>();
         builder.Services.AddSingleton<ILuciaAgent, TimerAgent>();
 
         // Scheduled task infrastructure (shared by timer, alarm, and future task types)

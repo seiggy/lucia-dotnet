@@ -16,7 +16,7 @@ public static class ScheduledTaskFactory
         {
             ScheduledTaskType.Timer => CreateTimerTask(doc),
             ScheduledTaskType.Alarm => CreateAlarmTask(doc),
-            // AgentTask type will be added in a later phase
+            ScheduledTaskType.AgentTask => CreateAgentTask(doc),
             _ => null
         };
     }
@@ -54,6 +54,23 @@ public static class ScheduledTaskFactory
             AlarmSoundUri = doc.AlarmSoundUri,
             PlaybackInterval = doc.PlaybackInterval ?? TimeSpan.FromSeconds(30),
             AutoDismissAfter = doc.AutoDismissAfter ?? TimeSpan.FromMinutes(10)
+        };
+    }
+
+    private static AgentScheduledTask? CreateAgentTask(ScheduledTaskDocument doc)
+    {
+        if (doc.Prompt is null)
+            return null;
+
+        return new AgentScheduledTask
+        {
+            Id = doc.Id,
+            TaskId = doc.TaskId,
+            Label = doc.Label,
+            FireAt = doc.FireAt,
+            Prompt = doc.Prompt,
+            TargetAgentId = doc.TargetAgentId,
+            EntityContext = doc.EntityContext
         };
     }
 }
