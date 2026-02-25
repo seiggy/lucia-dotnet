@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using lucia.Agents.Services;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
 using Microsoft.Extensions.DependencyInjection;
@@ -56,9 +57,19 @@ public sealed class AlarmScheduledTask : IScheduledTask
 
         var logger = services.GetRequiredService<ILogger<AlarmScheduledTask>>();
 
+        // Resolve the actual playback entity — "presence" is resolved at fire time
+        var resolvedEntity = await ResolveTargetEntityAsync(services, logger, cancellationToken).ConfigureAwait(false);
+        if (resolvedEntity is null)
+        {
+            logger.LogWarning("Alarm {AlarmId} — could not resolve target entity, skipping", Id);
+            return;
+        }
+
+        activity?.SetTag("alarm.resolved_entity", resolvedEntity);
+
         logger.LogInformation(
             "Alarm {AlarmId} firing — ringing on {TargetEntity} for up to {AutoDismiss}",
-            Id, TargetEntity, AutoDismissAfter);
+            Id, resolvedEntity, AutoDismissAfter);
 
         await using var scope = services.CreateAsyncScope();
         var haClient = scope.ServiceProvider.GetRequiredService<IHomeAssistantClient>();
@@ -69,7 +80,7 @@ public sealed class AlarmScheduledTask : IScheduledTask
 
         try
         {
-            await PlayAlarmLoopAsync(haClient, logger, autoDismissCts.Token).ConfigureAwait(false);
+            await PlayAlarmLoopAsync(haClient, resolvedEntity, logger, autoDismissCts.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -80,8 +91,75 @@ public sealed class AlarmScheduledTask : IScheduledTask
         }
     }
 
+    /// <summary>
+    /// Resolves the target entity for playback. When <see cref="TargetEntity"/> is "presence",
+    /// queries <see cref="IPresenceDetectionService"/> to find an occupied room, then finds
+    /// a media_player in that room via <see cref="IEntityLocationService"/>.
+    /// Falls back to the configured TargetEntity if presence resolution fails.
+    /// </summary>
+    private async Task<string?> ResolveTargetEntityAsync(
+        IServiceProvider services,
+        ILogger logger,
+        CancellationToken ct)
+    {
+        if (!TargetEntity.Equals("presence", StringComparison.OrdinalIgnoreCase))
+            return TargetEntity;
+
+        var presenceService = services.GetService<IPresenceDetectionService>();
+        if (presenceService is null)
+        {
+            logger.LogWarning("Alarm {AlarmId} targets 'presence' but IPresenceDetectionService is not registered", Id);
+            return null;
+        }
+
+        var entityLocationService = services.GetService<IEntityLocationService>();
+        if (entityLocationService is null)
+        {
+            logger.LogWarning("Alarm {AlarmId} targets 'presence' but IEntityLocationService is not registered", Id);
+            return null;
+        }
+
+        var occupiedAreas = await presenceService.GetOccupiedAreasAsync(ct).ConfigureAwait(false);
+        var bestArea = occupiedAreas
+            .Where(a => a.IsOccupied)
+            .OrderByDescending(a => a.Confidence)
+            .ThenByDescending(a => a.OccupantCount ?? 0)
+            .FirstOrDefault();
+
+        if (bestArea is null)
+        {
+            logger.LogWarning("Alarm {AlarmId} targets 'presence' but no occupied area found", Id);
+            return null;
+        }
+
+        logger.LogInformation(
+            "Alarm {AlarmId} presence resolved to area '{AreaName}' (confidence={Confidence})",
+            Id, bestArea.AreaName, bestArea.Confidence);
+
+        // Find a media_player in the occupied area
+        var mediaPlayers = await entityLocationService.FindEntitiesByLocationAsync(
+            bestArea.AreaId,
+            domainFilter: ["media_player"],
+            ct: ct).ConfigureAwait(false);
+
+        if (mediaPlayers.Count == 0)
+        {
+            logger.LogWarning(
+                "Alarm {AlarmId} — area '{AreaName}' is occupied but has no media_player entities",
+                Id, bestArea.AreaName);
+            return null;
+        }
+
+        var selected = mediaPlayers[0].EntityId;
+        logger.LogInformation(
+            "Alarm {AlarmId} — selected media_player '{EntityId}' in '{AreaName}'",
+            Id, selected, bestArea.AreaName);
+        return selected;
+    }
+
     private async Task PlayAlarmLoopAsync(
         IHomeAssistantClient haClient,
+        string resolvedEntity,
         ILogger logger,
         CancellationToken ct)
     {
@@ -91,11 +169,11 @@ public sealed class AlarmScheduledTask : IScheduledTask
             {
                 if (AlarmSoundUri is not null)
                 {
-                    await PlayMediaAsync(haClient, ct).ConfigureAwait(false);
+                    await PlayMediaAsync(haClient, resolvedEntity, ct).ConfigureAwait(false);
                 }
                 else
                 {
-                    await AnnounceFallbackAsync(haClient, ct).ConfigureAwait(false);
+                    await AnnounceFallbackAsync(haClient, resolvedEntity, ct).ConfigureAwait(false);
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -112,11 +190,11 @@ public sealed class AlarmScheduledTask : IScheduledTask
     /// <summary>
     /// Plays alarm sound via <c>media_player.play_media</c> with <c>announce: true</c>.
     /// </summary>
-    private async Task PlayMediaAsync(IHomeAssistantClient haClient, CancellationToken ct)
+    private async Task PlayMediaAsync(IHomeAssistantClient haClient, string entity, CancellationToken ct)
     {
         var request = new ServiceCallRequest
         {
-            EntityId = TargetEntity,
+            EntityId = entity,
             ["media_content_id"] = AlarmSoundUri!,
             ["media_content_type"] = "music",
             ["announce"] = true
@@ -133,11 +211,11 @@ public sealed class AlarmScheduledTask : IScheduledTask
     /// <summary>
     /// Falls back to TTS announce when no alarm sound is configured.
     /// </summary>
-    private async Task AnnounceFallbackAsync(IHomeAssistantClient haClient, CancellationToken ct)
+    private async Task AnnounceFallbackAsync(IHomeAssistantClient haClient, string entity, CancellationToken ct)
     {
         var request = new ServiceCallRequest
         {
-            EntityId = TargetEntity,
+            EntityId = entity,
             ["message"] = $"Alarm: {Label}"
         };
 

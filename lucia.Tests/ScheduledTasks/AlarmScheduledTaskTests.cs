@@ -1,4 +1,6 @@
 using FakeItEasy;
+using lucia.Agents.Models;
+using lucia.Agents.Services;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
 using lucia.TimerAgent.ScheduledTasks;
@@ -302,10 +304,184 @@ public sealed class AlarmScheduledTaskTests
         Assert.True(sound.UploadedViaLucia);
     }
 
+    // -- Presence routing tests --
+
+    [Fact]
+    public async Task ExecuteAsync_PresenceTarget_ResolvesToOccupiedRoomMediaPlayer()
+    {
+        var task = CreateAlarmTask(
+            targetEntity: "presence",
+            alarmSoundUri: "media-source://local/alarm.wav",
+            playbackInterval: TimeSpan.FromSeconds(1),
+            autoDismissAfter: TimeSpan.FromMilliseconds(300));
+
+        var haClient = A.Fake<IHomeAssistantClient>();
+        var presenceService = A.Fake<IPresenceDetectionService>();
+        var entityLocationService = A.Fake<IEntityLocationService>();
+
+        A.CallTo(() => presenceService.GetOccupiedAreasAsync(A<CancellationToken>._))
+            .Returns(new List<OccupiedArea>
+            {
+                new("bedroom", "Bedroom", true, 1, PresenceConfidence.Highest),
+                new("kitchen", "Kitchen", false, 0, PresenceConfidence.Medium)
+            });
+
+        A.CallTo(() => entityLocationService.FindEntitiesByLocationAsync(
+            "bedroom", A<IReadOnlyList<string>>._, A<CancellationToken>._))
+            .Returns(new List<EntityLocationInfo>
+            {
+                new() { EntityId = "media_player.bedroom_speaker", FriendlyName = "Bedroom Speaker", AreaId = "bedroom" }
+            });
+
+        var sp = BuildPresenceServiceProvider(haClient, presenceService, entityLocationService);
+        await task.ExecuteAsync(sp, CancellationToken.None);
+
+        // Should have played on the bedroom speaker, not "presence"
+        A.CallTo(() => haClient.CallServiceAsync(
+            "media_player",
+            "play_media",
+            A<string?>._,
+            A<ServiceCallRequest?>.That.Matches(r =>
+                r != null && r.EntityId == "media_player.bedroom_speaker"),
+            A<CancellationToken>._)).MustHaveHappened();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_PresenceTarget_PicksHighestConfidenceArea()
+    {
+        var task = CreateAlarmTask(
+            targetEntity: "presence",
+            alarmSoundUri: "media-source://local/alarm.wav",
+            playbackInterval: TimeSpan.FromSeconds(1),
+            autoDismissAfter: TimeSpan.FromMilliseconds(300));
+
+        var haClient = A.Fake<IHomeAssistantClient>();
+        var presenceService = A.Fake<IPresenceDetectionService>();
+        var entityLocationService = A.Fake<IEntityLocationService>();
+
+        A.CallTo(() => presenceService.GetOccupiedAreasAsync(A<CancellationToken>._))
+            .Returns(new List<OccupiedArea>
+            {
+                new("kitchen", "Kitchen", true, 0, PresenceConfidence.Low),
+                new("office", "Office", true, 2, PresenceConfidence.Highest)
+            });
+
+        A.CallTo(() => entityLocationService.FindEntitiesByLocationAsync(
+            "office", A<IReadOnlyList<string>>._, A<CancellationToken>._))
+            .Returns(new List<EntityLocationInfo>
+            {
+                new() { EntityId = "media_player.office_speaker", FriendlyName = "Office Speaker", AreaId = "office" }
+            });
+
+        var sp = BuildPresenceServiceProvider(haClient, presenceService, entityLocationService);
+        await task.ExecuteAsync(sp, CancellationToken.None);
+
+        A.CallTo(() => haClient.CallServiceAsync(
+            "media_player",
+            "play_media",
+            A<string?>._,
+            A<ServiceCallRequest?>.That.Matches(r =>
+                r != null && r.EntityId == "media_player.office_speaker"),
+            A<CancellationToken>._)).MustHaveHappened();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_PresenceTarget_NoOccupiedArea_SkipsPlayback()
+    {
+        var task = CreateAlarmTask(
+            targetEntity: "presence",
+            alarmSoundUri: "media-source://local/alarm.wav",
+            playbackInterval: TimeSpan.FromSeconds(1),
+            autoDismissAfter: TimeSpan.FromMilliseconds(200));
+
+        var haClient = A.Fake<IHomeAssistantClient>();
+        var presenceService = A.Fake<IPresenceDetectionService>();
+        var entityLocationService = A.Fake<IEntityLocationService>();
+
+        A.CallTo(() => presenceService.GetOccupiedAreasAsync(A<CancellationToken>._))
+            .Returns(new List<OccupiedArea>());
+
+        var sp = BuildPresenceServiceProvider(haClient, presenceService, entityLocationService);
+        await task.ExecuteAsync(sp, CancellationToken.None);
+
+        // Should not have played anything — no occupied area found
+        A.CallTo(() => haClient.CallServiceAsync(
+            A<string>._,
+            A<string>._,
+            A<string?>._,
+            A<ServiceCallRequest?>._,
+            A<CancellationToken>._)).MustNotHaveHappened();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_PresenceTarget_NoMediaPlayerInArea_SkipsPlayback()
+    {
+        var task = CreateAlarmTask(
+            targetEntity: "presence",
+            alarmSoundUri: "media-source://local/alarm.wav",
+            playbackInterval: TimeSpan.FromSeconds(1),
+            autoDismissAfter: TimeSpan.FromMilliseconds(200));
+
+        var haClient = A.Fake<IHomeAssistantClient>();
+        var presenceService = A.Fake<IPresenceDetectionService>();
+        var entityLocationService = A.Fake<IEntityLocationService>();
+
+        A.CallTo(() => presenceService.GetOccupiedAreasAsync(A<CancellationToken>._))
+            .Returns(new List<OccupiedArea>
+            {
+                new("garage", "Garage", true, 1, PresenceConfidence.High)
+            });
+
+        A.CallTo(() => entityLocationService.FindEntitiesByLocationAsync(
+            "garage", A<IReadOnlyList<string>>._, A<CancellationToken>._))
+            .Returns(new List<EntityLocationInfo>());
+
+        var sp = BuildPresenceServiceProvider(haClient, presenceService, entityLocationService);
+        await task.ExecuteAsync(sp, CancellationToken.None);
+
+        // No media_player in area — should not play
+        A.CallTo(() => haClient.CallServiceAsync(
+            A<string>._,
+            A<string>._,
+            A<string?>._,
+            A<ServiceCallRequest?>._,
+            A<CancellationToken>._)).MustNotHaveHappened();
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_DirectTarget_DoesNotQueryPresenceService()
+    {
+        var task = CreateAlarmTask(
+            targetEntity: "media_player.bedroom",
+            alarmSoundUri: "media-source://local/alarm.wav",
+            playbackInterval: TimeSpan.FromSeconds(1),
+            autoDismissAfter: TimeSpan.FromMilliseconds(200));
+
+        var haClient = A.Fake<IHomeAssistantClient>();
+        var presenceService = A.Fake<IPresenceDetectionService>();
+        var entityLocationService = A.Fake<IEntityLocationService>();
+
+        var sp = BuildPresenceServiceProvider(haClient, presenceService, entityLocationService);
+        await task.ExecuteAsync(sp, CancellationToken.None);
+
+        // Direct target — presence should never be queried
+        A.CallTo(() => presenceService.GetOccupiedAreasAsync(A<CancellationToken>._))
+            .MustNotHaveHappened();
+
+        // But playback should still happen
+        A.CallTo(() => haClient.CallServiceAsync(
+            "media_player",
+            "play_media",
+            A<string?>._,
+            A<ServiceCallRequest?>._,
+            A<CancellationToken>._)).MustHaveHappened();
+    }
+
     // -- Helpers --
 
     private static AlarmScheduledTask CreateAlarmTask(
         string id = "alarm-1",
+        string targetEntity = "media_player.bedroom",
         DateTimeOffset? fireAt = null,
         string? alarmSoundUri = "media-source://media_source/local/alarms/alarm.wav",
         TimeSpan? playbackInterval = null,
@@ -318,7 +494,7 @@ public sealed class AlarmScheduledTaskTests
             Label = "Morning Wake Up",
             FireAt = fireAt ?? DateTimeOffset.UtcNow.AddMinutes(-1),
             AlarmClockId = "clock-1",
-            TargetEntity = "media_player.bedroom",
+            TargetEntity = targetEntity,
             AlarmSoundUri = alarmSoundUri,
             PlaybackInterval = playbackInterval ?? TimeSpan.FromSeconds(30),
             AutoDismissAfter = autoDismissAfter ?? TimeSpan.FromMinutes(10)
@@ -329,6 +505,19 @@ public sealed class AlarmScheduledTaskTests
     {
         var sc = new ServiceCollection();
         sc.AddSingleton(haClient);
+        sc.AddSingleton(A.Fake<ILogger<AlarmScheduledTask>>());
+        return sc.BuildServiceProvider();
+    }
+
+    private static IServiceProvider BuildPresenceServiceProvider(
+        IHomeAssistantClient haClient,
+        IPresenceDetectionService presenceService,
+        IEntityLocationService entityLocationService)
+    {
+        var sc = new ServiceCollection();
+        sc.AddSingleton(haClient);
+        sc.AddSingleton(presenceService);
+        sc.AddSingleton(entityLocationService);
         sc.AddSingleton(A.Fake<ILogger<AlarmScheduledTask>>());
         return sc.BuildServiceProvider();
     }
