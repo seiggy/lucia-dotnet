@@ -1,3 +1,5 @@
+using MongoDB.Bson.Serialization.Attributes;
+
 namespace lucia.TimerAgent.ScheduledTasks;
 
 /// <summary>
@@ -7,6 +9,7 @@ namespace lucia.TimerAgent.ScheduledTasks;
 public sealed class AlarmClock
 {
     /// <summary>Unique ID (MongoDB _id).</summary>
+    [BsonId]
     public required string Id { get; init; }
 
     /// <summary>User-facing name (e.g., "Morning Wake Up", "Nap Alarm").</summary>

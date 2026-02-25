@@ -35,6 +35,7 @@ public sealed class TimerAgentPlugin : IAgentPlugin
         // Scheduled task infrastructure
         builder.Services.AddSingleton<ScheduledTaskStore>();
         builder.Services.AddSingleton<IScheduledTaskRepository, MongoScheduledTaskRepository>();
+        builder.Services.AddSingleton<IAlarmClockRepository, MongoAlarmClockRepository>();
         builder.Services.AddHostedService<ScheduledTaskService>();
         builder.Services.AddHostedService<ScheduledTaskRecoveryService>();
     }

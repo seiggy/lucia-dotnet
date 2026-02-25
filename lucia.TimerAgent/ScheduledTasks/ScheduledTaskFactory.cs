@@ -15,7 +15,8 @@ public static class ScheduledTaskFactory
         return doc.TaskType switch
         {
             ScheduledTaskType.Timer => CreateTimerTask(doc),
-            // Alarm and AgentTask types will be added in later phases
+            ScheduledTaskType.Alarm => CreateAlarmTask(doc),
+            // AgentTask type will be added in a later phase
             _ => null
         };
     }
@@ -34,6 +35,25 @@ public static class ScheduledTaskFactory
             Message = doc.Message,
             EntityId = doc.EntityId,
             DurationSeconds = doc.DurationSeconds ?? 0
+        };
+    }
+
+    private static AlarmScheduledTask? CreateAlarmTask(ScheduledTaskDocument doc)
+    {
+        if (doc.AlarmClockId is null || doc.TargetEntity is null)
+            return null;
+
+        return new AlarmScheduledTask
+        {
+            Id = doc.Id,
+            TaskId = doc.TaskId,
+            Label = doc.Label,
+            FireAt = doc.FireAt,
+            AlarmClockId = doc.AlarmClockId,
+            TargetEntity = doc.TargetEntity,
+            AlarmSoundUri = doc.AlarmSoundUri,
+            PlaybackInterval = doc.PlaybackInterval ?? TimeSpan.FromSeconds(30),
+            AutoDismissAfter = doc.AutoDismissAfter ?? TimeSpan.FromMinutes(10)
         };
     }
 }
