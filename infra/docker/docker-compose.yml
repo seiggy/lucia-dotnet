@@ -185,37 +185,20 @@ services:
     ports:
       - "127.0.0.1:7233:8080"
     
-    # Volume mounts
-    volumes:
-      # Configuration (read-only)
-      - ../../.env:/app/.env:ro
-    
-    # Environment variables from .env file
-    env_file:
-      - ../../.env
-    
-    # Additional environment variables
+    # All user configuration (LLM keys, Home Assistant connection, etc.) is handled
+    # by the setup wizard on first launch and stored in MongoDB. No .env file needed.
     environment:
       # ASP.NET Core configuration
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:8080
       
-      # Connection strings (must be set via .env)
-      # - ConnectionStrings__chat-model=Endpoint=...;AccessKey=...;Model=...;Provider=openai
-      # - ConnectionStrings__home-assistant=http://homeassistant:8123
-      # - ConnectionStrings__redis=redis://redis:6379
-      
-      # MongoDB connection strings
+      # MongoDB connection strings (infrastructure — not user-configurable)
       - ConnectionStrings__luciatraces=mongodb://lucia-mongo:27017/luciatraces
       - ConnectionStrings__luciaconfig=mongodb://lucia-mongo:27017/luciaconfig
       - ConnectionStrings__luciatasks=mongodb://lucia-mongo:27017/luciatasks
       
-      # Logging
-      - LUCIA_LOG_LEVEL=Information
-      
-      # Observability
-      - OTEL_ENABLED=true
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+      # Redis connection string
+      - ConnectionStrings__redis=lucia-redis:6379
       
       # .NET Runtime
       - DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false

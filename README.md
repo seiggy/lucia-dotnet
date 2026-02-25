@@ -447,25 +447,12 @@ Deployment__Mode=mesh
 
 ### Docker Compose
 
-1. **Create your `.env` file** from the template:
+```bash
+cd infra/docker
+docker compose up -d
+```
 
-   ```bash
-   cp .env.example .env
-   ```
-
-2. **Edit `.env`** with your LLM API key and Home Assistant connection details. The required variables are:
-   - `ConnectionStrings__chat-model` — your LLM provider connection string
-   - `HomeAssistant__BaseUrl` — your Home Assistant URL
-   - `HomeAssistant__AccessToken` — a long-lived access token from HA
-
-3. **Start the stack:**
-
-   ```bash
-   cd infra/docker
-   docker compose up -d
-   ```
-
-The default Docker Compose configuration runs in **standalone mode** — all agents are embedded in the AgentHost container. The API is available at `http://localhost:7233`.
+The default Docker Compose runs in **standalone mode** — all agents embedded in a single AgentHost container. On first launch, open `http://localhost:7233` and the setup wizard will guide you through connecting your LLM provider and Home Assistant instance. All configuration is stored in MongoDB — no `.env` file required.
 
 ### Kubernetes
 
