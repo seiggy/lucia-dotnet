@@ -25,6 +25,7 @@ public class MusicAgent : ILuciaAgent
     private readonly MusicPlaybackSkill _musicSkill;
     private readonly IChatClientResolver _clientResolver;
     private readonly IAgentDefinitionRepository _definitionRepository;
+    private readonly TracingChatClientFactory _tracingFactory;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<MusicAgent> _logger;
     private readonly IConfiguration _configuration;
@@ -49,11 +50,13 @@ public class MusicAgent : ILuciaAgent
         MusicPlaybackSkill musicSkill,
         IServer server,
         IConfiguration configuration,
+        TracingChatClientFactory tracingFactory,
         ILoggerFactory loggerFactory)
     {
         _musicSkill = musicSkill;
         _clientResolver = clientResolver;
         _definitionRepository = definitionRepository;
+        _tracingFactory = tracingFactory;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<MusicAgent>();
         _server = server;
@@ -211,6 +214,7 @@ public class MusicAgent : ILuciaAgent
 
     private ChatClientAgent BuildAgent(IChatClient chatClient)
     {
+        var traced = _tracingFactory.Wrap(chatClient, AgentId);
         var agentOptions = new ChatClientAgentOptions
         {
             Id = AgentId,
@@ -223,6 +227,6 @@ public class MusicAgent : ILuciaAgent
             }
         };
 
-        return new ChatClientAgent(chatClient, agentOptions, _loggerFactory);
+        return new ChatClientAgent(traced, agentOptions, _loggerFactory);
     }
 }

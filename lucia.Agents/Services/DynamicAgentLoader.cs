@@ -21,6 +21,7 @@ public sealed class DynamicAgentLoader : BackgroundService
     private readonly IChatClientResolver _clientResolver;
     private readonly IModelProviderResolver _providerResolver;
     private readonly IModelProviderRepository _providerRepository;
+    private readonly TracingChatClientFactory _tracingFactory;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<DynamicAgentLoader> _logger;
 
@@ -32,6 +33,7 @@ public sealed class DynamicAgentLoader : BackgroundService
         IChatClientResolver clientResolver,
         IModelProviderResolver providerResolver,
         IModelProviderRepository providerRepository,
+        TracingChatClientFactory tracingFactory,
         ILoggerFactory loggerFactory)
     {
         _repository = repository;
@@ -41,6 +43,7 @@ public sealed class DynamicAgentLoader : BackgroundService
         _clientResolver = clientResolver;
         _providerResolver = providerResolver;
         _providerRepository = providerRepository;
+        _tracingFactory = tracingFactory;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<DynamicAgentLoader>();
     }
@@ -108,6 +111,7 @@ public sealed class DynamicAgentLoader : BackgroundService
                     _clientResolver,
                     _providerResolver,
                     _providerRepository,
+                    _tracingFactory,
                     _loggerFactory);
 
                 await agent.InitializeAsync(ct).ConfigureAwait(false);

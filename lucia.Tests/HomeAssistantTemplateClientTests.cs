@@ -1,8 +1,10 @@
 using System.Text.Json;
 using FakeItEasy;
+using lucia.HomeAssistant.Configuration;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace lucia.Tests;
 
@@ -70,7 +72,13 @@ public sealed class HomeAssistantTemplateClientTests
         httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
         httpClient.Timeout = TimeSpan.FromSeconds(30);
 
-        return new HomeAssistantClient(httpClient, A.Fake<ILogger<HomeAssistantClient>>());
+        var options = Options.Create(new HomeAssistantOptions
+        {
+            BaseUrl = "http://localhost:8123",
+            AccessToken = "test-token"
+        });
+
+        return new HomeAssistantClient(httpClient, A.Fake<ILogger<HomeAssistantClient>>(), options);
     }
 
     private static async Task<TemplateRenderRequest> DeserializeRequestAsync(HttpRequestMessage request)

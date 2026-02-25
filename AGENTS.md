@@ -15,36 +15,7 @@ Welcome! This guide explains how GitHub Copilot agents should operate inside the
   - `lucia.Agents` – Domain-specific agent implementations, skills, and registry support.
   - `lucia.Tests` - XUnit tests for the app
 
-## 2. What lives in `.docs/`
-
-The `.docs` directory is the single source of truth for product and engineering direction. Copilot agents must reference it before writing code or documentation.
-
-```
-.docs/
-├─ architecture/
-│  └─ 2025-10-02-lucia-platform-architecture/
-│     ├─ diagram-plan.md            (rationale for diagrams)
-│     ├─ diagram-index.md           (Mermaid previews + links)
-│     ├─ integration.md             (where to link diagrams in other docs)
-│     └─ diagrams/*.mmd             (Mermaid sources – use validator & preview tools)
-├─ product/
-│  ├─ mission.md                    (mission, personas, differentiators)
-│  ├─ roadmap.md                    (phase progress, upcoming priorities)
-│  ├─ tech-stack.md                 (authoritative stack + versions)
-│  └─ decisions.md                  (decision log – overrides conflicting guidance)
-├─ reports/                         (status reports & historical summaries)
-└─ specs/
-  ├─ 2025-01-07-multi-agent-orchestration/
-  │  ├─ feature-request.md         (high-level need & use cases)
-  │  ├─ spec.md                    (spec requirements document)
-  │  ├─ tech-specs.md              (technical design + diagrams)
-  │  ├─ tasks.md                   (implementation task list)
-  │  └─ sub-specs/                 (api-spec.md, tests.md, etc.)
-  └─ 2025-08-06-home-assistant-conversation-plugin/
-    └─ ...                        (earlier completed spec for reference)
-```
-
-## 3. Updated Tech Stack Overview (2025-08-06)
+## 2. Updated Tech Stack Overview (2025-08-06)
 
 - **Backend:** ASP.NET Core Web API (.NET 10 / C# 13) orchestrated with .NET Aspire 9.5.1.
 - **AI Runtime:** Microsoft Agent Framework public preview, Custom Regex|SLM|LLM multi-agent orchestration patterns, OpenAI GPT-4o (primary), Gemini & Claude optional, LLaMa/local models planned.
@@ -55,7 +26,7 @@ The `.docs` directory is the single source of truth for product and engineering 
 
 Refer to `.docs/product/tech-stack.md` for deeper detail and version updates before modifying dependencies.
 
-## 4. Required Workflows for Copilot Agents
+## 3. Required Workflows for Copilot Agents
 
 1. **Check existing tasks:** Use the `todo-md` MCP tool to review or add work items in `tasks.md` for the active spec. Keep todo status in sync with progress.
 2. **Read the spec:** For feature work, open the active spec folder in `.docs/specs/…` and confirm requirements, technical notes, and testing expectations.
@@ -71,7 +42,7 @@ Refer to `.docs/product/tech-stack.md` for deeper detail and version updates bef
 5. **TDD expectation:** Write or update tests before implementing public behavior changes. Never merge failing tests.
 6. **Telemetry alignment:** Maintain OpenTelemetry span/metric naming consistent with existing conventions when adding instrumentation.
 
-## 5. Development Quick Reference
+## 4. Development Quick Reference
 
 - **Restore & Build:** `dotnet restore`, `dotnet build lucia-dotnet.slnx`
 - **Run AppHost:** `dotnet run --project lucia.AppHost`
@@ -81,7 +52,7 @@ Refer to `.docs/product/tech-stack.md` for deeper detail and version updates bef
 - **Python component:** Lives under `custom_components/lucia`; follow Home Assistant custom component guidelines when editing.
 - **Regenerate HA test snapshot:** `.\scripts\Export-HomeAssistantSnapshot.ps1 -Endpoint $env:HA_ENDPOINT -Token $env:HA_TOKEN`
 
-### Home Assistant Environment Variables
+## 5. Home Assistant Environment Variables
 
 The following environment variables provide access to the user's Home Assistant instance for testing, snapshot export, and Jinja template validation:
 

@@ -1,7 +1,7 @@
+using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
-using System.Numerics.Tensors;
 using System.Text;
 using System.Text.Json;
 using lucia.Agents.Models;
@@ -34,22 +34,27 @@ public sealed class FanControlSkill : IAgentSkill
     private readonly IEmbeddingProviderResolver _embeddingResolver;
     private IEmbeddingGenerator<string, Embedding<float>>? _embeddingGenerator;
     private readonly IDeviceCacheService _cacheService;
+    private readonly IEntityLocationService _locationService;
+    private readonly IEmbeddingSimilarityService _similarity;
     private readonly ILogger<FanControlSkill> _logger;
 
-    private volatile List<FanEntity>? _fans;
-    private volatile Dictionary<string, Embedding<float>>? _areaEmbeddings;
-    private DateTime _lastCacheRefresh = DateTime.MinValue;
+    private ImmutableArray<FanEntity> _fans = [];
+    private long _lastCacheRefreshTicks = DateTime.MinValue.Ticks;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
 
     public FanControlSkill(
         IHomeAssistantClient homeAssistantClient,
         IEmbeddingProviderResolver embeddingResolver,
         IDeviceCacheService cacheService,
+        IEntityLocationService locationService,
+        IEmbeddingSimilarityService similarity,
         ILogger<FanControlSkill> logger)
     {
         _homeAssistantClient = homeAssistantClient;
         _embeddingResolver = embeddingResolver;
         _cacheService = cacheService;
+        _locationService = locationService;
+        _similarity = similarity;
         _logger = logger;
     }
 
@@ -65,7 +70,7 @@ public sealed class FanControlSkill : IAgentSkill
         }
 
         await RefreshFanCacheAsync(cancellationToken).ConfigureAwait(false);
-        _logger.LogInformation("FanControlSkill initialized with {Count} fans", _fans?.Count ?? 0);
+        _logger.LogInformation("FanControlSkill initialized with {Count} fans", _fans.Length);
     }
 
     /// <summary>
@@ -106,13 +111,13 @@ public sealed class FanControlSkill : IAgentSkill
             await EnsureCacheIsCurrentAsync().ConfigureAwait(false);
 
             var fans = _fans;
-            if (fans is null || fans.Count == 0)
+            if (fans.IsEmpty)
                 return "No fans found. The fan cache may be empty.";
 
             var searchEmbedding = await _embeddingGenerator!.GenerateAsync(searchTerm).ConfigureAwait(false);
 
             var matches = fans
-                .Select(f => new { Fan = f, Similarity = CosineSimilarity(searchEmbedding.Vector.Span, f.NameEmbedding.Vector.Span) })
+                .Select(f => new { Fan = f, Similarity = _similarity.ComputeSimilarity(searchEmbedding, f.NameEmbedding) })
                 .Where(m => m.Similarity >= SimilarityThreshold)
                 .OrderByDescending(m => m.Similarity)
                 .ToList();
@@ -129,30 +134,24 @@ public sealed class FanControlSkill : IAgentSkill
                 return sb.ToString();
             }
 
-            // Fall back to area-based search
-            var areaEmbeddings = _areaEmbeddings;
-            if (areaEmbeddings is not null)
-            {
-                var areaMatch = areaEmbeddings
-                    .Select(kvp => new { Area = kvp.Key, Similarity = CosineSimilarity(searchEmbedding.Vector.Span, kvp.Value.Vector.Span) })
-                    .Where(m => m.Similarity >= SimilarityThreshold)
-                    .OrderByDescending(m => m.Similarity)
-                    .FirstOrDefault();
+            // Fall back to area-based search using location service
+            var locationEntities = await _locationService.FindEntitiesByLocationAsync(
+                searchTerm, (IReadOnlyList<string>)["fan"], CancellationToken.None).ConfigureAwait(false);
 
-                if (areaMatch is not null)
+            if (locationEntities.Count > 0)
+            {
+                var matchedEntityIds = locationEntities.Select(e => e.EntityId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var areaFans = fans.Where(f => matchedEntityIds.Contains(f.EntityId)).ToList();
+                if (areaFans.Count > 0)
                 {
-                    var areaFans = fans.Where(f => string.Equals(f.Area, areaMatch.Area, StringComparison.OrdinalIgnoreCase)).ToList();
-                    if (areaFans.Count > 0)
+                    var sb = new StringBuilder();
+                    sb.AppendLine($"Found {areaFans.Count} fan(s) matching '{searchTerm}':");
+                    foreach (var fan in areaFans)
                     {
-                        var sb = new StringBuilder();
-                        sb.AppendLine($"Found {areaFans.Count} fan(s) in area '{areaMatch.Area}' matching '{searchTerm}':");
-                        foreach (var fan in areaFans)
-                        {
-                            sb.AppendLine($"  - {fan.FriendlyName} ({fan.EntityId})");
-                        }
-                        activity?.SetStatus(ActivityStatusCode.Ok);
-                        return sb.ToString();
+                        sb.AppendLine($"  - {fan.FriendlyName} ({fan.EntityId}) in {fan.Area ?? "unknown area"}");
                     }
+                    activity?.SetStatus(ActivityStatusCode.Ok);
+                    return sb.ToString();
                 }
             }
 
@@ -185,34 +184,23 @@ public sealed class FanControlSkill : IAgentSkill
             await EnsureCacheIsCurrentAsync().ConfigureAwait(false);
 
             var fans = _fans;
-            if (fans is null || fans.Count == 0)
+            if (fans.IsEmpty)
                 return "No fans found. The fan cache may be empty.";
 
-            var searchEmbedding = await _embeddingGenerator!.GenerateAsync(areaName).ConfigureAwait(false);
-            var areaEmbeddings = _areaEmbeddings;
+            var locationEntities = await _locationService.FindEntitiesByLocationAsync(
+                areaName, (IReadOnlyList<string>)["fan"], CancellationToken.None).ConfigureAwait(false);
 
-            string? bestArea = null;
-            if (areaEmbeddings is not null)
-            {
-                var areaMatch = areaEmbeddings
-                    .Select(kvp => new { Area = kvp.Key, Similarity = CosineSimilarity(searchEmbedding.Vector.Span, kvp.Value.Vector.Span) })
-                    .OrderByDescending(m => m.Similarity)
-                    .FirstOrDefault();
-
-                if (areaMatch is not null && areaMatch.Similarity >= SimilarityThreshold)
-                    bestArea = areaMatch.Area;
-            }
-
-            if (bestArea is null)
+            if (locationEntities.Count == 0)
                 return $"No area found matching '{areaName}'.";
 
-            var areaFans = fans.Where(f => string.Equals(f.Area, bestArea, StringComparison.OrdinalIgnoreCase)).ToList();
+            var matchedEntityIds = locationEntities.Select(e => e.EntityId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var areaFans = fans.Where(f => matchedEntityIds.Contains(f.EntityId)).ToList();
 
             if (areaFans.Count == 0)
-                return $"No fans found in area '{bestArea}'.";
+                return $"No fans found matching '{areaName}'.";
 
             var sb = new StringBuilder();
-            sb.AppendLine($"Fans in '{bestArea}':");
+            sb.AppendLine($"Fans matching '{areaName}':");
             foreach (var fan in areaFans)
             {
                 var features = new List<string>();
@@ -255,7 +243,7 @@ public sealed class FanControlSkill : IAgentSkill
                 return $"Fan '{entityId}' not found.";
 
             var fans = _fans;
-            var device = fans?.FirstOrDefault(f => f.EntityId == entityId);
+            var device = fans.FirstOrDefault(f => f.EntityId == entityId);
 
             activity?.SetStatus(ActivityStatusCode.Ok);
             return FormatFanState(state, device);
@@ -431,7 +419,7 @@ public sealed class FanControlSkill : IAgentSkill
         try
         {
             await EnsureCacheIsCurrentAsync().ConfigureAwait(false);
-            var fan = _fans?.FirstOrDefault(f => f.EntityId.Equals(entityId, StringComparison.OrdinalIgnoreCase));
+            var fan = _fans.FirstOrDefault(f => f.EntityId.Equals(entityId, StringComparison.OrdinalIgnoreCase));
 
             // If the fan has a companion select entity for modes, use that instead
             if (fan?.ModeSelectEntityId is { Length: > 0 } selectEntityId)
@@ -491,7 +479,7 @@ public sealed class FanControlSkill : IAgentSkill
         if (state.Attributes.TryGetValue("direction", out var dirObj))
             sb.Append($", Direction: {dirObj}");
 
-        if (state.Attributes.TryGetValue("preset_mode", out var presetObj) && presetObj is not null)
+        if (state.Attributes.TryGetValue("preset_mode", out var presetObj))
             sb.Append($", Preset: {presetObj}");
 
         if (state.Attributes.TryGetValue("oscillating", out var oscObj))
@@ -507,7 +495,7 @@ public sealed class FanControlSkill : IAgentSkill
             if (device.SupportsSpeed) features.Add("speed");
             if (device.SupportsDirection) features.Add("direction");
             if (device.SupportsOscillate) features.Add("oscillate");
-            if (device.SupportsPresetMode && device.PresetModes.Count > 0)
+            if (device is { SupportsPresetMode: true, PresetModes.Count: > 0 })
                 features.Add($"presets: [{string.Join(", ", device.PresetModes)}]");
             if (features.Count > 0)
                 sb.Append($", Capabilities: [{string.Join(", ", features)}]");
@@ -529,13 +517,11 @@ public sealed class FanControlSkill : IAgentSkill
 
         try
         {
-            // Try Redis first
+            // Try Redis first (device data only — areas come from IEntityLocationService)
             var cachedFans = await _cacheService.GetCachedFansAsync(cancellationToken).ConfigureAwait(false);
-            var cachedAreaEmbeddings = await _cacheService.GetAreaEmbeddingsAsync(cancellationToken).ConfigureAwait(false);
 
             if (cachedFans is not null && cachedFans.Count > 0)
             {
-                // Re-generate embeddings for cached entities
                 var names = cachedFans.Select(f => f.FriendlyName).ToList();
                 var embeddings = await _embeddingGenerator.GenerateAsync(names, cancellationToken: cancellationToken).ConfigureAwait(false);
                 for (var i = 0; i < cachedFans.Count; i++)
@@ -543,9 +529,8 @@ public sealed class FanControlSkill : IAgentSkill
                     cachedFans[i].NameEmbedding = embeddings[i];
                 }
 
-                _fans = cachedFans;
-                _areaEmbeddings = cachedAreaEmbeddings;
-                _lastCacheRefresh = DateTime.UtcNow;
+                _fans = [.. cachedFans];
+                Volatile.Write(ref _lastCacheRefreshTicks, DateTime.UtcNow.Ticks);
                 _logger.LogInformation("Loaded {Count} fans from Redis cache", cachedFans.Count);
                 return;
             }
@@ -571,23 +556,16 @@ public sealed class FanControlSkill : IAgentSkill
             var modeSelectLookup = BuildModeSelectLookup(states, fanEntities);
 
             var newFans = new List<FanEntity>();
-            var areas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var entity in fanEntities)
             {
                 var friendlyName = entity.Attributes.TryGetValue("friendly_name", out var nameObj)
-                    ? nameObj.ToString() ?? entity.EntityId
+                    ? nameObj?.ToString() ?? entity.EntityId
                     : entity.EntityId;
 
-                var area = entity.Attributes.TryGetValue("area_id", out var areaObj) ? areaObj.ToString() : null;
-                if (area is null)
-                {
-                    // Try to infer area from entity ID
-                    var parts = entity.EntityId.Replace("fan.", "").Split('_');
-                    if (parts.Length > 1)
-                        area = parts[0];
-                }
-                if (area is not null) areas.Add(area);
+                // Resolve area from the shared entity location service
+                var areaInfo = _locationService.GetAreaForEntity(entity.EntityId);
+                var area = areaInfo?.Name;
 
                 var percentageStep = 1;
                 if (entity.Attributes.TryGetValue("percentage_step", out var stepObj) && int.TryParse(stepObj?.ToString(), out var step))
@@ -625,30 +603,14 @@ public sealed class FanControlSkill : IAgentSkill
                 });
             }
 
-            // Generate area embeddings if needed
-            Dictionary<string, Embedding<float>>? newAreaEmbeddings = null;
-            if (areas.Count > 0)
-            {
-                var areaList = areas.ToList();
-                var areaEmbeddingResults = await _embeddingGenerator.GenerateAsync(areaList, cancellationToken: cancellationToken).ConfigureAwait(false);
-                newAreaEmbeddings = new Dictionary<string, Embedding<float>>(StringComparer.OrdinalIgnoreCase);
-                for (var i = 0; i < areaList.Count; i++)
-                {
-                    newAreaEmbeddings[areaList[i]] = areaEmbeddingResults[i];
-                }
-            }
-
             // Atomic swap
-            _fans = newFans;
-            _areaEmbeddings = newAreaEmbeddings ?? cachedAreaEmbeddings;
-            _lastCacheRefresh = DateTime.UtcNow;
+            _fans = [.. newFans];
+            Volatile.Write(ref _lastCacheRefreshTicks, DateTime.UtcNow.Ticks);
 
             // Persist to Redis
             await _cacheService.SetCachedFansAsync(newFans, CacheTtl, cancellationToken).ConfigureAwait(false);
-            if (newAreaEmbeddings is not null)
-                await _cacheService.SetAreaEmbeddingsAsync(newAreaEmbeddings, CacheTtl, cancellationToken).ConfigureAwait(false);
 
-            _logger.LogInformation("Refreshed fan cache: {Count} fans from {Areas} areas", newFans.Count, areas.Count);
+            _logger.LogInformation("Refreshed fan cache: {Count} fans", newFans.Count);
         }
         catch (Exception ex)
         {
@@ -658,13 +620,13 @@ public sealed class FanControlSkill : IAgentSkill
 
     private async Task EnsureCacheIsCurrentAsync(CancellationToken cancellationToken = default)
     {
-        if (_fans is not null && DateTime.UtcNow - _lastCacheRefresh < CacheTtl)
+        if (!_fans.IsEmpty && DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheRefreshTicks), DateTimeKind.Utc) < CacheTtl)
             return;
 
         await _refreshLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (_fans is not null && DateTime.UtcNow - _lastCacheRefresh < CacheTtl)
+            if (!_fans.IsEmpty && DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheRefreshTicks), DateTimeKind.Utc) < CacheTtl)
                 return;
 
             await RefreshFanCacheAsync(cancellationToken).ConfigureAwait(false);
@@ -675,45 +637,34 @@ public sealed class FanControlSkill : IAgentSkill
         }
     }
 
-    private static float CosineSimilarity(ReadOnlySpan<float> a, ReadOnlySpan<float> b)
-    {
-        if (a.Length != b.Length || a.Length == 0)
-            return 0f;
-
-        return TensorPrimitives.CosineSimilarity(a, b);
-    }
-
     /// <summary>
     /// Safely parses a JSON array attribute that may contain strings, numbers, or null.
     /// HA devices can return null for preset_modes when no presets are available.
     /// </summary>
     private static List<string> ParseStringListAttribute(Dictionary<string, object> attributes, string key)
     {
-        if (!attributes.TryGetValue(key, out var value) || value is null)
+        if (!attributes.TryGetValue(key, out var value))
             return [];
 
         try
         {
             if (value is JsonElement jsonElement)
             {
-                if (jsonElement.ValueKind == JsonValueKind.Null || jsonElement.ValueKind != JsonValueKind.Array)
+                if (jsonElement.ValueKind is JsonValueKind.Null or not JsonValueKind.Array)
                     return [];
 
-                var result = new List<string>();
-                foreach (var item in jsonElement.EnumerateArray())
-                {
-                    var str = item.ValueKind switch
+                return jsonElement.EnumerateArray()
+                    .Select(item => item.ValueKind switch
                     {
                         JsonValueKind.String => item.GetString(),
                         JsonValueKind.Number => item.GetRawText(),
                         _ => item.GetRawText()
-                    };
-                    if (str is not null) result.Add(str);
-                }
-                return result;
+                    })
+                    .OfType<string>()
+                    .ToList();
             }
 
-            var json = value.ToString() ?? "[]";
+            var json = value?.ToString() ?? "[]";
             var modes = JsonSerializer.Deserialize<JsonElement>(json);
             if (modes.ValueKind == JsonValueKind.Array)
             {

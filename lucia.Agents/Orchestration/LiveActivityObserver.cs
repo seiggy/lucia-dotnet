@@ -23,7 +23,7 @@ public sealed class LiveActivityObserver : IOrchestratorObserver
         _logger = logger;
     }
 
-    public Task OnRequestStartedAsync(
+    public Task<string> OnRequestStartedAsync(
         string userRequest,
         IReadOnlyList<TracedMessage>? conversationHistory = null,
         CancellationToken cancellationToken = default)
@@ -38,10 +38,11 @@ public sealed class LiveActivityObserver : IOrchestratorObserver
                 : userRequest,
         });
 
-        return Task.CompletedTask;
+        return Task.FromResult(string.Empty);
     }
 
     public Task OnRoutingCompletedAsync(
+        string requestId,
         AgentChoiceResult result,
         string? systemPrompt = null,
         CancellationToken cancellationToken = default)
@@ -82,6 +83,7 @@ public sealed class LiveActivityObserver : IOrchestratorObserver
     }
 
     public Task OnAgentExecutionCompletedAsync(
+        string requestId,
         OrchestratorAgentResponse response,
         CancellationToken cancellationToken = default)
     {
@@ -111,6 +113,7 @@ public sealed class LiveActivityObserver : IOrchestratorObserver
     }
 
     public Task OnResponseAggregatedAsync(
+        string requestId,
         string aggregatedResponse,
         CancellationToken cancellationToken = default)
     {

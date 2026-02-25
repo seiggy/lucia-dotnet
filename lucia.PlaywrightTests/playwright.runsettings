@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <Playwright>
+    <BrowserName>chromium</BrowserName>
+    <ExpectTimeout>10000</ExpectTimeout>
+    <Retries>0</Retries>
+  </Playwright>
+</RunSettings>

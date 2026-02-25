@@ -76,10 +76,14 @@ public static class Extensions
                     .AddSource("Lucia.Agents.Music")
                     .AddSource("Lucia.Skills.LightControl")
                     .AddSource("Lucia.Skills.MusicPlayback")
+                    .AddSource("Lucia.Services.EntityLocation")
+                    .AddSource("Microsoft.Extensions.AI")
                     .AddSource("Microsoft.Agents.AI*")
                     .AddSource("A2A*")
                     .AddSource("Microsoft.Agents.AI.Hosting*")
                     .AddSource("Microsoft.Agents.AI.Workflows*")
+                    .AddSource("Microsoft.Agents.AI.Runtime.InProcess")
+                    .AddSource("Microsoft.Agents.AI.Runtime.Abstractions.InMemoryActorStateStorage")
                     .AddAspNetCoreInstrumentation(tracing =>
                         // Exclude health check requests from tracing
                         tracing.Filter = context =>
@@ -90,6 +94,10 @@ public static class Extensions
                     //.AddGrpcClientInstrumentation()
                     .AddHttpClientInstrumentation(options =>
                     {
+                        // Filter out Azure IMDS credential probe requests (noisy locally)
+                        options.FilterHttpRequestMessage = request =>
+                            request.RequestUri?.Host != "169.254.169.254";
+
                         options.EnrichWithHttpRequestMessage = (activity, request) =>
                         {
                             if (!IsRecorded(activity))
@@ -117,7 +125,11 @@ public static class Extensions
 
                             AddHeaders(activity, "http.response.header.", response.Headers);
 
-                            if (response.Content is null)
+                            // Skip body capture for WebSocket upgrade responses — their
+                            // content stream is a duplex network stream that must remain
+                            // writeable for the WebSocket to function.
+                            if (response.Content is null
+                                || response.StatusCode == System.Net.HttpStatusCode.SwitchingProtocols)
                             {
                                 return;
                             }

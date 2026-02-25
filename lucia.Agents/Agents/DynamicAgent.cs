@@ -25,6 +25,7 @@ public sealed class DynamicAgent : ILuciaAgent
     private readonly IChatClientResolver _clientResolver;
     private readonly IModelProviderResolver _providerResolver;
     private readonly IModelProviderRepository _providerRepository;
+    private readonly TracingChatClientFactory _tracingFactory;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<DynamicAgent> _logger;
 
@@ -40,6 +41,7 @@ public sealed class DynamicAgent : ILuciaAgent
         IChatClientResolver clientResolver,
         IModelProviderResolver providerResolver,
         IModelProviderRepository providerRepository,
+        TracingChatClientFactory tracingFactory,
         ILoggerFactory loggerFactory)
     {
         _agentId = agentId;
@@ -48,6 +50,7 @@ public sealed class DynamicAgent : ILuciaAgent
         _clientResolver = clientResolver;
         _providerResolver = providerResolver;
         _providerRepository = providerRepository;
+        _tracingFactory = tracingFactory;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<DynamicAgent>();
         _lastDefinition = initialDefinition;
@@ -138,7 +141,10 @@ public sealed class DynamicAgent : ILuciaAgent
 
         try
         {
-            return _providerResolver.CreateClient(provider);
+            return _providerResolver.CreateClient(provider)
+                .AsBuilder()
+                .UseOpenTelemetry()
+                .Build();
         }
         catch (Exception ex)
         {
@@ -149,6 +155,7 @@ public sealed class DynamicAgent : ILuciaAgent
 
     private AIAgent BuildAgent(AgentDefinition definition, IReadOnlyList<AITool> tools, IChatClient chatClient)
     {
+        var traced = _tracingFactory.Wrap(chatClient, _agentId);
         var chatOptions = new ChatOptions
         {
             Instructions = definition.Instructions ?? "You are a helpful assistant."
@@ -167,7 +174,10 @@ public sealed class DynamicAgent : ILuciaAgent
             ChatOptions = chatOptions
         };
 
-        return new ChatClientAgent(chatClient, agentOptions, _loggerFactory);
+        return new ChatClientAgent(traced, agentOptions, _loggerFactory)
+            .AsBuilder()
+            .UseOpenTelemetry()
+            .Build();
     }
 
     private static AgentCard BuildAgentCard(AgentDefinition definition)

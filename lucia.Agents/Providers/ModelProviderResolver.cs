@@ -126,7 +126,12 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         }
 
         var client = new OpenAIClient(credential, options);
-        return client.GetChatClient(provider.ModelName).AsIChatClient();
+        return client.GetChatClient(provider.ModelName)
+            .AsIChatClient()
+            .AsBuilder()
+            .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+                cfg.EnableSensitiveData = true)
+            .Build();
     }
 
     private static IChatClient CreateAzureOpenAIClient(ModelProvider provider)
@@ -140,14 +145,22 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         {
             var credential = new DefaultAzureCredential();
             var client = new Azure.AI.OpenAI.AzureOpenAIClient(endpoint, credential);
-            return client.GetChatClient(provider.ModelName).AsIChatClient();
+            return client.GetChatClient(provider.ModelName).AsIChatClient()
+                .AsBuilder()
+                .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+                    cfg.EnableSensitiveData = true)
+                .Build();
         }
 
         if (!string.IsNullOrWhiteSpace(provider.Auth.ApiKey))
         {
             var credential = new ApiKeyCredential(provider.Auth.ApiKey);
             var client = new Azure.AI.OpenAI.AzureOpenAIClient(endpoint, credential);
-            return client.GetChatClient(provider.ModelName).AsIChatClient();
+            return client.GetChatClient(provider.ModelName).AsIChatClient()
+                .AsBuilder()
+                .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+                    cfg.EnableSensitiveData = true)
+                .Build();
         }
 
         throw new InvalidOperationException("Azure OpenAI provider requires either an API key or Azure credentials");
@@ -164,14 +177,22 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         {
             var credential = new DefaultAzureCredential();
             var client = new ChatCompletionsClient(endpoint, credential, new AzureAIInferenceClientOptions());
-            return client.AsIChatClient(provider.ModelName);
+            return client.AsIChatClient(provider.ModelName)
+                .AsBuilder()
+                .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+                    cfg.EnableSensitiveData = true)
+                .Build();
         }
 
         if (!string.IsNullOrWhiteSpace(provider.Auth.ApiKey))
         {
             var credential = new AzureKeyCredential(provider.Auth.ApiKey);
             var client = new ChatCompletionsClient(endpoint, credential, new AzureAIInferenceClientOptions());
-            return client.AsIChatClient(provider.ModelName);
+            return client.AsIChatClient(provider.ModelName)
+                .AsBuilder()
+                .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+                    cfg.EnableSensitiveData = true)
+                .Build();
         }
 
         throw new InvalidOperationException("Azure AI Inference provider requires either an API key or Azure credentials");
@@ -198,7 +219,11 @@ public sealed class ModelProviderResolver : IModelProviderResolver
             ?? throw new InvalidOperationException("Anthropic provider requires an API key");
 
         var client = new AnthropicClient(new Anthropic.Core.ClientOptions { ApiKey = apiKey });
-        return client.AsIChatClient(provider.ModelName);
+        return client.AsIChatClient(provider.ModelName)
+            .AsBuilder()
+            .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+                cfg.EnableSensitiveData = true)
+            .Build();
     }
 
     private static IChatClient CreateGeminiClient(ModelProvider provider)
@@ -214,7 +239,11 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         var credential = new ApiKeyCredential(apiKey);
         var options = new OpenAIClientOptions { Endpoint = new Uri(endpoint) };
         var client = new OpenAIClient(credential, options);
-        return client.GetChatClient(provider.ModelName).AsIChatClient();
+        return client.GetChatClient(provider.ModelName).AsIChatClient()
+            .AsBuilder()
+            .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+                cfg.EnableSensitiveData = true)
+            .Build();
     }
 
     public async Task<AIAgent?> CreateAIAgentAsync(ModelProvider provider, CancellationToken ct = default)
@@ -268,7 +297,11 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         }
 
         var client = new OpenAIClient(credential, options);
-        return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator();
+        return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator()
+            .AsBuilder()
+            .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+                cfg.EnableSensitiveData = true)
+            .Build();
     }
 
     private static IEmbeddingGenerator<string, Embedding<float>> CreateAzureOpenAIEmbeddingGenerator(ModelProvider provider)
@@ -283,7 +316,11 @@ public sealed class ModelProviderResolver : IModelProviderResolver
             // DefaultAzureCredential requires AzureOpenAIClient for token-based auth
             var credential = new DefaultAzureCredential();
             var client = new Azure.AI.OpenAI.AzureOpenAIClient(endpoint, credential);
-            return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator();
+            return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator()
+                .AsBuilder()
+                .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+                    cfg.EnableSensitiveData = true)
+                .Build();
         }
 
         if (!string.IsNullOrWhiteSpace(provider.Auth.ApiKey))
@@ -294,7 +331,11 @@ public sealed class ModelProviderResolver : IModelProviderResolver
             var credential = new AzureKeyCredential(provider.Auth.ApiKey);
             var options = new OpenAIClientOptions { Endpoint = endpoint };
             return new OpenAI.Embeddings.EmbeddingClient(provider.ModelName, credential, options)
-                .AsIEmbeddingGenerator();
+                .AsIEmbeddingGenerator()
+                .AsBuilder()
+                .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+                    cfg.EnableSensitiveData = true)
+                .Build();
         }
 
         throw new InvalidOperationException("Azure OpenAI embedding provider requires either an API key or Azure credentials");
@@ -311,14 +352,22 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         {
             var credential = new DefaultAzureCredential();
             var client = new EmbeddingsClient(endpoint, credential, new AzureAIInferenceClientOptions());
-            return client.AsIEmbeddingGenerator(provider.ModelName);
+            return client.AsIEmbeddingGenerator(provider.ModelName)
+                .AsBuilder()
+                .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+                    cfg.EnableSensitiveData = true)
+                .Build();
         }
 
         if (!string.IsNullOrWhiteSpace(provider.Auth.ApiKey))
         {
             var credential = new AzureKeyCredential(provider.Auth.ApiKey);
             var client = new EmbeddingsClient(endpoint, credential, new AzureAIInferenceClientOptions());
-            return client.AsIEmbeddingGenerator(provider.ModelName);
+            return client.AsIEmbeddingGenerator(provider.ModelName)
+                .AsBuilder()
+                .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+                    cfg.EnableSensitiveData = true)
+                .Build();
         }
 
         throw new InvalidOperationException("Azure AI Inference embedding provider requires either an API key or Azure credentials");
@@ -347,7 +396,11 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         var credential = new ApiKeyCredential(apiKey);
         var options = new OpenAIClientOptions { Endpoint = new Uri(endpoint) };
         var client = new OpenAIClient(credential, options);
-        return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator();
+        return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator()
+            .AsBuilder()
+            .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+                cfg.EnableSensitiveData = true)
+            .Build();
     }
 
     #endregion

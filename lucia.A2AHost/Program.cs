@@ -28,6 +28,7 @@ builder.AddMongoDBClient(connectionName: "luciaconfig");
 // MongoDB for trace capture (per-agent training data)
 builder.AddMongoDBClient(connectionName: "luciatraces");
 builder.Services.AddSingleton<lucia.Agents.Training.ITraceRepository, lucia.Agents.Training.MongoTraceRepository>();
+builder.Services.AddSingleton<lucia.Agents.Services.TracingChatClientFactory>();
 
 // Add MongoDB configuration as highest-priority source (overrides appsettings)
 builder.Configuration.AddMongoConfiguration("luciaconfig");
@@ -80,6 +81,8 @@ builder.Services.AddHttpClient<IHomeAssistantClient, HomeAssistantClient>((sp, c
     return handler;
 });
 builder.Services.AddSingleton<IDeviceCacheService, RedisDeviceCacheService>();
+builder.Services.AddSingleton<IEmbeddingSimilarityService, EmbeddingSimilarityService>();
+builder.Services.AddSingleton<IEntityLocationService, EntityLocationService>();
 
 // Register Redis task store for A2A task persistence (used by TimerAgent)
 builder.Services.AddSingleton<ITaskStore, RedisTaskStore>();

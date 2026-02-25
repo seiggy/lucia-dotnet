@@ -22,6 +22,7 @@ public sealed class LightAgent : ILuciaAgent
     private readonly LightControlSkill _lightPlugin;
     private readonly IChatClientResolver _clientResolver;
     private readonly IAgentDefinitionRepository _definitionRepository;
+    private readonly TracingChatClientFactory _tracingFactory;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<LightAgent> _logger;
     private volatile AIAgent _aiAgent;
@@ -42,11 +43,13 @@ public sealed class LightAgent : ILuciaAgent
         IChatClientResolver clientResolver,
         IAgentDefinitionRepository definitionRepository,
         LightControlSkill lightPlugin,
+        TracingChatClientFactory tracingFactory,
         ILoggerFactory loggerFactory)
     {
         _lightPlugin = lightPlugin;
         _clientResolver = clientResolver;
         _definitionRepository = definitionRepository;
+        _tracingFactory = tracingFactory;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<LightAgent>();
 
@@ -171,7 +174,11 @@ public sealed class LightAgent : ILuciaAgent
             // Copilot providers produce an AIAgent directly; others go through IChatClient
             var copilotAgent = await _clientResolver.ResolveAIAgentAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
             _aiAgent = copilotAgent ?? BuildAgent(
-                await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false));
+                await _clientResolver.ResolveAsync(newConnectionName, cancellationToken)
+                    .ConfigureAwait(false))
+                .AsBuilder()
+                .UseOpenTelemetry()
+                .Build();
             _logger.LogInformation("LightAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
             _lastModelConnectionName = newConnectionName;
         }
@@ -183,8 +190,9 @@ public sealed class LightAgent : ILuciaAgent
         }
     }
 
-    private ChatClientAgent BuildAgent(IChatClient chatClient)
+    private AIAgent BuildAgent(IChatClient chatClient)
     {
+        var traced = _tracingFactory.Wrap(chatClient, AgentId);
         var agentOptions = new ChatClientAgentOptions
         {
             Id = AgentId,
@@ -198,6 +206,9 @@ public sealed class LightAgent : ILuciaAgent
             }
         };
 
-        return new ChatClientAgent(chatClient, agentOptions, _loggerFactory);
+        return new ChatClientAgent(traced, agentOptions, _loggerFactory)
+            .AsBuilder()
+            .UseOpenTelemetry()
+            .Build();
     }
 }

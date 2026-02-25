@@ -3,7 +3,7 @@ namespace lucia.TimerAgent;
 /// <summary>
 /// Represents a running timer that will announce on expiry.
 /// </summary>
-internal sealed class ActiveTimer
+public sealed class ActiveTimer
 {
     public required string Id { get; init; }
     public required string TaskId { get; init; }

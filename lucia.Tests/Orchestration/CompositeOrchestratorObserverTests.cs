@@ -12,10 +12,13 @@ public sealed class CompositeOrchestratorObserverTests
     {
         var obs1 = A.Fake<IOrchestratorObserver>();
         var obs2 = A.Fake<IOrchestratorObserver>();
+        A.CallTo(() => obs1.OnRequestStartedAsync(A<string>._, null, A<CancellationToken>._))
+            .Returns("req-1");
         var composite = new CompositeOrchestratorObserver([obs1, obs2]);
 
-        await composite.OnRequestStartedAsync("test");
+        var requestId = await composite.OnRequestStartedAsync("test");
 
+        Assert.Equal("req-1", requestId);
         A.CallTo(() => obs1.OnRequestStartedAsync("test", null, A<CancellationToken>._))
             .MustHaveHappenedOnceExactly();
         A.CallTo(() => obs2.OnRequestStartedAsync("test", null, A<CancellationToken>._))
@@ -30,11 +33,11 @@ public sealed class CompositeOrchestratorObserverTests
         var composite = new CompositeOrchestratorObserver([obs1, obs2]);
 
         var result = new AgentChoiceResult { AgentId = "agent-1", Reasoning = "test" };
-        await composite.OnRoutingCompletedAsync(result);
+        await composite.OnRoutingCompletedAsync("req-1", result);
 
-        A.CallTo(() => obs1.OnRoutingCompletedAsync(result, null, A<CancellationToken>._))
+        A.CallTo(() => obs1.OnRoutingCompletedAsync("req-1", result, null, A<CancellationToken>._))
             .MustHaveHappenedOnceExactly();
-        A.CallTo(() => obs2.OnRoutingCompletedAsync(result, null, A<CancellationToken>._))
+        A.CallTo(() => obs2.OnRoutingCompletedAsync("req-1", result, null, A<CancellationToken>._))
             .MustHaveHappenedOnceExactly();
     }
 
@@ -46,11 +49,11 @@ public sealed class CompositeOrchestratorObserverTests
         var composite = new CompositeOrchestratorObserver([obs1, obs2]);
 
         var response = new OrchestratorAgentResponse { AgentId = "a", Content = "ok", Success = true };
-        await composite.OnAgentExecutionCompletedAsync(response);
+        await composite.OnAgentExecutionCompletedAsync("req-1", response);
 
-        A.CallTo(() => obs1.OnAgentExecutionCompletedAsync(response, A<CancellationToken>._))
+        A.CallTo(() => obs1.OnAgentExecutionCompletedAsync("req-1", response, A<CancellationToken>._))
             .MustHaveHappenedOnceExactly();
-        A.CallTo(() => obs2.OnAgentExecutionCompletedAsync(response, A<CancellationToken>._))
+        A.CallTo(() => obs2.OnAgentExecutionCompletedAsync("req-1", response, A<CancellationToken>._))
             .MustHaveHappenedOnceExactly();
     }
 
@@ -61,11 +64,11 @@ public sealed class CompositeOrchestratorObserverTests
         var obs2 = A.Fake<IOrchestratorObserver>();
         var composite = new CompositeOrchestratorObserver([obs1, obs2]);
 
-        await composite.OnResponseAggregatedAsync("response");
+        await composite.OnResponseAggregatedAsync("req-1", "response");
 
-        A.CallTo(() => obs1.OnResponseAggregatedAsync("response", A<CancellationToken>._))
+        A.CallTo(() => obs1.OnResponseAggregatedAsync("req-1", "response", A<CancellationToken>._))
             .MustHaveHappenedOnceExactly();
-        A.CallTo(() => obs2.OnResponseAggregatedAsync("response", A<CancellationToken>._))
+        A.CallTo(() => obs2.OnResponseAggregatedAsync("req-1", "response", A<CancellationToken>._))
             .MustHaveHappenedOnceExactly();
     }
 
