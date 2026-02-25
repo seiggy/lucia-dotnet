@@ -1,4 +1,6 @@
 using lucia.Agents.Registry;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Mvc;
 
 namespace lucia.AgentHost.Extensions;
@@ -28,6 +30,7 @@ public static class AgentProxyApi
     private static async Task<IResult> ProxyA2AMessageAsync(
         [FromServices] IAgentRegistry agentRegistry,
         [FromServices] IHttpClientFactory httpClientFactory,
+        [FromServices] IServer server,
         [FromQuery] string agentUrl,
         HttpRequest request,
         CancellationToken cancellationToken)
@@ -37,12 +40,21 @@ public static class AgentProxyApi
             return TypedResults.BadRequest("agentUrl query parameter is required.");
         }
 
-        // Resolve relative URLs against the current server's address
+        // Resolve relative URLs against the actual Kestrel listen address (not the
+        // external request host, which may differ due to Docker port mapping).
         var resolvedUrl = agentUrl;
         if (!agentUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
             && !agentUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
         {
-            var baseUrl = $"{request.Scheme}://{request.Host}";
+            var serverAddress = server.Features.Get<IServerAddressesFeature>()?.Addresses.FirstOrDefault();
+            var baseUrl = serverAddress ?? $"{request.Scheme}://localhost:{request.Host.Port ?? 80}";
+            // Normalize bind-all addresses to localhost for the proxy target
+            baseUrl = baseUrl
+                .Replace("://+:", "://localhost:")
+                .Replace("://*:", "://localhost:")
+                .Replace("://0.0.0.0:", "://localhost:")
+                .Replace("://[::0]:", "://localhost:")
+                .Replace("://[::]:", "://localhost:");
             resolvedUrl = agentUrl.StartsWith('/')
                 ? $"{baseUrl}{agentUrl}"
                 : $"{baseUrl}/{agentUrl}";
@@ -92,6 +104,8 @@ public static class AgentProxyApi
         targetUri = null;
 
         var rewritten = agentUrl
+            .Replace("://+:", "://localhost:")
+            .Replace("://*:", "://localhost:")
             .Replace("://0.0.0.0:", "://localhost:")
             .Replace("://[::0]:", "://localhost:")
             .Replace("://[::]:", "://localhost:");

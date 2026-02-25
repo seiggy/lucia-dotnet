@@ -2,13 +2,24 @@
 
 This directory contains all infrastructure deployment utilities and documentation for Lucia, enabling deployment across multiple platforms: Docker Compose, Kubernetes, and Linux systemd services.
 
+## Deployment Modes
+
+Lucia supports two deployment topologies, controlled by the `Deployment__Mode` environment variable:
+
+| Mode | Default? | Description |
+|------|----------|-------------|
+| **Standalone** | ✅ Yes | All agents (Music, Timer, Orchestrator) run embedded in a single AgentHost process. Simplest setup — single container plus Redis and MongoDB. |
+| **Mesh** | No | Agents run as separate A2A containers that register with the AgentHost over the network. Used for Kubernetes, horizontal scaling, or multi-node distribution. |
+
+**Standalone** is the default for Docker Compose and systemd. **Mesh** is the default for Kubernetes (Helm/manifests). External A2A agents can connect to a standalone AgentHost — the modes are not mutually exclusive.
+
 ## Quick Navigation
 
 Choose your deployment method below:
 
 ### Local Development Topology (AppHost-first)
 
-For local development, start the solution through `lucia.AppHost` so supporting services and agent hosts start in a consistent composition.
+For local development, start the solution through `lucia.AppHost` so supporting services and agent hosts start in a consistent composition. The AppHost always runs in **mesh mode** (separate processes) for development.
 
 Current AppHost composition includes:
 
@@ -28,29 +39,28 @@ dotnet run --project lucia.AppHost
 
 Use direct host startup (`dotnet run --project lucia.AgentHost`) only for targeted host-only debugging.
 
-### 🐳 [Docker Compose Deployment](./docker/README.md) - **Recommended for Most Users**
+### 🐳 [Docker Compose Deployment](./docker/README.md) — **Recommended for Most Users**
 
-Deploy Lucia on home servers, NAS devices, or single machines using Docker Compose with Redis.
+Deploy Lucia on home servers, NAS devices, or single machines using Docker Compose. All agents run in-process (standalone mode). A built-in setup wizard handles all configuration on first launch — no `.env` file required.
 
 - **Best for**: Home automation enthusiasts, quick testing, small deployments
-- **Time to deploy**: ~15 minutes
-- **Complexity**: ⭐⭐☆☆☆ (Easy)
-- **Files**: [Dockerfile](./docker/Dockerfile), [docker-compose.yml](./docker/docker-compose.yml), [.env.example](./docker/.env.example)
+- **Time to deploy**: ~5 minutes
+- **Complexity**: ⭐☆☆☆☆ (Very Easy)
+- **Files**: [Dockerfile](./docker/Dockerfile), [docker-compose.yml](./docker/docker-compose.yml)
 
 **Quick Start**:
 
 ```bash
 cd infra/docker
-cp .env.example .env
-# Edit .env with your configuration
 docker compose up -d
+# Open http://localhost:7233 — setup wizard guides you through configuration
 ```
 
 ---
 
-### ☸️ [Kubernetes Deployment](./kubernetes/helm/README.md) - **For Production & High Availability**
+### ☸️ [Kubernetes Deployment](./kubernetes/helm/README.md) — **For Production & High Availability**
 
-Deploy Lucia on Kubernetes clusters using Helm charts or raw manifests.
+Deploy Lucia on Kubernetes clusters using Helm charts or raw manifests. Runs in **mesh mode** by default, with Music Agent and Timer Agent as separate pods.
 
 - **Best for**: Production deployments, high availability, auto-scaling
 - **Time to deploy**: ~20 minutes
@@ -71,7 +81,7 @@ kubectl apply -k kubernetes/manifests/
 
 ---
 
-### 🐧 [Linux systemd Deployment](./systemd/README.md) - **Traditional Linux Services**
+### 🐧 [Linux systemd Deployment](./systemd/README.md) — **Traditional Linux Services**
 
 Deploy Lucia as a native Linux service on Ubuntu, Debian, or RHEL using systemd.
 
@@ -90,7 +100,7 @@ sudo systemctl enable lucia
 
 ---
 
-### 🚀 [GitHub Actions CI/CD](../.github/workflows/docker-build-push.yml) - **Automated Publishing**
+### 🚀 [GitHub Actions CI/CD](../.github/workflows/docker-build-push.yml) — **Automated Publishing**
 
 Automated Docker image building and publishing to Docker Hub.
 
@@ -121,9 +131,11 @@ Automated Docker image building and publishing to Docker Hub.
 
 | Feature | Docker | Kubernetes | systemd | CI/CD |
 | ------- | ------ | ---------- | ------- | ----- |
-| **Complexity** | Easy | Advanced | Intermediate | N/A |
-| **Setup Time** | ~15 min | ~20 min | ~25 min | <10 min |
+| **Complexity** | Very Easy | Advanced | Intermediate | N/A |
+| **Setup Time** | ~5 min | ~20 min | ~25 min | <10 min |
 | **Best For** | Home servers | Production | Linux servers | Automation |
+| **Default Mode** | Standalone | Mesh | Standalone | N/A |
+| **Config Method** | Setup wizard | Helm values / env vars | env vars | N/A |
 | **Scalability** | Single host | Multi-host | Single host | N/A |
 | **HA/Failover** | Manual | Automatic | Manual | N/A |
 | **Persistence** | Volumes | PVCs | File system | N/A |
@@ -131,54 +143,37 @@ Automated Docker image building and publishing to Docker Hub.
 
 ---
 
-## Configuration Reference
+## Configuration
 
-All deployment methods require configuration via environment variables. See [docs/configuration-reference.md](./docs/configuration-reference.md) for complete documentation.
+### Docker Compose
 
-**Essential Variables**:
+Configuration is handled automatically by the **setup wizard** on first launch. Open `http://localhost:7233` and follow the prompts to connect your LLM provider and Home Assistant. Settings are stored in MongoDB.
 
-- `HomeAssistant__BaseUrl` - Your Home Assistant URL
-- `HomeAssistant__AccessToken` - Long-lived Home Assistant token
-- `ConnectionStrings__chat-model` - Unified chat model connection string (format: `Endpoint=...;AccessKey=...;Model=...;Provider=openai|azureopenai|ollama|azureinference`)
-- `Redis__ConnectionString` - Redis connection (default: localhost:6379)
+For headless/automated deployments, pass config as environment variables in `docker-compose.yml`. See the [Docker deployment guide](./docker/DEPLOYMENT.md#advanced-environment-variable-overrides) for details.
 
-**Note on Embeddings**: Embeddings for semantic search are currently supported on **Azure OpenAI** only. Support for other providers is planned for future releases.
+### Kubernetes
 
----
+Configuration is managed via Helm `values.yaml` or ConfigMap environment variables. See the [Kubernetes deployment guide](./kubernetes/helm/README.md).
 
-## Documentation Guide
+### Environment Variable Reference
 
-### Getting Started
+Essential variables for manual/headless configuration:
 
-- [Quickstart Guide](../specs/002-infrastructure-deployment/quickstart.md) - Step-by-step for all methods
-- [Configuration Reference](./docs/configuration-reference.md) - All environment variables
-- [LLM Providers Guide](./docs/llm-providers.md) - Configure OpenAI, Azure, Ollama, etc.
+| Variable | Purpose |
+|----------|---------|
+| `HomeAssistant__BaseUrl` | Your Home Assistant URL |
+| `HomeAssistant__AccessToken` | Long-lived Home Assistant token |
+| `ConnectionStrings__chat-model` | Unified LLM connection string (format: `Endpoint=...;AccessKey=...;Model=...;Provider=openai\|azureopenai\|ollama\|azureinference`) |
+| `Deployment__Mode` | `standalone` (default) or `mesh` |
 
-### Deployment Methods
-
-- [Docker Deployment Guide](./docker/README.md) - Docker Compose documentation
-- [Kubernetes Deployment (Helm)](./kubernetes/helm/README.md) - Helm chart guide
-- [Kubernetes Deployment (Raw Manifests)](./kubernetes/README.md) - kubectl guide
-- [Linux systemd Deployment](./systemd/README.md) - Service installation guide
-
-### Operations & Troubleshooting
-
-- [Deployment Comparison](./docs/deployment-comparison.md) - Compare methods
-- [Troubleshooting Guide](./docs/troubleshooting.md) - Common issues and solutions
-- [Security Hardening](./docs/security-hardening.md) - Security best practices
-
-### Utilities
-
-- [Health Check Script](./scripts/health-check.sh) - Validate deployment health
-- [Deployment Validation Script](./scripts/validate-deployment.sh) - Pre-deployment checks
-- [Configuration Backup Script](./scripts/backup-config.sh) - Backup deployments
+**Note on Embeddings**: Embeddings for semantic search are currently supported on **Azure OpenAI** only. Support for other providers is planned.
 
 ---
 
 ## Architecture
 
 ```
-lucia.AppHost (orchestration)
+lucia.AppHost (dev orchestration — mesh mode)
     ├── lucia-agenthost (registry + APIs)
     ├── music-agent (A2AHost plugin)
     ├── timer-agent (A2AHost plugin)
@@ -186,16 +181,21 @@ lucia.AppHost (orchestration)
     ├── redis (state persistence)
     └── mongodb (traces/config/tasks stores)
 
+Docker Compose (production — standalone mode)
+    └── lucia (AgentHost with all agents in-process)
+        ├── redis
+        └── mongodb
+
 Home Assistant (custom component) ↔ agent endpoints
 LLM provider(s) consumed by agent hosts
 ```
 
 **Deployment Options**:
 
-1. **All In Docker** - Application + Redis in containers
-2. **All on Kubernetes** - Application, Redis, Ingress in K8s
-3. **All on Linux** - Application + Redis as systemd services
-4. **Hybrid** - Application in one method, Redis in another
+1. **Docker Compose** — Standalone AgentHost + Redis + MongoDB in containers (recommended for most users)
+2. **Kubernetes** — Mesh mode with separate agent pods, Redis, MongoDB, Ingress
+3. **Linux systemd** — Standalone AgentHost + Redis as systemd services
+4. **Hybrid** — Application in one method, backing services in another
 
 ---
 
@@ -209,17 +209,38 @@ dotnet run --project lucia.AppHost
 # Then use the Aspire dashboard to open each resource endpoint and health page
 
 # Docker Compose
-docker compose ps                    # Check container status
-curl http://localhost:7235/health   # Check application health
+docker compose ps                     # Check container status
+curl http://localhost:7233/health     # Check application health
 
 # Kubernetes (Helm)
-kubectl get pods -n lucia            # Check pod status
-kubectl logs -n lucia lucia-0        # Check application logs
+kubectl get pods -n lucia             # Check pod status
+kubectl logs -n lucia lucia-0         # Check application logs
 
 # systemd
-sudo systemctl status lucia          # Check service status
-sudo journalctl -u lucia -f          # Follow service logs
+sudo systemctl status lucia           # Check service status
+sudo journalctl -u lucia -f           # Follow service logs
 ```
+
+---
+
+## Documentation Guide
+
+### Getting Started
+
+- [Docker Deployment Guide](./docker/DEPLOYMENT.md) — Complete Docker Compose walkthrough
+- [Docker README](./docker/README.md) — Quick reference for Docker deployment
+- [Kubernetes Deployment (Helm)](./kubernetes/helm/README.md) — Helm chart guide
+
+### Operations & Troubleshooting
+
+- [Docker Testing Guide](./docker/TESTING.md) — Testing procedures and debugging
+- [Docker Testing Checklist](./docker/TESTING-CHECKLIST.md) — Manual test scenarios
+
+### Utilities
+
+- [Health Check Script](./scripts/health-check.sh) — Validate deployment health
+- [Deployment Validation Script](./scripts/validate-deployment.sh) — Pre-deployment checks
+- [Configuration Backup Script](./scripts/backup-config.sh) — Backup deployments
 
 ---
 
@@ -237,5 +258,5 @@ All infrastructure deployment utilities are released under the same license as t
 
 ---
 
-**Last Updated**: 2025-10-24  
+**Last Updated**: 2026-02-25  
 **Status**: ✅ Production Ready

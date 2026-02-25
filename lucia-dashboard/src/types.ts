@@ -307,3 +307,52 @@ export interface ActivitySummary {
 export interface AgentActivityStatsMap {
   [agentId: string]: { requestCount: number; errorRate: number }
 }
+
+// ── Alarm Clock Types ──
+
+export interface AlarmClock {
+  id: string
+  name: string
+  targetEntity: string
+  alarmSoundId: string | null
+  cronSchedule: string | null
+  nextFireAt: string | null
+  playbackInterval: string
+  autoDismissAfter: string
+  lastDismissedAt: string | null
+  isEnabled: boolean
+  createdAt: string
+  volumeStart: number | null
+  volumeEnd: number | null
+  volumeRampDuration: string
+}
+
+export interface AlarmSound {
+  id: string
+  name: string
+  mediaSourceUri: string
+  uploadedViaLucia: boolean
+  isDefault: boolean
+  createdAt: string
+}
+
+// --- Presence Detection ---
+
+export type PresenceConfidence = 'None' | 'Low' | 'Medium' | 'High' | 'Highest'
+
+export interface PresenceSensorMapping {
+  entityId: string
+  areaId: string
+  areaName: string | null
+  confidence: PresenceConfidence
+  isUserOverride: boolean
+  isDisabled: boolean
+}
+
+export interface OccupiedArea {
+  areaId: string
+  areaName: string
+  isOccupied: boolean
+  occupantCount: number | null
+  confidence: PresenceConfidence
+}

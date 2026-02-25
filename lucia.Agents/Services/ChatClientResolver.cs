@@ -46,6 +46,21 @@ public sealed class ChatClientResolver : IChatClientResolver
 
         var provider = await _repository.GetProviderAsync(effectiveName, ct).ConfigureAwait(false);
 
+        // If the named provider doesn't exist and we were looking for the default,
+        // fall back to any enabled chat provider so agents work regardless of user-chosen IDs.
+        if ((provider is null || !provider.Enabled)
+            && string.Equals(effectiveName, DefaultChatProviderId, StringComparison.OrdinalIgnoreCase))
+        {
+            var all = await _repository.GetEnabledProvidersAsync(ct).ConfigureAwait(false);
+            provider = all.FirstOrDefault(p => p.Purpose == Configuration.ModelPurpose.Chat);
+            if (provider is not null)
+            {
+                _logger.LogInformation(
+                    "Default chat provider not found — falling back to '{ProviderId}' ({ProviderType})",
+                    provider.Id, provider.ProviderType);
+            }
+        }
+
         if (provider is null || !provider.Enabled)
         {
             _logger.LogWarning(
@@ -55,8 +70,6 @@ public sealed class ChatClientResolver : IChatClientResolver
                 $"Model provider '{effectiveName}' not found or disabled. " +
                 "Configure a default chat model provider in the dashboard.");
         }
-
-        // Copilot providers produce AIAgent, not IChatClient — fall back to default
         if (provider.ProviderType == ProviderType.GitHubCopilot)
         {
             _logger.LogWarning(

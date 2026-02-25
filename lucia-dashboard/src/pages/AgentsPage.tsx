@@ -1,6 +1,22 @@
 import { useState, useEffect, useCallback } from 'react'
 
 /* ------------------------------------------------------------------ */
+/*  Helpers                                                            */
+/* ------------------------------------------------------------------ */
+
+/** crypto.randomUUID() requires a secure context (HTTPS / localhost).
+ *  Fall back to a Math.random-based v4 UUID for plain-HTTP LAN access. */
+function generateUUID(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16)
+  })
+}
+
+/* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -82,11 +98,11 @@ async function sendA2AMessage(
   const body = {
     jsonrpc: '2.0',
     method: 'message/send',
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     params: {
       message: {
         kind: 'message',
-        messageId: crypto.randomUUID(),
+        messageId: generateUUID(),
         ...(contextId ? { contextId } : {}),
         role: 'user',
         parts: [{ kind: 'text', text: message }],

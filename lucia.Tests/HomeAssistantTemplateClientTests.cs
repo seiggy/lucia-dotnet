@@ -72,13 +72,14 @@ public sealed class HomeAssistantTemplateClientTests
         httpClient.DefaultRequestHeaders.Add("Accept", "application/json");
         httpClient.Timeout = TimeSpan.FromSeconds(30);
 
-        var options = Options.Create(new HomeAssistantOptions
+        var monitor = A.Fake<IOptionsMonitor<HomeAssistantOptions>>();
+        A.CallTo(() => monitor.CurrentValue).Returns(new HomeAssistantOptions
         {
             BaseUrl = "http://localhost:8123",
             AccessToken = "test-token"
         });
 
-        return new HomeAssistantClient(httpClient, A.Fake<ILogger<HomeAssistantClient>>(), options);
+        return new HomeAssistantClient(httpClient, A.Fake<ILogger<HomeAssistantClient>>(), monitor);
     }
 
     private static async Task<TemplateRenderRequest> DeserializeRequestAsync(HttpRequestMessage request)

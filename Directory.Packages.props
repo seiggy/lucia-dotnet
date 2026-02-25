@@ -23,6 +23,7 @@
   <ItemGroup Label="A2A Protocol">
     <PackageVersion Include="A2A" Version="$(A2AVersion)" />
     <PackageVersion Include="A2A.AspNetCore" Version="$(A2AVersion)" />
+    <PackageVersion Include="Cronos" Version="0.11.1" />
     <PackageVersion Include="GitHub.Copilot.SDK" Version="0.1.25" />
   </ItemGroup>
   <!-- ── .NET Aspire Hosting (AppHost orchestration) ──────────── -->

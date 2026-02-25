@@ -659,6 +659,22 @@ public sealed class EntityLocationService : IEntityLocationService
     /// </summary>
     private async Task EnsureFreshAsync(CancellationToken ct)
     {
+        // Auto-reload if the cache is empty (e.g. HA wasn't reachable at startup)
+        if (_snapshot.Entities.IsEmpty)
+        {
+            try
+            {
+                _logger.LogInformation("Entity location cache is empty, attempting to load from Home Assistant...");
+                await InitializeAsync(ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Auto-reload of empty entity location cache failed — HA may not be configured yet");
+            }
+
+            return;
+        }
+
         var lastCheck = Volatile.Read(ref _lastVersionCheckTicks);
         if (lastCheck != 0 && Stopwatch.GetElapsedTime(lastCheck) < VersionCheckInterval)
             return;

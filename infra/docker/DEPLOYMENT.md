@@ -1,17 +1,19 @@
 # Docker Deployment Guide
 
-> Last Updated: 2025-10-24  
+> Last Updated: 2026-02-25  
 > Status: Production Ready for Single-Node Deployments  
-> Version: 1.0.0
+> Version: 2.0.0
 
 ## Overview
 
-This guide covers deploying Lucia Agent Host using Docker Compose for single-node deployments. Ideal for:
+This guide covers deploying Lucia Agent Host using Docker Compose for single-node deployments. The default Docker Compose configuration runs in **standalone mode** — all agents (Music, Timer, Orchestrator) are embedded in a single process. No `.env` file is required; a built-in setup wizard handles all user configuration on first launch.
 
-- **Development environments** - Test locally before production
-- **Home labs** - Small-scale smart home automation
-- **Testing** - CI/CD pipelines and feature validation
-- **Small production** - Single Home Assistant instance with low-traffic automation
+**Ideal for:**
+
+- **Home labs** — Small-scale smart home automation
+- **Development** — Test locally before production
+- **Testing** — CI/CD pipelines and feature validation
+- **Small production** — Single Home Assistant instance with low-traffic automation
 
 **For high-availability production, see [Kubernetes Deployment Guide](../kubernetes/README.md)**
 
@@ -19,14 +21,13 @@ This guide covers deploying Lucia Agent Host using Docker Compose for single-nod
 
 ### Required
 
-- Docker Engine 20.10+ ([Install](https://docs.docker.com/get-docker/))
-- Docker Compose 2.0+ ([Install](https://docs.docker.com/compose/install/))
-- 2GB available RAM (minimum 1GB for each service)
-- 10GB free disk space (for logs and Redis persistence)
+- Docker Engine 24.0+ ([Install](https://docs.docker.com/get-docker/))
+- Docker Compose v2.20+ ([Install](https://docs.docker.com/compose/install/))
+- 2GB available RAM
+- 10GB free disk space (for logs, Redis, and MongoDB persistence)
 
 ### Recommended
 
-- docker-compose CLI for easier management
 - curl or Postman for API testing
 - Home Assistant 2024.10+ for best compatibility
 
@@ -38,173 +39,146 @@ This guide covers deploying Lucia Agent Host using Docker Compose for single-nod
 
 ## Quick Start (5 minutes)
 
-### 1. Clone and Setup
+### 1. Clone and Start
 
 ```bash
 # Clone the repository
 git clone https://github.com/seiggy/lucia-dotnet.git
-cd lucia-dotnet
+cd lucia-dotnet/infra/docker
 
-# Copy environment template
-cp .env.example .env
-
-# Edit configuration
-nano .env
-# Set required values:
-#   - HOMEASSISTANT_URL: your Home Assistant URL
-#   - HOMEASSISTANT_ACCESS_TOKEN: your HA access token
-#   - ConnectionStrings__chat-model: your LLM provider configuration
-```
-
-### 2. Configure Environment
-
-Edit `.env` with your values:
-
-```bash
-# Home Assistant
-HOMEASSISTANT_URL=http://192.168.1.100:8123
-HOMEASSISTANT_ACCESS_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-
-# OpenAI (recommended for MVP)
-ConnectionStrings__chat-model=Endpoint=https://api.openai.com/v1;AccessKey=sk-proj-YOUR_KEY;Model=gpt-4o;Provider=openai
-```
-
-### 3. Start Services
-
-```bash
-# Start all services in background
-docker-compose up -d
+# Start all services
+docker compose up -d
 
 # View logs
-docker-compose logs -f lucia
-
-# Wait for startup (typically 10-30 seconds)
-sleep 30
-
-# Check health
-curl http://localhost:5000/health
+docker compose logs -f lucia
 ```
 
-### 4. Verify Deployment
+### 2. Complete Setup Wizard
+
+Open `http://localhost:7233` in your browser. The setup wizard will guide you through:
+
+1. **LLM Provider** — Connect your OpenAI, Azure OpenAI, or Ollama instance
+2. **Home Assistant** — Enter your HA URL and long-lived access token
+3. **API Key** — Set an optional API key for securing the Lucia API
+
+All configuration is stored in MongoDB and persists across restarts.
+
+### 3. Verify Deployment
 
 ```bash
 # List running containers
-docker-compose ps
+docker compose ps
 
 # Check service health
-docker-compose exec lucia curl http://localhost:8080/health
-docker-compose exec redis redis-cli PING
+curl http://localhost:7233/health
 
-# View Redis data
-docker-compose exec redis redis-cli --raw KEYS "lucia:*"
+# Redis connectivity
+docker compose exec lucia-redis redis-cli PING
+
+# MongoDB connectivity
+docker compose exec lucia-mongo mongosh --eval "db.runCommand('ping').ok"
 ```
 
-### 5. Test Agent API
+### 4. Test Agent API
 
 ```bash
 # List available agents
-curl http://localhost:5000/api/agents
+curl http://localhost:7233/api/agents
 
 # Send test message to Lucia
-curl -X POST http://localhost:5000/api/chat \
+curl -X POST http://localhost:7233/api/chat \
   -H "Content-Type: application/json" \
   -d '{"message": "Turn on the living room lights", "sessionId": "test-123"}'
 ```
 
-## Configuration Guide
+## Deployment Modes
 
-### Essential Variables
+Lucia supports two deployment topologies controlled by the `Deployment__Mode` environment variable:
 
-See [Configuration Reference](../configuration-reference.md) for all variables.
+| Mode | Value | Description |
+|------|-------|-------------|
+| **Standalone** (default) | `standalone` | All agents run embedded in the main AgentHost process. Simplest setup — single container plus Redis and MongoDB. |
+| **Mesh** | `mesh` | Agents run as separate A2A containers that register with the AgentHost over the network. Used for Kubernetes, horizontal scaling, or multi-node distribution. |
 
-```env
-# Home Assistant
-HOMEASSISTANT_URL=http://homeassistant:8123
-HOMEASSISTANT_ACCESS_TOKEN=<your-token>
+**When to use each mode:**
 
-# LLM Provider (choose one)
-ConnectionStrings__chat-model=Endpoint=...;AccessKey=...;Model=...;Provider=openai
+- **Standalone** — Home lab, single-server, Docker Compose, or any deployment where simplicity matters. External A2A agents can still connect to a standalone AgentHost.
+- **Mesh** — Kubernetes clusters, multi-node setups, or when you want to scale individual agents independently. The Helm chart and K8s manifests default to mesh mode.
 
-# Redis
-REDIS_CONNECTION_STRING=redis://redis:6379
+To switch to mesh mode, add the environment variable to the `lucia` service in `docker-compose.yml`:
+
+```yaml
+environment:
+  - Deployment__Mode=mesh
 ```
 
-### LLM Provider Selection
+## Configuration
 
-#### OpenAI (Recommended for MVP)
+### Setup Wizard (Recommended)
 
-- ✅ Easiest to setup
-- ✅ Best model quality
-- ✅ Extensive testing
-- ❌ Costs per API call
-- ❌ Requires internet
+All user-facing configuration — LLM provider, Home Assistant connection, API keys — is handled by the setup wizard on first launch. Settings are stored in MongoDB (`luciaconfig` database) and loaded automatically on startup.
 
-```env
+To re-run the setup wizard, clear the config collection:
+
+```bash
+docker compose exec lucia-mongo mongosh luciaconfig --eval "db.settings.drop()"
+docker compose restart lucia
+```
+
+### Environment Variables (Infrastructure Only)
+
+The `docker-compose.yml` only contains infrastructure-level environment variables that are deterministic within the compose network:
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `ASPNETCORE_ENVIRONMENT` | Runtime environment | `Production` |
+| `ASPNETCORE_URLS` | Listen address | `http://+:8080` |
+| `ConnectionStrings__luciatraces` | MongoDB traces DB | `mongodb://lucia-mongo:27017/luciatraces` |
+| `ConnectionStrings__luciaconfig` | MongoDB config DB | `mongodb://lucia-mongo:27017/luciaconfig` |
+| `ConnectionStrings__luciatasks` | MongoDB tasks DB | `mongodb://lucia-mongo:27017/luciatasks` |
+| `ConnectionStrings__redis` | Redis connection | `lucia-redis:6379` |
+| `Deployment__Mode` | Deployment topology | `standalone` (omitted = standalone) |
+
+### Advanced: Environment Variable Overrides
+
+For automation or headless deployments where the setup wizard is not practical, you can override any configuration via environment variables added to the `lucia` service:
+
+```yaml
+environment:
+  # LLM Provider
+  - ConnectionStrings__chat-model=Endpoint=https://api.openai.com/v1;AccessKey=sk-proj-YOUR_KEY;Model=gpt-4o;Provider=openai
+  # Home Assistant
+  - HomeAssistant__BaseUrl=http://192.168.1.100:8123
+  - HomeAssistant__AccessToken=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+See `.env.example` in the repository root for all available variables.
+
+### LLM Provider Examples
+
+#### OpenAI (Recommended)
+
+```
 ConnectionStrings__chat-model=Endpoint=https://api.openai.com/v1;AccessKey=sk-proj-YOUR_KEY;Model=gpt-4o;Provider=openai
 ```
 
-**Setup:**
+#### Ollama (Local — No Cost)
 
-1. Create account at [OpenAI](https://platform.openai.com)
-2. Generate API key at [OpenAI API Key Dashboard](https://platform.openai.com/api-keys)
-3. Add credits ($5-$20 recommended for testing)
-4. Copy key to `.env`
-
-#### Ollama (Local Models - No Cost)
-
-- ✅ Free and local
-- ✅ No API calls
-- ✅ Privacy-first
-- ❌ Slower responses (depends on hardware)
-- ❌ Requires GPU for performance
-
-```env
-ConnectionStrings__chat-model=Endpoint=http://ollama:11434;AccessKey=ollama;Model=llama3.2;Provider=ollama
+```
+ConnectionStrings__chat-model=Endpoint=http://host.docker.internal:11434;AccessKey=ollama;Model=llama3.2;Provider=ollama
 ```
 
-**Setup:**
+#### Azure OpenAI (Enterprise)
 
-1. Install Ollama from [Ollama Download](https://ollama.ai/download)
-2. Pull model: `ollama pull llama3.2`
-3. Start Ollama: `ollama serve`
-4. Update docker-compose to include Ollama service or use local network
-
-#### Azure OpenAI (Production)
-
-- ✅ Embeddings support (semantic search)
-- ✅ Enterprise features
-- ✅ Azure integration
-- ❌ More complex setup
-- ❌ Azure subscription required
-
-```env
+```
 ConnectionStrings__chat-model=Endpoint=https://YOUR_RESOURCE.openai.azure.com/;AccessKey=YOUR_KEY;Model=gpt-4-deployment;Provider=azureopenai
 ```
-
-**Setup:**
-
-1. Create Azure account
-2. Deploy Azure OpenAI service
-3. Create deployments for models
-4. Get endpoint and key from Azure Portal
 
 ### Advanced Configuration
 
 #### Enable HTTPS (Production)
 
-```bash
-# Generate self-signed certificate
-openssl req -x509 -newkey rsa:4096 -keyout ./certs/key.pem -out ./certs/cert.pem -days 365 -nodes
-
-# Update .env
-ENABLE_HTTPS=true
-CERTIFICATE_PATH=/etc/lucia/certs/cert.pem
-CERTIFICATE_KEY_PATH=/etc/lucia/certs/key.pem
-
-# Restart services
-docker-compose down
-docker-compose up -d
-```
+For production, use a reverse proxy (nginx, Caddy, Traefik) in front of the Lucia container rather than terminating TLS in the application itself.
 
 #### Increase Resource Limits
 
@@ -223,92 +197,46 @@ services:
           memory: 1G
 ```
 
-#### Persistent Redis Data
-
-Change Redis volume driver from tmpfs to local:
-
-```yaml
-volumes:
-  redis-data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /data/lucia/redis
-```
-
 ## Deployment Scenarios
 
 ### Scenario 1: Development (Laptop/Desktop)
 
-Perfect for testing features before production deployment.
-
 ```bash
-# Setup
 git clone https://github.com/seiggy/lucia-dotnet.git
-cd lucia-dotnet
-cp .env.example .env
-# Edit .env with test values
-
-# Start
-docker-compose up
-
-# Test
-curl http://localhost:5000/health
-
+cd lucia-dotnet/infra/docker
+docker compose up          # foreground, see logs directly
+# Open http://localhost:7233 and complete setup wizard
 # Cleanup (removes all data)
-docker-compose down -v
+docker compose down -v
 ```
 
-**Resources:** 1GB RAM minimum  
-**Storage:** 5GB minimum  
-**Time to running:** 5-10 minutes
+**Resources:** 1GB RAM minimum · 5GB disk · 5 minutes to running
 
 ### Scenario 2: Home Lab (Always-On Server)
 
-Single Home Assistant instance with persistent data.
-
 ```bash
-# Setup with persistent volumes
-# Edit docker-compose.yml to use local driver for redis-data volume
-
-docker-compose up -d
-
-# Verify startup
-docker-compose logs -f lucia
-
-# Monitor
-docker stats
-
-# Backup Redis data
-docker run --rm -v lucia-redis-data:/data -v /backup:/backup \
-  redis:7-alpine cp -r /data/* /backup/
+cd lucia-dotnet/infra/docker
+docker compose up -d       # background, persistent volumes by default
+docker compose logs -f lucia
+docker stats               # monitor resource usage
 ```
 
-**Resources:** 2GB RAM, 4GB disk for Redis snapshots  
-**Time to running:** 10-15 minutes  
-**Data persistence:** Yes (survives container restart)
+**Resources:** 2GB RAM · 10GB disk · Data persists across restarts
 
-### Scenario 3: Staging Environment
+### Scenario 3: Headless / Automated Deployment
 
-Test production configuration before deploying to production.
+For CI/CD or scripted deployments where a browser-based setup wizard isn't practical, pass configuration via environment variables:
 
 ```bash
-# Create separate .env.staging
-cp .env.example .env.staging
-# Configure for staging environment
+cd lucia-dotnet/infra/docker
+CHAT_MODEL="Endpoint=https://api.openai.com/v1;AccessKey=sk-proj-XXX;Model=gpt-4o;Provider=openai"
+HA_URL="http://homeassistant.local:8123"
+HA_TOKEN="eyJ..."
 
-# Run with staging config
-docker-compose -f docker-compose.yml \
-  -f docker-compose.staging.yml up -d
-
-# Test full automation flows
-curl -X POST http://localhost:5000/api/automation \
-  -H "Content-Type: application/json" \
-  -d @tests/automation-scenario-1.json
-
-# Validate logs
-docker-compose logs lucia | grep ERROR
+docker compose up -d \
+  -e "ConnectionStrings__chat-model=$CHAT_MODEL" \
+  -e "HomeAssistant__BaseUrl=$HA_URL" \
+  -e "HomeAssistant__AccessToken=$HA_TOKEN"
 ```
 
 ## Operational Tasks
@@ -317,82 +245,80 @@ docker-compose logs lucia | grep ERROR
 
 ```bash
 # All services
-docker-compose logs
+docker compose logs
 
 # Lucia only
-docker-compose logs lucia
+docker compose logs lucia
 
-# Follow real-time (tail -f equivalent)
-docker-compose logs -f lucia
+# Follow real-time
+docker compose logs -f lucia
 
 # Last 100 lines
-docker-compose logs --tail=100 lucia
-
-# Since specific time
-docker-compose logs --since 2024-10-24T10:00:00 lucia
+docker compose logs --tail=100 lucia
 ```
 
 ### Health Checks
 
 ```bash
 # Check service status
-docker-compose ps
+docker compose ps
 
 # Lucia health endpoint
-curl http://localhost:5000/health
+curl http://localhost:7233/health
 
 # Redis connectivity
-docker-compose exec redis redis-cli PING
+docker compose exec lucia-redis redis-cli PING
 
-# Full diagnostics
-./infra/scripts/health-check.sh
+# MongoDB connectivity
+docker compose exec lucia-mongo mongosh --eval "db.runCommand('ping').ok"
 ```
 
 ### Restart Services
 
 ```bash
-# Restart Lucia (keeps Redis running)
-docker-compose restart lucia
+# Restart Lucia (keeps Redis/MongoDB running)
+docker compose restart lucia
 
 # Restart everything
-docker-compose restart
+docker compose restart
 
 # Full cycle (down/up)
-docker-compose down
-docker-compose up -d
+docker compose down
+docker compose up -d
 ```
 
 ### Backup and Restore
 
+#### Backup MongoDB Data
+
+```bash
+# Dump all Lucia databases
+docker compose exec lucia-mongo mongodump --out /tmp/backup
+docker cp lucia-mongo:/tmp/backup ./backups/mongo-$(date +%Y%m%d)
+```
+
 #### Backup Redis Data
 
 ```bash
-# Export Redis data
-docker-compose exec redis redis-cli --rdb /data/dump-backup.rdb
+docker run --rm -v lucia-redis-data:/data -v ./backups:/backups \
+  redis:8.2-alpine tar czf /backups/redis-$(date +%Y%m%d).tar.gz -C / data
+```
 
-# Copy to host
-docker cp lucia-redis:/data/dump-backup.rdb ./backups/
+#### Restore MongoDB Data
 
-# Or backup entire volume
-docker run --rm -v lucia-redis-data:/data -v /backups:/backups \
-  redis:7-alpine tar czf /backups/redis-$(date +%Y%m%d).tar.gz -C / data
+```bash
+docker cp ./backups/mongo-20260225 lucia-mongo:/tmp/restore
+docker compose exec lucia-mongo mongorestore /tmp/restore
 ```
 
 #### Restore Redis Data
 
 ```bash
-# Stop services
-docker-compose down
-
-# Clear existing data
+docker compose down
 docker volume rm lucia-redis-data
-
-# Restore from backup
-docker run --rm -v lucia-redis-data:/data -v /backups:/backups \
-  redis:7-alpine tar xzf /backups/redis-20241024.tar.gz -C /
-
-# Restart
-docker-compose up -d
+docker run --rm -v lucia-redis-data:/data -v ./backups:/backups \
+  redis:8.2-alpine tar xzf /backups/redis-20260225.tar.gz -C /
+docker compose up -d
 ```
 
 ### Update Application
@@ -402,11 +328,11 @@ docker-compose up -d
 git pull origin main
 
 # Rebuild image
-docker-compose build --no-cache lucia
+docker compose build --no-cache lucia
 
 # Restart with new image
-docker-compose down
-docker-compose up -d
+docker compose down
+docker compose up -d
 ```
 
 ## Troubleshooting
@@ -415,158 +341,114 @@ docker-compose up -d
 
 ```bash
 # Check logs
-docker-compose logs lucia
-
-# Verify configuration
-./infra/scripts/validate-deployment.sh
+docker compose logs lucia
 
 # Common issues:
-# - Missing .env file: cp .env.example .env
-# - Invalid configuration values in .env
-# - Port already in use: docker-compose up -p 5010:8080
+# - Port 7233 already in use: change the host port in docker-compose.yml
+# - Docker not running: systemctl start docker
+# - Insufficient memory: increase Docker memory limits
+```
+
+### Setup Wizard Not Appearing
+
+If the setup wizard doesn't appear at `http://localhost:7233`:
+
+```bash
+# Check if the container is running
+docker compose ps
+
+# Check if the port is reachable
+curl -v http://localhost:7233/health
+
+# Check MongoDB connectivity (setup state is stored there)
+docker compose exec lucia-mongo mongosh --eval "db.runCommand('ping').ok"
 ```
 
 ### High Memory Usage
 
 ```bash
-# Check memory
 docker stats
-
-# Reduce LLM max tokens
-# Edit .env: LLM_MAX_TOKENS=500
-
-# Limit container memory
-# Edit docker-compose.yml resources section
-
-# Restart
-docker-compose restart lucia
+# Adjust resource limits in docker-compose.yml
+# Restart: docker compose restart lucia
 ```
 
 ### Redis Persistence Issues
 
 ```bash
-# Check Redis logs
-docker-compose logs redis
-
-# Verify Redis data
-docker-compose exec redis redis-cli DBSIZE
-
-# Clear Redis (destructive)
-docker-compose exec redis redis-cli FLUSHALL
-
-# Restart Redis
-docker-compose restart redis
+docker compose logs lucia-redis
+docker compose exec lucia-redis redis-cli DBSIZE
+# Clear Redis (destructive): docker compose exec lucia-redis redis-cli FLUSHALL
+docker compose restart lucia-redis
 ```
 
 ### Home Assistant Connection Fails
 
+If configured via the setup wizard, re-check your HA URL and token:
+
 ```bash
-# Verify HA URL
+# Test HA directly
 curl http://192.168.1.100:8123
 
 # Test token
 curl -H "Authorization: Bearer YOUR_TOKEN" \
   http://192.168.1.100:8123/api/
-
-# Update .env with correct URL and token
-# Restart: docker-compose restart lucia
 ```
+
+Re-run the setup wizard to update credentials (see [Configuration](#setup-wizard-recommended) above).
 
 ### LLM API Errors
 
 ```bash
-# Test OpenAI connection
+# Test OpenAI
 curl -H "Authorization: Bearer sk-proj-YOUR_KEY" \
   https://api.openai.com/v1/models
-
-# Check token validity and quotas
-# Visit: https://platform.openai.com/account/billing/overview
 
 # For Ollama, verify it's running
 curl http://localhost:11434/api/tags
 ```
 
-## Performance Tuning
-
-### CPU Usage High
-
-```bash
-# Reduce LLM max tokens in .env
-LLM_MAX_TOKENS=500
-
-# Reduce agent concurrency
-CHAT_MODEL_MAX_CONCURRENT_REQUESTS=2
-
-# Reduce retry count
-AGENT_MAX_RETRIES=2
-```
-
-### Response Time Slow
-
-```bash
-# Check LLM provider response times
-# Edit .env: LLM_TEMPERATURE=0.3  # More deterministic
-
-# For Ollama, use smaller model
-Model=phi3:mini  # Smaller and faster than llama3.2
-
-# Increase allocated memory
-# docker-compose.yml: memory: 2G
-```
-
-### Redis Performance
-
-```bash
-# Monitor Redis stats
-docker-compose exec redis redis-cli INFO stats
-
-# Clear old data
-docker-compose exec redis redis-cli EVAL "return redis.call('eval', \"return redis.call('del', unpack(redis.call('keys', 'lucia:*:expired'))))\", 0)"
-
-# Resize maxmemory in redis.conf if needed
-```
-
 ## Security Considerations
-
-### Never commit .env
-
-```bash
-# Verify .env is ignored
-git status  # Should NOT show .env
-
-# If accidentally committed, remove:
-git rm --cached .env
-echo ".env" >> .gitignore
-git commit -m "Remove .env from version control"
-```
 
 ### Restrict Port Access
 
 ```bash
-# Current: 127.0.0.1:5000 (localhost only, safe)
-# DO NOT change to 0.0.0.0:5000 without authentication
+# Default: 0.0.0.0:7233 (LAN-accessible — required for Home Assistant integration)
+# Redis/MongoDB remain localhost-only (127.0.0.1)
 
-# For remote access, use:
-# - nginx reverse proxy with authentication
+# To restrict AgentHost to localhost only, change in docker-compose.yml:
+# ports:
+#   - "127.0.0.1:7233:8080"
+
+# For internet-facing deployments, use:
+# - nginx/Caddy reverse proxy with authentication
 # - VPN to Docker host
 # - Cloudflare Tunnel
 ```
 
 ### Rotate Credentials Regularly
 
+Re-run the setup wizard or update environment variables:
+
 ```bash
-# Every 90 days:
-# 1. Generate new Home Assistant token
-# 2. Generate new OpenAI API key
-# 3. Update .env
-# 4. Restart: docker-compose restart lucia
+# 1. Generate new Home Assistant token in HA → Profile → Long-Lived Access Tokens
+# 2. Generate new LLM API key from your provider
+# 3. Update via setup wizard or restart with new env vars
 ```
+
+### Container Security
+
+The docker-compose.yml includes security hardening by default:
+
+- `read_only: true` filesystem (except tmpfs mounts)
+- `no-new-privileges` security option
+- Dropped `NET_RAW`, `SYS_PTRACE`, `SYS_ADMIN` capabilities
+- Localhost-only port binding
 
 ## Next Steps
 
-1. **Monitor in Production** - Set up log aggregation and alerts
-2. **Scale Horizontally** - Deploy multiple instances with load balancer
-3. **Upgrade to Kubernetes** - For HA and advanced features
-4. **Add Monitoring** - Integrate OpenTelemetry for tracing and metrics
+1. **Monitor in Production** — Set up log aggregation and alerts
+2. **Add External Agents** — Connect additional A2A agents to your standalone AgentHost
+3. **Upgrade to Kubernetes** — For HA, auto-scaling, and mesh mode
+4. **Add Monitoring** — Integrate OpenTelemetry for tracing and metrics
 
 See [Kubernetes Deployment Guide](../kubernetes/README.md) for HA setup.

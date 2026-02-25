@@ -51,6 +51,9 @@ data:
   # Agent Host Service URL (used by A2A agents to register with the orchestrator)
   services__registryApi: "http://{{ include "lucia.fullname" . }}:{{ .Values.lucia.service.port }}"
 
+  # Deployment Mode: "standalone" embeds agents in-process, "mesh" for separate A2A containers
+  Deployment__Mode: {{ .Values.lucia.deploymentMode | quote }}
+
   # Session Cache Configuration
   SessionCache__SessionCacheLengthMinutes: {{ .Values.sessionCache.sessionCacheLengthMinutes | quote }}
   SessionCache__MaxHistoryItems: {{ .Values.sessionCache.maxHistoryItems | quote }}

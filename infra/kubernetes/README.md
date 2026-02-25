@@ -235,7 +235,7 @@ helm install lucia ./helm \
   --namespace lucia \
   --create-namespace \
   --set global.environment=production \
-  --set lucia.replicaCount=3 \
+  --set lucia.replicaCount=1 \
   --set llm.provider=openai \
   --set llm.chatModel.endpoint="https://api.openai.com/v1" \
   --set llm.chatModel.apiKey=$OPENAI_KEY \
@@ -302,12 +302,14 @@ kubectl logs -n lucia lucia-redis-0 -f
 
 ### Scaling Deployment
 
-```bash
-# Manual scaling (Helm)
-kubectl patch deployment lucia -n lucia -p '{"spec":{"replicas":5}}'
+> **⚠️ Single-Instance Constraint:** The AgentHost (lucia) must run as a **single replica**. The in-memory `ScheduledTaskStore` holds active alarms and timers — multiple replicas would split task state and cause missed alarms or duplicate firings. Use `replicaCount=1` and disable HPA for the AgentHost. In mesh mode, individual A2A agents (Music Agent, Timer Agent) can scale independently if needed.
 
-# Or update Helm values
-helm upgrade lucia ./helm -n lucia --set lucia.replicaCount=5
+```bash
+# AgentHost must stay at 1 replica
+helm upgrade lucia ./helm -n lucia --set lucia.replicaCount=1
+
+# In mesh mode, A2A agents can be scaled independently
+kubectl scale deployment music-agent -n lucia --replicas=2
 
 # Check HPA status
 kubectl get hpa -n lucia
