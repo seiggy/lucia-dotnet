@@ -11,10 +11,11 @@ public sealed class OnboardingMiddleware
 
     /// <summary>
     /// Paths that are always accessible regardless of setup state.
+    /// Setup endpoints (/api/setup) are NOT in this list — they are
+    /// handled separately to enforce auth and block after completion.
     /// </summary>
     private static readonly string[] ExemptPrefixes =
     [
-        "/api/setup",
         "/api/auth/status",
         "/api/auth/login",
         "/agents",
@@ -44,24 +45,20 @@ public sealed class OnboardingMiddleware
     {
         var path = context.Request.Path.Value ?? "/";
 
-        // Always allow exempt paths and static files
+        // Always allow exempt paths and static files (health, auth, etc.)
         if (IsExemptPath(path))
         {
             await _next(context).ConfigureAwait(false);
             return;
         }
 
-        // Check if setup is complete
-        var configuration = context.RequestServices.GetRequiredService<IConfiguration>();
-
+        // Determine setup state
+        var setupComplete = false;
         try
         {
-            var setupComplete = configuration["Auth:SetupComplete"];
-            if (string.Equals(setupComplete, "true", StringComparison.OrdinalIgnoreCase))
-            {
-                await _next(context).ConfigureAwait(false);
-                return;
-            }
+            var configuration = context.RequestServices.GetRequiredService<IConfiguration>();
+            setupComplete = string.Equals(
+                configuration["Auth:SetupComplete"], "true", StringComparison.OrdinalIgnoreCase);
         }
         catch (Exception ex)
         {
@@ -69,7 +66,36 @@ public sealed class OnboardingMiddleware
             _logger.LogWarning(ex, "Failed to check setup status — config store may be unavailable");
         }
 
-        // Setup not complete — redirect API requests with 503, browser requests to /setup
+        // Setup endpoints: permanently disabled after setup completes,
+        // allowed during setup (individual endpoints enforce their own auth)
+        if (path.StartsWith("/api/setup", StringComparison.OrdinalIgnoreCase))
+        {
+            if (setupComplete)
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                context.Response.ContentType = "application/json";
+                await context.Response.WriteAsJsonAsync(new
+                {
+                    error = "setup_complete",
+                    message = "Setup has already been completed. Setup endpoints are permanently disabled.",
+                }).ConfigureAwait(false);
+                return;
+            }
+
+            // Setup not yet complete — pass through to endpoint handlers
+            // (individual endpoints enforce AllowAnonymous or RequireAuthorization)
+            await _next(context).ConfigureAwait(false);
+            return;
+        }
+
+        // Setup complete — let auth middleware handle the rest
+        if (setupComplete)
+        {
+            await _next(context).ConfigureAwait(false);
+            return;
+        }
+
+        // Setup NOT complete — block non-setup requests
         if (path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase)
             || path.StartsWith("/agents/", StringComparison.OrdinalIgnoreCase))
         {

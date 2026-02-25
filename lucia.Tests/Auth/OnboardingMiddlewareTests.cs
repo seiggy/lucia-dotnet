@@ -65,6 +65,46 @@ public class OnboardingMiddlewareTests
     }
 
     [Theory]
+    [InlineData("/api/setup/status")]
+    [InlineData("/api/setup/generate-dashboard-key")]
+    [InlineData("/api/setup/configure-ha")]
+    [InlineData("/api/setup/complete")]
+    public async Task SetupPaths_PassThroughWhenSetupIncomplete(string path)
+    {
+        var nextCalled = false;
+        var next = CreateNext(() => nextCalled = true);
+        var middleware = new OnboardingMiddleware(next, _logger);
+        var context = CreateContext(path, setupComplete: false);
+
+        await middleware.InvokeAsync(context);
+
+        Assert.True(nextCalled);
+    }
+
+    [Theory]
+    [InlineData("/api/setup/status")]
+    [InlineData("/api/setup/generate-dashboard-key")]
+    [InlineData("/api/setup/regenerate-dashboard-key")]
+    [InlineData("/api/setup/configure-ha")]
+    [InlineData("/api/setup/test-ha-connection")]
+    [InlineData("/api/setup/generate-ha-key")]
+    [InlineData("/api/setup/validate-ha-connection")]
+    [InlineData("/api/setup/ha-status")]
+    [InlineData("/api/setup/complete")]
+    public async Task SetupPaths_Get403WhenSetupComplete(string path)
+    {
+        var nextCalled = false;
+        var next = CreateNext(() => nextCalled = true);
+        var middleware = new OnboardingMiddleware(next, _logger);
+        var context = CreateContext(path, setupComplete: true);
+
+        await middleware.InvokeAsync(context);
+
+        Assert.False(nextCalled);
+        Assert.Equal(StatusCodes.Status403Forbidden, context.Response.StatusCode);
+    }
+
+    [Theory]
     [InlineData("/dashboard")]
     [InlineData("/")]
     [InlineData("/settings")]

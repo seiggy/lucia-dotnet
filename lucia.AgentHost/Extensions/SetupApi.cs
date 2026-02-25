@@ -7,26 +7,36 @@ using Microsoft.AspNetCore.Mvc;
 namespace lucia.AgentHost.Extensions;
 
 /// <summary>
-/// Onboarding wizard endpoints. All exempt from authentication since they run before
-/// any keys exist. Protected by OnboardingMiddleware which blocks access after setup completes.
+/// Onboarding wizard endpoints.
+///
+/// Security model (three phases):
+///   1. Pre-key: GET /status and POST /generate-dashboard-key are anonymous
+///      because no credentials exist yet.
+///   2. Post-key: all remaining endpoints require API key / session auth
+///      so only the person who generated the key can proceed.
+///   3. Post-complete: OnboardingMiddleware returns 403 for every /api/setup/*
+///      request, permanently disabling the wizard. Users who lose their key
+///      must reset MongoDB storage — there is no anonymous recovery path.
 /// </summary>
 public static class SetupApi
 {
     public static WebApplication MapSetupApi(this WebApplication app)
     {
         var group = app.MapGroup("/api/setup")
-            .WithTags("Setup Wizard")
-            .AllowAnonymous();
+            .WithTags("Setup Wizard");
 
-        group.MapGet("/status", GetSetupStatus);
-        group.MapPost("/generate-dashboard-key", GenerateDashboardKeyAsync);
-        group.MapPost("/regenerate-dashboard-key", RegenerateDashboardKeyAsync);
-        group.MapPost("/configure-ha", ConfigureHomeAssistantAsync);
-        group.MapPost("/test-ha-connection", TestHaConnectionAsync);
-        group.MapPost("/generate-ha-key", GenerateHaKeyAsync);
-        group.MapPost("/validate-ha-connection", ValidateHaConnectionAsync);
-        group.MapGet("/ha-status", GetHaStatusAsync);
-        group.MapPost("/complete", CompleteSetupAsync);
+        // Phase 1 — anonymous (pre-key): needed before any credentials exist
+        group.MapGet("/status", GetSetupStatus).AllowAnonymous();
+        group.MapPost("/generate-dashboard-key", GenerateDashboardKeyAsync).AllowAnonymous();
+
+        // Phase 2 — authenticated: require the dashboard API key (header or session cookie)
+        group.MapPost("/regenerate-dashboard-key", RegenerateDashboardKeyAsync).RequireAuthorization();
+        group.MapPost("/configure-ha", ConfigureHomeAssistantAsync).RequireAuthorization();
+        group.MapPost("/test-ha-connection", TestHaConnectionAsync).RequireAuthorization();
+        group.MapPost("/generate-ha-key", GenerateHaKeyAsync).RequireAuthorization();
+        group.MapPost("/validate-ha-connection", ValidateHaConnectionAsync).RequireAuthorization();
+        group.MapGet("/ha-status", GetHaStatusAsync).RequireAuthorization();
+        group.MapPost("/complete", CompleteSetupAsync).RequireAuthorization();
 
         return app;
     }
@@ -284,27 +294,14 @@ public static class SetupApi
 
     /// <summary>
     /// Step 3b: Called by the HA custom component to validate connectivity back to Lucia.
-    /// Requires auth (the HA plugin sends the API key it was configured with).
+    /// Requires auth — the HA plugin sends the API key it was configured with,
+    /// validated by the ASP.NET Core auth middleware (RequireAuthorization).
     /// </summary>
     private static async Task<IResult> ValidateHaConnectionAsync(
         [FromBody] ValidateHaConnectionRequest request,
         ConfigStoreWriter configStore,
-        IApiKeyService apiKeyService,
         HttpContext httpContext)
     {
-        // This endpoint requires a valid API key (sent by the HA plugin)
-        var apiKeyHeader = httpContext.Request.Headers["X-API-Key"].ToString();
-        if (string.IsNullOrWhiteSpace(apiKeyHeader))
-        {
-            return Results.Unauthorized();
-        }
-
-        var entry = await apiKeyService.ValidateKeyAsync(apiKeyHeader, httpContext.RequestAborted).ConfigureAwait(false);
-        if (entry is null)
-        {
-            return Results.Unauthorized();
-        }
-
         if (string.IsNullOrWhiteSpace(request.HomeAssistantInstanceId))
         {
             return Results.BadRequest(new { error = "Home Assistant instance ID is required." });
