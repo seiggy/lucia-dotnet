@@ -25,6 +25,7 @@ public class AgentInitializationService : BackgroundService
     private readonly IAgentDefinitionRepository _definitionRepository;
     private readonly IModelProviderRepository _providerRepository;
     private readonly IEntityLocationService _entityLocationService;
+    private readonly IPresenceDetectionService _presenceDetectionService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AgentInitializationService> _logger;
     private readonly IOptionsMonitor<HomeAssistantOptions> _haOptions;
@@ -36,6 +37,7 @@ public class AgentInitializationService : BackgroundService
         IAgentDefinitionRepository definitionRepository,
         IModelProviderRepository providerRepository,
         IEntityLocationService entityLocationService,
+        IPresenceDetectionService presenceDetectionService,
         IConfiguration configuration,
         ILogger<AgentInitializationService> logger,
         IOptionsMonitor<HomeAssistantOptions> haOptions,
@@ -46,6 +48,7 @@ public class AgentInitializationService : BackgroundService
         _definitionRepository = definitionRepository;
         _providerRepository = providerRepository;
         _entityLocationService = entityLocationService;
+        _presenceDetectionService = presenceDetectionService;
         _configuration = configuration;
         _logger = logger;
         _haOptions = haOptions;
@@ -73,6 +76,16 @@ public class AgentInitializationService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Entity location service initialization failed — skills will operate without location cache");
+        }
+
+        // Auto-discover presence sensors now that entity locations are loaded
+        try
+        {
+            await _presenceDetectionService.RefreshSensorMappingsAsync(stoppingToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Presence sensor scan failed — presence detection will be unavailable until manually refreshed");
         }
 
         _logger.LogInformation("Starting agent initialization...");
