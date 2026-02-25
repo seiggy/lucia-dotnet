@@ -181,10 +181,9 @@ services:
     networks:
       - lucia-network
     
-    # Port exposure
+    # Port exposure (HTTP only — HTTPS handled by reverse proxy in production)
     ports:
-      - "127.0.0.1:5000:8080"  # HTTP API
-      - "127.0.0.1:5001:8081"  # HTTPS (disabled in MVP)
+      - "127.0.0.1:7233:8080"
     
     # Volume mounts
     volumes:
