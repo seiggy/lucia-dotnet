@@ -1,9 +1,7 @@
-using A2A;
 using FakeItEasy;
 using lucia.Agents.Services;
-using lucia.HomeAssistant.Models;
-using lucia.HomeAssistant.Services;
 using lucia.TimerAgent;
+using lucia.TimerAgent.ScheduledTasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 
@@ -15,8 +13,8 @@ namespace lucia.Tests.Timer;
 public sealed class TimerSkillTests
 {
     private readonly IEntityLocationService _entityLocationService = A.Fake<IEntityLocationService>();
-    private readonly ITaskStore _taskStore = A.Fake<ITaskStore>();
-    private readonly ActiveTimerStore _timerStore = new();
+    private readonly ScheduledTaskStore _taskStore = new();
+    private readonly IScheduledTaskRepository _taskRepository = A.Fake<IScheduledTaskRepository>();
     private readonly FakeTimeProvider _timeProvider = new();
     private readonly ILogger<TimerSkill> _logger = A.Fake<ILogger<TimerSkill>>();
     private readonly TimerSkill _skill;
@@ -24,7 +22,7 @@ public sealed class TimerSkillTests
     public TimerSkillTests()
     {
         _timeProvider.SetUtcNow(new DateTimeOffset(2025, 7, 15, 12, 0, 0, TimeSpan.Zero));
-        _skill = new TimerSkill(_entityLocationService, _taskStore, _timerStore, _timeProvider, _logger);
+        _skill = new TimerSkill(_entityLocationService, _taskStore, _taskRepository, _timeProvider, _logger);
     }
 
     [Fact]
@@ -79,9 +77,9 @@ public sealed class TimerSkillTests
     {
         await _skill.SetTimerAsync(60, "Timer done!", "assist_satellite.office");
 
-        Assert.Equal(1, _timerStore.Count);
-        var timers = _timerStore.GetAll();
-        var timer = timers.First();
+        Assert.Equal(1, _taskStore.Count);
+        var tasks = _taskStore.GetByType(ScheduledTaskType.Timer);
+        var timer = Assert.IsType<TimerScheduledTask>(tasks.First());
         Assert.Equal("assist_satellite.office", timer.EntityId);
         Assert.Equal("Timer done!", timer.Message);
         Assert.Equal(60, timer.DurationSeconds);
@@ -112,11 +110,11 @@ public sealed class TimerSkillTests
     {
         var setResult = await _skill.SetTimerAsync(60, "Cancelled!", "assist_satellite.office");
         var timerId = ExtractTimerId(setResult);
-        Assert.Equal(1, _timerStore.Count);
+        Assert.Equal(1, _taskStore.Count);
 
         await _skill.CancelTimerAsync(timerId);
 
-        Assert.Equal(0, _timerStore.Count);
+        Assert.Equal(0, _taskStore.Count);
     }
 
     [Fact]
@@ -174,6 +172,36 @@ public sealed class TimerSkillTests
         var tools = _skill.GetTools();
 
         Assert.Equal(3, tools.Count);
+    }
+
+    [Fact]
+    public async Task SetTimerAsync_PersistsToMongoDb()
+    {
+        await _skill.SetTimerAsync(120, "Persist me", "assist_satellite.kitchen");
+
+        A.CallTo(() => _taskRepository.UpsertAsync(
+            A<ScheduledTaskDocument>.That.Matches(d =>
+                d.TaskType == ScheduledTaskType.Timer &&
+                d.Message == "Persist me" &&
+                d.EntityId == "assist_satellite.kitchen" &&
+                d.DurationSeconds == 120),
+            A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task CancelTimerAsync_UpdatesMongoDbStatus()
+    {
+        var setResult = await _skill.SetTimerAsync(300, "Cancel me", "assist_satellite.kitchen");
+        var timerId = ExtractTimerId(setResult);
+
+        await _skill.CancelTimerAsync(timerId);
+
+        A.CallTo(() => _taskRepository.UpdateStatusAsync(
+            timerId,
+            ScheduledTaskStatus.Cancelled,
+            A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
     }
 
     /// <summary>

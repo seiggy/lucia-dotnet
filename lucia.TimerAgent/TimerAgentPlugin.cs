@@ -25,14 +25,11 @@ public sealed class TimerAgentPlugin : IAgentPlugin
             OrchestratorServiceKeys.TimerModel,
             (sp, _) => sp.GetRequiredService<IChatClient>());
 
-        // Existing timer infrastructure (will be migrated to ScheduledTaskStore later)
-        builder.Services.AddSingleton<ActiveTimerStore>();
+        // Timer skill + agent
         builder.Services.AddSingleton<TimerSkill>();
         builder.Services.AddSingleton<ILuciaAgent, TimerAgent>();
-        builder.Services.AddHostedService<TimerExecutionService>();
-        builder.Services.AddHostedService<TimerRecoveryService>();
 
-        // Scheduled task infrastructure
+        // Scheduled task infrastructure (shared by timer, alarm, and future task types)
         builder.Services.AddSingleton<ScheduledTaskStore>();
         builder.Services.AddSingleton<IScheduledTaskRepository, MongoScheduledTaskRepository>();
         builder.Services.AddSingleton<IAlarmClockRepository, MongoAlarmClockRepository>();

@@ -87,8 +87,8 @@ curl http://localhost:7233/health
 
 ### Volumes
 
-- `redis-data` — Persistent Redis data store
-- `mongo-data` — Persistent MongoDB data store
+- `lucia-redis-data` — Persistent Redis data store
+- `lucia-mongo-data` — Persistent MongoDB data store
 
 ## Deployment Modes
 
@@ -160,8 +160,8 @@ docker compose logs --tail=100 lucia
 ```bash
 docker compose ps
 curl http://localhost:7233/health
-docker compose exec redis redis-cli PING
-docker compose exec mongo mongosh --eval "db.runCommand('ping').ok"
+docker compose exec lucia-redis redis-cli PING
+docker compose exec lucia-mongo mongosh --eval "db.runCommand('ping').ok"
 ```
 
 ### Restart Services
@@ -184,7 +184,7 @@ docker compose down -v        # Stop and remove volumes (destructive!)
 
 ```bash
 # Backup MongoDB
-docker compose exec mongo mongodump --out /tmp/backup
+docker compose exec lucia-mongo mongodump --out /tmp/backup
 docker cp lucia-mongo:/tmp/backup ./backup/mongo-$(date +%Y%m%d)
 
 # Backup Redis
@@ -206,7 +206,7 @@ docker compose logs lucia
 ```bash
 docker compose ps               # Container running?
 curl -v http://localhost:7233    # Port reachable?
-docker compose exec mongo mongosh --eval "db.runCommand('ping').ok"  # MongoDB healthy?
+docker compose exec lucia-mongo mongosh --eval "db.runCommand('ping').ok"  # MongoDB healthy?
 ```
 
 ### Home Assistant connection fails

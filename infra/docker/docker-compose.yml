@@ -9,8 +9,8 @@
 #
 # Services:
 #   - lucia: Agent Host API (all agents embedded in standalone mode)
-#   - redis: Task persistence and session state
-#   - mongo: Trace capture and configuration storage
+#   - lucia-redis: Task persistence and session state
+#   - lucia-mongo: Trace capture and configuration storage
 #
 # Usage:
 #   # Start all services
@@ -30,7 +30,7 @@ services:
   # ========================================================================
   # Redis Service - Task Persistence and Session State
   # ========================================================================
-  redis:
+  lucia-redis:
     # Use official Redis 8.2 image with alpine for minimal size
     image: redis:8.2-alpine
     
@@ -56,7 +56,7 @@ services:
     
     # Volume for persistent data storage
     volumes:
-      - redis-data:/data
+      - lucia-redis-data:/data
     
     # Health check for automatic restart
     healthcheck:
@@ -85,7 +85,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-        tag: "redis"
+        tag: "lucia-redis"
     
     # Security options
     security_opt:
@@ -100,7 +100,7 @@ services:
   # ========================================================================
   # MongoDB Service - Trace Capture and Configuration Storage
   # ========================================================================
-  mongo:
+  lucia-mongo:
     # Use official MongoDB 8.0 image
     image: mongo:8.0
     
@@ -116,7 +116,7 @@ services:
     
     # Volume for persistent data storage
     volumes:
-      - mongo-data:/data/db
+      - lucia-mongo-data:/data/db
     
     # Health check for automatic restart
     healthcheck:
@@ -145,7 +145,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-        tag: "mongo"
+        tag: "lucia-mongo"
     
     # Security options
     security_opt:
@@ -172,9 +172,9 @@ services:
 
     # Depends on Redis and MongoDB being healthy
     depends_on:
-      redis:
+      lucia-redis:
         condition: service_healthy
-      mongo:
+      lucia-mongo:
         condition: service_healthy
     
     # Network configuration
@@ -285,11 +285,11 @@ networks:
 # ============================================================================
 volumes:
   # Redis persistent data
-  redis-data:
+  lucia-redis-data:
     driver: local
   
   # MongoDB persistent data
-  mongo-data:
+  lucia-mongo-data:
     driver: local
   
   # Uncomment for Home Assistant persistent data

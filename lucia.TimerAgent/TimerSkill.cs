@@ -1,10 +1,8 @@
 using System.Diagnostics;
-using System.Text.Json;
-using A2A;
 using lucia.Agents.Models;
 using lucia.Agents.Services;
 using lucia.HomeAssistant.Models;
-using lucia.HomeAssistant.Services;
+using lucia.TimerAgent.ScheduledTasks;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
@@ -12,29 +10,29 @@ namespace lucia.TimerAgent;
 
 /// <summary>
 /// Skill that creates timed announcements on Home Assistant assist satellite devices.
-/// Timers are added to <see cref="ActiveTimerStore"/> and executed by <see cref="TimerExecutionService"/>.
-/// Timers are persisted as A2A tasks in ITaskStore for durability across restarts.
+/// Timers are added to <see cref="ScheduledTaskStore"/> and executed by <see cref="ScheduledTaskService"/>.
+/// Timers are persisted to MongoDB via <see cref="IScheduledTaskRepository"/> for durability across restarts.
 /// </summary>
 public sealed class TimerSkill
 {
     private static readonly ActivitySource ActivitySource = new("Lucia.Skills.Timer", "1.0.0");
 
     private readonly IEntityLocationService _entityLocationService;
-    private readonly ITaskStore _taskStore;
-    private readonly ActiveTimerStore _timerStore;
+    private readonly ScheduledTaskStore _taskStore;
+    private readonly IScheduledTaskRepository _taskRepository;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<TimerSkill> _logger;
 
     public TimerSkill(
         IEntityLocationService entityLocationService,
-        ITaskStore taskStore,
-        ActiveTimerStore timerStore,
+        ScheduledTaskStore taskStore,
+        IScheduledTaskRepository taskRepository,
         TimeProvider timeProvider,
         ILogger<TimerSkill> logger)
     {
         _entityLocationService = entityLocationService ?? throw new ArgumentNullException(nameof(entityLocationService));
         _taskStore = taskStore ?? throw new ArgumentNullException(nameof(taskStore));
-        _timerStore = timerStore ?? throw new ArgumentNullException(nameof(timerStore));
+        _taskRepository = taskRepository ?? throw new ArgumentNullException(nameof(taskRepository));
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -73,7 +71,7 @@ public sealed class TimerSkill
 
     /// <summary>
     /// Sets a timer that will play a TTS announcement on the specified satellite device when it expires.
-    /// The timer is added to <see cref="ActiveTimerStore"/> and executed by <see cref="TimerExecutionService"/>.
+    /// The timer is added to <see cref="ScheduledTaskStore"/> and executed by <see cref="ScheduledTaskService"/>.
     /// </summary>
     public async Task<string> SetTimerAsync(int durationSeconds, string message, string entityId)
     {
@@ -105,54 +103,35 @@ public sealed class TimerSkill
 
         var timerId = Guid.NewGuid().ToString("N")[..8];
         var taskId = Guid.NewGuid().ToString("N");
-        var expiresAt = _timeProvider.GetUtcNow().AddSeconds(durationSeconds);
+        var fireAt = _timeProvider.GetUtcNow().AddSeconds(durationSeconds);
 
         activity?.SetTag("timer.id", timerId);
         activity?.SetTag("timer.task_id", taskId);
         activity?.SetTag("timer.duration_seconds", durationSeconds);
         activity?.SetTag("timer.entity_id", resolvedEntityId);
 
-        // Persist as an A2A task so the timer survives process restarts
-        var agentTask = new AgentTask
-        {
-            Id = taskId,
-            ContextId = timerId,
-            Status = new AgentTaskStatus
-            {
-                State = TaskState.Working,
-                Message = new AgentMessage
-                {
-                    MessageId = Guid.NewGuid().ToString("N"),
-                    Role = MessageRole.Agent,
-                    Parts = [new TextPart { Text = $"Timer set for {FormatDuration(TimeSpan.FromSeconds(durationSeconds))}: \"{message}\"" }]
-                },
-                Timestamp = DateTimeOffset.UtcNow
-            },
-            Metadata = new Dictionary<string, JsonElement>
-            {
-                ["timer.agentId"] = JsonSerializer.SerializeToElement("timer-agent"),
-                ["timer.durationSeconds"] = JsonSerializer.SerializeToElement(durationSeconds),
-                ["timer.message"] = JsonSerializer.SerializeToElement(message),
-                ["timer.entityId"] = JsonSerializer.SerializeToElement(resolvedEntityId),
-                ["timer.expiresAtUtc"] = JsonSerializer.SerializeToElement(expiresAt.UtcDateTime.ToString("O")),
-                ["timer.timerId"] = JsonSerializer.SerializeToElement(timerId),
-            }
-        };
-
-        await _taskStore.SetTaskAsync(agentTask).ConfigureAwait(false);
-
-        var timer = new ActiveTimer
+        var timerTask = new TimerScheduledTask
         {
             Id = timerId,
             TaskId = taskId,
+            Label = $"Timer: {message}",
+            FireAt = fireAt,
             Message = message,
             EntityId = resolvedEntityId,
-            DurationSeconds = durationSeconds,
-            ExpiresAt = expiresAt,
-            Cts = new CancellationTokenSource()
+            DurationSeconds = durationSeconds
         };
 
-        _timerStore.Add(timer);
+        // Persist to MongoDB for crash recovery
+        try
+        {
+            await _taskRepository.UpsertAsync(timerTask.ToDocument()).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to persist timer {TimerId} to MongoDB — timer will still run in-memory", timerId);
+        }
+
+        _taskStore.Add(timerTask);
 
         _logger.LogInformation(
             "Timer {TimerId} (task {TaskId}) set for {Duration}s on {EntityId}: {Message}",
@@ -167,21 +146,18 @@ public sealed class TimerSkill
     /// </summary>
     public async Task<string> CancelTimerAsync(string timerId)
     {
-        if (_timerStore.TryRemove(timerId, out var timer) && timer is not null)
+        if (_taskStore.TryRemove(timerId, out _))
         {
-            timer.Cts.Cancel();
-            timer.Cts.Dispose();
-
             try
             {
-                await _taskStore.UpdateStatusAsync(timer.TaskId, TaskState.Canceled).ConfigureAwait(false);
+                await _taskRepository.UpdateStatusAsync(timerId, ScheduledTaskStatus.Cancelled).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to update task {TaskId} status to Canceled", timer.TaskId);
+                _logger.LogWarning(ex, "Failed to update task {TimerId} status to Cancelled in MongoDB", timerId);
             }
 
-            _logger.LogInformation("Timer {TimerId} (task {TaskId}) cancelled", timerId, timer.TaskId);
+            _logger.LogInformation("Timer {TimerId} cancelled", timerId);
             return $"Timer '{timerId}' has been cancelled.";
         }
 
@@ -193,7 +169,7 @@ public sealed class TimerSkill
     /// </summary>
     public Task<string> ListTimers()
     {
-        var timers = _timerStore.GetAll();
+        var timers = _taskStore.GetByType(ScheduledTaskType.Timer);
         if (timers.Count == 0)
         {
             return Task.FromResult("No active timers.");
@@ -201,14 +177,17 @@ public sealed class TimerSkill
 
         var now = _timeProvider.GetUtcNow();
         var lines = timers
-            .OrderBy(t => t.ExpiresAt)
+            .OrderBy(t => t.FireAt)
             .Select(t =>
             {
-                var remaining = t.ExpiresAt - now;
+                var remaining = t.FireAt - now;
                 var friendlyRemaining = remaining.TotalSeconds > 0
                     ? FormatDuration(remaining)
                     : "expiring now";
-                return $"- Timer '{t.Id}': {friendlyRemaining} remaining — \"{t.Message}\" → {t.EntityId}";
+                var timerTask = t as TimerScheduledTask;
+                var msg = timerTask?.Message ?? t.Label;
+                var entity = timerTask?.EntityId ?? "unknown";
+                return $"- Timer '{t.Id}': {friendlyRemaining} remaining — \"{msg}\" → {entity}";
             });
 
         return Task.FromResult($"Active timers:\n{string.Join('\n', lines)}");
@@ -217,7 +196,7 @@ public sealed class TimerSkill
     /// <summary>
     /// Gets the count of currently active timers (for testing).
     /// </summary>
-    internal int ActiveTimerCount => _timerStore.Count;
+    internal int ActiveTimerCount => _taskStore.GetByType(ScheduledTaskType.Timer).Count;
 
     /// <summary>
     /// Resolves a location name or entity_id to an actual assist_satellite entity_id.

@@ -73,10 +73,10 @@ docker compose ps
 curl http://localhost:7233/health
 
 # Redis connectivity
-docker compose exec redis redis-cli PING
+docker compose exec lucia-redis redis-cli PING
 
 # MongoDB connectivity
-docker compose exec mongo mongosh --eval "db.runCommand('ping').ok"
+docker compose exec lucia-mongo mongosh --eval "db.runCommand('ping').ok"
 ```
 
 ### 4. Test Agent API
@@ -121,7 +121,7 @@ All user-facing configuration — LLM provider, Home Assistant connection, API k
 To re-run the setup wizard, clear the config collection:
 
 ```bash
-docker compose exec mongo mongosh luciaconfig --eval "db.settings.drop()"
+docker compose exec lucia-mongo mongosh luciaconfig --eval "db.settings.drop()"
 docker compose restart lucia
 ```
 
@@ -267,10 +267,10 @@ docker compose ps
 curl http://localhost:7233/health
 
 # Redis connectivity
-docker compose exec redis redis-cli PING
+docker compose exec lucia-redis redis-cli PING
 
 # MongoDB connectivity
-docker compose exec mongo mongosh --eval "db.runCommand('ping').ok"
+docker compose exec lucia-mongo mongosh --eval "db.runCommand('ping').ok"
 ```
 
 ### Restart Services
@@ -293,7 +293,7 @@ docker compose up -d
 
 ```bash
 # Dump all Lucia databases
-docker compose exec mongo mongodump --out /tmp/backup
+docker compose exec lucia-mongo mongodump --out /tmp/backup
 docker cp lucia-mongo:/tmp/backup ./backups/mongo-$(date +%Y%m%d)
 ```
 
@@ -308,7 +308,7 @@ docker run --rm -v lucia-redis-data:/data -v ./backups:/backups \
 
 ```bash
 docker cp ./backups/mongo-20260225 lucia-mongo:/tmp/restore
-docker compose exec mongo mongorestore /tmp/restore
+docker compose exec lucia-mongo mongorestore /tmp/restore
 ```
 
 #### Restore Redis Data
@@ -361,7 +361,7 @@ docker compose ps
 curl -v http://localhost:7233/health
 
 # Check MongoDB connectivity (setup state is stored there)
-docker compose exec mongo mongosh --eval "db.runCommand('ping').ok"
+docker compose exec lucia-mongo mongosh --eval "db.runCommand('ping').ok"
 ```
 
 ### High Memory Usage
@@ -375,10 +375,10 @@ docker stats
 ### Redis Persistence Issues
 
 ```bash
-docker compose logs redis
-docker compose exec redis redis-cli DBSIZE
-# Clear Redis (destructive): docker compose exec redis redis-cli FLUSHALL
-docker compose restart redis
+docker compose logs lucia-redis
+docker compose exec lucia-redis redis-cli DBSIZE
+# Clear Redis (destructive): docker compose exec lucia-redis redis-cli FLUSHALL
+docker compose restart lucia-redis
 ```
 
 ### Home Assistant Connection Fails
