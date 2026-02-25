@@ -107,6 +107,11 @@ public sealed class ChatClientResolver : IChatClientResolver
         if (provider.ProviderType != ProviderType.GitHubCopilot)
             return null;
 
-        return await _resolver.CreateAIAgentAsync(provider, ct).ConfigureAwait(false);
+        var agent = await _resolver.CreateAIAgentAsync(provider, ct).ConfigureAwait(false);
+        if (agent is null) return agent;
+        return agent
+            .AsBuilder()
+            .UseOpenTelemetry()
+            .Build();
     }
 }

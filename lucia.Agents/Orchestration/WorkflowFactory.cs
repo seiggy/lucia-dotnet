@@ -32,7 +32,7 @@ public sealed class WorkflowFactory
     private readonly IOptions<AgentInvokerOptions> _invokerOptions;
     private readonly IOptions<ResultAggregatorOptions> _aggregatorOptions;
     private readonly TimeProvider _timeProvider;
-    private readonly ITaskManager _taskManager;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly IOrchestratorObserver? _observer;
     private readonly IAgentProvider? _agentProvider;
     private readonly IPromptCacheService? _promptCache;
@@ -48,7 +48,7 @@ public sealed class WorkflowFactory
         IOptions<AgentInvokerOptions> invokerOptions,
         IOptions<ResultAggregatorOptions> aggregatorOptions,
         TimeProvider timeProvider,
-        ITaskManager taskManager,
+        IHttpClientFactory httpClientFactory,
         IOrchestratorObserver? observer = null,
         IAgentProvider? agentProvider = null,
         IPromptCacheService? promptCache = null,
@@ -64,7 +64,7 @@ public sealed class WorkflowFactory
         _invokerOptions = invokerOptions ?? throw new ArgumentNullException(nameof(invokerOptions));
         _aggregatorOptions = aggregatorOptions ?? throw new ArgumentNullException(nameof(aggregatorOptions));
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
-        _taskManager = taskManager ?? throw new ArgumentNullException(nameof(taskManager));
+        _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
         _observer = observer;
         _agentProvider = agentProvider;
         _promptCache = promptCache;
@@ -104,22 +104,10 @@ public sealed class WorkflowFactory
             }
         }
 
-        // Also resolve remote agents with absolute HTTP/HTTPS URIs
-        foreach (var card in agentCards)
-        {
-            if (Uri.TryCreate(card.Url, UriKind.Absolute, out var cardUri)
-                && (cardUri.Scheme == Uri.UriSchemeHttp || cardUri.Scheme == Uri.UriSchemeHttps))
-            {
-                try
-                {
-                    resolved.Add(card.AsAIAgent());
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to resolve AIAgent from card {AgentName} ({Url})", card.Name, card.Url);
-                }
-            }
-        }
+        // Remote agents with absolute HTTP/HTTPS URIs are handled by RemoteAgentInvoker
+        // in CreateInvokers — they use A2AClient with service-discovery-enabled HttpClient.
+        // Do NOT wrap them as A2AAgent here (AsAIAgent creates an internal HttpClient
+        // that bypasses Aspire service discovery).
 
         // Resolve dynamic agents (user-defined via MCP) — lazily built from latest Mongo definition
         if (_dynamicAgentProvider is not null)
@@ -148,7 +136,8 @@ public sealed class WorkflowFactory
     /// <summary>
     /// Creates agent invokers (local or remote) keyed by agent name.
     /// Local agents use <see cref="AIHostAgent"/> for in-process invocation with
-    /// session persistence. Remote agents route through <see cref="ITaskManager"/>.
+    /// session persistence. Remote agents route through <see cref="A2AClient"/>
+    /// with service-discovery-enabled HttpClient.
     /// </summary>
     public Dictionary<string, IAgentInvoker> CreateInvokers(
         IReadOnlyCollection<AgentCard> agentCards,
@@ -186,8 +175,9 @@ public sealed class WorkflowFactory
             else if (card is not null && Uri.TryCreate(card.Url, UriKind.Absolute, out var cardUri)
                      && (cardUri.Scheme == Uri.UriSchemeHttp || cardUri.Scheme == Uri.UriSchemeHttps))
             {
-                // Remote agent: route through TaskManager via HTTP
-                invoker = new RemoteAgentInvoker(key, card, _taskManager, invokerLogger, _invokerOptions, _timeProvider);
+                // Remote agent: route through A2AClient via HTTP with service discovery
+                var httpClient = _httpClientFactory.CreateClient("a2a-remote");
+                invoker = new RemoteAgentInvoker(key, card, httpClient, invokerLogger, _invokerOptions, _timeProvider);
             }
             else
             {
@@ -208,6 +198,7 @@ public sealed class WorkflowFactory
     public async Task<OrchestratorResult?> BuildAndExecuteAsync(
         Dictionary<string, IAgentInvoker> invokers,
         string historyAwareRequest,
+        string? requestId,
         CancellationToken cancellationToken)
     {
         // Resolve the orchestrator's chat client per-request so model provider changes take effect
@@ -223,6 +214,7 @@ public sealed class WorkflowFactory
 
         var chatMessage = new ChatMessage(ChatRole.User, historyAwareRequest);
         dispatch.SetUserMessage(chatMessage);
+        dispatch.SetRequestId(requestId);
 
         var builder = new WorkflowBuilder(router)
             .WithName("LuciaOrchestratorWorkflow")

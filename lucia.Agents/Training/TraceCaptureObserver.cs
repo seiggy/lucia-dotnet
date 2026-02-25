@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using lucia.Agents.Orchestration;
@@ -9,8 +10,11 @@ using Microsoft.Extensions.Options;
 namespace lucia.Agents.Training;
 
 /// <summary>
-/// Scoped observer that captures a single orchestrator request lifecycle
-/// into a <see cref="ConversationTrace"/> and fire-and-forget persists it to MongoDB.
+/// Singleton observer that captures orchestrator request lifecycles into
+/// <see cref="ConversationTrace"/> objects and persists them to MongoDB.
+/// Uses a <see cref="ConcurrentDictionary{TKey,TValue}"/> keyed by request ID
+/// instead of <see cref="AsyncLocal{T}"/>, which does not survive the MAF
+/// <c>InProcessExecution</c> workflow boundary.
 /// </summary>
 public sealed class TraceCaptureObserver : IOrchestratorObserver
 {
@@ -19,8 +23,12 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
     private readonly ILogger<TraceCaptureObserver> _logger;
     private readonly Regex[] _redactionRegexes;
 
-    private readonly AsyncLocal<ConversationTrace?> _currentTrace = new();
-    private readonly AsyncLocal<Stopwatch?> _stopwatch = new();
+    /// <summary>
+    /// Thread-safe store of in-flight traces keyed by request ID.
+    /// Entries are added in <see cref="OnRequestStartedAsync"/> and removed
+    /// in <see cref="OnResponseAggregatedAsync"/> after persistence.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, ActiveTrace> _activeTraces = new(StringComparer.Ordinal);
 
     public TraceCaptureObserver(
         ITraceRepository repository,
@@ -36,23 +44,21 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
     }
 
     /// <inheritdoc />
-    public Task OnRequestStartedAsync(
+    public Task<string> OnRequestStartedAsync(
         string userRequest,
         IReadOnlyList<TracedMessage>? conversationHistory = null,
         CancellationToken cancellationToken = default)
     {
+        var requestId = Guid.NewGuid().ToString("N");
+
         if (!_options.Enabled)
         {
-            return Task.CompletedTask;
+            return Task.FromResult(requestId);
         }
 
-        _stopwatch.Value = Stopwatch.StartNew();
-
-        var sessionId = Guid.NewGuid().ToString("N");
-
-        _currentTrace.Value = new ConversationTrace
+        var trace = new ConversationTrace
         {
-            SessionId = sessionId,
+            SessionId = requestId,
             UserInput = userRequest,
             ConversationHistory = conversationHistory?.ToList() ?? [],
             Metadata =
@@ -62,37 +68,40 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
         };
 
         // Add an orchestration-level record so "orchestration" appears in the agents column
-        _currentTrace.Value.AgentExecutions.Add(new AgentExecutionRecord
+        trace.AgentExecutions.Add(new AgentExecutionRecord
         {
             AgentId = "orchestration",
             Success = true
         });
 
+        var active = new ActiveTrace(trace, Stopwatch.StartNew());
+        _activeTraces[requestId] = active;
+
         // Share the session ID with the per-agent tracing chat client
         // so individual agent traces are correlated with this orchestrator trace.
-        AgentTracingChatClient.SetSessionId(sessionId);
+        AgentTracingChatClient.SetSessionId(requestId);
 
-        _logger.LogDebug("Trace capture started for request: {Request}", userRequest);
+        _logger.LogDebug("Trace capture started for request {RequestId}: {Request}", requestId, userRequest);
 
-        return Task.CompletedTask;
+        return Task.FromResult(requestId);
     }
 
     /// <inheritdoc />
     public Task OnRoutingCompletedAsync(
+        string requestId,
         AgentChoiceResult result,
         string? systemPrompt = null,
         CancellationToken cancellationToken = default)
     {
-        if (!_options.Enabled || _currentTrace.Value is null)
+        if (!_options.Enabled || !_activeTraces.TryGetValue(requestId, out var active))
         {
             return Task.CompletedTask;
         }
 
-        _currentTrace.Value.SystemPrompt = systemPrompt;
+        var trace = active.Trace;
+        trace.SystemPrompt = systemPrompt;
 
-        // Mutate the existing trace object (do NOT reassign _currentTrace.Value)
-        // so that changes are visible in both parent and child async contexts.
-        _currentTrace.Value.Routing = new RoutingDecision
+        trace.Routing = new RoutingDecision
         {
             SelectedAgentId = result.AgentId,
             AdditionalAgentIds = result.AdditionalAgents ?? [],
@@ -110,9 +119,9 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
     }
 
     /// <inheritdoc />
-    public Task OnAgentExecutionCompletedAsync(OrchestratorAgentResponse response, CancellationToken cancellationToken = default)
+    public Task OnAgentExecutionCompletedAsync(string requestId, OrchestratorAgentResponse response, CancellationToken cancellationToken = default)
     {
-        if (!_options.Enabled || _currentTrace.Value is null)
+        if (!_options.Enabled || !_activeTraces.TryGetValue(requestId, out var active))
         {
             return Task.CompletedTask;
         }
@@ -126,38 +135,44 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
             ExecutionDurationMs = response.ExecutionTimeMs
         };
 
-        _currentTrace.Value.AgentExecutions.Add(record);
-
-        if (!response.Success)
+        lock (active.SyncRoot)
         {
-            _currentTrace.Value.IsErrored = true;
-            _currentTrace.Value.ErrorMessage ??= response.ErrorMessage;
+            active.Trace.AgentExecutions.Add(record);
+
+            if (!response.Success)
+            {
+                active.Trace.IsErrored = true;
+                active.Trace.ErrorMessage ??= response.ErrorMessage;
+            }
         }
 
         return Task.CompletedTask;
     }
 
     /// <inheritdoc />
-    public async Task OnResponseAggregatedAsync(string aggregatedResponse, CancellationToken cancellationToken = default)
+    public async Task OnResponseAggregatedAsync(string requestId, string aggregatedResponse, CancellationToken cancellationToken = default)
     {
-        if (!_options.Enabled || _currentTrace.Value is null)
+        if (!_options.Enabled || !_activeTraces.TryRemove(requestId, out var active))
         {
             return;
         }
 
-        _stopwatch.Value?.Stop();
+        active.Stopwatch.Stop();
+        var trace = active.Trace;
 
-        var trace = _currentTrace.Value;
-        trace.FinalResponse = ApplyRedaction(aggregatedResponse);
-        trace.TotalDurationMs = _stopwatch.Value?.Elapsed.TotalMilliseconds ?? 0;
-        trace.UserInput = ApplyRedaction(trace.UserInput);
-
-        // Redact agent response content
-        foreach (var execution in trace.AgentExecutions)
+        lock (active.SyncRoot)
         {
-            if (execution.ResponseContent is not null)
+            trace.FinalResponse = ApplyRedaction(aggregatedResponse);
+            trace.TotalDurationMs = active.Stopwatch.Elapsed.TotalMilliseconds;
+            trace.UserInput = ApplyRedaction(trace.UserInput);
+
+            // Redact agent response content
+            foreach (var execution in trace.AgentExecutions)
             {
-                execution.ResponseContent = ApplyRedaction(execution.ResponseContent);
+                if (execution.ResponseContent is not null)
+                {
+                    execution.ResponseContent = ApplyRedaction(execution.ResponseContent);
+                }
             }
         }
 
@@ -170,12 +185,6 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
         {
             _logger.LogError(ex, "Trace persistence failed for {TraceId}", trace.Id);
         }
-
-        // Clear the async-local state
-        _currentTrace.Value = null;
-        _stopwatch.Value = null;
-
-        return;
     }
 
     private async Task PersistTraceAsync(ConversationTrace trace)
@@ -214,5 +223,17 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Holds an in-flight trace and its timing information.
+    /// <see cref="SyncRoot"/> protects mutation of the <see cref="ConversationTrace"/>
+    /// collections that may be accessed from parallel agent dispatch tasks.
+    /// </summary>
+    private sealed class ActiveTrace(ConversationTrace trace, Stopwatch stopwatch)
+    {
+        public ConversationTrace Trace { get; } = trace;
+        public Stopwatch Stopwatch { get; } = stopwatch;
+        public object SyncRoot { get; } = new();
     }
 }

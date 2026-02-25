@@ -104,4 +104,15 @@ public interface IHomeAssistantClient
 
     /// <summary>Handle an intent.</summary>
     Task<string> HandleIntentAsync(IntentRequest request, CancellationToken cancellationToken = default);
+
+    // ── Config Registries ────────────────────────────────────────────
+
+    /// <summary>Returns all floor entries from the config registry.</summary>
+    Task<FloorRegistryEntry[]> GetFloorRegistryAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Returns all area entries from the config registry.</summary>
+    Task<AreaRegistryEntry[]> GetAreaRegistryAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Returns all entity entries from the config registry.</summary>
+    Task<EntityRegistryEntry[]> GetEntityRegistryAsync(CancellationToken cancellationToken = default);
 }

@@ -29,13 +29,15 @@ public sealed class TraceCaptureObserverTests
     {
         var observer = CreateObserver(new TraceCaptureOptions { Enabled = false });
 
+        var requestId = await observer.OnRequestStartedAsync("test");
+
         var result = new AgentChoiceResult
         {
             AgentId = "agent-1",
             Reasoning = "test"
         };
 
-        await observer.OnRoutingCompletedAsync(result);
+        await observer.OnRoutingCompletedAsync(requestId, result);
 
         A.CallTo(() => _repository.InsertTraceAsync(A<ConversationTrace>._, A<CancellationToken>._))
             .MustNotHaveHappened();
@@ -46,7 +48,7 @@ public sealed class TraceCaptureObserverTests
     {
         var observer = CreateObserver();
 
-        await observer.OnRequestStartedAsync("test request");
+        var requestId = await observer.OnRequestStartedAsync("test request");
 
         var result = new AgentChoiceResult
         {
@@ -56,10 +58,10 @@ public sealed class TraceCaptureObserverTests
             AdditionalAgents = ["music-agent"]
         };
 
-        await observer.OnRoutingCompletedAsync(result);
+        await observer.OnRoutingCompletedAsync(requestId, result);
 
         // Complete the lifecycle to persist the trace
-        await observer.OnResponseAggregatedAsync("final response");
+        await observer.OnResponseAggregatedAsync(requestId, "final response");
 
         // Allow fire-and-forget to complete
         await Task.Delay(200);
@@ -80,9 +82,9 @@ public sealed class TraceCaptureObserverTests
     {
         var observer = CreateObserver();
 
-        await observer.OnRequestStartedAsync("test request");
+        var requestId = await observer.OnRequestStartedAsync("test request");
 
-        await observer.OnRoutingCompletedAsync(new AgentChoiceResult
+        await observer.OnRoutingCompletedAsync(requestId, new AgentChoiceResult
         {
             AgentId = "agent-1",
             Reasoning = "test"
@@ -96,8 +98,8 @@ public sealed class TraceCaptureObserverTests
             ExecutionTimeMs = 50
         };
 
-        await observer.OnAgentExecutionCompletedAsync(response);
-        await observer.OnResponseAggregatedAsync("Lights are now on.");
+        await observer.OnAgentExecutionCompletedAsync(requestId, response);
+        await observer.OnResponseAggregatedAsync(requestId, "Lights are now on.");
         await Task.Delay(200);
 
         A.CallTo(() => _repository.InsertTraceAsync(
@@ -115,9 +117,9 @@ public sealed class TraceCaptureObserverTests
     {
         var observer = CreateObserver();
 
-        await observer.OnRequestStartedAsync("test request");
+        var requestId = await observer.OnRequestStartedAsync("test request");
 
-        await observer.OnRoutingCompletedAsync(new AgentChoiceResult
+        await observer.OnRoutingCompletedAsync(requestId, new AgentChoiceResult
         {
             AgentId = "agent-1",
             Reasoning = "test"
@@ -131,8 +133,8 @@ public sealed class TraceCaptureObserverTests
             ErrorMessage = "Agent timed out"
         };
 
-        await observer.OnAgentExecutionCompletedAsync(response);
-        await observer.OnResponseAggregatedAsync("Error occurred");
+        await observer.OnAgentExecutionCompletedAsync(requestId, response);
+        await observer.OnResponseAggregatedAsync(requestId, "Error occurred");
         await Task.Delay(200);
 
         A.CallTo(() => _repository.InsertTraceAsync(
@@ -148,15 +150,15 @@ public sealed class TraceCaptureObserverTests
     {
         var observer = CreateObserver();
 
-        await observer.OnRequestStartedAsync("test request");
+        var requestId = await observer.OnRequestStartedAsync("test request");
 
-        await observer.OnRoutingCompletedAsync(new AgentChoiceResult
+        await observer.OnRoutingCompletedAsync(requestId, new AgentChoiceResult
         {
             AgentId = "agent-1",
             Reasoning = "test"
         });
 
-        await observer.OnResponseAggregatedAsync("aggregated result");
+        await observer.OnResponseAggregatedAsync(requestId, "aggregated result");
         await Task.Delay(200);
 
         A.CallTo(() => _repository.InsertTraceAsync(A<ConversationTrace>._, A<CancellationToken>._))
@@ -173,15 +175,15 @@ public sealed class TraceCaptureObserverTests
 
         var observer = CreateObserver(options);
 
-        await observer.OnRequestStartedAsync("test request");
+        var requestId = await observer.OnRequestStartedAsync("test request");
 
-        await observer.OnRoutingCompletedAsync(new AgentChoiceResult
+        await observer.OnRoutingCompletedAsync(requestId, new AgentChoiceResult
         {
             AgentId = "agent-1",
             Reasoning = "test"
         });
 
-        await observer.OnResponseAggregatedAsync("The key is secret-key-123 here");
+        await observer.OnResponseAggregatedAsync(requestId, "The key is secret-key-123 here");
         await Task.Delay(200);
 
         A.CallTo(() => _repository.InsertTraceAsync(
@@ -205,9 +207,9 @@ public sealed class TraceCaptureObserverTests
             Success = true
         };
 
-        // Should not throw when no trace is in flight
+        // Should not throw when no trace is in flight (unknown requestId)
         var exception = await Record.ExceptionAsync(() =>
-            observer.OnAgentExecutionCompletedAsync(response));
+            observer.OnAgentExecutionCompletedAsync("unknown-id", response));
 
         Assert.Null(exception);
 
@@ -228,15 +230,15 @@ public sealed class TraceCaptureObserverTests
             new() { Role = "user", Content = "now dim them to 50%" }
         };
 
-        await observer.OnRequestStartedAsync("now dim them to 50%", history);
+        var requestId = await observer.OnRequestStartedAsync("now dim them to 50%", history);
 
-        await observer.OnRoutingCompletedAsync(new AgentChoiceResult
+        await observer.OnRoutingCompletedAsync(requestId, new AgentChoiceResult
         {
             AgentId = "light-agent",
             Reasoning = "dimming request"
         });
 
-        await observer.OnResponseAggregatedAsync("Dimmed to 50%.");
+        await observer.OnResponseAggregatedAsync(requestId, "Dimmed to 50%.");
         await Task.Delay(200);
 
         A.CallTo(() => _repository.InsertTraceAsync(
@@ -254,11 +256,12 @@ public sealed class TraceCaptureObserverTests
     {
         var observer = CreateObserver();
 
-        await observer.OnRequestStartedAsync("set fan to nature mode");
+        var requestId = await observer.OnRequestStartedAsync("set fan to nature mode");
 
         var systemPrompt = "You are a routing agent. Available agents: climate-agent, light-agent.";
 
         await observer.OnRoutingCompletedAsync(
+            requestId,
             new AgentChoiceResult
             {
                 AgentId = "climate-agent",
@@ -266,7 +269,7 @@ public sealed class TraceCaptureObserverTests
             },
             systemPrompt);
 
-        await observer.OnResponseAggregatedAsync("Fan set to nature mode.");
+        await observer.OnResponseAggregatedAsync(requestId, "Fan set to nature mode.");
         await Task.Delay(200);
 
         A.CallTo(() => _repository.InsertTraceAsync(
@@ -283,15 +286,15 @@ public sealed class TraceCaptureObserverTests
     {
         var observer = CreateObserver();
 
-        await observer.OnRequestStartedAsync("single turn request");
+        var requestId = await observer.OnRequestStartedAsync("single turn request");
 
-        await observer.OnRoutingCompletedAsync(new AgentChoiceResult
+        await observer.OnRoutingCompletedAsync(requestId, new AgentChoiceResult
         {
             AgentId = "agent-1",
             Reasoning = "test"
         });
 
-        await observer.OnResponseAggregatedAsync("response");
+        await observer.OnResponseAggregatedAsync(requestId, "response");
         await Task.Delay(200);
 
         A.CallTo(() => _repository.InsertTraceAsync(

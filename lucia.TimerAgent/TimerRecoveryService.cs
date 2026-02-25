@@ -7,7 +7,8 @@ namespace lucia.TimerAgent;
 
 /// <summary>
 /// Background service that recovers persisted timer tasks from Redis on startup.
-/// Scans for AgentTask entries with timer metadata in Working state and resumes them.
+/// Scans for AgentTask entries with timer metadata in Working state and resumes them
+/// by adding them to <see cref="ActiveTimerStore"/> for <see cref="TimerExecutionService"/> to execute.
 /// </summary>
 public sealed class TimerRecoveryService : BackgroundService
 {
@@ -15,20 +16,20 @@ public sealed class TimerRecoveryService : BackgroundService
     
     private readonly IConnectionMultiplexer _redis;
     private readonly ITaskStore _taskStore;
-    private readonly TimerSkill _timerSkill;
+    private readonly ActiveTimerStore _timerStore;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<TimerRecoveryService> _logger;
 
     public TimerRecoveryService(
         IConnectionMultiplexer redis,
         ITaskStore taskStore,
-        TimerSkill timerSkill,
+        ActiveTimerStore timerStore,
         TimeProvider timeProvider,
         ILogger<TimerRecoveryService> logger)
     {
         _redis = redis ?? throw new ArgumentNullException(nameof(redis));
         _taskStore = taskStore ?? throw new ArgumentNullException(nameof(taskStore));
-        _timerSkill = timerSkill ?? throw new ArgumentNullException(nameof(timerSkill));
+        _timerStore = timerStore ?? throw new ArgumentNullException(nameof(timerStore));
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -114,9 +115,28 @@ public sealed class TimerRecoveryService : BackgroundService
                     continue;
                 }
 
-                // Resume the timer (will fire immediately if already past expiry within the 5-min grace window)
-                _timerSkill.ResumeTimer(timerId, taskId, message, entityId, durationSeconds, expiresAt);
-                recovered++;
+                // Resume the timer — add to store for TimerExecutionService to pick up
+                var timer = new ActiveTimer
+                {
+                    Id = timerId,
+                    TaskId = taskId,
+                    Message = message,
+                    EntityId = entityId,
+                    DurationSeconds = durationSeconds,
+                    ExpiresAt = expiresAt,
+                    Cts = new CancellationTokenSource()
+                };
+
+                if (_timerStore.TryAdd(timer))
+                {
+                    _logger.LogInformation("Resuming timer {TimerId} (task {TaskId}), expires at {ExpiresAt}", timerId, taskId, expiresAt);
+                    recovered++;
+                }
+                else
+                {
+                    timer.Cts.Dispose();
+                    _logger.LogDebug("Timer {TimerId} already active, skipping resume", timerId);
+                }
             }
 
             _logger.LogInformation(

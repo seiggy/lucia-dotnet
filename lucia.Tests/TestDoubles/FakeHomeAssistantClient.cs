@@ -291,6 +291,24 @@ internal sealed class FakeHomeAssistantClient : IHomeAssistantClient
     public Task<string> HandleIntentAsync(IntentRequest request, CancellationToken cancellationToken = default)
         => Task.FromResult("{}");
 
+    public Task<FloorRegistryEntry[]> GetFloorRegistryAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(Array.Empty<FloorRegistryEntry>());
+
+    public Task<AreaRegistryEntry[]> GetAreaRegistryAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(_areas.Select(a => new AreaRegistryEntry
+        {
+            AreaId = a.AreaId,
+            Name = a.AreaName
+        }).ToArray());
+
+    public Task<EntityRegistryEntry[]> GetEntityRegistryAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(_entities.Values.Select(e => new EntityRegistryEntry
+        {
+            EntityId = e.EntityId,
+            OriginalName = e.Attributes.TryGetValue("friendly_name", out var name)
+                ? name.ToString() : null
+        }).ToArray());
+
     private static HomeAssistantState? DeserializeEntity(JsonElement el, JsonSerializerOptions options)
     {
         var entityId = el.GetProperty("entity_id").GetString();

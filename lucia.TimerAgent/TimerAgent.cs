@@ -26,6 +26,7 @@ public sealed class TimerAgent : ILuciaAgent
     private readonly IConfiguration _configuration;
     private readonly IChatClientResolver _clientResolver;
     private readonly IAgentDefinitionRepository _definitionRepository;
+    private readonly TracingChatClientFactory _tracingFactory;
     private readonly IServer _server;
     private volatile AIAgent _aiAgent;
     private string? _lastModelConnectionName;
@@ -46,10 +47,12 @@ public sealed class TimerAgent : ILuciaAgent
         TimerSkill timerSkill,
         IServer server,
         IConfiguration configuration,
+        TracingChatClientFactory tracingFactory,
         ILoggerFactory loggerFactory)
     {
         _clientResolver = clientResolver;
         _definitionRepository = definitionRepository;
+        _tracingFactory = tracingFactory;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<TimerAgent>();
         _server = server;
@@ -188,6 +191,7 @@ public sealed class TimerAgent : ILuciaAgent
 
     private ChatClientAgent BuildAgent(IChatClient chatClient)
     {
+        var traced = _tracingFactory.Wrap(chatClient, "timer-agent");
         var agentOptions = new ChatClientAgentOptions
         {
             Id = "timer-agent",
@@ -199,6 +203,6 @@ public sealed class TimerAgent : ILuciaAgent
                 Tools = Tools
             }
         };
-        return new ChatClientAgent(chatClient, agentOptions, _loggerFactory);
+        return new ChatClientAgent(traced, agentOptions, _loggerFactory);
     }
 }

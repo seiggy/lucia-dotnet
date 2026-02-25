@@ -49,7 +49,7 @@ public sealed class LiveActivityObserverTests
             Reasoning = "Home domain detected",
         };
 
-        await _observer.OnRoutingCompletedAsync(result);
+        await _observer.OnRoutingCompletedAsync("req-1", result);
 
         var events = await DrainAsync(2);
         Assert.Equal(LiveEvent.Types.Routing, events[0].Type);
@@ -70,7 +70,7 @@ public sealed class LiveActivityObserverTests
             AdditionalAgents = ["secondary", "tertiary"],
         };
 
-        await _observer.OnRoutingCompletedAsync(result);
+        await _observer.OnRoutingCompletedAsync("req-1", result);
 
         var events = await DrainAsync(4);
         // routing + primary start + secondary start + tertiary start
@@ -90,7 +90,7 @@ public sealed class LiveActivityObserverTests
             ExecutionTimeMs = 1500,
         };
 
-        await _observer.OnAgentExecutionCompletedAsync(response);
+        await _observer.OnAgentExecutionCompletedAsync("req-1", response);
 
         var events = await DrainAsync(1);
         Assert.Equal(LiveEvent.Types.AgentComplete, events[0].Type);
@@ -109,7 +109,7 @@ public sealed class LiveActivityObserverTests
             ErrorMessage = "Timeout",
         };
 
-        await _observer.OnAgentExecutionCompletedAsync(response);
+        await _observer.OnAgentExecutionCompletedAsync("req-1", response);
 
         var events = await DrainAsync(1);
         Assert.Equal(LiveEvent.Types.Error, events[0].Type);
@@ -120,7 +120,7 @@ public sealed class LiveActivityObserverTests
     [Fact]
     public async Task OnResponseAggregatedAsync_EmitsRequestCompleteEvent()
     {
-        await _observer.OnResponseAggregatedAsync("Done!");
+        await _observer.OnResponseAggregatedAsync("req-1", "Done!");
 
         var events = await DrainAsync(1);
         Assert.Equal(LiveEvent.Types.RequestComplete, events[0].Type);

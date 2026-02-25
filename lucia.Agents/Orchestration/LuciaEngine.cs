@@ -55,6 +55,7 @@ public class LuciaEngine
         _logger.LogInformation("Processing user request: {Request} (TaskId: {TaskId}, SessionId: {SessionId})",
             userRequest, taskId ?? "new", sessionId ?? "new");
 
+        string? requestId = null;
         try
         {
             if (string.IsNullOrWhiteSpace(userRequest))
@@ -108,8 +109,7 @@ public class LuciaEngine
 
             var historyAwareRequest = SessionManager.BuildHistoryAwareRequest(sessionData, userRequest);
 
-            // Initialize trace in the PARENT async context so AsyncLocal state
-            // flows correctly into the workflow child contexts.
+            // Initialize trace and capture request ID for correlation
             if (_observer is not null)
             {
                 var historyMessages = sessionData?.History
@@ -121,11 +121,11 @@ public class LuciaEngine
                     })
                     .ToList();
 
-                await _observer.OnRequestStartedAsync(userRequest, historyMessages, cancellationToken).ConfigureAwait(false);
+                requestId = await _observer.OnRequestStartedAsync(userRequest, historyMessages, cancellationToken).ConfigureAwait(false);
             }
 
             var workflowResult = await _workflowFactory.BuildAndExecuteAsync(
-                invokers, historyAwareRequest, cancellationToken).ConfigureAwait(false);
+                invokers, historyAwareRequest, requestId, cancellationToken).ConfigureAwait(false);
 
             // 3. Post-processing
             var finalText = workflowResult?.Text ?? _aggregatorOptions.Value.DefaultFallbackMessage;
@@ -136,9 +136,9 @@ public class LuciaEngine
                 _logger.LogInformation("Conversation requires user clarification for task {TaskId}", agentTask.Id);
             }
 
-            if (_observer is not null)
+            if (_observer is not null && requestId is not null)
             {
-                await _observer.OnResponseAggregatedAsync(finalText, cancellationToken).ConfigureAwait(false);
+                await _observer.OnResponseAggregatedAsync(requestId, finalText, cancellationToken).ConfigureAwait(false);
             }
 
             // Add assistant response to task history and update status
@@ -169,6 +169,21 @@ public class LuciaEngine
         {
             _logger.LogError(ex, "Error processing user request: {Request}", userRequest);
 
+            var errorResponse = "I encountered an error while processing your request. Please try again.";
+
+            // Persist the trace even on failure so errors are visible in the dashboard
+            if (_observer is not null && requestId is not null)
+            {
+                try
+                {
+                    await _observer.OnResponseAggregatedAsync(requestId, errorResponse, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception traceEx)
+                {
+                    _logger.LogError(traceEx, "Failed to persist error trace");
+                }
+            }
+
             // Try to update task status to failed
             try
             {
@@ -183,7 +198,7 @@ public class LuciaEngine
                         MessageId = Guid.NewGuid().ToString("N"),
                         TaskId = failedTaskId,
                         ContextId = failedContextId,
-                        Parts = new List<Part> { new TextPart { Text = "I encountered an error while processing your request. Please try again." } }
+                        Parts = new List<Part> { new TextPart { Text = errorResponse } }
                     };
 
                     await _sessionManager.UpdateTaskStatusAsync(
@@ -197,7 +212,7 @@ public class LuciaEngine
                 _logger.LogError(taskEx, "Failed to update task status to Failed");
             }
 
-            return new OrchestratorResult { Text = "I encountered an error while processing your request. Please try again." };
+            return new OrchestratorResult { Text = errorResponse };
         }
     }
 

@@ -7,12 +7,12 @@ using Microsoft.Extensions.Options;
 namespace lucia.Agents.Orchestration;
 
 /// <summary>
-/// Invokes a remote agent via the A2A protocol using <see cref="ITaskManager"/>.
+/// Invokes a remote agent via the A2A protocol using <see cref="A2AClient"/>.
 /// </summary>
 public sealed class RemoteAgentInvoker : IAgentInvoker
 {
     private readonly AgentCard _agentCard;
-    private readonly ITaskManager _taskManager;
+    private readonly A2AClient _a2aClient;
     private readonly ILogger _logger;
     private readonly AgentInvokerOptions _options;
     private readonly TimeProvider _timeProvider;
@@ -22,17 +22,19 @@ public sealed class RemoteAgentInvoker : IAgentInvoker
     public RemoteAgentInvoker(
         string agentId,
         AgentCard agentCard,
-        ITaskManager taskManager,
+        HttpClient httpClient,
         ILogger logger,
         IOptions<AgentInvokerOptions> options,
         TimeProvider? timeProvider = null)
     {
         AgentId = agentId;
         _agentCard = agentCard ?? throw new ArgumentNullException(nameof(agentCard));
-        _taskManager = taskManager ?? throw new ArgumentNullException(nameof(taskManager));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _options = options.Value;
         _timeProvider = timeProvider ?? TimeProvider.System;
+
+        var baseUrl = new Uri(agentCard.Url ?? throw new ArgumentException("AgentCard.Url is required for remote invocation."));
+        _a2aClient = new A2AClient(baseUrl, httpClient);
     }
 
     public async ValueTask<OrchestratorAgentResponse> InvokeAsync(
@@ -53,12 +55,11 @@ public sealed class RemoteAgentInvoker : IAgentInvoker
                     Parts =
                     [
                         new TextPart { Text = ExtractText(message) }
-                    ],
-                    Extensions = _agentCard.Url is { Length: > 0 } url ? new List<string> { url } : null
+                    ]
                 }
             };
 
-            var response = await _taskManager.SendMessageAsync(sendParams, linkedCts.Token)
+            var response = await _a2aClient.SendMessageAsync(sendParams, linkedCts.Token)
                 .WaitAsync(linkedCts.Token)
                 .ConfigureAwait(false);
 

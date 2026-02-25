@@ -19,6 +19,7 @@ public sealed class GeneralAgent : ILuciaAgent
     private readonly AgentCard _agent;
     private readonly IChatClientResolver _clientResolver;
     private readonly IAgentDefinitionRepository _definitionRepository;
+    private readonly TracingChatClientFactory _tracingFactory;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<GeneralAgent> _logger;
     private volatile AIAgent _aiAgent;
@@ -37,10 +38,12 @@ public sealed class GeneralAgent : ILuciaAgent
     public GeneralAgent(
         IChatClientResolver clientResolver,
         IAgentDefinitionRepository definitionRepository,
+        TracingChatClientFactory tracingFactory,
         ILoggerFactory loggerFactory)
     {
         _clientResolver = clientResolver;
         _definitionRepository = definitionRepository;
+        _tracingFactory = tracingFactory;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<GeneralAgent>();
 
@@ -125,13 +128,17 @@ public sealed class GeneralAgent : ILuciaAgent
 
         var copilotAgent = await _clientResolver.ResolveAIAgentAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
         _aiAgent = copilotAgent ?? BuildAgent(
-            await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false));
+            await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false))
+            .AsBuilder()
+            .UseOpenTelemetry()
+            .Build();
         _logger.LogInformation("GeneralAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
         _lastModelConnectionName = newConnectionName;
     }
 
-    private ChatClientAgent BuildAgent(IChatClient chatClient)
+    private AIAgent BuildAgent(IChatClient chatClient)
     {
+        var traced = _tracingFactory.Wrap(chatClient, AgentId);
         var agentOptions = new ChatClientAgentOptions
         {
             Id = AgentId,
@@ -143,6 +150,9 @@ public sealed class GeneralAgent : ILuciaAgent
             }
         };
 
-        return new ChatClientAgent(chatClient, agentOptions, _loggerFactory);
+        return new ChatClientAgent(traced, agentOptions, _loggerFactory)
+            .AsBuilder()
+            .UseOpenTelemetry()
+            .Build();
     }
 }
