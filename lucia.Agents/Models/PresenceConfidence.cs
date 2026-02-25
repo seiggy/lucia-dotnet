@@ -1,9 +1,12 @@
+using System.Text.Json.Serialization;
+
 namespace lucia.Agents.Models;
 
 /// <summary>
 /// Confidence level for presence detection, based on sensor technology.
 /// Higher confidence sensors provide more reliable real-time occupancy data.
 /// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum PresenceConfidence
 {
     /// <summary>
