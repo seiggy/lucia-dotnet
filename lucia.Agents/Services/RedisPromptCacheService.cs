@@ -20,10 +20,19 @@ namespace lucia.Agents.Services;
 /// </summary>
 public sealed class RedisPromptCacheService : IPromptCacheService
 {
+    // Routing cache (router executor)
     private const string KeyPrefix = "lucia:prompt-cache:";
     private const string IndexKey = "lucia:prompt-cache:index";
     private const string StatsHitsKey = "lucia:prompt-cache:stats:hits";
     private const string StatsMissesKey = "lucia:prompt-cache:stats:misses";
+
+    // Chat response cache (agent-level)
+    private const string ChatKeyPrefix = "lucia:chat-cache:";
+    private const string ChatIndexKey = "lucia:chat-cache:index";
+    private const string ChatStatsHitsKey = "lucia:chat-cache:stats:hits";
+    private const string ChatStatsMissesKey = "lucia:chat-cache:stats:misses";
+    private static readonly TimeSpan ChatCacheTtl = TimeSpan.FromHours(4);
+
     // High threshold required — home automation prompts differ by a single noun
     // (e.g., "kitchen lights" vs "office lights" score ~0.95 with embeddings)
     private const double SemanticSimilarityThreshold = 0.99;
@@ -35,6 +44,9 @@ public sealed class RedisPromptCacheService : IPromptCacheService
     private static readonly Counter<long> MissesCounter = Meter.CreateCounter<long>("prompt.cache.misses");
     private static readonly Counter<long> SemanticHitsCounter = Meter.CreateCounter<long>("prompt.cache.semantic_hits");
     private static readonly Histogram<double> LookupDuration = Meter.CreateHistogram<double>("prompt.cache.lookup.duration", "ms");
+    private static readonly Counter<long> ChatHitsCounter = Meter.CreateCounter<long>("chat.cache.hits");
+    private static readonly Counter<long> ChatMissesCounter = Meter.CreateCounter<long>("chat.cache.misses");
+    private static readonly Histogram<double> ChatLookupDuration = Meter.CreateHistogram<double>("chat.cache.lookup.duration", "ms");
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
@@ -221,6 +233,162 @@ public sealed class RedisPromptCacheService : IPromptCacheService
             _logger.LogError(ex, "Error caching routing decision");
         }
     }
+
+    // ── Chat response cache (agent-level) ───────────────────────────────
+
+    public async Task<CachedChatResponseData?> TryGetCachedChatResponseAsync(
+        string normalizedPrompt,
+        CancellationToken cancellationToken = default)
+    {
+        using var activity = ActivitySource.StartActivity("ChatCache.Lookup");
+        var sw = Stopwatch.StartNew();
+
+        try
+        {
+            var db = _redis.GetDatabase();
+            var hash = ComputeSha256(normalizedPrompt);
+            var cacheKey = $"{ChatKeyPrefix}{hash}";
+
+            activity?.SetTag("cache.key", cacheKey);
+
+            // Exact match
+            var exactValue = await db.StringGetAsync(cacheKey).ConfigureAwait(false);
+            if (exactValue.HasValue)
+            {
+                var entry = JsonSerializer.Deserialize<CachedChatResponseData>(exactValue.ToString(), SerializerOptions);
+                if (entry is not null && (entry.ResponseText is not null || entry.FunctionCalls is { Count: > 0 }))
+                {
+                    entry.HitCount++;
+                    entry.LastHitAt = DateTime.UtcNow;
+                    await db.StringSetAsync(cacheKey, JsonSerializer.Serialize(entry, SerializerOptions), ChatCacheTtl).ConfigureAwait(false);
+                    await db.StringIncrementAsync(ChatStatsHitsKey).ConfigureAwait(false);
+                    ChatHitsCounter.Add(1);
+                    activity?.SetTag("cache.hit", true);
+                    activity?.SetTag("cache.match_type", "exact");
+
+                    _logger.LogInformation(
+                        "Chat cache hit (exact): key={CacheKey}, hasFunctionCalls={HasFunctionCalls}",
+                        cacheKey, entry.FunctionCalls is { Count: > 0 });
+                    return entry;
+                }
+            }
+
+            // Semantic similarity fallback
+            var indexMembers = await db.SetMembersAsync(ChatIndexKey).ConfigureAwait(false);
+            if (indexMembers.Length == 0)
+            {
+                await db.StringIncrementAsync(ChatStatsMissesKey).ConfigureAwait(false);
+                ChatMissesCounter.Add(1);
+                activity?.SetTag("cache.hit", false);
+                return null;
+            }
+
+            var queryEmbedding = await GenerateEmbeddingAsync(normalizedPrompt, cancellationToken).ConfigureAwait(false);
+            if (queryEmbedding is null)
+            {
+                await db.StringIncrementAsync(ChatStatsMissesKey).ConfigureAwait(false);
+                ChatMissesCounter.Add(1);
+                return null;
+            }
+
+            CachedChatResponseData? bestEntry = null;
+            double bestScore = 0;
+            string? bestKey = null;
+
+            var memberKeys = indexMembers.Select(m => (RedisKey)m.ToString()).ToArray();
+            var values = await db.StringGetAsync(memberKeys).ConfigureAwait(false);
+
+            for (var i = 0; i < values.Length; i++)
+            {
+                if (!values[i].HasValue)
+                    continue;
+
+                var candidate = JsonSerializer.Deserialize<CachedChatResponseData>(values[i].ToString(), SerializerOptions);
+                if (candidate?.Embedding is null)
+                    continue;
+
+                var score = CosineSimilarity(queryEmbedding, candidate.Embedding);
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestEntry = candidate;
+                    bestKey = memberKeys[i].ToString();
+                }
+            }
+
+            if (bestEntry is not null && bestScore >= SemanticSimilarityThreshold && bestKey is not null)
+            {
+                bestEntry.HitCount++;
+                bestEntry.LastHitAt = DateTime.UtcNow;
+                await db.StringSetAsync(bestKey, JsonSerializer.Serialize(bestEntry, SerializerOptions), ChatCacheTtl).ConfigureAwait(false);
+                await db.StringIncrementAsync(ChatStatsHitsKey).ConfigureAwait(false);
+                ChatHitsCounter.Add(1);
+                activity?.SetTag("cache.hit", true);
+                activity?.SetTag("cache.match_type", "semantic");
+                activity?.SetTag("cache.similarity_score", bestScore);
+
+                _logger.LogInformation(
+                    "Chat cache hit (semantic, score={Score:F3}): key={CacheKey}",
+                    bestScore, bestKey);
+                return bestEntry;
+            }
+
+            await db.StringIncrementAsync(ChatStatsMissesKey).ConfigureAwait(false);
+            ChatMissesCounter.Add(1);
+            activity?.SetTag("cache.hit", false);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during chat cache lookup");
+            return null;
+        }
+        finally
+        {
+            sw.Stop();
+            ChatLookupDuration.Record(sw.Elapsed.TotalMilliseconds);
+        }
+    }
+
+    public async Task CacheChatResponseAsync(
+        string normalizedPrompt,
+        CachedChatResponseData data,
+        CancellationToken cancellationToken = default)
+    {
+        using var activity = ActivitySource.StartActivity("ChatCache.Store");
+
+        try
+        {
+            var db = _redis.GetDatabase();
+            var hash = ComputeSha256(normalizedPrompt);
+            var cacheKey = $"{ChatKeyPrefix}{hash}";
+
+            activity?.SetTag("cache.key", cacheKey);
+
+            var embedding = await GenerateEmbeddingAsync(normalizedPrompt, cancellationToken).ConfigureAwait(false);
+
+            data.CacheKey = hash;
+            data.NormalizedPrompt = normalizedPrompt;
+            data.Embedding = embedding;
+            data.CreatedAt = DateTime.UtcNow;
+            data.LastHitAt = DateTime.UtcNow;
+
+            await db.StringSetAsync(cacheKey, JsonSerializer.Serialize(data, SerializerOptions), ChatCacheTtl).ConfigureAwait(false);
+            await db.SetAddAsync(ChatIndexKey, cacheKey).ConfigureAwait(false);
+
+            _logger.LogInformation(
+                "Cached chat response for key {CacheKey}: hasText={HasText}, functionCalls={FunctionCallCount}",
+                cacheKey,
+                data.ResponseText is not null,
+                data.FunctionCalls?.Count ?? 0);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error caching chat response");
+        }
+    }
+
+    // ── Management ──────────────────────────────────────────────────────
 
     public async Task<List<CachedPromptEntry>> GetAllCachedEntriesAsync(CancellationToken cancellationToken = default)
     {

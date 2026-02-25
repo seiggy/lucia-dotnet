@@ -5,13 +5,13 @@ using lucia.Agents.Orchestration.Models;
 namespace lucia.Agents.Services;
 
 /// <summary>
-/// Provides Redis-backed caching for routing decisions with exact and semantic matching.
-/// Caches which agent should handle a given prompt (not the final response),
-/// so that subsequent identical/similar prompts skip the router LLM call
-/// but agents still execute tools fresh every time.
+/// Provides Redis-backed caching for routing decisions and agent-level LLM responses
+/// with exact and semantic matching.
 /// </summary>
 public interface IPromptCacheService
 {
+    // ── Routing cache (router executor) ─────────────────────────────────
+
     /// <summary>
     /// Try to find a cached routing decision for the given chat messages.
     /// First tries exact SHA256 match, then falls back to semantic similarity.
@@ -22,6 +22,23 @@ public interface IPromptCacheService
     /// Cache a routing decision for future lookups.
     /// </summary>
     Task CacheRoutingDecisionAsync(IList<ChatMessage> messages, AgentChoiceResult decision, CancellationToken cancellationToken = default);
+
+    // ── Chat response cache (agent-level) ───────────────────────────────
+
+    /// <summary>
+    /// Try to find a cached LLM response for the given normalized prompt.
+    /// The normalized prompt should include the system instructions and user messages
+    /// to differentiate between agents.
+    /// </summary>
+    Task<CachedChatResponseData?> TryGetCachedChatResponseAsync(string normalizedPrompt, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Cache an LLM response (text and/or function calls) for a normalized prompt.
+    /// Function calls are replayed through the tool invocation layer so tools execute fresh.
+    /// </summary>
+    Task CacheChatResponseAsync(string normalizedPrompt, CachedChatResponseData data, CancellationToken cancellationToken = default);
+
+    // ── Management ──────────────────────────────────────────────────────
 
     /// <summary>
     /// Get all cached entries for the management UI.

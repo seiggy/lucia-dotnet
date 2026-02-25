@@ -18,6 +18,8 @@ public sealed class ChatClientResolver : IChatClientResolver
 
     private readonly IModelProviderRepository _repository;
     private readonly IModelProviderResolver _resolver;
+    private readonly IPromptCacheService? _promptCache;
+    private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<ChatClientResolver> _logger;
     private readonly Dictionary<string, IChatClient> _cache = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _lock = new();
@@ -25,11 +27,15 @@ public sealed class ChatClientResolver : IChatClientResolver
     public ChatClientResolver(
         IModelProviderRepository repository,
         IModelProviderResolver resolver,
-        ILogger<ChatClientResolver> logger)
+        ILogger<ChatClientResolver> logger,
+        ILoggerFactory loggerFactory,
+        IPromptCacheService? promptCache = null)
     {
         _repository = repository;
         _resolver = resolver;
         _logger = logger;
+        _loggerFactory = loggerFactory;
+        _promptCache = promptCache;
     }
 
     public async Task<IChatClient> ResolveAsync(string? providerName, CancellationToken ct = default)
@@ -88,14 +94,23 @@ public sealed class ChatClientResolver : IChatClientResolver
         {
             var client = _resolver.CreateClient(provider);
 
+            // Wrap with prompt caching so all agent LLM calls benefit from the cache
+            if (_promptCache is not null)
+            {
+                client = new PromptCachingChatClient(
+                    client,
+                    _promptCache,
+                    _loggerFactory.CreateLogger<PromptCachingChatClient>());
+            }
+
             lock (_lock)
             {
                 _cache[effectiveName] = client;
             }
 
             _logger.LogInformation(
-                "Resolved chat client from provider '{ProviderName}' ({ProviderType}/{Model})",
-                effectiveName, provider.ProviderType, provider.ModelName);
+                "Resolved chat client from provider '{ProviderName}' ({ProviderType}/{Model}), cacheWrapped={CacheWrapped}",
+                effectiveName, provider.ProviderType, provider.ModelName, _promptCache is not null);
 
             return client;
         }
