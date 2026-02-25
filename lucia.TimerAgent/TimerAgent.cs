@@ -45,6 +45,7 @@ public sealed class TimerAgent : ILuciaAgent
         IChatClientResolver clientResolver,
         IAgentDefinitionRepository definitionRepository,
         TimerSkill timerSkill,
+        AlarmSkill alarmSkill,
         IServer server,
         IConfiguration configuration,
         TracingChatClientFactory tracingFactory,
@@ -74,11 +75,27 @@ public sealed class TimerAgent : ILuciaAgent
             ]
         };
 
+        var alarmControlSkill = new AgentSkill
+        {
+            Id = "id_alarm_agent",
+            Name = "AlarmControl",
+            Description = "Skill for setting, dismissing, and snoozing alarm clocks on Home Assistant media player devices",
+            Tags = ["alarm", "wake", "schedule", "cron", "recurring", "media_player"],
+            Examples =
+            [
+                "Set an alarm for 7 AM in the bedroom",
+                "Wake me up at 6:30 on weekdays",
+                "Dismiss my alarm",
+                "Snooze for 5 minutes",
+                "What alarms do I have?"
+            ]
+        };
+
         _agent = new AgentCard
         {
             Url = "pending",
             Name = "timer-agent",
-            Description = "Agent that creates #timed #announcements and #reminders on Home Assistant #satellite devices using TTS",
+            Description = "Agent that manages #timers, #alarms, and #reminders on Home Assistant devices using TTS and media playback",
             DocumentationUrl = "https://github.com/seiggy/lucia-dotnet/",
             IconUrl = "https://github.com/seiggy/lucia-dotnet/blob/master/lucia.png?raw=true",
             SupportsAuthenticatedExtendedCard = false,
@@ -90,35 +107,51 @@ public sealed class TimerAgent : ILuciaAgent
             },
             DefaultInputModes = ["text"],
             DefaultOutputModes = ["text"],
-            Skills = [timerControlSkill],
+            Skills = [timerControlSkill, alarmControlSkill],
             Version = "1.0.0",
             ProtocolVersion = "0.2.5"
         };
 
         var instructions = """
-            You are Lucia's Timer Agent. You set timers and reminders that announce via TTS on the user's Home Assistant satellite device.
+            You are Lucia's Timer & Alarm Agent. You handle two categories of time-based tasks:
 
-            Responsibilities:
+            ## Timers (countdown-based)
             - Parse timer duration from user requests (e.g. "5 minutes", "1 hour and 30 minutes", "90 seconds").
-            - Create a friendly announcement message based on what the user is timing (e.g. "Your pizza timer is done!", "Time to check the laundry!").
-            - Use the SetTimer tool with the parsed duration (in seconds), the announcement message, and the entity_id of the satellite device.
+            - Create a friendly announcement message based on what the user is timing.
+            - Use the SetTimer tool with the parsed duration (in seconds), the announcement message, and the entity_id.
             - List active timers when asked.
             - Cancel timers when requested.
 
-            The entity_id for the satellite device will be provided in the request context. Use that entity_id when calling SetTimer.
-            If no entity_id is available, ask the user which device to announce on.
+            ## Alarms (wall-clock time-based)
+            - Set alarms for specific times (e.g., "7 AM", "6:30").
+            - Support recurring alarms via CRON schedules (e.g., weekdays at 7 AM → "0 7 * * 1-5").
+            - Dismiss ringing alarms or disable scheduled alarms.
+            - Snooze ringing alarms (default 9 minutes).
+            - List all configured alarms.
+            - Alarms play on media_player devices, not TTS satellites.
+            - Use "presence" as location if the user wants the alarm to play wherever they are.
 
-            When the user says "set a timer for X minutes", convert X to seconds and create an appropriate announcement message.
-            If the user doesn't specify what the timer is for, use a generic message like "Your timer is up!".
+            ## Choosing Timer vs Alarm
+            - "Set a timer for X minutes" → use SetTimer (countdown from now)
+            - "Set an alarm for 7 AM" → use SetAlarm (fires at wall-clock time)
+            - "Wake me up at 6:30" → use SetAlarm
+            - "Remind me in 30 minutes" → use SetTimer
+            - "Set a daily alarm for 7 AM on weekdays" → use SetAlarm with cronSchedule "0 7 * * 1-5"
+
+            The entity_id or location will be provided in the request context.
+            If no location is available, ask the user which device to use.
 
             ## IMPORTANT
-            * Keep responses short and confirmatory. Example: "Timer set for 5 minutes! I'll let you know when it's done."
-            * Do not offer additional assistance after setting a timer.
-            * If you need clarification about the duration, ask. Example: "How long should the timer be?"
+            * Keep responses short and confirmatory.
+            * Do not offer additional assistance after setting a timer or alarm.
+            * If you need clarification, ask concisely.
+            * For alarm times, use 24-hour HH:mm format when calling SetAlarm.
             """;
 
         Instructions = instructions;
-        Tools = timerSkill.GetTools();
+
+        // Merge both skill tool sets
+        Tools = [.. timerSkill.GetTools(), .. alarmSkill.GetTools()];
 
         var agentOptions = new ChatClientAgentOptions
         {
