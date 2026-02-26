@@ -3,6 +3,7 @@ using System.Diagnostics.Metrics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -32,6 +33,11 @@ public sealed class RedisPromptCacheService : IPromptCacheService
     private const string ChatStatsHitsKey = "lucia:chat-cache:stats:hits";
     private const string ChatStatsMissesKey = "lucia:chat-cache:stats:misses";
     private static readonly TimeSpan ChatCacheTtl = TimeSpan.FromHours(4);
+
+    // Strips volatile HA context fields so identical intents produce the same cache key.
+    private static readonly Regex VolatileHaFieldsPattern = new(
+        @"""(?:timestamp|day_of_week|id)"":\s*""[^""]*""",
+        RegexOptions.Compiled);
 
     // High threshold required — home automation prompts differ by a single noun
     // (e.g., "kitchen lights" vs "office lights" score ~0.95 with embeddings)
@@ -368,7 +374,9 @@ public sealed class RedisPromptCacheService : IPromptCacheService
             var embedding = await GenerateEmbeddingAsync(normalizedPrompt, cancellationToken).ConfigureAwait(false);
 
             data.CacheKey = hash;
-            data.NormalizedPrompt = normalizedPrompt;
+            // Preserve the clean display prompt if already set by the caller
+            if (string.IsNullOrEmpty(data.NormalizedPrompt))
+                data.NormalizedPrompt = normalizedPrompt;
             data.Embedding = embedding;
             data.CreatedAt = DateTime.UtcNow;
             data.LastHitAt = DateTime.UtcNow;
@@ -493,6 +501,111 @@ public sealed class RedisPromptCacheService : IPromptCacheService
         }
     }
 
+    // ── Chat cache management ───────────────────────────────────────────
+
+    public async Task<List<CachedChatResponseData>> GetAllChatCacheEntriesAsync(CancellationToken cancellationToken = default)
+    {
+        var entries = new List<CachedChatResponseData>();
+
+        try
+        {
+            var db = _redis.GetDatabase();
+            var members = await db.SetMembersAsync(ChatIndexKey).ConfigureAwait(false);
+
+            if (members.Length > 0)
+            {
+                var memberKeys = members.Select(m => (RedisKey)m.ToString()).ToArray();
+                var values = await db.StringGetAsync(memberKeys).ConfigureAwait(false);
+
+                for (var i = 0; i < values.Length; i++)
+                {
+                    if (!values[i].HasValue)
+                        continue;
+
+                    var entry = JsonSerializer.Deserialize<CachedChatResponseData>(values[i].ToString(), SerializerOptions);
+                    if (entry is not null)
+                        entries.Add(entry);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving all chat cache entries");
+        }
+
+        return entries;
+    }
+
+    public async Task<bool> EvictChatEntryAsync(string cacheKey, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var db = _redis.GetDatabase();
+            var redisKey = cacheKey.StartsWith(ChatKeyPrefix, StringComparison.Ordinal)
+                ? cacheKey
+                : $"{ChatKeyPrefix}{cacheKey}";
+
+            var deleted = await db.KeyDeleteAsync(redisKey).ConfigureAwait(false);
+            await db.SetRemoveAsync(ChatIndexKey, redisKey).ConfigureAwait(false);
+            return deleted;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error evicting chat cache entry {CacheKey}", cacheKey);
+            return false;
+        }
+    }
+
+    public async Task<long> EvictAllChatEntriesAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var db = _redis.GetDatabase();
+            var members = await db.SetMembersAsync(ChatIndexKey).ConfigureAwait(false);
+            long count = 0;
+
+            if (members.Length > 0)
+            {
+                var memberKeys = members.Select(m => (RedisKey)m.ToString()).ToArray();
+                count = await db.KeyDeleteAsync(memberKeys).ConfigureAwait(false);
+            }
+
+            await db.KeyDeleteAsync(ChatIndexKey).ConfigureAwait(false);
+            await db.KeyDeleteAsync(ChatStatsHitsKey).ConfigureAwait(false);
+            await db.KeyDeleteAsync(ChatStatsMissesKey).ConfigureAwait(false);
+
+            return count;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error evicting all chat cache entries");
+            return 0;
+        }
+    }
+
+    public async Task<PromptCacheStats> GetChatCacheStatsAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var db = _redis.GetDatabase();
+            var totalEntries = await db.SetLengthAsync(ChatIndexKey).ConfigureAwait(false);
+            var totalHits = (long)await db.StringGetAsync(ChatStatsHitsKey).ConfigureAwait(false);
+            var totalMisses = (long)await db.StringGetAsync(ChatStatsMissesKey).ConfigureAwait(false);
+
+            return new PromptCacheStats
+            {
+                TotalEntries = totalEntries,
+                TotalHits = totalHits,
+                TotalMisses = totalMisses
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving chat cache stats");
+            return new PromptCacheStats();
+        }
+    }
+
     private static AgentChoiceResult ToAgentChoiceResult(CachedPromptEntry entry) => new()
     {
         AgentId = entry.AgentId,
@@ -501,7 +614,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
         AdditionalAgents = entry.AdditionalAgents
     };
 
-    private static string NormalizePrompt(IList<ChatMessage> messages)
+    internal static string NormalizePrompt(IList<ChatMessage> messages)
     {
         var sb = new StringBuilder();
         foreach (var message in messages.Where(m => m.Role == ChatRole.User))
@@ -512,6 +625,10 @@ public sealed class RedisPromptCacheService : IPromptCacheService
         }
 
         var raw = sb.ToString();
+
+        // Strip volatile HA context fields so identical intents hash the same
+        raw = VolatileHaFieldsPattern.Replace(raw, string.Empty);
+
         sb.Clear();
         sb.EnsureCapacity(raw.Length);
         var previousWasSpace = false;

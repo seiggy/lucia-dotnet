@@ -41,22 +41,42 @@ public interface IPromptCacheService
     // ── Management ──────────────────────────────────────────────────────
 
     /// <summary>
-    /// Get all cached entries for the management UI.
+    /// Get all cached routing entries for the management UI.
     /// </summary>
     Task<List<CachedPromptEntry>> GetAllCachedEntriesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Evict a single cache entry by key.
+    /// Get all cached chat response entries for the management UI.
+    /// </summary>
+    Task<List<CachedChatResponseData>> GetAllChatCacheEntriesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Evict a single routing cache entry by key.
     /// </summary>
     Task<bool> EvictAsync(string cacheKey, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Evict all cached entries.
+    /// Evict a single chat cache entry by key.
+    /// </summary>
+    Task<bool> EvictChatEntryAsync(string cacheKey, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Evict all routing cache entries.
     /// </summary>
     Task<long> EvictAllAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Get cache statistics (total entries, total hits, etc).
+    /// Evict all chat cache entries.
+    /// </summary>
+    Task<long> EvictAllChatEntriesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Get routing cache statistics (total entries, total hits, etc).
     /// </summary>
     Task<PromptCacheStats> GetStatsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Get chat cache statistics (total entries, total hits, etc).
+    /// </summary>
+    Task<PromptCacheStats> GetChatCacheStatsAsync(CancellationToken cancellationToken = default);
 }

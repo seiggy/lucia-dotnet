@@ -131,12 +131,14 @@ public static class ActivityApi
         var traceStats = await traceRepo.GetStatsAsync(ct);
         var taskStats = await taskArchive.GetTaskStatsAsync(ct);
         var cacheStats = await cacheService.GetStatsAsync(ct);
+        var chatCacheStats = await cacheService.GetChatCacheStatsAsync(ct);
 
         return TypedResults.Ok(new ActivitySummary
         {
             Traces = traceStats,
             Tasks = taskStats,
             Cache = cacheStats,
+            ChatCache = chatCacheStats,
         });
     }
 
