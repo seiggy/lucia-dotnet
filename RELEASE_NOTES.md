@@ -3,6 +3,67 @@
 # Release Notes - 2026.02.25
 
 **Release Date:** February 25, 2026  
+**Code Name:** "Bastion"
+
+---
+
+## 🏰 Overview
+
+"Bastion" is a security and performance release that locks down the onboarding flow, hardens A2A mesh authentication, and introduces a two-tier prompt cache with full conversation-aware key hashing. Named after a fortified stronghold—Bastion ensures that Lucia's APIs are protected from unauthorized access while dramatically reducing redundant LLM calls through intelligent caching of agent planning decisions.
+
+## 🚀 Highlights
+
+- **Setup Endpoint Security** — Three-phase security model ensures onboarding APIs are only accessible when appropriate: anonymous key generation, authenticated configuration, then permanent lockdown after setup completes.
+- **Agent Prompt Caching** — New `PromptCachingChatClient` decorator caches LLM planning decisions (tool selection + arguments) across all agents, with conversation-aware cache keys that include function call content and tool results to prevent stale responses.
+- **A2A Mesh Auth Fix** — Helm chart now auto-generates `InternalAuth__Token` for agent-to-registry communication in mesh deployments.
+- **Cache Management Dashboard** — Rewritten Prompt Cache page with Router/Agent tab switcher, per-namespace stats, and eviction controls. Activity page shows Router, Agent, and Combined cache hit rates.
+
+## ✨ What's New
+
+### 🔐 Setup Endpoint Security
+
+- **Three-phase security model** — Phase 1 (pre-key): only `GET /api/setup/status` and `POST /api/setup/generate-dashboard-key` are anonymous. Phase 2 (post-key): all remaining setup endpoints require API key authentication. Phase 3 (post-complete): `OnboardingMiddleware` returns 403 for all `/api/setup/*` permanently.
+- **Race-window elimination** — Direct MongoDB check via `ConfigStoreWriter` + volatile one-way latch closes the 5-second window between setup completion and `MongoConfigurationProvider` polling.
+- **Health check exemption** — Health endpoints remain anonymous for container orchestrator probes.
+
+### ⚡ Agent Prompt Caching
+
+- **Two-tier cache architecture** — Routing cache (`lucia:prompt-cache:`) stores router decisions; agent cache (`lucia:chat-cache:`) stores LLM planning responses with 4-hour TTL. Same user prompt hitting different agents produces separate entries (system instructions hash differentiates).
+- **Full conversation key hashing** — Cache keys include `FunctionCallContent` (tool name + arguments) and `FunctionResultContent` (result text), not just `message.Text`. Different tool results automatically produce different cache keys, preventing stale response replay.
+- **Volatile field stripping** — Regex strips `timestamp`, `day_of_week`, and `id` fields from HA context before SHA256 hashing so identical intents produce the same key regardless of when they're sent.
+- **Clean display prompts** — `ExtractLastUserText()` stores the human-readable user message as `NormalizedPrompt` instead of the raw cache key for dashboard display.
+
+### 📊 Cache Management UI
+
+- **Tabbed Prompt Cache page** — Router and Agent cache entries displayed in separate tabs with dedicated StatsBar (entries, hits, misses, hit rate) and per-entry eviction.
+- **Bulk eviction** — "Clear All" button per cache namespace for cache invalidation.
+- **Activity dashboard integration** — Summary cards show Router, Agent, and Combined cache hit rates in a 6-column grid layout.
+- **Chat cache REST API** — New `/api/chat-cache/*` endpoint group: `GET /` (list entries), `GET /stats` (hit/miss/rate), `DELETE /{key}` (evict single), `DELETE /` (evict all).
+
+### 🔗 A2A Mesh Authentication
+
+- **Helm chart `InternalAuth__Token`** — New `internalAuthToken` field in `values.yaml` with auto-generation via `randAlphaNum 32` in `secret.yaml`, injected as environment variable into all agent pods.
+- **Registry auth fix** — A2A agents no longer receive 401 when registering with the agent registry in mesh deployments.
+
+### 🎭 Playwright E2E Tests
+
+- **Prompt cache validation** — 5 serial test cases verifying cache hit/miss behavior, eviction, and stats accuracy through the dashboard UI.
+- **Environment-driven auth** — Tests read `DASHBOARD_API_KEY` from `.env` file for login; `.env.template` provides placeholder for CI setup.
+
+## 🐛 Bug Fixes
+
+- **Stale cache responses** — `message.Text` only returns `TextContent`, missing `FunctionCallContent` and `FunctionResultContent`. All round-2+ conversations hashed to the same key regardless of tool results, causing the LLM's cached response from a previous run to be replayed with wrong state (e.g., "lights are off" when they're on). Fixed by iterating `message.Contents` and including all content types in the key.
+- **0% cache hit rate** — HA context injection of `timestamp`, `day_of_week`, and `id` made every prompt unique. Stripped via regex before hashing.
+- **NormalizedPrompt display** — Cache entries showed raw key format (`instructions:sha...\nuser:...\nassistant:\ntool:`) instead of the clean user message.
+- **TS interface mismatch** — `ChatCacheEntry.functionCalls` used `arguments` field name but JSON serializes as `argumentsJson`; fixed TypeScript interface.
+- **A2A 401 in mesh mode** — `InternalAuth__Token` was auto-generated by Aspire AppHost but never injected in Helm chart for Kubernetes deployments.
+- **Setup race window** — 5-second gap between `POST /api/setup/complete` and `MongoConfigurationProvider` config poll allowed anonymous access to setup endpoints.
+
+---
+
+# Release Notes - 2026.02.25
+
+**Release Date:** February 25, 2026  
 **Code Name:** "Zenith"
 
 ---
