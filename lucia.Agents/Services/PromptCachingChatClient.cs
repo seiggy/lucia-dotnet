@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 using lucia.Agents.Models;
 
@@ -20,6 +21,11 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
     private readonly IPromptCacheService _cacheService;
     private readonly ILogger<PromptCachingChatClient> _logger;
 
+    // Strips volatile HA context fields so identical intents produce the same cache key
+    private static readonly Regex VolatileHaFieldsPattern = new(
+        @"""(?:timestamp|day_of_week|id)"":\s*""[^""]*""",
+        RegexOptions.Compiled);
+
     public PromptCachingChatClient(
         IChatClient innerClient,
         IPromptCacheService cacheService,
@@ -38,13 +44,17 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
         var messageList = messages as IList<ChatMessage> ?? messages.ToList();
         var normalizedKey = NormalizeChatKey(messageList, options);
 
-        // Check cache
+        // Check cache — we cache the LLM's planning decisions (tool selection +
+        // arguments) for ALL rounds including those with tool results in context.
+        // The cache key includes the full conversation so different tool results
+        // produce different keys (automatic cache miss). Tools always execute fresh
+        // because FunctionInvokingChatClient sits above this layer.
         try
         {
             var cached = await _cacheService.TryGetCachedChatResponseAsync(normalizedKey, cancellationToken).ConfigureAwait(false);
             if (cached is not null)
             {
-                _logger.LogInformation("Chat cache hit — returning cached response (key={CacheKey})", cached.CacheKey);
+                _logger.LogInformation("Chat cache hit — returning cached LLM decision (key={CacheKey})", cached.CacheKey);
                 return ReconstructResponse(cached);
             }
         }
@@ -56,12 +66,13 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
         // Cache miss — call the inner client
         var response = await base.GetResponseAsync(messageList, options, cancellationToken).ConfigureAwait(false);
 
-        // Cache the response
+        // Cache the LLM decision (tool selection or text response)
         try
         {
             var data = ExtractCacheData(response);
             if (data is not null)
             {
+                data.NormalizedPrompt = ExtractLastUserText(messageList);
                 await _cacheService.CacheChatResponseAsync(normalizedKey, data, CancellationToken.None).ConfigureAwait(false);
             }
         }
@@ -90,19 +101,54 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
             sb.Append('\n');
         }
 
-        // Include all message content
+        // Include all message content — text, function calls, and function results.
+        // message.Text only returns TextContent; FunctionCallContent and
+        // FunctionResultContent must be captured explicitly so that different
+        // tool results produce different cache keys.
         foreach (var message in messages)
         {
             sb.Append(message.Role.Value);
             sb.Append(':');
 
-            var text = message.Text ?? string.Empty;
-            sb.Append(text.ToLowerInvariant().Trim());
+            foreach (var item in message.Contents)
+            {
+                switch (item)
+                {
+                    case TextContent tc:
+                        sb.Append(tc.Text?.ToLowerInvariant().Trim());
+                        break;
+                    case FunctionCallContent fc:
+                        sb.Append("call:");
+                        sb.Append(fc.Name);
+                        sb.Append('(');
+                        if (fc.Arguments is not null)
+                        {
+                            foreach (var kvp in fc.Arguments.OrderBy(k => k.Key, StringComparer.Ordinal))
+                            {
+                                sb.Append(kvp.Key);
+                                sb.Append('=');
+                                sb.Append(kvp.Value?.ToString()?.ToLowerInvariant());
+                                sb.Append(',');
+                            }
+                        }
+                        sb.Append(')');
+                        break;
+                    case FunctionResultContent fr:
+                        sb.Append("result:");
+                        sb.Append(fr.Result?.ToString()?.ToLowerInvariant());
+                        break;
+                }
+            }
+
             sb.Append('\n');
         }
 
         // Collapse whitespace
         var raw = sb.ToString();
+
+        // Strip volatile HA context fields so identical intents hash the same
+        raw = VolatileHaFieldsPattern.Replace(raw, string.Empty);
+
         sb.Clear();
         sb.EnsureCapacity(raw.Length);
         var previousWasSpace = false;
@@ -213,5 +259,45 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
     {
         var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
         return Convert.ToHexStringLower(hashBytes);
+    }
+
+    /// <summary>
+    /// Returns true when the conversation contains tool/function results,
+    /// meaning the LLM response depends on dynamic runtime state and must
+    /// not be cached. Only the initial planning call (no tool results yet)
+    /// is safe to cache.
+    /// </summary>
+    private static bool ContainsToolResults(IList<ChatMessage> messages)
+    {
+        foreach (var message in messages)
+        {
+            if (message.Role == ChatRole.Tool)
+                return true;
+
+            if (message.Contents is { Count: > 0 })
+            {
+                foreach (var content in message.Contents)
+                {
+                    if (content is FunctionResultContent)
+                        return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Extracts the last user message text for a human-readable display prompt.
+    /// </summary>
+    private static string ExtractLastUserText(IList<ChatMessage> messages)
+    {
+        for (var i = messages.Count - 1; i >= 0; i--)
+        {
+            if (messages[i].Role == ChatRole.User && !string.IsNullOrWhiteSpace(messages[i].Text))
+                return messages[i].Text.Trim();
+        }
+
+        return "(no user message)";
     }
 }

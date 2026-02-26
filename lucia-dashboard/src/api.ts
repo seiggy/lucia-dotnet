@@ -383,6 +383,32 @@ export async function evictAllPromptCache() {
   return res.json();
 }
 
+// ── Chat Cache (agent-level) ──
+
+export async function fetchChatCacheEntries() {
+  const res = await fetch(`${BASE}/chat-cache`);
+  if (!res.ok) throw new Error(`Failed to fetch chat cache entries: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchChatCacheStats() {
+  const res = await fetch(`${BASE}/chat-cache/stats`);
+  if (!res.ok) throw new Error(`Failed to fetch chat cache stats: ${res.statusText}`);
+  return res.json();
+}
+
+export async function evictChatCacheEntry(cacheKey: string) {
+  const res = await fetch(`${BASE}/chat-cache/entry/${encodeURIComponent(cacheKey)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to evict chat cache entry: ${res.statusText}`);
+  return res.json();
+}
+
+export async function evictAllChatCache() {
+  const res = await fetch(`${BASE}/chat-cache`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to clear chat cache: ${res.statusText}`);
+  return res.json();
+}
+
 // ── Task Management API ──────────────────────────────────────────
 
 export async function fetchActiveTasks(): Promise<ActiveTaskSummary[]> {

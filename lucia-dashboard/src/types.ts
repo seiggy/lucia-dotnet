@@ -302,6 +302,7 @@ export interface ActivitySummary {
   traces: TraceStats
   tasks: { totalTasks: number; completedCount: number; failedCount: number }
   cache: { totalEntries: number; totalHits: number; totalMisses: number; hitRate: number }
+  chatCache: { totalEntries: number; totalHits: number; totalMisses: number; hitRate: number }
 }
 
 export interface AgentActivityStatsMap {

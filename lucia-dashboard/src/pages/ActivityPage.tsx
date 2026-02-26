@@ -26,15 +26,25 @@ function ConnectionIndicator({ state, onReconnect }: { state: ConnectionState; o
 // ── Summary Cards ──
 
 function SummaryCards({ summary, loading }: { summary: ActivitySummary | null; loading: boolean }) {
+  const combinedHitRate = summary
+    ? (() => {
+        const totalHits = summary.cache.totalHits + summary.chatCache.totalHits
+        const totalMisses = summary.cache.totalMisses + summary.chatCache.totalMisses
+        return totalHits + totalMisses > 0 ? totalHits / (totalHits + totalMisses) : 0
+      })()
+    : 0
+
   const cards = summary ? [
     { label: 'Total Requests', value: summary.traces.totalTraces, color: 'text-light' },
     { label: 'Error Rate', value: summary.traces.totalTraces > 0 ? `${((summary.traces.erroredCount / summary.traces.totalTraces) * 100).toFixed(1)}%` : '0%', color: summary.traces.erroredCount > 0 ? 'text-rose' : 'text-sage' },
-    { label: 'Cache Hit Rate', value: `${(summary.cache.hitRate * 100).toFixed(1)}%`, color: 'text-amber' },
+    { label: 'Router Cache Hit Rate', value: `${(summary.cache.hitRate * 100).toFixed(1)}%`, color: 'text-amber' },
+    { label: 'Agent Cache Hit Rate', value: `${(summary.chatCache.hitRate * 100).toFixed(1)}%`, color: 'text-amber' },
+    { label: 'Combined Cache Hit Rate', value: `${(combinedHitRate * 100).toFixed(1)}%`, color: 'text-amber' },
     { label: 'Tasks Completed', value: summary.tasks.completedCount, color: 'text-sage' },
   ] : []
 
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
       {loading ? (
         Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="animate-pulse rounded-xl border border-stone bg-charcoal p-4">
