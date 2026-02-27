@@ -47,42 +47,57 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
     """
     import httpx
 
-    # Create a dedicated HTTP client with API key header
+    # Create a dedicated HTTP client with API key header and redirect support
     headers = {}
     if data.get(CONF_API_KEY):
         headers["X-Api-Key"] = data[CONF_API_KEY]
 
-    httpx_client = httpx.AsyncClient(headers=headers, verify=False, timeout=30.0)
+    httpx_client = httpx.AsyncClient(
+        headers=headers, verify=False, timeout=30.0, follow_redirects=True
+    )
 
     try:
-        # Fetch the agent card directly via well-known URL (no a2a-sdk needed)
+        # Fetch the agent catalog to validate connectivity and discover agents
         base_url = data[CONF_REPOSITORY].rstrip("/")
-        agent_card_url = f"{base_url}/.well-known/agent.json"
+        # Strip trailing /agents if user pasted the full catalog URL
+        if base_url.endswith("/agents"):
+            base_url = base_url[: -len("/agents")]
+        catalog_url = f"{base_url}/agents"
 
-        _LOGGER.info("Fetching agent card from %s", agent_card_url)
-        response = await httpx_client.get(agent_card_url)
+        _LOGGER.info("Fetching agent catalog from %s", catalog_url)
+        response = await httpx_client.get(catalog_url)
         response.raise_for_status()
 
-        agent_card = response.json()
+        agents = response.json()
 
-        if not agent_card:
-            raise ValueError("Failed to retrieve agent card")
+        if not isinstance(agents, list):
+            raise ValueError("Invalid agent catalog response")
 
-        # Return info to store in config entry
+        if not agents:
+            _LOGGER.warning("Agent catalog is empty — agents may still be starting")
+
+        # Use the first agent's name as the title, or fallback
+        title = "Lucia Agent"
+        agent_id = "lucia"
+        if agents:
+            first = agents[0]
+            title = first.get("name", title)
+            agent_id = first.get("name", agent_id)
+
         return {
-            "title": agent_card.get("name", "Lucia Agent"),
-            "agent_id": agent_card.get("id", "lucia"),
+            "title": title,
+            "agent_id": agent_id,
         }
     except httpx.HTTPStatusError as err:
         _LOGGER.error(
-            "Failed to fetch agent card (HTTP %s): %s",
+            "Failed to fetch agent catalog (HTTP %s): %s",
             err.response.status_code,
             err,
         )
         raise ValueError("Invalid repository or API key") from err
     except Exception as err:
         _LOGGER.error(
-            "Failed to resolve agent card: %s. Please check your repository and API key.",
+            "Failed to connect to Lucia: %s. Please check your repository URL and API key.",
             err,
             exc_info=True,
         )

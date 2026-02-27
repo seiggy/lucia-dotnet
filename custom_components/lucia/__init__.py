@@ -57,7 +57,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         httpx_client = httpx.AsyncClient(
             headers=headers,
             verify=False,  # For development with self-signed certs
-            timeout=30.0
+            timeout=30.0,
+            follow_redirects=True
         )
 
         # Fetch the agent catalog
