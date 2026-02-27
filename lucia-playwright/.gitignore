@@ -12,3 +12,4 @@ node_modules/
 # Test artifacts
 screenshot-*.png
 wizard-results.json
+.test-state/

@@ -1,4 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
+import fs from 'fs';
+import path from 'path';
 
 /**
  * Prompt Cache E2E Tests
@@ -9,57 +11,74 @@ import { test, expect, type Page } from '@playwright/test';
  *  3. Cache eviction works from the dashboard UI
  *
  * Requires a running Lucia instance with at least one agent registered
- * and a valid DASHBOARD_API_KEY in .env.
+ * and a valid DASHBOARD_API_KEY in .env (or wizard-state.json from setup-wizard).
  */
 
-const DASHBOARD_API_KEY = process.env.DASHBOARD_API_KEY!;
+function loadDashboardKey(): string {
+  // Prefer env var
+  if (process.env.DASHBOARD_API_KEY) return process.env.DASHBOARD_API_KEY;
 
-test.beforeAll(() => {
-  if (!process.env.DASHBOARD_API_KEY) {
-    throw new Error(
-      'Missing DASHBOARD_API_KEY env var. Copy .env.template to .env and set your dashboard key.'
-    );
+  // Fall back to wizard-state.json written by setup-wizard.spec.ts
+  const stateFile = path.resolve(import.meta.dirname, '../.test-state/wizard-state.json');
+  if (fs.existsSync(stateFile)) {
+    const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+    if (state.dashboardKey) return state.dashboardKey;
   }
-});
 
-/** Log into the dashboard via the /login page. */
-async function login(page: Page) {
-  await page.goto('/login', { waitUntil: 'networkidle' });
-  await page.getByLabel(/api key/i).fill(DASHBOARD_API_KEY);
-  await page.getByRole('button', { name: /sign in/i }).click();
-  // Wait for redirect away from /login
-  await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 10_000 });
+  throw new Error(
+    'Missing DASHBOARD_API_KEY. Either set it in .env or run setup-wizard tests first.'
+  );
 }
 
-/** Navigate to the Prompt Cache page and return { entries, stats }. */
+// Lazy-load: resolved when first test runs (after setup-wizard writes wizard-state.json)
+let _dashboardKey: string | undefined;
+function getDashboardKey(): string {
+  if (!_dashboardKey) _dashboardKey = loadDashboardKey();
+  return _dashboardKey;
+}
+
+/** Log into the dashboard via the API (sets session cookie). */
+async function login(page: Page) {
+  await page.request.post('/api/auth/login', {
+    data: { apiKey: getDashboardKey() },
+  });
+}
+
+/** Navigate to the Prompt Cache page and return { entries, stats }.
+ *  By default reads the Agent Cache tab (populated by Agent Dashboard messages). */
 async function getPromptCacheState(page: Page) {
-  await page.goto('/prompt-cache', { waitUntil: 'networkidle' });
+  await page.goto('/prompt-cache');
   // Wait for the cache table to render
-  await page.waitForSelector('table', { timeout: 10_000 });
-  // Small settle time for stats to populate
-  await page.waitForTimeout(500);
+  await page.waitForSelector('table', { timeout: 15_000 });
+
+  // Switch to Agent Cache tab (messages sent via Agent Dashboard populate this tab)
+  const agentTab = page.locator('button', { hasText: /Agent Cache/i });
+  if (await agentTab.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await agentTab.click();
+    await page.waitForTimeout(500);
+  }
 
   const stats = {
-    totalEntries: await extractStatNumber(page, 'Total Entries'),
+    totalEntries: await extractStatNumber(page, 'Agent Entries'),
     hitRate: await extractStatText(page, 'Hit Rate'),
     totalHits: await extractStatNumber(page, 'Total Hits'),
     totalMisses: await extractStatNumber(page, 'Total Misses'),
   };
 
-  // Collect entry rows
+  // Collect entry rows (Agent Cache: Prompt | Response | Model | Tool Calls | Hit Count | ...)
   const rows = page.locator('tbody tr');
   const rowCount = await rows.count();
-  const entries: { prompt: string; agent: string; hitCount: number }[] = [];
+  const entries: { prompt: string; response: string; hitCount: number }[] = [];
 
   for (let i = 0; i < rowCount; i++) {
     const cells = rows.nth(i).locator('td');
     const cellCount = await cells.count();
-    if (cellCount < 4) continue; // skip the "No cached entries" placeholder row
+    if (cellCount < 5) continue; // skip placeholder row
 
     entries.push({
       prompt: (await cells.nth(0).textContent()) ?? '',
-      agent: (await cells.nth(1).textContent()) ?? '',
-      hitCount: parseInt((await cells.nth(3).textContent()) ?? '0', 10),
+      response: (await cells.nth(1).textContent()) ?? '',
+      hitCount: parseInt((await cells.nth(4).textContent()) ?? '0', 10),
     });
   }
 
@@ -81,8 +100,8 @@ async function extractStatText(page: Page, label: string): Promise<string> {
 
 /** Select the first agent and send a message via the Agent Dashboard chat. */
 async function sendAgentMessage(page: Page, message: string) {
-  await page.goto('/agent-dashboard', { waitUntil: 'networkidle' });
-
+  await page.goto('/agent-dashboard');
+  await page.waitForTimeout(3000);
   // Wait for agent cards to load
   const agentCards = page.locator('[class*="cursor-pointer"]').filter({ hasText: /v\d/ });
   await expect(agentCards.first()).toBeVisible({ timeout: 15_000 });
@@ -122,17 +141,31 @@ async function sendAgentMessage(page: Page, message: string) {
   await page.waitForTimeout(1_000);
 }
 
-/** Clear all prompt cache entries via the dashboard UI. */
+/** Clear all prompt cache entries via the dashboard UI (both tabs). */
 async function clearCache(page: Page) {
-  await page.goto('/prompt-cache', { waitUntil: 'networkidle' });
-  await page.waitForSelector('table', { timeout: 10_000 });
+  await page.goto('/prompt-cache');
+  await page.waitForSelector('table', { timeout: 15_000 });
 
-  const clearButton = page.getByRole('button', { name: /clear all/i });
-  if (await clearButton.isEnabled()) {
-    // Accept the confirm dialog
-    page.on('dialog', (dialog) => dialog.accept());
-    await clearButton.click();
-    await page.waitForTimeout(1_000);
+  // Accept confirm dialogs
+  page.on('dialog', (dialog) => dialog.accept());
+
+  // Clear Router Cache (default tab)
+  const routerClear = page.getByRole('button', { name: /clear all/i });
+  if (await routerClear.isEnabled().catch(() => false)) {
+    await routerClear.click();
+    await page.waitForTimeout(500);
+  }
+
+  // Switch to Agent Cache tab and clear it too
+  const agentTab = page.locator('button', { hasText: /Agent Cache/i });
+  if (await agentTab.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await agentTab.click();
+    await page.waitForTimeout(500);
+    const agentClear = page.getByRole('button', { name: /clear all/i });
+    if (await agentClear.isEnabled().catch(() => false)) {
+      await agentClear.click();
+      await page.waitForTimeout(500);
+    }
   }
 }
 
