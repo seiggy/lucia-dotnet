@@ -1,4 +1,5 @@
 using lucia.Agents.Auth;
+using Microsoft.AspNetCore.Authentication;
 
 namespace lucia.AgentHost.Auth;
 
@@ -125,10 +126,26 @@ public sealed class OnboardingMiddleware
             return;
         }
 
-        // Setup NOT complete — block non-setup requests
+        // Setup NOT complete — block non-setup requests (except model-providers for the wizard)
         if (path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase)
             || path.StartsWith("/agents/", StringComparison.OrdinalIgnoreCase))
         {
+            // Allow authenticated users to access model-provider endpoints during setup
+            // so the wizard can create/test/list AI providers before setup completes.
+            // OnboardingMiddleware runs before UseAuthentication(), so we must manually
+            // authenticate the request here to check for a valid session/API key.
+            if (path.StartsWith("/api/model-providers", StringComparison.OrdinalIgnoreCase))
+            {
+                var authResult = await context.AuthenticateAsync(AuthOptions.AuthenticationScheme)
+                    .ConfigureAwait(false);
+                if (authResult.Succeeded)
+                {
+                    context.User = authResult.Principal!;
+                    await _next(context).ConfigureAwait(false);
+                    return;
+                }
+            }
+
             context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
             context.Response.ContentType = "application/json";
             await context.Response.WriteAsJsonAsync(new
