@@ -325,13 +325,9 @@ public sealed class ModelProviderResolver : IModelProviderResolver
 
         if (!string.IsNullOrWhiteSpace(provider.Auth.ApiKey))
         {
-            // Use the documented pattern: EmbeddingClient with OpenAIClientOptions.Endpoint
-            // This sends the model name in the request body rather than constructing
-            // a deployment-name-based URL, matching the Azure OpenAI SDK docs.
             var credential = new AzureKeyCredential(provider.Auth.ApiKey);
-            var options = new OpenAIClientOptions { Endpoint = endpoint };
-            return new OpenAI.Embeddings.EmbeddingClient(provider.ModelName, credential, options)
-                .AsIEmbeddingGenerator()
+            var client = new Azure.AI.OpenAI.AzureOpenAIClient(endpoint, credential);
+            return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator()
                 .AsBuilder()
                 .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
                     cfg.EnableSensitiveData = true)

@@ -75,16 +75,15 @@ public static class AuthApi
 
     private static async Task<IResult> GetStatus(
         IApiKeyService apiKeyService,
-        IConfiguration configuration,
+        ConfigStoreWriter configStore,
         HttpContext httpContext)
     {
-        var setupComplete = string.Equals(
-            configuration["Auth:SetupComplete"],
-            "true",
-            StringComparison.OrdinalIgnoreCase);
+        var ct = httpContext.RequestAborted;
+        var setupCompleteValue = await configStore.GetAsync("Auth:SetupComplete", ct).ConfigureAwait(false);
+        var setupComplete = string.Equals(setupCompleteValue, "true", StringComparison.OrdinalIgnoreCase);
 
         var authenticated = httpContext.User.Identity?.IsAuthenticated ?? false;
-        var hasAnyKeys = await apiKeyService.HasAnyKeysAsync(httpContext.RequestAborted).ConfigureAwait(false);
+        var hasAnyKeys = await apiKeyService.HasAnyKeysAsync(ct).ConfigureAwait(false);
 
         return Results.Ok(new
         {

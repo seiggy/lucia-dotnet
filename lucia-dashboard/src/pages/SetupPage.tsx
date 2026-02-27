@@ -3,20 +3,26 @@ import { useAuth } from '../auth/AuthContext'
 import {
   fetchSetupStatus,
   generateDashboardKey,
-  regenerateDashboardKey,
   configureHomeAssistant,
   testHaConnection,
   generateHaKey,
   fetchHaStatus,
+  fetchAgentStatus,
   completeSetup,
+  fetchModelProviders,
+  createModelProvider,
+  testModelProvider,
+  testEmbeddingProvider,
+  deleteModelProvider,
 } from '../api'
-import type { SetupStatus, GenerateKeyResponse, TestHaConnectionResponse } from '../api'
-import { Sparkles, ArrowRight, Key, Plug, CheckCircle2, Copy, Check, Loader2, Radio } from 'lucide-react'
+import type { SetupStatus, GenerateKeyResponse, TestHaConnectionResponse, AgentStatusResponse } from '../api'
+import type { ProviderType, ModelPurpose, ModelAuthConfig, ModelProvider } from '../types'
+import { Sparkles, ArrowRight, Key, Plug, CheckCircle2, Copy, Check, Loader2, Radio, Brain, Cpu, Trash2, FlaskConical } from 'lucide-react'
 
-type WizardStep = 'welcome' | 'lucia-ha' | 'ha-plugin' | 'done'
+type WizardStep = 'welcome' | 'lucia-ha' | 'ai-providers' | 'agent-status' | 'ha-plugin' | 'done'
 
 export default function SetupPage() {
-  const { refresh, login } = useAuth()
+  const { refresh, login, authenticated: authFromContext } = useAuth()
   const [step, setStep] = useState<WizardStep>('welcome')
   const [status, setStatus] = useState<SetupStatus | null>(null)
   const [loading, setLoading] = useState(true)
@@ -53,10 +59,21 @@ export default function SetupPage() {
             <LuciaHaStep
               status={status}
               login={login}
+              authFromContext={authFromContext}
               onComplete={(s) => {
                 setStatus(s)
-                setStep('ha-plugin')
+                setStep('ai-providers')
               }}
+            />
+          )}
+          {step === 'ai-providers' && (
+            <AiProviderStep
+              onComplete={() => setStep('agent-status')}
+            />
+          )}
+          {step === 'agent-status' && (
+            <AgentStatusStep
+              onComplete={() => setStep('ha-plugin')}
             />
           )}
           {step === 'ha-plugin' && (
@@ -82,29 +99,33 @@ function StepIndicator({ current }: { current: WizardStep }) {
   const steps: { key: WizardStep; label: string; icon: typeof Sparkles }[] = [
     { key: 'welcome', label: 'Welcome', icon: Sparkles },
     { key: 'lucia-ha', label: 'Configure', icon: Key },
+    { key: 'ai-providers', label: 'AI Provider', icon: Brain },
+    { key: 'agent-status', label: 'Agents', icon: Cpu },
     { key: 'ha-plugin', label: 'Connect', icon: Plug },
     { key: 'done', label: 'Done', icon: CheckCircle2 },
   ]
   const idx = steps.findIndex((s) => s.key === current)
 
   return (
-    <div className="mb-8 flex items-center justify-center gap-1 sm:gap-2">
+    <div className="mb-8 flex w-full items-center justify-between">
       {steps.map((s, i) => {
         const Icon = s.icon
         const active = i <= idx
         return (
-          <div key={s.key} className="flex items-center gap-1 sm:gap-2">
-            <div
-              className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${
-                active ? 'bg-amber/20 text-amber' : 'bg-basalt text-dust'
-              }`}
-            >
-              {i < idx ? <Check className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
+          <div key={s.key} className="flex items-center">
+            <div className="flex flex-col items-center gap-1">
+              <div
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-colors sm:h-8 sm:w-8 ${
+                  active ? 'bg-amber/20 text-amber' : 'bg-basalt text-dust'
+                }`}
+              >
+                {i < idx ? <Check className="h-3.5 w-3.5" /> : <Icon className="h-3.5 w-3.5" />}
+              </div>
+              <span className={`text-[10px] font-medium sm:text-xs ${active ? 'text-light' : 'text-dust'}`}>
+                {s.label}
+              </span>
             </div>
-            <span className={`hidden text-xs font-medium sm:inline ${active ? 'text-light' : 'text-dust'}`}>
-              {s.label}
-            </span>
-            {i < steps.length - 1 && <div className={`mx-1 h-px w-6 sm:mx-2 sm:w-10 ${active ? 'bg-amber/30' : 'bg-stone'}`} />}
+            {i < steps.length - 1 && <div className={`mx-1 h-px flex-1 self-start mt-3.5 sm:mt-4 min-w-3 sm:mx-2 ${active ? 'bg-amber/30' : 'bg-stone'}`} />}
           </div>
         )
       })}
@@ -139,6 +160,7 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
         <ol className="list-inside list-decimal space-y-2 text-fog">
           <li>Generate an API key for the Lucia dashboard</li>
           <li>Connect Lucia to your Home Assistant instance</li>
+          <li>Configure an AI model provider for your agents</li>
           <li>Set up the Home Assistant plugin to talk back to Lucia</li>
         </ol>
       </div>
@@ -155,14 +177,20 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
 function LuciaHaStep({
   status,
   login,
+  authFromContext,
   onComplete,
 }: {
   status: SetupStatus | null
   login: (apiKey: string) => Promise<void>
+  authFromContext: boolean
   onComplete: (s: SetupStatus) => void
 }) {
   const [dashboardKey, setDashboardKey] = useState<GenerateKeyResponse | null>(null)
   const [keyCopied, setKeyCopied] = useState(false)
+  const [resumeKey, setResumeKey] = useState('')
+  const [resumeError, setResumeError] = useState('')
+  const [resumeBusy, setResumeBusy] = useState(false)
+  const [resumed, setResumed] = useState(false)
   const [haUrl, setHaUrl] = useState(status?.haUrl ?? '')
   const [haToken, setHaToken] = useState('')
   const [haSaved, setHaSaved] = useState(false)
@@ -171,6 +199,7 @@ function LuciaHaStep({
   const [busy, setBusy] = useState(false)
 
   const hasDashKey = status?.hasDashboardKey || dashboardKey !== null
+  const isAuthenticated = dashboardKey !== null || resumed || authFromContext
 
   async function handleGenerateKey() {
     setError('')
@@ -182,21 +211,6 @@ function LuciaHaStep({
       await login(result.key)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to generate key')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function handleRegenerateKey() {
-    setError('')
-    setBusy(true)
-    try {
-      const result = await regenerateDashboardKey()
-      setDashboardKey(result)
-      // Re-login with the new key (old session is invalidated)
-      await login(result.key)
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to regenerate key')
     } finally {
       setBusy(false)
     }
@@ -232,6 +246,19 @@ function LuciaHaStep({
     if (dashboardKey) {
       await navigator.clipboard.writeText(dashboardKey.key)
       setKeyCopied(true)
+    }
+  }
+
+  async function handleResumeLogin() {
+    setResumeError('')
+    setResumeBusy(true)
+    try {
+      await login(resumeKey)
+      setResumed(true)
+    } catch {
+      setResumeError('Invalid API key. Please check and try again.')
+    } finally {
+      setResumeBusy(false)
     }
   }
 
@@ -272,15 +299,42 @@ function LuciaHaStep({
           </div>
         ) : (
           <div className="space-y-3">
-            <p className="flex items-center gap-1.5 text-sm text-sage">
-              <CheckCircle2 className="h-4 w-4" /> Dashboard key already exists
-            </p>
-            <p className="text-sm text-dust">
-              Lost your key? You can regenerate it below. The old key will be revoked.
-            </p>
-            <button onClick={handleRegenerateKey} disabled={busy} className={btnSecondary}>
-              {busy ? 'Regenerating...' : 'Regenerate Dashboard Key'}
-            </button>
+            {resumed || authFromContext ? (
+              <p className="flex items-center gap-1.5 text-sm text-sage">
+                <CheckCircle2 className="h-4 w-4" /> Authenticated — continue setup below
+              </p>
+            ) : (
+              <>
+                <p className="flex items-center gap-1.5 text-sm text-amber">
+                  <Key className="h-4 w-4" /> Dashboard key was already generated
+                </p>
+                <p className="text-sm text-fog">
+                  Enter your dashboard API key to resume setup where you left off.
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    placeholder="lk_..."
+                    value={resumeKey}
+                    onChange={(e) => setResumeKey(e.target.value)}
+                    className={inputStyle + ' flex-1'}
+                  />
+                  <button
+                    onClick={handleResumeLogin}
+                    disabled={resumeBusy || !resumeKey}
+                    className={btnPrimary}
+                  >
+                    {resumeBusy ? 'Verifying...' : 'Login'}
+                  </button>
+                </div>
+                {resumeError && (
+                  <p className="text-xs text-rose">{resumeError}</p>
+                )}
+                <p className="text-xs text-dust">
+                  Lost your key? Reset the MongoDB configuration store and re-run the setup wizard.
+                </p>
+              </>
+            )}
           </div>
         )}
       </section>
@@ -360,7 +414,7 @@ function LuciaHaStep({
             const s = await fetchSetupStatus()
             onComplete(s)
           }}
-          disabled={!hasDashKey || (!haSaved && !status?.hasHaConnection)}
+          disabled={!isAuthenticated || (!haSaved && !status?.hasHaConnection)}
           className={`group inline-flex items-center gap-2 ${btnPrimary}`}
         >
           Next
@@ -371,7 +425,374 @@ function LuciaHaStep({
   )
 }
 
-/* ── Step 3: Connect HA Plugin → Lucia ──────────────── */
+/* ── Step 3: Configure AI Providers ──────────────────── */
+
+const PROVIDER_TYPES: { value: ProviderType; label: string; placeholder: string }[] = [
+  { value: 'OpenAI', label: 'OpenAI', placeholder: 'gpt-4o' },
+  { value: 'Anthropic', label: 'Anthropic', placeholder: 'claude-sonnet-4-20250514' },
+  { value: 'GoogleGemini', label: 'Google Gemini', placeholder: 'gemini-2.0-flash' },
+  { value: 'Ollama', label: 'Ollama (local)', placeholder: 'llama3.2:3b' },
+  { value: 'AzureOpenAI', label: 'Azure OpenAI', placeholder: 'my-gpt4o-deployment' },
+  { value: 'AzureAIInference', label: 'Azure AI Inference', placeholder: 'my-model' },
+]
+
+function AiProviderStep({ onComplete }: { onComplete: () => void }) {
+  const [providers, setProviders] = useState<ModelProvider[]>([])
+  const [showForm, setShowForm] = useState(false)
+  const [providerType, setProviderType] = useState<ProviderType>('OpenAI')
+  const [purpose, setPurpose] = useState<ModelPurpose>('Chat')
+  const [modelName, setModelName] = useState('')
+  const [endpoint, setEndpoint] = useState('')
+  const [apiKey, setApiKey] = useState('')
+  const [useDefaultCreds, setUseDefaultCreds] = useState(false)
+  const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({})
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const refreshProviders = useCallback(async () => {
+    try {
+      const list = await fetchModelProviders()
+      setProviders(list)
+    } catch {
+      // may fail before any providers exist
+    }
+  }, [])
+
+  useEffect(() => { refreshProviders() }, [refreshProviders])
+
+  const isAzure = providerType === 'AzureOpenAI' || providerType === 'AzureAIInference'
+  const needsApiKey = providerType !== 'Ollama' && !useDefaultCreds
+  const modelPlaceholder = PROVIDER_TYPES.find(p => p.value === providerType)?.placeholder ?? ''
+  const hasChatProvider = providers.some(p => p.purpose === 'Chat')
+
+  async function handleCreate() {
+    setError('')
+    setBusy(true)
+    try {
+      const id = `${providerType.toLowerCase()}-${modelName.replace(/[^a-z0-9]/gi, '-').toLowerCase()}`
+      const auth: ModelAuthConfig = useDefaultCreds
+        ? { authType: 'default-credential', useDefaultCredentials: true }
+        : needsApiKey
+          ? { authType: 'api-key', apiKey, useDefaultCredentials: false }
+          : { authType: 'none', useDefaultCredentials: false }
+
+      await createModelProvider({
+        id,
+        name: `${PROVIDER_TYPES.find(p => p.value === providerType)?.label} — ${modelName}`,
+        providerType,
+        purpose,
+        endpoint: endpoint || undefined,
+        modelName,
+        auth,
+        enabled: true,
+      })
+
+      // Reset form and refresh list
+      setModelName('')
+      setEndpoint('')
+      setApiKey('')
+      setUseDefaultCreds(false)
+      setPurpose('Chat')
+      setShowForm(false)
+      await refreshProviders()
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to create provider')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleTest(id: string) {
+    try {
+      const provider = providers.find(p => p.id === id)
+      const result = provider?.purpose === 'Embedding'
+        ? await testEmbeddingProvider(id)
+        : await testModelProvider(id)
+      setTestResults(prev => ({ ...prev, [id]: result }))
+    } catch {
+      setTestResults(prev => ({ ...prev, [id]: { success: false, message: 'Test request failed' } }))
+    }
+  }
+
+  async function handleDelete(id: string) {
+    try {
+      await deleteModelProvider(id)
+      setTestResults(prev => { const copy = { ...prev }; delete copy[id]; return copy })
+      await refreshProviders()
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to delete provider')
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <h2 className="font-display text-xl font-semibold text-light">Configure AI Provider</h2>
+      <p className="text-sm text-fog">
+        Lucia needs at least one Chat model provider to power its agents.
+        Add your preferred AI service below.
+      </p>
+
+      {/* Existing providers */}
+      {providers.length > 0 && (
+        <section className="space-y-2">
+          {providers.map(p => {
+            const result = testResults[p.id]
+            return (
+              <div key={p.id} className="flex items-center gap-3 rounded-xl border border-stone bg-basalt/50 px-4 py-3">
+                <Brain className="h-4 w-4 shrink-0 text-amber" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-light">{p.name}</p>
+                  <p className="text-xs text-dust">{p.providerType} · {p.purpose} · {p.modelName}</p>
+                </div>
+                {result && (
+                  <span className={`text-xs ${result.success ? 'text-sage' : 'text-rose'}`}>
+                    {result.success ? '✓ OK' : '✗ Failed'}
+                  </span>
+                )}
+                <button onClick={() => handleTest(p.id)} className="rounded-lg bg-basalt px-2.5 py-1.5 text-xs text-fog hover:bg-stone" title="Test">
+                  <FlaskConical className="h-3.5 w-3.5" />
+                </button>
+                {!p.isBuiltIn && (
+                  <button onClick={() => handleDelete(p.id)} className="rounded-lg bg-basalt px-2.5 py-1.5 text-xs text-rose/70 hover:bg-ember/20" title="Delete">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            )
+          })}
+        </section>
+      )}
+
+      {/* Add provider form */}
+      {showForm ? (
+        <section className="rounded-xl border border-stone bg-basalt/50 p-5 space-y-4">
+          <h3 className="flex items-center gap-2 font-display text-sm font-semibold text-amber">
+            <Brain className="h-4 w-4" /> New Provider
+          </h3>
+
+          {/* Purpose */}
+          <div>
+            <label className="mb-1 block text-sm text-fog">Purpose</label>
+            <select value={purpose} onChange={e => setPurpose(e.target.value as ModelPurpose)} className={inputStyle}>
+              <option value="Chat">Chat (required)</option>
+              <option value="Embedding">Embedding (optional)</option>
+            </select>
+          </div>
+
+          {/* Provider Type */}
+          <div>
+            <label className="mb-1 block text-sm text-fog">Provider Type</label>
+            <select
+              value={providerType}
+              onChange={e => { setProviderType(e.target.value as ProviderType); setEndpoint(''); setUseDefaultCreds(false) }}
+              className={inputStyle}
+            >
+              {PROVIDER_TYPES.map(pt => (
+                <option key={pt.value} value={pt.value}>{pt.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Model Name */}
+          <div>
+            <label className="mb-1 block text-sm text-fog">{isAzure ? 'Deployment Name' : 'Model Name'}</label>
+            <input
+              type="text"
+              value={modelName}
+              onChange={e => setModelName(e.target.value)}
+              placeholder={modelPlaceholder}
+              className={inputStyle}
+            />
+          </div>
+
+          {/* Endpoint */}
+          <div>
+            <label className="mb-1 block text-sm text-fog">
+              Endpoint URL
+              {isAzure
+                ? <span className="text-dust"> (required — your Azure OpenAI resource URL)</span>
+                : <span className="text-dust"> (optional{providerType === 'Ollama' ? ', default: http://localhost:11434' : ''})</span>
+              }
+            </label>
+            <input
+              type="text"
+              value={endpoint}
+              onChange={e => setEndpoint(e.target.value)}
+              placeholder={isAzure ? 'https://my-resource.openai.azure.com' : providerType === 'Ollama' ? 'http://localhost:11434' : 'Leave blank for default'}
+              className={inputStyle}
+            />
+          </div>
+
+          {/* Azure Default Credential toggle */}
+          {isAzure && (
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={useDefaultCreds}
+                onChange={e => setUseDefaultCreds(e.target.checked)}
+                className="h-4 w-4 rounded border-stone bg-basalt accent-amber"
+              />
+              <span className="text-sm text-fog">
+                Use Azure Default Credential <span className="text-dust">(Managed Identity, Azure CLI, etc.)</span>
+              </span>
+            </label>
+          )}
+
+          {/* API Key */}
+          {needsApiKey && (
+            <div>
+              <label className="mb-1 block text-sm text-fog">API Key</label>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={e => setApiKey(e.target.value)}
+                placeholder="sk-... or your API key"
+                className={inputStyle}
+              />
+            </div>
+          )}
+
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={handleCreate}
+              disabled={busy || !modelName || (needsApiKey && !apiKey) || (isAzure && !endpoint)}
+              className={btnPrimary}
+            >
+              {busy ? 'Saving...' : 'Save Provider'}
+            </button>
+            <button onClick={() => setShowForm(false)} className={btnSecondary}>Cancel</button>
+          </div>
+        </section>
+      ) : (
+        <button onClick={() => setShowForm(true)} className={btnSecondary}>
+          + Add AI Provider
+        </button>
+      )}
+
+      {error && (
+        <div className="rounded-xl border border-ember/30 bg-ember/10 px-4 py-2.5 text-sm text-rose">
+          {error}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between">
+        <button
+          onClick={onComplete}
+          className="text-sm text-dust hover:text-fog underline underline-offset-2"
+        >
+          Skip for now
+        </button>
+        <button
+          onClick={onComplete}
+          disabled={!hasChatProvider}
+          className={`group inline-flex items-center gap-2 ${btnPrimary}`}
+        >
+          Next
+          <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/* ── Step 3b: Agent Status (waiting for agents) ─────── */
+
+function AgentStatusStep({ onComplete }: { onComplete: () => void }) {
+  const [agentStatus, setAgentStatus] = useState<AgentStatusResponse | null>(null)
+  const [elapsed, setElapsed] = useState(0)
+
+  useEffect(() => {
+    let cancelled = false
+    const poll = async () => {
+      while (!cancelled) {
+        try {
+          const status = await fetchAgentStatus()
+          if (!cancelled) setAgentStatus(status)
+          if (status.phase === 'ready') return
+        } catch {
+          // keep polling
+        }
+        await new Promise(r => setTimeout(r, 3000))
+      }
+    }
+    poll()
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    const timer = setInterval(() => setElapsed(e => e + 1), 1000)
+    return () => clearInterval(timer)
+  }, [])
+
+  const isReady = agentStatus?.phase === 'ready'
+  const isInitializing = agentStatus?.phase === 'initializing'
+
+  return (
+    <div className="space-y-6">
+      <h2 className="font-display text-xl font-semibold text-light">Starting Agents</h2>
+
+      <div className="flex flex-col items-center gap-4 py-6">
+        {isReady ? (
+          <>
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-sage/10">
+              <CheckCircle2 className="h-8 w-8 text-sage" />
+            </div>
+            <p className="text-sm text-sage">
+              {agentStatus.agentCount} agent{agentStatus.agentCount !== 1 ? 's' : ''} initialized and ready!
+            </p>
+          </>
+        ) : (
+          <>
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-amber/10">
+              <Loader2 className="h-8 w-8 animate-spin text-amber" />
+            </div>
+            <p className="text-sm text-fog">
+              {isInitializing
+                ? 'Agents are initializing — loading Home Assistant entities and registering skills...'
+                : 'Waiting for configuration to propagate...'}
+            </p>
+            <p className="text-xs text-dust">{elapsed}s elapsed</p>
+          </>
+        )}
+      </div>
+
+      {/* Agent list */}
+      {agentStatus && agentStatus.agents.length > 0 && (
+        <section className="space-y-2">
+          <h3 className="text-sm font-medium text-fog">Registered Agents</h3>
+          {agentStatus.agents.map((a, i) => (
+            <div key={i} className="flex items-center gap-3 rounded-xl border border-stone bg-basalt/50 px-4 py-3">
+              <Cpu className="h-4 w-4 shrink-0 text-amber" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-light">{a.name}</p>
+                <p className="truncate text-xs text-dust">{a.description}</p>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
+
+      <div className="flex items-center justify-between">
+        <button
+          onClick={onComplete}
+          className="text-sm text-dust hover:text-fog underline underline-offset-2"
+        >
+          {isReady ? '' : 'Skip — configure later'}
+        </button>
+        <button
+          onClick={onComplete}
+          disabled={!isReady}
+          className={`group inline-flex items-center gap-2 ${btnPrimary}`}
+        >
+          Next
+          <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/* ── Step 4: Connect HA Plugin → Lucia ──────────────── */
 
 function HaPluginStep({
   status,
@@ -517,7 +938,7 @@ function HaPluginStep({
   )
 }
 
-/* ── Step 4: Done ───────────────────────────────────── */
+/* ── Step 5: Done ───────────────────────────────────── */
 
 function DoneStep() {
   return (

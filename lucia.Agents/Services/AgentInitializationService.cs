@@ -65,6 +65,9 @@ public class AgentInitializationService : BackgroundService
         // Wait for at least one chat provider to be configured (may come from wizard or seed)
         await WaitForChatProviderAsync(stoppingToken).ConfigureAwait(false);
 
+        // Configuration is complete — health check transitions from "waiting" to "in progress"
+        _initStatus.MarkConfigurationReceived();
+
         // Seed AgentDefinition documents for any built-in agents missing from MongoDB
         await _definitionRepository.SeedBuiltInAgentDefinitionsAsync(_agents, _logger, stoppingToken).ConfigureAwait(false);
 
