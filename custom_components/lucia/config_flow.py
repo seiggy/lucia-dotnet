@@ -14,7 +14,6 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_API_KEY
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
@@ -42,39 +41,45 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 )
 
 async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
-    """Validate the user input and connection to the A2A service.
+    """Validate the user input and connection to the Lucia agent service.
 
     Data has the keys from STEP_USER_DATA_SCHEMA with values provided by the user.
     """
-    # Import here to avoid circular imports
     import httpx
-    from a2a.client import A2ACardResolver
 
-    # Create a dedicated HTTP client for the A2A repository with API key header
+    # Create a dedicated HTTP client with API key header
     headers = {}
     if data.get(CONF_API_KEY):
         headers["X-Api-Key"] = data[CONF_API_KEY]
 
-    httpx_client = httpx.AsyncClient(headers=headers)
+    httpx_client = httpx.AsyncClient(headers=headers, verify=False, timeout=30.0)
 
     try:
-        # Create resolver with base URL
-        client = A2ACardResolver(
-            httpx_client=httpx_client,
-            base_url=data[CONF_REPOSITORY],
-        )
+        # Fetch the agent card directly via well-known URL (no a2a-sdk needed)
+        base_url = data[CONF_REPOSITORY].rstrip("/")
+        agent_card_url = f"{base_url}/.well-known/agent.json"
 
-        _LOGGER.info("Resolving agent card from %s", data[CONF_REPOSITORY])
-        agent_card = await hass.async_add_executor_job(client.get_agent_card)
+        _LOGGER.info("Fetching agent card from %s", agent_card_url)
+        response = await httpx_client.get(agent_card_url)
+        response.raise_for_status()
+
+        agent_card = response.json()
 
         if not agent_card:
             raise ValueError("Failed to retrieve agent card")
 
         # Return info to store in config entry
         return {
-            "title": agent_card.name if hasattr(agent_card, "name") else "Lucia Agent",
-            "agent_id": agent_card.id if hasattr(agent_card, "id") else "lucia",
+            "title": agent_card.get("name", "Lucia Agent"),
+            "agent_id": agent_card.get("id", "lucia"),
         }
+    except httpx.HTTPStatusError as err:
+        _LOGGER.error(
+            "Failed to fetch agent card (HTTP %s): %s",
+            err.response.status_code,
+            err,
+        )
+        raise ValueError("Invalid repository or API key") from err
     except Exception as err:
         _LOGGER.error(
             "Failed to resolve agent card: %s. Please check your repository and API key.",
@@ -83,7 +88,6 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
         )
         raise ValueError("Invalid repository or API key") from err
     finally:
-        # Clean up the HTTP client
         await httpx_client.aclose()
 
 class LuciaConfigFlow(ConfigFlow, domain=DOMAIN):
