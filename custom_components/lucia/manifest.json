@@ -11,8 +11,6 @@
   "integration_type": "service",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/seiggy/lucia-dotnet/issues",
-  "requirements": [
-    "a2a-sdk>=0.3.0"
-  ],
-  "version": "2026.02.20"
+  "requirements": [],
+  "version": "2026.02.27"
 }
