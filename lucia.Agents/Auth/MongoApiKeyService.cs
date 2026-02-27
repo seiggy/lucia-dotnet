@@ -50,6 +50,44 @@ public sealed class MongoApiKeyService : IApiKeyService
         };
     }
 
+    public async Task<ApiKeyCreateResponse?> CreateKeyFromPlaintextAsync(string name, string plaintextKey, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(plaintextKey) || plaintextKey.Length < 16)
+        {
+            return null;
+        }
+
+        var existingKeys = await ListKeysAsync(cancellationToken).ConfigureAwait(false);
+        if (existingKeys.Any(k => k.Name == name && !k.IsRevoked))
+        {
+            return null;
+        }
+
+        var hash = HashKey(plaintextKey);
+        var prefix = plaintextKey.Length <= 12 ? plaintextKey : plaintextKey[..12] + "...";
+
+        var entry = new ApiKeyEntry
+        {
+            KeyHash = hash,
+            KeyPrefix = prefix,
+            Name = name,
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        await _collection.InsertOneAsync(entry, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        _logger.LogInformation("Created API key '{Name}' from env (prefix {Prefix})", name, prefix);
+
+        return new ApiKeyCreateResponse
+        {
+            Key = plaintextKey,
+            Id = entry.Id,
+            Prefix = prefix,
+            Name = name,
+            CreatedAt = entry.CreatedAt,
+        };
+    }
+
     public async Task<ApiKeyEntry?> ValidateKeyAsync(string plaintextKey, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(plaintextKey))

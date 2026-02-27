@@ -4,7 +4,7 @@ import { AuthProvider, useAuth } from './auth/AuthContext'
 import {
   Activity, Download, Settings, Bot, Database, Server,
   Layers, Boxes, ListTodo, Menu, X, LogOut, Sparkles, BarChart3, MapPin,
-  AlarmClock, Radio
+  AlarmClock, Radio, ShoppingCart
 } from 'lucide-react'
 import LoginPage from './pages/LoginPage'
 import SetupPage from './pages/SetupPage'
@@ -22,6 +22,7 @@ import ActivityPage from './pages/ActivityPage'
 import EntityLocationPage from './pages/EntityLocationPage'
 import AlarmsPage from './pages/AlarmsPage'
 import PresencePage from './pages/PresencePage'
+import ListsPage from './pages/ListsPage'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Activity', icon: BarChart3, end: true },
@@ -34,6 +35,7 @@ const NAV_ITEMS = [
   { to: '/entity-location', label: 'Entity Locations', icon: MapPin },
   { to: '/presence', label: 'Presence', icon: Radio },
   { to: '/alarms', label: 'Alarms', icon: AlarmClock },
+  { to: '/lists', label: 'Lists', icon: ShoppingCart },
   { to: '/tasks', label: 'Tasks', icon: ListTodo },
   { to: '/exports', label: 'Exports', icon: Download },
   { to: '/configuration', label: 'Configuration', icon: Settings },
@@ -180,6 +182,7 @@ function AppRoutes() {
             <Route path="/prompt-cache" element={<PromptCachePage />} />
             <Route path="/entity-location" element={<EntityLocationPage />} />
             <Route path="/alarms" element={<AlarmsPage />} />
+            <Route path="/lists" element={<ListsPage />} />
             <Route path="/presence" element={<PresencePage />} />
             <Route path="/tasks" element={<TasksPage />} />
             <Route path="/mcp-servers" element={<McpServersPage />} />

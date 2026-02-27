@@ -21,6 +21,8 @@ export default function McpServersPage() {
   const [discoveredTools, setDiscoveredTools] = useState<Record<string, McpToolInfo[]>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [connectingId, setConnectingId] = useState<string | null>(null)
+  const [disconnectingId, setDisconnectingId] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
     try {
@@ -50,20 +52,28 @@ export default function McpServersPage() {
   }
 
   const handleConnect = async (id: string) => {
+    setConnectingId(id)
+    setError(null)
     try {
       await connectMcpServer(id)
       await loadData()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to connect')
+    } finally {
+      setConnectingId(null)
     }
   }
 
   const handleDisconnect = async (id: string) => {
+    setDisconnectingId(id)
+    setError(null)
     try {
       await disconnectMcpServer(id)
       await loadData()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to disconnect')
+    } finally {
+      setDisconnectingId(null)
     }
   }
 
@@ -156,13 +166,21 @@ export default function McpServersPage() {
                         <button onClick={() => handleDiscover(server.id)} className="rounded bg-basalt px-3 py-1 text-xs hover:bg-stone">
                           Discover Tools
                         </button>
-                        <button onClick={() => handleDisconnect(server.id)} className="rounded bg-basalt px-3 py-1 text-xs hover:bg-stone">
-                          Disconnect
+                        <button
+                          onClick={() => handleDisconnect(server.id)}
+                          disabled={disconnectingId === server.id}
+                          className="rounded bg-basalt px-3 py-1 text-xs hover:bg-stone disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {disconnectingId === server.id ? 'Disconnecting…' : 'Disconnect'}
                         </button>
                       </>
                     ) : (
-                      <button onClick={() => handleConnect(server.id)} className="rounded bg-amber px-3 py-1 text-xs text-void hover:bg-amber-glow">
-                        Connect
+                      <button
+                        onClick={() => handleConnect(server.id)}
+                        disabled={connectingId === server.id || status?.state === 'Connecting'}
+                        className="rounded bg-amber px-3 py-1 text-xs text-void hover:bg-amber-glow disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {connectingId === server.id || status?.state === 'Connecting' ? 'Connecting…' : 'Connect'}
                       </button>
                     )}
                     <button

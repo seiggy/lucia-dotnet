@@ -154,6 +154,10 @@ builder.Services.AddAuthorization(options =>
 });
 
 builder.Services.AddHttpClient("AgentProxy");
+builder.Services.AddHttpClient("OllamaModels", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(15);
+});
 
 builder.Services.AddProblemDetails();
 
@@ -224,6 +228,7 @@ app.MapAgentDefinitionApi();
 app.MapModelProviderApi();
 app.MapActivityApi();
 app.MapAlarmClockApi();
+app.MapListsApi();
 app.MapPresenceApi();
 app.MapDefaultEndpoints();
 

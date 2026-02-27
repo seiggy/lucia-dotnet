@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using lucia.Agents.Auth;
 using lucia.Agents.Registry;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Mcp;
@@ -26,6 +27,8 @@ public class AgentInitializationService : BackgroundService
     private readonly IModelProviderRepository _providerRepository;
     private readonly IEntityLocationService _entityLocationService;
     private readonly IPresenceDetectionService _presenceDetectionService;
+    private readonly IApiKeyService _apiKeyService;
+    private readonly ConfigStoreWriter _configStore;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AgentInitializationService> _logger;
     private readonly IOptionsMonitor<HomeAssistantOptions> _haOptions;
@@ -38,6 +41,8 @@ public class AgentInitializationService : BackgroundService
         IModelProviderRepository providerRepository,
         IEntityLocationService entityLocationService,
         IPresenceDetectionService presenceDetectionService,
+        IApiKeyService apiKeyService,
+        ConfigStoreWriter configStore,
         IConfiguration configuration,
         ILogger<AgentInitializationService> logger,
         IOptionsMonitor<HomeAssistantOptions> haOptions,
@@ -49,6 +54,8 @@ public class AgentInitializationService : BackgroundService
         _providerRepository = providerRepository;
         _entityLocationService = entityLocationService;
         _presenceDetectionService = presenceDetectionService;
+        _apiKeyService = apiKeyService;
+        _configStore = configStore;
         _configuration = configuration;
         _logger = logger;
         _haOptions = haOptions;
@@ -57,10 +64,16 @@ public class AgentInitializationService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Seed setup from env (dashboard key, HA config, Lucia HA key) for headless deployments
+        await _apiKeyService.SeedSetupFromEnvAsync(_configStore, _configuration, _logger, stoppingToken).ConfigureAwait(false);
+
         await WaitForHomeAssistantConfigurationAsync(stoppingToken).ConfigureAwait(false);
 
         // Seed default model providers from connection strings if upgrading
         await _providerRepository.SeedDefaultModelProvidersAsync(_configuration, _logger, stoppingToken).ConfigureAwait(false);
+
+        // Seed MetaMCP from METAMCP_URL when configured (headless/Docker)
+        await _definitionRepository.SeedMetaMcpFromConfigAsync(_configuration, _logger, stoppingToken).ConfigureAwait(false);
 
         // Wait for at least one chat provider to be configured (may come from wizard or seed)
         await WaitForChatProviderAsync(stoppingToken).ConfigureAwait(false);

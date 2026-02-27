@@ -273,6 +273,39 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
         return await GetArrayAsync<CalendarEvent>(path, cancellationToken);
     }
 
+    // ── Shopping List ───────────────────────────────────────────────
+
+    /// <inheritdoc />
+    public async Task<ShoppingListItem[]> GetShoppingListItemsAsync(CancellationToken cancellationToken = default)
+    {
+        return await GetArrayAsync<ShoppingListItem>("/api/shopping_list", cancellationToken);
+    }
+
+    // ── Todo Lists ──────────────────────────────────────────────────
+
+    /// <inheritdoc />
+    public async Task<string[]> GetTodoListEntityIdsAsync(CancellationToken cancellationToken = default)
+    {
+        var states = await GetStatesAsync(cancellationToken);
+        return states
+            .Where(s => s.EntityId.StartsWith("todo.", StringComparison.OrdinalIgnoreCase))
+            .Select(s => s.EntityId)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    /// <inheritdoc />
+    public async Task<TodoItem[]> GetTodoItemsAsync(string entityId, CancellationToken cancellationToken = default)
+    {
+        var request = new ServiceCallRequest { { "entity_id", entityId } };
+        var json = await CallServiceRawAsync("todo", "get_items", request, returnResponse: true, cancellationToken);
+        using var doc = JsonDocument.Parse(json);
+        var root = doc.RootElement;
+        if (root.TryGetProperty(entityId, out var entityEl) && entityEl.TryGetProperty("items", out var itemsEl))
+            return JsonSerializer.Deserialize<TodoItem[]>(itemsEl.GetRawText(), HomeAssistantJsonOptions.Default) ?? [];
+        return [];
+    }
+
     // ── Templates ───────────────────────────────────────────────────
 
     /// <summary>Render a Home Assistant Jinja2 template.</summary>

@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
 using lucia.Agents.GitHubCopilot;
@@ -13,6 +15,35 @@ namespace lucia.AgentHost.Extensions;
 /// Request body for the Copilot CLI connect endpoint.
 /// </summary>
 public sealed record CopilotConnectRequest(string? GithubToken);
+
+/// <summary>
+/// Request body for listing Ollama models.
+/// </summary>
+public sealed record OllamaModelsRequest(string? Endpoint);
+
+/// <summary>
+/// Response from listing Ollama models. Models are populated on success; Error is set on failure.
+/// </summary>
+public sealed class OllamaModelsResponse
+{
+    public List<string> Models { get; set; } = [];
+    public string? Error { get; set; }
+}
+
+/// <summary>
+/// Response from GET /api/tags on an Ollama instance.
+/// </summary>
+internal sealed class OllamaTagsResponse
+{
+    [JsonPropertyName("models")]
+    public List<OllamaModelInfo> Models { get; set; } = [];
+}
+
+internal sealed class OllamaModelInfo
+{
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = "";
+}
 
 /// <summary>
 /// CRUD endpoints for user-configured model providers.
@@ -33,6 +64,7 @@ public static class ModelProviderApi
         group.MapPost("/{id}/test", TestProviderAsync);
         group.MapPost("/{id}/test-embedding", TestEmbeddingAsync);
         group.MapPost("/copilot/connect", CopilotConnectAsync);
+        group.MapPost("/ollama/models", ListOllamaModelsAsync);
 
         return endpoints;
     }
@@ -158,6 +190,47 @@ public static class ModelProviderApi
         CancellationToken ct)
     {
         var result = await connectService.ConnectAndListModelsAsync(request.GithubToken, ct);
+        return TypedResults.Ok(result);
+    }
+
+    private static async Task<Ok<OllamaModelsResponse>> ListOllamaModelsAsync(
+        [FromBody] OllamaModelsRequest request,
+        [FromServices] IHttpClientFactory httpClientFactory,
+        CancellationToken ct)
+    {
+        var result = new OllamaModelsResponse();
+        var baseUrl = (request?.Endpoint ?? "").Trim();
+        if (string.IsNullOrEmpty(baseUrl))
+            baseUrl = "http://localhost:11434";
+
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri) || (uri.Scheme != "http" && uri.Scheme != "https"))
+        {
+            result.Error = "Invalid Ollama endpoint URL";
+            return TypedResults.Ok(result);
+        }
+
+        var url = uri.ToString().TrimEnd('/') + "/api/tags";
+        try
+        {
+            var client = httpClientFactory.CreateClient("OllamaModels");
+            var response = await client.GetAsync(url, ct).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+
+            var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            var parsed = JsonSerializer.Deserialize<OllamaTagsResponse>(json);
+            result.Models = (parsed?.Models ?? [])
+                .Select(m => m.Name)
+                .Where(n => !string.IsNullOrEmpty(n))
+                .OrderBy(n => n)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            result.Error = ex is HttpRequestException
+                ? $"Cannot reach Ollama at {baseUrl}: {ex.Message}"
+                : $"Failed to list models: {ex.Message}";
+        }
+
         return TypedResults.Ok(result);
     }
 }

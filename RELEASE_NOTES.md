@@ -3,67 +3,60 @@
 # Release Notes - 2026.02.27
 
 **Release Date:** February 27, 2026  
-**Code Name:** "Keystone"
+**Code Name:** "Headless"
 
 ---
 
-## 🗝️ Overview
+## 🎯 Overview
 
-"Keystone" is a UX and resilience release that transforms Lucia's first-run experience into a fully guided, self-healing onboarding wizard. Named after the wedge-shaped stone at the crown of an arch that locks everything into place—Keystone ensures that the dashboard API key, AI provider configuration, and agent initialization all interlock seamlessly before the user ever touches Home Assistant. Once that keystone is set, the arch holds.
-
-## 🚀 Highlights
-
-- **Guided AI Provider Setup** — New wizard step lets users configure Chat and Embedding providers (OpenAI, Azure OpenAI with API Key or Default Credential) directly during onboarding, with live connectivity tests before proceeding.
-- **Agent Status Gate** — After providers are configured, the wizard waits for all agents to come online with real-time health polling before presenting the Home Assistant integration instructions.
-- **Setup Resume Flow** — If a user's browser session is lost mid-setup (after key generation but before completion), they can now re-authenticate with their dashboard key and continue where they left off instead of hitting a dead end.
-- **Infinite Prompt Cache** — Agent-level prompt cache entries no longer expire after 4 hours; they persist until manually evicted via the dashboard, maximizing LLM cost savings.
+"Headless" fixes Lucia setup for Docker/deployments where the setup wizard is not completed first. It enables the Home Assistant integration to connect successfully by seeding the chat model provider from `ConnectionStrings__chat-model`, making the agent catalog publicly discoverable, and fixing environment variable handling in the sidecar compose.
 
 ## ✨ What's New
 
-### 🧙 Setup Wizard — AI Provider Configuration (Step 4)
+### 🐳 Docker & Deployment
 
-- **Provider type selection** — Choose between OpenAI and Azure OpenAI for both Chat and Embedding capabilities.
-- **Azure authentication modes** — API Key and Azure Default Credential are both supported. Default Credential enables managed identity deployments without storing secrets.
-- **Live provider test** — Each configured provider is validated with a real API call before it can be saved. Failed tests show the error message inline.
-- **Provider cards** — Configured providers display as summary cards with model/deployment name and a remove option.
-- **Capability badges** — Visual indicators show which capabilities (Chat, Embedding) are configured.
+- **Model provider seed before setup** — `ModelProviderSeedExtensions` now seeds the chat provider from `ConnectionStrings__chat-model` even when setup is not complete, enabling headless/Docker deployments to register agents without running the wizard first
+- **Connection string key fix** — Seed reads `chat-model` (matching `ConnectionStrings__chat-model`) instead of `chat`; fallback to `chat` for legacy configs
+- **Ollama fallback parser** — Added `TryParseOllamaFallback` when `ChatClientConnectionInfo.TryParse` fails (e.g. `host.docker.internal` on some platforms)
+- **Sidecar env_file fix** — `docker-compose.lucia-sidecar.yml` uses `env_file: .env` instead of variable substitution to avoid mangling `ConnectionStrings__chat-model` (the `${VAR:-default}` syntax was corrupting semicolon-separated values)
 
-### ⏳ Setup Wizard — Agent Status Gate (Step 5)
+### 🔓 Agent Catalog Discovery
 
-- **Real-time agent health polling** — After AI providers are saved, the wizard polls `/api/agents/status` every 3 seconds until all agents report healthy.
-- **Per-agent status cards** — Each agent shows a spinner (initializing), green check (ready), or red X (failed) with the agent description.
-- **Automatic progression** — The Next button enables only when all agents are online, preventing the user from configuring Home Assistant before agents are ready to receive commands.
+- **Anonymous `/agents`** — GET `/agents` now allows anonymous access so the Home Assistant integration can fetch the catalog without an API key during setup
+- **Setup wizard reset** — `DEPLOYMENT.md` updated with correct `mongosh luciaconfig --eval "db.dropDatabase()"` command to re-run the setup wizard
+- **MetaMCP setup guide** — `DEPLOYMENT-OPENWEBUI.md` expanded with step-by-step "Setup: MetaMCP and Fixing 'No Agents'" section
 
-### 🔄 Setup Resume Flow
+### 🏠 Home Assistant Integration
 
-- **Session recovery** — If the dashboard key was already generated but setup wasn't completed, the wizard detects this state and presents a login form instead of a dead-end message.
-- **Cookie-aware authentication** — The wizard checks three auth sources: key generated this session, resumed via login form, or existing session cookie from a previous visit.
-- **Graceful degradation** — Users who lose their key must reset MongoDB storage and start fresh—no backdoor recovery mechanism that could be exploited.
-
-### ♾️ Infinite Prompt Cache Retention
-
-- **Removed 4-hour TTL** — `ChatCacheTtl` field and all `TimeSpan` parameters removed from `StringSetAsync` calls in `RedisPromptCacheService`.
-- **Manual eviction only** — Cache entries persist in Redis indefinitely until evicted via the Prompt Cache dashboard page (per-entry or bulk "Clear All").
-- **Cost optimization** — Long-running instances accumulate cache hits over time without periodic cold-start penalties.
+- **401 error handling** — Clear "Authentication failed (401)" message when the catalog returns 401 instead of "Invalid agent catalog"
+- **Catalog format support** — Accepts `value` key in addition to `agents` and `catalog` in catalog responses
 
 ## 🐛 Bug Fixes
 
-- **Orchestrator URL registration** — `OrchestratorAgent` was registering the internal container address (e.g., `http://localhost:5000/agent`) as its A2A endpoint instead of a relative `/agent` path. External callers couldn't reach the agent through the reverse proxy. Fixed to use relative URL resolution.
-- **Azure OpenAI embedding 404** — The API-key path for Azure OpenAI embeddings used the plain `OpenAI.Embeddings.EmbeddingClient` which sends requests to the wrong URL pattern. Azure OpenAI requires `AzureOpenAIClient` for the `/openai/deployments/{name}/embeddings?api-version=...` route. Fixed to use `AzureOpenAIClient` + `AzureKeyCredential` for both API key and Default Credential paths.
-- **Empty agent catalog crash** — Home Assistant custom component raised `ConfigEntryNotReady` when the agent catalog was empty instead of gracefully showing no agents. Fixed to return an empty list.
-- **A2A SDK dependency removed** — Custom component no longer depends on the experimental `a2a-sdk` Python package, resolving HACS validation failures and installation issues.
-- **Playwright test stability** — Rewrote setup wizard E2E tests to handle the resume flow, added Agent Cache tab switching for prompt cache validation, and fixed column mapping for the new cache table layout.
-- **StepIndicator overflow** — The 6-step wizard progress tracker overflowed its container on narrow viewports. Fixed with proper flex-wrap and sizing.
+- **Invalid agent catalog from HA** — `/agents` required auth; HA integration received 401 with JSON error body and reported "Invalid agent catalog". Fixed by allowing anonymous access to catalog discovery.
+- **Chat provider never seeded in Docker** — `ConnectionStrings__chat-model` in `.env` was not used because (1) seed only ran when setup complete, (2) seed looked for `chat` not `chat-model`, (3) compose variable substitution corrupted the value. Fixed with env_file, key change, and pre-setup seed.
+- **Setup wizard unrecoverable** — Documentation referenced non-existent `db.settings.drop()`. Correct reset is `db.dropDatabase()` on `luciaconfig`.
 
-## 🧪 Testing
+---
 
-- **7 setup wizard E2E tests** — Covers redirect, welcome page, key generation + HA config, AI provider configuration, agent status gate, dashboard authentication, and setup endpoint lockdown.
-- **5 prompt cache E2E tests** — Validates cache login/clear, miss recording, hit detection, different-prompt separation, and manual eviction through the dashboard UI.
-- **Resume flow coverage** — Tests navigate through the wizard with a pre-existing dashboard key, exercising the resume login path.
+# Release Notes - 2026.02.26
 
-## 📦 Files Changed
+**Release Date:** February 26, 2026  
+**Code Name:** "Scene"
 
-- 20 files changed, +1,201 / −528 lines across dashboard, backend, tests, and HA custom component.
+---
+
+## 🎬 Overview
+
+"Scene" adds a new **Scene Agent** to the Lucia catalog for activating Home Assistant scenes via natural language.
+
+## ✨ What's New
+
+### 📽️ Scene Agent
+
+- **SceneControlSkill** — New skill with `ListScenesAsync`, `FindScenesByAreaAsync`, and `ActivateSceneAsync` tools for Home Assistant scene control
+- **SceneAgent** — Specialized agent for scene activation at `/a2a/scene-agent`; routes queries like "activate movie scene", "turn on night mode", "what scenes are in the living room?"
+- **Catalog integration** — Scene agent appears in the agent catalog and is routable via the orchestrator for #scenes domain
 
 ---
 

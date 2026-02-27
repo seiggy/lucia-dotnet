@@ -1,5 +1,6 @@
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
+using lucia.Agents.Extensions;
 using lucia.Agents.Mcp;
 using lucia.Agents.Providers;
 using lucia.Agents.Registry;
@@ -26,6 +27,7 @@ public static class AgentDefinitionApi
         group.MapPut("/{id}", UpdateDefinitionAsync);
         group.MapDelete("/{id}", DeleteDefinitionAsync);
         group.MapPost("/reload", ReloadAgentsAsync);
+        group.MapPost("/seed", SeedBuiltInAgentsAsync);
 
         return endpoints;
     }
@@ -55,7 +57,8 @@ public static class AgentDefinitionApi
         var builtInNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "orchestrator", "light-agent", "climate-agent",
-            "general-assistant", "music-agent", "timer-agent"
+            "general-assistant", "music-agent", "timer-agent",
+            "lists-agent", "scene-agent"
         };
 
         if (builtInNames.Contains(definition.Name))
@@ -106,5 +109,56 @@ public static class AgentDefinitionApi
     {
         await loader.ReloadAsync().ConfigureAwait(false);
         return TypedResults.Ok("Dynamic agents reloaded");
+    }
+
+    /// <summary>
+    /// Re-runs the built-in agent definition seed and initializes/registers any newly added agents.
+    /// Use this to add missing built-in agents (e.g. lists-agent) to an existing deployment without restarting.
+    /// </summary>
+    private static async Task<Ok<string>> SeedBuiltInAgentsAsync(
+        [FromServices] IAgentDefinitionRepository repository,
+        [FromServices] IEnumerable<ILuciaAgent> agents,
+        [FromServices] IAgentRegistry agentRegistry,
+        [FromServices] ILoggerFactory loggerFactory,
+        CancellationToken cancellationToken = default)
+    {
+        var logger = loggerFactory.CreateLogger("AgentDefinitionApi");
+        var existingBefore = (await repository.GetAllAgentDefinitionsAsync(cancellationToken).ConfigureAwait(false))
+            .ToDictionary(d => d.Id, StringComparer.OrdinalIgnoreCase);
+
+        await repository.SeedBuiltInAgentDefinitionsAsync(agents, logger, cancellationToken).ConfigureAwait(false);
+
+        var existingAfter = (await repository.GetAllAgentDefinitionsAsync(cancellationToken).ConfigureAwait(false))
+            .ToDictionary(d => d.Id, StringComparer.OrdinalIgnoreCase);
+
+        var newlyAdded = new List<string>();
+        foreach (var agent in agents)
+        {
+            var agentId = agent.GetAgentCard().Name;
+            if (string.IsNullOrWhiteSpace(agentId)) continue;
+            if (existingBefore.ContainsKey(agentId)) continue;
+            if (!existingAfter.ContainsKey(agentId)) continue;
+            newlyAdded.Add(agentId);
+        }
+
+        foreach (var agent in agents)
+        {
+            var agentId = agent.GetAgentCard().Name;
+            if (!newlyAdded.Contains(agentId)) continue;
+
+            try
+            {
+                await agent.InitializeAsync(cancellationToken).ConfigureAwait(false);
+                var card = agent.GetAgentCard();
+                await agentRegistry.RegisterAgentAsync(card, cancellationToken).ConfigureAwait(false);
+                logger.LogInformation("Initialized and registered newly seeded agent '{AgentId}'", agentId);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Could not initialize/register agent '{AgentId}' after seed", agentId);
+            }
+        }
+
+        return TypedResults.Ok("Built-in agent definitions seeded");
     }
 }

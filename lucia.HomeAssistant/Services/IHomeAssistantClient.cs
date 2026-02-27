@@ -146,4 +146,17 @@ public interface IHomeAssistantClient
     /// <param name="mediaContentId">The media-source:// URI of the file to delete.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     Task DeleteMediaAsync(string mediaContentId, CancellationToken cancellationToken = default);
+
+    // ── Shopping List ─────────────────────────────────────────────────
+
+    /// <summary>Returns items from the Home Assistant shopping list (GET /api/shopping_list).</summary>
+    Task<ShoppingListItem[]> GetShoppingListItemsAsync(CancellationToken cancellationToken = default);
+
+    // ── Todo Lists ───────────────────────────────────────────────────
+
+    /// <summary>Returns todo entity IDs (e.g. todo.grocery) from HA.</summary>
+    Task<string[]> GetTodoListEntityIdsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Returns items from a todo list entity via todo.get_items.</summary>
+    Task<TodoItem[]> GetTodoItemsAsync(string entityId, CancellationToken cancellationToken = default);
 }

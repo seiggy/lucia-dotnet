@@ -11,6 +11,12 @@ public interface IApiKeyService
     Task<ApiKeyCreateResponse> CreateKeyAsync(string name, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Creates an API key from a provided plaintext (for headless/env seeding).
+    /// Returns the response if created; null if a key with that name already exists.
+    /// </summary>
+    Task<ApiKeyCreateResponse?> CreateKeyFromPlaintextAsync(string name, string plaintextKey, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Validates an API key. Returns the entry if valid, null if invalid/revoked/expired.
     /// Updates LastUsedAt on success.
     /// </summary>
