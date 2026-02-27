@@ -9,9 +9,9 @@ public static class AgentRegistryApi
 {
     public static IEndpointRouteBuilder MapAgentRegistryApiV1(this WebApplication app)
     {
-        // Internal service-to-service: agents query the registry to verify registration
+        // Catalog discovery: allow anonymous so HA integration and external clients can fetch without API key
         app.MapGet("/agents", GetAgentsAsync)
-            .RequireAuthorization("ExternalOrInternal");
+            .AllowAnonymous();
         // Internal only: agents register themselves via platform-injected token
         app.MapPost("/agents/register", RegisterAgentAsync)
             .DisableAntiforgery()
@@ -32,8 +32,18 @@ public static class AgentRegistryApi
         CancellationToken cancellationToken = default)
     {
         var agents = await agentRegistry.GetAllAgentsAsync(cancellationToken).ConfigureAwait(false);
-        return TypedResults.Ok(agents.ToList());
+        // Return orchestrator first so the Home Assistant integration defaults to the full
+        // assistant (routing to light, music, timer, etc.) instead of a single specialist.
+        var list = agents
+            .OrderBy(a => IsOrchestrator(a) ? 0 : 1)
+            .ThenBy(a => a.Name, StringComparer.Ordinal)
+            .ToList();
+        return TypedResults.Ok(list);
     }
+
+    private static bool IsOrchestrator(AgentCard card) =>
+        string.Equals(card.Name, "orchestrator", StringComparison.OrdinalIgnoreCase)
+        || (card.Url?.EndsWith("/agent", StringComparison.OrdinalIgnoreCase) == true);
 
     private static async Task<Results<
             Created,

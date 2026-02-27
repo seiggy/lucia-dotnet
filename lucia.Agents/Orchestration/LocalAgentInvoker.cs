@@ -81,13 +81,19 @@ public sealed class LocalAgentInvoker : IAgentInvoker
             await _hostAgent.SaveSessionAsync(contextId, session, linkedCts.Token)
                 .ConfigureAwait(false);
 
-            // Detect NeedsInput via the same property the A2A endpoint uses
+            // Detect NeedsInput via the same property the A2A endpoint uses, or infer from
+            // clarification-style responses (e.g. "Which one do you want?") so voice pipelines
+            // stay open and the user can reply without repeating the wake word.
+            var content = string.Join(' ',
+                response.Messages.Select(m => m.Text).Where(t => !string.IsNullOrEmpty(t)));
             var needsInput = response.Messages
                 .Any(m => m.AdditionalProperties?.TryGetValue("lucia.needsInput", out var val) == true
                           && val is true);
-
-            var content = string.Join(' ',
-                response.Messages.Select(m => m.Text).Where(t => !string.IsNullOrEmpty(t)));
+            if (!needsInput && content.Length > 0 && content.TrimEnd().EndsWith('?'))
+            {
+                needsInput = true;
+                _logger.LogDebug("Agent {AgentId}: inferred NeedsInput from clarification-style response.", AgentId);
+            }
 
             _logger.LogInformation(
                 "[Diag] Agent {AgentId}: response text={Text}, success=True, needsInput={NeedsInput}",

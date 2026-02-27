@@ -1,6 +1,6 @@
 # Technical Stack
 
-> Last Updated: 2026-02-20
+> Last Updated: 2026-02-26
 > Version: 1.1.0
 
 ## Core Technologies
@@ -31,6 +31,18 @@
 - **Core:** Microsoft Agent Framework Agents
 - **Communication:** A2A (Agent-to-Agent) Protocol
 - **Registry:** Custom agent registry with HTTP API
+
+### Web Search (SearXNG)
+- **Integration:** Native SearXNG support via `WebSearchSkill`, aligned with Open Web UI
+- **Configuration:** `SEARXNG_URL` or `SearXng:BaseUrl` — when set, General Agent exposes a `web_search` tool
+- **Privacy:** SearXNG is a privacy-focused meta-search engine (no tracking, no profiling)
+
+### MCP Tool Servers
+- **Protocol:** [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) over HTTP/SSE
+- **Client:** Microsoft.Extensions.AI ModelContextProtocol (v0.9.0-preview.1)
+- **Transports:** stdio (local processes), HTTP/SSE (remote, e.g. MetaMCP)
+- **MetaMCP:** Full support aligned with Open Web UI — auto-seeded from `METAMCP_URL` and `METAMCP_API_KEY`; uses SSE endpoint `{host}/metamcp/openwebui-api/sse` with Bearer token auth
+- **Dynamic Agents:** MCP tools are assigned to agent definitions and resolved at runtime via `IMcpToolRegistry`
 
 ## Frontend Stack
 

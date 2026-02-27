@@ -12,13 +12,17 @@ This directory contains Docker configurations for deploying Lucia Agent Host in 
 
 ```
 infra/docker/
-├── Dockerfile                # Multi-stage Dockerfile for Lucia application
-├── docker-compose.yml        # Docker Compose configuration
-├── DEPLOYMENT.md             # Complete deployment guide
-├── TESTING.md                # Testing guide and procedures
-├── TESTING-CHECKLIST.md      # Manual testing checklist
-├── verify-mvp.sh             # Automated verification script
-└── README.md                 # This file
+├── Dockerfile                     # Multi-stage Dockerfile for Lucia application
+├── docker-compose.yml             # Docker Compose configuration
+├── docker-compose.lucia-sidecar.yml # Override for Open Web UI alongside deployment
+├── .env.lucia.example             # Env template for sidecar (HA, Ollama, capability URLs)
+├── deploy-lucia.sh                # One-command deploy for sidecar mode
+├── DEPLOYMENT.md                  # Complete deployment guide
+├── DEPLOYMENT-OPENWEBUI.md        # Lucia alongside Open Web UI + remote HA
+├── TESTING.md                     # Testing guide and procedures
+├── TESTING-CHECKLIST.md           # Manual testing checklist
+├── verify-mvp.sh                  # Automated verification script
+└── README.md                      # This file
 ```
 
 See also:
@@ -53,6 +57,18 @@ Open `http://localhost:7233` in your browser. The setup wizard guides you throug
 docker compose ps
 curl http://localhost:7233/health
 ```
+
+### Lucia alongside Open Web UI (remote Home Assistant)
+
+If you already run Open Web UI (Ollama, SearXNG, ComfyUI, Whisper, Piper, MetaMCP) and Home Assistant on another host, use the sidecar compose and script so Lucia shares Ollama without touching the Open Web UI stack:
+
+```bash
+cp .env.lucia.example .env
+# Edit .env: set HomeAssistant__AccessToken (and optionally BaseUrl)
+./deploy-lucia.sh
+```
+
+See [DEPLOYMENT-OPENWEBUI.md](DEPLOYMENT-OPENWEBUI.md) for the shared capabilities table and full steps.
 
 ## Services
 

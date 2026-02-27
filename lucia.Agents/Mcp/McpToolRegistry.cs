@@ -63,6 +63,8 @@ public sealed class McpToolRegistry : IMcpToolRegistry
             State = McpConnectionState.Connecting
         };
 
+        _logger.LogInformation("Connecting to MCP server {ServerId} ({ServerName}) at {Url}", serverId, server.Name, server.Url ?? "(stdio)");
+
         try
         {
             var transport = CreateTransport(server);

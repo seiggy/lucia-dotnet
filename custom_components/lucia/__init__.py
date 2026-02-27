@@ -66,14 +66,51 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         try:
             catalog_response = await httpx_client.get(catalog_url)
+            if catalog_response.status_code == 401:
+                _LOGGER.error(
+                    "Agent catalog at %s returned 401 Unauthorized. Check your API key.",
+                    catalog_url,
+                )
+                await httpx_client.aclose()
+                raise ConfigEntryNotReady(
+                    "Authentication failed (401). Check that the API key is correct and not revoked."
+                )
             catalog_response.raise_for_status()
 
-            agents = catalog_response.json()
-
-            if not agents or not isinstance(agents, list):
-                _LOGGER.error("Invalid agent catalog response from %s", catalog_url)
+            raw = catalog_response.json()
+            # Accept raw list or wrapper object (e.g. {"agents": [...]})
+            if isinstance(raw, list):
+                agents = raw
+            elif isinstance(raw, dict):
+                agents = raw.get("agents") or raw.get("catalog") or raw.get("value")
+                if not isinstance(agents, list):
+                    _LOGGER.error(
+                        "Invalid agent catalog response from %s: expected list or {agents/catalog/value}, got dict keys %s",
+                        catalog_url,
+                        list(raw.keys())[:10] if raw else "[]",
+                    )
+                    await httpx_client.aclose()
+                    raise ConfigEntryNotReady(f"Invalid agent catalog from {repository}")
+            else:
+                _LOGGER.error(
+                    "Invalid agent catalog response from %s: expected list or object, got %s",
+                    catalog_url,
+                    type(raw).__name__,
+                )
                 await httpx_client.aclose()
                 raise ConfigEntryNotReady(f"Invalid agent catalog from {repository}")
+
+            if not agents:
+                _LOGGER.warning(
+                    "Agent catalog at %s is empty (no agents registered yet). "
+                    "Ensure Lucia agent services have started and registered with the repository.",
+                    catalog_url,
+                )
+                await httpx_client.aclose()
+                raise ConfigEntryNotReady(
+                    "No agents registered at the repository yet. "
+                    "Ensure Lucia agent services have started and registered, then try again."
+                )
 
             _LOGGER.info("Discovered %d agent(s) from catalog", len(agents))
 
@@ -97,14 +134,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         selected_agent_name
                     )
 
-            # Fall back to first agent if no selection or not found
+            # Fall back to orchestrator (full assistant) or first agent if no selection or not found
             if not agent_card:
                 if not agents:
                     _LOGGER.error("No agents found in catalog")
                     await httpx_client.aclose()
                     raise ConfigEntryNotReady(f"No agents available at {repository}")
-                agent_card = agents[0]
-                _LOGGER.info("Using default agent (first in catalog)")
+                # Prefer orchestrator so voice/conversation uses the full assistant (lights, music, etc.)
+                for a in agents:
+                    if (a.get("name") or "").lower() == "orchestrator":
+                        agent_card = a
+                        _LOGGER.info("Using default agent: orchestrator (full assistant)")
+                        break
+                if not agent_card:
+                    agent_card = agents[0]
+                    _LOGGER.info("Using default agent (first in catalog): %s", agent_card.get("name", "unknown"))
 
             agent_name = agent_card.get("name", "unknown")
             agent_version = agent_card.get("version", "unknown")

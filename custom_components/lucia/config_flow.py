@@ -1,4 +1,4 @@
-﻿"""Config flow for Lucia integration."""
+"""Config flow for Lucia integration."""
 from __future__ import annotations
 
 import logging
@@ -14,7 +14,6 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_API_KEY
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
@@ -37,54 +36,54 @@ _LOGGER = logging.getLogger(__name__)
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_REPOSITORY): str,
-        vol.Required(CONF_API_KEY): str,
+        vol.Optional(CONF_API_KEY, default=""): str,
     }
 )
 
 async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
-    """Validate the user input and connection to the A2A service.
+    """Validate the connection by fetching the agent catalog from /agents.
 
-    Data has the keys from STEP_USER_DATA_SCHEMA with values provided by the user.
+    Uses httpx directly (no a2a-sdk) to avoid blocking and async issues.
     """
-    # Import here to avoid circular imports
     import httpx
-    from a2a.client import A2ACardResolver
 
-    # Create a dedicated HTTP client for the A2A repository with API key header
+    repository = data[CONF_REPOSITORY].rstrip("/")
+    catalog_url = f"{repository}/agents"
     headers = {}
     if data.get(CONF_API_KEY):
         headers["X-Api-Key"] = data[CONF_API_KEY]
 
-    httpx_client = httpx.AsyncClient(headers=headers)
+    async with httpx.AsyncClient(
+        headers=headers,
+        verify=False,
+        timeout=30.0,
+    ) as client:
+        try:
+            response = await client.get(catalog_url)
+        except httpx.ConnectError as err:
+            _LOGGER.error("Cannot connect to %s: %s", catalog_url, err)
+            raise ValueError("Cannot connect to repository. Check URL and network.") from err
+        except Exception as err:
+            _LOGGER.error("Failed to fetch catalog from %s: %s", catalog_url, err)
+            raise ValueError("Invalid repository or API key") from err
 
-    try:
-        # Create resolver with base URL
-        client = A2ACardResolver(
-            httpx_client=httpx_client,
-            base_url=data[CONF_REPOSITORY],
-        )
+        if response.status_code == 401:
+            raise ValueError("Authentication failed (401). Check your API key.")
 
-        _LOGGER.info("Resolving agent card from %s", data[CONF_REPOSITORY])
-        agent_card = await hass.async_add_executor_job(client.get_agent_card)
+        response.raise_for_status()
 
-        if not agent_card:
-            raise ValueError("Failed to retrieve agent card")
+        raw = response.json()
+        agents = raw if isinstance(raw, list) else raw.get("agents") or raw.get("catalog") or raw.get("value")
+        if not isinstance(agents, list) or len(agents) == 0:
+            raise ValueError(
+                "No agents in catalog. Ensure Lucia has finished starting and has agents registered."
+            )
 
-        # Return info to store in config entry
+        first = agents[0]
         return {
-            "title": agent_card.name if hasattr(agent_card, "name") else "Lucia Agent",
-            "agent_id": agent_card.id if hasattr(agent_card, "id") else "lucia",
+            "title": first.get("name", "Lucia Agent"),
+            "agent_id": first.get("id", "lucia"),
         }
-    except Exception as err:
-        _LOGGER.error(
-            "Failed to resolve agent card: %s. Please check your repository and API key.",
-            err,
-            exc_info=True,
-        )
-        raise ValueError("Invalid repository or API key") from err
-    finally:
-        # Clean up the HTTP client
-        await httpx_client.aclose()
 
 class LuciaConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Lucia."""
@@ -134,16 +133,16 @@ class LuciaConfigFlow(ConfigFlow, domain=DOMAIN):
         config_entry: ConfigEntry,
     ) -> OptionsFlow:
         """Get the options flow for this handler."""
-        return LuciaOptionsFlow()
+        return LuciaOptionsFlow(config_entry)
 
 
 class LuciaOptionsFlow(OptionsFlow):
     """Handle options for Lucia integration."""
 
-    def __init__(self) -> None:
+    def __init__(self, config_entry: ConfigEntry) -> None:
         """Initialize options flow."""
-        # Configuration entry is provided by OptionsFlow base class at runtime.
         super().__init__()
+        self.config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None

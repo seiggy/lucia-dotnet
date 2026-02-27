@@ -9,12 +9,26 @@ from typing import Any, Literal
 
 from homeassistant.components import conversation
 from homeassistant.components.conversation import (
-    AssistantContent,
-    ChatLog,
     ConversationEntity,
     ConversationInput,
     ConversationResult,
 )
+
+# AssistantContent and ChatLog added in HA 2026.1; optional for older versions
+try:
+    from homeassistant.components.conversation import AssistantContent, ChatLog
+    _HAS_CHAT_LOG_API = True
+except ImportError:
+    try:
+        from homeassistant.components.conversation.chat_log import (
+            AssistantContent,
+            ChatLog,
+        )
+        _HAS_CHAT_LOG_API = True
+    except ImportError:
+        AssistantContent = None  # type: ignore[misc, assignment]
+        ChatLog = object  # type: ignore[misc, assignment] - placeholder when unavailable
+        _HAS_CHAT_LOG_API = False
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, TemplateError
@@ -36,6 +50,13 @@ from .const import (
 from .conversation_tracker import ConversationTracker
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class _NoOpChatLog:
+    """No-op chat log for HA versions that use async_process without ChatLog."""
+
+    def async_add_assistant_content_without_tools(self, *args: Any, **kwargs: Any) -> None:
+        """No-op: older HA does not provide chat log in async_process."""
 
 
 async def async_setup_entry(
@@ -71,6 +92,23 @@ class LuciaConversationEntity(conversation.ConversationEntity):
     def supported_languages(self) -> list[str] | Literal["*"]:
         """Return supported languages."""
         return "*"  # Support all languages
+
+    async def async_process(
+        self, user_input: ConversationInput
+    ) -> ConversationResult:
+        """Process a sentence. Required by HA versions where this is the abstract method."""
+        # Try to get real chat log (HA 2026.1+); fall back to no-op for older versions
+        try:
+            from homeassistant.helpers.chat_session import async_get_chat_session
+            from homeassistant.components.conversation.chat_log import async_get_chat_log
+
+            with (
+                async_get_chat_session(self.hass, user_input.conversation_id) as session,
+                async_get_chat_log(self.hass, session, user_input) as chat_log,
+            ):
+                return await self._async_handle_message(user_input, chat_log)
+        except (ImportError, AttributeError):
+            return await self._async_handle_message(user_input, _NoOpChatLog())
 
     async def _async_handle_message(
         self,
@@ -133,8 +171,12 @@ class LuciaConversationEntity(conversation.ConversationEntity):
 
         ha_conversation_id = user_input.conversation_id or context_id
 
-        # Build the message content (combining system prompt + user input)
-        message_text = f"{system_prompt}\n\nUser: {user_input.text}"
+        # Build the message content: include previous assistant response when continuing
+        # a conversation so the agent can resolve "them", "both", etc. from context
+        message_text = f"{system_prompt}\n\n"
+        if tracked and getattr(tracked, "last_assistant_text", None):
+            message_text += f"Previous assistant response: {tracked.last_assistant_text}\n\n"
+        message_text += f"User: {user_input.text}"
 
         # Create the A2A message structure
         message = {
@@ -178,12 +220,13 @@ class LuciaConversationEntity(conversation.ConversationEntity):
             if response.status_code != 200:
                 _LOGGER.error("Agent returned status %s: %s", response.status_code, response.text[:200])
                 error_text = f"Agent returned HTTP {response.status_code}"
-                chat_log.async_add_assistant_content_without_tools(
-                    AssistantContent(
-                        agent_id=user_input.agent_id,
-                        content=error_text,
+                if _HAS_CHAT_LOG_API and AssistantContent:
+                    chat_log.async_add_assistant_content_without_tools(
+                        AssistantContent(
+                            agent_id=user_input.agent_id,
+                            content=error_text,
+                        )
                     )
-                )
                 intent_response = intent.IntentResponse(language=user_input.language)
                 intent_response.async_set_speech(error_text)
                 return ConversationResult(
@@ -200,12 +243,13 @@ class LuciaConversationEntity(conversation.ConversationEntity):
                 error_msg = result["error"].get("message", "Unknown error")
                 _LOGGER.error("Agent returned error: %s", error_msg)
                 error_text = f"Agent error: {error_msg}"
-                chat_log.async_add_assistant_content_without_tools(
-                    AssistantContent(
-                        agent_id=user_input.agent_id,
-                        content=error_text,
+                if _HAS_CHAT_LOG_API and AssistantContent:
+                    chat_log.async_add_assistant_content_without_tools(
+                        AssistantContent(
+                            agent_id=user_input.agent_id,
+                            content=error_text,
+                        )
                     )
-                )
                 intent_response = intent.IntentResponse(language=user_input.language)
                 intent_response.async_set_speech(error_text)
                 return ConversationResult(
@@ -238,7 +282,10 @@ class LuciaConversationEntity(conversation.ConversationEntity):
                             if isinstance(part, dict) and part.get("kind") == "text":
                                 response_text += part.get("text", "")
 
-                    # Set continue_conversation based on task state
+                    # Set continue_conversation based on task state so the voice pipeline
+                    # keeps the conversation open and can re-listen for the user's reply.
+                    # Voice clients (e.g. HA 2025.4+) may auto re-open the mic when the
+                    # response ends with a question mark.
                     if state == "input-required":
                         continue_conversation = True
                     elif state == "working":
@@ -259,22 +306,38 @@ class LuciaConversationEntity(conversation.ConversationEntity):
             if not response_text:
                 response_text = "I received your message but didn't generate a response."
 
-            # Update tracker with latest context/task IDs
+            # Update tracker with latest context/task IDs and last assistant text
+            # so the next turn has conversation context (e.g. "turn them all on")
             self._tracker.store(
                 ha_conversation_id,
                 context_id=response_context_id,
                 task_id=response_task_id if continue_conversation else None,
+                last_assistant_text=response_text or None,
             )
 
             _LOGGER.debug("Received response from agent: %s", response_text[:100])
 
             # Add the response to the chat log for multi-turn support
-            chat_log.async_add_assistant_content_without_tools(
-                AssistantContent(
-                    agent_id=user_input.agent_id,
-                    content=response_text,
+            if _HAS_CHAT_LOG_API and AssistantContent:
+                chat_log.async_add_assistant_content_without_tools(
+                    AssistantContent(
+                        agent_id=user_input.agent_id,
+                        content=response_text,
+                    )
                 )
-            )
+
+            # When asking for clarification, signal voice devices to stay listening.
+            # Optionally fire an event so automations or custom clients can trigger
+            # the assist pipeline to listen again (e.g. after TTS finishes).
+            if continue_conversation:
+                self.hass.bus.async_fire(
+                    "lucia_conversation_input_required",
+                    {
+                        "conversation_id": ha_conversation_id,
+                        "agent_id": getattr(user_input, "agent_id", None),
+                        "response_preview": (response_text[:200] + "…") if len(response_text) > 200 else response_text,
+                    },
+                )
 
             # Create the conversation result with intent response
             intent_response = intent.IntentResponse(language=user_input.language)
@@ -290,12 +353,13 @@ class LuciaConversationEntity(conversation.ConversationEntity):
             _LOGGER.error("Error processing conversation with agent: %s", err, exc_info=True)
 
             error_text = f"I encountered an error while processing your request: {str(err)}"
-            chat_log.async_add_assistant_content_without_tools(
-                AssistantContent(
-                    agent_id=user_input.agent_id,
-                    content=error_text,
+            if _HAS_CHAT_LOG_API and AssistantContent:
+                chat_log.async_add_assistant_content_without_tools(
+                    AssistantContent(
+                        agent_id=user_input.agent_id,
+                        content=error_text,
+                    )
                 )
-            )
 
             intent_response = intent.IntentResponse(language=user_input.language)
             intent_response.async_set_speech(error_text)

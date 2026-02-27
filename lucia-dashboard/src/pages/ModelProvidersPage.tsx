@@ -9,6 +9,7 @@ import {
   testModelProvider,
   testEmbeddingProvider,
   connectCopilotCli,
+  fetchOllamaModels,
 } from '../api'
 
 type FormMode = 'list' | 'create' | 'edit'
@@ -58,6 +59,11 @@ export default function ModelProvidersPage() {
   const [copilotConnecting, setCopilotConnecting] = useState(false)
   const [copilotConnected, setCopilotConnected] = useState(false)
   const [copilotMessage, setCopilotMessage] = useState<string | null>(null)
+
+  // Ollama-specific state
+  const [ollamaModels, setOllamaModels] = useState<string[]>([])
+  const [ollamaLoading, setOllamaLoading] = useState(false)
+  const [ollamaError, setOllamaError] = useState<string | null>(null)
   const [selectedCopilotModel, setSelectedCopilotModel] = useState<CopilotModelInfo | null>(null)
 
   const loadData = useCallback(async () => {
@@ -95,6 +101,10 @@ export default function ModelProvidersPage() {
     setEditingId(p.id)
     setMode('edit')
     setError(null)
+    if (p.providerType === 'Ollama') {
+      setOllamaModels([])
+      setOllamaError(null)
+    }
   }
 
   const handleDelete = async (id: string) => {
@@ -176,6 +186,30 @@ export default function ModelProvidersPage() {
       setCopilotConnected(false)
     } finally {
       setCopilotConnecting(false)
+    }
+  }
+
+  const handleLoadOllamaModels = async () => {
+    const endpoint = (form.endpoint ?? '').trim() || 'http://localhost:11434'
+    setOllamaLoading(true)
+    setOllamaError(null)
+    try {
+      const result = await fetchOllamaModels(endpoint)
+      if (result.error) {
+        setOllamaError(result.error)
+        setOllamaModels([])
+      } else {
+        setOllamaModels(result.models ?? [])
+        setOllamaError(null)
+        if ((result.models ?? []).length > 0 && !form.modelName) {
+          setForm(prev => ({ ...prev, modelName: result.models![0] }))
+        }
+      }
+    } catch (err) {
+      setOllamaError(err instanceof Error ? err.message : 'Failed to load models')
+      setOllamaModels([])
+    } finally {
+      setOllamaLoading(false)
     }
   }
 
@@ -281,6 +315,10 @@ export default function ModelProvidersPage() {
                     : {}),
                 }))
                 if (newType !== 'GitHubCopilot') resetCopilotState()
+                if (newType !== 'Ollama') {
+                  setOllamaModels([])
+                  setOllamaError(null)
+                }
               }}
               className="w-full rounded bg-basalt px-3 py-2 text-sm text-light input-focus focus:ring-1 focus:ring-blue-500"
             >
@@ -435,14 +473,52 @@ export default function ModelProvidersPage() {
                 />
               </div>
 
-              {/* Model Name */}
+              {/* Ollama: Load models + dropdown */}
+              {form.providerType === 'Ollama' && (
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={handleLoadOllamaModels}
+                    disabled={ollamaLoading}
+                    className="rounded bg-amber/20 px-3 py-1.5 text-sm font-medium text-amber hover:bg-amber/30 disabled:opacity-50"
+                  >
+                    {ollamaLoading ? 'Loading...' : '↻ Load models from Ollama'}
+                  </button>
+                  {ollamaError && (
+                    <div className="rounded bg-red-900/30 px-3 py-2 text-sm text-rose">{ollamaError}</div>
+                  )}
+                  {ollamaModels.length > 0 && (
+                    <div>
+                      <label className="mb-1 block text-sm text-fog">Select model</label>
+                      <select
+                        value={form.modelName ?? ''}
+                        onChange={e => setForm(prev => ({ ...prev, modelName: e.target.value }))}
+                        className="w-full rounded bg-basalt px-3 py-2 text-sm text-light input-focus focus:ring-1 focus:ring-blue-500"
+                      >
+                        <option value="">Choose a model...</option>
+                        {ollamaModels.map(m => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Model Name (for non-Ollama, or manual entry when Ollama dropdown not used) */}
               <div>
-                <label className="mb-1 block text-sm text-fog">Model / Deployment Name</label>
+                <label className="mb-1 block text-sm text-fog">
+                  {form.providerType === 'Ollama' && ollamaModels.length > 0 ? 'Model (or override above)' : 'Model / Deployment Name'}
+                </label>
                 <input
                   type="text"
                   value={form.modelName ?? ''}
                   onChange={e => setForm(prev => ({ ...prev, modelName: e.target.value }))}
-                  placeholder="e.g. gpt-4o, claude-sonnet-4-20250514, llama3.2:3b"
+                  placeholder={
+                    form.providerType === 'Ollama'
+                      ? 'e.g. llama3.1:8b or use Load models'
+                      : 'e.g. gpt-4o, claude-sonnet-4-20250514'
+                  }
                   className="w-full rounded bg-basalt px-3 py-2 text-sm text-light placeholder-dust/60 input-focus focus:ring-1 focus:ring-blue-500"
                 />
               </div>

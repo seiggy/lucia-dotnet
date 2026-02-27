@@ -118,12 +118,14 @@ environment:
 
 All user-facing configuration — LLM provider, Home Assistant connection, API keys — is handled by the setup wizard on first launch. Settings are stored in MongoDB (`luciaconfig` database) and loaded automatically on startup.
 
-To re-run the setup wizard, clear the config collection:
+To re-run the setup wizard, drop the luciaconfig database (clears config, API keys, agents, model providers):
 
 ```bash
-docker compose exec lucia-mongo mongosh luciaconfig --eval "db.settings.drop()"
-docker compose restart lucia
+docker compose -f docker-compose.yml -f docker-compose.lucia-sidecar.yml exec lucia-mongo mongosh luciaconfig --eval "db.dropDatabase()"
+docker compose -f docker-compose.yml -f docker-compose.lucia-sidecar.yml restart lucia
 ```
+
+Then open http://localhost:7233 and complete the wizard (generate new Dashboard key, configure HA, complete).
 
 ### Environment Variables (Infrastructure Only)
 
@@ -196,6 +198,17 @@ services:
           cpus: '2'
           memory: 1G
 ```
+
+## Lucia Alongside Open Web UI (Remote Home Assistant)
+
+If you run an existing Open Web UI Docker Compose stack (Ollama, SearXNG, ComfyUI, Whisper, Piper, MetaMCP) and Home Assistant on another host, you can deploy Lucia on the same machine as Open Web UI without modifying that stack. Lucia uses `host.docker.internal` to share Ollama and optional MCP tools.
+
+See **[DEPLOYMENT-OPENWEBUI.md](DEPLOYMENT-OPENWEBUI.md)** for:
+
+- Sidecar compose (`docker-compose.lucia-sidecar.yml`) and `.env.lucia.example`
+- Shared capabilities table (web search, image gen, TTS, STT)
+- One-command deploy script (`./deploy-lucia.sh`)
+- Home Assistant at 192.168.1.198 (or home-assist.dunn.local) setup
 
 ## Deployment Scenarios
 

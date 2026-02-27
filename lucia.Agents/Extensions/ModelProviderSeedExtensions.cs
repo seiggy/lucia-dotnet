@@ -20,8 +20,8 @@ public static class ModelProviderSeedExtensions
     private const string DefaultEmbeddingProviderName = "Default Embedding Model";
 
     /// <summary>
-    /// If the system has completed onboarding, checks for missing built-in providers
-    /// and creates them from the environment-configured connection strings.
+    /// Seeds built-in providers from environment/connection-string config.
+    /// Runs when setup is complete, or when ConnectionStrings__chat-model exists (headless/Docker).
     /// </summary>
     public static async Task SeedDefaultModelProvidersAsync(
         this IModelProviderRepository repository,
@@ -29,11 +29,12 @@ public static class ModelProviderSeedExtensions
         ILogger logger,
         CancellationToken ct = default)
     {
-        // Only seed when setup is complete (we're upgrading, not first-run)
-        var setupComplete = configuration["Auth:SetupComplete"];
-        if (!string.Equals(setupComplete, "true", StringComparison.OrdinalIgnoreCase))
+        var setupComplete = string.Equals(configuration["Auth:SetupComplete"], "true", StringComparison.OrdinalIgnoreCase);
+        var hasChatConnection = !string.IsNullOrWhiteSpace(configuration.GetConnectionString("chat-model"))
+            || !string.IsNullOrWhiteSpace(configuration.GetConnectionString("chat"));
+        if (!setupComplete && !hasChatConnection)
         {
-            logger.LogDebug("Setup not complete — skipping model provider seed.");
+            logger.LogDebug("Setup not complete and no chat-model connection string — skipping model provider seed.");
             return;
         }
 
@@ -41,7 +42,7 @@ public static class ModelProviderSeedExtensions
         // user-created providers don't block seeding of the defaults.
         await SeedProviderFromConnectionStringAsync(
             repository, configuration, logger,
-            connectionName: "chat",
+            connectionName: "chat-model", // matches ConnectionStrings__chat-model (Docker/env standard)
             providerId: DefaultChatProviderId,
             providerName: DefaultChatProviderName,
             purpose: ModelPurpose.Chat,
@@ -74,7 +75,9 @@ public static class ModelProviderSeedExtensions
             return;
         }
 
-        var connectionString = configuration.GetConnectionString(connectionName);
+        // Prefer "chat-model" (deployment standard); fallback to "chat" for legacy configs
+        var connectionString = configuration.GetConnectionString(connectionName)
+            ?? (connectionName == "chat-model" ? configuration.GetConnectionString("chat") : null);
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             logger.LogWarning(
@@ -83,7 +86,14 @@ public static class ModelProviderSeedExtensions
             return;
         }
 
-        if (!ChatClientConnectionInfo.TryParse(connectionString, out var info))
+        ChatClientConnectionInfo? info = null;
+        if (!ChatClientConnectionInfo.TryParse(connectionString, out info))
+        {
+            // Fallback: try simple Ollama format for common Docker env (Endpoint=...;Model=...;Provider=ollama)
+            info = TryParseOllamaFallback(connectionString);
+        }
+
+        if (info is null)
         {
             logger.LogWarning(
                 "Could not parse '{ConnectionName}' connection string — cannot seed built-in provider '{Id}'.",
@@ -131,5 +141,45 @@ public static class ModelProviderSeedExtensions
         logger.LogInformation(
             "Seeded built-in {Purpose} provider '{Id}' ({ProviderType}, model={Model}, endpoint={Endpoint})",
             purpose, provider.Id, provider.ProviderType, provider.ModelName, provider.Endpoint ?? "(default)");
+    }
+
+    /// <summary>
+    /// Fallback parser for common Ollama connection string format when ChatClientConnectionInfo fails
+    /// (e.g. Uri.TryCreate rejects host.docker.internal on some platforms).
+    /// </summary>
+    private static ChatClientConnectionInfo? TryParseOllamaFallback(string? connectionString)
+    {
+        if (string.IsNullOrWhiteSpace(connectionString) || !connectionString.Contains("Provider=ollama", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var parts = connectionString.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        string? endpoint = null;
+        string? model = null;
+        string? accessKey = null;
+
+        foreach (var part in parts)
+        {
+            var eq = part.IndexOf('=');
+            if (eq <= 0) continue;
+            var key = part[..eq];
+            var value = part[(eq + 1)..];
+            if (key.Equals("Endpoint", StringComparison.OrdinalIgnoreCase)) endpoint = value;
+            else if (key.Equals("Model", StringComparison.OrdinalIgnoreCase)) model = value;
+            else if (key.Equals("AccessKey", StringComparison.OrdinalIgnoreCase)) accessKey = value;
+        }
+
+        if (string.IsNullOrEmpty(endpoint) || string.IsNullOrEmpty(model))
+            return null;
+
+        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri))
+            return null;
+
+        return new ChatClientConnectionInfo
+        {
+            Endpoint = uri,
+            SelectedModel = model,
+            AccessKey = accessKey,
+            Provider = ClientChatProvider.Ollama
+        };
     }
 }

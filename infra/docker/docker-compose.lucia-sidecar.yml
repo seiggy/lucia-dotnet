@@ -1,0 +1,39 @@
+# Lucia Sidecar — Deploy alongside Open Web UI (no shared network)
+#
+# Use with: docker compose -f docker-compose.yml -f docker-compose.lucia-sidecar.yml --env-file .env up -d
+# Requires: .env with HomeAssistant__BaseUrl, HomeAssistant__AccessToken,
+#           ConnectionStrings__chat-model (Ollama via host.docker.internal).
+# Optional: ConnectionStrings__embeddings for light/location semantic search (e.g. nomic-embed-text).
+# Optional headless: DASHBOARD_API_KEY + LUCIA_HA_API_KEY — skips setup wizard.
+# Optional: METAMCP_URL, METAMCP_API_KEY for MetaMCP; SEARXNG_URL for web search (General Agent).
+#
+# This override adds:
+#   - extra_hosts so Lucia can reach host services (Ollama, SearXNG, ComfyUI, etc.)
+#   - env_file to load .env so ConnectionStrings__chat-model passes through correctly
+#
+# MetaMCP connectivity: Lucia uses METAMCP_URL from .env. If 172.18.0.1 or host.docker.internal
+# fail, attach Lucia to Open Web UI network: uncomment the networks section below and set
+# METAMCP_URL=http://metamcp:12008/metamcp/openwebui-api/mcp in .env
+#
+# Does NOT modify the Open Web UI stack. Lucia runs as a separate compose project.
+
+services:
+  lucia:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - .env
+    environment:
+      # Override HA if needed (env_file provides base values)
+      - HomeAssistant__BaseUrl=${HomeAssistant__BaseUrl:-http://192.168.1.198:8123}
+      - HomeAssistant__AccessToken=${HomeAssistant__AccessToken:-}
+      # METAMCP_URL, METAMCP_API_KEY passed via env_file (.env) — do not override here
+    # Uncomment to join Open Web UI network (use when 172.18.0.1/host.docker.internal unreachable)
+    # Then set METAMCP_URL=http://metamcp:12008/metamcp/openwebui-api/mcp in .env
+    # networks:
+    #   - lucia-network
+    #   - open-web-ui
+# networks:
+#   open-web-ui:
+#     external: true
+#     name: open_web_ui_default  # or: docker network ls | grep open

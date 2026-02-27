@@ -42,11 +42,18 @@ public static class AgentDefinitionSeedExtensions
 
             if (existingById.TryGetValue(agentId, out var existingDef))
             {
-                // Ensure flags are up-to-date on pre-existing definitions (migration)
+                // Ensure flags and display name are up-to-date on pre-existing definitions (migration)
                 var needsUpdate = false;
                 if (!existingDef.IsBuiltIn) { existingDef.IsBuiltIn = true; needsUpdate = true; }
                 if (existingDef.IsRemote != isRemote) { existingDef.IsRemote = isRemote; needsUpdate = true; }
                 if (existingDef.IsOrchestrator != isOrchestrator) { existingDef.IsOrchestrator = isOrchestrator; needsUpdate = true; }
+                var webSearchDisplayName = agentId.Equals("general-assistant", StringComparison.OrdinalIgnoreCase)
+                    && card.Skills?.Any(s => string.Equals(s.Name, "Web Search", StringComparison.OrdinalIgnoreCase)) == true;
+                if (webSearchDisplayName && existingDef.DisplayName != "General & Web Search")
+                {
+                    existingDef.DisplayName = "General & Web Search";
+                    needsUpdate = true;
+                }
 
                 if (needsUpdate)
                 {
@@ -58,11 +65,18 @@ public static class AgentDefinitionSeedExtensions
                 continue;
             }
 
+            var displayName = FormatDisplayName(agentId);
+            if (agentId.Equals("general-assistant", StringComparison.OrdinalIgnoreCase)
+                && card.Skills?.Any(s => string.Equals(s.Name, "Web Search", StringComparison.OrdinalIgnoreCase)) == true)
+            {
+                displayName = "General & Web Search";
+            }
+
             var definition = new AgentDefinition
             {
                 Id = agentId,
                 Name = agentId,
-                DisplayName = FormatDisplayName(agentId),
+                DisplayName = displayName,
                 Description = card.Description ?? $"Built-in {agentId} agent",
                 Instructions = string.Empty,
                 IsBuiltIn = true,

@@ -422,13 +422,13 @@ public class LightControlSkill : IAgentSkill
     public async Task<string> SetLightStateAsync(
         [Description("The entity ID of the light (e.g., 'light.living_room')")] string entityId,
         [Description("Desired state: 'on' or 'off'")] string state,
-        [Description("Brightness level from 0-100 (optional, only for 'on' state)")] int? brightness = null,
-        [Description("Color name like 'red', 'blue', 'warm_white' (optional)")] string? color = null)
+        [Description("Brightness 0-100 for 'on' state; use -1 to omit")] int brightness = -1,
+        [Description("Color name like 'red', 'blue', 'warm_white'; use empty string to omit")] string color = "")
     {
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("entity.id", entityId);
         activity?.SetTag("desired.state", state);
-        if (brightness.HasValue)
+        if (brightness >= 0)
         {
             activity?.SetTag("desired.brightness", brightness);
         }
@@ -464,9 +464,9 @@ public class LightControlSkill : IAgentSkill
             }
             else if (state.ToLower() == "on")
             {
-                if (brightness.HasValue && !isSwitch)
+                if (brightness >= 0 && !isSwitch)
                 {
-                    var haBrightness = Math.Max(1, Math.Min(255, (int)Math.Round(brightness.Value / 100.0 * 255)));
+                    var haBrightness = Math.Max(1, Math.Min(255, (int)Math.Round(brightness / 100.0 * 255)));
                     request["brightness"] = haBrightness;
                 }
 
@@ -478,7 +478,7 @@ public class LightControlSkill : IAgentSkill
                 await _homeAssistantClient.CallServiceAsync(domain, "turn_on", parameters: null, request).ConfigureAwait(false);
 
                 var result = $"Light '{displayName}' turned on successfully";
-                if (brightness.HasValue && !isSwitch)
+                if (brightness >= 0 && !isSwitch)
                 {
                     result += $" at {brightness}% brightness";
                 }

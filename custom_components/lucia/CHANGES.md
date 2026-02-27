@@ -3,6 +3,21 @@
 > Historical context: Entries below are kept as originally written. Any "coming soon" or "next steps" language in older notes reflects that point in time, not necessarily current capability. For current behavior and setup, use `custom_components/lucia/README.md`.
 
 
+# Release Notes - 2026.02.27
+
+**Release Date:** February 27, 2026
+
+## Changes: Agent catalog discovery improvements / Clarification context and voice
+
+- **Conversation context preservation** — When Lucia asks for clarification (e.g. “Which light do you want?”), the previous assistant response is now stored and sent with the next user message. Follow-ups like “turn them all on” are interpreted in context so the agent can resolve “them” to the options just offered.
+- **Voice / input-required signaling** — When the agent returns a clarification-style response (including when the reply ends with “?”), the integration returns `continue_conversation=True` so the voice pipeline stays open for the user’s reply. Optional event `lucia_conversation_input_required` is fired so automations or custom clients can react (e.g. trigger the assist pipeline to listen again).
+- **AssistantContent/ChatLog compatibility** — Conversation platform now works on Home Assistant versions before 2026.1. When `AssistantContent` or `ChatLog` are not available (older HA), chat log updates are skipped; responses still work normally.
+- **async_process implementation** — Implements abstract `async_process` for older HA where `ConversationEntity` requires it; uses real chat log when helpers exist (HA 2026.1+), no-op otherwise.
+- **401 error handling** — When the Lucia `/agents` endpoint returns 401 Unauthorized, the integration now surfaces "Authentication failed (401). Check that the API key is correct and not revoked." instead of the generic "Invalid agent catalog"
+- **Catalog format support** — Accepts `value` key in addition to `agents` and `catalog` when parsing the agent catalog response for broader compatibility
+- **Lucia catalog now anonymous** — Lucia's GET `/agents` endpoint allows anonymous access, so the integration can fetch the catalog during setup without requiring an API key (Lucia 2026.02.27+)
+
+
 # Release Notes - 2025.11.09
 
 **Release Date:** November 9, 2025  

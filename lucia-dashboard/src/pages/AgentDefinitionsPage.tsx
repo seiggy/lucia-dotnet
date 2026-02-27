@@ -6,6 +6,7 @@ import {
   updateAgentDefinition,
   deleteAgentDefinition,
   reloadDynamicAgents,
+  seedBuiltInAgentDefinitions,
   fetchMcpServers,
   discoverMcpTools,
   fetchMcpServerStatuses,
@@ -85,6 +86,21 @@ export default function AgentDefinitionsPage() {
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="font-display text-2xl font-bold text-light">Agent Definitions</h1>
         <div className="flex flex-wrap gap-2">
+          <button
+            onClick={async () => {
+              try {
+                await seedBuiltInAgentDefinitions()
+                await loadData()
+                setError(null)
+              } catch (e) {
+                setError(e instanceof Error ? e.message : 'Failed to seed')
+              }
+            }}
+            className="rounded bg-basalt px-4 py-2 text-sm font-medium text-fog hover:bg-stone"
+            title="Add any missing built-in agents (e.g. lists-agent)"
+          >
+            + Seed Built-in
+          </button>
           <button
             onClick={handleReload}
             className="rounded bg-basalt px-4 py-2 text-sm font-medium text-fog hover:bg-stone"

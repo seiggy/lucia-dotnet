@@ -1,5 +1,65 @@
 
 
+# Release Notes - 2026.02.27
+
+**Release Date:** February 27, 2026  
+**Code Name:** "Headless"
+
+---
+
+## 🎯 Overview
+
+"Headless" fixes Lucia setup for Docker/deployments where the setup wizard is not completed first. It enables the Home Assistant integration to connect successfully by seeding the chat model provider from `ConnectionStrings__chat-model`, making the agent catalog publicly discoverable, and fixing environment variable handling in the sidecar compose.
+
+## ✨ What's New
+
+### 🐳 Docker & Deployment
+
+- **Model provider seed before setup** — `ModelProviderSeedExtensions` now seeds the chat provider from `ConnectionStrings__chat-model` even when setup is not complete, enabling headless/Docker deployments to register agents without running the wizard first
+- **Connection string key fix** — Seed reads `chat-model` (matching `ConnectionStrings__chat-model`) instead of `chat`; fallback to `chat` for legacy configs
+- **Ollama fallback parser** — Added `TryParseOllamaFallback` when `ChatClientConnectionInfo.TryParse` fails (e.g. `host.docker.internal` on some platforms)
+- **Sidecar env_file fix** — `docker-compose.lucia-sidecar.yml` uses `env_file: .env` instead of variable substitution to avoid mangling `ConnectionStrings__chat-model` (the `${VAR:-default}` syntax was corrupting semicolon-separated values)
+
+### 🔓 Agent Catalog Discovery
+
+- **Anonymous `/agents`** — GET `/agents` now allows anonymous access so the Home Assistant integration can fetch the catalog without an API key during setup
+- **Setup wizard reset** — `DEPLOYMENT.md` updated with correct `mongosh luciaconfig --eval "db.dropDatabase()"` command to re-run the setup wizard
+- **MetaMCP setup guide** — `DEPLOYMENT-OPENWEBUI.md` expanded with step-by-step "Setup: MetaMCP and Fixing 'No Agents'" section
+
+### 🏠 Home Assistant Integration
+
+- **401 error handling** — Clear "Authentication failed (401)" message when the catalog returns 401 instead of "Invalid agent catalog"
+- **Catalog format support** — Accepts `value` key in addition to `agents` and `catalog` in catalog responses
+
+## 🐛 Bug Fixes
+
+- **Invalid agent catalog from HA** — `/agents` required auth; HA integration received 401 with JSON error body and reported "Invalid agent catalog". Fixed by allowing anonymous access to catalog discovery.
+- **Chat provider never seeded in Docker** — `ConnectionStrings__chat-model` in `.env` was not used because (1) seed only ran when setup complete, (2) seed looked for `chat` not `chat-model`, (3) compose variable substitution corrupted the value. Fixed with env_file, key change, and pre-setup seed.
+- **Setup wizard unrecoverable** — Documentation referenced non-existent `db.settings.drop()`. Correct reset is `db.dropDatabase()` on `luciaconfig`.
+
+---
+
+# Release Notes - 2026.02.26
+
+**Release Date:** February 26, 2026  
+**Code Name:** "Scene"
+
+---
+
+## 🎬 Overview
+
+"Scene" adds a new **Scene Agent** to the Lucia catalog for activating Home Assistant scenes via natural language.
+
+## ✨ What's New
+
+### 📽️ Scene Agent
+
+- **SceneControlSkill** — New skill with `ListScenesAsync`, `FindScenesByAreaAsync`, and `ActivateSceneAsync` tools for Home Assistant scene control
+- **SceneAgent** — Specialized agent for scene activation at `/a2a/scene-agent`; routes queries like "activate movie scene", "turn on night mode", "what scenes are in the living room?"
+- **Catalog integration** — Scene agent appears in the agent catalog and is routable via the orchestrator for #scenes domain
+
+---
+
 # Release Notes - 2026.02.25
 
 **Release Date:** February 25, 2026  

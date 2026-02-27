@@ -12,6 +12,7 @@ class TrackedConversation:
 
     context_id: str
     task_id: Optional[str] = None
+    last_assistant_text: Optional[str] = None
     expires_at: float = field(default_factory=lambda: time.monotonic() + 300.0)
 
 
@@ -37,11 +38,16 @@ class ConversationTracker:
         conversation_id: str,
         context_id: str,
         task_id: Optional[str] = None,
+        last_assistant_text: Optional[str] = None,
     ) -> None:
         """Store or update a conversation mapping, resetting the TTL."""
+        existing = self._entries.get(conversation_id)
+        # Preserve previous assistant text when updating with a new response
+        assistant_text = last_assistant_text if last_assistant_text is not None else (existing.last_assistant_text if existing else None)
         self._entries[conversation_id] = TrackedConversation(
             context_id=context_id,
             task_id=task_id,
+            last_assistant_text=assistant_text,
             expires_at=time.monotonic() + self._ttl,
         )
 

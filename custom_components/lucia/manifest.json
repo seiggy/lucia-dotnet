@@ -1,18 +1,1 @@
-{
-  "domain": "lucia",
-  "name": "Lucia Home Agent",
-  "after_dependencies": ["assist_pipeline", "intent", "conversation"],
-  "codeowners": [
-    "@seiggy"
-  ],
-  "config_flow": true,
-  "dependencies": [],
-  "documentation": "https://github.com/seiggy/lucia-dotnet",
-  "integration_type": "service",
-  "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/seiggy/lucia-dotnet/issues",
-  "requirements": [
-    "a2a-sdk>=0.3.0"
-  ],
-  "version": "2026.02.20"
-}
+{"domain":"lucia","name":"Lucia Home Agent","after_dependencies":["assist_pipeline","intent","conversation"],"codeowners":["@seiggy"],"config_flow":true,"dependencies":[],"documentation":"https://github.com/seiggy/lucia-dotnet","integration_type":"service","iot_class":"local_polling","issue_tracker":"https://github.com/seiggy/lucia-dotnet/issues","requirements":[],"version":"2026.02.27"}
