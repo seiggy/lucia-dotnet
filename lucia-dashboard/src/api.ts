@@ -13,6 +13,11 @@ import type {
   McpServerStatus,
   AgentDefinition,
   ModelProvider,
+  OptimizableSkillInfo,
+  SkillDeviceInfo,
+  TraceSearchTerm,
+  OptimizationTestCase,
+  JobStatusResponse,
 } from './types';
 
 const BASE = '/api';
@@ -1033,4 +1038,50 @@ export async function updatePresenceConfig(body: { enabled?: boolean }): Promise
   });
   if (!res.ok) throw new Error(`Failed to update presence config: ${res.statusText}`);
   return res.json();
+}
+
+// ── Skill Optimizer ─────────────────────────────────────────────
+
+export async function fetchOptimizableSkills(): Promise<OptimizableSkillInfo[]> {
+  const res = await fetch(`${BASE}/skill-optimizer/skills`);
+  if (!res.ok) throw new Error(`Failed to fetch skills: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchSkillDevices(skillId: string): Promise<SkillDeviceInfo[]> {
+  const res = await fetch(`${BASE}/skill-optimizer/skills/${skillId}/devices`);
+  if (!res.ok) throw new Error(`Failed to fetch devices: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchSkillTraces(skillId: string, limit?: number): Promise<TraceSearchTerm[]> {
+  const qs = limit ? `?limit=${limit}` : '';
+  const res = await fetch(`${BASE}/skill-optimizer/skills/${skillId}/traces${qs}`);
+  if (!res.ok) throw new Error(`Failed to fetch traces: ${res.statusText}`);
+  return res.json();
+}
+
+export async function startOptimization(
+  skillId: string,
+  embeddingModel: string,
+  testCases: OptimizationTestCase[],
+): Promise<{ jobId: string }> {
+  const res = await fetch(`${BASE}/skill-optimizer/skills/${skillId}/optimize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ embeddingModel, testCases }),
+  });
+  if (!res.ok) throw new Error(`Failed to start optimization: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchOptimizerJob(jobId: string): Promise<JobStatusResponse> {
+  const res = await fetch(`${BASE}/skill-optimizer/jobs/${jobId}`);
+  if (!res.ok) throw new Error(`Failed to fetch job: ${res.statusText}`);
+  return res.json();
+}
+
+export async function cancelOptimizerJob(jobId: string): Promise<void> {
+  const res = await fetch(`${BASE}/skill-optimizer/jobs/${jobId}/cancel`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to cancel job: ${res.statusText}`);
 }

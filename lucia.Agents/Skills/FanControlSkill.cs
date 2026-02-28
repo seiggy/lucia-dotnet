@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Text;
 using System.Text.Json;
+using lucia.Agents.Configuration;
 using lucia.Agents.Models;
 using lucia.Agents.Services;
 using lucia.HomeAssistant.Models;
@@ -11,6 +12,7 @@ using lucia.HomeAssistant.Services;
 
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace lucia.Agents.Skills;
 
@@ -18,10 +20,8 @@ namespace lucia.Agents.Skills;
 /// Skill for controlling fans in Home Assistant.
 /// Provides tools for discovering fans, checking state, and controlling speed/direction.
 /// </summary>
-public sealed class FanControlSkill : IAgentSkill
+public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
 {
-    private const double SimilarityThreshold = 0.6;
-    private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(30);
     private static readonly ActivitySource ActivitySource = new("Lucia.Skills.FanControl", "1.0.0");
     private static readonly Meter Meter = new("Lucia.Skills.FanControl", "1.0.0");
 
@@ -35,7 +35,8 @@ public sealed class FanControlSkill : IAgentSkill
     private IEmbeddingGenerator<string, Embedding<float>>? _embeddingGenerator;
     private readonly IDeviceCacheService _cacheService;
     private readonly IEntityLocationService _locationService;
-    private readonly IEmbeddingSimilarityService _similarity;
+    private readonly IHybridEntityMatcher _entityMatcher;
+    private readonly IOptionsMonitor<FanControlSkillOptions> _options;
     private readonly ILogger<FanControlSkill> _logger;
 
     private ImmutableArray<FanEntity> _fans = [];
@@ -47,14 +48,16 @@ public sealed class FanControlSkill : IAgentSkill
         IEmbeddingProviderResolver embeddingResolver,
         IDeviceCacheService cacheService,
         IEntityLocationService locationService,
-        IEmbeddingSimilarityService similarity,
+        IHybridEntityMatcher entityMatcher,
+        IOptionsMonitor<FanControlSkillOptions> options,
         ILogger<FanControlSkill> logger)
     {
         _homeAssistantClient = homeAssistantClient;
         _embeddingResolver = embeddingResolver;
         _cacheService = cacheService;
         _locationService = locationService;
-        _similarity = similarity;
+        _entityMatcher = entityMatcher;
+        _options = options;
         _logger = logger;
     }
 
@@ -97,6 +100,39 @@ public sealed class FanControlSkill : IAgentSkill
         ];
     }
 
+    // ── IOptimizableSkill ─────────────────────────────────────────
+
+    /// <inheritdoc/>
+    public string SkillDisplayName => "Fan Control";
+
+    /// <inheritdoc/>
+    public string SkillId => "fan-control";
+
+    /// <inheritdoc/>
+    public string ConfigSectionName => FanControlSkillOptions.SectionName;
+
+    /// <inheritdoc/>
+    public IReadOnlyList<string> EntityDomains { get; } = ["fan"];
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<IMatchableEntity>> GetCachedEntitiesAsync(CancellationToken cancellationToken = default)
+    {
+        await EnsureCacheIsCurrentAsync(cancellationToken).ConfigureAwait(false);
+        return _fans.CastArray<IMatchableEntity>();
+    }
+
+    /// <inheritdoc/>
+    public HybridMatchOptions GetCurrentMatchOptions()
+    {
+        var opts = _options.CurrentValue;
+        return new HybridMatchOptions
+        {
+            Threshold = opts.HybridSimilarityThreshold,
+            EmbeddingWeight = opts.EmbeddingWeight,
+            ScoreDropoffRatio = opts.ScoreDropoffRatio
+        };
+    }
+
     [Description("Find fans matching a search term using natural language. Returns all fans above the similarity threshold.")]
     public async Task<string> FindFanAsync(
         [Description("The search term to find fans (e.g., 'bedroom fan', 'ceiling fan', 'office')")] string searchTerm)
@@ -114,13 +150,25 @@ public sealed class FanControlSkill : IAgentSkill
             if (fans.IsEmpty)
                 return "No fans found. The fan cache may be empty.";
 
-            var searchEmbedding = await _embeddingGenerator!.GenerateAsync(searchTerm).ConfigureAwait(false);
+            if (_embeddingGenerator is null)
+            {
+                FanControlFailures.Add(1);
+                return "Embedding provider not available for fan search.";
+            }
 
-            var matches = fans
-                .Select(f => new { Fan = f, Similarity = _similarity.ComputeSimilarity(searchEmbedding, f.NameEmbedding) })
-                .Where(m => m.Similarity >= SimilarityThreshold)
-                .OrderByDescending(m => m.Similarity)
-                .ToList();
+            var opts = _options.CurrentValue;
+            var matchOptions = new HybridMatchOptions
+            {
+                Threshold = opts.HybridSimilarityThreshold,
+                EmbeddingWeight = opts.EmbeddingWeight,
+                ScoreDropoffRatio = opts.ScoreDropoffRatio
+            };
+
+            var matches = await _entityMatcher.FindMatchesAsync(
+                searchTerm,
+                (IReadOnlyList<FanEntity>)fans,
+                _embeddingGenerator,
+                matchOptions).ConfigureAwait(false);
 
             if (matches.Count > 0)
             {
@@ -128,7 +176,7 @@ public sealed class FanControlSkill : IAgentSkill
                 sb.AppendLine($"Found {matches.Count} fan(s) matching '{searchTerm}':");
                 foreach (var match in matches)
                 {
-                    sb.AppendLine($"  - {match.Fan.FriendlyName} ({match.Fan.EntityId}) in {match.Fan.Area ?? "unknown area"} [similarity: {match.Similarity:F2}]");
+                    sb.AppendLine($"  - {match.Entity.FriendlyName} ({match.Entity.EntityId}) in {match.Entity.Area ?? "unknown area"} [score: {match.HybridScore:F2}]");
                 }
                 activity?.SetStatus(ActivityStatusCode.Ok);
                 return sb.ToString();
@@ -527,6 +575,8 @@ public sealed class FanControlSkill : IAgentSkill
                 for (var i = 0; i < cachedFans.Count; i++)
                 {
                     cachedFans[i].NameEmbedding = embeddings[i];
+                    if (cachedFans[i].PhoneticKeys.Length == 0)
+                        cachedFans[i].PhoneticKeys = StringSimilarity.BuildPhoneticKeys(cachedFans[i].FriendlyName);
                 }
 
                 _fans = [.. cachedFans];
@@ -595,6 +645,7 @@ public sealed class FanControlSkill : IAgentSkill
                     EntityId = entity.EntityId,
                     FriendlyName = friendlyName,
                     NameEmbedding = embedding,
+                    PhoneticKeys = StringSimilarity.BuildPhoneticKeys(friendlyName),
                     Area = area,
                     PercentageStep = percentageStep,
                     PresetModes = presetModes,
@@ -608,7 +659,8 @@ public sealed class FanControlSkill : IAgentSkill
             Volatile.Write(ref _lastCacheRefreshTicks, DateTime.UtcNow.Ticks);
 
             // Persist to Redis
-            await _cacheService.SetCachedFansAsync(newFans, CacheTtl, cancellationToken).ConfigureAwait(false);
+            var cacheTtl = TimeSpan.FromMinutes(_options.CurrentValue.CacheRefreshMinutes);
+            await _cacheService.SetCachedFansAsync(newFans, cacheTtl, cancellationToken).ConfigureAwait(false);
 
             _logger.LogInformation("Refreshed fan cache: {Count} fans", newFans.Count);
         }
@@ -620,13 +672,15 @@ public sealed class FanControlSkill : IAgentSkill
 
     private async Task EnsureCacheIsCurrentAsync(CancellationToken cancellationToken = default)
     {
-        if (!_fans.IsEmpty && DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheRefreshTicks), DateTimeKind.Utc) < CacheTtl)
+        var cacheTtl = TimeSpan.FromMinutes(_options.CurrentValue.CacheRefreshMinutes);
+        if (!_fans.IsEmpty && DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheRefreshTicks), DateTimeKind.Utc) < cacheTtl)
             return;
 
         await _refreshLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!_fans.IsEmpty && DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheRefreshTicks), DateTimeKind.Utc) < CacheTtl)
+            cacheTtl = TimeSpan.FromMinutes(_options.CurrentValue.CacheRefreshMinutes);
+            if (!_fans.IsEmpty && DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheRefreshTicks), DateTimeKind.Utc) < cacheTtl)
                 return;
 
             await RefreshFanCacheAsync(cancellationToken).ConfigureAwait(false);

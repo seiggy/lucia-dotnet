@@ -18,9 +18,9 @@ public sealed class MusicAgentEvalTests : AgentEvalTestBase
     [Trait("Evaluator", "ToolCallAccuracy")]
     [SkippableTheory]
     [MemberData(nameof(ModelIds))]
-    public async Task PlayArtist_ArtistRequest_ProducesResponse(string modelId)
+    public async Task PlayArtist_ArtistRequest_ProducesResponse(string modelId, string embeddingModelId)
     {
-        var (agent, capture) = await Fixture.CreateMusicAgentWithCaptureAsync(modelId);
+        var (agent, capture) = await Fixture.CreateMusicAgentWithCaptureAsync(modelId, embeddingModelId);
         var reportingConfig = CreateReportingConfig();
 
         var (response, result) = await RunAgentAndEvaluateAsync(
@@ -38,9 +38,9 @@ public sealed class MusicAgentEvalTests : AgentEvalTestBase
     [Trait("Evaluator", "ToolCallAccuracy")]
     [SkippableTheory]
     [MemberData(nameof(ModelIds))]
-    public async Task PlayAlbum_AlbumRequest_ProducesResponse(string modelId)
+    public async Task PlayAlbum_AlbumRequest_ProducesResponse(string modelId, string embeddingModelId)
     {
-        var (agent, capture) = await Fixture.CreateMusicAgentWithCaptureAsync(modelId);
+        var (agent, capture) = await Fixture.CreateMusicAgentWithCaptureAsync(modelId, embeddingModelId);
         var reportingConfig = CreateReportingConfig();
 
         var (response, result) = await RunAgentAndEvaluateAsync(
@@ -58,9 +58,9 @@ public sealed class MusicAgentEvalTests : AgentEvalTestBase
     [Trait("Evaluator", "ToolCallAccuracy")]
     [SkippableTheory]
     [MemberData(nameof(ModelIds))]
-    public async Task PlaySong_SongRequest_ProducesResponse(string modelId)
+    public async Task PlaySong_SongRequest_ProducesResponse(string modelId, string embeddingModelId)
     {
-        var (agent, capture) = await Fixture.CreateMusicAgentWithCaptureAsync(modelId);
+        var (agent, capture) = await Fixture.CreateMusicAgentWithCaptureAsync(modelId, embeddingModelId);
         var reportingConfig = CreateReportingConfig();
 
         var (response, result) = await RunAgentAndEvaluateAsync(
@@ -78,9 +78,9 @@ public sealed class MusicAgentEvalTests : AgentEvalTestBase
     [Trait("Evaluator", "ToolCallAccuracy")]
     [SkippableTheory]
     [MemberData(nameof(ModelIds))]
-    public async Task Shuffle_ShuffleRequest_ProducesResponse(string modelId)
+    public async Task Shuffle_ShuffleRequest_ProducesResponse(string modelId, string embeddingModelId)
     {
-        var (agent, capture) = await Fixture.CreateMusicAgentWithCaptureAsync(modelId);
+        var (agent, capture) = await Fixture.CreateMusicAgentWithCaptureAsync(modelId, embeddingModelId);
         var reportingConfig = CreateReportingConfig();
 
         var (response, result) = await RunAgentAndEvaluateAsync(
@@ -98,9 +98,9 @@ public sealed class MusicAgentEvalTests : AgentEvalTestBase
     [Trait("Evaluator", "ToolCallAccuracy")]
     [SkippableTheory]
     [MemberData(nameof(ModelIds))]
-    public async Task StopMusic_StopRequest_ProducesResponse(string modelId)
+    public async Task StopMusic_StopRequest_ProducesResponse(string modelId, string embeddingModelId)
     {
-        var (agent, capture) = await Fixture.CreateMusicAgentWithCaptureAsync(modelId);
+        var (agent, capture) = await Fixture.CreateMusicAgentWithCaptureAsync(modelId, embeddingModelId);
         var reportingConfig = CreateReportingConfig();
 
         var (response, result) = await RunAgentAndEvaluateAsync(
@@ -120,9 +120,9 @@ public sealed class MusicAgentEvalTests : AgentEvalTestBase
     [Trait("Evaluator", "IntentResolution")]
     [SkippableTheory]
     [MemberData(nameof(ModelIds))]
-    public async Task PlayGenre_GenreRequest_ProducesResponse(string modelId)
+    public async Task PlayGenre_GenreRequest_ProducesResponse(string modelId, string embeddingModelId)
     {
-        var (agent, capture) = await Fixture.CreateMusicAgentWithCaptureAsync(modelId);
+        var (agent, capture) = await Fixture.CreateMusicAgentWithCaptureAsync(modelId, embeddingModelId);
         var reportingConfig = CreateReportingConfig();
 
         var (response, result) = await RunAgentAndEvaluateAsync(
@@ -142,9 +142,9 @@ public sealed class MusicAgentEvalTests : AgentEvalTestBase
     [Trait("Evaluator", "TaskAdherence")]
     [SkippableTheory]
     [MemberData(nameof(ModelIds))]
-    public async Task OutOfDomain_LightRequest_StaysInDomain(string modelId)
+    public async Task OutOfDomain_LightRequest_StaysInDomain(string modelId, string embeddingModelId)
     {
-        var (agent, capture) = await Fixture.CreateMusicAgentWithCaptureAsync(modelId);
+        var (agent, capture) = await Fixture.CreateMusicAgentWithCaptureAsync(modelId, embeddingModelId);
         var reportingConfig = CreateReportingConfig();
 
         var (response, _) = await RunAgentAndEvaluateAsync(

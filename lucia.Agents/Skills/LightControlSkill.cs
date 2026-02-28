@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -9,6 +10,7 @@ using lucia.HomeAssistant.Services;
 using lucia.HomeAssistant.Models;
 using lucia.Agents.Models;
 using lucia.Agents.Services;
+using lucia.Agents.Configuration;
 using Microsoft.Extensions.AI;
 
 namespace lucia.Agents.Skills;
@@ -16,7 +18,7 @@ namespace lucia.Agents.Skills;
 /// <summary>
 /// Semantic Kernel plugin for Home Assistant light control with caching and similarity search
 /// </summary>
-public class LightControlSkill : IAgentSkill
+public class LightControlSkill : IAgentSkill, IOptimizableSkill
 {
     private readonly IHomeAssistantClient _homeAssistantClient;
     private readonly IEmbeddingProviderResolver _embeddingResolver;
@@ -25,9 +27,10 @@ public class LightControlSkill : IAgentSkill
     private readonly IDeviceCacheService _deviceCache;
     private readonly IEntityLocationService _locationService;
     private readonly IEmbeddingSimilarityService _similarity;
+    private readonly IHybridEntityMatcher _entityMatcher;
+    private readonly IOptionsMonitor<LightControlSkillOptions> _options;
     private ImmutableArray<LightEntity> _cachedLights = [];
     private long _lastCacheUpdateTicks = DateTime.MinValue.Ticks;
-    private readonly TimeSpan _cacheRefreshInterval = TimeSpan.FromMinutes(30);
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
 
     private static readonly ActivitySource ActivitySource = new("Lucia.Skills.LightControl", "1.0.0");
@@ -50,7 +53,9 @@ public class LightControlSkill : IAgentSkill
         ILogger<LightControlSkill> logger,
         IDeviceCacheService deviceCache,
         IEntityLocationService locationService,
-        IEmbeddingSimilarityService similarity)
+        IEmbeddingSimilarityService similarity,
+        IHybridEntityMatcher entityMatcher,
+        IOptionsMonitor<LightControlSkillOptions> options)
     {
         _homeAssistantClient = homeAssistantClient;
         _embeddingResolver = embeddingResolver;
@@ -58,6 +63,8 @@ public class LightControlSkill : IAgentSkill
         _deviceCache = deviceCache;
         _locationService = locationService;
         _similarity = similarity;
+        _entityMatcher = entityMatcher;
+        _options = options;
     }
 
     public IList<AITool> GetTools()
@@ -68,6 +75,39 @@ public class LightControlSkill : IAgentSkill
             AIFunctionFactory.Create(GetLightStateAsync),
             AIFunctionFactory.Create(SetLightStateAsync)
             ];
+    }
+
+    // ── IOptimizableSkill ─────────────────────────────────────────
+
+    /// <inheritdoc/>
+    public string SkillDisplayName => "Light Control";
+
+    /// <inheritdoc/>
+    public string SkillId => "light-control";
+
+    /// <inheritdoc/>
+    public string ConfigSectionName => LightControlSkillOptions.SectionName;
+
+    /// <inheritdoc/>
+    public IReadOnlyList<string> EntityDomains { get; } = ["light", "switch"];
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<IMatchableEntity>> GetCachedEntitiesAsync(CancellationToken cancellationToken = default)
+    {
+        await EnsureCacheIsCurrentAsync(cancellationToken).ConfigureAwait(false);
+        return _cachedLights.CastArray<IMatchableEntity>();
+    }
+
+    /// <inheritdoc/>
+    public HybridMatchOptions GetCurrentMatchOptions()
+    {
+        var opts = _options.CurrentValue;
+        return new HybridMatchOptions
+        {
+            Threshold = opts.HybridSimilarityThreshold,
+            EmbeddingWeight = opts.EmbeddingWeight,
+            ScoreDropoffRatio = opts.ScoreDropoffRatio
+        };
     }
 
     /// <summary>
@@ -230,39 +270,42 @@ public class LightControlSkill : IAgentSkill
                 return "Embedding provider not available for light search.";
             }
 
-            // Generate embedding for the search term
-            var searchEmbedding = await _embeddingService.GenerateAsync(searchTerm).ConfigureAwait(false);
-            activity?.SetTag("search.embedding.dimension", searchEmbedding.Vector.Length);
+            // Delegate to the generic hybrid entity matcher
+            var opts = _options.CurrentValue;
+            var matchOptions = new HybridMatchOptions
+            {
+                Threshold = opts.HybridSimilarityThreshold,
+                EmbeddingWeight = opts.EmbeddingWeight,
+                ScoreDropoffRatio = opts.ScoreDropoffRatio
+            };
 
-            // Search light names by embedding similarity
-            const double similarityThreshold = 0.6;
-            var matchingLights = _cachedLights
-                .Select(light => new { Light = light, Similarity = _similarity.ComputeSimilarity(searchEmbedding, light.NameEmbedding) })
-                .Where(x => x.Similarity >= similarityThreshold)
-                .OrderByDescending(x => x.Similarity)
-                .ToList();
+            var matches = await _entityMatcher.FindMatchesAsync(
+                searchTerm,
+                (IReadOnlyList<LightEntity>)_cachedLights,
+                _embeddingService,
+                matchOptions).ConfigureAwait(false);
 
-            if (matchingLights.Count > 0)
+            if (matches.Count > 0)
             {
                 activity?.SetTag("match.type", "light");
-                activity?.SetTag("match.count", matchingLights.Count);
-                activity?.SetTag("match.top_similarity", matchingLights[0].Similarity);
+                activity?.SetTag("match.count", matches.Count);
+                activity?.SetTag("match.top_similarity", matches[0].HybridScore);
 
                 var stringBuilder = new StringBuilder();
-                if (matchingLights.Count == 1)
+                if (matches.Count == 1)
                     stringBuilder.Append("Found light: ");
                 else
-                    stringBuilder.AppendLine($"Found {matchingLights.Count} matching light(s):");
+                    stringBuilder.AppendLine($"Found {matches.Count} matching light(s):");
 
-                foreach (var match in matchingLights)
+                foreach (var match in matches)
                 {
-                    var light = match.Light;
+                    var light = match.Entity;
                     var capabilities = GetCapabilityDescription(light);
                     var state = await _homeAssistantClient.GetEntityStateAsync(light.EntityId)
                         .ConfigureAwait(false);
                     if (state is null) continue;
 
-                    var entry = matchingLights.Count == 1
+                    var entry = matches.Count == 1
                         ? $"{light.FriendlyName} (Entity ID: {light.EntityId}){capabilities}, State: {state.State}"
                         : $"- {light.FriendlyName} (Entity ID: {light.EntityId}){capabilities}, State: {state.State}";
                     stringBuilder.Append(entry);
@@ -276,7 +319,7 @@ public class LightControlSkill : IAgentSkill
                     if (state.Attributes.TryGetValue("color_temp", out var colorTempObj))
                         stringBuilder.Append($" with color temperature {colorTempObj}");
 
-                    if (matchingLights.Count > 1) stringBuilder.AppendLine();
+                    if (matches.Count > 1) stringBuilder.AppendLine();
                 }
 
                 LightSearchSuccess.Add(1);
@@ -588,6 +631,10 @@ public class LightControlSkill : IAgentSkill
                     if (embedding is not null)
                     {
                         light.NameEmbedding = embedding;
+                        if (light.PhoneticKeys.Length == 0)
+                        {
+                            light.PhoneticKeys = StringSimilarity.BuildPhoneticKeys(light.FriendlyName);
+                        }
                         newLightsFromCache.Add(light);
                     }
                     else
@@ -659,7 +706,8 @@ public class LightControlSkill : IAgentSkill
                     FriendlyName = friendlyName,
                     SupportedColorModes = colorModes,
                     NameEmbedding = embedding,
-                    Area = areaInfo?.Name
+                    Area = areaInfo?.Name,
+                    PhoneticKeys = StringSimilarity.BuildPhoneticKeys(friendlyName)
                 };
 
                 newLights.Add(lightEntity);
@@ -721,14 +769,15 @@ public class LightControlSkill : IAgentSkill
 
     private async Task EnsureCacheIsCurrentAsync(CancellationToken cancellationToken = default)
     {
-        if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) > _cacheRefreshInterval)
+        var cacheRefreshInterval = TimeSpan.FromMinutes(_options.CurrentValue.CacheRefreshMinutes);
+        if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) > cacheRefreshInterval)
         {
             if (!await _refreshLock.WaitAsync(0, cancellationToken).ConfigureAwait(false))
                 return; // Another refresh is already in progress
             try
             {
                 // Double-check after acquiring the lock
-                if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) > _cacheRefreshInterval)
+                if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) > cacheRefreshInterval)
                 {
                     await RefreshLightCacheAsync(cancellationToken).ConfigureAwait(false);
                 }

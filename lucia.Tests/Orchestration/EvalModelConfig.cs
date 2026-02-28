@@ -36,4 +36,12 @@ public sealed class EvalModelConfig
     /// For Azure OpenAI, the shared key from <see cref="AzureOpenAISettings"/> is used instead.
     /// </summary>
     public string? ApiKey { get; set; }
+
+    /// <summary>
+    /// Name of the embedding model to pair with this chat model during evaluation.
+    /// Must match a <see cref="EvalModelConfig.DeploymentName"/> in
+    /// <see cref="EvalConfiguration.EmbeddingModels"/>. When <c>null</c>, the first
+    /// configured embedding model is used as the default.
+    /// </summary>
+    public string? EmbeddingModel { get; set; }
 }

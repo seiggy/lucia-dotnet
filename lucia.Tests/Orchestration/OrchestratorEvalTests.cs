@@ -21,10 +21,10 @@ public sealed class OrchestratorEvalTests : AgentEvalTestBase
     [Trait("Evaluator", "IntentResolution")]
     [SkippableTheory]
     [MemberData(nameof(ModelIds))]
-    public async Task RouteToLightAgent_LightRequest_ReturnsLightAgentId(string modelId)
+    public async Task RouteToLightAgent_LightRequest_ReturnsLightAgentId(string modelId, string embeddingModelId)
     {
         var observer = new OrchestratorEvalObserver();
-        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer);
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer, embeddingModelId);
         var reportingConfig = CreateReportingConfig(
             includeTextEvaluators: true,
             includeToolEvaluators: false,
@@ -49,10 +49,10 @@ public sealed class OrchestratorEvalTests : AgentEvalTestBase
     [Trait("Evaluator", "IntentResolution")]
     [SkippableTheory]
     [MemberData(nameof(ModelIds))]
-    public async Task RouteToMusicAgent_MusicRequest_ReturnsMusicAgentId(string modelId)
+    public async Task RouteToMusicAgent_MusicRequest_ReturnsMusicAgentId(string modelId, string embeddingModelId)
     {
         var observer = new OrchestratorEvalObserver();
-        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer);
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer, embeddingModelId);
         var reportingConfig = CreateReportingConfig(
             includeTextEvaluators: true,
             includeToolEvaluators: false,
@@ -77,10 +77,10 @@ public sealed class OrchestratorEvalTests : AgentEvalTestBase
     [Trait("Evaluator", "IntentResolution")]
     [SkippableTheory]
     [MemberData(nameof(ModelIds))]
-    public async Task RouteToLightAgent_DimmingRequest_ReturnsLightAgentId(string modelId)
+    public async Task RouteToLightAgent_DimmingRequest_ReturnsLightAgentId(string modelId, string embeddingModelId)
     {
         var observer = new OrchestratorEvalObserver();
-        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer);
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer, embeddingModelId);
         var reportingConfig = CreateReportingConfig(
             includeTextEvaluators: true,
             includeToolEvaluators: false,
@@ -107,10 +107,10 @@ public sealed class OrchestratorEvalTests : AgentEvalTestBase
     [Trait("Evaluator", "IntentResolution")]
     [SkippableTheory]
     [MemberData(nameof(ModelIds))]
-    public async Task RouteMultiAgent_LightAndMusic_RoutesToBoth(string modelId)
+    public async Task RouteMultiAgent_LightAndMusic_RoutesToBoth(string modelId, string embeddingModelId)
     {
         var observer = new OrchestratorEvalObserver();
-        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer);
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer, embeddingModelId);
         var reportingConfig = CreateReportingConfig(
             includeTextEvaluators: true,
             includeToolEvaluators: false,
@@ -153,10 +153,10 @@ public sealed class OrchestratorEvalTests : AgentEvalTestBase
     [Trait("Evaluator", "TaskAdherence")]
     [SkippableTheory]
     [MemberData(nameof(ModelIds))]
-    public async Task Confidence_ClearRequest_HighConfidence(string modelId)
+    public async Task Confidence_ClearRequest_HighConfidence(string modelId, string embeddingModelId)
     {
         var observer = new OrchestratorEvalObserver();
-        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer);
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer, embeddingModelId);
         var reportingConfig = CreateReportingConfig(
             includeTextEvaluators: true,
             includeToolEvaluators: false,
@@ -182,10 +182,10 @@ public sealed class OrchestratorEvalTests : AgentEvalTestBase
     [Trait("Evaluator", "TaskAdherence")]
     [SkippableTheory]
     [MemberData(nameof(ModelIds))]
-    public async Task Confidence_AmbiguousRequest_LowerConfidence(string modelId)
+    public async Task Confidence_AmbiguousRequest_LowerConfidence(string modelId, string embeddingModelId)
     {
         var observer = new OrchestratorEvalObserver();
-        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer);
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer, embeddingModelId);
         var reportingConfig = CreateReportingConfig(
             includeTextEvaluators: true,
             includeToolEvaluators: false,
@@ -211,10 +211,10 @@ public sealed class OrchestratorEvalTests : AgentEvalTestBase
     [Trait("Evaluator", "IntentResolution")]
     [SkippableTheory]
     [MemberData(nameof(ModelIds))]
-    public async Task FallbackAgent_GeneralKnowledge_RoutesToFallback(string modelId)
+    public async Task FallbackAgent_GeneralKnowledge_RoutesToFallback(string modelId, string embeddingModelId)
     {
         var observer = new OrchestratorEvalObserver();
-        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer);
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer, embeddingModelId);
         var reportingConfig = CreateReportingConfig(
             includeTextEvaluators: true,
             includeToolEvaluators: false,

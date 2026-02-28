@@ -159,6 +159,9 @@ builder.Services.AddHttpClient("OllamaModels", client =>
     client.Timeout = TimeSpan.FromSeconds(15);
 });
 
+// Skill optimizer job manager
+builder.Services.AddSingleton<SkillOptimizerJobManager>();
+
 builder.Services.AddProblemDetails();
 
 builder.Services.AddOpenApi();
@@ -230,6 +233,7 @@ app.MapActivityApi();
 app.MapAlarmClockApi();
 app.MapListsApi();
 app.MapPresenceApi();
+app.MapSkillOptimizerApi();
 app.MapDefaultEndpoints();
 
 // SPA hosting: serve React dashboard assets in production

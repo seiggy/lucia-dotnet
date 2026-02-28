@@ -196,7 +196,7 @@ public sealed class TimerSkill
     /// <summary>
     /// Gets the count of currently active timers (for testing).
     /// </summary>
-    internal int ActiveTimerCount => _taskStore.GetByType(ScheduledTaskType.Timer).Count;
+    public int ActiveTimerCount => _taskStore.GetByType(ScheduledTaskType.Timer).Count;
 
     /// <summary>
     /// Resolves a location name or entity_id to an actual assist_satellite entity_id.

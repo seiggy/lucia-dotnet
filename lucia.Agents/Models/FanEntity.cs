@@ -1,3 +1,4 @@
+using lucia.Agents.Services;
 using Microsoft.Extensions.AI;
 
 namespace lucia.Agents.Models;
@@ -6,12 +7,15 @@ namespace lucia.Agents.Models;
 /// Represents a cached fan entity with search capabilities.
 /// Mirrors Home Assistant fan entity attributes.
 /// </summary>
-public sealed class FanEntity
+public sealed class FanEntity : IMatchableEntity
 {
     public string EntityId { get; set; } = string.Empty;
     public string FriendlyName { get; set; } = string.Empty;
     public Embedding<float>? NameEmbedding { get; set; }
     public string? Area { get; set; }
+
+    /// <inheritdoc />
+    public string[] PhoneticKeys { get; set; } = [];
 
     /// <summary>
     /// Step size for speed percentage changes (e.g., 1 = 1% increments, 10 = 10% increments)
@@ -41,4 +45,9 @@ public sealed class FanEntity
     public bool SupportsOscillate => (SupportedFeatures & 2) != 0;
     public bool SupportsDirection => (SupportedFeatures & 4) != 0;
     public bool SupportsPresetMode => (SupportedFeatures & 8) != 0 || ModeSelectEntityId is not null;
+
+    // ── IMatchableEntity ────────────────────────────────────────
+
+    string IMatchableEntity.MatchableName => FriendlyName;
+    Embedding<float>? IMatchableEntity.NameEmbedding => NameEmbedding;
 }
