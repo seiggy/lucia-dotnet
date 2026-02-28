@@ -12,6 +12,7 @@ using lucia.Agents.Services;
 using lucia.HomeAssistant.Services;
 using lucia.MusicAgent;
 using lucia.Tests.TestDoubles;
+using Microsoft.Agents.AI;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.AI.Evaluation;
@@ -231,6 +232,10 @@ public sealed class EvalTestFixture : IAsyncLifetime
         var resolver = A.Fake<IChatClientResolver>();
         A.CallTo(() => resolver.ResolveAsync(A<string?>._, A<CancellationToken>._))
             .Returns(chatClient);
+        // Explicitly return null so agents fall through to the IChatClient path
+        // (FakeItEasy auto-fakes AIAgent for unconfigured calls, which would bypass the real pipeline)
+        A.CallTo(() => resolver.ResolveAIAgentAsync(A<string?>._, A<CancellationToken>._))
+            .Returns(Task.FromResult<AIAgent?>(null));
         return resolver;
     }
 
