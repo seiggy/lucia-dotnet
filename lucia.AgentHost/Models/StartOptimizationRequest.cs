@@ -1,6 +1,6 @@
 using lucia.Agents.Services;
 
-namespace lucia.AgentHost.Extensions;
+namespace lucia.AgentHost.Models;
 
 /// <summary>Request body to start an optimization job.</summary>
 public sealed record StartOptimizationRequest

@@ -2,7 +2,9 @@ using System.Collections.Concurrent;
 using lucia.Agents.Services;
 using Microsoft.Extensions.AI;
 
-namespace lucia.AgentHost.Extensions;
+using lucia.AgentHost.Models;
+
+namespace lucia.AgentHost.Services;
 
 /// <summary>
 /// In-memory background job manager for skill parameter optimization.
@@ -203,36 +205,4 @@ public sealed class SkillOptimizerJobManager
 
         return result;
     }
-}
-
-/// <summary>Mutable state for a running/completed optimizer job.</summary>
-public sealed class OptimizerJobState
-{
-    public required string JobId { get; init; }
-    public required string SkillId { get; init; }
-    public required string EmbeddingModel { get; init; }
-    public int TestCaseCount { get; init; }
-    public OptimizerJobStatus Status { get; set; }
-    public DateTime StartedAt { get; init; }
-    public DateTime? CompletedAt { get; set; }
-    public OptimizationProgress? LatestProgress { get; set; }
-    public OptimizationResult? Result { get; set; }
-    public string? Error { get; set; }
-    internal CancellationTokenSource CancellationSource { get; init; } = new();
-}
-
-public enum OptimizerJobStatus
-{
-    Running,
-    Completed,
-    Failed,
-    Cancelled
-}
-
-/// <summary>Request to start an optimizer job.</summary>
-public sealed record StartOptimizerJobRequest
-{
-    public required string SkillId { get; init; }
-    public required string EmbeddingModel { get; init; }
-    public required IReadOnlyList<OptimizationTestCase> TestCases { get; init; }
 }

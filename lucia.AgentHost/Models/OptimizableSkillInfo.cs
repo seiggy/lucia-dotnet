@@ -1,6 +1,6 @@
 using lucia.Agents.Services;
 
-namespace lucia.AgentHost.Extensions;
+namespace lucia.AgentHost.Models;
 
 /// <summary>API response describing an optimizable skill.</summary>
 public sealed record OptimizableSkillInfo

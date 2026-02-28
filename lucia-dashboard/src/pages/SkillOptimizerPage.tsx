@@ -212,6 +212,17 @@ export default function SkillOptimizerPage() {
         ScoreDropoffRatio: String(bestParams.scoreDropoffRatio),
       })
       addToast('Optimal parameters applied to configuration', 'success')
+
+      // Re-fetch skills so currentParams reflects the persisted values
+      // Allow a moment for the MongoDB config provider to pick up the change
+      setTimeout(async () => {
+        try {
+          const updated = await fetchOptimizableSkills()
+          setSkills(updated)
+          const refreshed = updated.find((s) => s.skillId === selectedSkill.skillId)
+          if (refreshed) setSelectedSkill(refreshed)
+        } catch { /* toast already shown for the primary action */ }
+      }, 2000)
     } catch {
       addToast('Failed to apply configuration', 'error')
     }
@@ -223,7 +234,7 @@ export default function SkillOptimizerPage() {
 
   // ── Render ────────────────────────────────────────────────────
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto flex max-w-6xl flex-col gap-6" style={{ minHeight: 'calc(100vh - 8rem)' }}>
       <ToastContainer toasts={toasts} onDismiss={(id) => setToasts((t) => t.filter((x) => x.id !== id))} />
 
       <div className="flex items-center justify-between">
@@ -267,8 +278,8 @@ export default function SkillOptimizerPage() {
       </div>
 
       {/* ── Test Cases ──────────────────────────────────────────── */}
-      <div className="rounded-2xl border border-stone/40 bg-obsidian/60 p-5">
-        <div className="mb-4 flex items-center justify-between">
+      <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-stone/40 bg-obsidian/60 p-5">
+        <div className="mb-4 flex shrink-0 items-center justify-between">
           <h2 className="text-sm font-semibold text-light">
             Test Cases <span className="text-fog">({testCases.length})</span>
           </h2>
@@ -276,14 +287,14 @@ export default function SkillOptimizerPage() {
             <button
               onClick={autoGenerateTestCases}
               disabled={devices.length === 0}
-              className="rounded-lg bg-charcoal/80 px-3 py-1.5 text-xs font-medium text-fog hover:text-light disabled:opacity-40"
+              className="rounded-lg bg-ash/80 px-3 py-1.5 text-xs font-medium text-fog hover:text-light disabled:opacity-40"
             >
               Auto-generate
             </button>
             <button
               onClick={importFromTraces}
               disabled={!selectedSkill}
-              className="rounded-lg bg-charcoal/80 px-3 py-1.5 text-xs font-medium text-fog hover:text-light disabled:opacity-40"
+              className="rounded-lg bg-ash/80 px-3 py-1.5 text-xs font-medium text-fog hover:text-light disabled:opacity-40"
             >
               Import from Traces
             </button>
@@ -301,9 +312,9 @@ export default function SkillOptimizerPage() {
             No test cases yet. Auto-generate from devices, import from traces, or add manually.
           </p>
         ) : (
-          <div className="max-h-96 overflow-auto">
+          <div className="min-h-0 flex-1 overflow-auto">
             <table className="w-full text-xs">
-              <thead>
+              <thead className="sticky top-0 bg-obsidian/90 backdrop-blur">
                 <tr className="border-b border-stone/30 text-left text-fog">
                   <th className="px-2 py-2">Search Term</th>
                   <th className="px-2 py-2">Expected Entity</th>
@@ -314,13 +325,13 @@ export default function SkillOptimizerPage() {
               </thead>
               <tbody>
                 {testCases.map((tc, i) => (
-                  <tr key={i} className="border-b border-stone/20 hover:bg-charcoal/30">
+                  <tr key={i} className="border-b border-stone/20 hover:bg-ash/30">
                     <td className="px-2 py-1.5">
                       <input
                         type="text"
                         value={tc.searchTerm}
                         onChange={(e) => updateTestCase(i, { searchTerm: e.target.value })}
-                        className="w-full rounded border border-stone/30 bg-charcoal/40 px-2 py-1 text-xs text-light"
+                        className="w-full rounded border border-stone/30 bg-ash/40 px-2 py-1 text-xs text-light"
                         placeholder="Search term..."
                       />
                     </td>
@@ -339,7 +350,7 @@ export default function SkillOptimizerPage() {
                         max={50}
                         value={tc.maxResults}
                         onChange={(e) => updateTestCase(i, { maxResults: parseInt(e.target.value) || 3 })}
-                        className="w-full rounded border border-stone/30 bg-charcoal/40 px-2 py-1 text-xs text-light"
+                        className="w-full rounded border border-stone/30 bg-ash/40 px-2 py-1 text-xs text-light"
                       />
                     </td>
                     <td className="px-2 py-1.5">
@@ -406,7 +417,7 @@ export default function SkillOptimizerPage() {
             </span>
           </div>
 
-          <div className="mb-2 h-2 w-full overflow-hidden rounded-full bg-charcoal/60">
+          <div className="mb-2 h-2 w-full overflow-hidden rounded-full bg-ash/60">
             <div
               className="h-full rounded-full bg-amber transition-all duration-300"
               style={{ width: `${(progress.currentScore / progress.maxScore) * 100}%` }}
@@ -503,7 +514,7 @@ function ParamComparison({ label, current, optimal }: {
   const changed = current !== undefined && Math.abs(current - optimal) > 0.001
 
   return (
-    <div className="rounded-lg border border-stone/30 bg-charcoal/40 p-3">
+    <div className="rounded-lg border border-stone/30 bg-ash/40 p-3">
       <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-fog">{label}</p>
       <div className="flex items-baseline gap-2">
         <span className="text-lg font-bold text-light">{optimal.toFixed(4)}</span>

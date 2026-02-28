@@ -1,6 +1,8 @@
 using lucia.Agents.Services;
 using lucia.Agents.Training;
 using lucia.Agents.Training.Models;
+using lucia.AgentHost.Models;
+using lucia.AgentHost.Services;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 

@@ -1,6 +1,6 @@
 using lucia.Agents.Services;
 
-namespace lucia.AgentHost.Extensions;
+namespace lucia.AgentHost.Models;
 
 /// <summary>Response describing the current status of an optimization job.</summary>
 public sealed record JobStatusResponse

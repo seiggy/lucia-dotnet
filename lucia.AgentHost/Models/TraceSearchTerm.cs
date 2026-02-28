@@ -1,4 +1,4 @@
-namespace lucia.AgentHost.Extensions;
+namespace lucia.AgentHost.Models;
 
 /// <summary>A search term extracted from conversation traces.</summary>
 public sealed record TraceSearchTerm

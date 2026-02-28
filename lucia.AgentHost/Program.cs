@@ -1,5 +1,6 @@
 using lucia.AgentHost.Auth;
 using lucia.AgentHost.Extensions;
+using lucia.AgentHost.Services;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Auth;
 using lucia.Agents.Configuration;

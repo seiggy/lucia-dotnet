@@ -1,4 +1,4 @@
-namespace lucia.AgentHost.Extensions;
+namespace lucia.AgentHost.Models;
 
 /// <summary>API response describing a device in a skill's cache.</summary>
 public sealed record SkillDeviceInfo
