@@ -26,6 +26,13 @@ public sealed class EvalConfiguration
     public List<EvalModelConfig> Models { get; set; } = [];
 
     /// <summary>
+    /// Embedding model deployments. The first entry is used as the default when
+    /// <see cref="IEmbeddingProviderResolver.ResolveAsync"/> is called with a null provider name.
+    /// Keyed lookups match on <see cref="EvalModelConfig.DeploymentName"/>.
+    /// </summary>
+    public List<EvalModelConfig> EmbeddingModels { get; set; } = [];
+
+    /// <summary>
     /// Deployment name for the LLM-as-judge evaluator. Defaults to <c>gpt-4o</c>.
     /// </summary>
     public string JudgeModel { get; set; } = "gpt-4o";
