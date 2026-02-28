@@ -12,12 +12,14 @@ using lucia.Agents.Services;
 using lucia.HomeAssistant.Services;
 using lucia.MusicAgent;
 using lucia.Tests.TestDoubles;
+using Microsoft.Agents.AI;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.AI.Evaluation;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using OllamaSharp;
 using OpenAI;
 using A2A;
 using lucia.Agents.Abstractions;
@@ -27,9 +29,10 @@ namespace lucia.Tests.Orchestration;
 /// <summary>
 /// Shared test fixture for evaluation tests. Loads configuration from
 /// <c>appsettings.json</c> (with environment variable overrides), creates
-/// Azure OpenAI clients, and provides factory methods that construct real
-/// agent instances backed by eval-model <see cref="IChatClient"/>s —
-/// ensuring eval tests exercise the actual agent code paths.
+/// LLM clients for configured providers (Azure OpenAI, Ollama, OpenAI, etc.),
+/// and provides factory methods that construct real agent instances backed by
+/// eval-model <see cref="IChatClient"/>s — ensuring eval tests exercise the
+/// actual agent code paths. The judge evaluator always uses Azure OpenAI.
 /// </summary>
 public sealed class EvalTestFixture : IAsyncLifetime
 {
@@ -133,7 +136,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
     /// </summary>
     public IChatClient CreateFunctionInvokingChatClient(string deploymentName)
     {
-        return new ChatClientBuilder(AzureClient.GetChatClient(deploymentName).AsIChatClient())
+        return new ChatClientBuilder(CreateBaseChatClient(deploymentName))
             .UseFunctionInvocation()
             .Build();
     }
@@ -144,7 +147,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
     /// </summary>
     public IChatClient CreateRawChatClient(string deploymentName)
     {
-        return AzureClient.GetChatClient(deploymentName).AsIChatClient();
+        return CreateBaseChatClient(deploymentName);
     }
 
     /// <summary>
@@ -152,26 +155,97 @@ public sealed class EvalTestFixture : IAsyncLifetime
     /// layer that records raw model responses (including tool calls) before they are
     /// processed by <see cref="FunctionInvokingChatClient"/>.
     /// <para>
-    /// Pipeline: <c>FunctionInvokingChatClient → ChatHistoryCapture → AzureOpenAI</c>
+    /// Pipeline: <c>FunctionInvokingChatClient → ChatHistoryCapture → LLM Provider</c>
     /// </para>
     /// </summary>
     public (IChatClient ChatClient, ChatHistoryCapture Capture) CreateCapturingChatClient(string deploymentName)
     {
-        var capture = new ChatHistoryCapture(AzureClient.GetChatClient(deploymentName).AsIChatClient());
+        var capture = new ChatHistoryCapture(CreateBaseChatClient(deploymentName));
         var chatClient = new ChatClientBuilder(capture)
             .UseFunctionInvocation()
             .Build();
         return (chatClient, capture);
     }
 
+    // ─── Provider-Aware Chat Client Factory ───────────────────────────
+
+    /// <summary>
+    /// Resolves the <see cref="EvalModelConfig"/> for the given deployment name
+    /// and creates the appropriate <see cref="IChatClient"/> based on the configured provider.
+    /// Falls back to Azure OpenAI when no explicit provider is set.
+    /// </summary>
+    private IChatClient CreateBaseChatClient(string deploymentName)
+    {
+        var model = Configuration.Models
+            .FirstOrDefault(m => string.Equals(m.DeploymentName, deploymentName, StringComparison.OrdinalIgnoreCase));
+
+        return CreateBaseChatClient(model ?? new EvalModelConfig { DeploymentName = deploymentName });
+    }
+
+    /// <summary>
+    /// Creates an <see cref="IChatClient"/> for the given model configuration,
+    /// dispatching to the correct provider SDK.
+    /// </summary>
+    private IChatClient CreateBaseChatClient(EvalModelConfig model)
+    {
+        var provider = model.Provider ?? EvalProviderType.AzureOpenAI;
+
+        return provider switch
+        {
+            EvalProviderType.AzureOpenAI => AzureClient.GetChatClient(model.DeploymentName).AsIChatClient(),
+            EvalProviderType.Ollama => CreateOllamaChatClient(model),
+            EvalProviderType.OpenAI => CreateOpenAIChatClient(model),
+            _ => throw new NotSupportedException($"Provider type '{provider}' is not supported in eval tests.")
+        };
+    }
+
+    private static IChatClient CreateOllamaChatClient(EvalModelConfig model)
+    {
+        var endpoint = new Uri(model.Endpoint ?? "http://localhost:11434");
+        return new OllamaApiClient(endpoint, model.DeploymentName);
+    }
+
+    private static IChatClient CreateOpenAIChatClient(EvalModelConfig model)
+    {
+        var apiKey = model.ApiKey ?? throw new InvalidOperationException(
+            $"OpenAI provider for model '{model.DeploymentName}' requires an API key. " +
+            "Set ApiKey in the model configuration.");
+
+        var credential = new System.ClientModel.ApiKeyCredential(apiKey);
+        var options = new OpenAI.OpenAIClientOptions();
+
+        if (!string.IsNullOrWhiteSpace(model.Endpoint))
+            options.Endpoint = new Uri(model.Endpoint);
+
+        var client = new OpenAI.OpenAIClient(credential, options);
+        return client.GetChatClient(model.DeploymentName).AsIChatClient();
+    }
+
     // ─── Agent Factories ──────────────────────────────────────────────
 
     /// <summary>
-    /// Creates a real <see cref="LightAgent"/> backed by the given deployment.
+    /// Creates a per-agent <see cref="IChatClientResolver"/> configured to return
+    /// the given chat client for any connection name.
     /// </summary>
-    public LightAgent CreateLightAgent(string deploymentName)
+    private static IChatClientResolver CreateAgentResolver(IChatClient chatClient)
     {
-        var chatClient = CreateFunctionInvokingChatClient(deploymentName);
+        var resolver = A.Fake<IChatClientResolver>();
+        A.CallTo(() => resolver.ResolveAsync(A<string?>._, A<CancellationToken>._))
+            .Returns(chatClient);
+        // Explicitly return null so agents fall through to the IChatClient path
+        // (FakeItEasy auto-fakes AIAgent for unconfigured calls, which would bypass the real pipeline)
+        A.CallTo(() => resolver.ResolveAIAgentAsync(A<string?>._, A<CancellationToken>._))
+            .Returns(Task.FromResult<AIAgent?>(null));
+        return resolver;
+    }
+
+    /// <summary>
+    /// Creates a real <see cref="LightAgent"/> backed by the given deployment,
+    /// fully initialized with its AI agent wired to the correct provider.
+    /// </summary>
+    public async Task<LightAgent> CreateLightAgentAsync(string deploymentName)
+    {
+        var resolver = CreateAgentResolver(CreateBaseChatClient(deploymentName));
         var lightSkill = new LightControlSkill(
             _mockHaClient,
             _mockEmbeddingResolver,
@@ -179,32 +253,39 @@ public sealed class EvalTestFixture : IAsyncLifetime
             _mockDeviceCache,
             _mockLocationService,
             _mockSimilarity);
-        return new LightAgent(_mockChatClientResolver, _mockDefinitionRepo, lightSkill, _tracingFactory, _loggerFactory);
+        var agent = new LightAgent(resolver, _mockDefinitionRepo, lightSkill, _tracingFactory, _loggerFactory);
+        await agent.InitializeAsync();
+        return agent;
     }
 
     /// <summary>
-    /// Creates a real <see cref="MusicAgent"/> backed by the given deployment.
+    /// Creates a real <see cref="MusicAgent"/> backed by the given deployment,
+    /// fully initialized with its AI agent wired to the correct provider.
     /// </summary>
-    public lucia.MusicAgent.MusicAgent CreateMusicAgent(string deploymentName)
+    public async Task<lucia.MusicAgent.MusicAgent> CreateMusicAgentAsync(string deploymentName)
     {
-        var chatClient = CreateFunctionInvokingChatClient(deploymentName);
         var musicConfig = CreateMusicAssistantOptionsMonitor();
+        var resolver = CreateAgentResolver(CreateBaseChatClient(deploymentName));
         var musicSkill = new MusicPlaybackSkill(
             _mockHaClient,
             musicConfig,
             _mockEmbeddingResolver,
             _mockDeviceCache,
             _loggerFactory.CreateLogger<MusicPlaybackSkill>());
-        return new lucia.MusicAgent.MusicAgent(_mockChatClientResolver, _mockDefinitionRepo, musicSkill, _mockServer, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(), _tracingFactory, _loggerFactory);
+        var agent = new lucia.MusicAgent.MusicAgent(resolver, _mockDefinitionRepo, musicSkill, _mockServer, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(), _tracingFactory, _loggerFactory);
+        await agent.InitializeAsync();
+        return agent;
     }
 
     /// <summary>
     /// Creates a real <see cref="LightAgent"/> with a <see cref="ChatHistoryCapture"/>
-    /// that records intermediate tool calls for evaluation.
+    /// that records intermediate tool calls for evaluation. The capture layer sits
+    /// between the agent's tracing wrapper and the raw LLM client.
     /// </summary>
-    public (LightAgent Agent, ChatHistoryCapture Capture) CreateLightAgentWithCapture(string deploymentName)
+    public async Task<(LightAgent Agent, ChatHistoryCapture Capture)> CreateLightAgentWithCaptureAsync(string deploymentName)
     {
-        var (chatClient, capture) = CreateCapturingChatClient(deploymentName);
+        var capture = new ChatHistoryCapture(CreateBaseChatClient(deploymentName));
+        var resolver = CreateAgentResolver(capture);
         var lightSkill = new LightControlSkill(
             _mockHaClient,
             _mockEmbeddingResolver,
@@ -212,24 +293,30 @@ public sealed class EvalTestFixture : IAsyncLifetime
             _mockDeviceCache,
             _mockLocationService,
             _mockSimilarity);
-        return (new LightAgent(_mockChatClientResolver, _mockDefinitionRepo, lightSkill, _tracingFactory, _loggerFactory), capture);
+        var agent = new LightAgent(resolver, _mockDefinitionRepo, lightSkill, _tracingFactory, _loggerFactory);
+        await agent.InitializeAsync();
+        return (agent, capture);
     }
 
     /// <summary>
     /// Creates a real <see cref="MusicAgent"/> with a <see cref="ChatHistoryCapture"/>
-    /// that records intermediate tool calls for evaluation.
+    /// that records intermediate tool calls for evaluation. The capture layer sits
+    /// between the agent's tracing wrapper and the raw LLM client.
     /// </summary>
-    public (lucia.MusicAgent.MusicAgent Agent, ChatHistoryCapture Capture) CreateMusicAgentWithCapture(string deploymentName)
+    public async Task<(lucia.MusicAgent.MusicAgent Agent, ChatHistoryCapture Capture)> CreateMusicAgentWithCaptureAsync(string deploymentName)
     {
-        var (chatClient, capture) = CreateCapturingChatClient(deploymentName);
+        var capture = new ChatHistoryCapture(CreateBaseChatClient(deploymentName));
         var musicConfig = CreateMusicAssistantOptionsMonitor();
+        var resolver = CreateAgentResolver(capture);
         var musicSkill = new MusicPlaybackSkill(
             _mockHaClient,
             musicConfig,
             _mockEmbeddingResolver,
             _mockDeviceCache,
             _loggerFactory.CreateLogger<MusicPlaybackSkill>());
-        return (new lucia.MusicAgent.MusicAgent(_mockChatClientResolver, _mockDefinitionRepo, musicSkill, _mockServer, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(), _tracingFactory, _loggerFactory), capture);
+        var agent = new lucia.MusicAgent.MusicAgent(resolver, _mockDefinitionRepo, musicSkill, _mockServer, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(), _tracingFactory, _loggerFactory);
+        await agent.InitializeAsync();
+        return (agent, capture);
     }
 
     /// <summary>
@@ -264,7 +351,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
     /// can inspect intermediate routing decisions, per-agent responses, and
     /// the final aggregated result.
     /// </summary>
-    public LuciaEngine CreateLuciaOrchestrator(
+    public async Task<LuciaEngine> CreateLuciaOrchestratorAsync(
         string deploymentName,
         IOrchestratorObserver? observer = null)
     {
@@ -279,9 +366,16 @@ public sealed class EvalTestFixture : IAsyncLifetime
             .Returns(allCards.ToAsyncEnumerable());
 
         // Build real agents — all backed by the same deployment for this iteration.
-        var lightAgent = CreateLightAgent(deploymentName);
-        var musicAgent = CreateMusicAgent(deploymentName);
-        var generalAgent = new GeneralAgent(_mockChatClientResolver, _mockDefinitionRepo, _tracingFactory, _loggerFactory);
+        var lightAgent = await CreateLightAgentAsync(deploymentName);
+        var musicAgent = await CreateMusicAgentAsync(deploymentName);
+
+        var generalResolver = CreateAgentResolver(CreateBaseChatClient(deploymentName));
+        var webSearchSkill = new WebSearchSkill(
+            A.Fake<IHttpClientFactory>(),
+            Options.Create(new lucia.Agents.Configuration.SearXngOptions()),
+            _loggerFactory.CreateLogger<WebSearchSkill>());
+        var generalAgent = new GeneralAgent(generalResolver, _mockDefinitionRepo, webSearchSkill, _tracingFactory, _loggerFactory);
+        await generalAgent.InitializeAsync();
 
         var agentProvider = new EvalAgentProvider(
         [
@@ -354,7 +448,11 @@ public sealed class EvalTestFixture : IAsyncLifetime
         _musicAgentCard = musicAgent.GetAgentCard();
 
         // GeneralAgent card
-        var generalAgent = new GeneralAgent(_mockChatClientResolver, _mockDefinitionRepo, _tracingFactory, _loggerFactory);
+        var webSearchSkill2 = new WebSearchSkill(
+            A.Fake<IHttpClientFactory>(),
+            Options.Create(new lucia.Agents.Configuration.SearXngOptions()),
+            _loggerFactory.CreateLogger<WebSearchSkill>());
+        var generalAgent = new GeneralAgent(_mockChatClientResolver, _mockDefinitionRepo, webSearchSkill2, _tracingFactory, _loggerFactory);
         _generalAgentCard = generalAgent.GetAgentCard();
     }
 }
