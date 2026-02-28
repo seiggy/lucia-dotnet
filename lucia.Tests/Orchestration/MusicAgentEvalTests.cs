@@ -20,7 +20,7 @@ public sealed class MusicAgentEvalTests : AgentEvalTestBase
     [MemberData(nameof(ModelIds))]
     public async Task PlayArtist_ArtistRequest_ProducesResponse(string modelId)
     {
-        var (agent, capture) = Fixture.CreateMusicAgentWithCapture(modelId);
+        var (agent, capture) = await Fixture.CreateMusicAgentWithCaptureAsync(modelId);
         var reportingConfig = CreateReportingConfig();
 
         var (response, result) = await RunAgentAndEvaluateAsync(
@@ -40,7 +40,7 @@ public sealed class MusicAgentEvalTests : AgentEvalTestBase
     [MemberData(nameof(ModelIds))]
     public async Task PlayAlbum_AlbumRequest_ProducesResponse(string modelId)
     {
-        var (agent, capture) = Fixture.CreateMusicAgentWithCapture(modelId);
+        var (agent, capture) = await Fixture.CreateMusicAgentWithCaptureAsync(modelId);
         var reportingConfig = CreateReportingConfig();
 
         var (response, result) = await RunAgentAndEvaluateAsync(
@@ -60,7 +60,7 @@ public sealed class MusicAgentEvalTests : AgentEvalTestBase
     [MemberData(nameof(ModelIds))]
     public async Task PlaySong_SongRequest_ProducesResponse(string modelId)
     {
-        var (agent, capture) = Fixture.CreateMusicAgentWithCapture(modelId);
+        var (agent, capture) = await Fixture.CreateMusicAgentWithCaptureAsync(modelId);
         var reportingConfig = CreateReportingConfig();
 
         var (response, result) = await RunAgentAndEvaluateAsync(
@@ -80,7 +80,7 @@ public sealed class MusicAgentEvalTests : AgentEvalTestBase
     [MemberData(nameof(ModelIds))]
     public async Task Shuffle_ShuffleRequest_ProducesResponse(string modelId)
     {
-        var (agent, capture) = Fixture.CreateMusicAgentWithCapture(modelId);
+        var (agent, capture) = await Fixture.CreateMusicAgentWithCaptureAsync(modelId);
         var reportingConfig = CreateReportingConfig();
 
         var (response, result) = await RunAgentAndEvaluateAsync(
@@ -100,7 +100,7 @@ public sealed class MusicAgentEvalTests : AgentEvalTestBase
     [MemberData(nameof(ModelIds))]
     public async Task StopMusic_StopRequest_ProducesResponse(string modelId)
     {
-        var (agent, capture) = Fixture.CreateMusicAgentWithCapture(modelId);
+        var (agent, capture) = await Fixture.CreateMusicAgentWithCaptureAsync(modelId);
         var reportingConfig = CreateReportingConfig();
 
         var (response, result) = await RunAgentAndEvaluateAsync(
@@ -122,7 +122,7 @@ public sealed class MusicAgentEvalTests : AgentEvalTestBase
     [MemberData(nameof(ModelIds))]
     public async Task PlayGenre_GenreRequest_ProducesResponse(string modelId)
     {
-        var (agent, capture) = Fixture.CreateMusicAgentWithCapture(modelId);
+        var (agent, capture) = await Fixture.CreateMusicAgentWithCaptureAsync(modelId);
         var reportingConfig = CreateReportingConfig();
 
         var (response, result) = await RunAgentAndEvaluateAsync(
@@ -144,7 +144,7 @@ public sealed class MusicAgentEvalTests : AgentEvalTestBase
     [MemberData(nameof(ModelIds))]
     public async Task OutOfDomain_LightRequest_StaysInDomain(string modelId)
     {
-        var (agent, capture) = Fixture.CreateMusicAgentWithCapture(modelId);
+        var (agent, capture) = await Fixture.CreateMusicAgentWithCaptureAsync(modelId);
         var reportingConfig = CreateReportingConfig();
 
         var (response, _) = await RunAgentAndEvaluateAsync(

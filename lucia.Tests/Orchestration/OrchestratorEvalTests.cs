@@ -24,7 +24,7 @@ public sealed class OrchestratorEvalTests : AgentEvalTestBase
     public async Task RouteToLightAgent_LightRequest_ReturnsLightAgentId(string modelId)
     {
         var observer = new OrchestratorEvalObserver();
-        var orchestrator = Fixture.CreateLuciaOrchestrator(modelId, observer);
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer);
         var reportingConfig = CreateReportingConfig(
             includeTextEvaluators: true,
             includeToolEvaluators: false,
@@ -52,7 +52,7 @@ public sealed class OrchestratorEvalTests : AgentEvalTestBase
     public async Task RouteToMusicAgent_MusicRequest_ReturnsMusicAgentId(string modelId)
     {
         var observer = new OrchestratorEvalObserver();
-        var orchestrator = Fixture.CreateLuciaOrchestrator(modelId, observer);
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer);
         var reportingConfig = CreateReportingConfig(
             includeTextEvaluators: true,
             includeToolEvaluators: false,
@@ -80,7 +80,7 @@ public sealed class OrchestratorEvalTests : AgentEvalTestBase
     public async Task RouteToLightAgent_DimmingRequest_ReturnsLightAgentId(string modelId)
     {
         var observer = new OrchestratorEvalObserver();
-        var orchestrator = Fixture.CreateLuciaOrchestrator(modelId, observer);
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer);
         var reportingConfig = CreateReportingConfig(
             includeTextEvaluators: true,
             includeToolEvaluators: false,
@@ -110,7 +110,7 @@ public sealed class OrchestratorEvalTests : AgentEvalTestBase
     public async Task RouteMultiAgent_LightAndMusic_RoutesToBoth(string modelId)
     {
         var observer = new OrchestratorEvalObserver();
-        var orchestrator = Fixture.CreateLuciaOrchestrator(modelId, observer);
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer);
         var reportingConfig = CreateReportingConfig(
             includeTextEvaluators: true,
             includeToolEvaluators: false,
@@ -156,7 +156,7 @@ public sealed class OrchestratorEvalTests : AgentEvalTestBase
     public async Task Confidence_ClearRequest_HighConfidence(string modelId)
     {
         var observer = new OrchestratorEvalObserver();
-        var orchestrator = Fixture.CreateLuciaOrchestrator(modelId, observer);
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer);
         var reportingConfig = CreateReportingConfig(
             includeTextEvaluators: true,
             includeToolEvaluators: false,
@@ -185,7 +185,7 @@ public sealed class OrchestratorEvalTests : AgentEvalTestBase
     public async Task Confidence_AmbiguousRequest_LowerConfidence(string modelId)
     {
         var observer = new OrchestratorEvalObserver();
-        var orchestrator = Fixture.CreateLuciaOrchestrator(modelId, observer);
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer);
         var reportingConfig = CreateReportingConfig(
             includeTextEvaluators: true,
             includeToolEvaluators: false,
@@ -214,7 +214,7 @@ public sealed class OrchestratorEvalTests : AgentEvalTestBase
     public async Task FallbackAgent_GeneralKnowledge_RoutesToFallback(string modelId)
     {
         var observer = new OrchestratorEvalObserver();
-        var orchestrator = Fixture.CreateLuciaOrchestrator(modelId, observer);
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer);
         var reportingConfig = CreateReportingConfig(
             includeTextEvaluators: true,
             includeToolEvaluators: false,

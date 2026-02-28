@@ -64,7 +64,7 @@ public sealed class LightAgentEvalTests : AgentEvalTestBase
     [MemberData(nameof(FindLightPrompts))]
     public async Task FindLight_SingleLight_ProducesResponse(string modelId, string prompt, string variant)
     {
-        var (agent, capture) = Fixture.CreateLightAgentWithCapture(modelId);
+        var (agent, capture) = await Fixture.CreateLightAgentWithCaptureAsync(modelId);
         var reportingConfig = CreateReportingConfig();
 
         var (response, result) = await RunAgentAndEvaluateAsync(
@@ -84,7 +84,7 @@ public sealed class LightAgentEvalTests : AgentEvalTestBase
     [MemberData(nameof(FindLightsByAreaPrompts))]
     public async Task FindLightsByArea_AreaRequest_ProducesResponse(string modelId, string prompt, string variant)
     {
-        var (agent, capture) = Fixture.CreateLightAgentWithCapture(modelId);
+        var (agent, capture) = await Fixture.CreateLightAgentWithCaptureAsync(modelId);
         var reportingConfig = CreateReportingConfig();
 
         var (response, result) = await RunAgentAndEvaluateAsync(
@@ -104,7 +104,7 @@ public sealed class LightAgentEvalTests : AgentEvalTestBase
     [MemberData(nameof(GetLightStatePrompts))]
     public async Task GetLightState_StatusQuery_ProducesResponse(string modelId, string prompt, string variant)
     {
-        var (agent, capture) = Fixture.CreateLightAgentWithCapture(modelId);
+        var (agent, capture) = await Fixture.CreateLightAgentWithCaptureAsync(modelId);
         var reportingConfig = CreateReportingConfig();
 
         var (response, result) = await RunAgentAndEvaluateAsync(
@@ -126,7 +126,7 @@ public sealed class LightAgentEvalTests : AgentEvalTestBase
     [MemberData(nameof(DimLightPrompts))]
     public async Task DimLight_ProducesResponse(string modelId, string prompt, string variant)
     {
-        var (agent, capture) = Fixture.CreateLightAgentWithCapture(modelId);
+        var (agent, capture) = await Fixture.CreateLightAgentWithCaptureAsync(modelId);
         var reportingConfig = CreateReportingConfig();
 
         var (response, result) = await RunAgentAndEvaluateAsync(
@@ -146,7 +146,7 @@ public sealed class LightAgentEvalTests : AgentEvalTestBase
     [MemberData(nameof(SetColorPrompts))]
     public async Task SetColor_IntentRecognized_ProducesResponse(string modelId, string prompt, string variant)
     {
-        var (agent, capture) = Fixture.CreateLightAgentWithCapture(modelId);
+        var (agent, capture) = await Fixture.CreateLightAgentWithCaptureAsync(modelId);
         var reportingConfig = CreateReportingConfig();
 
         var (response, result) = await RunAgentAndEvaluateAsync(
@@ -168,7 +168,7 @@ public sealed class LightAgentEvalTests : AgentEvalTestBase
     [MemberData(nameof(OutOfDomainPrompts))]
     public async Task OutOfDomain_MusicRequest_StaysInDomain(string modelId, string prompt, string variant)
     {
-        var (agent, capture) = Fixture.CreateLightAgentWithCapture(modelId);
+        var (agent, capture) = await Fixture.CreateLightAgentWithCaptureAsync(modelId);
         var reportingConfig = CreateReportingConfig();
 
         var (response, _) = await RunAgentAndEvaluateAsync(
