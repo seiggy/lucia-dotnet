@@ -357,3 +357,79 @@ export interface OccupiedArea {
   occupantCount: number | null
   confidence: PresenceConfidence
 }
+
+// ── Skill Optimizer ─────────────────────────────────────────────
+
+export interface HybridMatchOptions {
+  threshold: number
+  embeddingWeight: number
+  scoreDropoffRatio: number
+}
+
+export interface OptimizableSkillInfo {
+  skillId: string
+  displayName: string
+  configSection: string
+  currentParams: HybridMatchOptions
+}
+
+export interface SkillDeviceInfo {
+  entityId: string
+  friendlyName: string
+}
+
+export interface TraceSearchTerm {
+  searchTerm: string
+  occurrenceCount: number
+  lastSeen: string
+  traceId: string | null
+}
+
+export interface OptimizationTestCase {
+  searchTerm: string
+  expectedEntityId: string
+  maxResults: number
+  variant: string | null
+}
+
+export interface OptimizationProgress {
+  iteration: number
+  currentScore: number
+  maxScore: number
+  bestParams: HybridMatchOptions
+  step: number
+  evaluatedPoints: number
+  isComplete: boolean
+  message: string | null
+}
+
+export interface OptimizationCaseResult {
+  testCase: OptimizationTestCase
+  found: boolean
+  matchCount: number
+  countWithinLimit: boolean
+  caseScore: number
+}
+
+export interface OptimizationResult {
+  bestParams: HybridMatchOptions
+  score: number
+  maxScore: number
+  caseResults: OptimizationCaseResult[]
+  totalEvaluatedPoints: number
+  totalIterations: number
+  isPerfect: boolean
+}
+
+export interface JobStatusResponse {
+  jobId: string
+  skillId: string
+  embeddingModel: string
+  testCaseCount: number
+  status: string
+  startedAt: string
+  completedAt: string | null
+  progress: OptimizationProgress | null
+  result: OptimizationResult | null
+  error: string | null
+}

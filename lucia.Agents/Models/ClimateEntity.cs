@@ -1,3 +1,4 @@
+using lucia.Agents.Services;
 using Microsoft.Extensions.AI;
 
 namespace lucia.Agents.Models;
@@ -6,12 +7,15 @@ namespace lucia.Agents.Models;
 /// Represents a cached climate (HVAC) entity with search capabilities.
 /// Mirrors Home Assistant climate entity attributes.
 /// </summary>
-public sealed class ClimateEntity
+public sealed class ClimateEntity : IMatchableEntity
 {
     public string EntityId { get; set; } = string.Empty;
     public string FriendlyName { get; set; } = string.Empty;
     public Embedding<float>? NameEmbedding { get; set; }
     public string? Area { get; set; }
+
+    /// <inheritdoc />
+    public string[] PhoneticKeys { get; set; } = [];
 
     // HVAC capabilities
     public List<string> HvacModes { get; set; } = [];
@@ -38,4 +42,9 @@ public sealed class ClimateEntity
     public bool SupportsTemperatureRange => (SupportedFeatures & 2) != 0;
     public bool SupportsHumidity => (SupportedFeatures & 4) != 0;
     public bool SupportsFanMode => (SupportedFeatures & 8) != 0;
+
+    // ── IMatchableEntity ────────────────────────────────────────
+
+    string IMatchableEntity.MatchableName => FriendlyName;
+    Embedding<float>? IMatchableEntity.NameEmbedding => NameEmbedding;
 }

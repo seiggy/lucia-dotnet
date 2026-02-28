@@ -34,8 +34,11 @@ public abstract class AgentEvalTestBase
     // ─── Model parameterization ───────────────────────────────────────
 
     /// <summary>
-    /// Returns deployment IDs for <c>[MemberData]</c> parameterization.
-    /// Sourced from the <c>EvalConfiguration.Models</c> array in <c>appsettings.json</c>.
+    /// Returns <c>(deploymentName, embeddingModelName)</c> pairs for <c>[MemberData]</c>
+    /// parameterization. Sourced from the <c>EvalConfiguration.Models</c> array in
+    /// <c>appsettings.json</c>. The <c>EmbeddingModel</c> property on each model config
+    /// determines which embedding deployment is paired with the chat model; when
+    /// omitted, the first entry in <c>EmbeddingModels</c> is used.
     /// </summary>
     public static IEnumerable<object[]> ModelIds
     {
@@ -54,11 +57,19 @@ public abstract class AgentEvalTestBase
 
             if (config.Models.Count == 0)
             {
-                // Fallback to a single default model
-                return [["gpt-4o"]];
+                // Fallback to a single default model with default embeddings
+                return [["gpt-4o", ""]];
             }
 
-            return config.Models.Select(m => new object[] { m.DeploymentName });
+            var defaultEmbedding = config.EmbeddingModels.Count > 0
+                ? config.EmbeddingModels[0].DeploymentName
+                : "";
+
+            return config.Models.Select(m => new object[]
+            {
+                m.DeploymentName,
+                m.EmbeddingModel ?? defaultEmbedding
+            });
         }
     }
 
@@ -102,8 +113,7 @@ public abstract class AgentEvalTestBase
 
         if (includeToolEvaluators)
         {
-            evaluators.Add(new ToolCallAccuracyEvaluator());
-            evaluators.Add(new TaskAdherenceEvaluator());
+            evaluators.Add(new SmartHomeToolCallEvaluator());
         }
 
         evaluators.Add(new LatencyEvaluator());
@@ -210,8 +220,7 @@ public abstract class AgentEvalTestBase
 
         if (capture.ToolDefinitions.Count > 0)
         {
-            contexts.Add(new ToolCallAccuracyEvaluatorContext(capture.ToolDefinitions));
-            contexts.Add(new TaskAdherenceEvaluatorContext(capture.ToolDefinitions));
+            contexts.Add(new SmartHomeToolCallEvaluatorContext(capture.ToolDefinitions));
         }
 
         var result = await scenarioRun.EvaluateAsync(messages, chatResponse, additionalContext: contexts);

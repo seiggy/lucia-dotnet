@@ -375,22 +375,11 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
             "config/area_registry/list", cancellationToken) ?? [];
     }
 
-    private const string EntityRegistryTemplate =
-        """
-        {% set ns = namespace(r=[]) -%}
-        {% for aid in areas() -%}
-          {% for eid in area_entities(aid) -%}
-            {% set ns.r = ns.r + [{"entity_id": eid, "name": state_attr(eid, "friendly_name"), "original_name": none, "area_id": aid, "device_id": none, "aliases": [], "labels": [], "disabled_by": none, "hidden_by": none, "platform": none, "supported_features": state_attr(eid, "supported_features") | default(0, true) | int(0)}] -%}
-          {% endfor -%}
-        {% endfor -%}
-        {{ ns.r | to_json }}
-        """;
-
-    /// <summary>Returns all entity entries from the config registry.</summary>
+    /// <summary>Returns all entity entries from the config registry via WebSocket.</summary>
     public async Task<EntityRegistryEntry[]> GetEntityRegistryAsync(CancellationToken cancellationToken = default)
     {
-        var json = await RenderTemplateAsync(new TemplateRenderRequest { Template = EntityRegistryTemplate }, cancellationToken);
-        return JsonSerializer.Deserialize<EntityRegistryEntry[]>(json.Trim(), HomeAssistantJsonOptions.Default) ?? [];
+        return await SendWebSocketCommandAsync<EntityRegistryEntry[]>(
+            "config/entity_registry/list", cancellationToken) ?? [];
     }
 
     // ── Media Source ───────────────────────────────────────────────────

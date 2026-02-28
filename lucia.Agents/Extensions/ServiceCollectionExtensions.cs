@@ -82,6 +82,10 @@ public static class ServiceCollectionExtensions
         // Register entity location service (shared singleton for floor/area/entity resolution)
         builder.Services.AddSingleton<IEntityLocationService, EntityLocationService>();
         builder.Services.AddSingleton<IEmbeddingSimilarityService, EmbeddingSimilarityService>();
+        builder.Services.AddSingleton<IHybridEntityMatcher, HybridEntityMatcher>();
+
+        // Skill optimizer service (coordinate descent for matching parameters)
+        builder.Services.AddSingleton<SkillOptimizerService>();
 
         // Register presence detection service (auto-discovers sensors, maps to areas)
         builder.Services.AddSingleton<IPresenceSensorRepository, MongoPresenceSensorRepository>();
@@ -140,15 +144,26 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<OrchestratorAgent>();
         builder.Services.AddSingleton<ILuciaAgent>(sp => sp.GetRequiredService<OrchestratorAgent>());
 
+        // Skill options (hot-reloaded from MongoDB configuration)
+        builder.Services.Configure<LightControlSkillOptions>(
+            builder.Configuration.GetSection(LightControlSkillOptions.SectionName));
+        builder.Services.Configure<ClimateControlSkillOptions>(
+            builder.Configuration.GetSection(ClimateControlSkillOptions.SectionName));
+        builder.Services.Configure<FanControlSkillOptions>(
+            builder.Configuration.GetSection(FanControlSkillOptions.SectionName));
+
         // Register agent skills and agents
         builder.Services.AddSingleton<LightControlSkill>();
+        builder.Services.AddSingleton<IOptimizableSkill>(sp => sp.GetRequiredService<LightControlSkill>());
         builder.Services.AddSingleton<LightAgent>();
         builder.Services.AddSingleton<ILuciaAgent>(sp => sp.GetRequiredService<LightAgent>());
         builder.Services.AddSingleton<WebSearchSkill>();
         builder.Services.AddSingleton<GeneralAgent>();
         builder.Services.AddSingleton<ILuciaAgent>(sp => sp.GetRequiredService<GeneralAgent>());
         builder.Services.AddSingleton<ClimateControlSkill>();
+        builder.Services.AddSingleton<IOptimizableSkill>(sp => sp.GetRequiredService<ClimateControlSkill>());
         builder.Services.AddSingleton<FanControlSkill>();
+        builder.Services.AddSingleton<IOptimizableSkill>(sp => sp.GetRequiredService<FanControlSkill>());
         builder.Services.AddSingleton<ClimateAgent>();
         builder.Services.AddSingleton<ILuciaAgent>(sp => sp.GetRequiredService<ClimateAgent>());
         builder.Services.AddSingleton<SceneControlSkill>();

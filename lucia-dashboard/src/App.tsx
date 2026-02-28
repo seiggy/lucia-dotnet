@@ -4,7 +4,7 @@ import { AuthProvider, useAuth } from './auth/AuthContext'
 import {
   Activity, Download, Settings, Bot, Database, Server,
   Layers, Boxes, ListTodo, Menu, X, LogOut, Sparkles, BarChart3, MapPin,
-  AlarmClock, Radio, ShoppingCart
+  AlarmClock, Radio, ShoppingCart, SlidersHorizontal
 } from 'lucide-react'
 import LoginPage from './pages/LoginPage'
 import SetupPage from './pages/SetupPage'
@@ -23,6 +23,7 @@ import EntityLocationPage from './pages/EntityLocationPage'
 import AlarmsPage from './pages/AlarmsPage'
 import PresencePage from './pages/PresencePage'
 import ListsPage from './pages/ListsPage'
+import SkillOptimizerPage from './pages/SkillOptimizerPage'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Activity', icon: BarChart3, end: true },
@@ -38,6 +39,7 @@ const NAV_ITEMS = [
   { to: '/lists', label: 'Lists', icon: ShoppingCart },
   { to: '/tasks', label: 'Tasks', icon: ListTodo },
   { to: '/exports', label: 'Exports', icon: Download },
+  { to: '/skill-optimizer', label: 'Skill Optimizer', icon: SlidersHorizontal },
   { to: '/configuration', label: 'Configuration', icon: Settings },
 ]
 
@@ -177,6 +179,7 @@ function AppRoutes() {
             <Route path="/traces" element={<TraceListPage />} />
             <Route path="/traces/:id" element={<TraceDetailPage />} />
             <Route path="/exports" element={<ExportPage />} />
+            <Route path="/skill-optimizer" element={<SkillOptimizerPage />} />
             <Route path="/configuration" element={<ConfigurationPage />} />
             <Route path="/agent-dashboard" element={<AgentsPage />} />
             <Route path="/prompt-cache" element={<PromptCachePage />} />

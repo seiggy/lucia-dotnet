@@ -214,7 +214,7 @@ public sealed class OrchestratorAgent : AIAgent, ILuciaAgent
     /// Extracts the device.id from the Home Assistant REQUEST_CONTEXT JSON block
     /// embedded in the user prompt text. Returns null if not found.
     /// </summary>
-    internal static string? ExtractDeviceId(string? messageText)
+    public static string? ExtractDeviceId(string? messageText)
     {
         if (string.IsNullOrWhiteSpace(messageText))
             return null;

@@ -4,6 +4,7 @@ using Azure.AI.OpenAI;
 using Azure.Identity;
 using FakeItEasy;
 using lucia.Agents.Agents;
+using lucia.Agents.Configuration;
 using lucia.Agents.Mcp;
 using lucia.Agents.Models;
 using lucia.Agents.Orchestration;
@@ -69,6 +70,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
     private readonly IEmbeddingSimilarityService _similarity = new EmbeddingSimilarityService();
     private readonly IChatClientResolver _mockChatClientResolver = A.Fake<IChatClientResolver>();
     private readonly IAgentDefinitionRepository _mockDefinitionRepo = A.Fake<IAgentDefinitionRepository>();
+    private IHybridEntityMatcher _entityMatcher = null!;
     private TracingChatClientFactory _tracingFactory = null!;
 
     /// <summary>
@@ -89,6 +91,13 @@ public sealed class EvalTestFixture : IAsyncLifetime
     {
         var monitor = A.Fake<IOptionsMonitor<MusicAssistantConfig>>();
         A.CallTo(() => monitor.CurrentValue).Returns(new MusicAssistantConfig());
+        return monitor;
+    }
+
+    private static IOptionsMonitor<LightControlSkillOptions> CreateLightControlSkillOptionsMonitor()
+    {
+        var monitor = A.Fake<IOptionsMonitor<LightControlSkillOptions>>();
+        A.CallTo(() => monitor.CurrentValue).Returns(new LightControlSkillOptions());
         return monitor;
     }
 
@@ -134,6 +143,8 @@ public sealed class EvalTestFixture : IAsyncLifetime
         _tracingFactory = new TracingChatClientFactory(
             A.Fake<lucia.Agents.Training.ITraceRepository>(), _loggerFactory);
         _mockServer = A.Fake<IServer>();
+        _entityMatcher = new HybridEntityMatcher(
+            _similarity, _loggerFactory.CreateLogger<HybridEntityMatcher>());
 
         // Extract agent cards once (used for orchestrator registry)
         ExtractAgentCards();
@@ -292,6 +303,40 @@ public sealed class EvalTestFixture : IAsyncLifetime
     /// Creates a real <see cref="LightAgent"/> backed by the given deployment,
     /// fully initialized with its AI agent wired to the correct provider.
     /// </summary>
+    /// <summary>
+    /// Creates an initialized <see cref="LightControlSkill"/> wired to a real
+    /// Home Assistant client and the requested embedding model. Use this to
+    /// test the FindLight algorithm directly without going through the full
+    /// agent ↔ LLM loop.
+    /// </summary>
+    public async Task<LightControlSkill> CreateLightControlSkillAsync(string embeddingModelName)
+    {
+        return await CreateLightControlSkillAsync(embeddingModelName, CreateLightControlSkillOptionsMonitor());
+    }
+
+    /// <summary>
+    /// Creates an initialized <see cref="LightControlSkill"/> with a caller-supplied
+    /// options monitor, allowing tests to mutate threshold / weight between calls
+    /// without rebuilding the expensive entity-embedding cache.
+    /// </summary>
+    public async Task<LightControlSkill> CreateLightControlSkillAsync(
+        string embeddingModelName,
+        IOptionsMonitor<LightControlSkillOptions> optionsMonitor)
+    {
+        var embeddingResolver = ResolveEmbeddingProvider(embeddingModelName);
+        var skill = new LightControlSkill(
+            _haClient,
+            embeddingResolver,
+            _loggerFactory.CreateLogger<LightControlSkill>(),
+            _deviceCache,
+            _mockLocationService,
+            _similarity,
+            _entityMatcher,
+            optionsMonitor);
+        await skill.InitializeAsync();
+        return skill;
+    }
+
     public async Task<LightAgent> CreateLightAgentAsync(
         string deploymentName,
         string? embeddingModelName = null)
@@ -304,7 +349,9 @@ public sealed class EvalTestFixture : IAsyncLifetime
             _loggerFactory.CreateLogger<LightControlSkill>(),
             _deviceCache,
             _mockLocationService,
-            _similarity);
+            _similarity,
+            _entityMatcher,
+            CreateLightControlSkillOptionsMonitor());
         var agent = new LightAgent(resolver, _mockDefinitionRepo, lightSkill, _tracingFactory, _loggerFactory);
         await agent.InitializeAsync();
         return agent;
@@ -353,7 +400,9 @@ public sealed class EvalTestFixture : IAsyncLifetime
             _loggerFactory.CreateLogger<LightControlSkill>(),
             _deviceCache,
             _mockLocationService,
-            _similarity);
+            _similarity,
+            _entityMatcher,
+            CreateLightControlSkillOptionsMonitor());
         var agent = new LightAgent(resolver, _mockDefinitionRepo, lightSkill, _tracingFactory, _loggerFactory);
         await agent.InitializeAsync();
         return (agent, capture);
@@ -417,7 +466,8 @@ public sealed class EvalTestFixture : IAsyncLifetime
     /// </summary>
     public async Task<LuciaEngine> CreateLuciaOrchestratorAsync(
         string deploymentName,
-        IOrchestratorObserver? observer = null)
+        IOrchestratorObserver? observer = null,
+        string? embeddingModelName = null)
     {
         var routerChatClient = CreateRawChatClient(deploymentName);
         var mockRegistry = A.Fake<IAgentRegistry>();
@@ -430,8 +480,8 @@ public sealed class EvalTestFixture : IAsyncLifetime
             .Returns(allCards.ToAsyncEnumerable());
 
         // Build real agents — all backed by the same deployment for this iteration.
-        var lightAgent = await CreateLightAgentAsync(deploymentName);
-        var musicAgent = await CreateMusicAgentAsync(deploymentName);
+        var lightAgent = await CreateLightAgentAsync(deploymentName, embeddingModelName);
+        var musicAgent = await CreateMusicAgentAsync(deploymentName, embeddingModelName);
 
         var generalResolver = CreateAgentResolver(CreateBaseChatClient(deploymentName));
         var webSearchSkill = new WebSearchSkill(
@@ -500,7 +550,9 @@ public sealed class EvalTestFixture : IAsyncLifetime
         var lightSkill = new LightControlSkill(
             _haClient, _embeddingResolver,
             _loggerFactory.CreateLogger<LightControlSkill>(),
-            _deviceCache, _mockLocationService, _similarity);
+            _deviceCache, _mockLocationService, _similarity,
+            _entityMatcher,
+            CreateLightControlSkillOptionsMonitor());
         var lightAgent = new LightAgent(_mockChatClientResolver, _mockDefinitionRepo, lightSkill, _tracingFactory, _loggerFactory);
         _lightAgentCard = lightAgent.GetAgentCard();
 

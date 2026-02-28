@@ -204,7 +204,7 @@ public sealed partial class PresenceDetectionService : IPresenceDetectionService
     /// <summary>
     /// Auto-discover presence sensors from HA states and map them to areas.
     /// </summary>
-    internal List<PresenceSensorMapping> DiscoverPresenceSensors(
+    public List<PresenceSensorMapping> DiscoverPresenceSensors(
         HomeAssistant.Models.HomeAssistantState[] states,
         IReadOnlyList<AreaInfo> areas)
     {
@@ -240,7 +240,7 @@ public sealed partial class PresenceDetectionService : IPresenceDetectionService
     /// Classify a HA entity as a presence sensor with a confidence level.
     /// Returns <see cref="PresenceConfidence.None"/> if the entity is not a presence sensor.
     /// </summary>
-    internal static PresenceConfidence ClassifySensor(HomeAssistant.Models.HomeAssistantState state)
+    public static PresenceConfidence ClassifySensor(HomeAssistant.Models.HomeAssistantState state)
     {
         var entityId = state.EntityId;
         var deviceClass = state.Attributes.TryGetValue("device_class", out var dc) ? dc?.ToString() : null;

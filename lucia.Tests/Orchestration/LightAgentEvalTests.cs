@@ -21,17 +21,18 @@ public sealed class LightAgentEvalTests : AgentEvalTestBase
 
     /// <summary>
     /// Combines <see cref="AgentEvalTestBase.ModelIds"/> with an array of
-    /// <c>(prompt, variantLabel)</c> tuples to produce <c>(modelId, prompt, variant)</c>
-    /// rows for <c>[MemberData]</c>.
+    /// <c>(prompt, variantLabel)</c> tuples to produce
+    /// <c>(modelId, embeddingModelId, prompt, variant)</c> rows for <c>[MemberData]</c>.
     /// </summary>
     private static IEnumerable<object[]> WithVariants(params (string Prompt, string Variant)[] variants)
     {
         foreach (var model in ModelIds)
         {
             var modelId = (string)model[0];
+            var embeddingModelId = (string)model[1];
             foreach (var (prompt, variant) in variants)
             {
-                yield return [modelId, prompt, variant];
+                yield return [modelId, embeddingModelId, prompt, variant];
             }
         }
     }
@@ -49,6 +50,7 @@ public sealed class LightAgentEvalTests : AgentEvalTestBase
         ("Dim Zack's Light to 50%", "exact"),
         ("Dim Zach's Light to 50%", "stt-spelling"),
         ("Dim Sack's Light to 50%", "stt-lisp-sack"),
+        ("Dim Zagslight to 50%", "stt-lisp-zaglight"),
         ("Dim Sag's Light to 50%", "stt-lisp-sag"));
 
     public static IEnumerable<object[]> SetColorPrompts => WithVariants(
@@ -62,9 +64,9 @@ public sealed class LightAgentEvalTests : AgentEvalTestBase
     [Trait("Evaluator", "ToolCallAccuracy")]
     [SkippableTheory]
     [MemberData(nameof(FindLightPrompts))]
-    public async Task FindLight_SingleLight_ProducesResponse(string modelId, string prompt, string variant)
+    public async Task FindLight_SingleLight_ProducesResponse(string modelId, string embeddingModelId, string prompt, string variant)
     {
-        var (agent, capture) = await Fixture.CreateLightAgentWithCaptureAsync(modelId);
+        var (agent, capture) = await Fixture.CreateLightAgentWithCaptureAsync(modelId, embeddingModelId);
         var reportingConfig = CreateReportingConfig(
             includeTextEvaluators:false);
 
@@ -83,9 +85,9 @@ public sealed class LightAgentEvalTests : AgentEvalTestBase
     [Trait("Evaluator", "ToolCallAccuracy")]
     [SkippableTheory]
     [MemberData(nameof(FindLightsByAreaPrompts))]
-    public async Task FindLightsByArea_AreaRequest_ProducesResponse(string modelId, string prompt, string variant)
+    public async Task FindLightsByArea_AreaRequest_ProducesResponse(string modelId, string embeddingModelId, string prompt, string variant)
     {
-        var (agent, capture) = await Fixture.CreateLightAgentWithCaptureAsync(modelId);
+        var (agent, capture) = await Fixture.CreateLightAgentWithCaptureAsync(modelId, embeddingModelId);
         var reportingConfig = CreateReportingConfig(
             includeTextEvaluators:false);
 
@@ -104,9 +106,9 @@ public sealed class LightAgentEvalTests : AgentEvalTestBase
     [Trait("Evaluator", "ToolCallAccuracy")]
     [SkippableTheory]
     [MemberData(nameof(GetLightStatePrompts))]
-    public async Task GetLightState_StatusQuery_ProducesResponse(string modelId, string prompt, string variant)
+    public async Task GetLightState_StatusQuery_ProducesResponse(string modelId, string embeddingModelId, string prompt, string variant)
     {
-        var (agent, capture) = await Fixture.CreateLightAgentWithCaptureAsync(modelId);
+        var (agent, capture) = await Fixture.CreateLightAgentWithCaptureAsync(modelId, embeddingModelId);
         var reportingConfig = CreateReportingConfig(
             includeTextEvaluators:false);
 
@@ -127,9 +129,9 @@ public sealed class LightAgentEvalTests : AgentEvalTestBase
     [Trait("Evaluator", "IntentResolution")]
     [SkippableTheory]
     [MemberData(nameof(DimLightPrompts))]
-    public async Task DimLight_ProducesResponse(string modelId, string prompt, string variant)
+    public async Task DimLight_ProducesResponse(string modelId, string embeddingModelId, string prompt, string variant)
     {
-        var (agent, capture) = await Fixture.CreateLightAgentWithCaptureAsync(modelId);
+        var (agent, capture) = await Fixture.CreateLightAgentWithCaptureAsync(modelId, embeddingModelId);
         var reportingConfig = CreateReportingConfig(
             includeTextEvaluators: false);
 
@@ -148,9 +150,9 @@ public sealed class LightAgentEvalTests : AgentEvalTestBase
     [Trait("Evaluator", "IntentResolution")]
     [SkippableTheory]
     [MemberData(nameof(SetColorPrompts))]
-    public async Task SetColor_IntentRecognized_ProducesResponse(string modelId, string prompt, string variant)
+    public async Task SetColor_IntentRecognized_ProducesResponse(string modelId, string embeddingModelId, string prompt, string variant)
     {
-        var (agent, capture) = await Fixture.CreateLightAgentWithCaptureAsync(modelId);
+        var (agent, capture) = await Fixture.CreateLightAgentWithCaptureAsync(modelId, embeddingModelId);
         var reportingConfig = CreateReportingConfig(
             includeTextEvaluators:false);
 
@@ -171,9 +173,9 @@ public sealed class LightAgentEvalTests : AgentEvalTestBase
     [Trait("Evaluator", "TaskAdherence")]
     [SkippableTheory]
     [MemberData(nameof(OutOfDomainPrompts))]
-    public async Task OutOfDomain_MusicRequest_StaysInDomain(string modelId, string prompt, string variant)
+    public async Task OutOfDomain_MusicRequest_StaysInDomain(string modelId, string embeddingModelId, string prompt, string variant)
     {
-        var (agent, capture) = await Fixture.CreateLightAgentWithCaptureAsync(modelId);
+        var (agent, capture) = await Fixture.CreateLightAgentWithCaptureAsync(modelId, embeddingModelId);
         var reportingConfig = CreateReportingConfig(
             includeTextEvaluators:false);
 
