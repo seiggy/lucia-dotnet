@@ -363,6 +363,17 @@ internal sealed class FakeHomeAssistantClient : IHomeAssistantClient
     public Task DeleteMediaAsync(string mediaContentId, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
 
+    // ── Shopping List / Todo stubs ──────────────────────────────────
+
+    public Task<ShoppingListItem[]> GetShoppingListItemsAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(Array.Empty<ShoppingListItem>());
+
+    public Task<string[]> GetTodoListEntityIdsAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(Array.Empty<string>());
+
+    public Task<TodoItem[]> GetTodoItemsAsync(string entityId, CancellationToken cancellationToken = default)
+        => Task.FromResult(Array.Empty<TodoItem>());
+
     /// <summary>
     /// Internal model for deserializing the areas array from the snapshot.
     /// </summary>

@@ -20,8 +20,16 @@ public sealed class AgentInitializationHealthCheck : IHealthCheck
         HealthCheckContext context,
         CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(_status.IsReady
-            ? HealthCheckResult.Healthy("Agent initialization complete.")
-            : HealthCheckResult.Unhealthy("Agent initialization in progress."));
+        if (_status.IsReady)
+            return Task.FromResult(HealthCheckResult.Healthy("Agent initialization complete."));
+
+        // Pre-setup: the app is running fine, just waiting for the user to complete
+        // the setup wizard. Report healthy so Kubernetes/Docker health checks pass
+        // and traffic can reach the onboarding endpoints.
+        if (_status.IsWaitingForConfig)
+            return Task.FromResult(HealthCheckResult.Healthy("Waiting for setup wizard — agents not yet initialized."));
+
+        // Post-config, pre-ready: agent initialization is actively running
+        return Task.FromResult(HealthCheckResult.Degraded("Agent initialization in progress."));
     }
 }

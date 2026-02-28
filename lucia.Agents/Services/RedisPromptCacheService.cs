@@ -27,12 +27,11 @@ public sealed class RedisPromptCacheService : IPromptCacheService
     private const string StatsHitsKey = "lucia:prompt-cache:stats:hits";
     private const string StatsMissesKey = "lucia:prompt-cache:stats:misses";
 
-    // Chat response cache (agent-level)
+    // Chat response cache entries persist until manually evicted
     private const string ChatKeyPrefix = "lucia:chat-cache:";
     private const string ChatIndexKey = "lucia:chat-cache:index";
     private const string ChatStatsHitsKey = "lucia:chat-cache:stats:hits";
     private const string ChatStatsMissesKey = "lucia:chat-cache:stats:misses";
-    private static readonly TimeSpan ChatCacheTtl = TimeSpan.FromHours(4);
 
     // Strips volatile HA context fields so identical intents produce the same cache key.
     private static readonly Regex VolatileHaFieldsPattern = new(
@@ -266,7 +265,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 {
                     entry.HitCount++;
                     entry.LastHitAt = DateTime.UtcNow;
-                    await db.StringSetAsync(cacheKey, JsonSerializer.Serialize(entry, SerializerOptions), ChatCacheTtl).ConfigureAwait(false);
+                    await db.StringSetAsync(cacheKey, JsonSerializer.Serialize(entry, SerializerOptions)).ConfigureAwait(false);
                     await db.StringIncrementAsync(ChatStatsHitsKey).ConfigureAwait(false);
                     ChatHitsCounter.Add(1);
                     activity?.SetTag("cache.hit", true);
@@ -326,7 +325,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
             {
                 bestEntry.HitCount++;
                 bestEntry.LastHitAt = DateTime.UtcNow;
-                await db.StringSetAsync(bestKey, JsonSerializer.Serialize(bestEntry, SerializerOptions), ChatCacheTtl).ConfigureAwait(false);
+                await db.StringSetAsync(bestKey, JsonSerializer.Serialize(bestEntry, SerializerOptions)).ConfigureAwait(false);
                 await db.StringIncrementAsync(ChatStatsHitsKey).ConfigureAwait(false);
                 ChatHitsCounter.Add(1);
                 activity?.SetTag("cache.hit", true);
@@ -381,7 +380,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
             data.CreatedAt = DateTime.UtcNow;
             data.LastHitAt = DateTime.UtcNow;
 
-            await db.StringSetAsync(cacheKey, JsonSerializer.Serialize(data, SerializerOptions), ChatCacheTtl).ConfigureAwait(false);
+            await db.StringSetAsync(cacheKey, JsonSerializer.Serialize(data, SerializerOptions)).ConfigureAwait(false);
             await db.SetAddAsync(ChatIndexKey, cacheKey).ConfigureAwait(false);
 
             _logger.LogInformation(

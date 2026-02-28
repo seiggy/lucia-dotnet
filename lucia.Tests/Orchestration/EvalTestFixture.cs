@@ -281,7 +281,11 @@ public sealed class EvalTestFixture : IAsyncLifetime
         // Build real agents — all backed by the same deployment for this iteration.
         var lightAgent = CreateLightAgent(deploymentName);
         var musicAgent = CreateMusicAgent(deploymentName);
-        var generalAgent = new GeneralAgent(_mockChatClientResolver, _mockDefinitionRepo, _tracingFactory, _loggerFactory);
+        var webSearchSkill = new WebSearchSkill(
+            A.Fake<IHttpClientFactory>(),
+            Options.Create(new lucia.Agents.Configuration.SearXngOptions()),
+            _loggerFactory.CreateLogger<WebSearchSkill>());
+        var generalAgent = new GeneralAgent(_mockChatClientResolver, _mockDefinitionRepo, webSearchSkill, _tracingFactory, _loggerFactory);
 
         var agentProvider = new EvalAgentProvider(
         [
@@ -354,7 +358,11 @@ public sealed class EvalTestFixture : IAsyncLifetime
         _musicAgentCard = musicAgent.GetAgentCard();
 
         // GeneralAgent card
-        var generalAgent = new GeneralAgent(_mockChatClientResolver, _mockDefinitionRepo, _tracingFactory, _loggerFactory);
+        var webSearchSkill2 = new WebSearchSkill(
+            A.Fake<IHttpClientFactory>(),
+            Options.Create(new lucia.Agents.Configuration.SearXngOptions()),
+            _loggerFactory.CreateLogger<WebSearchSkill>());
+        var generalAgent = new GeneralAgent(_mockChatClientResolver, _mockDefinitionRepo, webSearchSkill2, _tracingFactory, _loggerFactory);
         _generalAgentCard = generalAgent.GetAgentCard();
     }
 }

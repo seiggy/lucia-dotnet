@@ -47,25 +47,29 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
     """
     import httpx
 
-    repository = data[CONF_REPOSITORY].rstrip("/")
-    catalog_url = f"{repository}/agents"
+    # Create a dedicated HTTP client with API key header and redirect support
     headers = {}
     if data.get(CONF_API_KEY):
         headers["X-Api-Key"] = data[CONF_API_KEY]
 
-    async with httpx.AsyncClient(
-        headers=headers,
-        verify=False,
-        timeout=30.0,
-    ) as client:
+    httpx_client = httpx.AsyncClient(
+        headers=headers, verify=False, timeout=30.0, follow_redirects=True
+    )
+
+    try:
+        # Fetch the agent catalog to validate connectivity and discover agents
+        base_url = data[CONF_REPOSITORY].rstrip("/")
+        # Strip trailing /agents if user pasted the full catalog URL
+        if base_url.endswith("/agents"):
+            base_url = base_url[: -len("/agents")]
+        catalog_url = f"{base_url}/agents"
+
+        _LOGGER.info("Fetching agent catalog from %s", catalog_url)
         try:
-            response = await client.get(catalog_url)
+            response = await httpx_client.get(catalog_url)
         except httpx.ConnectError as err:
             _LOGGER.error("Cannot connect to %s: %s", catalog_url, err)
             raise ValueError("Cannot connect to repository. Check URL and network.") from err
-        except Exception as err:
-            _LOGGER.error("Failed to fetch catalog from %s: %s", catalog_url, err)
-            raise ValueError("Invalid repository or API key") from err
 
         if response.status_code == 401:
             raise ValueError("Authentication failed (401). Check your API key.")
@@ -73,17 +77,47 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
         response.raise_for_status()
 
         raw = response.json()
-        agents = raw if isinstance(raw, list) else raw.get("agents") or raw.get("catalog") or raw.get("value")
-        if not isinstance(agents, list) or len(agents) == 0:
-            raise ValueError(
-                "No agents in catalog. Ensure Lucia has finished starting and has agents registered."
-            )
+        # Accept raw list or wrapper object (e.g. {"agents": [...]})
+        if isinstance(raw, list):
+            agents = raw
+        elif isinstance(raw, dict):
+            agents = raw.get("agents") or raw.get("catalog") or raw.get("value")
+            if not isinstance(agents, list):
+                raise ValueError("Invalid agent catalog response")
+        else:
+            raise ValueError("Invalid agent catalog response")
 
-        first = agents[0]
+        if not agents:
+            _LOGGER.warning("Agent catalog is empty \u2014 agents may still be starting")
+
+        # Use the first agent's name as the title, or fallback
+        title = "Lucia Agent"
+        agent_id = "lucia"
+        if agents:
+            first = agents[0]
+            title = first.get("name", title)
+            agent_id = first.get("name", agent_id)
+
         return {
-            "title": first.get("name", "Lucia Agent"),
-            "agent_id": first.get("id", "lucia"),
+            "title": title,
+            "agent_id": agent_id,
         }
+    except httpx.HTTPStatusError as err:
+        _LOGGER.error(
+            "Failed to fetch agent catalog (HTTP %s): %s",
+            err.response.status_code,
+            err,
+        )
+        raise ValueError("Invalid repository or API key") from err
+    except Exception as err:
+        _LOGGER.error(
+            "Failed to connect to Lucia: %s. Please check your repository URL and API key.",
+            err,
+            exc_info=True,
+        )
+        raise ValueError("Invalid repository or API key") from err
+    finally:
+        await httpx_client.aclose()
 
 class LuciaConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Lucia."""

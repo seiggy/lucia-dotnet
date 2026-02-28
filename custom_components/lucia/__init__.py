@@ -57,7 +57,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         httpx_client = httpx.AsyncClient(
             headers=headers,
             verify=False,  # For development with self-signed certs
-            timeout=30.0
+            timeout=30.0,
+            follow_redirects=True
         )
 
         # Fetch the agent catalog
@@ -97,6 +98,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     catalog_url,
                     type(raw).__name__,
                 )
+
                 await httpx_client.aclose()
                 raise ConfigEntryNotReady(f"Invalid agent catalog from {repository}")
 
@@ -114,61 +116,68 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
             _LOGGER.info("Discovered %d agent(s) from catalog", len(agents))
 
-            # Check if user has selected a specific agent in options
-            options = entry.options or {}
-            selected_agent_name = options.get(CONF_AGENT_NAME)
-
-            # Find the selected agent, or use first agent as default
+            # Variables for agent info — will be None/empty when catalog is empty
             agent_card = None
-            if selected_agent_name:
-                # Find agent by name
-                for agent in agents:
-                    if agent.get("name") == selected_agent_name:
-                        agent_card = agent
-                        _LOGGER.info("Using user-selected agent: %s", selected_agent_name)
-                        break
+            agent_url = ""
 
+            if agents:
+                # Check if user has selected a specific agent in options
+                options = entry.options or {}
+                selected_agent_name = options.get(CONF_AGENT_NAME)
+
+                # Find the selected agent, or use first agent as default
+                if selected_agent_name:
+                    # Find agent by name
+                    for agent in agents:
+                        if agent.get("name") == selected_agent_name:
+                            agent_card = agent
+                            _LOGGER.info("Using user-selected agent: %s", selected_agent_name)
+                            break
+
+                    if not agent_card:
+                        _LOGGER.warning(
+                            "Selected agent '%s' not found in catalog, using first agent",
+                            selected_agent_name
+                        )
+
+                # Fall back to orchestrator (full assistant) or first agent if no selection or not found
                 if not agent_card:
-                    _LOGGER.warning(
-                        "Selected agent '%s' not found in catalog, using first agent",
-                        selected_agent_name
-                    )
+                    # Prefer orchestrator so voice/conversation uses the full assistant
+                    for a in agents:
+                        if (a.get("name") or "").lower() == "orchestrator":
+                            agent_card = a
+                            _LOGGER.info("Using default agent: orchestrator (full assistant)")
+                            break
+                    if not agent_card:
+                        agent_card = agents[0]
+                        _LOGGER.info("Using default agent (first in catalog): %s", agent_card.get("name", "unknown"))
 
-            # Fall back to orchestrator (full assistant) or first agent if no selection or not found
-            if not agent_card:
-                if not agents:
-                    _LOGGER.error("No agents found in catalog")
-                    await httpx_client.aclose()
-                    raise ConfigEntryNotReady(f"No agents available at {repository}")
-                # Prefer orchestrator so voice/conversation uses the full assistant (lights, music, etc.)
-                for a in agents:
-                    if (a.get("name") or "").lower() == "orchestrator":
-                        agent_card = a
-                        _LOGGER.info("Using default agent: orchestrator (full assistant)")
-                        break
-                if not agent_card:
-                    agent_card = agents[0]
-                    _LOGGER.info("Using default agent (first in catalog): %s", agent_card.get("name", "unknown"))
+                agent_name = agent_card.get("name", "unknown")
+                agent_version = agent_card.get("version", "unknown")
+                agent_relative_url = agent_card.get("url", "")
 
-            agent_name = agent_card.get("name", "unknown")
-            agent_version = agent_card.get("version", "unknown")
-            agent_relative_url = agent_card.get("url", "")
 
-            # Convert relative URL to absolute
-            if agent_relative_url.startswith(("http://", "https://")):
-                agent_url = agent_relative_url
-            elif agent_relative_url.startswith("/"):
-                agent_url = f"{repository}{agent_relative_url}"
+                # Convert relative URL to absolute
+                if agent_relative_url.startswith(("http://", "https://")):
+                    agent_url = agent_relative_url
+                elif agent_relative_url.startswith("/"):
+                    agent_url = f"{repository}{agent_relative_url}"
+                else:
+                    # Fallback: relative path or placeholder like "unknown/agent"
+                    agent_url = f"{repository}/{agent_relative_url.lstrip('/')}"
+
+                _LOGGER.info(
+                    "Using agent: %s (version: %s) at %s",
+                    agent_name,
+                    agent_version,
+                    agent_url
+                )
             else:
-                # Fallback: relative path or placeholder like "unknown/agent"
-                agent_url = f"{repository}/{agent_relative_url.lstrip('/')}"
-
-            _LOGGER.info(
-                "Using agent: %s (version: %s) at %s",
-                agent_name,
-                agent_version,
-                agent_url
-            )
+                _LOGGER.warning(
+                    "Agent catalog is empty at %s. Integration set up successfully "
+                    "but no agents are available yet.",
+                    repository
+                )
 
         except httpx.HTTPStatusError as err:
             _LOGGER.error("Failed to fetch agent catalog (HTTP %s): %s", err.response.status_code, err)

@@ -1,6 +1,9 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Auth;
+using lucia.Agents.Configuration;
+using lucia.Agents.Registry;
 using lucia.Agents.Services;
 using Microsoft.AspNetCore.Mvc;
 
@@ -30,12 +33,12 @@ public static class SetupApi
         group.MapPost("/generate-dashboard-key", GenerateDashboardKeyAsync).AllowAnonymous();
 
         // Phase 2 — authenticated: require the dashboard API key (header or session cookie)
-        group.MapPost("/regenerate-dashboard-key", RegenerateDashboardKeyAsync).RequireAuthorization();
         group.MapPost("/configure-ha", ConfigureHomeAssistantAsync).RequireAuthorization();
         group.MapPost("/test-ha-connection", TestHaConnectionAsync).RequireAuthorization();
         group.MapPost("/generate-ha-key", GenerateHaKeyAsync).RequireAuthorization();
         group.MapPost("/validate-ha-connection", ValidateHaConnectionAsync).RequireAuthorization();
         group.MapGet("/ha-status", GetHaStatusAsync).RequireAuthorization();
+        group.MapGet("/agent-status", GetAgentStatusAsync).RequireAuthorization();
         group.MapPost("/complete", CompleteSetupAsync).RequireAuthorization();
 
         return app;
@@ -46,6 +49,7 @@ public static class SetupApi
     /// </summary>
     private static async Task<IResult> GetSetupStatus(
         IApiKeyService apiKeyService,
+        IModelProviderRepository providerRepository,
         ConfigStoreWriter configStore,
         HttpContext httpContext)
     {
@@ -57,11 +61,15 @@ public static class SetupApi
         var pluginValidated = await configStore.GetAsync("HomeAssistant:PluginValidated", ct).ConfigureAwait(false);
         var setupComplete = await configStore.GetAsync("Auth:SetupComplete", ct).ConfigureAwait(false);
 
+        var providers = await providerRepository.GetEnabledProvidersAsync(ct).ConfigureAwait(false);
+        var hasChatProvider = providers.Any(p => p.Purpose == ModelPurpose.Chat);
+
         return Results.Ok(new
         {
             hasDashboardKey = hasKeys,
             hasHaConnection = !string.IsNullOrWhiteSpace(haUrl) && !string.IsNullOrWhiteSpace(haToken),
             haUrl = !string.IsNullOrWhiteSpace(haUrl) ? haUrl : null,
+            hasChatProvider,
             pluginValidated = string.Equals(pluginValidated, "true", StringComparison.OrdinalIgnoreCase),
             setupComplete = string.Equals(setupComplete, "true", StringComparison.OrdinalIgnoreCase),
         });
@@ -93,38 +101,6 @@ public static class SetupApi
             key = result.Key,
             prefix = result.Prefix,
             message = "Save this API key now — it cannot be shown again. You will use it to log into the Lucia dashboard.",
-        });
-    }
-
-    /// <summary>
-    /// Regenerates the Dashboard API key during setup. Revokes the old one and creates a new one.
-    /// Only works before setup is complete.
-    /// </summary>
-    private static async Task<IResult> RegenerateDashboardKeyAsync(
-        IApiKeyService apiKeyService,
-        HttpContext httpContext)
-    {
-        var keys = await apiKeyService.ListKeysAsync(httpContext.RequestAborted).ConfigureAwait(false);
-        var existing = keys.FirstOrDefault(k => k.Name == "Dashboard" && !k.IsRevoked);
-
-        if (existing is null)
-        {
-            // No existing key — just create one
-            var created = await apiKeyService.CreateKeyAsync("Dashboard", httpContext.RequestAborted).ConfigureAwait(false);
-            return Results.Ok(new
-            {
-                key = created.Key,
-                prefix = created.Prefix,
-                message = "Save this API key now — it cannot be shown again.",
-            });
-        }
-
-        var result = await apiKeyService.RegenerateKeyAsync(existing.Id, httpContext.RequestAborted).ConfigureAwait(false);
-        return Results.Ok(new
-        {
-            key = result.Key,
-            prefix = result.Prefix,
-            message = "New key generated. The previous Dashboard key has been revoked.",
         });
     }
 
@@ -338,6 +314,35 @@ public static class SetupApi
             pluginConnected = string.Equals(validated, "true", StringComparison.OrdinalIgnoreCase),
             instanceId,
             lastValidatedAt = lastValidated,
+        });
+    }
+
+    /// <summary>
+    /// Returns agent initialization status so the wizard can show a loading state
+    /// while agents come online after a Chat provider is configured.
+    /// </summary>
+    private static async Task<IResult> GetAgentStatusAsync(
+        AgentInitializationStatus initStatus,
+        IAgentRegistry agentRegistry,
+        HttpContext httpContext)
+    {
+        var ct = httpContext.RequestAborted;
+
+        string phase;
+        if (initStatus.IsReady)
+            phase = "ready";
+        else if (initStatus.IsWaitingForConfig)
+            phase = "waiting_for_config";
+        else
+            phase = "initializing";
+
+        var agents = await agentRegistry.GetAllAgentsAsync(ct).ConfigureAwait(false);
+
+        return Results.Ok(new
+        {
+            phase,
+            agentCount = agents.Count,
+            agents = agents.Select(a => new { name = a.Name, description = a.Description }),
         });
     }
 

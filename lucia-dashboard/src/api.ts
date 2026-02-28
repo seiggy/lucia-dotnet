@@ -223,6 +223,7 @@ export interface SetupStatus {
   hasDashboardKey: boolean;
   hasHaConnection: boolean;
   haUrl: string | null;
+  hasChatProvider: boolean;
   pluginValidated: boolean;
   setupComplete: boolean;
 }
@@ -295,21 +296,24 @@ export async function fetchHaStatus(): Promise<HaStatusResponse> {
   return res.json();
 }
 
+export interface AgentStatusResponse {
+  phase: 'waiting_for_config' | 'initializing' | 'ready';
+  agentCount: number;
+  agents: { name: string; description: string }[];
+}
+
+export async function fetchAgentStatus(): Promise<AgentStatusResponse> {
+  const res = await fetch(`${BASE}/setup/agent-status`);
+  if (!res.ok) throw new Error(`Failed to fetch agent status: ${res.statusText}`);
+  return res.json();
+}
+
 export async function completeSetup(): Promise<void> {
   const res = await fetch(`${BASE}/setup/complete`, { method: 'POST' });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `Failed to complete setup: ${res.statusText}`);
   }
-}
-
-export async function regenerateDashboardKey(): Promise<GenerateKeyResponse> {
-  const res = await fetch(`${BASE}/setup/regenerate-dashboard-key`, { method: 'POST' });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Failed to regenerate key: ${res.statusText}`);
-  }
-  return res.json();
 }
 
 // ── API Key Management API ───────────────────────────────────────

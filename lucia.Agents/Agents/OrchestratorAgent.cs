@@ -5,8 +5,6 @@ using lucia.Agents.Abstractions;
 using lucia.Agents.Integration;
 using lucia.Agents.Orchestration;
 using Microsoft.Agents.AI;
-using Microsoft.AspNetCore.Hosting.Server;
-using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
@@ -22,7 +20,6 @@ public sealed class OrchestratorAgent : AIAgent, ILuciaAgent
     private readonly LuciaEngine _engine;
     private readonly IAgentSessionFactory _sessionFactory;
     private readonly ILogger<OrchestratorAgent> _logger;
-    private readonly IServer _server;
     private readonly AgentCard _agentCard;
 
     public override string Name => "Orchestrator";
@@ -31,13 +28,11 @@ public sealed class OrchestratorAgent : AIAgent, ILuciaAgent
     public OrchestratorAgent(
         LuciaEngine engine,
         IAgentSessionFactory sessionFactory,
-        IServer server,
         ILoggerFactory loggerFactory)
     {
         _engine = engine;
         _sessionFactory = sessionFactory;
         _logger = loggerFactory.CreateLogger<OrchestratorAgent>();
-        _server = server;
 
         var orchestrationSkill = new AgentSkill
         {
@@ -54,11 +49,11 @@ public sealed class OrchestratorAgent : AIAgent, ILuciaAgent
             ]
         };
 
-        var agentUrl = ResolveServerUrl();
+        var agentUrl = "/agent";
 
         _agentCard = new AgentCard
         {
-            Url = agentUrl + "/agent",
+            Url = agentUrl,
             Name = "orchestrator",
             Description = "Intelligent #orchestrator that #routes requests to specialized agents based on intent and capabilities",
             Capabilities = new AgentCapabilities
@@ -83,7 +78,6 @@ public sealed class OrchestratorAgent : AIAgent, ILuciaAgent
     public Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("Initializing OrchestratorAgent...");
-        _agentCard.Url = ResolveServerUrl() + "/agent";
         _logger.LogInformation("OrchestratorAgent initialized successfully");
         return Task.CompletedTask;
     }
@@ -191,19 +185,6 @@ public sealed class OrchestratorAgent : AIAgent, ILuciaAgent
     }
 
     // --- Private helpers ---
-
-    private string ResolveServerUrl()
-    {
-        var serverAddressesFeature = _server.Features.Get<IServerAddressesFeature>();
-        if (serverAddressesFeature?.Addresses != null && serverAddressesFeature.Addresses.Any())
-        {
-            return serverAddressesFeature.Addresses.First();
-        }
-
-        // Return empty so callers produce a relative path (e.g. "/agent")
-        // which the HA plugin resolves against the repository base URL.
-        return string.Empty;
-    }
 
     /// <summary>
     /// Resolves the session key for Redis cache lookup.

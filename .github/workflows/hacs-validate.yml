@@ -1,0 +1,24 @@
+name: Validate
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'custom_components/**'
+  pull_request:
+    paths:
+      - 'custom_components/**'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  validate-hacs:
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: HACS validation
+        uses: "hacs/action@main"
+        with:
+          category: "integration"
+          ignore: brands
