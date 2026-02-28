@@ -14,6 +14,13 @@ public sealed class EvalConfiguration
     public AzureOpenAISettings AzureOpenAI { get; set; } = new();
 
     /// <summary>
+    /// Home Assistant connection settings for eval tests.
+    /// When configured, a real <see cref="lucia.HomeAssistant.Services.HomeAssistantClient"/>
+    /// is used instead of the snapshot-backed fake.
+    /// </summary>
+    public HomeAssistantEvalSettings? HomeAssistant { get; set; }
+
+    /// <summary>
     /// Model deployments to evaluate. Each test is parameterized across all models.
     /// </summary>
     public List<EvalModelConfig> Models { get; set; } = [];
