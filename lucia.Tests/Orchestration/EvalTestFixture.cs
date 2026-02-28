@@ -65,7 +65,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
     private IServer _mockServer = null!;
     private readonly IDeviceCacheService _mockDeviceCache = A.Fake<IDeviceCacheService>();
     private readonly IEntityLocationService _mockLocationService = A.Fake<IEntityLocationService>();
-    private readonly IEmbeddingSimilarityService _mockSimilarity = A.Fake<IEmbeddingSimilarityService>();
+    private readonly IEmbeddingSimilarityService _similarity = new EmbeddingSimilarityService();
     private readonly IChatClientResolver _mockChatClientResolver = A.Fake<IChatClientResolver>();
     private readonly IAgentDefinitionRepository _mockDefinitionRepo = A.Fake<IAgentDefinitionRepository>();
     private TracingChatClientFactory _tracingFactory = null!;
@@ -274,7 +274,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
             _loggerFactory.CreateLogger<LightControlSkill>(),
             _mockDeviceCache,
             _mockLocationService,
-            _mockSimilarity);
+            _similarity);
         var agent = new LightAgent(resolver, _mockDefinitionRepo, lightSkill, _tracingFactory, _loggerFactory);
         await agent.InitializeAsync();
         return agent;
@@ -314,7 +314,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
             _loggerFactory.CreateLogger<LightControlSkill>(),
             _mockDeviceCache,
             _mockLocationService,
-            _mockSimilarity);
+            _similarity);
         var agent = new LightAgent(resolver, _mockDefinitionRepo, lightSkill, _tracingFactory, _loggerFactory);
         await agent.InitializeAsync();
         return (agent, capture);
@@ -458,7 +458,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
         var lightSkill = new LightControlSkill(
             _haClient, _embeddingResolver,
             _loggerFactory.CreateLogger<LightControlSkill>(),
-            _mockDeviceCache, _mockLocationService, _mockSimilarity);
+            _mockDeviceCache, _mockLocationService, _similarity);
         var lightAgent = new LightAgent(_mockChatClientResolver, _mockDefinitionRepo, lightSkill, _tracingFactory, _loggerFactory);
         _lightAgentCard = lightAgent.GetAgentCard();
 
