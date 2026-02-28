@@ -13,17 +13,32 @@ namespace lucia.Tests.TestDoubles;
 /// <see cref="IEmbeddingProviderResolver"/> backed by <see cref="EvalModelConfig"/> entries.
 /// Creates real embedding generators for each configured provider. When no
 /// <c>EmbeddingModels</c> are configured, falls back to <see cref="DeterministicEmbeddingGenerator"/>.
+/// Use <see cref="WithPreferredModel"/> to create a copy that defaults to a
+/// specific model when <c>ResolveAsync</c> is called without a provider name.
 /// </summary>
 internal sealed class EvalEmbeddingProviderResolver : IEmbeddingProviderResolver
 {
     private readonly IReadOnlyList<EvalModelConfig> _models;
     private readonly EvalConfiguration _config;
+    private readonly string? _preferredModelName;
 
     public EvalEmbeddingProviderResolver(EvalConfiguration config)
+        : this(config, preferredModelName: null) { }
+
+    private EvalEmbeddingProviderResolver(EvalConfiguration config, string? preferredModelName)
     {
         _config = config;
         _models = config.EmbeddingModels;
+        _preferredModelName = preferredModelName;
     }
+
+    /// <summary>
+    /// Returns a new resolver that defaults to <paramref name="modelName"/>
+    /// when <see cref="ResolveAsync"/> is called without an explicit provider.
+    /// This ensures the cache and search embeddings use the same model.
+    /// </summary>
+    public EvalEmbeddingProviderResolver WithPreferredModel(string modelName) =>
+        new(_config, modelName);
 
     public Task<IEmbeddingGenerator<string, Embedding<float>>?> ResolveAsync(
         string? providerName = null,
@@ -33,9 +48,12 @@ internal sealed class EvalEmbeddingProviderResolver : IEmbeddingProviderResolver
             return Task.FromResult<IEmbeddingGenerator<string, Embedding<float>>?>(
                 new DeterministicEmbeddingGenerator());
 
-        var model = !string.IsNullOrWhiteSpace(providerName)
+        // Priority: explicit providerName > preferred default > first configured
+        var lookupName = providerName ?? _preferredModelName;
+
+        var model = !string.IsNullOrWhiteSpace(lookupName)
             ? _models.FirstOrDefault(m =>
-                string.Equals(m.DeploymentName, providerName, StringComparison.OrdinalIgnoreCase))
+                string.Equals(m.DeploymentName, lookupName, StringComparison.OrdinalIgnoreCase))
               ?? _models[0]
             : _models[0];
 
