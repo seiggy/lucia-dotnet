@@ -5,6 +5,7 @@ using Azure.Identity;
 using FakeItEasy;
 using lucia.Agents.Agents;
 using lucia.Agents.Mcp;
+using lucia.Agents.Models;
 using lucia.Agents.Orchestration;
 using lucia.Agents.Registry;
 using lucia.Agents.Skills;
@@ -60,15 +61,29 @@ public sealed class EvalTestFixture : IAsyncLifetime
     // --- Shared dependencies for agent construction ---
 
     private IHomeAssistantClient _haClient = null!;
-    private IEmbeddingProviderResolver _embeddingResolver = null!;
+    private EvalEmbeddingProviderResolver _embeddingResolver = null!;
     private ILoggerFactory _loggerFactory = null!;
     private IServer _mockServer = null!;
-    private readonly IDeviceCacheService _mockDeviceCache = A.Fake<IDeviceCacheService>();
+    private readonly IDeviceCacheService _deviceCache = CreateNullDeviceCache();
     private readonly IEntityLocationService _mockLocationService = A.Fake<IEntityLocationService>();
     private readonly IEmbeddingSimilarityService _similarity = new EmbeddingSimilarityService();
     private readonly IChatClientResolver _mockChatClientResolver = A.Fake<IChatClientResolver>();
     private readonly IAgentDefinitionRepository _mockDefinitionRepo = A.Fake<IAgentDefinitionRepository>();
     private TracingChatClientFactory _tracingFactory = null!;
+
+    /// <summary>
+    /// Creates a device cache fake that returns null for cached lights,
+    /// forcing the skill to fall through to the HA client for fresh data.
+    /// FakeItEasy auto-creates empty lists (not null) for collection return
+    /// types, which causes the cache-hit path to short-circuit with 0 lights.
+    /// </summary>
+    private static IDeviceCacheService CreateNullDeviceCache()
+    {
+        var fake = A.Fake<IDeviceCacheService>();
+        A.CallTo(() => fake.GetCachedLightsAsync(A<CancellationToken>._))
+            .Returns(Task.FromResult<List<LightEntity>?>(null));
+        return fake;
+    }
 
     private static IOptionsMonitor<MusicAssistantConfig> CreateMusicAssistantOptionsMonitor()
     {
@@ -112,7 +127,8 @@ public sealed class EvalTestFixture : IAsyncLifetime
         JudgeChatConfiguration = new ChatConfiguration(JudgeChatClient);
 
         // Initialize shared dependencies — HA client and embeddings
-        _loggerFactory = LoggerFactory.Create(_ => { });
+        _loggerFactory = LoggerFactory.Create(builder =>
+            builder.AddConsole().SetMinimumLevel(LogLevel.Information));
         _haClient = CreateHomeAssistantClient();
         _embeddingResolver = new EvalEmbeddingProviderResolver(Configuration);
         _tracingFactory = new TracingChatClientFactory(
@@ -262,17 +278,31 @@ public sealed class EvalTestFixture : IAsyncLifetime
     }
 
     /// <summary>
+    /// Returns an embedding resolver pinned to the given model name, or the
+    /// shared resolver when no specific model is requested. Pinning ensures
+    /// the entity cache and search query embeddings are produced by the same
+    /// model, which is required for meaningful cosine-similarity comparisons.
+    /// </summary>
+    private IEmbeddingProviderResolver ResolveEmbeddingProvider(string? embeddingModelName) =>
+        !string.IsNullOrWhiteSpace(embeddingModelName)
+            ? _embeddingResolver.WithPreferredModel(embeddingModelName)
+            : _embeddingResolver;
+
+    /// <summary>
     /// Creates a real <see cref="LightAgent"/> backed by the given deployment,
     /// fully initialized with its AI agent wired to the correct provider.
     /// </summary>
-    public async Task<LightAgent> CreateLightAgentAsync(string deploymentName)
+    public async Task<LightAgent> CreateLightAgentAsync(
+        string deploymentName,
+        string? embeddingModelName = null)
     {
         var resolver = CreateAgentResolver(CreateBaseChatClient(deploymentName));
+        var embeddingResolver = ResolveEmbeddingProvider(embeddingModelName);
         var lightSkill = new LightControlSkill(
             _haClient,
-            _embeddingResolver,
+            embeddingResolver,
             _loggerFactory.CreateLogger<LightControlSkill>(),
-            _mockDeviceCache,
+            _deviceCache,
             _mockLocationService,
             _similarity);
         var agent = new LightAgent(resolver, _mockDefinitionRepo, lightSkill, _tracingFactory, _loggerFactory);
@@ -284,15 +314,18 @@ public sealed class EvalTestFixture : IAsyncLifetime
     /// Creates a real <see cref="MusicAgent"/> backed by the given deployment,
     /// fully initialized with its AI agent wired to the correct provider.
     /// </summary>
-    public async Task<lucia.MusicAgent.MusicAgent> CreateMusicAgentAsync(string deploymentName)
+    public async Task<lucia.MusicAgent.MusicAgent> CreateMusicAgentAsync(
+        string deploymentName,
+        string? embeddingModelName = null)
     {
         var musicConfig = CreateMusicAssistantOptionsMonitor();
         var resolver = CreateAgentResolver(CreateBaseChatClient(deploymentName));
+        var embeddingResolver = ResolveEmbeddingProvider(embeddingModelName);
         var musicSkill = new MusicPlaybackSkill(
             _haClient,
             musicConfig,
-            _embeddingResolver,
-            _mockDeviceCache,
+            embeddingResolver,
+            _deviceCache,
             _loggerFactory.CreateLogger<MusicPlaybackSkill>());
         var agent = new lucia.MusicAgent.MusicAgent(resolver, _mockDefinitionRepo, musicSkill, _mockServer, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(), _tracingFactory, _loggerFactory);
         await agent.InitializeAsync();
@@ -303,16 +336,22 @@ public sealed class EvalTestFixture : IAsyncLifetime
     /// Creates a real <see cref="LightAgent"/> with a <see cref="ChatHistoryCapture"/>
     /// that records intermediate tool calls for evaluation. The capture layer sits
     /// between the agent's tracing wrapper and the raw LLM client.
+    /// When <paramref name="embeddingModelName"/> is specified, the skill's embedding
+    /// resolver is pinned to that model so the entity cache and search embeddings
+    /// are guaranteed to use the same vectors.
     /// </summary>
-    public async Task<(LightAgent Agent, ChatHistoryCapture Capture)> CreateLightAgentWithCaptureAsync(string deploymentName)
+    public async Task<(LightAgent Agent, ChatHistoryCapture Capture)> CreateLightAgentWithCaptureAsync(
+        string deploymentName,
+        string? embeddingModelName = null)
     {
         var capture = new ChatHistoryCapture(CreateBaseChatClient(deploymentName));
         var resolver = CreateAgentResolver(capture);
+        var embeddingResolver = ResolveEmbeddingProvider(embeddingModelName);
         var lightSkill = new LightControlSkill(
             _haClient,
-            _embeddingResolver,
+            embeddingResolver,
             _loggerFactory.CreateLogger<LightControlSkill>(),
-            _mockDeviceCache,
+            _deviceCache,
             _mockLocationService,
             _similarity);
         var agent = new LightAgent(resolver, _mockDefinitionRepo, lightSkill, _tracingFactory, _loggerFactory);
@@ -325,16 +364,19 @@ public sealed class EvalTestFixture : IAsyncLifetime
     /// that records intermediate tool calls for evaluation. The capture layer sits
     /// between the agent's tracing wrapper and the raw LLM client.
     /// </summary>
-    public async Task<(lucia.MusicAgent.MusicAgent Agent, ChatHistoryCapture Capture)> CreateMusicAgentWithCaptureAsync(string deploymentName)
+    public async Task<(lucia.MusicAgent.MusicAgent Agent, ChatHistoryCapture Capture)> CreateMusicAgentWithCaptureAsync(
+        string deploymentName,
+        string? embeddingModelName = null)
     {
         var capture = new ChatHistoryCapture(CreateBaseChatClient(deploymentName));
         var musicConfig = CreateMusicAssistantOptionsMonitor();
         var resolver = CreateAgentResolver(capture);
+        var embeddingResolver = ResolveEmbeddingProvider(embeddingModelName);
         var musicSkill = new MusicPlaybackSkill(
             _haClient,
             musicConfig,
-            _embeddingResolver,
-            _mockDeviceCache,
+            embeddingResolver,
+            _deviceCache,
             _loggerFactory.CreateLogger<MusicPlaybackSkill>());
         var agent = new lucia.MusicAgent.MusicAgent(resolver, _mockDefinitionRepo, musicSkill, _mockServer, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(), _tracingFactory, _loggerFactory);
         await agent.InitializeAsync();
@@ -458,7 +500,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
         var lightSkill = new LightControlSkill(
             _haClient, _embeddingResolver,
             _loggerFactory.CreateLogger<LightControlSkill>(),
-            _mockDeviceCache, _mockLocationService, _similarity);
+            _deviceCache, _mockLocationService, _similarity);
         var lightAgent = new LightAgent(_mockChatClientResolver, _mockDefinitionRepo, lightSkill, _tracingFactory, _loggerFactory);
         _lightAgentCard = lightAgent.GetAgentCard();
 
@@ -466,7 +508,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
         var musicConfig = CreateMusicAssistantOptionsMonitor();
         var musicSkill = new MusicPlaybackSkill(
             _haClient, musicConfig, _embeddingResolver,
-            _mockDeviceCache,
+            _deviceCache,
             _loggerFactory.CreateLogger<MusicPlaybackSkill>());
         var musicAgent = new lucia.MusicAgent.MusicAgent(_mockChatClientResolver, _mockDefinitionRepo, musicSkill, _mockServer, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(), _tracingFactory, _loggerFactory);
         _musicAgentCard = musicAgent.GetAgentCard();
