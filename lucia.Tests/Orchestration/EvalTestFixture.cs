@@ -18,6 +18,7 @@ using Microsoft.Extensions.AI.Evaluation;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using OllamaSharp;
 using OpenAI;
 using A2A;
 using lucia.Agents.Abstractions;
@@ -27,9 +28,10 @@ namespace lucia.Tests.Orchestration;
 /// <summary>
 /// Shared test fixture for evaluation tests. Loads configuration from
 /// <c>appsettings.json</c> (with environment variable overrides), creates
-/// Azure OpenAI clients, and provides factory methods that construct real
-/// agent instances backed by eval-model <see cref="IChatClient"/>s —
-/// ensuring eval tests exercise the actual agent code paths.
+/// LLM clients for configured providers (Azure OpenAI, Ollama, OpenAI, etc.),
+/// and provides factory methods that construct real agent instances backed by
+/// eval-model <see cref="IChatClient"/>s — ensuring eval tests exercise the
+/// actual agent code paths. The judge evaluator always uses Azure OpenAI.
 /// </summary>
 public sealed class EvalTestFixture : IAsyncLifetime
 {
@@ -133,7 +135,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
     /// </summary>
     public IChatClient CreateFunctionInvokingChatClient(string deploymentName)
     {
-        return new ChatClientBuilder(AzureClient.GetChatClient(deploymentName).AsIChatClient())
+        return new ChatClientBuilder(CreateBaseChatClient(deploymentName))
             .UseFunctionInvocation()
             .Build();
     }
@@ -144,7 +146,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
     /// </summary>
     public IChatClient CreateRawChatClient(string deploymentName)
     {
-        return AzureClient.GetChatClient(deploymentName).AsIChatClient();
+        return CreateBaseChatClient(deploymentName);
     }
 
     /// <summary>
@@ -152,16 +154,70 @@ public sealed class EvalTestFixture : IAsyncLifetime
     /// layer that records raw model responses (including tool calls) before they are
     /// processed by <see cref="FunctionInvokingChatClient"/>.
     /// <para>
-    /// Pipeline: <c>FunctionInvokingChatClient → ChatHistoryCapture → AzureOpenAI</c>
+    /// Pipeline: <c>FunctionInvokingChatClient → ChatHistoryCapture → LLM Provider</c>
     /// </para>
     /// </summary>
     public (IChatClient ChatClient, ChatHistoryCapture Capture) CreateCapturingChatClient(string deploymentName)
     {
-        var capture = new ChatHistoryCapture(AzureClient.GetChatClient(deploymentName).AsIChatClient());
+        var capture = new ChatHistoryCapture(CreateBaseChatClient(deploymentName));
         var chatClient = new ChatClientBuilder(capture)
             .UseFunctionInvocation()
             .Build();
         return (chatClient, capture);
+    }
+
+    // ─── Provider-Aware Chat Client Factory ───────────────────────────
+
+    /// <summary>
+    /// Resolves the <see cref="EvalModelConfig"/> for the given deployment name
+    /// and creates the appropriate <see cref="IChatClient"/> based on the configured provider.
+    /// Falls back to Azure OpenAI when no explicit provider is set.
+    /// </summary>
+    private IChatClient CreateBaseChatClient(string deploymentName)
+    {
+        var model = Configuration.Models
+            .FirstOrDefault(m => string.Equals(m.DeploymentName, deploymentName, StringComparison.OrdinalIgnoreCase));
+
+        return CreateBaseChatClient(model ?? new EvalModelConfig { DeploymentName = deploymentName });
+    }
+
+    /// <summary>
+    /// Creates an <see cref="IChatClient"/> for the given model configuration,
+    /// dispatching to the correct provider SDK.
+    /// </summary>
+    private IChatClient CreateBaseChatClient(EvalModelConfig model)
+    {
+        var provider = model.Provider ?? EvalProviderType.AzureOpenAI;
+
+        return provider switch
+        {
+            EvalProviderType.AzureOpenAI => AzureClient.GetChatClient(model.DeploymentName).AsIChatClient(),
+            EvalProviderType.Ollama => CreateOllamaChatClient(model),
+            EvalProviderType.OpenAI => CreateOpenAIChatClient(model),
+            _ => throw new NotSupportedException($"Provider type '{provider}' is not supported in eval tests.")
+        };
+    }
+
+    private static IChatClient CreateOllamaChatClient(EvalModelConfig model)
+    {
+        var endpoint = new Uri(model.Endpoint ?? "http://localhost:11434");
+        return new OllamaApiClient(endpoint, model.DeploymentName);
+    }
+
+    private static IChatClient CreateOpenAIChatClient(EvalModelConfig model)
+    {
+        var apiKey = model.ApiKey ?? throw new InvalidOperationException(
+            $"OpenAI provider for model '{model.DeploymentName}' requires an API key. " +
+            "Set ApiKey in the model configuration.");
+
+        var credential = new System.ClientModel.ApiKeyCredential(apiKey);
+        var options = new OpenAI.OpenAIClientOptions();
+
+        if (!string.IsNullOrWhiteSpace(model.Endpoint))
+            options.Endpoint = new Uri(model.Endpoint);
+
+        var client = new OpenAI.OpenAIClient(credential, options);
+        return client.GetChatClient(model.DeploymentName).AsIChatClient();
     }
 
     // ─── Agent Factories ──────────────────────────────────────────────

@@ -6,7 +6,8 @@ namespace lucia.Tests.Orchestration;
 public sealed class EvalModelConfig
 {
     /// <summary>
-    /// The Azure OpenAI deployment name (e.g., <c>gpt-4o</c>, <c>gpt-oss-120b</c>).
+    /// The model or deployment name (e.g., <c>gpt-4o</c> for Azure OpenAI,
+    /// <c>llama3.2</c> for Ollama).
     /// </summary>
     public required string DeploymentName { get; set; }
 
@@ -16,4 +17,23 @@ public sealed class EvalModelConfig
     /// reasoning models (o-series) that do not support custom temperature.
     /// </summary>
     public float? Temperature { get; set; }
+
+    /// <summary>
+    /// The LLM provider to use for this model. Defaults to
+    /// <see cref="EvalProviderType.AzureOpenAI"/> when <c>null</c>.
+    /// </summary>
+    public EvalProviderType? Provider { get; set; }
+
+    /// <summary>
+    /// Provider endpoint URL. Required for Ollama (default: <c>http://localhost:11434</c>)
+    /// and OpenAI custom endpoints. When <c>null</c>, uses the provider's default endpoint
+    /// or the shared AzureOpenAI endpoint from <see cref="EvalConfiguration"/>.
+    /// </summary>
+    public string? Endpoint { get; set; }
+
+    /// <summary>
+    /// API key for the provider. Only needed for OpenAI and some custom endpoints.
+    /// For Azure OpenAI, the shared key from <see cref="AzureOpenAISettings"/> is used instead.
+    /// </summary>
+    public string? ApiKey { get; set; }
 }
