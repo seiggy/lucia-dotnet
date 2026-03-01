@@ -1,4 +1,125 @@
+# Release Notes - 2026.03.01
 
+**Release Date:** March 1, 2026  
+**Code Name:** "Nebula"
+
+---
+
+## 🌌 Overview
+
+"Nebula" introduces a full plugin system to Lucia — a dynamic, script-based architecture that lets users extend the assistant with community and first-party plugins without recompiling. Like a nebula giving birth to new stars, this release provides the raw building blocks for an ecosystem of optional capabilities that can be discovered, installed, and managed at runtime. The first two plugins ship alongside the framework: **MetaMCP** (MCP tool aggregation) and **SearXNG** (privacy-first web search).
+
+## 🚀 Highlights
+
+- **Roslyn Script Plugin Engine** — Plugins are plain C# scripts (`plugin.cs`) evaluated at startup via Roslyn CSharpScript. No compilation step, no separate DLL projects — just drop a folder and go.
+- **Four-Hook Plugin Lifecycle** — `ConfigureServices` → `ExecuteAsync` → `MapEndpoints` → `OnSystemReadyAsync` gives plugins precise control over when they inject DI services, run initialization, register API endpoints, or interact with fully-initialized agents.
+- **Plugin Repository System** — Discover, install, enable/disable, and uninstall plugins from configurable repositories through a new dashboard UI and REST API.
+- **Git Blob Source Strategies** — Git-based repositories support three download modes: GitHub Release assets (preferred), tag archives, and branch archives — with automatic fallback.
+- **IWebSearchSkill Abstraction** — Web search is now an optional, pluggable capability. The built-in SearXNG implementation ships as a plugin; users without a search provider simply don't install it.
+
+## ✨ What's New
+
+### 🔌 Plugin Engine (`ILuciaPlugin`)
+
+- **Script-based plugins** — Each plugin lives in `plugins/{name}/plugin.cs` and implements `ILuciaPlugin` via Roslyn scripting. No project files, no NuGet references — the host provides all standard assemblies.
+- **Four lifecycle hooks:**
+  - `ConfigureServices(IHostApplicationBuilder)` — Register DI services before the app is built (e.g., `IWebSearchSkill`).
+  - `ExecuteAsync(IServiceProvider, CancellationToken)` — Run post-build initialization.
+  - `MapEndpoints(WebApplication)` — Register custom HTTP endpoints.
+  - `OnSystemReadyAsync(IServiceProvider, CancellationToken)` — Execute after all agents are online — ideal for agent-dependent logic.
+- **Auto-discovery** — `PluginLoader` scans the plugin directory and evaluates all `plugin.cs` entry points at startup.
+- **Safe evaluation** — `PluginScriptHost` provides a locked-down `ScriptOptions` with explicit assembly references and namespace imports.
+
+### 📦 Plugin Repository & Store
+
+- **Repository model** — Each repository is defined by a `lucia-plugins.json` manifest containing an `id`, `name`, and array of `plugins` with metadata (id, name, description, version, path, author, tags).
+- **Two source implementations:**
+  - `LocalPluginRepositorySource` — Reads manifests and copies plugins from a local directory. Used during development.
+  - `GitPluginRepositorySource` — Fetches manifests from `raw.githubusercontent.com` and downloads plugin archives from GitHub. Used in production.
+- **Blob source strategies** (git repos) — The `blobSource` field on a repository definition controls download behavior:
+  - `release` (default) — Fetches the latest GitHub Release, looks for a per-plugin `{pluginId}.zip` asset, falls back to the release zipball, then to a branch archive.
+  - `tag` — Downloads the archive at a specific tag ref.
+  - `branch` — Downloads the archive at branch HEAD.
+- **MongoDB persistence** — `PluginRepositoryDefinition` and `InstalledPluginRecord` are stored in MongoDB collections with full CRUD via `IPluginManagementRepository`.
+- **Plugin change tracker** — `PluginChangeTracker` emits real-time change notifications consumed by the dashboard for live badge/count updates.
+
+### 🖥️ Dashboard — Plugins Page
+
+- **Three-tab layout:** Installed plugins, Plugin Store (available from repositories), and Repository management.
+- **Install/Uninstall** — One-click install from the store; uninstall removes plugin files and database record.
+- **Enable/Disable** — Toggle plugins without uninstalling. Requires app restart (surfaced via a restart banner).
+- **Repository management** — Add/remove/sync plugin repositories. Add dialog supports both Local and Git repository types.
+- **Live counters** — Tab badges update in real-time as plugins are installed or repositories are synced.
+- **Restart banner** — A persistent banner appears when plugin changes require a restart, with a one-click restart button.
+
+### 🔍 IWebSearchSkill Abstraction
+
+- **Optional capability** — `GeneralAgent` accepts an optional `IWebSearchSkill?` parameter. When present, web search tools are registered; when absent, search is silently unavailable.
+- **Clean extraction** — `WebSearchSkill.cs` and `SearXngOptions.cs` removed from core `lucia.Agents`. The SearXNG implementation now lives entirely in `plugins/searxng/plugin.cs`.
+- **OpenTelemetry instrumented** — The SearXNG plugin includes `ActivitySource` tracing and `Meter` metrics for search operations, consistent with the core agent telemetry.
+
+### 🔧 REST APIs
+
+- **`/api/plugins/installed`** — List, enable/disable, uninstall installed plugins.
+- **`/api/plugins/store`** — Browse available plugins from all configured repositories, install plugins.
+- **`/api/plugins/repositories`** — CRUD for plugin repositories, trigger repository sync.
+- **`/api/system/restart`** — Graceful application restart for applying plugin changes.
+
+## 🐛 Bug Fixes
+
+- **Setup wizard session key** — `SetupSeedExtensions` now generates `Auth:SessionSigningKey` before setting `Auth:SetupComplete = true`, preventing the wizard from breaking when environment-variable seeding is used.
+- **Plugin script namespace** — Added `System.Net.Http` to default Roslyn script imports so plugins can reference `IHttpClientFactory` without explicit `using` directives.
+
+## 🧪 Testing
+
+- **17 plugin system tests** — Covers script evaluation, plugin loading, management service operations (sync, enable, disable, install, uninstall), manifest validation, `LocalPluginRepositorySource` filesystem operations, `ParseGitHubOwnerRepo` URL parsing, and all three git blob source strategies (release with per-plugin asset, release zipball fallback, release-to-branch fallback, branch archive, tag archive).
+- **456 total tests passing** (excluding Playwright/Eval).
+
+## 📋 New Files
+
+| Path | Purpose |
+|------|---------|
+| `lucia.Agents/Abstractions/ILuciaPlugin.cs` | Four-hook plugin interface |
+| `lucia.Agents/Abstractions/IPluginManagementRepository.cs` | Repository persistence abstraction |
+| `lucia.Agents/Abstractions/IPluginRepositorySource.cs` | Source abstraction (local vs git) |
+| `lucia.Agents/Abstractions/IWebSearchSkill.cs` | Optional web search capability |
+| `lucia.Agents/Configuration/PluginManifest.cs` | Repository manifest model |
+| `lucia.Agents/Configuration/PluginManifestEntry.cs` | Plugin entry in manifest |
+| `lucia.Agents/Configuration/PluginRepositoryDefinition.cs` | MongoDB repository document |
+| `lucia.Agents/Configuration/InstalledPluginRecord.cs` | MongoDB installed plugin document |
+| `lucia.Agents/Extensions/PluginLoader.cs` | Plugin auto-discovery and loading |
+| `lucia.Agents/Extensions/PluginScriptHost.cs` | Roslyn script evaluation host |
+| `lucia.Agents/Services/PluginManagementService.cs` | Plugin orchestration service |
+| `lucia.Agents/Services/MongoPluginManagementRepository.cs` | MongoDB implementation |
+| `lucia.Agents/Services/LocalPluginRepositorySource.cs` | Filesystem repository source |
+| `lucia.Agents/Services/GitPluginRepositorySource.cs` | GitHub repository source |
+| `lucia.Agents/Services/GitHubRelease.cs` | GitHub Release API DTO |
+| `lucia.Agents/Services/GitHubReleaseAsset.cs` | GitHub Release asset DTO |
+| `lucia.Agents/Services/AvailablePlugin.cs` | Store plugin DTO |
+| `lucia.Agents/Services/PluginChangeTracker.cs` | Real-time change notifications |
+| `lucia.AgentHost/Extensions/PluginStoreApi.cs` | Store REST endpoints |
+| `lucia.AgentHost/Extensions/PluginRepositoryApi.cs` | Repository REST endpoints |
+| `lucia.AgentHost/Extensions/InstalledPluginApi.cs` | Installed plugin REST endpoints |
+| `lucia.AgentHost/Extensions/SystemApi.cs` | System management endpoints |
+| `lucia-dashboard/src/pages/PluginsPage.tsx` | Dashboard plugins page |
+| `lucia-dashboard/src/components/PluginRepoDialog.tsx` | Repository add dialog |
+| `lucia-dashboard/src/components/RestartBanner.tsx` | Restart notification banner |
+| `plugins/metamcp/plugin.cs` | MetaMCP aggregation plugin |
+| `plugins/searxng/plugin.cs` | SearXNG web search plugin |
+| `lucia-plugins.json` | Official plugin repository manifest |
+| `lucia.Tests/Plugins/PluginSystemTests.cs` | Plugin system test suite |
+| `lucia.Tests/FakeHttpMessageHandler.cs` | HTTP test double |
+
+## 🗑️ Removed Files
+
+| Path | Reason |
+|------|--------|
+| `lucia.Agents/Skills/WebSearchSkill.cs` | Extracted to `plugins/searxng/plugin.cs` |
+| `lucia.Agents/Configuration/SearXngOptions.cs` | Moved into SearXNG plugin |
+| `lucia.Agents/Extensions/McpServerSeedExtensions.cs` | Replaced by MetaMCP plugin |
+| `lucia.Agents/Configuration/PluginRegistryFile.cs` | Replaced by `IPluginRepositorySource` abstraction |
+
+---
 
 # Release Notes - 2026.02.27
 
@@ -64,6 +185,28 @@
 ## 📦 Files Changed
 
 - 20 files changed, +1,201 / −528 lines across dashboard, backend, tests, and HA custom component.
+
+---
+
+# Release Notes - 2026.02.26
+
+**Release Date:** February 26, 2026  
+**Code Name:** "Scene"
+
+---
+
+## 🎬 Overview
+
+"Scene" adds a new **Scene Agent** to the Lucia catalog for activating Home Assistant scenes via natural language.
+
+## ✨ What's New
+
+### 📽️ Scene Agent
+
+- **SceneControlSkill** — New skill with `ListScenesAsync`, `FindScenesByAreaAsync`, and `ActivateSceneAsync` tools for Home Assistant scene control
+- **SceneAgent** — Specialized agent for scene activation at `/a2a/scene-agent`; routes queries like "activate movie scene", "turn on night mode", "what scenes are in the living room?"
+- **Catalog integration** — Scene agent appears in the agent catalog and is routable via the orchestrator for #scenes domain
+
 
 ---
 

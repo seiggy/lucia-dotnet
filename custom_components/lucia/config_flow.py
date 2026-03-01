@@ -1,4 +1,4 @@
-﻿"""Config flow for Lucia integration."""
+"""Config flow for Lucia integration."""
 from __future__ import annotations
 
 import logging
@@ -28,6 +28,7 @@ from .const import (
     CONF_MAX_TOKENS,
     CONF_PROMPT,
     CONF_REPOSITORY,
+    CONF_VERIFY_SSL,
     DOMAIN,
 )
 
@@ -36,74 +37,60 @@ _LOGGER = logging.getLogger(__name__)
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_REPOSITORY): str,
-        vol.Required(CONF_API_KEY): str,
+        vol.Optional(CONF_API_KEY, default=""): str,
+        vol.Optional(CONF_VERIFY_SSL, default=False): bool,
     }
 )
 
 async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
-    """Validate the user input and connection to the Lucia agent service.
+    """Validate the connection by fetching the agent catalog from /agents.
 
-    Data has the keys from STEP_USER_DATA_SCHEMA with values provided by the user.
+    Uses httpx directly (no a2a-sdk) to avoid blocking and async issues.
     """
     import httpx
 
-    # Create a dedicated HTTP client with API key header and redirect support
+    repository = data[CONF_REPOSITORY].rstrip("/")
+    if repository.endswith("/agents"):
+        repository = repository[: -len("/agents")]
+    catalog_url = f"{repository}/agents"
     headers = {}
     if data.get(CONF_API_KEY):
         headers["X-Api-Key"] = data[CONF_API_KEY]
 
-    httpx_client = httpx.AsyncClient(
-        headers=headers, verify=False, timeout=30.0, follow_redirects=True
-    )
+    verify_ssl = data.get(CONF_VERIFY_SSL, False)
 
-    try:
-        # Fetch the agent catalog to validate connectivity and discover agents
-        base_url = data[CONF_REPOSITORY].rstrip("/")
-        # Strip trailing /agents if user pasted the full catalog URL
-        if base_url.endswith("/agents"):
-            base_url = base_url[: -len("/agents")]
-        catalog_url = f"{base_url}/agents"
+    async with httpx.AsyncClient(
+        headers=headers,
+        verify=verify_ssl,
+        follow_redirects=True,
+        timeout=30.0,
+    ) as client:
+        try:
+            response = await client.get(catalog_url)
+        except httpx.ConnectError as err:
+            _LOGGER.error("Cannot connect to %s: %s", catalog_url, err)
+            raise ValueError("Cannot connect to repository. Check URL and network.") from err
+        except Exception as err:
+            _LOGGER.error("Failed to fetch catalog from %s: %s", catalog_url, err)
+            raise ValueError("Invalid repository or API key") from err
 
-        _LOGGER.info("Fetching agent catalog from %s", catalog_url)
-        response = await httpx_client.get(catalog_url)
+        if response.status_code == 401:
+            raise ValueError("Authentication failed (401). Check your API key.")
+
         response.raise_for_status()
 
-        agents = response.json()
+        raw = response.json()
+        agents = raw if isinstance(raw, list) else raw.get("agents") or raw.get("catalog") or raw.get("value")
+        if not isinstance(agents, list) or len(agents) == 0:
+            raise ValueError(
+                "No agents in catalog. Ensure Lucia has finished starting and has agents registered."
+            )
 
-        if not isinstance(agents, list):
-            raise ValueError("Invalid agent catalog response")
-
-        if not agents:
-            _LOGGER.warning("Agent catalog is empty — agents may still be starting")
-
-        # Use the first agent's name as the title, or fallback
-        title = "Lucia Agent"
-        agent_id = "lucia"
-        if agents:
-            first = agents[0]
-            title = first.get("name", title)
-            agent_id = first.get("name", agent_id)
-
+        first = agents[0]
         return {
-            "title": title,
-            "agent_id": agent_id,
+            "title": first.get("name", "Lucia Agent"),
+            "agent_id": first.get("name", "lucia"),
         }
-    except httpx.HTTPStatusError as err:
-        _LOGGER.error(
-            "Failed to fetch agent catalog (HTTP %s): %s",
-            err.response.status_code,
-            err,
-        )
-        raise ValueError("Invalid repository or API key") from err
-    except Exception as err:
-        _LOGGER.error(
-            "Failed to connect to Lucia: %s. Please check your repository URL and API key.",
-            err,
-            exc_info=True,
-        )
-        raise ValueError("Invalid repository or API key") from err
-    finally:
-        await httpx_client.aclose()
 
 class LuciaConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Lucia."""
@@ -129,6 +116,7 @@ class LuciaConfigFlow(ConfigFlow, domain=DOMAIN):
                     data={
                         CONF_REPOSITORY: user_input[CONF_REPOSITORY],
                         CONF_API_KEY: user_input[CONF_API_KEY],
+                        CONF_VERIFY_SSL: user_input.get(CONF_VERIFY_SSL, False),
                         "agent_id": info["agent_id"],
                     },
                 )
@@ -153,16 +141,16 @@ class LuciaConfigFlow(ConfigFlow, domain=DOMAIN):
         config_entry: ConfigEntry,
     ) -> OptionsFlow:
         """Get the options flow for this handler."""
-        return LuciaOptionsFlow()
+        return LuciaOptionsFlow(config_entry)
 
 
 class LuciaOptionsFlow(OptionsFlow):
     """Handle options for Lucia integration."""
 
-    def __init__(self) -> None:
+    def __init__(self, config_entry: ConfigEntry) -> None:
         """Initialize options flow."""
-        # Configuration entry is provided by OptionsFlow base class at runtime.
         super().__init__()
+        self.config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None

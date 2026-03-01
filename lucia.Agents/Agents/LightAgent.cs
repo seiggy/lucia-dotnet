@@ -99,7 +99,7 @@ public sealed class LightAgent : ILuciaAgent
                 - FindLight: Find a light entity by name or description using natural language
                 - FindLightsByArea: Find a collection of lights by the area they exist in
                 - GetLightState: Get the current state of a specific light
-                - SetLightState: Control a light (on/off, brightness, color)
+                - SetLightState: Control a light or group of lights to the same new state (on/off, brightness, color)
 
                 ## MANDATORY RULES — NEVER SKIP THESE
                 1. You MUST call at least one tool function for EVERY request. NEVER respond based on assumptions.
@@ -110,13 +110,8 @@ public sealed class LightAgent : ILuciaAgent
 
                 ## How to find lights
                 - When users refer to lights by common names like "living room light", "kitchen lights",
-                    or "bedroom lamp", ALWAYS use the FindLight function first to get the correct entity ID,
-                    then use that entity ID for GetLightState or SetLightState operations.
-                - When users refer to an area, such as "living room" without specifying a light, then
-                    use the FindLightsByArea function first to get all the lights in that area. If they reference
-                    an area with the plurality of 'lights', they likely want all lights in that area, so you
-                    should use FindLightsByArea instead of FindLight, as there may be more than one light
-                    in the area the user wants controlled.
+                    or "bedroom lamp", ALWAYS use the FindLight function first to get the correct entity ID(s),
+                    then use those entity ID(s) for GetLightState or SetLightState operations.
 
                 ## Response format
                 * Keep your responses short and informative only. Examples: "I've turned on the kitchen lights.", "I've set the office lights to red."

@@ -1,14 +1,14 @@
+using lucia.Agents.Abstractions;
+using lucia.Agents.Auth;
+using lucia.Agents.Extensions;
+using lucia.Agents.Registry;
+using lucia.HomeAssistant.Configuration;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using lucia.Agents.Registry;
-using lucia.Agents.Abstractions;
-using lucia.Agents.Mcp;
-using lucia.Agents.Services;
-using lucia.HomeAssistant.Configuration;
 
-namespace lucia.Agents.Extensions;
+namespace lucia.Agents.Services;
 
 /// <summary>
 /// Background service that initializes and registers all agents when the application starts.
@@ -22,10 +22,14 @@ public class AgentInitializationService : BackgroundService
 
     private readonly IAgentRegistry _agentRegistry;
     private readonly IEnumerable<ILuciaAgent> _agents;
+    private readonly IEnumerable<ILuciaPlugin> _plugins;
+    private readonly IServiceProvider _serviceProvider;
     private readonly IAgentDefinitionRepository _definitionRepository;
     private readonly IModelProviderRepository _providerRepository;
     private readonly IEntityLocationService _entityLocationService;
     private readonly IPresenceDetectionService _presenceDetectionService;
+    private readonly IApiKeyService _apiKeyService;
+    private readonly ConfigStoreWriter _configStore;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AgentInitializationService> _logger;
     private readonly IOptionsMonitor<HomeAssistantOptions> _haOptions;
@@ -34,10 +38,14 @@ public class AgentInitializationService : BackgroundService
     public AgentInitializationService(
         IAgentRegistry agentRegistry,
         IEnumerable<ILuciaAgent> agents,
+        IEnumerable<ILuciaPlugin> plugins,
+        IServiceProvider serviceProvider,
         IAgentDefinitionRepository definitionRepository,
         IModelProviderRepository providerRepository,
         IEntityLocationService entityLocationService,
         IPresenceDetectionService presenceDetectionService,
+        IApiKeyService apiKeyService,
+        ConfigStoreWriter configStore,
         IConfiguration configuration,
         ILogger<AgentInitializationService> logger,
         IOptionsMonitor<HomeAssistantOptions> haOptions,
@@ -45,10 +53,14 @@ public class AgentInitializationService : BackgroundService
     {
         _agentRegistry = agentRegistry;
         _agents = agents;
+        _plugins = plugins;
+        _serviceProvider = serviceProvider;
         _definitionRepository = definitionRepository;
         _providerRepository = providerRepository;
         _entityLocationService = entityLocationService;
         _presenceDetectionService = presenceDetectionService;
+        _apiKeyService = apiKeyService;
+        _configStore = configStore;
         _configuration = configuration;
         _logger = logger;
         _haOptions = haOptions;
@@ -57,10 +69,15 @@ public class AgentInitializationService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Seed setup from env (dashboard key, HA config, Lucia HA key) for headless deployments
+        await _apiKeyService.SeedSetupFromEnvAsync(_configStore, _configuration, _logger, stoppingToken).ConfigureAwait(false);
+
         await WaitForHomeAssistantConfigurationAsync(stoppingToken).ConfigureAwait(false);
 
         // Seed default model providers from connection strings if upgrading
         await _providerRepository.SeedDefaultModelProvidersAsync(_configuration, _logger, stoppingToken).ConfigureAwait(false);
+
+        // MetaMCP seed is now handled by lucia.Plugins.MetaMcp (ILuciaPlugin auto-discovery)
 
         // Wait for at least one chat provider to be configured (may come from wizard or seed)
         await WaitForChatProviderAsync(stoppingToken).ConfigureAwait(false);
@@ -126,6 +143,19 @@ public class AgentInitializationService : BackgroundService
 
         // Signal readiness so health checks (and Aspire WaitFor) can proceed
         _initStatus.MarkReady();
+
+        // Invoke post-init plugin hooks now that the full system is available
+        foreach (var plugin in _plugins)
+        {
+            try
+            {
+                await plugin.OnSystemReadyAsync(_serviceProvider, stoppingToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Plugin '{PluginId}' OnSystemReadyAsync failed.", plugin.PluginId);
+            }
+        }
     }
 
     private async Task<bool> TryInitializeAgentAsync(ILuciaAgent agent, string agentName, CancellationToken stoppingToken)

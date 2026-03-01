@@ -366,6 +366,15 @@ internal sealed class FakeHomeAssistantClient : IHomeAssistantClient
     /// <summary>
     /// Internal model for deserializing the areas array from the snapshot.
     /// </summary>
+    public Task<ShoppingListItem[]> GetShoppingListItemsAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(Array.Empty<ShoppingListItem>());
+
+    public Task<string[]> GetTodoListEntityIdsAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(Array.Empty<string>());
+
+    public Task<TodoItem[]> GetTodoItemsAsync(string entityId, CancellationToken cancellationToken = default)
+        => Task.FromResult(Array.Empty<TodoItem>());
+
     private sealed class AreaSnapshot
     {
         [JsonPropertyName("area_id")]

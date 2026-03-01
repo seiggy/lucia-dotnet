@@ -19,6 +19,7 @@ public sealed class GeneralAgent : ILuciaAgent
     private readonly AgentCard _agent;
     private readonly IChatClientResolver _clientResolver;
     private readonly IAgentDefinitionRepository _definitionRepository;
+    private readonly IWebSearchSkill? _webSearchSkill;
     private readonly TracingChatClientFactory _tracingFactory;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<GeneralAgent> _logger;
@@ -31,7 +32,7 @@ public sealed class GeneralAgent : ILuciaAgent
     public string Instructions { get; }
 
     /// <summary>
-    /// The AI tools available to this agent (empty for GeneralAgent).
+    /// The AI tools available to this agent (web search when a provider is registered).
     /// </summary>
     public IList<AITool> Tools { get; }
 
@@ -39,20 +40,37 @@ public sealed class GeneralAgent : ILuciaAgent
         IChatClientResolver clientResolver,
         IAgentDefinitionRepository definitionRepository,
         TracingChatClientFactory tracingFactory,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        IWebSearchSkill? webSearchSkill = null)
     {
         _clientResolver = clientResolver;
         _definitionRepository = definitionRepository;
+        _webSearchSkill = webSearchSkill;
         _tracingFactory = tracingFactory;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<GeneralAgent>();
 
+        Tools = _webSearchSkill?.GetTools() ?? [];
+
         // Create the agent card for registration
+        var skills = new List<AgentSkill>();
+        if (Tools.Count > 0)
+        {
+            skills.Add(new AgentSkill
+            {
+                Id = "id_web_search",
+                Name = "Web Search",
+                Description = "Search the web for current events, news, and facts via SearXNG",
+            });
+        }
+
         _agent = new AgentCard
         {
             Url = "/a2a/general-assistant",
             Name = AgentId,
-            Description = "Agent for handling #general-knowledge questions in Home Assistant",
+            Description = Tools.Count > 0
+                ? "Agent for general knowledge and web search in Home Assistant"
+                : "Agent for handling #general-knowledge questions in Home Assistant",
             Capabilities = new AgentCapabilities
             {
                 PushNotifications = false,
@@ -61,9 +79,13 @@ public sealed class GeneralAgent : ILuciaAgent
             },
             DefaultInputModes = ["text"],
             DefaultOutputModes = ["text"],
-            Skills = [],
+            Skills = [.. skills],
             Version = "1.0.0",
         };
+
+        var webSearchHint = Tools.Count > 0
+            ? "\n- When asked about recent events, news, or facts that may change, use the web_search tool to find current information before answering."
+            : "";
 
         var instructions = """
                 You are a specialized general knowledge agent for a Home Assistant platform.
@@ -74,6 +96,7 @@ public sealed class GeneralAgent : ILuciaAgent
                 - If you do not know the answer, simply state in your response "I do not know."
                 - Try to answer the user's request to the best of your ability. Keep your response short
                     enough to be about 6-10 seconds of audio. Roughly about 2 sentences at most.
+                """ + webSearchHint + """
 
                 ## IMPORTANT
                 * Keep your responses short. Aim for about 2 sentences max.
@@ -81,7 +104,6 @@ public sealed class GeneralAgent : ILuciaAgent
                 """;
 
         Instructions = instructions;
-        Tools = new List<AITool>();
 
         // _aiAgent is built during InitializeAsync via ApplyDefinitionAsync
         _aiAgent = null!;
@@ -104,7 +126,10 @@ public sealed class GeneralAgent : ILuciaAgent
     {
         using var activity = ActivitySource.StartActivity();
         _logger.LogInformation("Initializing General Knowledge Agent...");
-        
+
+        if (_webSearchSkill is not null)
+            await _webSearchSkill.InitializeAsync(cancellationToken).ConfigureAwait(false);
+
         await ApplyDefinitionAsync(cancellationToken).ConfigureAwait(false);
 
         activity?.SetTag("agent.id", AgentId);
@@ -139,15 +164,16 @@ public sealed class GeneralAgent : ILuciaAgent
     private AIAgent BuildAgent(IChatClient chatClient)
     {
         var traced = _tracingFactory.Wrap(chatClient, AgentId);
+        var chatOptions = new ChatOptions { Instructions = Instructions };
+        if (Tools.Count > 0)
+            chatOptions.Tools = [..Tools];
+
         var agentOptions = new ChatClientAgentOptions
         {
             Id = AgentId,
             Name = AgentId,
             Description = "Agent for answering general knowledge questions in Home Assistant",
-            ChatOptions = new ChatOptions
-            {
-                Instructions = Instructions
-            }
+            ChatOptions = chatOptions
         };
 
         return new ChatClientAgent(traced, agentOptions, _loggerFactory)

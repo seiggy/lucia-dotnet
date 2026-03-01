@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Http.Resilience;
 using Microsoft.Extensions.Logging;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
@@ -29,8 +30,15 @@ public static class Extensions
 
         builder.Services.ConfigureHttpClientDefaults(http =>
         {
-            // Turn on resilience by default
-            http.AddStandardResilienceHandler();
+            // Turn on resilience by default with extended timeouts for LLM/agent workloads.
+            // Ollama chat and agent proxy calls can exceed the standard 30s total timeout.
+            http.AddStandardResilienceHandler(options =>
+            {
+                options.AttemptTimeout.Timeout = TimeSpan.FromMinutes(2);
+                options.TotalRequestTimeout.Timeout = TimeSpan.FromMinutes(3);
+                // CircuitBreaker.SamplingDuration must be at least 2x AttemptTimeout
+                options.CircuitBreaker.SamplingDuration = TimeSpan.FromMinutes(5);
+            });
 
             // Turn on service discovery by default
             http.AddServiceDiscovery();
@@ -72,6 +80,11 @@ public static class Extensions
                 tracing.AddSource(builder.Environment.ApplicationName)
                     .AddSource("Lucia.Orchestration")
                     .AddSource("Lucia.TraceCapture")
+                    .AddSource("Lucia.RouterCache")
+                    .AddSource("Lucia.ChatCache")
+                    .AddSource("Lucia.Services.PromptCache")
+                    .AddSource("Lucia.AgentInvoker")
+                    .AddSource("Lucia.AgentDispatch")
                     .AddSource("Lucia.Agents.General")
                     .AddSource("Lucia.Agents.Music")
                     .AddSource("Lucia.Skills.LightControl")

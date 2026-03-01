@@ -244,6 +244,44 @@ public sealed class EntityLocationService : IEntityLocationService
                 }
             }
 
+            // 5b. Word-overlap match (no embeddings required)
+            // Handles "bathroom downstairs" → "Basement bathroom" via shared "bathroom" + downstairs≈basement
+            if (matchedAreaIds.Count == 0)
+            {
+                var queryWords = SplitIntoWords(locationName);
+                var expandedWords = ExpandWithLocationSynonyms(queryWords);
+
+                foreach (var area in areas)
+                {
+                    var areaText = $"{area.Name} {string.Join(" ", area.Aliases)}".ToLowerInvariant();
+                    var floor = area.FloorId is not null && snap.FloorById.TryGetValue(area.FloorId, out var f) ? f : null;
+                    var floorText = floor is not null ? $"{floor.Name} {string.Join(" ", floor.Aliases)}".ToLowerInvariant() : "";
+
+                    if (expandedWords.Any(w => areaText.Contains(w) || (!string.IsNullOrEmpty(floorText) && floorText.Contains(w))))
+                    {
+                        matchedAreaIds.Add(area.AreaId);
+                        matchType = "word_overlap";
+                    }
+                }
+
+                if (matchedAreaIds.Count == 0)
+                {
+                    foreach (var floor in floors)
+                    {
+                        var floorText = $"{floor.Name} {string.Join(" ", floor.Aliases)}".ToLowerInvariant();
+                        if (expandedWords.Any(w => floorText.Contains(w)))
+                        {
+                            foreach (var area in areas)
+                            {
+                                if (area.FloorId == floor.FloorId)
+                                    matchedAreaIds.Add(area.AreaId);
+                            }
+                            matchType = "word_overlap_floor";
+                        }
+                    }
+                }
+            }
+
             // 6. Embedding similarity ≥ 0.90
             if (matchedAreaIds.Count == 0)
             {
@@ -504,6 +542,45 @@ public sealed class EntityLocationService : IEntityLocationService
 
         _logger.LogDebug("Generated {Count} location embeddings", builder.Count);
         return builder.ToImmutable();
+    }
+
+    /// <summary>
+    /// Splits a location query into words for overlap matching.
+    /// </summary>
+    private static IReadOnlyList<string> SplitIntoWords(string query)
+    {
+        return query.Split([' ', '-', '_', ',', '.'], StringSplitOptions.RemoveEmptyEntries)
+            .Where(w => w.Length >= 2)
+            .Select(w => w.ToLowerInvariant())
+            .Distinct()
+            .ToList();
+    }
+
+    /// <summary>
+    /// Expands query words with common location synonyms (e.g. downstairs↔basement)
+    /// so "bathroom downstairs" can match "Basement bathroom".
+    /// </summary>
+    private static IReadOnlyList<string> ExpandWithLocationSynonyms(IReadOnlyList<string> words)
+    {
+        var synonyms = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["downstairs"] = ["basement", "lower", "downstairs"],
+            ["basement"] = ["downstairs", "lower", "basement"],
+            ["upstairs"] = ["upper", "upstairs"],
+            ["upper"] = ["upstairs", "upper"],
+            ["lower"] = ["basement", "downstairs", "lower"],
+            ["bathroom"] = ["bath", "bathroom"],
+            ["bath"] = ["bathroom", "bath"],
+        };
+
+        var result = new HashSet<string>(words, StringComparer.OrdinalIgnoreCase);
+        foreach (var w in words)
+        {
+            if (synonyms.TryGetValue(w, out var syns))
+                foreach (var s in syns)
+                    result.Add(s);
+        }
+        return result.ToList();
     }
 
     private async Task<IReadOnlyList<string>> FindByEmbeddingSimilarityAsync(

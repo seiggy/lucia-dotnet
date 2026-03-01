@@ -51,6 +51,16 @@ export interface TraceLabel {
   labeledAt: string | null;
 }
 
+export interface TracedSpan {
+  spanId: string;
+  parentSpanId: string | null;
+  operationName: string;
+  source: string;
+  startTimeUtc: string;
+  durationMs: number;
+  tags: Record<string, string>;
+}
+
 export interface ConversationTrace {
   id: string;
   timestamp: string;
@@ -66,6 +76,7 @@ export interface ConversationTrace {
   label: TraceLabel;
   isErrored: boolean;
   errorMessage: string | null;
+  spans: TracedSpan[];
 }
 
 export interface PagedResult<T> {
@@ -356,4 +367,117 @@ export interface OccupiedArea {
   isOccupied: boolean
   occupantCount: number | null
   confidence: PresenceConfidence
+}
+
+// ── Skill Optimizer ─────────────────────────────────────────────
+
+export interface HybridMatchOptions {
+  threshold: number
+  embeddingWeight: number
+  scoreDropoffRatio: number
+}
+
+export interface OptimizableSkillInfo {
+  skillId: string
+  displayName: string
+  configSection: string
+  currentParams: HybridMatchOptions
+}
+
+export interface SkillDeviceInfo {
+  entityId: string
+  friendlyName: string
+}
+
+export interface TraceSearchTerm {
+  searchTerm: string
+  occurrenceCount: number
+  lastSeen: string
+  traceId: string | null
+}
+
+export interface OptimizationTestCase {
+  searchTerm: string
+  expectedEntityId: string
+  maxResults: number
+  variant: string | null
+}
+
+export interface OptimizationProgress {
+  iteration: number
+  currentScore: number
+  maxScore: number
+  bestParams: HybridMatchOptions
+  step: number
+  evaluatedPoints: number
+  isComplete: boolean
+  message: string | null
+}
+
+export interface OptimizationCaseResult {
+  testCase: OptimizationTestCase
+  found: boolean
+  matchCount: number
+  countWithinLimit: boolean
+  caseScore: number
+}
+
+export interface OptimizationResult {
+  bestParams: HybridMatchOptions
+  score: number
+  maxScore: number
+  caseResults: OptimizationCaseResult[]
+  totalEvaluatedPoints: number
+  totalIterations: number
+  isPerfect: boolean
+}
+
+export interface JobStatusResponse {
+  jobId: string
+  skillId: string
+  embeddingModel: string
+  testCaseCount: number
+  status: string
+  startedAt: string
+  completedAt: string | null
+  progress: OptimizationProgress | null
+  result: OptimizationResult | null
+  error: string | null
+}
+
+// ─── Plugin System ───
+
+export interface PluginRepository {
+  id: string
+  name: string
+  url: string
+  branch: string
+  manifestPath: string
+  lastSyncedAt: string | null
+  enabled: boolean
+}
+
+export interface AvailablePlugin {
+  id: string
+  name: string
+  description: string
+  version: string
+  author: string
+  tags: string[]
+  pluginPath: string
+  homepage: string | null
+  repositoryId: string
+  repositoryName: string
+}
+
+export interface InstalledPlugin {
+  id: string
+  name: string
+  version: string
+  source: string
+  repositoryId: string | null
+  description: string | null
+  installedAt: string
+  pluginPath: string
+  enabled: boolean
 }

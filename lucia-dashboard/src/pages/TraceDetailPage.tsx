@@ -5,6 +5,7 @@ import { fetchTrace, updateLabel, fetchRelatedTraces } from '../api'
 import type { RelatedTraceSummary } from '../api'
 import { LabelStatus } from '../types'
 import type { AgentExecutionRecord } from '../types'
+import SpanTimeline from '../components/SpanTimeline'
 import { ArrowLeft, Clock, Hash, Timer, AlertTriangle, CheckCircle2, XCircle, ThumbsUp, ThumbsDown, Eraser, ChevronDown, Loader2 } from 'lucide-react'
 
 function formatDate(iso: string) {
@@ -284,6 +285,11 @@ export default function TraceDetailPage() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Span Timeline */}
+      {trace.spans && trace.spans.length > 0 && (
+        <SpanTimeline spans={trace.spans} totalDurationMs={trace.totalDurationMs} />
       )}
 
       {/* Agent Executions */}

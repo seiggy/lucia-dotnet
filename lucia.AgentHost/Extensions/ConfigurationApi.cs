@@ -307,11 +307,48 @@ public static class ConfigurationApi
         },
         new()
         {
+            Section = "LightControlSkill",
+            Description = "Light control entity matching parameters (tuned via Skill Optimizer)",
+            Properties =
+            [
+                new("HybridSimilarityThreshold", "number", "Minimum hybrid score for match inclusion (0.0-1.0)", "0.55"),
+                new("EmbeddingWeight", "number", "Weight for embedding vs string similarity (0.0-1.0)", "0.4"),
+                new("ScoreDropoffRatio", "number", "Min fraction of top score to keep (0.0-1.0, 0=disabled)", "0.80"),
+                new("CacheRefreshMinutes", "number", "Entity cache refresh interval in minutes", "30")
+            ]
+        },
+        new()
+        {
+            Section = "ClimateControlSkill",
+            Description = "Climate control entity matching parameters (tuned via Skill Optimizer)",
+            Properties =
+            [
+                new("HybridSimilarityThreshold", "number", "Minimum hybrid score for match inclusion (0.0-1.0)", "0.55"),
+                new("EmbeddingWeight", "number", "Weight for embedding vs string similarity (0.0-1.0)", "0.4"),
+                new("ScoreDropoffRatio", "number", "Min fraction of top score to keep (0.0-1.0, 0=disabled)", "0.80"),
+                new("CacheRefreshMinutes", "number", "Entity cache refresh interval in minutes", "30")
+            ]
+        },
+        new()
+        {
+            Section = "FanControlSkill",
+            Description = "Fan control entity matching parameters (tuned via Skill Optimizer)",
+            Properties =
+            [
+                new("HybridSimilarityThreshold", "number", "Minimum hybrid score for match inclusion (0.0-1.0)", "0.55"),
+                new("EmbeddingWeight", "number", "Weight for embedding vs string similarity (0.0-1.0)", "0.4"),
+                new("ScoreDropoffRatio", "number", "Min fraction of top score to keep (0.0-1.0, 0=disabled)", "0.80"),
+                new("CacheRefreshMinutes", "number", "Entity cache refresh interval in minutes", "5")
+            ]
+        },
+        new()
+        {
             Section = "Redis",
             Description = "Redis connection and task persistence settings",
             Properties =
             [
                 new("TaskTtlHours", "number", "Task TTL in hours", "24"),
+                new("PromptCacheTtlHours", "number", "Prompt cache entry TTL in hours (LRU — refreshed on hit)", "48"),
                 new("ConnectRetryCount", "number", "Connection retry count", "3"),
                 new("ConnectTimeout", "number", "Connection timeout in milliseconds", "5000")
             ]

@@ -19,6 +19,7 @@ public static class McpServerApi
             .RequireAuthorization();
 
         group.MapGet("/", ListServersAsync);
+        group.MapGet("/status", GetStatusesAsync);
         group.MapGet("/{id}", GetServerAsync);
         group.MapPost("/", CreateServerAsync);
         group.MapPut("/{id}", UpdateServerAsync);
@@ -26,7 +27,6 @@ public static class McpServerApi
         group.MapPost("/{id}/tools", DiscoverToolsAsync);
         group.MapPost("/{id}/connect", ConnectServerAsync);
         group.MapPost("/{id}/disconnect", DisconnectServerAsync);
-        group.MapGet("/status", GetStatusesAsync);
 
         return endpoints;
     }
@@ -91,12 +91,34 @@ public static class McpServerApi
         return TypedResults.Ok(tools);
     }
 
-    private static async Task<Ok<string>> ConnectServerAsync(
+    private static async Task<Results<Ok<string>, ProblemHttpResult>> ConnectServerAsync(
         string id,
-        [FromServices] IMcpToolRegistry toolRegistry)
+        [FromServices] IMcpToolRegistry toolRegistry,
+        CancellationToken cancellationToken)
     {
-        await toolRegistry.ConnectServerAsync(id).ConfigureAwait(false);
-        return TypedResults.Ok("Connected");
+        // MCP connect can hang if server is unreachable; enforce 30s timeout
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(30));
+
+        try
+        {
+            await toolRegistry.ConnectServerAsync(id, cts.Token).ConfigureAwait(false);
+            return TypedResults.Ok("Connected");
+        }
+        catch (OperationCanceledException) when (cts.Token.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            return TypedResults.Problem(
+                detail: "Connection timed out after 30 seconds. The MCP server may be unreachable (check URL, network, and that MetaMCP is running).",
+                statusCode: 504,
+                title: "MCP connection timeout");
+        }
+        catch (Exception ex)
+        {
+            return TypedResults.Problem(
+                detail: ex.Message,
+                statusCode: 500,
+                title: "Failed to connect MCP server");
+        }
     }
 
     private static async Task<Ok<string>> DisconnectServerAsync(

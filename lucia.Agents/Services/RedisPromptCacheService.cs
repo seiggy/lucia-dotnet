@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 using lucia.Agents.Models;
@@ -27,11 +28,13 @@ public sealed class RedisPromptCacheService : IPromptCacheService
     private const string StatsHitsKey = "lucia:prompt-cache:stats:hits";
     private const string StatsMissesKey = "lucia:prompt-cache:stats:misses";
 
-    // Chat response cache entries persist until manually evicted
+    // Chat response cache entries are evicted via LRU TTL
     private const string ChatKeyPrefix = "lucia:chat-cache:";
     private const string ChatIndexKey = "lucia:chat-cache:index";
     private const string ChatStatsHitsKey = "lucia:chat-cache:stats:hits";
     private const string ChatStatsMissesKey = "lucia:chat-cache:stats:misses";
+
+    private const int DefaultPromptCacheTtlHours = 48;
 
     // Strips volatile HA context fields so identical intents produce the same cache key.
     private static readonly Regex VolatileHaFieldsPattern = new(
@@ -63,15 +66,21 @@ public sealed class RedisPromptCacheService : IPromptCacheService
     private readonly IEmbeddingProviderResolver _embeddingResolver;
     private IEmbeddingGenerator<string, Embedding<float>>? _embeddingGenerator;
     private readonly ILogger<RedisPromptCacheService> _logger;
+    private readonly TimeSpan _cacheTtl;
 
     public RedisPromptCacheService(
         IConnectionMultiplexer redis,
         IEmbeddingProviderResolver embeddingResolver,
+        IConfiguration configuration,
         ILogger<RedisPromptCacheService> logger)
     {
         _redis = redis;
         _embeddingResolver = embeddingResolver;
         _logger = logger;
+
+        var ttlHours = configuration.GetValue("Redis:PromptCacheTtlHours", DefaultPromptCacheTtlHours);
+        _cacheTtl = TimeSpan.FromHours(ttlHours);
+        _logger.LogInformation("Prompt cache LRU TTL configured to {TtlHours}h", ttlHours);
     }
 
     public async Task<CachedPromptResponse?> TryGetCachedResponseAsync(
@@ -100,6 +109,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                     entry.HitCount++;
                     entry.LastHitAt = DateTime.UtcNow;
                     await db.StringSetAsync(cacheKey, JsonSerializer.Serialize(entry, SerializerOptions)).ConfigureAwait(false);
+                    await db.KeyExpireAsync(cacheKey, _cacheTtl).ConfigureAwait(false);
                     await db.StringIncrementAsync(StatsHitsKey).ConfigureAwait(false);
                     HitsCounter.Add(1);
                     activity?.SetTag("cache.hit", true);
@@ -139,10 +149,16 @@ public sealed class RedisPromptCacheService : IPromptCacheService
             var memberKeys = indexMembers.Select(m => (RedisKey)m.ToString()).ToArray();
             var values = await db.StringGetAsync(memberKeys).ConfigureAwait(false);
 
+            // Clean expired keys from the index set while iterating
+            var expiredMembers = new List<RedisValue>();
+
             for (var i = 0; i < values.Length; i++)
             {
                 if (!values[i].HasValue)
+                {
+                    expiredMembers.Add(indexMembers[i]);
                     continue;
+                }
 
                 var candidate = JsonSerializer.Deserialize<CachedPromptEntry>(values[i].ToString(), SerializerOptions);
                 if (candidate?.Embedding is null)
@@ -156,12 +172,20 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 }
             }
 
+            // Remove stale index entries whose Redis keys have expired
+            if (expiredMembers.Count > 0)
+            {
+                await db.SetRemoveAsync(IndexKey, [.. expiredMembers]).ConfigureAwait(false);
+                _logger.LogDebug("Cleaned {Count} expired routing cache entries from index", expiredMembers.Count);
+            }
+
             if (bestEntry is not null && bestScore >= SemanticSimilarityThreshold)
             {
                 bestEntry.HitCount++;
                 bestEntry.LastHitAt = DateTime.UtcNow;
                 var bestKey = $"{KeyPrefix}{bestEntry.CacheKey}";
                 await db.StringSetAsync(bestKey, JsonSerializer.Serialize(bestEntry, SerializerOptions)).ConfigureAwait(false);
+                await db.KeyExpireAsync(bestKey, _cacheTtl).ConfigureAwait(false);
                 await db.StringIncrementAsync(StatsHitsKey).ConfigureAwait(false);
                 HitsCounter.Add(1);
                 SemanticHitsCounter.Add(1);
@@ -228,6 +252,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
             };
 
             await db.StringSetAsync(cacheKey, JsonSerializer.Serialize(entry, SerializerOptions)).ConfigureAwait(false);
+            await db.KeyExpireAsync(cacheKey, _cacheTtl).ConfigureAwait(false);
             await db.SetAddAsync(IndexKey, cacheKey).ConfigureAwait(false);
 
             _logger.LogInformation("Cached routing decision for prompt key {CacheKey}: agent={AgentId}, confidence={Confidence:F2}",
@@ -266,6 +291,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                     entry.HitCount++;
                     entry.LastHitAt = DateTime.UtcNow;
                     await db.StringSetAsync(cacheKey, JsonSerializer.Serialize(entry, SerializerOptions)).ConfigureAwait(false);
+                    await db.KeyExpireAsync(cacheKey, _cacheTtl).ConfigureAwait(false);
                     await db.StringIncrementAsync(ChatStatsHitsKey).ConfigureAwait(false);
                     ChatHitsCounter.Add(1);
                     activity?.SetTag("cache.hit", true);
@@ -303,10 +329,16 @@ public sealed class RedisPromptCacheService : IPromptCacheService
             var memberKeys = indexMembers.Select(m => (RedisKey)m.ToString()).ToArray();
             var values = await db.StringGetAsync(memberKeys).ConfigureAwait(false);
 
+            // Clean expired keys from the index set while iterating
+            var expiredMembers = new List<RedisValue>();
+
             for (var i = 0; i < values.Length; i++)
             {
                 if (!values[i].HasValue)
+                {
+                    expiredMembers.Add(indexMembers[i]);
                     continue;
+                }
 
                 var candidate = JsonSerializer.Deserialize<CachedChatResponseData>(values[i].ToString(), SerializerOptions);
                 if (candidate?.Embedding is null)
@@ -321,11 +353,19 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 }
             }
 
+            // Remove stale index entries whose Redis keys have expired
+            if (expiredMembers.Count > 0)
+            {
+                await db.SetRemoveAsync(ChatIndexKey, [.. expiredMembers]).ConfigureAwait(false);
+                _logger.LogDebug("Cleaned {Count} expired chat cache entries from index", expiredMembers.Count);
+            }
+
             if (bestEntry is not null && bestScore >= SemanticSimilarityThreshold && bestKey is not null)
             {
                 bestEntry.HitCount++;
                 bestEntry.LastHitAt = DateTime.UtcNow;
                 await db.StringSetAsync(bestKey, JsonSerializer.Serialize(bestEntry, SerializerOptions)).ConfigureAwait(false);
+                await db.KeyExpireAsync(bestKey, _cacheTtl).ConfigureAwait(false);
                 await db.StringIncrementAsync(ChatStatsHitsKey).ConfigureAwait(false);
                 ChatHitsCounter.Add(1);
                 activity?.SetTag("cache.hit", true);
@@ -381,6 +421,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
             data.LastHitAt = DateTime.UtcNow;
 
             await db.StringSetAsync(cacheKey, JsonSerializer.Serialize(data, SerializerOptions)).ConfigureAwait(false);
+            await db.KeyExpireAsync(cacheKey, _cacheTtl).ConfigureAwait(false);
             await db.SetAddAsync(ChatIndexKey, cacheKey).ConfigureAwait(false);
 
             _logger.LogInformation(

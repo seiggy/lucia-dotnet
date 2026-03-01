@@ -32,7 +32,7 @@ public sealed class CopilotConnectService
 
             if (!string.IsNullOrWhiteSpace(githubToken))
             {
-                options.GithubToken = githubToken;
+                options.GitHubToken = githubToken;
             }
 
             client = new CopilotClient(options);

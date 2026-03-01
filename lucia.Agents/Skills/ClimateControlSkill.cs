@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Text;
 using System.Text.Json;
+using lucia.Agents.Configuration;
 using lucia.Agents.Models;
 using lucia.Agents.Services;
 using lucia.HomeAssistant.Models;
@@ -11,13 +12,14 @@ using lucia.HomeAssistant.Services;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace lucia.Agents.Skills;
 
 /// <summary>
 /// Skill for controlling HVAC / climate entities in Home Assistant
 /// </summary>
-public sealed class ClimateControlSkill : IAgentSkill
+public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill
 {
     private readonly IHomeAssistantClient _homeAssistantClient;
     private readonly IEmbeddingProviderResolver _embeddingResolver;
@@ -25,11 +27,11 @@ public sealed class ClimateControlSkill : IAgentSkill
     private readonly ILogger<ClimateControlSkill> _logger;
     private readonly IDeviceCacheService _deviceCache;
     private readonly IEntityLocationService _locationService;
-    private readonly IEmbeddingSimilarityService _similarity;
+    private readonly IHybridEntityMatcher _entityMatcher;
+    private readonly IOptionsMonitor<ClimateControlSkillOptions> _options;
     private readonly int _comfortAdjustmentF;
     private ImmutableArray<ClimateEntity> _cachedDevices = [];
     private long _lastCacheUpdateTicks = DateTime.MinValue.Ticks;
-    private readonly TimeSpan _cacheRefreshInterval = TimeSpan.FromMinutes(30);
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
 
     private static readonly ActivitySource ActivitySource = new("Lucia.Skills.ClimateControl", "1.0.0");
@@ -49,7 +51,8 @@ public sealed class ClimateControlSkill : IAgentSkill
         ILogger<ClimateControlSkill> logger,
         IDeviceCacheService deviceCache,
         IEntityLocationService locationService,
-        IEmbeddingSimilarityService similarity,
+        IHybridEntityMatcher entityMatcher,
+        IOptionsMonitor<ClimateControlSkillOptions> options,
         IConfiguration configuration)
     {
         _homeAssistantClient = homeAssistantClient;
@@ -57,7 +60,8 @@ public sealed class ClimateControlSkill : IAgentSkill
         _logger = logger;
         _deviceCache = deviceCache;
         _locationService = locationService;
-        _similarity = similarity;
+        _entityMatcher = entityMatcher;
+        _options = options;
         _comfortAdjustmentF = configuration.GetValue("ClimateAgent:ComfortAdjustmentF", 3);
     }
 
@@ -77,6 +81,39 @@ public sealed class ClimateControlSkill : IAgentSkill
             AIFunctionFactory.Create(SetClimateSwingModeAsync),
             AIFunctionFactory.Create(GetComfortAdjustment)
         ];
+    }
+
+    // ── IOptimizableSkill ─────────────────────────────────────────
+
+    /// <inheritdoc/>
+    public string SkillDisplayName => "Climate Control";
+
+    /// <inheritdoc/>
+    public string SkillId => "climate-control";
+
+    /// <inheritdoc/>
+    public string ConfigSectionName => ClimateControlSkillOptions.SectionName;
+
+    /// <inheritdoc/>
+    public IReadOnlyList<string> EntityDomains { get; } = ["climate"];
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<IMatchableEntity>> GetCachedEntitiesAsync(CancellationToken cancellationToken = default)
+    {
+        await EnsureCacheIsCurrentAsync(cancellationToken).ConfigureAwait(false);
+        return _cachedDevices.CastArray<IMatchableEntity>();
+    }
+
+    /// <inheritdoc/>
+    public HybridMatchOptions GetCurrentMatchOptions()
+    {
+        var opts = _options.CurrentValue;
+        return new HybridMatchOptions
+        {
+            Threshold = opts.HybridSimilarityThreshold,
+            EmbeddingWeight = opts.EmbeddingWeight,
+            ScoreDropoffRatio = opts.ScoreDropoffRatio
+        };
     }
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -129,39 +166,47 @@ public sealed class ClimateControlSkill : IAgentSkill
 
         try
         {
-            var searchEmbedding = await _embeddingService!.GenerateAsync(searchTerm, cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            if (_embeddingService is null)
+            {
+                ClimateSearchFailures.Add(1);
+                return "Embedding provider not available for climate search.";
+            }
 
-            var deviceMatches = _cachedDevices
-                .Select(device => new { Device = device, Similarity = _similarity.ComputeSimilarity(searchEmbedding, device.NameEmbedding) })
-                .ToList();
+            var opts = _options.CurrentValue;
+            var matchOptions = new HybridMatchOptions
+            {
+                Threshold = opts.HybridSimilarityThreshold,
+                EmbeddingWeight = opts.EmbeddingWeight,
+                ScoreDropoffRatio = opts.ScoreDropoffRatio
+            };
 
-            const double similarityThreshold = 0.6;
+            var matches = await _entityMatcher.FindMatchesAsync(
+                searchTerm,
+                (IReadOnlyList<ClimateEntity>)_cachedDevices,
+                _embeddingService,
+                matchOptions).ConfigureAwait(false);
 
-            var matchingDevices = deviceMatches
-                .Where(x => x.Similarity >= similarityThreshold)
-                .OrderByDescending(x => x.Similarity)
-                .ToList();
-
-            if (matchingDevices.Count > 0)
+            if (matches.Count > 0)
             {
                 activity?.SetTag("match.type", "device");
-                activity?.SetTag("match.count", matchingDevices.Count);
+                activity?.SetTag("match.count", matches.Count);
+                activity?.SetTag("match.top_similarity", matches[0].HybridScore);
 
                 var sb = new StringBuilder();
-                if (matchingDevices.Count == 1)
+                if (matches.Count == 1)
                     sb.Append("Found climate device: ");
                 else
-                    sb.AppendLine($"Found {matchingDevices.Count} matching climate device(s):");
+                    sb.AppendLine($"Found {matches.Count} matching climate device(s):");
 
-                foreach (var match in matchingDevices)
+                foreach (var match in matches)
                 {
-                    var device = match.Device;
+                    var device = match.Entity;
                     var state = await _homeAssistantClient.GetEntityStateAsync(device.EntityId).ConfigureAwait(false);
                     if (state is null) continue;
 
                     var stateInfo = FormatClimateState(state, device);
 
-                    if (matchingDevices.Count == 1)
+                    if (matches.Count == 1)
                         sb.Append($"{device.FriendlyName} (Entity ID: {device.EntityId}), {stateInfo}");
                     else
                         sb.AppendLine($"- {device.FriendlyName} (Entity ID: {device.EntityId}), {stateInfo}");
@@ -169,7 +214,7 @@ public sealed class ClimateControlSkill : IAgentSkill
 
                 ClimateSearchSuccess.Add(1);
                 activity?.SetStatus(ActivityStatusCode.Ok);
-                return matchingDevices.Count == 1 ? sb.ToString() : sb.ToString().TrimEnd();
+                return matches.Count == 1 ? sb.ToString() : sb.ToString().TrimEnd();
             }
 
             // Fallback: use location service for area-based search
@@ -670,6 +715,12 @@ public sealed class ClimateControlSkill : IAgentSkill
 
                 if (allEmbeddingsFound)
                 {
+                    foreach (var device in cached)
+                    {
+                        if (device.PhoneticKeys.Length == 0)
+                            device.PhoneticKeys = StringSimilarity.BuildPhoneticKeys(device.FriendlyName);
+                    }
+
                     _cachedDevices = [.. cached];
                     Volatile.Write(ref _lastCacheUpdateTicks, DateTime.UtcNow.Ticks);
                     _logger.LogInformation("Loaded {Count} climate devices from Redis cache", cached.Count);
@@ -724,6 +775,7 @@ public sealed class ClimateControlSkill : IAgentSkill
                     EntityId = entity.EntityId,
                     FriendlyName = friendlyName,
                     NameEmbedding = embedding,
+                    PhoneticKeys = StringSimilarity.BuildPhoneticKeys(friendlyName),
                     Area = areaInfo?.Name,
                     HvacModes = hvacModes,
                     FanModes = fanModes,
@@ -760,13 +812,14 @@ public sealed class ClimateControlSkill : IAgentSkill
 
     private async Task EnsureCacheIsCurrentAsync(CancellationToken cancellationToken = default)
     {
-        if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) > _cacheRefreshInterval)
+        var cacheRefreshInterval = TimeSpan.FromMinutes(_options.CurrentValue.CacheRefreshMinutes);
+        if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) > cacheRefreshInterval)
         {
             if (!await _refreshLock.WaitAsync(0, cancellationToken).ConfigureAwait(false))
                 return;
             try
             {
-                if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) > _cacheRefreshInterval)
+                if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) > cacheRefreshInterval)
                     await RefreshCacheAsync(cancellationToken).ConfigureAwait(false);
             }
             finally

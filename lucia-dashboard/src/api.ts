@@ -13,6 +13,11 @@ import type {
   McpServerStatus,
   AgentDefinition,
   ModelProvider,
+  OptimizableSkillInfo,
+  SkillDeviceInfo,
+  TraceSearchTerm,
+  OptimizationTestCase,
+  JobStatusResponse,
 } from './types';
 
 const BASE = '/api';
@@ -447,6 +452,97 @@ export async function cancelTask(id: string): Promise<void> {
   if (!res.ok) throw new Error(`Failed to cancel task: ${res.statusText}`);
 }
 
+// ── Shopping List & Todo Lists ────────────────────────────────────────
+
+export interface ShoppingListItem {
+  id: string
+  name: string
+  complete: boolean
+}
+
+export interface TodoItem {
+  summary: string
+  uid: string
+  status: string
+}
+
+export interface TodoEntitySummary {
+  entityId: string
+  name: string
+}
+
+export async function fetchShoppingList(): Promise<ShoppingListItem[]> {
+  const res = await fetch(`${BASE}/shopping-list`)
+  if (!res.ok) throw new Error(`Failed to fetch shopping list: ${res.statusText}`)
+  return res.json()
+}
+
+export async function addShoppingItem(name: string): Promise<void> {
+  const res = await fetch(`${BASE}/shopping-list`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) throw new Error(`Failed to add item: ${res.statusText}`)
+}
+
+export async function completeShoppingItem(name: string): Promise<void> {
+  const res = await fetch(`${BASE}/shopping-list/complete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) throw new Error(`Failed to complete item: ${res.statusText}`)
+}
+
+export async function removeShoppingItem(name: string): Promise<void> {
+  const res = await fetch(`${BASE}/shopping-list/remove`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) throw new Error(`Failed to remove item: ${res.statusText}`)
+}
+
+export async function fetchTodoEntities(): Promise<TodoEntitySummary[]> {
+  const res = await fetch(`${BASE}/todo-lists`)
+  if (!res.ok) throw new Error(`Failed to fetch todo lists: ${res.statusText}`)
+  return res.json()
+}
+
+export async function fetchTodoItems(entityId: string): Promise<TodoItem[]> {
+  const res = await fetch(`${BASE}/todo-lists/${encodeURIComponent(entityId)}`)
+  if (!res.ok) throw new Error(`Failed to fetch todo items: ${res.statusText}`)
+  return res.json()
+}
+
+export async function addTodoItem(entityId: string, name: string): Promise<void> {
+  const res = await fetch(`${BASE}/todo-lists/${encodeURIComponent(entityId)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) throw new Error(`Failed to add item: ${res.statusText}`)
+}
+
+export async function completeTodoItem(entityId: string, item: string): Promise<void> {
+  const res = await fetch(`${BASE}/todo-lists/${encodeURIComponent(entityId)}/complete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ item }),
+  })
+  if (!res.ok) throw new Error(`Failed to complete item: ${res.statusText}`)
+}
+
+export async function removeTodoItem(entityId: string, item: string): Promise<void> {
+  const res = await fetch(`${BASE}/todo-lists/${encodeURIComponent(entityId)}/remove`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ item }),
+  })
+  if (!res.ok) throw new Error(`Failed to remove item: ${res.statusText}`)
+}
+
 // ── MCP Servers ──────────────────────────────────────────────────────
 
 export async function fetchMcpServers(): Promise<McpToolServerDefinition[]> {
@@ -492,14 +588,47 @@ export async function discoverMcpTools(serverId: string): Promise<McpToolInfo[]>
   return res.json();
 }
 
+async function parseApiError(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = await res.json();
+    if (body && typeof body.detail === 'string') return body.detail;
+    if (body && typeof body.title === 'string') return body.title;
+  } catch {
+    /* ignore */
+  }
+  return fallback;
+}
+
+const MCP_CONNECT_TIMEOUT_MS = 45_000; // Slightly longer than backend 30s timeout
+
 export async function connectMcpServer(id: string): Promise<void> {
-  const res = await fetch(`${BASE}/mcp-servers/${id}/connect`, { method: 'POST' });
-  if (!res.ok) throw new Error(`Failed to connect MCP server: ${res.statusText}`);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), MCP_CONNECT_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${BASE}/mcp-servers/${id}/connect`, {
+      method: 'POST',
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const msg = await parseApiError(res, `Failed to connect: ${res.statusText}`);
+      throw new Error(msg);
+    }
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error('Connection timed out. The MCP server may be unreachable.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 export async function disconnectMcpServer(id: string): Promise<void> {
   const res = await fetch(`${BASE}/mcp-servers/${id}/disconnect`, { method: 'POST' });
-  if (!res.ok) throw new Error(`Failed to disconnect MCP server: ${res.statusText}`);
+  if (!res.ok) {
+    const msg = await parseApiError(res, `Failed to disconnect: ${res.statusText}`);
+    throw new Error(msg);
+  }
 }
 
 export async function fetchMcpServerStatuses(): Promise<Record<string, McpServerStatus>> {
@@ -555,6 +684,14 @@ export async function reloadDynamicAgents(): Promise<void> {
   if (!res.ok) throw new Error(`Failed to reload agents: ${res.statusText}`);
 }
 
+/** Re-seed built-in agent definitions (e.g. lists-agent). Use when a new built-in agent was added but your instance was deployed before it existed. */
+export async function seedBuiltInAgentDefinitions(): Promise<string> {
+  const res = await fetch(`${BASE}/agent-definitions/seed`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to seed agents: ${res.statusText}`);
+  const text = await res.text();
+  return text.replace(/^"|"$/g, '');
+}
+
 // ── Model Providers ──────────────────────────────────────────────
 
 export async function fetchModelProviders(purpose?: import('./types').ModelPurpose): Promise<ModelProvider[]> {
@@ -605,6 +742,21 @@ export async function testModelProvider(id: string): Promise<{ success: boolean;
 
 export async function testEmbeddingProvider(id: string): Promise<{ success: boolean; message: string }> {
   const res = await fetch(`${BASE}/model-providers/${encodeURIComponent(id)}/test-embedding`, { method: 'POST' });
+  return res.json();
+}
+
+export interface OllamaModelsResponse {
+  models: string[];
+  error?: string;
+}
+
+export async function fetchOllamaModels(endpoint?: string): Promise<OllamaModelsResponse> {
+  const res = await fetch(`${BASE}/model-providers/ollama/models`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ endpoint: endpoint || null }),
+  });
+  if (!res.ok) throw new Error(`Failed to fetch Ollama models: ${res.statusText}`);
   return res.json();
 }
 
@@ -886,4 +1038,128 @@ export async function updatePresenceConfig(body: { enabled?: boolean }): Promise
   });
   if (!res.ok) throw new Error(`Failed to update presence config: ${res.statusText}`);
   return res.json();
+}
+
+// ── Skill Optimizer ─────────────────────────────────────────────
+
+export async function fetchOptimizableSkills(): Promise<OptimizableSkillInfo[]> {
+  const res = await fetch(`${BASE}/skill-optimizer/skills`);
+  if (!res.ok) throw new Error(`Failed to fetch skills: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchSkillDevices(skillId: string): Promise<SkillDeviceInfo[]> {
+  const res = await fetch(`${BASE}/skill-optimizer/skills/${skillId}/devices`);
+  if (!res.ok) throw new Error(`Failed to fetch devices: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchSkillTraces(skillId: string, limit?: number): Promise<TraceSearchTerm[]> {
+  const qs = limit ? `?limit=${limit}` : '';
+  const res = await fetch(`${BASE}/skill-optimizer/skills/${skillId}/traces${qs}`);
+  if (!res.ok) throw new Error(`Failed to fetch traces: ${res.statusText}`);
+  return res.json();
+}
+
+export async function startOptimization(
+  skillId: string,
+  embeddingModel: string,
+  testCases: OptimizationTestCase[],
+): Promise<{ jobId: string }> {
+  const res = await fetch(`${BASE}/skill-optimizer/skills/${skillId}/optimize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ embeddingModel, testCases }),
+  });
+  if (!res.ok) throw new Error(`Failed to start optimization: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchOptimizerJob(jobId: string): Promise<JobStatusResponse> {
+  const res = await fetch(`${BASE}/skill-optimizer/jobs/${jobId}`);
+  if (!res.ok) throw new Error(`Failed to fetch job: ${res.statusText}`);
+  return res.json();
+}
+
+export async function cancelOptimizerJob(jobId: string): Promise<void> {
+  const res = await fetch(`${BASE}/skill-optimizer/jobs/${jobId}/cancel`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to cancel job: ${res.statusText}`);
+}
+
+// ─── Plugin Repositories ───
+
+export async function fetchPluginRepos(): Promise<import('./types').PluginRepository[]> {
+  const res = await fetch(`${BASE}/plugin-repos`);
+  if (!res.ok) throw new Error(`Failed to fetch plugin repos`);
+  return res.json();
+}
+
+export async function addPluginRepo(body: { url: string; branch?: string; manifestPath?: string }): Promise<import('./types').PluginRepository> {
+  const res = await fetch(`${BASE}/plugin-repos`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Failed to add plugin repo`);
+  return res.json();
+}
+
+export async function deletePluginRepo(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/plugin-repos/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to delete plugin repo`);
+}
+
+export async function syncPluginRepo(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/plugin-repos/${id}/sync`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to sync plugin repo`);
+}
+
+// ─── Plugin Store ───
+
+export async function fetchAvailablePlugins(query?: string): Promise<import('./types').AvailablePlugin[]> {
+  const qs = query ? `?q=${encodeURIComponent(query)}` : '';
+  const res = await fetch(`${BASE}/plugins/available${qs}`);
+  if (!res.ok) throw new Error(`Failed to fetch available plugins`);
+  return res.json();
+}
+
+export async function installPlugin(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/plugins/${id}/install`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to install plugin`);
+}
+
+// ─── Installed Plugins ───
+
+export async function fetchInstalledPlugins(): Promise<import('./types').InstalledPlugin[]> {
+  const res = await fetch(`${BASE}/plugins/installed`);
+  if (!res.ok) throw new Error(`Failed to fetch installed plugins`);
+  return res.json();
+}
+
+export async function enablePlugin(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/plugins/${id}/enable`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to enable plugin`);
+}
+
+export async function disablePlugin(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/plugins/${id}/disable`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to disable plugin`);
+}
+
+export async function uninstallPlugin(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/plugins/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to uninstall plugin`);
+}
+
+// ─── System ───
+
+export async function fetchRestartRequired(): Promise<{ restartRequired: boolean }> {
+  const res = await fetch(`${BASE}/system/restart-required`);
+  if (!res.ok) throw new Error(`Failed to check restart status`);
+  return res.json();
+}
+
+export async function triggerRestart(): Promise<void> {
+  const res = await fetch(`${BASE}/system/restart`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to trigger restart`);
 }

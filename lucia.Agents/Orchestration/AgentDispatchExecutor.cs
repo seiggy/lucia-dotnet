@@ -13,6 +13,7 @@ namespace lucia.Agents.Orchestration;
 /// </summary>
 public sealed class AgentDispatchExecutor : Executor
 {
+    private static readonly ActivitySource DispatchActivitySource = new("Lucia.AgentDispatch", "1.0.0");
     private const string ClarificationSystemPrompt =
         """
         You are a friendly home assistant. The system couldn't confidently determine which 
@@ -237,19 +238,28 @@ public sealed class AgentDispatchExecutor : Executor
         IWorkflowContext context,
         CancellationToken cancellationToken)
     {
+        using var activity = DispatchActivitySource.StartActivity("AgentDispatch.InvokeAgent");
+        activity?.SetTag("agent.id", agentId);
+
         if (!_invokers.TryGetValue(agentId, out var invoker))
         {
             _logger.LogWarning("No invoker registered for agent {AgentId}.", agentId);
+            activity?.SetTag("agent.result", "no_invoker");
             return CreateFailureResponse(agentId, $"Agent '{agentId}' is not available.");
         }
 
         try
         {
-            return await invoker.InvokeAsync(userMessage, cancellationToken).ConfigureAwait(false);
+            var response = await invoker.InvokeAsync(userMessage, cancellationToken).ConfigureAwait(false);
+            activity?.SetTag("agent.result", response.Success ? "success" : "failure");
+            activity?.SetTag("agent.execution_time_ms", response.ExecutionTimeMs);
+            return response;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Agent '{AgentId}' execution failed.", agentId);
+            activity?.SetTag("agent.result", "exception");
+            activity?.SetTag("agent.error", ex.Message);
             return CreateFailureResponse(agentId, ex.Message);
         }
     }

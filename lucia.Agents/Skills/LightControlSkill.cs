@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using System.Collections.Immutable;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -9,6 +10,7 @@ using lucia.HomeAssistant.Services;
 using lucia.HomeAssistant.Models;
 using lucia.Agents.Models;
 using lucia.Agents.Services;
+using lucia.Agents.Configuration;
 using Microsoft.Extensions.AI;
 
 namespace lucia.Agents.Skills;
@@ -16,7 +18,7 @@ namespace lucia.Agents.Skills;
 /// <summary>
 /// Semantic Kernel plugin for Home Assistant light control with caching and similarity search
 /// </summary>
-public class LightControlSkill : IAgentSkill
+public class LightControlSkill : IAgentSkill, IOptimizableSkill
 {
     private readonly IHomeAssistantClient _homeAssistantClient;
     private readonly IEmbeddingProviderResolver _embeddingResolver;
@@ -25,9 +27,10 @@ public class LightControlSkill : IAgentSkill
     private readonly IDeviceCacheService _deviceCache;
     private readonly IEntityLocationService _locationService;
     private readonly IEmbeddingSimilarityService _similarity;
+    private readonly IHybridEntityMatcher _entityMatcher;
+    private readonly IOptionsMonitor<LightControlSkillOptions> _options;
     private ImmutableArray<LightEntity> _cachedLights = [];
     private long _lastCacheUpdateTicks = DateTime.MinValue.Ticks;
-    private readonly TimeSpan _cacheRefreshInterval = TimeSpan.FromMinutes(30);
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
 
     private static readonly ActivitySource ActivitySource = new("Lucia.Skills.LightControl", "1.0.0");
@@ -50,7 +53,9 @@ public class LightControlSkill : IAgentSkill
         ILogger<LightControlSkill> logger,
         IDeviceCacheService deviceCache,
         IEntityLocationService locationService,
-        IEmbeddingSimilarityService similarity)
+        IEmbeddingSimilarityService similarity,
+        IHybridEntityMatcher entityMatcher,
+        IOptionsMonitor<LightControlSkillOptions> options)
     {
         _homeAssistantClient = homeAssistantClient;
         _embeddingResolver = embeddingResolver;
@@ -58,6 +63,8 @@ public class LightControlSkill : IAgentSkill
         _deviceCache = deviceCache;
         _locationService = locationService;
         _similarity = similarity;
+        _entityMatcher = entityMatcher;
+        _options = options;
     }
 
     public IList<AITool> GetTools()
@@ -66,8 +73,41 @@ public class LightControlSkill : IAgentSkill
             AIFunctionFactory.Create(FindLightAsync),
             AIFunctionFactory.Create(FindLightsByAreaAsync),
             AIFunctionFactory.Create(GetLightStateAsync),
-            AIFunctionFactory.Create(SetLightStateAsync)
+            AIFunctionFactory.Create(SetLightStateAsync),
             ];
+    }
+
+    // ── IOptimizableSkill ─────────────────────────────────────────
+
+    /// <inheritdoc/>
+    public string SkillDisplayName => "Light Control";
+
+    /// <inheritdoc/>
+    public string SkillId => "light-control";
+
+    /// <inheritdoc/>
+    public string ConfigSectionName => LightControlSkillOptions.SectionName;
+
+    /// <inheritdoc/>
+    public IReadOnlyList<string> EntityDomains { get; } = ["light", "switch"];
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<IMatchableEntity>> GetCachedEntitiesAsync(CancellationToken cancellationToken = default)
+    {
+        await EnsureCacheIsCurrentAsync(cancellationToken).ConfigureAwait(false);
+        return _cachedLights.CastArray<IMatchableEntity>();
+    }
+
+    /// <inheritdoc/>
+    public HybridMatchOptions GetCurrentMatchOptions()
+    {
+        var opts = _options.CurrentValue;
+        return new HybridMatchOptions
+        {
+            Threshold = opts.HybridSimilarityThreshold,
+            EmbeddingWeight = opts.EmbeddingWeight,
+            ScoreDropoffRatio = opts.ScoreDropoffRatio
+        };
     }
 
     /// <summary>
@@ -230,39 +270,42 @@ public class LightControlSkill : IAgentSkill
                 return "Embedding provider not available for light search.";
             }
 
-            // Generate embedding for the search term
-            var searchEmbedding = await _embeddingService.GenerateAsync(searchTerm).ConfigureAwait(false);
-            activity?.SetTag("search.embedding.dimension", searchEmbedding.Vector.Length);
+            // Delegate to the generic hybrid entity matcher
+            var opts = _options.CurrentValue;
+            var matchOptions = new HybridMatchOptions
+            {
+                Threshold = opts.HybridSimilarityThreshold,
+                EmbeddingWeight = opts.EmbeddingWeight,
+                ScoreDropoffRatio = opts.ScoreDropoffRatio
+            };
 
-            // Search light names by embedding similarity
-            const double similarityThreshold = 0.6;
-            var matchingLights = _cachedLights
-                .Select(light => new { Light = light, Similarity = _similarity.ComputeSimilarity(searchEmbedding, light.NameEmbedding) })
-                .Where(x => x.Similarity >= similarityThreshold)
-                .OrderByDescending(x => x.Similarity)
-                .ToList();
+            var matches = await _entityMatcher.FindMatchesAsync(
+                searchTerm,
+                (IReadOnlyList<LightEntity>)_cachedLights,
+                _embeddingService,
+                matchOptions).ConfigureAwait(false);
 
-            if (matchingLights.Count > 0)
+            if (matches.Count > 0)
             {
                 activity?.SetTag("match.type", "light");
-                activity?.SetTag("match.count", matchingLights.Count);
-                activity?.SetTag("match.top_similarity", matchingLights[0].Similarity);
+                activity?.SetTag("match.count", matches.Count);
+                activity?.SetTag("match.top_similarity", matches[0].HybridScore);
 
                 var stringBuilder = new StringBuilder();
-                if (matchingLights.Count == 1)
+                if (matches.Count == 1)
                     stringBuilder.Append("Found light: ");
                 else
-                    stringBuilder.AppendLine($"Found {matchingLights.Count} matching light(s):");
+                    stringBuilder.AppendLine($"Found {matches.Count} matching light(s):");
 
-                foreach (var match in matchingLights)
+                foreach (var match in matches)
                 {
-                    var light = match.Light;
+                    var light = match.Entity;
                     var capabilities = GetCapabilityDescription(light);
                     var state = await _homeAssistantClient.GetEntityStateAsync(light.EntityId)
                         .ConfigureAwait(false);
                     if (state is null) continue;
 
-                    var entry = matchingLights.Count == 1
+                    var entry = matches.Count == 1
                         ? $"{light.FriendlyName} (Entity ID: {light.EntityId}){capabilities}, State: {state.State}"
                         : $"- {light.FriendlyName} (Entity ID: {light.EntityId}){capabilities}, State: {state.State}";
                     stringBuilder.Append(entry);
@@ -276,7 +319,7 @@ public class LightControlSkill : IAgentSkill
                     if (state.Attributes.TryGetValue("color_temp", out var colorTempObj))
                         stringBuilder.Append($" with color temperature {colorTempObj}");
 
-                    if (matchingLights.Count > 1) stringBuilder.AppendLine();
+                    if (matches.Count > 1) stringBuilder.AppendLine();
                 }
 
                 LightSearchSuccess.Add(1);
@@ -418,17 +461,17 @@ public class LightControlSkill : IAgentSkill
         }
     }
 
-    [Description("Control a light - turn on/off, set brightness, or change color")]
+    [Description("Control a light or set of lights to a new state - turn on/off, set brightness, or change color")]
     public async Task<string> SetLightStateAsync(
-        [Description("The entity ID of the light (e.g., 'light.living_room')")] string entityId,
+        [Description("The entity ID(s) of the light(s) (e.g., ['light.living_room'])")] string[] entityIds,
         [Description("Desired state: 'on' or 'off'")] string state,
-        [Description("Brightness level from 0-100 (optional, only for 'on' state)")] int? brightness = null,
-        [Description("Color name like 'red', 'blue', 'warm_white' (optional)")] string? color = null)
+        [Description("Brightness 0-100 for 'on' state; use -1 to omit")] int brightness = -1,
+        [Description("Color name like 'red', 'blue', 'warm_white'; use empty string to omit")] string color = "")
     {
         using var activity = ActivitySource.StartActivity();
-        activity?.SetTag("entity.id", entityId);
+        activity?.SetTag("entity.id", entityIds);
         activity?.SetTag("desired.state", state);
-        if (brightness.HasValue)
+        if (brightness >= 0)
         {
             activity?.SetTag("desired.brightness", brightness);
         }
@@ -442,72 +485,82 @@ public class LightControlSkill : IAgentSkill
 
         try
         {
-            _logger.LogDebug("Setting light {EntityId} to {State}, brightness: {Brightness}, color: {Color}",
-                entityId, state, brightness, color);
-
-            // Resolve friendly name for user-facing responses
-            var displayName = _cachedLights.FirstOrDefault(l => l.EntityId == entityId)?.FriendlyName ?? entityId;
-
-            var request = new ServiceCallRequest
+            var resultMessage = new StringBuilder();
+            foreach (var entityId in entityIds)
             {
-                ["entity_id"] = entityId
-            };
+                _logger.LogDebug("Setting light {EntityId} to {State}, brightness: {Brightness}, color: {Color}",
+                    entityId, state, brightness, color);
 
-            var isSwitch = entityId.StartsWith("switch.");
-            var domain = isSwitch ? "switch" : "light";
+                // Resolve friendly name for user-facing responses
+                var displayName = _cachedLights.FirstOrDefault(l => l.EntityId == entityId)?.FriendlyName ?? entityId;
 
-            if (state.ToLower() == "off")
-            {
-                await _homeAssistantClient.CallServiceAsync(domain, "turn_off", parameters: null, request).ConfigureAwait(false);
-                activity?.SetStatus(ActivityStatusCode.Ok);
-                return $"Light '{displayName}' turned off successfully.";
+                var request = new ServiceCallRequest
+                {
+                    ["entity_id"] = entityId
+                };
+
+                var isSwitch = entityId.StartsWith("switch.");
+                var domain = isSwitch ? "switch" : "light";
+
+                if (state.ToLower() == "off")
+                {
+                    await _homeAssistantClient.CallServiceAsync(domain, "turn_off", parameters: null, request)
+                        .ConfigureAwait(false);
+                    activity?.SetStatus(ActivityStatusCode.Ok);
+                    resultMessage.AppendLine($"Light '{displayName}' turned off successfully.");
+                }
+                else if (state.ToLower() == "on")
+                {
+                    if (brightness >= 0 && !isSwitch)
+                    {
+                        var haBrightness = Math.Max(1, Math.Min(255, (int)Math.Round(brightness / 100.0 * 255)));
+                        request["brightness"] = haBrightness;
+                    }
+
+                    if (!string.IsNullOrEmpty(color) && !isSwitch)
+                    {
+                        request["color_name"] = color;
+                    }
+
+                    await _homeAssistantClient.CallServiceAsync(domain, "turn_on", parameters: null, request)
+                        .ConfigureAwait(false);
+
+                    var result = $"Light '{displayName}' turned on successfully";
+                    if (brightness >= 0 && !isSwitch)
+                    {
+                        result += $" at {brightness}% brightness";
+                    }
+
+                    if (!string.IsNullOrEmpty(color) && !isSwitch)
+                    {
+                        result += $" with {color} color";
+                    }
+
+                    activity?.SetStatus(ActivityStatusCode.Ok);
+                    resultMessage.AppendLine($"{result}.");
+                }
+                else
+                {
+                    activity?.SetStatus(ActivityStatusCode.Error, "invalid-state");
+                    LightControlFailures.Add(1, [
+                        new KeyValuePair<string, object?>("reason", "invalid-state")
+                    ]);
+                    resultMessage.AppendLine($"Invalid state '{state}'. Use 'on' or 'off'.");
+                }
             }
-            else if (state.ToLower() == "on")
-            {
-                if (brightness.HasValue && !isSwitch)
-                {
-                    var haBrightness = Math.Max(1, Math.Min(255, (int)Math.Round(brightness.Value / 100.0 * 255)));
-                    request["brightness"] = haBrightness;
-                }
 
-                if (!string.IsNullOrEmpty(color) && !isSwitch)
-                {
-                    request["color_name"] = color;
-                }
-
-                await _homeAssistantClient.CallServiceAsync(domain, "turn_on", parameters: null, request).ConfigureAwait(false);
-
-                var result = $"Light '{displayName}' turned on successfully";
-                if (brightness.HasValue && !isSwitch)
-                {
-                    result += $" at {brightness}% brightness";
-                }
-                if (!string.IsNullOrEmpty(color) && !isSwitch)
-                {
-                    result += $" with {color} color";
-                }
-                activity?.SetStatus(ActivityStatusCode.Ok);
-                return result + ".";
-            }
-            else
-            {
-                activity?.SetStatus(ActivityStatusCode.Error, "invalid-state");
-                LightControlFailures.Add(1, [
-                    new KeyValuePair<string, object?>("reason", "invalid-state")
-                ]);
-                return $"Invalid state '{state}'. Use 'on' or 'off'.";
-            }
+            return resultMessage.ToString();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error setting light state for {EntityId}", entityId);
+            _logger.LogError(ex, "Error setting light state for {EntityId}", entityIds);
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
             activity?.SetTag("exception.type", ex.GetType().Name);
             activity?.SetTag("exception.message", ex.Message);
             LightControlFailures.Add(1, [
                 new KeyValuePair<string, object?>("reason", "exception")
             ]);
-            return $"Failed to control light '{entityId}': {ex.Message}";
+            return $"Failed to control light(s) '{entityIds}': {ex.Message}";
         }
         finally
         {
@@ -588,6 +641,10 @@ public class LightControlSkill : IAgentSkill
                     if (embedding is not null)
                     {
                         light.NameEmbedding = embedding;
+                        if (light.PhoneticKeys.Length == 0)
+                        {
+                            light.PhoneticKeys = StringSimilarity.BuildPhoneticKeys(light.FriendlyName);
+                        }
                         newLightsFromCache.Add(light);
                     }
                     else
@@ -659,7 +716,8 @@ public class LightControlSkill : IAgentSkill
                     FriendlyName = friendlyName,
                     SupportedColorModes = colorModes,
                     NameEmbedding = embedding,
-                    Area = areaInfo?.Name
+                    Area = areaInfo?.Name,
+                    PhoneticKeys = StringSimilarity.BuildPhoneticKeys(friendlyName)
                 };
 
                 newLights.Add(lightEntity);
@@ -721,14 +779,15 @@ public class LightControlSkill : IAgentSkill
 
     private async Task EnsureCacheIsCurrentAsync(CancellationToken cancellationToken = default)
     {
-        if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) > _cacheRefreshInterval)
+        var cacheRefreshInterval = TimeSpan.FromMinutes(_options.CurrentValue.CacheRefreshMinutes);
+        if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) > cacheRefreshInterval)
         {
             if (!await _refreshLock.WaitAsync(0, cancellationToken).ConfigureAwait(false))
                 return; // Another refresh is already in progress
             try
             {
                 // Double-check after acquiring the lock
-                if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) > _cacheRefreshInterval)
+                if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) > cacheRefreshInterval)
                 {
                     await RefreshLightCacheAsync(cancellationToken).ConfigureAwait(false);
                 }

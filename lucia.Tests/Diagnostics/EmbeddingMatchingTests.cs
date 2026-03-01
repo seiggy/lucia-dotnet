@@ -1,6 +1,8 @@
 using FakeItEasy;
+using lucia.Agents.Configuration;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using lucia.Agents.Services;
 using lucia.Agents.Skills;
 using lucia.Tests.TestDoubles;
@@ -118,7 +120,13 @@ public sealed class EmbeddingMatchingTests
         var loggerFactory = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Trace));
         var logger = loggerFactory.CreateLogger<LightControlSkill>();
 
-        var skill = new LightControlSkill(haClient, new StubEmbeddingProviderResolver(embGen), logger, A.Fake<IDeviceCacheService>(), A.Fake<IEntityLocationService>(), new EmbeddingSimilarityService());
+        var optionsMonitor = A.Fake<IOptionsMonitor<LightControlSkillOptions>>();
+        A.CallTo(() => optionsMonitor.CurrentValue).Returns(new LightControlSkillOptions());
+
+        var similarity = new EmbeddingSimilarityService();
+        var entityMatcher = new HybridEntityMatcher(similarity, loggerFactory.CreateLogger<HybridEntityMatcher>());
+
+        var skill = new LightControlSkill(haClient, new StubEmbeddingProviderResolver(embGen), logger, A.Fake<IDeviceCacheService>(), A.Fake<IEntityLocationService>(), similarity, entityMatcher, optionsMonitor);
 
         _output.WriteLine($"Calling FindLightAsync('{searchTerm}')...");
         var result = await skill.FindLightAsync(searchTerm);

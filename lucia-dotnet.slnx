@@ -19,6 +19,7 @@
   <Folder Name="/HomeAssistant/">
     <Project Path="lucia.HomeAssistant/lucia.HomeAssistant.csproj" />
   </Folder>
+  <Folder Name="/Plugins/" />
   <Folder Name="/Hosts/">
     <Project Path="lucia.A2AHost/lucia.A2AHost.csproj" Id="ae58b115-374f-40a6-93a1-b33882d25c6f" />
     <Project Path="lucia.AgentHost/lucia.AgentHost.csproj" />

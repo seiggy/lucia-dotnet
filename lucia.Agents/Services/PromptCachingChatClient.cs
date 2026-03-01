@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -12,12 +13,14 @@ namespace lucia.Agents.Services;
 
 /// <summary>
 /// IChatClient decorator that checks the prompt cache before forwarding to the inner client.
-/// Caches LLM responses (text and tool calls) so that repeated identical prompts skip the
-/// LLM call. Tool calls are replayed through the function-invoking layer, so tools still
-/// execute fresh every time — only the expensive LLM planning call is cached.
+/// Only the initial planning round (before any tool results) is cached — this ensures tool
+/// call decisions are reusable while live device state (from tool execution) is always fresh.
+/// Subsequent rounds that contain function results always bypass the cache entirely.
 /// </summary>
 public sealed class PromptCachingChatClient : DelegatingChatClient
 {
+    private static readonly ActivitySource ActivitySource = new("Lucia.ChatCache", "1.0.0");
+
     private readonly IPromptCacheService _cacheService;
     private readonly ILogger<PromptCachingChatClient> _logger;
 
@@ -41,47 +44,77 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
         ChatOptions? options = null,
         CancellationToken cancellationToken = default)
     {
+        using var activity = ActivitySource.StartActivity("ChatCache.GetResponse");
         var messageList = messages as IList<ChatMessage> ?? messages.ToList();
-        var normalizedKey = NormalizeChatKey(messageList, options);
 
-        // Check cache — we cache the LLM's planning decisions (tool selection +
-        // arguments) for ALL rounds including those with tool results in context.
-        // The cache key includes the full conversation so different tool results
-        // produce different keys (automatic cache miss). Tools always execute fresh
-        // because FunctionInvokingChatClient sits above this layer.
-        try
+        // Tag with message count and round type so traces show which step in
+        // the multi-call agent loop this is (planning vs tool-result summary)
+        activity?.SetTag("cache.message_count", messageList.Count);
+        activity?.SetTag("cache.has_function_calls",
+            messageList.Any(m => m.Contents?.OfType<FunctionCallContent>().Any() == true));
+
+        // Only cache the initial planning round (no tool results in context).
+        // Once tool results are present the LLM response depends on live device
+        // state (e.g. "light is already on") and must never be served from cache.
+        var hasToolResults = ContainsToolResults(messageList);
+        activity?.SetTag("cache.has_tool_results", hasToolResults);
+        activity?.SetTag("cache.round", hasToolResults ? "tool_summary" : "planning");
+
+        if (!hasToolResults)
         {
-            var cached = await _cacheService.TryGetCachedChatResponseAsync(normalizedKey, cancellationToken).ConfigureAwait(false);
-            if (cached is not null)
+            var normalizedKey = NormalizeChatKey(messageList, options);
+
+            try
             {
-                _logger.LogInformation("Chat cache hit — returning cached LLM decision (key={CacheKey})", cached.CacheKey);
-                return ReconstructResponse(cached);
+                var cached = await _cacheService.TryGetCachedChatResponseAsync(normalizedKey, cancellationToken).ConfigureAwait(false);
+                if (cached is not null)
+                {
+                    _logger.LogInformation("Chat cache hit — returning cached LLM decision (key={CacheKey})", cached.CacheKey);
+                    activity?.SetTag("cache.result", "hit");
+                    activity?.SetTag("cache.key", cached.CacheKey);
+                    activity?.SetTag("cache.function_calls", cached.FunctionCalls?.Count ?? 0);
+                    return ReconstructResponse(cached);
+                }
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Chat cache lookup failed, falling through to LLM");
-        }
-
-        // Cache miss — call the inner client
-        var response = await base.GetResponseAsync(messageList, options, cancellationToken).ConfigureAwait(false);
-
-        // Cache the LLM decision (tool selection or text response)
-        try
-        {
-            var data = ExtractCacheData(response);
-            if (data is not null)
+            catch (Exception ex)
             {
-                data.NormalizedPrompt = ExtractLastUserText(messageList);
-                await _cacheService.CacheChatResponseAsync(normalizedKey, data, CancellationToken.None).ConfigureAwait(false);
+                _logger.LogWarning(ex, "Chat cache lookup failed, falling through to LLM");
+                activity?.SetTag("cache.result", "error");
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to cache chat response");
+
+            // Cache miss — call the inner client
+            activity?.SetTag("cache.result", "miss");
+            var response = await base.GetResponseAsync(messageList, options, cancellationToken).ConfigureAwait(false);
+
+            // Cache the initial planning decision (tool selection only)
+            try
+            {
+                var data = ExtractCacheData(response);
+                if (data is not null)
+                {
+                    data.NormalizedPrompt = StripVolatileFields(ExtractLastUserText(messageList));
+                    await _cacheService.CacheChatResponseAsync(normalizedKey, data, CancellationToken.None).ConfigureAwait(false);
+                    activity?.SetTag("cache.stored", true);
+                }
+                else
+                {
+                    activity?.SetTag("cache.stored", false);
+                    activity?.SetTag("cache.skip_reason", "no_tool_calls");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to cache chat response");
+            }
+
+            return response;
         }
 
-        return response;
+        // Tool results present — bypass cache entirely, always call the LLM fresh
+        activity?.SetTag("cache.result", "bypass");
+        activity?.SetTag("cache.bypass_reason", "tool_results_present");
+        _logger.LogDebug("Skipping chat cache — conversation contains tool results");
+        return await base.GetResponseAsync(messageList, options, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -205,7 +238,6 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
         if (response.Messages is not { Count: > 0 })
             return null;
 
-        string? responseText = null;
         List<CachedFunctionCallData>? functionCalls = null;
 
         foreach (var message in response.Messages)
@@ -217,39 +249,29 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
             {
                 foreach (var content in message.Contents)
                 {
-                    switch (content)
+                    if (content is FunctionCallContent fc)
                     {
-                        case TextContent text when !string.IsNullOrWhiteSpace(text.Text):
-                            responseText = text.Text;
-                            break;
-
-                        case FunctionCallContent fc:
-                            functionCalls ??= [];
-                            functionCalls.Add(new CachedFunctionCallData
-                            {
-                                CallId = fc.CallId ?? string.Empty,
-                                Name = fc.Name,
-                                ArgumentsJson = fc.Arguments is not null
-                                    ? JsonSerializer.Serialize(fc.Arguments)
-                                    : null
-                            });
-                            break;
+                        functionCalls ??= [];
+                        functionCalls.Add(new CachedFunctionCallData
+                        {
+                            CallId = fc.CallId ?? string.Empty,
+                            Name = fc.Name,
+                            ArgumentsJson = fc.Arguments is not null
+                                ? JsonSerializer.Serialize(fc.Arguments)
+                                : null
+                        });
                     }
                 }
             }
-            else if (!string.IsNullOrWhiteSpace(message.Text))
-            {
-                responseText = message.Text;
-            }
         }
 
-        // Only cache if there's meaningful content
-        if (responseText is null && functionCalls is null)
+        // Only cache tool-call decisions — never plain text responses.
+        // Text responses reflect live device state and must not be served stale.
+        if (functionCalls is null)
             return null;
 
         return new CachedChatResponseData
         {
-            ResponseText = responseText,
             FunctionCalls = functionCalls,
             ModelId = response.ModelId
         };
@@ -299,5 +321,14 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
         }
 
         return "(no user message)";
+    }
+
+    /// <summary>
+    /// Strips volatile HA context fields (timestamp, day_of_week) from text
+    /// so the stored display prompt doesn't include per-request noise.
+    /// </summary>
+    internal static string StripVolatileFields(string text)
+    {
+        return VolatileHaFieldsPattern.Replace(text, string.Empty);
     }
 }

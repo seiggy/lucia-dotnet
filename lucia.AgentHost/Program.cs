@@ -1,5 +1,6 @@
 using lucia.AgentHost.Auth;
 using lucia.AgentHost.Extensions;
+using lucia.AgentHost.Services;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Auth;
 using lucia.Agents.Configuration;
@@ -12,6 +13,8 @@ using lucia.TimerAgent;
 using lucia.TimerAgent.ScheduledTasks;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Extensions.Logging;
+using OpenTelemetry.Trace;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -79,11 +82,49 @@ else
     builder.Services.AddSingleton<IAlarmClockRepository, MongoAlarmClockRepository>();
 }
 
+// Plugin directory configuration
+var pluginDir = builder.Configuration["PluginDirectory"]
+    ?? Path.Combine(AppContext.BaseDirectory, "plugins");
+
+// Plugin change tracking (restart banner)
+builder.Services.AddSingleton<PluginChangeTracker>();
+
+// Plugin repository sources (local for dev, git for production)
+builder.Services.AddSingleton<IPluginRepositorySource, LocalPluginRepositorySource>();
+builder.Services.AddSingleton<IPluginRepositorySource, GitPluginRepositorySource>();
+
+// Plugin management (repository CRUD, install, enable/disable)
+builder.Services.AddSingleton<IPluginManagementRepository, MongoPluginManagementRepository>();
+builder.Services.AddSingleton(sp =>
+{
+    return new PluginManagementService(
+        sp.GetRequiredService<IPluginManagementRepository>(),
+        sp.GetRequiredService<PluginChangeTracker>(),
+        sp.GetServices<IPluginRepositorySource>(),
+        sp.GetRequiredService<ILogger<PluginManagementService>>(),
+        pluginDir);
+});
+
+// Auto-discover ILuciaPlugin implementations (scripts + legacy DLLs)
+using var earlyLoggerFactory = LoggerFactory.Create(b => b.AddConsole());
+var pluginLogger = earlyLoggerFactory.CreateLogger("lucia.PluginLoader");
+var luciaPlugins = await PluginLoader.LoadPluginsAsync(pluginDir, pluginLogger)
+    .ConfigureAwait(false);
+
+// Register discovered plugins in DI so AgentInitializationService can invoke OnSystemReadyAsync
+foreach (var plugin in luciaPlugins)
+{
+    plugin.ConfigureServices(builder);
+    builder.Services.AddSingleton<ILuciaPlugin>(plugin);
+}
+
 // Trace capture services
 builder.Services.Configure<TraceCaptureOptions>(
     builder.Configuration.GetSection(TraceCaptureOptions.SectionName));
 builder.Services.AddSingleton<ITraceRepository, MongoTraceRepository>();
 builder.Services.AddSingleton<LiveActivityChannel>();
+builder.Services.AddSingleton<SpanCollectorProcessor>();
+builder.Services.AddSingleton<ISpanCollector>(sp => sp.GetRequiredService<SpanCollectorProcessor>());
 builder.Services.AddSingleton<TraceCaptureObserver>();
 builder.Services.AddSingleton<LiveActivityObserver>();
 builder.Services.AddSingleton<IOrchestratorObserver>(sp =>
@@ -92,6 +133,11 @@ builder.Services.AddSingleton<IOrchestratorObserver>(sp =>
         sp.GetRequiredService<LiveActivityObserver>(),
     ]));
 builder.Services.AddHostedService<TraceRetentionService>();
+
+// Register span collector as an OTEL processor so captured Lucia.* spans
+// can be attached to conversation traces for the waterfall timeline.
+builder.Services.AddOpenTelemetry()
+    .WithTracing(tracing => tracing.AddProcessor<SpanCollectorProcessor>());
 
 // Task archive services
 builder.Services.Configure<TaskArchiveOptions>(
@@ -154,6 +200,13 @@ builder.Services.AddAuthorization(options =>
 });
 
 builder.Services.AddHttpClient("AgentProxy");
+builder.Services.AddHttpClient("OllamaModels", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(15);
+});
+
+// Skill optimizer job manager
+builder.Services.AddSingleton<SkillOptimizerJobManager>();
 
 builder.Services.AddProblemDetails();
 
@@ -224,8 +277,56 @@ app.MapAgentDefinitionApi();
 app.MapModelProviderApi();
 app.MapActivityApi();
 app.MapAlarmClockApi();
+app.MapListsApi();
 app.MapPresenceApi();
+app.MapSkillOptimizerApi();
+app.MapPluginRepositoryApi();
+app.MapPluginStoreApi();
+app.MapInstalledPluginApi();
+app.MapSystemApi();
 app.MapDefaultEndpoints();
+
+// Bootstrap plugin repository into MongoDB
+var pluginMgmt = app.Services.GetRequiredService<PluginManagementService>();
+if (app.Environment.IsDevelopment())
+{
+    var repoRoot = builder.Configuration["PluginRegistryPath"] is { } regPath
+        ? Path.GetDirectoryName(Path.GetFullPath(regPath))!
+        : AppContext.BaseDirectory;
+
+    await pluginMgmt.EnsureRepositoryAsync(new PluginRepositoryDefinition
+    {
+        Id = "local-dev",
+        Name = "Local Development",
+        Type = "local",
+        Url = repoRoot,
+        ManifestPath = "lucia-plugins.json",
+        Enabled = true,
+    }).ConfigureAwait(false);
+}
+else
+{
+    await pluginMgmt.EnsureRepositoryAsync(new PluginRepositoryDefinition
+    {
+        Id = "lucia-official",
+        Name = "Lucia Official Plugins",
+        Type = "git",
+        Url = "https://github.com/seiggy/lucia-dotnet",
+        Branch = "master",
+        BlobSource = "release",
+        ManifestPath = "lucia-plugins.json",
+        Enabled = true,
+    }).ConfigureAwait(false);
+}
+
+// Let auto-discovered plugins run their startup logic
+foreach (var plugin in luciaPlugins)
+    await plugin.ExecuteAsync(app.Services)
+        .ConfigureAwait(false);
+
+// Let auto-discovered plugins map their endpoints
+foreach (var plugin in luciaPlugins)
+    plugin.MapEndpoints(app);
 
 // SPA hosting: serve React dashboard assets in production
 if (!app.Environment.IsDevelopment())

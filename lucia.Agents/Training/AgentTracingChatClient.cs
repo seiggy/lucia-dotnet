@@ -49,6 +49,23 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
         CurrentSessionId.Value = sessionId;
     }
 
+    // Accumulators that survive across multiple GetResponseAsync rounds
+    // within a single agent invocation (planning → tool execution → summary)
+    private readonly List<TracedMessage> _accumulatedMessages = [];
+    private readonly List<TracedToolCall> _accumulatedToolCalls = [];
+    private List<string>? _availableToolsSnapshot;
+    private double _totalElapsedMs;
+    private int _roundCount;
+
+    private void ResetAccumulators()
+    {
+        _accumulatedMessages.Clear();
+        _accumulatedToolCalls.Clear();
+        _availableToolsSnapshot = null;
+        _totalElapsedMs = 0;
+        _roundCount = 0;
+    }
+
     public override async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? options = null,
@@ -56,31 +73,30 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
     {
         var sessionId = CurrentSessionId.Value ?? Guid.NewGuid().ToString("N");
         var requestMessages = messages.ToList();
-        var tracedMessages = new List<TracedMessage>();
-        var tracedToolCalls = new List<TracedToolCall>();
         var availableTools = new List<string>();
 
-        // Capture request messages (system prompt, user input, prior history)
-        foreach (var msg in requestMessages)
-        {
-            tracedMessages.Add(new TracedMessage
-            {
-                Role = msg.Role.Value,
-                Content = ExtractTextContent(msg)
-            });
-
-            // Capture any function call/result content from prior turns
-            CaptureToolContentFromMessage(msg, tracedToolCalls);
-        }
-
-        // Capture available tools
-        if (options?.Tools is { Count: > 0 })
+        // Capture available tools (only on first call — they don't change between rounds)
+        if (options?.Tools is { Count: > 0 } && _accumulatedToolCalls.Count == 0)
         {
             foreach (var tool in options.Tools)
             {
                 if (tool is AIFunction fn)
                     availableTools.Add(fn.Name);
             }
+            _availableToolsSnapshot = availableTools;
+        }
+
+        // Capture request messages for this round
+        foreach (var msg in requestMessages)
+        {
+            _accumulatedMessages.Add(new TracedMessage
+            {
+                Role = msg.Role.Value,
+                Content = ExtractTextContent(msg)
+            });
+
+            // Capture any function call/result content from prior turns
+            CaptureToolContentFromMessage(msg, _accumulatedToolCalls);
         }
 
         var startTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -90,22 +106,25 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
             var response = await base.GetResponseAsync(requestMessages, options, cancellationToken).ConfigureAwait(false);
 
             var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds;
+            _totalElapsedMs += elapsed;
 
             // Capture response messages (assistant text, tool calls, tool results)
             if (response.Messages is { Count: > 0 })
             {
                 foreach (var msg in response.Messages)
                 {
-                    tracedMessages.Add(new TracedMessage
+                    _accumulatedMessages.Add(new TracedMessage
                     {
                         Role = msg.Role.Value,
                         Content = ExtractTextContent(msg)
                     });
 
-                    CaptureToolContentFromMessage(msg, tracedToolCalls);
+                    CaptureToolContentFromMessage(msg, _accumulatedToolCalls);
                     EmitLiveToolEvents(msg);
                 }
             }
+
+            _roundCount++;
 
             // Only persist on the final response — skip intermediate tool-call
             // round-trips so we get one complete trace per agent invocation.
@@ -119,14 +138,15 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
                     SessionId = sessionId,
                     UserInput = ExtractUserInput(requestMessages),
                     FinalResponse = response.Text,
-                    TotalDurationMs = elapsed,
+                    TotalDurationMs = _totalElapsedMs,
                     Metadata =
                     {
                         ["traceType"] = "agent",
                         ["agentId"] = _agentId,
                         ["toolMode"] = options?.ToolMode?.ToString() ?? "auto",
-                        ["availableTools"] = string.Join(", ", availableTools),
-                        ["modelId"] = response.ModelId ?? "unknown"
+                        ["availableTools"] = string.Join(", ", _availableToolsSnapshot ?? availableTools),
+                        ["modelId"] = response.ModelId ?? "unknown",
+                        ["llmRounds"] = _roundCount.ToString()
                     },
                     AgentExecutions =
                     [
@@ -134,15 +154,16 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
                         {
                             AgentId = _agentId,
                             ModelDeploymentName = response.ModelId,
-                            Messages = tracedMessages,
-                            ToolCalls = tracedToolCalls,
-                            ExecutionDurationMs = elapsed,
+                            Messages = _accumulatedMessages.ToList(),
+                            ToolCalls = _accumulatedToolCalls.ToList(),
+                            ExecutionDurationMs = _totalElapsedMs,
                             Success = true,
                             ResponseContent = response.Text
                         }
                     ]
                 };
 
+                ResetAccumulators();
                 _ = PersistTraceAsync(trace);
             }
 
@@ -151,34 +172,37 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
         catch (Exception ex)
         {
             var elapsed = System.Diagnostics.Stopwatch.GetElapsedTime(startTimestamp).TotalMilliseconds;
+            _totalElapsedMs += elapsed;
 
             var trace = new ConversationTrace
             {
                 SessionId = sessionId,
                 UserInput = ExtractUserInput(requestMessages),
-                TotalDurationMs = elapsed,
+                TotalDurationMs = _totalElapsedMs,
                 IsErrored = true,
                 ErrorMessage = ex.Message,
                 Metadata =
                 {
                     ["traceType"] = "agent",
                     ["agentId"] = _agentId,
-                    ["availableTools"] = string.Join(", ", availableTools)
+                    ["availableTools"] = string.Join(", ", _availableToolsSnapshot ?? availableTools),
+                    ["llmRounds"] = _roundCount.ToString()
                 },
                 AgentExecutions =
                 [
                     new AgentExecutionRecord
                     {
                         AgentId = _agentId,
-                        Messages = tracedMessages,
-                        ToolCalls = tracedToolCalls,
-                        ExecutionDurationMs = elapsed,
+                        Messages = _accumulatedMessages.ToList(),
+                        ToolCalls = _accumulatedToolCalls.ToList(),
+                        ExecutionDurationMs = _totalElapsedMs,
                         Success = false,
                         ErrorMessage = ex.Message
                     }
                 ]
             };
 
+            ResetAccumulators();
             _ = PersistTraceAsync(trace);
             throw;
         }

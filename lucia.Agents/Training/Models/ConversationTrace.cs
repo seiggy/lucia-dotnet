@@ -41,4 +41,10 @@ public sealed class ConversationTrace
     public string? ErrorMessage { get; set; }
 
     public Dictionary<string, string> Metadata { get; set; } = [];
+
+    /// <summary>
+    /// OTEL spans captured during this request lifecycle. Provides a waterfall
+    /// view of internal operations (routing, caching, agent dispatch, invoker, etc.).
+    /// </summary>
+    public List<TracedSpan> Spans { get; set; } = [];
 }
