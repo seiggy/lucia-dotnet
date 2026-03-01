@@ -51,6 +51,16 @@ export interface TraceLabel {
   labeledAt: string | null;
 }
 
+export interface TracedSpan {
+  spanId: string;
+  parentSpanId: string | null;
+  operationName: string;
+  source: string;
+  startTimeUtc: string;
+  durationMs: number;
+  tags: Record<string, string>;
+}
+
 export interface ConversationTrace {
   id: string;
   timestamp: string;
@@ -66,6 +76,7 @@ export interface ConversationTrace {
   label: TraceLabel;
   isErrored: boolean;
   errorMessage: string | null;
+  spans: TracedSpan[];
 }
 
 export interface PagedResult<T> {

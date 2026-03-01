@@ -14,6 +14,7 @@ using lucia.TimerAgent.ScheduledTasks;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Logging;
+using OpenTelemetry.Trace;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -122,6 +123,8 @@ builder.Services.Configure<TraceCaptureOptions>(
     builder.Configuration.GetSection(TraceCaptureOptions.SectionName));
 builder.Services.AddSingleton<ITraceRepository, MongoTraceRepository>();
 builder.Services.AddSingleton<LiveActivityChannel>();
+builder.Services.AddSingleton<SpanCollectorProcessor>();
+builder.Services.AddSingleton<ISpanCollector>(sp => sp.GetRequiredService<SpanCollectorProcessor>());
 builder.Services.AddSingleton<TraceCaptureObserver>();
 builder.Services.AddSingleton<LiveActivityObserver>();
 builder.Services.AddSingleton<IOrchestratorObserver>(sp =>
@@ -130,6 +133,11 @@ builder.Services.AddSingleton<IOrchestratorObserver>(sp =>
         sp.GetRequiredService<LiveActivityObserver>(),
     ]));
 builder.Services.AddHostedService<TraceRetentionService>();
+
+// Register span collector as an OTEL processor so captured Lucia.* spans
+// can be attached to conversation traces for the waterfall timeline.
+builder.Services.AddOpenTelemetry()
+    .WithTracing(tracing => tracing.AddProcessor<SpanCollectorProcessor>());
 
 // Task archive services
 builder.Services.Configure<TaskArchiveOptions>(

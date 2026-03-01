@@ -21,6 +21,7 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
     private readonly ITraceRepository _repository;
     private readonly TraceCaptureOptions _options;
     private readonly ILogger<TraceCaptureObserver> _logger;
+    private readonly ISpanCollector? _spanCollector;
     private readonly Regex[] _redactionRegexes;
 
     /// <summary>
@@ -33,11 +34,13 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
     public TraceCaptureObserver(
         ITraceRepository repository,
         IOptions<TraceCaptureOptions> options,
-        ILogger<TraceCaptureObserver> logger)
+        ILogger<TraceCaptureObserver> logger,
+        ISpanCollector? spanCollector = null)
     {
         _repository = repository;
         _options = options.Value;
         _logger = logger;
+        _spanCollector = spanCollector;
         _redactionRegexes = _options.RedactionPatterns
             .Select(p => new Regex(p, RegexOptions.Compiled | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1)))
             .ToArray();
@@ -75,6 +78,7 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
         });
 
         var active = new ActiveTrace(trace, Stopwatch.StartNew());
+        active.OtelTraceId = Activity.Current?.TraceId.ToString();
         _activeTraces[requestId] = active;
 
         // Share the session ID with the per-agent tracing chat client
@@ -176,6 +180,12 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
             }
         }
 
+        // Pull OTEL spans collected during this request lifecycle
+        if (_spanCollector is not null && active.OtelTraceId is not null)
+        {
+            trace.Spans = _spanCollector.TakeSpans(active.OtelTraceId);
+        }
+
         // Persist trace — await to surface any errors
         try
         {
@@ -234,6 +244,7 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
     {
         public ConversationTrace Trace { get; } = trace;
         public Stopwatch Stopwatch { get; } = stopwatch;
+        public string? OtelTraceId { get; set; }
         public object SyncRoot { get; } = new();
     }
 }

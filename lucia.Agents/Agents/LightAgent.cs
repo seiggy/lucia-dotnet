@@ -117,6 +117,9 @@ public sealed class LightAgent : ILuciaAgent
                     an area with the plurality of 'lights', they likely want all lights in that area, so you
                     should use FindLightsByArea instead of FindLight, as there may be more than one light
                     in the area the user wants controlled.
+                - IMPORTANT: When the user asks to turn on/off lights in an area, you MUST call
+                    SetLightState for EVERY light returned by FindLightsByArea, not just the first one.
+                    Issue all SetLightState calls in a single response (parallel tool calls).
 
                 ## Response format
                 * Keep your responses short and informative only. Examples: "I've turned on the kitchen lights.", "I've set the office lights to red."
