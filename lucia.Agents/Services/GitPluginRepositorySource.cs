@@ -201,16 +201,25 @@ public sealed class GitPluginRepositorySource : IPluginRepositorySource
             Directory.Delete(targetPath, recursive: true);
         Directory.CreateDirectory(targetPath);
 
+        var fullTargetPath = Path.GetFullPath(targetPath + Path.DirectorySeparatorChar);
+
         foreach (var entry in archive.Entries)
         {
             if (entry.FullName.EndsWith('/'))
                 continue;
 
-            var destPath = Path.Combine(targetPath, entry.FullName);
-            Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
+            var rawDestPath = Path.Combine(targetPath, entry.FullName);
+            var fullDestPath = Path.GetFullPath(rawDestPath);
+
+            if (!fullDestPath.StartsWith(fullTargetPath, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"Entry is outside the target directory: {entry.FullName}");
+            }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(fullDestPath)!);
 
             await using var entryStream = entry.Open();
-            await using var fileStream = File.Create(destPath);
+            await using var fileStream = File.Create(fullDestPath);
             await entryStream.CopyToAsync(fileStream, ct).ConfigureAwait(false);
         }
 
