@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -21,6 +22,8 @@ namespace lucia.Agents.Orchestration;
 public sealed class RouterExecutor : Executor
 {
     public const string ExecutorId = "RouterExecutor";
+
+    private static readonly ActivitySource ActivitySource = new("Lucia.RouterCache", "1.0.0");
 
     /// <summary>
     /// Shared serializer options for parsing structured router responses.
@@ -68,15 +71,19 @@ public sealed class RouterExecutor : Executor
     public async ValueTask<AgentChoiceResult> HandleAsync(ChatMessage message, IWorkflowContext context, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(message);
+        using var activity = ActivitySource.StartActivity("RouterCache.Route");
 
         var availableAgents = await FetchAgentsAsync(cancellationToken).ConfigureAwait(false);
         if (availableAgents.Count == 0)
         {
             _logger.LogWarning("RouterExecutor invoked with no registered agents; falling back.");
+            activity?.SetTag("router.result", "fallback");
+            activity?.SetTag("router.reason", "no_agents");
             return CreateFallbackResult("No registered agents available for routing.");
         }
 
         var userRequest = ExtractUserText(message);
+        activity?.SetTag("router.agent_count", availableAgents.Count);
 
         // Check prompt cache for a cached routing decision
         if (_promptCache is not null)
@@ -93,6 +100,7 @@ public sealed class RouterExecutor : Executor
                     {
                         _logger.LogInformation(
                             "Router cache hit for multi-agent routing but missing agentInstructions — bypassing cache");
+                        activity?.SetTag("router.cache", "stale_bypass");
                     }
                     else
                     {
@@ -100,6 +108,11 @@ public sealed class RouterExecutor : Executor
                             "Router cache hit (exact={IsExact}, similarity={Score:F3}): routing to {AgentId}, hasInstructions={HasInstructions}",
                             cached.IsExactMatch, cached.SimilarityScore, cached.RoutingDecision.AgentId,
                             cached.RoutingDecision.AgentInstructions?.Count > 0);
+                        activity?.SetTag("router.cache", "hit");
+                        activity?.SetTag("router.cache.exact", cached.IsExactMatch);
+                        activity?.SetTag("router.cache.similarity", cached.SimilarityScore);
+                        activity?.SetTag("router.agent_id", cached.RoutingDecision.AgentId);
+                        activity?.SetTag("router.confidence", cached.RoutingDecision.Confidence);
                         return cached.RoutingDecision;
                     }
                 }
@@ -107,8 +120,11 @@ public sealed class RouterExecutor : Executor
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Router cache lookup failed, falling through to LLM");
+                activity?.SetTag("router.cache", "error");
             }
         }
+
+        activity?.SetTag("router.cache", "miss");
 
         var chatMessages = BuildChatMessages(userRequest, availableAgents);
         var chatOptions = BuildChatOptions();
@@ -156,6 +172,10 @@ public sealed class RouterExecutor : Executor
         // Attach the router system prompt for trace capture
         var systemMessage = chatMessages.FirstOrDefault(m => m.Role == ChatRole.System);
         parsed.RouterSystemPrompt = systemMessage?.Text;
+
+        activity?.SetTag("router.result", "llm");
+        activity?.SetTag("router.agent_id", parsed.AgentId);
+        activity?.SetTag("router.confidence", parsed.Confidence);
 
         _logger.LogInformation(
             "RouterExecutor result: agentId={AgentId}, additionalAgents=[{Additional}], hasInstructions={HasInstructions}, confidence={Confidence}",

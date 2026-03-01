@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -18,6 +19,8 @@ namespace lucia.Agents.Services;
 /// </summary>
 public sealed class PromptCachingChatClient : DelegatingChatClient
 {
+    private static readonly ActivitySource ActivitySource = new("Lucia.ChatCache", "1.0.0");
+
     private readonly IPromptCacheService _cacheService;
     private readonly ILogger<PromptCachingChatClient> _logger;
 
@@ -41,12 +44,14 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
         ChatOptions? options = null,
         CancellationToken cancellationToken = default)
     {
+        using var activity = ActivitySource.StartActivity("ChatCache.GetResponse");
         var messageList = messages as IList<ChatMessage> ?? messages.ToList();
 
         // Only cache the initial planning round (no tool results in context).
         // Once tool results are present the LLM response depends on live device
         // state (e.g. "light is already on") and must never be served from cache.
         var hasToolResults = ContainsToolResults(messageList);
+        activity?.SetTag("cache.has_tool_results", hasToolResults);
 
         if (!hasToolResults)
         {
@@ -58,18 +63,23 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
                 if (cached is not null)
                 {
                     _logger.LogInformation("Chat cache hit — returning cached LLM decision (key={CacheKey})", cached.CacheKey);
+                    activity?.SetTag("cache.result", "hit");
+                    activity?.SetTag("cache.key", cached.CacheKey);
+                    activity?.SetTag("cache.function_calls", cached.FunctionCalls?.Count ?? 0);
                     return ReconstructResponse(cached);
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Chat cache lookup failed, falling through to LLM");
+                activity?.SetTag("cache.result", "error");
             }
 
             // Cache miss — call the inner client
+            activity?.SetTag("cache.result", "miss");
             var response = await base.GetResponseAsync(messageList, options, cancellationToken).ConfigureAwait(false);
 
-            // Cache the initial planning decision (tool selection or direct text response)
+            // Cache the initial planning decision (tool selection only)
             try
             {
                 var data = ExtractCacheData(response);
@@ -77,6 +87,12 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
                 {
                     data.NormalizedPrompt = StripVolatileFields(ExtractLastUserText(messageList));
                     await _cacheService.CacheChatResponseAsync(normalizedKey, data, CancellationToken.None).ConfigureAwait(false);
+                    activity?.SetTag("cache.stored", true);
+                }
+                else
+                {
+                    activity?.SetTag("cache.stored", false);
+                    activity?.SetTag("cache.skip_reason", "no_tool_calls");
                 }
             }
             catch (Exception ex)
@@ -88,6 +104,8 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
         }
 
         // Tool results present — bypass cache entirely, always call the LLM fresh
+        activity?.SetTag("cache.result", "bypass");
+        activity?.SetTag("cache.bypass_reason", "tool_results_present");
         _logger.LogDebug("Skipping chat cache — conversation contains tool results");
         return await base.GetResponseAsync(messageList, options, cancellationToken).ConfigureAwait(false);
     }
