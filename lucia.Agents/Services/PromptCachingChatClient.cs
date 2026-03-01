@@ -47,11 +47,18 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
         using var activity = ActivitySource.StartActivity("ChatCache.GetResponse");
         var messageList = messages as IList<ChatMessage> ?? messages.ToList();
 
+        // Tag with message count and round type so traces show which step in
+        // the multi-call agent loop this is (planning vs tool-result summary)
+        activity?.SetTag("cache.message_count", messageList.Count);
+        activity?.SetTag("cache.has_function_calls",
+            messageList.Any(m => m.Contents?.OfType<FunctionCallContent>().Any() == true));
+
         // Only cache the initial planning round (no tool results in context).
         // Once tool results are present the LLM response depends on live device
         // state (e.g. "light is already on") and must never be served from cache.
         var hasToolResults = ContainsToolResults(messageList);
         activity?.SetTag("cache.has_tool_results", hasToolResults);
+        activity?.SetTag("cache.round", hasToolResults ? "tool_summary" : "planning");
 
         if (!hasToolResults)
         {
