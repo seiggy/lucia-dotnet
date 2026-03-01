@@ -63,9 +63,13 @@ public class LuciaEngine
                 throw new ArgumentException("User request cannot be empty.", nameof(userRequest));
             }
 
-            // 1. Session & task lifecycle
-            var sessionData = await _sessionManager.LoadSessionAsync(sessionId, cancellationToken).ConfigureAwait(false);
-            var agentTask = await _sessionManager.LoadOrCreateTaskAsync(taskId, sessionId, cancellationToken).ConfigureAwait(false);
+            // 1. Session & task lifecycle — load in parallel since they're independent
+            var sessionTask = _sessionManager.LoadSessionAsync(sessionId, cancellationToken);
+            var agentTaskTask = _sessionManager.LoadOrCreateTaskAsync(taskId, sessionId, cancellationToken);
+            await Task.WhenAll(sessionTask, agentTaskTask).ConfigureAwait(false);
+
+            var sessionData = sessionTask.Result;
+            var agentTask = agentTaskTask.Result;
 
             // Add user message to task history
             var userMessage = new AgentMessage
@@ -80,13 +84,15 @@ public class LuciaEngine
             agentTask.History ??= new List<AgentMessage>();
             agentTask.History.Add(userMessage);
 
-            await _sessionManager.UpdateTaskStatusAsync(
-                agentTask.Id, TaskState.Working, message: userMessage, final: false, cancellationToken).ConfigureAwait(false);
+            // 2. Agent resolution & task status update in parallel — they're independent
+            var updateWorkingTask = _sessionManager.UpdateTaskStatusAsync(
+                agentTask.Id, TaskState.Working, message: userMessage, final: false, cancellationToken);
+            var agentCardsTask = _agentRegistry
+                .GetAllAgentsAsync(cancellationToken);
 
-            // 2. Agent resolution & workflow execution
-            var availableAgentCards = await _agentRegistry
-                .GetAllAgentsAsync(cancellationToken)
-                .ConfigureAwait(false);
+            await Task.WhenAll(updateWorkingTask, agentCardsTask).ConfigureAwait(false);
+
+            var availableAgentCards = agentCardsTask.Result;
 
             if (availableAgentCards.Count == 0)
             {
@@ -154,14 +160,17 @@ public class LuciaEngine
             agentTask.History.Add(assistantMessage);
 
             var finalState = needsInput ? TaskState.InputRequired : TaskState.Completed;
-            await _sessionManager.UpdateTaskStatusAsync(
-                agentTask.Id, finalState, message: assistantMessage, final: !needsInput, CancellationToken.None).ConfigureAwait(false);
+
+            // Persist task status and session in parallel — response is already computed
+            await Task.WhenAll(
+                _sessionManager.UpdateTaskStatusAsync(
+                    agentTask.Id, finalState, message: assistantMessage, final: !needsInput, CancellationToken.None),
+                _sessionManager.SaveSessionAsync(
+                    sessionId, sessionData, userRequest, finalText, CancellationToken.None)
+            ).ConfigureAwait(false);
 
             _logger.LogInformation("Task {TaskId} ended with state {TaskState} and {HistoryCount} history items",
                 agentTask.Id, finalState, agentTask.History.Count);
-
-            await _sessionManager.SaveSessionAsync(
-                sessionId, sessionData, userRequest, finalText, CancellationToken.None).ConfigureAwait(false);
 
             return new OrchestratorResult { Text = finalText, NeedsInput = needsInput };
         }
