@@ -20,8 +20,7 @@ public sealed class DurableTaskPersistenceTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         // Start Redis container using Testcontainers
-        _redisContainer = new RedisBuilder()
-            .WithImage("redis:7-alpine")
+        _redisContainer = new RedisBuilder("redis:7-alpine")
             .Build();
 
         await _redisContainer.StartAsync();

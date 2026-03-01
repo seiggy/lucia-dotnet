@@ -80,7 +80,7 @@ public sealed class CopilotClientLifecycleService : IHostedService, IAsyncDispos
 
             if (!string.IsNullOrWhiteSpace(provider.Auth.ApiKey))
             {
-                options.GithubToken = provider.Auth.ApiKey;
+                options.GitHubToken = provider.Auth.ApiKey;
             }
 
             var client = new CopilotClient(options);
