@@ -103,13 +103,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if not agents:
                 _LOGGER.warning(
                     "Agent catalog at %s is empty (no agents registered yet). "
-                    "Ensure Lucia agent services have started and registered with the repository.",
+                    "Setup will complete; agents will be available once Lucia services start.",
                     catalog_url,
-                )
-                await httpx_client.aclose()
-                raise ConfigEntryNotReady(
-                    "No agents registered at the repository yet. "
-                    "Ensure Lucia agent services have started and registered, then try again."
                 )
 
             _LOGGER.info("Discovered %d agent(s) from catalog", len(agents))
@@ -137,38 +132,42 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # Fall back to orchestrator (full assistant) or first agent if no selection or not found
             if not agent_card:
                 if not agents:
-                    _LOGGER.error("No agents found in catalog")
-                    await httpx_client.aclose()
-                    raise ConfigEntryNotReady(f"No agents available at {repository}")
-                # Prefer orchestrator so voice/conversation uses the full assistant (lights, music, etc.)
-                for a in agents:
-                    if (a.get("name") or "").lower() == "orchestrator":
-                        agent_card = a
-                        _LOGGER.info("Using default agent: orchestrator (full assistant)")
-                        break
-                if not agent_card:
-                    agent_card = agents[0]
-                    _LOGGER.info("Using default agent (first in catalog): %s", agent_card.get("name", "unknown"))
+                    _LOGGER.warning(
+                        "No agents in catalog; integration will operate in degraded mode "
+                        "(conversation will return an informational message) until agents register."
+                    )
+                else:
+                    # Prefer orchestrator so voice/conversation uses the full assistant (lights, music, etc.)
+                    for a in agents:
+                        if (a.get("name") or "").lower() == "orchestrator":
+                            agent_card = a
+                            _LOGGER.info("Using default agent: orchestrator (full assistant)")
+                            break
+                    if not agent_card:
+                        agent_card = agents[0]
+                        _LOGGER.info("Using default agent (first in catalog): %s", agent_card.get("name", "unknown"))
 
-            agent_name = agent_card.get("name", "unknown")
-            agent_version = agent_card.get("version", "unknown")
-            agent_relative_url = agent_card.get("url", "")
+            agent_url = None
+            if agent_card:
+                agent_name = agent_card.get("name", "unknown")
+                agent_version = agent_card.get("version", "unknown")
+                agent_relative_url = agent_card.get("url", "")
 
-            # Convert relative URL to absolute
-            if agent_relative_url.startswith(("http://", "https://")):
-                agent_url = agent_relative_url
-            elif agent_relative_url.startswith("/"):
-                agent_url = f"{repository}{agent_relative_url}"
-            else:
-                # Fallback: relative path or placeholder like "unknown/agent"
-                agent_url = f"{repository}/{agent_relative_url.lstrip('/')}"
+                # Convert relative URL to absolute
+                if agent_relative_url.startswith(("http://", "https://")):
+                    agent_url = agent_relative_url
+                elif agent_relative_url.startswith("/"):
+                    agent_url = f"{repository}{agent_relative_url}"
+                else:
+                    # Fallback: relative path or placeholder like "unknown/agent"
+                    agent_url = f"{repository}/{agent_relative_url.lstrip('/')}"
 
-            _LOGGER.info(
-                "Using agent: %s (version: %s) at %s",
-                agent_name,
-                agent_version,
-                agent_url
-            )
+                _LOGGER.info(
+                    "Using agent: %s (version: %s) at %s",
+                    agent_name,
+                    agent_version,
+                    agent_url
+                )
 
         except httpx.HTTPStatusError as err:
             _LOGGER.error("Failed to fetch agent catalog (HTTP %s): %s", err.response.status_code, err)
