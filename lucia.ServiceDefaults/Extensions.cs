@@ -83,6 +83,7 @@ public static class Extensions
                     .AddSource("Lucia.RouterCache")
                     .AddSource("Lucia.ChatCache")
                     .AddSource("Lucia.Services.PromptCache")
+                    .AddSource("Lucia.AgentInvoker")
                     .AddSource("Lucia.Agents.General")
                     .AddSource("Lucia.Agents.Music")
                     .AddSource("Lucia.Skills.LightControl")

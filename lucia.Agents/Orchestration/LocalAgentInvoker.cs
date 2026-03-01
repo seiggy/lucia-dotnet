@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using lucia.Agents.Orchestration.Models;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Hosting;
@@ -14,6 +15,8 @@ namespace lucia.Agents.Orchestration;
 /// </summary>
 public sealed class LocalAgentInvoker : IAgentInvoker
 {
+    private static readonly ActivitySource ActivitySource = new("Lucia.AgentInvoker", "1.0.0");
+
     private readonly AIHostAgent _hostAgent;
     private readonly ILogger _logger;
     private readonly AgentInvokerOptions _options;
@@ -43,6 +46,8 @@ public sealed class LocalAgentInvoker : IAgentInvoker
     {
         var startTimestamp = _timeProvider.GetTimestamp();
         using var linkedCts = CreateTimeoutCts(cancellationToken);
+        using var activity = ActivitySource.StartActivity("AgentInvoker.Invoke");
+        activity?.SetTag("agent.id", AgentId);
 
         try
         {
@@ -59,8 +64,14 @@ public sealed class LocalAgentInvoker : IAgentInvoker
                 contextId = existingCtx;
             }
 
-            var session = await _hostAgent.GetOrCreateSessionAsync(contextId, linkedCts.Token)
-                .ConfigureAwait(false);
+            AgentSession session;
+            using (var sessionLoadActivity = ActivitySource.StartActivity("AgentInvoker.LoadSession"))
+            {
+                sessionLoadActivity?.SetTag("agent.id", AgentId);
+                sessionLoadActivity?.SetTag("session.context_id", contextId);
+                session = await _hostAgent.GetOrCreateSessionAsync(contextId, linkedCts.Token)
+                    .ConfigureAwait(false);
+            }
 
             var chatMessages = new List<ChatMessage>
             {
@@ -73,13 +84,24 @@ public sealed class LocalAgentInvoker : IAgentInvoker
                 }
             };
 
-            var response = await _hostAgent.RunAsync(
-                chatMessages,
-                session: session,
-                cancellationToken: linkedCts.Token).ConfigureAwait(false);
+            AgentResponse response;
+            using (var runActivity = ActivitySource.StartActivity("AgentInvoker.RunAgent"))
+            {
+                runActivity?.SetTag("agent.id", AgentId);
+                response = await _hostAgent.RunAsync(
+                    chatMessages,
+                    session: session,
+                    cancellationToken: linkedCts.Token)
+                    .ConfigureAwait(false);
+            }
 
-            await _hostAgent.SaveSessionAsync(contextId, session, linkedCts.Token)
-                .ConfigureAwait(false);
+            using (var saveActivity = ActivitySource.StartActivity("AgentInvoker.SaveSession"))
+            {
+                saveActivity?.SetTag("agent.id", AgentId);
+                saveActivity?.SetTag("session.context_id", contextId);
+                await _hostAgent.SaveSessionAsync(contextId, session, linkedCts.Token)
+                    .ConfigureAwait(false);
+            }
 
             // Detect NeedsInput via the same property the A2A endpoint uses, or infer from
             // clarification-style responses (e.g. "Which one do you want?") so voice pipelines
