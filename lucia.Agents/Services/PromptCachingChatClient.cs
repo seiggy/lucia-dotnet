@@ -75,7 +75,7 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
                 var data = ExtractCacheData(response);
                 if (data is not null)
                 {
-                    data.NormalizedPrompt = ExtractLastUserText(messageList);
+                    data.NormalizedPrompt = StripVolatileFields(ExtractLastUserText(messageList));
                     await _cacheService.CacheChatResponseAsync(normalizedKey, data, CancellationToken.None).ConfigureAwait(false);
                 }
             }
@@ -307,5 +307,14 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
         }
 
         return "(no user message)";
+    }
+
+    /// <summary>
+    /// Strips volatile HA context fields (timestamp, day_of_week) from text
+    /// so the stored display prompt doesn't include per-request noise.
+    /// </summary>
+    internal static string StripVolatileFields(string text)
+    {
+        return VolatileHaFieldsPattern.Replace(text, string.Empty);
     }
 }
