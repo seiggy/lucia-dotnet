@@ -9,6 +9,7 @@ NAME = "Lucia A2A Agent"
 # Configuration
 CONF_REPOSITORY = "repository"
 CONF_API_KEY = "api_key"
+CONF_VERIFY_SSL = "verify_ssl"
 CONF_AGENT_ID = "agent_id"
 CONF_AGENT_NAME = "agent_name"
 CONF_PROMPT = "prompt"

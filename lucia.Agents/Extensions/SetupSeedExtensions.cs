@@ -68,7 +68,7 @@ public static class SetupSeedExtensions
             var hasAnyKeys = await apiKeyService.HasAnyKeysAsync(ct).ConfigureAwait(false);
             var hasHaConnection = !string.IsNullOrEmpty(haUrl) && !string.IsNullOrEmpty(haToken);
 
-            if (hasAnyKeys && (!string.IsNullOrEmpty(dashboardKey) || hasHaConnection))
+            if (hasAnyKeys && !string.IsNullOrEmpty(dashboardKey) && (!string.IsNullOrEmpty(haUrl) || hasHaConnection))
             {
                 var existingComplete = await configStore.GetAsync("Auth:SetupComplete", ct).ConfigureAwait(false);
                 if (!string.Equals(existingComplete, "true", StringComparison.OrdinalIgnoreCase))

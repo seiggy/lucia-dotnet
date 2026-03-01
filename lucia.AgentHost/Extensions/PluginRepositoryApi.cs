@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
 using lucia.Agents.Services;
@@ -41,7 +43,7 @@ public static class PluginRepositoryApi
     {
         var repo = new PluginRepositoryDefinition
         {
-            Id = request.Url.GetHashCode().ToString("x8"),
+            Id = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(request.Url.ToLowerInvariant())))[..16],
             Name = request.Url.Split('/').LastOrDefault() ?? request.Url,
             Url = request.Url,
             Branch = request.Branch ?? "main",

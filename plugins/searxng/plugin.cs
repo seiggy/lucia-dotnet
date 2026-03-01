@@ -30,7 +30,7 @@ public sealed class SearXngWebSearchSkill : IWebSearchSkill
         _logger = logger;
     }
 
-    public IList<AITool> GetTools() => [AIFunctionFactory.Create(WebSearchAsync)];
+    public IList<AITool> GetTools() => [AIFunctionFactory.Create(WebSearchAsync, new AIFunctionFactoryOptions { Name = "web_search" })];
 
     public Task InitializeAsync(CancellationToken cancellationToken = default)
     {

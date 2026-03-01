@@ -18,6 +18,7 @@ from .const import (
     CONF_AGENT_NAME,
     CONF_API_KEY,
     CONF_REPOSITORY,
+    CONF_VERIFY_SSL,
     DOMAIN,
     NAME,
 )
@@ -42,6 +43,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Get configuration from the config entry
     repository = entry.data.get(CONF_REPOSITORY)
     api_key = entry.data.get(CONF_API_KEY)
+    verify_ssl = entry.data.get(CONF_VERIFY_SSL, False)
 
     if not repository:
         _LOGGER.error("Missing required configuration: repository URL")
@@ -56,7 +58,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         httpx_client = httpx.AsyncClient(
             headers=headers,
-            verify=False,  # For development with self-signed certs
+            verify=verify_ssl,
+            follow_redirects=True,
             timeout=30.0
         )
 

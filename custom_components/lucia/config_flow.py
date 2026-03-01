@@ -28,6 +28,7 @@ from .const import (
     CONF_MAX_TOKENS,
     CONF_PROMPT,
     CONF_REPOSITORY,
+    CONF_VERIFY_SSL,
     DOMAIN,
 )
 
@@ -37,6 +38,7 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_REPOSITORY): str,
         vol.Optional(CONF_API_KEY, default=""): str,
+        vol.Optional(CONF_VERIFY_SSL, default=False): bool,
     }
 )
 
@@ -55,9 +57,12 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
     if data.get(CONF_API_KEY):
         headers["X-Api-Key"] = data[CONF_API_KEY]
 
+    verify_ssl = data.get(CONF_VERIFY_SSL, False)
+
     async with httpx.AsyncClient(
         headers=headers,
-        verify=False,
+        verify=verify_ssl,
+        follow_redirects=True,
         timeout=30.0,
     ) as client:
         try:
@@ -111,6 +116,7 @@ class LuciaConfigFlow(ConfigFlow, domain=DOMAIN):
                     data={
                         CONF_REPOSITORY: user_input[CONF_REPOSITORY],
                         CONF_API_KEY: user_input[CONF_API_KEY],
+                        CONF_VERIFY_SSL: user_input.get(CONF_VERIFY_SSL, False),
                         "agent_id": info["agent_id"],
                     },
                 )
