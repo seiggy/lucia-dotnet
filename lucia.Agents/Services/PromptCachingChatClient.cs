@@ -213,7 +213,6 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
         if (response.Messages is not { Count: > 0 })
             return null;
 
-        string? responseText = null;
         List<CachedFunctionCallData>? functionCalls = null;
 
         foreach (var message in response.Messages)
@@ -225,39 +224,29 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
             {
                 foreach (var content in message.Contents)
                 {
-                    switch (content)
+                    if (content is FunctionCallContent fc)
                     {
-                        case TextContent text when !string.IsNullOrWhiteSpace(text.Text):
-                            responseText = text.Text;
-                            break;
-
-                        case FunctionCallContent fc:
-                            functionCalls ??= [];
-                            functionCalls.Add(new CachedFunctionCallData
-                            {
-                                CallId = fc.CallId ?? string.Empty,
-                                Name = fc.Name,
-                                ArgumentsJson = fc.Arguments is not null
-                                    ? JsonSerializer.Serialize(fc.Arguments)
-                                    : null
-                            });
-                            break;
+                        functionCalls ??= [];
+                        functionCalls.Add(new CachedFunctionCallData
+                        {
+                            CallId = fc.CallId ?? string.Empty,
+                            Name = fc.Name,
+                            ArgumentsJson = fc.Arguments is not null
+                                ? JsonSerializer.Serialize(fc.Arguments)
+                                : null
+                        });
                     }
                 }
             }
-            else if (!string.IsNullOrWhiteSpace(message.Text))
-            {
-                responseText = message.Text;
-            }
         }
 
-        // Only cache if there's meaningful content
-        if (responseText is null && functionCalls is null)
+        // Only cache tool-call decisions — never plain text responses.
+        // Text responses reflect live device state and must not be served stale.
+        if (functionCalls is null)
             return null;
 
         return new CachedChatResponseData
         {
-            ResponseText = responseText,
             FunctionCalls = functionCalls,
             ModelId = response.ModelId
         };
