@@ -73,7 +73,8 @@ public class LightControlSkill : IAgentSkill, IOptimizableSkill
             AIFunctionFactory.Create(FindLightAsync),
             AIFunctionFactory.Create(FindLightsByAreaAsync),
             AIFunctionFactory.Create(GetLightStateAsync),
-            AIFunctionFactory.Create(SetLightStateAsync)
+            AIFunctionFactory.Create(SetLightStateAsync),
+            AIFunctionFactory.Create(SetAreaLightsStateAsync)
             ];
     }
 
@@ -557,6 +558,80 @@ public class LightControlSkill : IAgentSkill, IOptimizableSkill
             var elapsedMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
             LightControlDurationMs.Record(elapsedMs);
             activity?.SetTag("elapsed_ms", elapsedMs);
+        }
+    }
+
+    [Description("Turn on or off ALL lights in a named area at once. Use this instead of calling SetLightState multiple times.")]
+    public async Task<string> SetAreaLightsStateAsync(
+        [Description("Name of the area (e.g., 'kitchen', 'office', 'main bedroom')")] string area,
+        [Description("Desired state: 'on' or 'off'")] string state,
+        [Description("Brightness 0-100 for 'on' state; use -1 to omit")] int brightness = -1,
+        [Description("Color name like 'red', 'blue', 'warm_white'; use empty string to omit")] string color = "")
+    {
+        using var activity = ActivitySource.StartActivity();
+        activity?.SetTag("area", area);
+        activity?.SetTag("desired.state", state);
+
+        try
+        {
+            // First, find all lights in the area
+            await EnsureCacheIsCurrentAsync().ConfigureAwait(false);
+
+            var locationMatches = await _locationService.FindEntitiesByLocationAsync(
+                area, (IReadOnlyList<string>)["light", "switch"]).ConfigureAwait(false);
+
+            if (locationMatches.Count == 0)
+            {
+                return $"No lights found in area '{area}'.";
+            }
+
+            var matchedEntityIds = locationMatches.Select(e => e.EntityId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var areaLights = _cachedLights.Where(l => matchedEntityIds.Contains(l.EntityId)).ToList();
+
+            // Fallback to location service entities if cache is empty
+            IReadOnlyList<string> entityIds;
+            IReadOnlyList<string> displayNames;
+            if (areaLights.Count > 0)
+            {
+                entityIds = areaLights.Select(l => l.EntityId).ToList();
+                displayNames = areaLights.Select(l => l.FriendlyName).ToList();
+            }
+            else
+            {
+                entityIds = locationMatches.Select(l => l.EntityId).ToList();
+                displayNames = locationMatches.Select(l => l.FriendlyName).ToList();
+            }
+
+            activity?.SetTag("light_count", entityIds.Count);
+
+            // Set all lights concurrently
+            var tasks = entityIds.Select(entityId => SetLightStateAsync(entityId, state, brightness, color));
+            var results = await Task.WhenAll(tasks).ConfigureAwait(false);
+
+            var succeeded = results.Count(r => !r.StartsWith("Failed") && !r.StartsWith("Invalid"));
+            var failed = results.Length - succeeded;
+
+            var summary = new StringBuilder();
+            summary.AppendLine($"Set {succeeded}/{entityIds.Count} lights in '{area}' to {state}:");
+            for (var i = 0; i < displayNames.Count; i++)
+            {
+                var status = results[i].Contains("successfully") ? "\u2713" : "\u2717";
+                summary.AppendLine($"  {status} {displayNames[i]}");
+            }
+
+            if (failed > 0)
+            {
+                summary.AppendLine($"{failed} light(s) failed.");
+            }
+
+            activity?.SetStatus(ActivityStatusCode.Ok);
+            return summary.ToString().TrimEnd();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error setting area lights state for {Area}", area);
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            return $"Failed to control lights in '{area}': {ex.Message}";
         }
     }
 
