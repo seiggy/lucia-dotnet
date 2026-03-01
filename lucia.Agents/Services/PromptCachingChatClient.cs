@@ -12,9 +12,9 @@ namespace lucia.Agents.Services;
 
 /// <summary>
 /// IChatClient decorator that checks the prompt cache before forwarding to the inner client.
-/// Caches LLM responses (text and tool calls) so that repeated identical prompts skip the
-/// LLM call. Tool calls are replayed through the function-invoking layer, so tools still
-/// execute fresh every time — only the expensive LLM planning call is cached.
+/// Only the initial planning round (before any tool results) is cached — this ensures tool
+/// call decisions are reusable while live device state (from tool execution) is always fresh.
+/// Subsequent rounds that contain function results always bypass the cache entirely.
 /// </summary>
 public sealed class PromptCachingChatClient : DelegatingChatClient
 {
@@ -42,46 +42,54 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
         CancellationToken cancellationToken = default)
     {
         var messageList = messages as IList<ChatMessage> ?? messages.ToList();
-        var normalizedKey = NormalizeChatKey(messageList, options);
 
-        // Check cache — we cache the LLM's planning decisions (tool selection +
-        // arguments) for ALL rounds including those with tool results in context.
-        // The cache key includes the full conversation so different tool results
-        // produce different keys (automatic cache miss). Tools always execute fresh
-        // because FunctionInvokingChatClient sits above this layer.
-        try
+        // Only cache the initial planning round (no tool results in context).
+        // Once tool results are present the LLM response depends on live device
+        // state (e.g. "light is already on") and must never be served from cache.
+        var hasToolResults = ContainsToolResults(messageList);
+
+        if (!hasToolResults)
         {
-            var cached = await _cacheService.TryGetCachedChatResponseAsync(normalizedKey, cancellationToken).ConfigureAwait(false);
-            if (cached is not null)
+            var normalizedKey = NormalizeChatKey(messageList, options);
+
+            try
             {
-                _logger.LogInformation("Chat cache hit — returning cached LLM decision (key={CacheKey})", cached.CacheKey);
-                return ReconstructResponse(cached);
+                var cached = await _cacheService.TryGetCachedChatResponseAsync(normalizedKey, cancellationToken).ConfigureAwait(false);
+                if (cached is not null)
+                {
+                    _logger.LogInformation("Chat cache hit — returning cached LLM decision (key={CacheKey})", cached.CacheKey);
+                    return ReconstructResponse(cached);
+                }
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Chat cache lookup failed, falling through to LLM");
-        }
-
-        // Cache miss — call the inner client
-        var response = await base.GetResponseAsync(messageList, options, cancellationToken).ConfigureAwait(false);
-
-        // Cache the LLM decision (tool selection or text response)
-        try
-        {
-            var data = ExtractCacheData(response);
-            if (data is not null)
+            catch (Exception ex)
             {
-                data.NormalizedPrompt = ExtractLastUserText(messageList);
-                await _cacheService.CacheChatResponseAsync(normalizedKey, data, CancellationToken.None).ConfigureAwait(false);
+                _logger.LogWarning(ex, "Chat cache lookup failed, falling through to LLM");
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to cache chat response");
+
+            // Cache miss — call the inner client
+            var response = await base.GetResponseAsync(messageList, options, cancellationToken).ConfigureAwait(false);
+
+            // Cache the initial planning decision (tool selection or direct text response)
+            try
+            {
+                var data = ExtractCacheData(response);
+                if (data is not null)
+                {
+                    data.NormalizedPrompt = ExtractLastUserText(messageList);
+                    await _cacheService.CacheChatResponseAsync(normalizedKey, data, CancellationToken.None).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to cache chat response");
+            }
+
+            return response;
         }
 
-        return response;
+        // Tool results present — bypass cache entirely, always call the LLM fresh
+        _logger.LogDebug("Skipping chat cache — conversation contains tool results");
+        return await base.GetResponseAsync(messageList, options, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
