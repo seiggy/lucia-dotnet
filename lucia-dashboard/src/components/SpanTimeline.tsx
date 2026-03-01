@@ -43,29 +43,29 @@ export default function SpanTimeline({ spans, totalDurationMs }: SpanTimelinePro
   )
   const timelineWidth = Math.max(totalDurationMs, spanEnd, 1)
 
+  // Build legend from categories actually present in spans
+  const allLegend: { label: string; color: string; match: (s: TracedSpan) => boolean }[] = [
+    { label: 'Cache hit', color: 'bg-sage/60', match: s => s.tags['cache.result'] === 'hit' },
+    { label: 'Cache miss', color: 'bg-amber/60', match: s => { const r = s.tags['cache.result']; return r === 'miss' || r === 'bypass' } },
+    { label: 'Agent dispatch', color: 'bg-cyan/50', match: s => s.source.includes('AgentDispatch') },
+    { label: 'Invoker', color: 'bg-violet/50', match: s => s.source.includes('AgentInvoker') },
+    { label: 'Router', color: 'bg-sky/50', match: s => s.source.includes('Router') },
+  ]
+  const legendItems = allLegend.filter(item => sorted.some(item.match))
+
   return (
     <div>
       <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-dust">
         Span Timeline ({spans.length} spans)
       </h3>
       <div className="glass-panel rounded-xl p-4">
-        {/* Legend */}
+        {/* Legend — only show categories present in actual spans */}
         <div className="mb-3 flex flex-wrap gap-3 text-xs text-dust">
-          <span className="flex items-center gap-1">
-            <span className="inline-block h-2.5 w-2.5 rounded-sm bg-sage/60" /> Cache hit
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="inline-block h-2.5 w-2.5 rounded-sm bg-amber/60" /> Cache miss
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="inline-block h-2.5 w-2.5 rounded-sm bg-cyan/50" /> Agent dispatch
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="inline-block h-2.5 w-2.5 rounded-sm bg-violet/50" /> Invoker
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="inline-block h-2.5 w-2.5 rounded-sm bg-sky/50" /> Router
-          </span>
+          {legendItems.map(({ label, color }) => (
+            <span key={label} className="flex items-center gap-1">
+              <span className={`inline-block h-2.5 w-2.5 rounded-sm ${color}`} /> {label}
+            </span>
+          ))}
         </div>
 
         {/* Waterfall */}

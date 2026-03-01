@@ -74,7 +74,6 @@ public class LightControlSkill : IAgentSkill, IOptimizableSkill
             AIFunctionFactory.Create(FindLightsByAreaAsync),
             AIFunctionFactory.Create(GetLightStateAsync),
             AIFunctionFactory.Create(SetLightStateAsync),
-            AIFunctionFactory.Create(SetAreaLightsStateAsync)
             ];
     }
 
@@ -462,15 +461,15 @@ public class LightControlSkill : IAgentSkill, IOptimizableSkill
         }
     }
 
-    [Description("Control a light - turn on/off, set brightness, or change color")]
+    [Description("Control a light or set of lights to a new state - turn on/off, set brightness, or change color")]
     public async Task<string> SetLightStateAsync(
-        [Description("The entity ID of the light (e.g., 'light.living_room')")] string entityId,
+        [Description("The entity ID(s) of the light(s) (e.g., ['light.living_room'])")] string[] entityIds,
         [Description("Desired state: 'on' or 'off'")] string state,
         [Description("Brightness 0-100 for 'on' state; use -1 to omit")] int brightness = -1,
         [Description("Color name like 'red', 'blue', 'warm_white'; use empty string to omit")] string color = "")
     {
         using var activity = ActivitySource.StartActivity();
-        activity?.SetTag("entity.id", entityId);
+        activity?.SetTag("entity.id", entityIds);
         activity?.SetTag("desired.state", state);
         if (brightness >= 0)
         {
@@ -486,152 +485,88 @@ public class LightControlSkill : IAgentSkill, IOptimizableSkill
 
         try
         {
-            _logger.LogDebug("Setting light {EntityId} to {State}, brightness: {Brightness}, color: {Color}",
-                entityId, state, brightness, color);
-
-            // Resolve friendly name for user-facing responses
-            var displayName = _cachedLights.FirstOrDefault(l => l.EntityId == entityId)?.FriendlyName ?? entityId;
-
-            var request = new ServiceCallRequest
+            var resultMessage = new StringBuilder();
+            foreach (var entityId in entityIds)
             {
-                ["entity_id"] = entityId
-            };
+                _logger.LogDebug("Setting light {EntityId} to {State}, brightness: {Brightness}, color: {Color}",
+                    entityId, state, brightness, color);
 
-            var isSwitch = entityId.StartsWith("switch.");
-            var domain = isSwitch ? "switch" : "light";
+                // Resolve friendly name for user-facing responses
+                var displayName = _cachedLights.FirstOrDefault(l => l.EntityId == entityId)?.FriendlyName ?? entityId;
 
-            if (state.ToLower() == "off")
-            {
-                await _homeAssistantClient.CallServiceAsync(domain, "turn_off", parameters: null, request).ConfigureAwait(false);
-                activity?.SetStatus(ActivityStatusCode.Ok);
-                return $"Light '{displayName}' turned off successfully.";
+                var request = new ServiceCallRequest
+                {
+                    ["entity_id"] = entityId
+                };
+
+                var isSwitch = entityId.StartsWith("switch.");
+                var domain = isSwitch ? "switch" : "light";
+
+                if (state.ToLower() == "off")
+                {
+                    await _homeAssistantClient.CallServiceAsync(domain, "turn_off", parameters: null, request)
+                        .ConfigureAwait(false);
+                    activity?.SetStatus(ActivityStatusCode.Ok);
+                    resultMessage.AppendLine($"Light '{displayName}' turned off successfully.");
+                }
+                else if (state.ToLower() == "on")
+                {
+                    if (brightness >= 0 && !isSwitch)
+                    {
+                        var haBrightness = Math.Max(1, Math.Min(255, (int)Math.Round(brightness / 100.0 * 255)));
+                        request["brightness"] = haBrightness;
+                    }
+
+                    if (!string.IsNullOrEmpty(color) && !isSwitch)
+                    {
+                        request["color_name"] = color;
+                    }
+
+                    await _homeAssistantClient.CallServiceAsync(domain, "turn_on", parameters: null, request)
+                        .ConfigureAwait(false);
+
+                    var result = $"Light '{displayName}' turned on successfully";
+                    if (brightness >= 0 && !isSwitch)
+                    {
+                        result += $" at {brightness}% brightness";
+                    }
+
+                    if (!string.IsNullOrEmpty(color) && !isSwitch)
+                    {
+                        result += $" with {color} color";
+                    }
+
+                    activity?.SetStatus(ActivityStatusCode.Ok);
+                    resultMessage.AppendLine($"{result}.");
+                }
+                else
+                {
+                    activity?.SetStatus(ActivityStatusCode.Error, "invalid-state");
+                    LightControlFailures.Add(1, [
+                        new KeyValuePair<string, object?>("reason", "invalid-state")
+                    ]);
+                    resultMessage.AppendLine($"Invalid state '{state}'. Use 'on' or 'off'.");
+                }
             }
-            else if (state.ToLower() == "on")
-            {
-                if (brightness >= 0 && !isSwitch)
-                {
-                    var haBrightness = Math.Max(1, Math.Min(255, (int)Math.Round(brightness / 100.0 * 255)));
-                    request["brightness"] = haBrightness;
-                }
 
-                if (!string.IsNullOrEmpty(color) && !isSwitch)
-                {
-                    request["color_name"] = color;
-                }
-
-                await _homeAssistantClient.CallServiceAsync(domain, "turn_on", parameters: null, request).ConfigureAwait(false);
-
-                var result = $"Light '{displayName}' turned on successfully";
-                if (brightness >= 0 && !isSwitch)
-                {
-                    result += $" at {brightness}% brightness";
-                }
-                if (!string.IsNullOrEmpty(color) && !isSwitch)
-                {
-                    result += $" with {color} color";
-                }
-                activity?.SetStatus(ActivityStatusCode.Ok);
-                return result + ".";
-            }
-            else
-            {
-                activity?.SetStatus(ActivityStatusCode.Error, "invalid-state");
-                LightControlFailures.Add(1, [
-                    new KeyValuePair<string, object?>("reason", "invalid-state")
-                ]);
-                return $"Invalid state '{state}'. Use 'on' or 'off'.";
-            }
+            return resultMessage.ToString();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error setting light state for {EntityId}", entityId);
+            _logger.LogError(ex, "Error setting light state for {EntityId}", entityIds);
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
             activity?.SetTag("exception.type", ex.GetType().Name);
             activity?.SetTag("exception.message", ex.Message);
             LightControlFailures.Add(1, [
                 new KeyValuePair<string, object?>("reason", "exception")
             ]);
-            return $"Failed to control light '{entityId}': {ex.Message}";
+            return $"Failed to control light(s) '{entityIds}': {ex.Message}";
         }
         finally
         {
             var elapsedMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
             LightControlDurationMs.Record(elapsedMs);
             activity?.SetTag("elapsed_ms", elapsedMs);
-        }
-    }
-
-    [Description("Turn on or off ALL lights in a named area at once. Use this instead of calling SetLightState multiple times.")]
-    public async Task<string> SetAreaLightsStateAsync(
-        [Description("Name of the area (e.g., 'kitchen', 'office', 'main bedroom')")] string area,
-        [Description("Desired state: 'on' or 'off'")] string state,
-        [Description("Brightness 0-100 for 'on' state; use -1 to omit")] int brightness = -1,
-        [Description("Color name like 'red', 'blue', 'warm_white'; use empty string to omit")] string color = "")
-    {
-        using var activity = ActivitySource.StartActivity();
-        activity?.SetTag("area", area);
-        activity?.SetTag("desired.state", state);
-
-        try
-        {
-            // First, find all lights in the area
-            await EnsureCacheIsCurrentAsync().ConfigureAwait(false);
-
-            var locationMatches = await _locationService.FindEntitiesByLocationAsync(
-                area, (IReadOnlyList<string>)["light", "switch"]).ConfigureAwait(false);
-
-            if (locationMatches.Count == 0)
-            {
-                return $"No lights found in area '{area}'.";
-            }
-
-            var matchedEntityIds = locationMatches.Select(e => e.EntityId).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var areaLights = _cachedLights.Where(l => matchedEntityIds.Contains(l.EntityId)).ToList();
-
-            // Fallback to location service entities if cache is empty
-            IReadOnlyList<string> entityIds;
-            IReadOnlyList<string> displayNames;
-            if (areaLights.Count > 0)
-            {
-                entityIds = areaLights.Select(l => l.EntityId).ToList();
-                displayNames = areaLights.Select(l => l.FriendlyName).ToList();
-            }
-            else
-            {
-                entityIds = locationMatches.Select(l => l.EntityId).ToList();
-                displayNames = locationMatches.Select(l => l.FriendlyName).ToList();
-            }
-
-            activity?.SetTag("light_count", entityIds.Count);
-
-            // Set all lights concurrently
-            var tasks = entityIds.Select(entityId => SetLightStateAsync(entityId, state, brightness, color));
-            var results = await Task.WhenAll(tasks).ConfigureAwait(false);
-
-            var succeeded = results.Count(r => !r.StartsWith("Failed") && !r.StartsWith("Invalid"));
-            var failed = results.Length - succeeded;
-
-            var summary = new StringBuilder();
-            summary.AppendLine($"Set {succeeded}/{entityIds.Count} lights in '{area}' to {state}:");
-            for (var i = 0; i < displayNames.Count; i++)
-            {
-                var status = results[i].Contains("successfully") ? "\u2713" : "\u2717";
-                summary.AppendLine($"  {status} {displayNames[i]}");
-            }
-
-            if (failed > 0)
-            {
-                summary.AppendLine($"{failed} light(s) failed.");
-            }
-
-            activity?.SetStatus(ActivityStatusCode.Ok);
-            return summary.ToString().TrimEnd();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error setting area lights state for {Area}", area);
-            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-            return $"Failed to control lights in '{area}': {ex.Message}";
         }
     }
 
