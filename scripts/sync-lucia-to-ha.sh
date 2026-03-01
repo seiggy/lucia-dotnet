@@ -103,7 +103,7 @@ echo ""
 if [[ "$DRY_RUN" != true ]]; then
   ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -p "$HA_SSH_PORT" \
     ${HA_SSH_KEY:+-i "$HA_SSH_KEY"} \
-    "$HA_REMOTE_USER@$HA_REMOTE_HOST" "mkdir -p $HA_REMOTE_CONFIG/custom_components"
+    "$HA_REMOTE_USER@$HA_REMOTE_HOST" "mkdir -p \"$HA_REMOTE_CONFIG/custom_components\""
 fi
 
 rsync "${RSYNC_OPTS[@]}" \

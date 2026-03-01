@@ -48,6 +48,8 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
     import httpx
 
     repository = data[CONF_REPOSITORY].rstrip("/")
+    if repository.endswith("/agents"):
+        repository = repository[: -len("/agents")]
     catalog_url = f"{repository}/agents"
     headers = {}
     if data.get(CONF_API_KEY):
@@ -82,7 +84,7 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
         first = agents[0]
         return {
             "title": first.get("name", "Lucia Agent"),
-            "agent_id": first.get("id", "lucia"),
+            "agent_id": first.get("name", "lucia"),
         }
 
 class LuciaConfigFlow(ConfigFlow, domain=DOMAIN):

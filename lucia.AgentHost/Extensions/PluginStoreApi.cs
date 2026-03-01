@@ -32,7 +32,7 @@ public static class PluginStoreApi
         return TypedResults.Ok(plugins);
     }
 
-    private static async Task<Ok> InstallPluginAsync(
+    private static async Task<Results<Ok, NotFound<string>>> InstallPluginAsync(
         string id,
         PluginManagementService service,
         CancellationToken ct)
@@ -43,7 +43,7 @@ public static class PluginStoreApi
             p.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
 
         if (match is null)
-            return TypedResults.Ok(); // TODO: return NotFound
+            return TypedResults.NotFound($"Plugin '{id}' not found in any repository.");
 
         await service.InstallPluginAsync(
             match.Id,

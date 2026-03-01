@@ -206,7 +206,13 @@ public sealed class GitPluginRepositorySource : IPluginRepositorySource
             if (entry.FullName.EndsWith('/'))
                 continue;
 
-            var destPath = Path.Combine(targetPath, entry.FullName);
+            var destPath = Path.GetFullPath(Path.Combine(targetPath, entry.FullName));
+            if (!destPath.StartsWith(Path.GetFullPath(targetPath) + Path.DirectorySeparatorChar))
+            {
+                _logger.LogWarning("Skipping zip entry with path traversal: {Entry}", entry.FullName);
+                continue;
+            }
+
             Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
 
             await using var entryStream = entry.Open();
@@ -266,7 +272,13 @@ public sealed class GitPluginRepositorySource : IPluginRepositorySource
             if (string.IsNullOrEmpty(fileRelative))
                 continue;
 
-            var destPath = Path.Combine(targetPath, fileRelative);
+            var destPath = Path.GetFullPath(Path.Combine(targetPath, fileRelative));
+            if (!destPath.StartsWith(Path.GetFullPath(targetPath) + Path.DirectorySeparatorChar))
+            {
+                _logger.LogWarning("Skipping zip entry with path traversal: {Entry}", entry.FullName);
+                continue;
+            }
+
             Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
 
             await using var entryStream = entry.Open();

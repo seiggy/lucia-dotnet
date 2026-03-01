@@ -453,12 +453,10 @@ export interface AvailablePlugin {
   version: string
   author: string
   tags: string[]
-  downloadUrl: string
+  pluginPath: string
   homepage: string | null
-  minLuciaVersion: string | null
   repositoryId: string
   repositoryName: string
-  isInstalled: boolean
 }
 
 export interface InstalledPlugin {

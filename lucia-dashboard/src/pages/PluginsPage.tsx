@@ -276,7 +276,7 @@ export default function PluginsPage() {
                     </div>
                   </div>
                   <div className="ml-4 shrink-0">
-                    {p.isInstalled ? (
+                    {installed.some(i => i.id === p.id) ? (
                       <span className="rounded-lg bg-sage/20 px-3 py-1.5 text-xs font-medium text-sage">
                         Installed
                       </span>

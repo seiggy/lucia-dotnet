@@ -34,13 +34,24 @@ public static class PluginRepositoryApi
         return TypedResults.Ok(repos);
     }
 
-    private static async Task<Created> AddRepositoryAsync(
-        PluginRepositoryDefinition repo,
+    private static async Task<Ok<PluginRepositoryDefinition>> AddRepositoryAsync(
+        AddPluginRepositoryRequest request,
         PluginManagementService service,
         CancellationToken ct)
     {
+        var repo = new PluginRepositoryDefinition
+        {
+            Id = request.Url.GetHashCode().ToString("x8"),
+            Name = request.Url.Split('/').LastOrDefault() ?? request.Url,
+            Url = request.Url,
+            Branch = request.Branch ?? "main",
+            ManifestPath = request.ManifestPath ?? "lucia-plugins.json",
+            Type = "git",
+            Enabled = true,
+        };
+
         await service.AddRepositoryAsync(repo, ct);
-        return TypedResults.Created($"/api/plugin-repos/{repo.Id}");
+        return TypedResults.Ok(repo);
     }
 
     private static async Task<NoContent> RemoveRepositoryAsync(
