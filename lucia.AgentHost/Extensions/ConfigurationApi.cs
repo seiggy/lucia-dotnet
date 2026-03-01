@@ -348,6 +348,7 @@ public static class ConfigurationApi
             Properties =
             [
                 new("TaskTtlHours", "number", "Task TTL in hours", "24"),
+                new("PromptCacheTtlHours", "number", "Prompt cache entry TTL in hours (LRU — refreshed on hit)", "48"),
                 new("ConnectRetryCount", "number", "Connection retry count", "3"),
                 new("ConnectTimeout", "number", "Connection timeout in milliseconds", "5000")
             ]
