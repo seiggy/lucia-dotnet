@@ -118,17 +118,6 @@ public static class ServiceCollectionExtensions
         builder.Services.Configure<SessionCacheOptions>(
             builder.Configuration.GetSection("SessionCache"));
 
-        builder.Services.Configure<SearXngOptions>(options =>
-        {
-            var config = builder.Configuration;
-            options.BaseUrl = (config["SearXng:BaseUrl"] ?? config["SEARXNG_URL"] ?? "").Trim();
-        });
-
-        builder.Services.AddHttpClient("SearXng", client =>
-        {
-            client.Timeout = TimeSpan.FromSeconds(30);
-        });
-
         // Register Redis session cache for multi-turn conversations
         builder.Services.AddSingleton<ISessionCacheService, RedisSessionCacheService>();
 
@@ -157,7 +146,6 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IOptimizableSkill>(sp => sp.GetRequiredService<LightControlSkill>());
         builder.Services.AddSingleton<LightAgent>();
         builder.Services.AddSingleton<ILuciaAgent>(sp => sp.GetRequiredService<LightAgent>());
-        builder.Services.AddSingleton<WebSearchSkill>();
         builder.Services.AddSingleton<GeneralAgent>();
         builder.Services.AddSingleton<ILuciaAgent>(sp => sp.GetRequiredService<GeneralAgent>());
         builder.Services.AddSingleton<ClimateControlSkill>();

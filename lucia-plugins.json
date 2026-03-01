@@ -1,0 +1,20 @@
+{
+  "id": "lucia-official",
+  "name": "Lucia Official Plugins",
+  "plugins": [
+    {
+      "id": "metamcp",
+      "name": "MetaMCP Bridge",
+      "description": "Bridges MetaMCP tool aggregation into Lucia agents via the MetaMCP proxy.",
+      "version": "1.0.0",
+      "path": "plugins/metamcp"
+    },
+    {
+      "id": "searxng",
+      "name": "SearXNG Web Search",
+      "description": "Web search skill using a SearXNG instance for privacy-respecting search.",
+      "version": "1.0.0",
+      "path": "plugins/searxng"
+    }
+  ]
+}

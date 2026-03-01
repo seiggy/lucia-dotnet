@@ -1,41 +1,190 @@
+# Release Notes - 2026.03.01
 
+**Release Date:** March 1, 2026  
+**Code Name:** "Nebula"
+
+---
+
+## 🌌 Overview
+
+"Nebula" introduces a full plugin system to Lucia — a dynamic, script-based architecture that lets users extend the assistant with community and first-party plugins without recompiling. Like a nebula giving birth to new stars, this release provides the raw building blocks for an ecosystem of optional capabilities that can be discovered, installed, and managed at runtime. The first two plugins ship alongside the framework: **MetaMCP** (MCP tool aggregation) and **SearXNG** (privacy-first web search).
+
+## 🚀 Highlights
+
+- **Roslyn Script Plugin Engine** — Plugins are plain C# scripts (`plugin.cs`) evaluated at startup via Roslyn CSharpScript. No compilation step, no separate DLL projects — just drop a folder and go.
+- **Four-Hook Plugin Lifecycle** — `ConfigureServices` → `ExecuteAsync` → `MapEndpoints` → `OnSystemReadyAsync` gives plugins precise control over when they inject DI services, run initialization, register API endpoints, or interact with fully-initialized agents.
+- **Plugin Repository System** — Discover, install, enable/disable, and uninstall plugins from configurable repositories through a new dashboard UI and REST API.
+- **Git Blob Source Strategies** — Git-based repositories support three download modes: GitHub Release assets (preferred), tag archives, and branch archives — with automatic fallback.
+- **IWebSearchSkill Abstraction** — Web search is now an optional, pluggable capability. The built-in SearXNG implementation ships as a plugin; users without a search provider simply don't install it.
+
+## ✨ What's New
+
+### 🔌 Plugin Engine (`ILuciaPlugin`)
+
+- **Script-based plugins** — Each plugin lives in `plugins/{name}/plugin.cs` and implements `ILuciaPlugin` via Roslyn scripting. No project files, no NuGet references — the host provides all standard assemblies.
+- **Four lifecycle hooks:**
+  - `ConfigureServices(IHostApplicationBuilder)` — Register DI services before the app is built (e.g., `IWebSearchSkill`).
+  - `ExecuteAsync(IServiceProvider, CancellationToken)` — Run post-build initialization.
+  - `MapEndpoints(WebApplication)` — Register custom HTTP endpoints.
+  - `OnSystemReadyAsync(IServiceProvider, CancellationToken)` — Execute after all agents are online — ideal for agent-dependent logic.
+- **Auto-discovery** — `PluginLoader` scans the plugin directory and evaluates all `plugin.cs` entry points at startup.
+- **Safe evaluation** — `PluginScriptHost` provides a locked-down `ScriptOptions` with explicit assembly references and namespace imports.
+
+### 📦 Plugin Repository & Store
+
+- **Repository model** — Each repository is defined by a `lucia-plugins.json` manifest containing an `id`, `name`, and array of `plugins` with metadata (id, name, description, version, path, author, tags).
+- **Two source implementations:**
+  - `LocalPluginRepositorySource` — Reads manifests and copies plugins from a local directory. Used during development.
+  - `GitPluginRepositorySource` — Fetches manifests from `raw.githubusercontent.com` and downloads plugin archives from GitHub. Used in production.
+- **Blob source strategies** (git repos) — The `blobSource` field on a repository definition controls download behavior:
+  - `release` (default) — Fetches the latest GitHub Release, looks for a per-plugin `{pluginId}.zip` asset, falls back to the release zipball, then to a branch archive.
+  - `tag` — Downloads the archive at a specific tag ref.
+  - `branch` — Downloads the archive at branch HEAD.
+- **MongoDB persistence** — `PluginRepositoryDefinition` and `InstalledPluginRecord` are stored in MongoDB collections with full CRUD via `IPluginManagementRepository`.
+- **Plugin change tracker** — `PluginChangeTracker` emits real-time change notifications consumed by the dashboard for live badge/count updates.
+
+### 🖥️ Dashboard — Plugins Page
+
+- **Three-tab layout:** Installed plugins, Plugin Store (available from repositories), and Repository management.
+- **Install/Uninstall** — One-click install from the store; uninstall removes plugin files and database record.
+- **Enable/Disable** — Toggle plugins without uninstalling. Requires app restart (surfaced via a restart banner).
+- **Repository management** — Add/remove/sync plugin repositories. Add dialog supports both Local and Git repository types.
+- **Live counters** — Tab badges update in real-time as plugins are installed or repositories are synced.
+- **Restart banner** — A persistent banner appears when plugin changes require a restart, with a one-click restart button.
+
+### 🔍 IWebSearchSkill Abstraction
+
+- **Optional capability** — `GeneralAgent` accepts an optional `IWebSearchSkill?` parameter. When present, web search tools are registered; when absent, search is silently unavailable.
+- **Clean extraction** — `WebSearchSkill.cs` and `SearXngOptions.cs` removed from core `lucia.Agents`. The SearXNG implementation now lives entirely in `plugins/searxng/plugin.cs`.
+- **OpenTelemetry instrumented** — The SearXNG plugin includes `ActivitySource` tracing and `Meter` metrics for search operations, consistent with the core agent telemetry.
+
+### 🔧 REST APIs
+
+- **`/api/plugins/installed`** — List, enable/disable, uninstall installed plugins.
+- **`/api/plugins/store`** — Browse available plugins from all configured repositories, install plugins.
+- **`/api/plugins/repositories`** — CRUD for plugin repositories, trigger repository sync.
+- **`/api/system/restart`** — Graceful application restart for applying plugin changes.
+
+## 🐛 Bug Fixes
+
+- **Setup wizard session key** — `SetupSeedExtensions` now generates `Auth:SessionSigningKey` before setting `Auth:SetupComplete = true`, preventing the wizard from breaking when environment-variable seeding is used.
+- **Plugin script namespace** — Added `System.Net.Http` to default Roslyn script imports so plugins can reference `IHttpClientFactory` without explicit `using` directives.
+
+## 🧪 Testing
+
+- **17 plugin system tests** — Covers script evaluation, plugin loading, management service operations (sync, enable, disable, install, uninstall), manifest validation, `LocalPluginRepositorySource` filesystem operations, `ParseGitHubOwnerRepo` URL parsing, and all three git blob source strategies (release with per-plugin asset, release zipball fallback, release-to-branch fallback, branch archive, tag archive).
+- **456 total tests passing** (excluding Playwright/Eval).
+
+## 📋 New Files
+
+| Path | Purpose |
+|------|---------|
+| `lucia.Agents/Abstractions/ILuciaPlugin.cs` | Four-hook plugin interface |
+| `lucia.Agents/Abstractions/IPluginManagementRepository.cs` | Repository persistence abstraction |
+| `lucia.Agents/Abstractions/IPluginRepositorySource.cs` | Source abstraction (local vs git) |
+| `lucia.Agents/Abstractions/IWebSearchSkill.cs` | Optional web search capability |
+| `lucia.Agents/Configuration/PluginManifest.cs` | Repository manifest model |
+| `lucia.Agents/Configuration/PluginManifestEntry.cs` | Plugin entry in manifest |
+| `lucia.Agents/Configuration/PluginRepositoryDefinition.cs` | MongoDB repository document |
+| `lucia.Agents/Configuration/InstalledPluginRecord.cs` | MongoDB installed plugin document |
+| `lucia.Agents/Extensions/PluginLoader.cs` | Plugin auto-discovery and loading |
+| `lucia.Agents/Extensions/PluginScriptHost.cs` | Roslyn script evaluation host |
+| `lucia.Agents/Services/PluginManagementService.cs` | Plugin orchestration service |
+| `lucia.Agents/Services/MongoPluginManagementRepository.cs` | MongoDB implementation |
+| `lucia.Agents/Services/LocalPluginRepositorySource.cs` | Filesystem repository source |
+| `lucia.Agents/Services/GitPluginRepositorySource.cs` | GitHub repository source |
+| `lucia.Agents/Services/GitHubRelease.cs` | GitHub Release API DTO |
+| `lucia.Agents/Services/GitHubReleaseAsset.cs` | GitHub Release asset DTO |
+| `lucia.Agents/Services/AvailablePlugin.cs` | Store plugin DTO |
+| `lucia.Agents/Services/PluginChangeTracker.cs` | Real-time change notifications |
+| `lucia.AgentHost/Extensions/PluginStoreApi.cs` | Store REST endpoints |
+| `lucia.AgentHost/Extensions/PluginRepositoryApi.cs` | Repository REST endpoints |
+| `lucia.AgentHost/Extensions/InstalledPluginApi.cs` | Installed plugin REST endpoints |
+| `lucia.AgentHost/Extensions/SystemApi.cs` | System management endpoints |
+| `lucia-dashboard/src/pages/PluginsPage.tsx` | Dashboard plugins page |
+| `lucia-dashboard/src/components/PluginRepoDialog.tsx` | Repository add dialog |
+| `lucia-dashboard/src/components/RestartBanner.tsx` | Restart notification banner |
+| `plugins/metamcp/plugin.cs` | MetaMCP aggregation plugin |
+| `plugins/searxng/plugin.cs` | SearXNG web search plugin |
+| `lucia-plugins.json` | Official plugin repository manifest |
+| `lucia.Tests/Plugins/PluginSystemTests.cs` | Plugin system test suite |
+| `lucia.Tests/FakeHttpMessageHandler.cs` | HTTP test double |
+
+## 🗑️ Removed Files
+
+| Path | Reason |
+|------|--------|
+| `lucia.Agents/Skills/WebSearchSkill.cs` | Extracted to `plugins/searxng/plugin.cs` |
+| `lucia.Agents/Configuration/SearXngOptions.cs` | Moved into SearXNG plugin |
+| `lucia.Agents/Extensions/McpServerSeedExtensions.cs` | Replaced by MetaMCP plugin |
+| `lucia.Agents/Configuration/PluginRegistryFile.cs` | Replaced by `IPluginRepositorySource` abstraction |
+
+---
 
 # Release Notes - 2026.02.27
 
 **Release Date:** February 27, 2026  
-**Code Name:** "Headless"
+**Code Name:** "Keystone"
 
 ---
 
-## 🎯 Overview
+## 🗝️ Overview
 
-"Headless" fixes Lucia setup for Docker/deployments where the setup wizard is not completed first. It enables the Home Assistant integration to connect successfully by seeding the chat model provider from `ConnectionStrings__chat-model`, making the agent catalog publicly discoverable, and fixing environment variable handling in the sidecar compose.
+"Keystone" is a UX and resilience release that transforms Lucia's first-run experience into a fully guided, self-healing onboarding wizard. Named after the wedge-shaped stone at the crown of an arch that locks everything into place—Keystone ensures that the dashboard API key, AI provider configuration, and agent initialization all interlock seamlessly before the user ever touches Home Assistant. Once that keystone is set, the arch holds.
+
+## 🚀 Highlights
+
+- **Guided AI Provider Setup** — New wizard step lets users configure Chat and Embedding providers (OpenAI, Azure OpenAI with API Key or Default Credential) directly during onboarding, with live connectivity tests before proceeding.
+- **Agent Status Gate** — After providers are configured, the wizard waits for all agents to come online with real-time health polling before presenting the Home Assistant integration instructions.
+- **Setup Resume Flow** — If a user's browser session is lost mid-setup (after key generation but before completion), they can now re-authenticate with their dashboard key and continue where they left off instead of hitting a dead end.
+- **Infinite Prompt Cache** — Agent-level prompt cache entries no longer expire after 4 hours; they persist until manually evicted via the dashboard, maximizing LLM cost savings.
 
 ## ✨ What's New
 
-### 🐳 Docker & Deployment
+### 🧙 Setup Wizard — AI Provider Configuration (Step 4)
 
-- **Model provider seed before setup** — `ModelProviderSeedExtensions` now seeds the chat provider from `ConnectionStrings__chat-model` even when setup is not complete, enabling headless/Docker deployments to register agents without running the wizard first
-- **Connection string key fix** — Seed reads `chat-model` (matching `ConnectionStrings__chat-model`) instead of `chat`; fallback to `chat` for legacy configs
-- **Ollama fallback parser** — Added `TryParseOllamaFallback` when `ChatClientConnectionInfo.TryParse` fails (e.g. `host.docker.internal` on some platforms)
-- **Sidecar env_file fix** — `docker-compose.lucia-sidecar.yml` uses `env_file: .env` instead of variable substitution to avoid mangling `ConnectionStrings__chat-model` (the `${VAR:-default}` syntax was corrupting semicolon-separated values)
+- **Provider type selection** — Choose between OpenAI and Azure OpenAI for both Chat and Embedding capabilities.
+- **Azure authentication modes** — API Key and Azure Default Credential are both supported. Default Credential enables managed identity deployments without storing secrets.
+- **Live provider test** — Each configured provider is validated with a real API call before it can be saved. Failed tests show the error message inline.
+- **Provider cards** — Configured providers display as summary cards with model/deployment name and a remove option.
+- **Capability badges** — Visual indicators show which capabilities (Chat, Embedding) are configured.
 
-### 🔓 Agent Catalog Discovery
+### ⏳ Setup Wizard — Agent Status Gate (Step 5)
 
-- **Anonymous `/agents`** — GET `/agents` now allows anonymous access so the Home Assistant integration can fetch the catalog without an API key during setup
-- **Setup wizard reset** — `DEPLOYMENT.md` updated with correct `mongosh luciaconfig --eval "db.dropDatabase()"` command to re-run the setup wizard
-- **MetaMCP setup guide** — `DEPLOYMENT-OPENWEBUI.md` expanded with step-by-step "Setup: MetaMCP and Fixing 'No Agents'" section
+- **Real-time agent health polling** — After AI providers are saved, the wizard polls `/api/agents/status` every 3 seconds until all agents report healthy.
+- **Per-agent status cards** — Each agent shows a spinner (initializing), green check (ready), or red X (failed) with the agent description.
+- **Automatic progression** — The Next button enables only when all agents are online, preventing the user from configuring Home Assistant before agents are ready to receive commands.
 
-### 🏠 Home Assistant Integration
+### 🔄 Setup Resume Flow
 
-- **401 error handling** — Clear "Authentication failed (401)" message when the catalog returns 401 instead of "Invalid agent catalog"
-- **Catalog format support** — Accepts `value` key in addition to `agents` and `catalog` in catalog responses
+- **Session recovery** — If the dashboard key was already generated but setup wasn't completed, the wizard detects this state and presents a login form instead of a dead-end message.
+- **Cookie-aware authentication** — The wizard checks three auth sources: key generated this session, resumed via login form, or existing session cookie from a previous visit.
+- **Graceful degradation** — Users who lose their key must reset MongoDB storage and start fresh—no backdoor recovery mechanism that could be exploited.
+
+### ♾️ Infinite Prompt Cache Retention
+
+- **Removed 4-hour TTL** — `ChatCacheTtl` field and all `TimeSpan` parameters removed from `StringSetAsync` calls in `RedisPromptCacheService`.
+- **Manual eviction only** — Cache entries persist in Redis indefinitely until evicted via the Prompt Cache dashboard page (per-entry or bulk "Clear All").
+- **Cost optimization** — Long-running instances accumulate cache hits over time without periodic cold-start penalties.
 
 ## 🐛 Bug Fixes
 
-- **Invalid agent catalog from HA** — `/agents` required auth; HA integration received 401 with JSON error body and reported "Invalid agent catalog". Fixed by allowing anonymous access to catalog discovery.
-- **Chat provider never seeded in Docker** — `ConnectionStrings__chat-model` in `.env` was not used because (1) seed only ran when setup complete, (2) seed looked for `chat` not `chat-model`, (3) compose variable substitution corrupted the value. Fixed with env_file, key change, and pre-setup seed.
-- **Setup wizard unrecoverable** — Documentation referenced non-existent `db.settings.drop()`. Correct reset is `db.dropDatabase()` on `luciaconfig`.
+- **Orchestrator URL registration** — `OrchestratorAgent` was registering the internal container address (e.g., `http://localhost:5000/agent`) as its A2A endpoint instead of a relative `/agent` path. External callers couldn't reach the agent through the reverse proxy. Fixed to use relative URL resolution.
+- **Azure OpenAI embedding 404** — The API-key path for Azure OpenAI embeddings used the plain `OpenAI.Embeddings.EmbeddingClient` which sends requests to the wrong URL pattern. Azure OpenAI requires `AzureOpenAIClient` for the `/openai/deployments/{name}/embeddings?api-version=...` route. Fixed to use `AzureOpenAIClient` + `AzureKeyCredential` for both API key and Default Credential paths.
+- **Empty agent catalog crash** — Home Assistant custom component raised `ConfigEntryNotReady` when the agent catalog was empty instead of gracefully showing no agents. Fixed to return an empty list.
+- **A2A SDK dependency removed** — Custom component no longer depends on the experimental `a2a-sdk` Python package, resolving HACS validation failures and installation issues.
+- **Playwright test stability** — Rewrote setup wizard E2E tests to handle the resume flow, added Agent Cache tab switching for prompt cache validation, and fixed column mapping for the new cache table layout.
+- **StepIndicator overflow** — The 6-step wizard progress tracker overflowed its container on narrow viewports. Fixed with proper flex-wrap and sizing.
+
+## 🧪 Testing
+
+- **7 setup wizard E2E tests** — Covers redirect, welcome page, key generation + HA config, AI provider configuration, agent status gate, dashboard authentication, and setup endpoint lockdown.
+- **5 prompt cache E2E tests** — Validates cache login/clear, miss recording, hit detection, different-prompt separation, and manual eviction through the dashboard UI.
+- **Resume flow coverage** — Tests navigate through the wizard with a pre-existing dashboard key, exercising the resume login path.
+
+## 📦 Files Changed
+
+- 20 files changed, +1,201 / −528 lines across dashboard, backend, tests, and HA custom component.
 
 ---
 
@@ -57,6 +206,7 @@
 - **SceneControlSkill** — New skill with `ListScenesAsync`, `FindScenesByAreaAsync`, and `ActivateSceneAsync` tools for Home Assistant scene control
 - **SceneAgent** — Specialized agent for scene activation at `/a2a/scene-agent`; routes queries like "activate movie scene", "turn on night mode", "what scenes are in the living room?"
 - **Catalog integration** — Scene agent appears in the agent catalog and is routable via the orchestrator for #scenes domain
+
 
 ---
 

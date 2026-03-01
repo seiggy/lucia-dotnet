@@ -5,7 +5,6 @@ using lucia.Agents.Configuration;
 using lucia.Agents.Mcp;
 using lucia.Agents.Orchestration;
 using lucia.Agents.Services;
-using lucia.Agents.Skills;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -20,7 +19,7 @@ public sealed class GeneralAgent : ILuciaAgent
     private readonly AgentCard _agent;
     private readonly IChatClientResolver _clientResolver;
     private readonly IAgentDefinitionRepository _definitionRepository;
-    private readonly WebSearchSkill _webSearchSkill;
+    private readonly IWebSearchSkill? _webSearchSkill;
     private readonly TracingChatClientFactory _tracingFactory;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<GeneralAgent> _logger;
@@ -33,16 +32,16 @@ public sealed class GeneralAgent : ILuciaAgent
     public string Instructions { get; }
 
     /// <summary>
-    /// The AI tools available to this agent (web search when SEARXNG_URL is set).
+    /// The AI tools available to this agent (web search when a provider is registered).
     /// </summary>
     public IList<AITool> Tools { get; }
 
     public GeneralAgent(
         IChatClientResolver clientResolver,
         IAgentDefinitionRepository definitionRepository,
-        WebSearchSkill webSearchSkill,
         TracingChatClientFactory tracingFactory,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        IWebSearchSkill? webSearchSkill = null)
     {
         _clientResolver = clientResolver;
         _definitionRepository = definitionRepository;
@@ -51,7 +50,7 @@ public sealed class GeneralAgent : ILuciaAgent
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<GeneralAgent>();
 
-        Tools = _webSearchSkill.GetTools();
+        Tools = _webSearchSkill?.GetTools() ?? [];
 
         // Create the agent card for registration
         var skills = new List<AgentSkill>();
@@ -128,7 +127,9 @@ public sealed class GeneralAgent : ILuciaAgent
         using var activity = ActivitySource.StartActivity();
         _logger.LogInformation("Initializing General Knowledge Agent...");
 
-        await _webSearchSkill.InitializeAsync(cancellationToken).ConfigureAwait(false);
+        if (_webSearchSkill is not null)
+            await _webSearchSkill.InitializeAsync(cancellationToken).ConfigureAwait(false);
+
         await ApplyDefinitionAsync(cancellationToken).ConfigureAwait(false);
 
         activity?.SetTag("agent.id", AgentId);

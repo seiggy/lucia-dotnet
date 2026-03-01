@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using lucia.Agents.Auth;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -72,6 +73,14 @@ public static class SetupSeedExtensions
                 var existingComplete = await configStore.GetAsync("Auth:SetupComplete", ct).ConfigureAwait(false);
                 if (!string.Equals(existingComplete, "true", StringComparison.OrdinalIgnoreCase))
                 {
+                    // Generate session signing key (matches wizard's CompleteSetupAsync behavior)
+                    var existingSigningKey = await configStore.GetAsync("Auth:SessionSigningKey", ct).ConfigureAwait(false);
+                    if (string.IsNullOrWhiteSpace(existingSigningKey))
+                    {
+                        var signingKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+                        await configStore.SetAsync("Auth:SessionSigningKey", signingKey, "env-seed", isSensitive: true, cancellationToken: ct).ConfigureAwait(false);
+                    }
+
                     await configStore.SetAsync("Auth:SetupComplete", "true", "env-seed", cancellationToken: ct).ConfigureAwait(false);
                     logger.LogInformation("Headless setup complete from env — wizard skipped. Use DASHBOARD_API_KEY to log in.");
                 }

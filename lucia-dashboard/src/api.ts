@@ -1085,3 +1085,81 @@ export async function cancelOptimizerJob(jobId: string): Promise<void> {
   const res = await fetch(`${BASE}/skill-optimizer/jobs/${jobId}/cancel`, { method: 'POST' });
   if (!res.ok) throw new Error(`Failed to cancel job: ${res.statusText}`);
 }
+
+// ─── Plugin Repositories ───
+
+export async function fetchPluginRepos(): Promise<import('./types').PluginRepository[]> {
+  const res = await fetch(`${BASE}/plugin-repos`);
+  if (!res.ok) throw new Error(`Failed to fetch plugin repos`);
+  return res.json();
+}
+
+export async function addPluginRepo(body: { url: string; branch?: string; manifestPath?: string }): Promise<import('./types').PluginRepository> {
+  const res = await fetch(`${BASE}/plugin-repos`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Failed to add plugin repo`);
+  return res.json();
+}
+
+export async function deletePluginRepo(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/plugin-repos/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to delete plugin repo`);
+}
+
+export async function syncPluginRepo(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/plugin-repos/${id}/sync`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to sync plugin repo`);
+}
+
+// ─── Plugin Store ───
+
+export async function fetchAvailablePlugins(query?: string): Promise<import('./types').AvailablePlugin[]> {
+  const qs = query ? `?q=${encodeURIComponent(query)}` : '';
+  const res = await fetch(`${BASE}/plugins/available${qs}`);
+  if (!res.ok) throw new Error(`Failed to fetch available plugins`);
+  return res.json();
+}
+
+export async function installPlugin(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/plugins/${id}/install`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to install plugin`);
+}
+
+// ─── Installed Plugins ───
+
+export async function fetchInstalledPlugins(): Promise<import('./types').InstalledPlugin[]> {
+  const res = await fetch(`${BASE}/plugins/installed`);
+  if (!res.ok) throw new Error(`Failed to fetch installed plugins`);
+  return res.json();
+}
+
+export async function enablePlugin(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/plugins/${id}/enable`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to enable plugin`);
+}
+
+export async function disablePlugin(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/plugins/${id}/disable`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to disable plugin`);
+}
+
+export async function uninstallPlugin(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/plugins/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to uninstall plugin`);
+}
+
+// ─── System ───
+
+export async function fetchRestartRequired(): Promise<{ restartRequired: boolean }> {
+  const res = await fetch(`${BASE}/system/restart-required`);
+  if (!res.ok) throw new Error(`Failed to check restart status`);
+  return res.json();
+}
+
+export async function triggerRestart(): Promise<void> {
+  const res = await fetch(`${BASE}/system/restart`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to trigger restart`);
+}

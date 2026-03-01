@@ -484,11 +484,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
         var musicAgent = await CreateMusicAgentAsync(deploymentName, embeddingModelName);
 
         var generalResolver = CreateAgentResolver(CreateBaseChatClient(deploymentName));
-        var webSearchSkill = new WebSearchSkill(
-            A.Fake<IHttpClientFactory>(),
-            Options.Create(new lucia.Agents.Configuration.SearXngOptions()),
-            _loggerFactory.CreateLogger<WebSearchSkill>());
-        var generalAgent = new GeneralAgent(generalResolver, _mockDefinitionRepo, webSearchSkill, _tracingFactory, _loggerFactory);
+        var generalAgent = new GeneralAgent(generalResolver, _mockDefinitionRepo, _tracingFactory, _loggerFactory);
         await generalAgent.InitializeAsync();
 
         var agentProvider = new EvalAgentProvider(
@@ -566,11 +562,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
         _musicAgentCard = musicAgent.GetAgentCard();
 
         // GeneralAgent card
-        var webSearchSkill2 = new WebSearchSkill(
-            A.Fake<IHttpClientFactory>(),
-            Options.Create(new lucia.Agents.Configuration.SearXngOptions()),
-            _loggerFactory.CreateLogger<WebSearchSkill>());
-        var generalAgent = new GeneralAgent(_mockChatClientResolver, _mockDefinitionRepo, webSearchSkill2, _tracingFactory, _loggerFactory);
+        var generalAgent = new GeneralAgent(_mockChatClientResolver, _mockDefinitionRepo, _tracingFactory, _loggerFactory);
         _generalAgentCard = generalAgent.GetAgentCard();
     }
 }

@@ -8,7 +8,7 @@
 [![Agent Framework](https://img.shields.io/badge/Agent%20Framework-1.0.0-blue)](https://learn.microsoft.com/agent-framework/)
 [![License](https://img.shields.io/github/license/seiggy/lucia-dotnet)](LICENSE)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Compatible-41BDF5)](https://www.home-assistant.io/)
-![Latest Version](https://img.shields.io/badge/v2026.02.25_Zenith-cornflowerblue?logo=homeassistantcommunitystore&label=Release)
+![Latest Version](https://img.shields.io/badge/v2026.03.01_Nebula-cornflowerblue?logo=homeassistantcommunitystore&label=Release)
 
 Lucia *(pronounced LOO-sha)* is an open-source, privacy-focused AI assistant that serves as a complete replacement for Amazon Alexa and Google Home. Built on the [Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/) with a multi-agent architecture, Lucia provides autonomous whole-home automation management through deep integration with Home Assistant. A full-featured React dashboard lets you manage agents, inspect traces, tune configuration, and export training data—all from a single UI.
 
@@ -30,7 +30,7 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
 - **⏰ Alarm Clock System** — CRON-scheduled alarms with volume ramping, voice dismissal/snooze, presence-based speaker routing, and sound library with file upload
 - **📡 Presence Detection** — Auto-discovered motion/occupancy/mmWave sensors with room-level confidence scoring for context-aware automations
 - **📅 Scheduled Task System** — Extensible CRON-based scheduler with MongoDB persistence supporting alarms, timers, and deferred agent actions
-- **🔌 Extensible** — Easy to add new agents and capabilities with standardized A2A protocol
+- **🔌 Extensible** — Script-based plugin system for adding capabilities without recompiling. Plugin repository for discovery and one-click install.
 - **🛠️ Runtime Agent Builder** — Create custom agents via the dashboard with MCP tool integration—no code required
 - **🧭 General Knowledge Fallback** — Built-in `general-assistant` handles open-ended requests when no specialist is a clean match
 - **🎭 Dynamic Agent Selection** — Switch between specialized agents (light control, music, timers, etc.) without reconfiguring
@@ -295,6 +295,7 @@ graph TB
 | **Dashboard** (`lucia-dashboard`) | React 19 SPA for management, traces, exports, and configuration |
 | **Home Assistant Integration** (`custom_components/lucia`) | Python custom component with conversation platform |
 | **HomeAssistant Client** (`lucia.HomeAssistant`) | Strongly-typed .NET client for the HA REST API |
+| **Plugin System** (`lucia.Agents/Extensions`) | Roslyn script plugin engine with four-hook lifecycle, repository management, and dashboard UI |
 | **Alarm Clock System** (`lucia.Agents/Alarms`) | CRON-scheduled alarms with volume ramping, sound library, and voice dismissal |
 | **Presence Detection** (`lucia.Agents/Services`) | Auto-discovered room-level presence with confidence-weighted sensor fusion |
 
@@ -305,17 +306,20 @@ lucia-dotnet/
 ├── lucia.AppHost/                # .NET Aspire orchestrator (recommended dev entrypoint)
 ├── lucia.AgentHost/              # ASP.NET Core API host
 │   ├── Auth/                     # API key authentication and session management
-│   ├── Extensions/               # Setup, Configuration, A2A, and Auth API endpoints
+│   ├── Extensions/               # Setup, Configuration, A2A, Plugin, and Auth API endpoints
 │   └── plugins/                  # Agent Framework plugins
 ├── lucia.A2AHost/                # A2A satellite agent host
 │   ├── AgentRegistry/            # Agent card registration
 │   ├── Extensions/               # A2A endpoint mapping
 │   └── Services/                 # Agent initialization
 ├── lucia.Agents/                 # Shared agent implementations and orchestration
+│   ├── Abstractions/             # ILuciaPlugin, IWebSearchSkill, IPluginRepositorySource
 │   ├── Agents/                   # GeneralAgent, LightAgent, OrchestratorAgent
+│   ├── Configuration/            # Plugin, repository, and manifest models
+│   ├── Extensions/               # PluginLoader, PluginScriptHost, service registrations
 │   ├── Orchestration/            # RouterExecutor, AgentDispatchExecutor, etc.
 │   ├── Registry/                 # Agent discovery and registration
-│   ├── Services/                 # Agent initialization, config store
+│   ├── Services/                 # PluginManagementService, Git/Local repo sources
 │   ├── Skills/                   # LightControlSkill and tool definitions
 │   └── Training/                 # Trace capture and export
 ├── lucia.MusicAgent/             # Music Assistant playback agent (A2AHost)
@@ -326,13 +330,17 @@ lucia-dotnet/
 │   └── Configuration/            # Client settings
 ├── lucia-dashboard/              # React 19 + Vite 7 management dashboard
 │   └── src/
-│       ├── pages/                # Activity, Traces, Agents, Config, Exports, Cache, Tasks, Alarms, Presence
-│       ├── components/           # MeshGraph and shared UI components
+│       ├── pages/                # Activity, Traces, Agents, Config, Exports, Cache, Tasks, Alarms, Presence, Plugins
+│       ├── components/           # MeshGraph, PluginRepoDialog, RestartBanner, shared UI
 │       ├── hooks/                # useActivityStream and custom React hooks
 │       ├── context/              # Auth context and providers
 │       └── api.ts                # API client functions
+├── plugins/                      # Plugin scripts (each subfolder = one plugin)
+│   ├── metamcp/plugin.cs         # MetaMCP tool aggregation bridge
+│   └── searxng/plugin.cs         # SearXNG web search skill
+├── lucia-plugins.json            # Official plugin repository manifest
 ├── lucia.ServiceDefaults/        # OpenTelemetry, health checks, resilience
-├── lucia.Tests/                  # xUnit tests (unit, integration, eval)
+├── lucia.Tests/                  # xUnit tests (unit, integration, eval, plugin system)
 ├── custom_components/lucia/      # Home Assistant Python custom component
 │   ├── conversation.py           # JSON-RPC conversation platform
 │   ├── config_flow.py            # HA configuration UI with agent selection
@@ -443,6 +451,221 @@ Once saved, the agent is immediately available to the orchestrator's router. The
 FROM ghcr.io/seiggy/lucia-dotnet:latest
 RUN apt-get update && apt-get install -y nodejs npm
 ```
+
+## 🔌 Plugin System
+
+Lucia features a script-based plugin system powered by [Roslyn CSharpScript](https://learn.microsoft.com/en-us/dotnet/csharp/roslyn-sdk/). Plugins are plain C# files — no project files, no separate DLLs, no compilation step. Drop a folder with a `plugin.cs` into the `plugins/` directory and Lucia loads it at startup.
+
+### Plugin Lifecycle
+
+Plugins implement the `ILuciaPlugin` interface and participate in four lifecycle hooks, called in order:
+
+| Hook | When | Use Case |
+|------|------|----------|
+| `ConfigureServices(IHostApplicationBuilder)` | Before app is built | Register DI services (e.g., `IWebSearchSkill`) |
+| `ExecuteAsync(IServiceProvider, CancellationToken)` | After app is built, before HTTP starts | Run initialization, seed data |
+| `MapEndpoints(WebApplication)` | During endpoint registration | Add custom HTTP endpoints |
+| `OnSystemReadyAsync(IServiceProvider, CancellationToken)` | After all agents are online | Logic that depends on agents or Home Assistant |
+
+All hooks have default no-op implementations — only override what you need.
+
+### Creating a Plugin
+
+**1. Create a folder** under `plugins/` with your plugin's ID:
+
+```
+plugins/
+└── my-plugin/
+    └── plugin.cs
+```
+
+**2. Write your `plugin.cs`** — the script must define a class implementing `ILuciaPlugin` and end with an expression that returns an instance of it:
+
+```csharp
+// plugins/my-plugin/plugin.cs
+using lucia.Agents.Abstractions;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+
+public class MyPlugin : ILuciaPlugin
+{
+    public string PluginId => "my-plugin";
+
+    public void ConfigureServices(IHostApplicationBuilder builder)
+    {
+        // Register services into the DI container before the app is built
+        builder.Services.AddSingleton<IMyService, MyServiceImpl>();
+    }
+
+    public async Task ExecuteAsync(IServiceProvider services, CancellationToken ct = default)
+    {
+        var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger("MyPlugin");
+        logger.LogInformation("My plugin initialized.");
+    }
+
+    public async Task OnSystemReadyAsync(IServiceProvider services, CancellationToken ct = default)
+    {
+        // Agents and Home Assistant are fully available here
+        var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger("MyPlugin");
+        logger.LogInformation("System ready — all agents online.");
+    }
+}
+
+// The last expression MUST return an ILuciaPlugin instance
+new MyPlugin()
+```
+
+**3. That's it.** Restart Lucia and your plugin will be discovered and loaded automatically.
+
+### Available Namespaces and Assemblies
+
+Plugin scripts run in a sandboxed Roslyn environment with a curated set of assemblies and auto-imported namespaces. You do **not** need `using` directives for these — they are pre-imported:
+
+**Auto-imported namespaces:**
+
+| Namespace | Description |
+|-----------|-------------|
+| `System` | Core .NET types |
+| `System.Collections.Generic` | Lists, dictionaries, etc. |
+| `System.Linq` | LINQ query operators |
+| `System.Threading` | `CancellationToken`, synchronization |
+| `System.Threading.Tasks` | `Task`, `ValueTask`, async patterns |
+| `System.Net.Http` | `HttpClient`, `IHttpClientFactory` |
+| `lucia.Agents.Abstractions` | `ILuciaPlugin`, `IWebSearchSkill`, etc. |
+| `Microsoft.Extensions.DependencyInjection` | `IServiceCollection`, `AddSingleton`, etc. |
+| `Microsoft.Extensions.Hosting` | `IHostApplicationBuilder`, `BackgroundService` |
+| `Microsoft.Extensions.Logging` | `ILogger`, `ILoggerFactory` |
+| `Microsoft.Extensions.Configuration` | `IConfiguration` |
+| `Microsoft.Extensions.AI` | `AITool`, `AIFunctionFactory` |
+
+**Additional assemblies available** (require explicit `using` in your script):
+
+| Assembly | Key Types |
+|----------|-----------|
+| `System.Text.Json` | `JsonSerializer`, `JsonSerializerOptions` |
+| `System.ComponentModel.Primitives` | `DescriptionAttribute` |
+| `System.Diagnostics.DiagnosticSource` | `ActivitySource`, `Meter`, `Counter<T>`, `Histogram<T>` |
+| `Microsoft.AspNetCore` | `WebApplication`, `IEndpointRouteBuilder` |
+
+> **Note:** If you need an assembly that isn't listed above, the plugin won't compile. File an issue or PR to add it to the host's reference set in `PluginScriptHost.cs`.
+
+### Plugin Examples
+
+**MetaMCP Bridge** (`plugins/metamcp/`) — Seeds a MetaMCP tool server into the agent registry:
+
+```csharp
+public class MetaMcpPlugin : ILuciaPlugin
+{
+    public string PluginId => "metamcp";
+
+    public async Task ExecuteAsync(IServiceProvider services, CancellationToken ct = default)
+    {
+        var config = services.GetRequiredService<IConfiguration>();
+        var url = config["METAMCP_URL"];
+        if (string.IsNullOrWhiteSpace(url)) return;
+        // ... seed the MCP tool server definition into MongoDB
+    }
+}
+
+new MetaMcpPlugin()
+```
+
+**SearXNG Web Search** (`plugins/searxng/`) — Registers `IWebSearchSkill` so the GeneralAgent gains web search:
+
+```csharp
+public sealed class SearXngPlugin : ILuciaPlugin
+{
+    public string PluginId => "searxng";
+
+    public void ConfigureServices(IHostApplicationBuilder builder)
+    {
+        var url = builder.Configuration["SearXng:BaseUrl"];
+        if (!string.IsNullOrWhiteSpace(url))
+        {
+            builder.Services.AddSingleton<IWebSearchSkill>(sp =>
+                new SearXngWebSearchSkill(
+                    sp.GetRequiredService<IHttpClientFactory>(),
+                    url,
+                    sp.GetRequiredService<ILoggerFactory>().CreateLogger<SearXngWebSearchSkill>()));
+        }
+    }
+}
+// ... skill class, then:
+new SearXngPlugin()
+```
+
+### Plugin Repository System
+
+Plugins can be discovered, installed, and managed through the dashboard's **Plugins** page. Repositories are remote or local sources that provide a manifest of available plugins.
+
+#### Repository Manifest (`lucia-plugins.json`)
+
+Every repository is defined by a `lucia-plugins.json` manifest file:
+
+```json
+{
+  "id": "lucia-official",
+  "name": "Lucia Official Plugins",
+  "plugins": [
+    {
+      "id": "metamcp",
+      "name": "MetaMCP Bridge",
+      "description": "Bridges MetaMCP tool aggregation into Lucia agents.",
+      "version": "1.0.0",
+      "path": "plugins/metamcp"
+    },
+    {
+      "id": "searxng",
+      "name": "SearXNG Web Search",
+      "description": "Privacy-respecting web search via SearXNG.",
+      "version": "1.0.0",
+      "path": "plugins/searxng"
+    }
+  ]
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `id` | ✅ | Unique repository identifier |
+| `name` | ✅ | Human-readable repository name |
+| `plugins` | ✅ | Array of plugin entries |
+| `plugins[].id` | ✅ | Unique plugin identifier |
+| `plugins[].name` | ✅ | Display name |
+| `plugins[].description` | ✅ | Short description |
+| `plugins[].version` | ✅ | SemVer version string |
+| `plugins[].path` | ✅ | Path to the plugin folder, relative to the repo root |
+| `plugins[].author` | ❌ | Author name |
+| `plugins[].tags` | ❌ | Array of tags for categorization |
+
+#### Creating Your Own Plugin Repository
+
+To publish your own plugins as a repository:
+
+1. **Create a GitHub repository** with your plugins under a `plugins/` directory
+2. **Add a `lucia-plugins.json`** at the repo root with your manifest
+3. **Each plugin** must have a `plugin.cs` entry point in its folder
+4. **Add the repo in Lucia** — go to Plugins → Repositories → Add Repository, enter your GitHub URL and branch
+
+#### Git Blob Source Strategies
+
+When adding a Git-based repository, the `blobSource` field controls how plugin archives are downloaded:
+
+| Strategy | Behavior |
+|----------|----------|
+| `release` (default) | Fetches the latest GitHub Release. Looks for a `{pluginId}.zip` asset first, falls back to the release zipball, then to a branch archive. Best for production repositories. |
+| `tag` | Downloads the archive at a specific tag (`Branch` field = tag name). Useful for pinning to a known version. |
+| `branch` | Downloads the archive at branch HEAD. Best for development or bleeding-edge tracking. |
+
+The release strategy is recommended for production use — publish per-plugin zip files as GitHub Release assets for the fastest, most targeted downloads.
+
+#### Managing Plugins via the Dashboard
+
+The **Plugins** page has three tabs:
+
+- **Installed** — View, enable/disable, and uninstall plugins. Changes require an app restart (a banner will prompt you).
+- **Store** — Browse available plugins from all configured repositories. One-click install.
+- **Repositories** — Add, remove, and sync plugin repositories. Supports both local (development) and Git (production) sources.
 
 ## 🧪 Development
 
@@ -579,6 +802,8 @@ The Aspire Dashboard provides built-in log aggregation, trace visualization, and
 - Presence Detection dashboard page with sensor management
 - Alarm sound file upload with HA media library integration
 - Mesh mode deployment hardening (conditional service registration, URL resolution, endpoint deduplication)
+- Script-based plugin system with Roslyn CSharpScript, four-hook lifecycle, and plugin repository management
+- Plugin dashboard with store, install/uninstall, enable/disable, and repository management
 
 ### 🔄 In Progress
 
@@ -609,6 +834,7 @@ We welcome contributions! Whether you're fixing bugs, adding agents, or improvin
 ### Areas for Contribution
 
 - 🤖 New specialized agents (security, scene, calendar, etc.)
+- 🔌 Community plugins (search providers, notification services, calendar integrations)
 - 🧠 Additional LLM provider integrations
 - 🏠 Enhanced Home Assistant integrations
 - 📊 Dashboard features and improvements

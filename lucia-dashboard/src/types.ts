@@ -433,3 +433,42 @@ export interface JobStatusResponse {
   result: OptimizationResult | null
   error: string | null
 }
+
+// ─── Plugin System ───
+
+export interface PluginRepository {
+  id: string
+  name: string
+  url: string
+  branch: string
+  manifestPath: string
+  lastSyncedAt: string | null
+  enabled: boolean
+}
+
+export interface AvailablePlugin {
+  id: string
+  name: string
+  description: string
+  version: string
+  author: string
+  tags: string[]
+  downloadUrl: string
+  homepage: string | null
+  minLuciaVersion: string | null
+  repositoryId: string
+  repositoryName: string
+  isInstalled: boolean
+}
+
+export interface InstalledPlugin {
+  id: string
+  name: string
+  version: string
+  source: string
+  repositoryId: string | null
+  description: string | null
+  installedAt: string
+  pluginPath: string
+  enabled: boolean
+}
