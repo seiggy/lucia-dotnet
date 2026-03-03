@@ -1,4 +1,3 @@
-using MongoDB.Bson.Serialization.Attributes;
 using MongoDB.Driver;
 
 namespace lucia.TimerAgent.ScheduledTasks;

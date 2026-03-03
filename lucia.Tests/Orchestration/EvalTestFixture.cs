@@ -5,7 +5,6 @@ using Azure.Identity;
 using FakeItEasy;
 using lucia.Agents.Agents;
 using lucia.Agents.Configuration;
-using lucia.Agents.Mcp;
 using lucia.Agents.Models;
 using lucia.Agents.Orchestration;
 using lucia.Agents.Registry;
@@ -26,6 +25,9 @@ using OllamaSharp;
 using OpenAI;
 using A2A;
 using lucia.Agents.Abstractions;
+using lucia.Agents.Integration;
+using lucia.Agents.Models.HomeAssistant;
+using lucia.Agents.Orchestration.Models;
 
 namespace lucia.Tests.Orchestration;
 

@@ -1,6 +1,6 @@
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
-using lucia.Agents.Mcp;
+using lucia.Agents.Configuration.UserConfiguration;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -149,7 +149,8 @@ public static class ModelProviderSeedExtensions
     /// </summary>
     private static ChatClientConnectionInfo? TryParseOllamaFallback(string? connectionString)
     {
-        if (string.IsNullOrWhiteSpace(connectionString) || !connectionString.Contains("Provider=ollama", StringComparison.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(connectionString) || 
+            !connectionString.Contains("Provider=ollama", StringComparison.OrdinalIgnoreCase))
             return null;
 
         var parts = connectionString.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);

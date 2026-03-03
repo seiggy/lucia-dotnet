@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using A2A;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Registry;
 using lucia.Agents.Training.Models;
@@ -21,6 +23,7 @@ public class LuciaEngine
     private readonly IOptions<ResultAggregatorOptions> _aggregatorOptions;
     private readonly ILogger<LuciaEngine> _logger;
     private readonly IOrchestratorObserver? _observer;
+    private static readonly ActivitySource ActivitySource = new("Lucia.Agents.Orchestration.LuciaEngine", "1.0.0");
 
     public LuciaEngine(
         IAgentRegistry agentRegistry,
@@ -52,6 +55,8 @@ public class LuciaEngine
         string? sessionId = null,
         CancellationToken cancellationToken = default)
     {
+        var activity = ActivitySource.StartActivity();
+        activity?.AddBaggage(nameof(userRequest), userRequest);
         _logger.LogInformation("Processing user request: {Request} (TaskId: {TaskId}, SessionId: {SessionId})",
             userRequest, taskId ?? "new", sessionId ?? "new");
 
@@ -64,13 +69,15 @@ public class LuciaEngine
             }
 
             // 1. Session & task lifecycle — load in parallel since they're independent
+            activity?.AddEvent(new ActivityEvent("SessionRehydrateStart"));
             var sessionTask = _sessionManager.LoadSessionAsync(sessionId, cancellationToken);
             var agentTaskTask = _sessionManager.LoadOrCreateTaskAsync(taskId, sessionId, cancellationToken);
             await Task.WhenAll(sessionTask, agentTaskTask).ConfigureAwait(false);
 
             var sessionData = sessionTask.Result;
             var agentTask = agentTaskTask.Result;
-
+            activity?.AddEvent(new ActivityEvent("SessionRehydrateEnd"));
+            
             // Add user message to task history
             var userMessage = new AgentMessage
             {
@@ -80,17 +87,23 @@ public class LuciaEngine
                 ContextId = agentTask.ContextId,
                 Parts = new List<Part> { new TextPart { Text = userRequest } }
             };
-
+            activity?.SetTag("agent.MessageId", userMessage.MessageId);
+            activity?.SetTag("agent.TaskId", userMessage.TaskId);
+            activity?.SetTag("agent.SessionId", sessionData?.SessionId);
+            activity?.SetTag("agent.ContextId", agentTask.ContextId);
+            
             agentTask.History ??= new List<AgentMessage>();
             agentTask.History.Add(userMessage);
 
             // 2. Agent resolution & task status update in parallel — they're independent
+            activity?.AddEvent(new ActivityEvent("RetrieveAgentsStart"));
             var updateWorkingTask = _sessionManager.UpdateTaskStatusAsync(
                 agentTask.Id, TaskState.Working, message: userMessage, final: false, cancellationToken);
             var agentCardsTask = _agentRegistry
                 .GetAllAgentsAsync(cancellationToken);
 
             await Task.WhenAll(updateWorkingTask, agentCardsTask).ConfigureAwait(false);
+            activity?.AddEvent(new ActivityEvent("RetrieveAgentsCompleted"));
 
             var availableAgentCards = agentCardsTask.Result;
 
@@ -99,17 +112,20 @@ public class LuciaEngine
                 _logger.LogWarning("No agents available to process request");
                 var noAgentsMessage = "I don't have any specialized agents available right now. Please try again later.";
                 await FailTaskAsync(agentTask, noAgentsMessage, cancellationToken).ConfigureAwait(false);
+                activity?.SetStatus(ActivityStatusCode.Error);
                 return new OrchestratorResult { Text = noAgentsMessage };
             }
 
-            var resolvedAgents = await _workflowFactory.ResolveAgentsAsync(availableAgentCards, cancellationToken).ConfigureAwait(false);
-            var invokers = _workflowFactory.CreateInvokers(availableAgentCards, resolvedAgents);
+            var resolvedAgents = await _workflowFactory.ResolveAgentsAsync(cancellationToken)
+                .ConfigureAwait(false);
+            var invokers = _workflowFactory.CreateAgentInvokers(availableAgentCards, resolvedAgents);
 
             if (invokers.Count == 0)
             {
                 _logger.LogWarning("Unable to build any agent invokers. Falling back to aggregator message.");
                 var fallbackMessage = _aggregatorOptions.Value.DefaultFallbackMessage;
                 await FailTaskAsync(agentTask, fallbackMessage, cancellationToken).ConfigureAwait(false);
+                activity?.SetStatus(ActivityStatusCode.Error);
                 return new OrchestratorResult { Text = fallbackMessage };
             }
 
@@ -171,13 +187,13 @@ public class LuciaEngine
 
             _logger.LogInformation("Task {TaskId} ended with state {TaskState} and {HistoryCount} history items",
                 agentTask.Id, finalState, agentTask.History.Count);
-
+            activity?.SetStatus(ActivityStatusCode.Ok);
             return new OrchestratorResult { Text = finalText, NeedsInput = needsInput };
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error processing user request: {Request}", userRequest);
-
+            activity?.SetStatus(ActivityStatusCode.Error);
             var errorResponse = "I encountered an error while processing your request. Please try again.";
 
             // Persist the trace even on failure so errors are visible in the dashboard

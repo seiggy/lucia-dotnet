@@ -98,7 +98,7 @@ public sealed class OrchestratorConversationTraceTests : PlaywrightTestBase
 
         // The timestamp is displayed via toLocaleString() — parse it back
         // We allow a generous window because LLM calls can be slow
-        if (DateTimeOffset.TryParse(timestampText!.Trim(), out var traceTimestamp))
+        if (DateTimeOffset.TryParse(timestampText.Trim(), out var traceTimestamp))
         {
             var delta = (traceTimestamp - messageSentAt).Duration();
             Assert.True(delta.TotalSeconds < 120,

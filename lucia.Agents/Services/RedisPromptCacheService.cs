@@ -1,10 +1,10 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
-
+using lucia.Agents.Abstractions;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -36,11 +36,6 @@ public sealed class RedisPromptCacheService : IPromptCacheService
 
     private const int DefaultPromptCacheTtlHours = 48;
 
-    // Strips volatile HA context fields so identical intents produce the same cache key.
-    private static readonly Regex VolatileHaFieldsPattern = new(
-        @"""(?:timestamp|day_of_week|id)"":\s*""[^""]*""",
-        RegexOptions.Compiled);
-
     // High threshold required — home automation prompts differ by a single noun
     // (e.g., "kitchen lights" vs "office lights" score ~0.95 with embeddings)
     private const double SemanticSimilarityThreshold = 0.99;
@@ -67,27 +62,30 @@ public sealed class RedisPromptCacheService : IPromptCacheService
     private IEmbeddingGenerator<string, Embedding<float>>? _embeddingGenerator;
     private readonly ILogger<RedisPromptCacheService> _logger;
     private readonly TimeSpan _cacheTtl;
+    private IEmbeddingSimilarityService _embeddingSimilarityService;
 
     public RedisPromptCacheService(
         IConnectionMultiplexer redis,
         IEmbeddingProviderResolver embeddingResolver,
         IConfiguration configuration,
+        IEmbeddingSimilarityService embeddingSimilarityService,
         ILogger<RedisPromptCacheService> logger)
     {
         _redis = redis;
         _embeddingResolver = embeddingResolver;
         _logger = logger;
+        _embeddingSimilarityService = embeddingSimilarityService;
 
         var ttlHours = configuration.GetValue("Redis:PromptCacheTtlHours", DefaultPromptCacheTtlHours);
         _cacheTtl = TimeSpan.FromHours(ttlHours);
         _logger.LogInformation("Prompt cache LRU TTL configured to {TtlHours}h", ttlHours);
     }
 
-    public async Task<CachedPromptResponse?> TryGetCachedResponseAsync(
+    public async Task<CachedPromptResponse?> TryGetCachedRoutingDecisionAsync(
         IList<ChatMessage> messages,
         CancellationToken cancellationToken = default)
     {
-        using var activity = ActivitySource.StartActivity("PromptCache.Lookup");
+        using var activity = ActivitySource.StartActivity();
         var sw = Stopwatch.StartNew();
 
         try
@@ -108,9 +106,8 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 {
                     entry.HitCount++;
                     entry.LastHitAt = DateTime.UtcNow;
-                    await db.StringSetAsync(cacheKey, JsonSerializer.Serialize(entry, SerializerOptions)).ConfigureAwait(false);
-                    await db.KeyExpireAsync(cacheKey, _cacheTtl).ConfigureAwait(false);
-                    await db.StringIncrementAsync(StatsHitsKey).ConfigureAwait(false);
+                    await db.KeyExpireAsync(cacheKey, _cacheTtl, flags: CommandFlags.FireAndForget).ConfigureAwait(false);
+                    await db.StringIncrementAsync(StatsHitsKey, flags: CommandFlags.FireAndForget).ConfigureAwait(false);
                     HitsCounter.Add(1);
                     activity?.SetTag("cache.hit", true);
                     activity?.SetTag("cache.match_type", "exact");
@@ -135,10 +132,13 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 return null;
             }
 
-            var queryEmbedding = await GenerateEmbeddingAsync(normalizedPrompt, cancellationToken).ConfigureAwait(false);
+            var queryEmbedding = await GenerateEmbeddingAsync(normalizedPrompt, cancellationToken)
+                .ConfigureAwait(false);
+            
             if (queryEmbedding is null)
             {
-                await db.StringIncrementAsync(StatsMissesKey).ConfigureAwait(false);
+                await db.StringIncrementAsync(StatsMissesKey, flags: CommandFlags.FireAndForget)
+                    .ConfigureAwait(false);
                 MissesCounter.Add(1);
                 return null;
             }
@@ -163,13 +163,11 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 var candidate = JsonSerializer.Deserialize<CachedPromptEntry>(values[i].ToString(), SerializerOptions);
                 if (candidate?.Embedding is null)
                     continue;
-
-                var score = CosineSimilarity(queryEmbedding, candidate.Embedding);
-                if (score > bestScore)
-                {
-                    bestScore = score;
-                    bestEntry = candidate;
-                }
+                var candidateEmbedding = new Embedding<float>(candidate.Embedding);
+                var score = _embeddingSimilarityService.ComputeSimilarity(queryEmbedding, candidateEmbedding);
+                if (!(score > bestScore)) continue;
+                bestScore = score;
+                bestEntry = candidate;
             }
 
             // Remove stale index entries whose Redis keys have expired
@@ -224,7 +222,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
         AgentChoiceResult decision,
         CancellationToken cancellationToken = default)
     {
-        using var activity = ActivitySource.StartActivity("PromptCache.Store");
+        using var activity = ActivitySource.StartActivity();
 
         try
         {
@@ -235,25 +233,26 @@ public sealed class RedisPromptCacheService : IPromptCacheService
 
             activity?.SetTag("cache.key", cacheKey);
 
-            var embedding = await GenerateEmbeddingAsync(normalizedPrompt, cancellationToken).ConfigureAwait(false);
+            var embedding = await GenerateEmbeddingAsync(normalizedPrompt, cancellationToken)
+                .ConfigureAwait(false);
 
             var entry = new CachedPromptEntry
             {
-                CacheKey = hash,
+                CacheKey = cacheKey,
                 NormalizedPrompt = normalizedPrompt,
                 AgentId = decision.AgentId,
                 Confidence = decision.Confidence,
                 Reasoning = decision.Reasoning,
                 AdditionalAgents = decision.AdditionalAgents,
-                Embedding = embedding,
+                Embedding = embedding?.Vector.ToArray(),
                 HitCount = 0,
                 CreatedAt = DateTime.UtcNow,
                 LastHitAt = DateTime.UtcNow
             };
 
             await db.StringSetAsync(cacheKey, JsonSerializer.Serialize(entry, SerializerOptions)).ConfigureAwait(false);
-            await db.KeyExpireAsync(cacheKey, _cacheTtl).ConfigureAwait(false);
-            await db.SetAddAsync(IndexKey, cacheKey).ConfigureAwait(false);
+            await db.KeyExpireAsync(cacheKey, _cacheTtl, flags: CommandFlags.FireAndForget).ConfigureAwait(false);
+            await db.SetAddAsync(IndexKey, cacheKey, flags: CommandFlags.FireAndForget).ConfigureAwait(false);
 
             _logger.LogInformation("Cached routing decision for prompt key {CacheKey}: agent={AgentId}, confidence={Confidence:F2}",
                 cacheKey, decision.AgentId, decision.Confidence);
@@ -270,7 +269,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
         string normalizedPrompt,
         CancellationToken cancellationToken = default)
     {
-        using var activity = ActivitySource.StartActivity("ChatCache.Lookup");
+        using var activity = ActivitySource.StartActivity();
         var sw = Stopwatch.StartNew();
 
         try
@@ -343,8 +342,8 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 var candidate = JsonSerializer.Deserialize<CachedChatResponseData>(values[i].ToString(), SerializerOptions);
                 if (candidate?.Embedding is null)
                     continue;
-
-                var score = CosineSimilarity(queryEmbedding, candidate.Embedding);
+                var candidateEmbedding = new Embedding<float>(candidate.Embedding);
+                var score = _embeddingSimilarityService.ComputeSimilarity(queryEmbedding, candidateEmbedding);
                 if (score > bestScore)
                 {
                     bestScore = score;
@@ -400,7 +399,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
         CachedChatResponseData data,
         CancellationToken cancellationToken = default)
     {
-        using var activity = ActivitySource.StartActivity("ChatCache.Store");
+        using var activity = ActivitySource.StartActivity();
 
         try
         {
@@ -416,7 +415,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
             // Preserve the clean display prompt if already set by the caller
             if (string.IsNullOrEmpty(data.NormalizedPrompt))
                 data.NormalizedPrompt = normalizedPrompt;
-            data.Embedding = embedding;
+            data.Embedding = embedding?.Vector.ToArray();
             data.CreatedAt = DateTime.UtcNow;
             data.LastHitAt = DateTime.UtcNow;
 
@@ -452,12 +451,12 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 var memberKeys = members.Select(m => (RedisKey)m.ToString()).ToArray();
                 var values = await db.StringGetAsync(memberKeys).ConfigureAwait(false);
 
-                for (var i = 0; i < values.Length; i++)
+                foreach (var redisValue in values)
                 {
-                    if (!values[i].HasValue)
+                    if (!redisValue.HasValue)
                         continue;
 
-                    var entry = JsonSerializer.Deserialize<CachedPromptEntry>(values[i].ToString(), SerializerOptions);
+                    var entry = JsonSerializer.Deserialize<CachedPromptEntry>(redisValue.ToString(), SerializerOptions);
                     if (entry is not null)
                         entries.Add(entry);
                 }
@@ -654,40 +653,25 @@ public sealed class RedisPromptCacheService : IPromptCacheService
         AdditionalAgents = entry.AdditionalAgents
     };
 
-    internal static string NormalizePrompt(IList<ChatMessage> messages)
+    private static string NormalizePrompt(IList<ChatMessage> messages)
     {
-        var sb = new StringBuilder();
-        foreach (var message in messages.Where(m => m.Role == ChatRole.User))
+        // get the last user message
+        var userMessage = messages.LastOrDefault(m => m.Role == ChatRole.User);
+        
+        // No user message in chat history. Shouldn't happen, but let the cache system deal with it
+        if (userMessage is null)
+            return string.Empty;
+        
+        // Pull the last line, as prompts can be prefixed with HA data that we don't care about
+        var promptLineArray = userMessage.Text.Split(["\r\n", "\n"], StringSplitOptions.None);
+        // walk the prompt backwards to find the last line
+        for (var i = promptLineArray.Length - 1; i >= 0; i--)
         {
-            var text = message.Text ?? string.Empty;
-            sb.Append(text.ToLowerInvariant().Trim());
-            sb.Append('\n');
+            if (string.IsNullOrWhiteSpace(promptLineArray[i])) continue;
+            return promptLineArray[i];
         }
 
-        var raw = sb.ToString();
-
-        // Strip volatile HA context fields so identical intents hash the same
-        raw = VolatileHaFieldsPattern.Replace(raw, string.Empty);
-
-        sb.Clear();
-        sb.EnsureCapacity(raw.Length);
-        var previousWasSpace = false;
-        foreach (var c in raw)
-        {
-            if (c != '\n' && char.IsWhiteSpace(c))
-            {
-                if (!previousWasSpace)
-                    sb.Append(' ');
-                previousWasSpace = true;
-            }
-            else
-            {
-                sb.Append(c);
-                previousWasSpace = false;
-            }
-        }
-
-        return sb.ToString();
+        return string.Empty;
     }
 
     private static string ComputeSha256(string input)
@@ -696,7 +680,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
         return Convert.ToHexStringLower(hashBytes);
     }
 
-    private async Task<float[]?> GenerateEmbeddingAsync(string text, CancellationToken cancellationToken)
+    private async Task<Embedding<float>?> GenerateEmbeddingAsync(string text, CancellationToken cancellationToken)
     {
         try
         {
@@ -709,32 +693,12 @@ public sealed class RedisPromptCacheService : IPromptCacheService
             }
 
             var result = await _embeddingGenerator.GenerateAsync(text, cancellationToken: cancellationToken).ConfigureAwait(false);
-            return result.Vector.ToArray();
+            return result;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error generating embedding for prompt cache");
             return null;
         }
-    }
-
-    private static double CosineSimilarity(float[] vectorA, float[] vectorB)
-    {
-        if (vectorA.Length != vectorB.Length)
-            return 0;
-
-        double dotProduct = 0;
-        double magnitudeA = 0;
-        double magnitudeB = 0;
-
-        for (var i = 0; i < vectorA.Length; i++)
-        {
-            dotProduct += vectorA[i] * (double)vectorB[i];
-            magnitudeA += vectorA[i] * (double)vectorA[i];
-            magnitudeB += vectorB[i] * (double)vectorB[i];
-        }
-
-        var magnitude = Math.Sqrt(magnitudeA) * Math.Sqrt(magnitudeB);
-        return magnitude == 0 ? 0 : dotProduct / magnitude;
     }
 }

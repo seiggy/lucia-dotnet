@@ -4,8 +4,12 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Text;
 using System.Text.Json;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
+using lucia.Agents.Configuration.UserConfiguration;
+using lucia.Agents.Integration;
 using lucia.Agents.Models;
+using lucia.Agents.Models.HomeAssistant;
 using lucia.Agents.Services;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
@@ -112,7 +116,9 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill
         {
             Threshold = opts.HybridSimilarityThreshold,
             EmbeddingWeight = opts.EmbeddingWeight,
-            ScoreDropoffRatio = opts.ScoreDropoffRatio
+            ScoreDropoffRatio = opts.ScoreDropoffRatio,
+            DisagreementPenalty = opts.DisagreementPenalty,
+            EmbeddingResolutionMargin = opts.EmbeddingResolutionMargin
         };
     }
 
@@ -177,7 +183,9 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill
             {
                 Threshold = opts.HybridSimilarityThreshold,
                 EmbeddingWeight = opts.EmbeddingWeight,
-                ScoreDropoffRatio = opts.ScoreDropoffRatio
+                ScoreDropoffRatio = opts.ScoreDropoffRatio,
+                DisagreementPenalty = opts.DisagreementPenalty,
+                EmbeddingResolutionMargin = opts.EmbeddingResolutionMargin
             };
 
             var matches = await _entityMatcher.FindMatchesAsync(
@@ -217,11 +225,14 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill
                 return matches.Count == 1 ? sb.ToString() : sb.ToString().TrimEnd();
             }
 
-            // Fallback: use location service for area-based search
-            var locationEntities = await _locationService.FindEntitiesByLocationAsync(
-                searchTerm, (IReadOnlyList<string>)["climate"], CancellationToken.None).ConfigureAwait(false);
+            // Fallback: use hierarchical search for area-based resolution
+            var hierarchyResult = await _locationService.SearchHierarchyAsync(
+                searchTerm, GetCurrentMatchOptions(), (IReadOnlyList<string>)["climate"], CancellationToken.None).ConfigureAwait(false);
+            var locationEntities = hierarchyResult.ResolvedEntities;
 
-            if (locationEntities.Count > 0)
+            activity?.SetTag("match.resolution", hierarchyResult.ResolutionStrategy.ToString());
+
+            if (hierarchyResult.ResolutionStrategy != ResolutionStrategy.None && locationEntities.Count > 0)
             {
                 var matchedEntityIds = locationEntities.Select(e => e.EntityId).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 var areaDevices = _cachedDevices.Where(d => matchedEntityIds.Contains(d.EntityId)).ToList();
@@ -273,16 +284,19 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill
 
         try
         {
-            var locationEntities = await _locationService.FindEntitiesByLocationAsync(
-                areaName, (IReadOnlyList<string>)["climate"], CancellationToken.None).ConfigureAwait(false);
+            var hierarchyResult = await _locationService.SearchHierarchyAsync(
+                areaName, GetCurrentMatchOptions(), (IReadOnlyList<string>)["climate"], CancellationToken.None).ConfigureAwait(false);
+            var locationEntities = hierarchyResult.ResolvedEntities;
 
-            if (locationEntities.Count == 0)
+            activity?.SetTag("match.resolution", hierarchyResult.ResolutionStrategy.ToString());
+
+            if (hierarchyResult.ResolutionStrategy == ResolutionStrategy.None || locationEntities.Count == 0)
             {
                 var availableAreas = _cachedDevices
                     .Where(d => !string.IsNullOrEmpty(d.Area))
                     .Select(d => d.Area!)
                     .Distinct();
-                return $"No area found matching '{areaName}'. Available areas with climate devices: {string.Join(", ", availableAreas)}";
+                return $"No area found matching '{areaName}'. {hierarchyResult.ResolutionReason}. Available areas with climate devices: {string.Join(", ", availableAreas)}";
             }
 
             var matchedEntityIds = locationEntities.Select(e => e.EntityId).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -342,16 +356,18 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill
 
         try
         {
-            var locationEntities = await _locationService.FindEntitiesByLocationAsync(
-                areaName, (IReadOnlyList<string>)["sensor"], CancellationToken.None).ConfigureAwait(false);
+            var hierarchyResult = await _locationService.SearchHierarchyAsync(
+                areaName, GetCurrentMatchOptions(), (IReadOnlyList<string>)["sensor"], CancellationToken.None).ConfigureAwait(false);
 
-            var climateSensors = locationEntities
+            activity?.SetTag("match.resolution", hierarchyResult.ResolutionStrategy.ToString());
+
+            var climateSensors = hierarchyResult.ResolvedEntities
                 .Where(e => e.EntityId.Contains("temperature", StringComparison.OrdinalIgnoreCase)
                          || e.EntityId.Contains("humidity", StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
             if (climateSensors.Count == 0)
-                return $"No temperature or humidity sensors found in '{areaName}'.";
+                return $"No temperature or humidity sensors found in '{areaName}'. {hierarchyResult.ResolutionReason}";
 
             var sb = new StringBuilder();
             sb.AppendLine($"Found {climateSensors.Count} climate sensor(s) in '{areaName}':");

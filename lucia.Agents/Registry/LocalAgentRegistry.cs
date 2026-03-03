@@ -21,7 +21,7 @@ public sealed class LocalAgentRegistry : IAgentRegistry
 
     public Task RegisterAgentAsync(AgentCard agent, CancellationToken cancellationToken = default)
     {
-        _agents.AddOrUpdate(agent.Url, agent, (key, existing) => agent);
+        _agents.AddOrUpdate(agent.Url, agent, (_, _) => agent);
         _logger.LogInformation("Agent {AgentId} ({AgentName}) registered successfully", agent.Url, agent.Name);
         return Task.CompletedTask;
     }
@@ -48,19 +48,15 @@ public sealed class LocalAgentRegistry : IAgentRegistry
 
     public async IAsyncEnumerable<AgentCard> GetEnumerableAgentsAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        await Task.CompletedTask.ConfigureAwait(false);
         foreach (var name in _agents.Keys.OrderBy(k => k, StringComparer.Ordinal))
         {
             var agent = _agents[name];
-            if (agent is not null)
-            {
-                yield return agent;
-            }
+            yield return agent;
         }
     }
 
     public Task<IReadOnlyCollection<AgentCard>> GetAllAgentsAsync(CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(_agents.Values.ToList() as IReadOnlyCollection<AgentCard>);
+        return Task.FromResult<IReadOnlyCollection<AgentCard>>(_agents.Values.ToList());
     }
 }

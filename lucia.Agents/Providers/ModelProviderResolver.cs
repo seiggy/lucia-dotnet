@@ -6,6 +6,7 @@ using Azure.Identity;
 using GitHub.Copilot.SDK;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
+using lucia.Agents.Configuration.UserConfiguration;
 using lucia.Agents.GitHubCopilot;
 using lucia.Agents.Models;
 using Microsoft.Agents.AI;
@@ -81,35 +82,35 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         };
     }
 
-    public async Task<ModelProviderTestResult> TestConnectionAsync(ModelProvider provider, CancellationToken ct = default)
+    public async Task<ModelProviderConnectionTestResult> TestConnectionAsync(ModelProvider provider, CancellationToken ct = default)
     {
         try
         {
             using var client = CreateClient(provider);
             var response = await client.GetResponseAsync("Say hello in one word.", cancellationToken: ct).ConfigureAwait(false);
             var text = response.Text?.Trim();
-            return new ModelProviderTestResult(true, $"Connection successful. Response: {text}");
+            return new ModelProviderConnectionTestResult(true, $"Connection successful. Response: {text}");
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Model provider test failed for {ProviderId}", provider.Id);
-            return new ModelProviderTestResult(false, $"Connection failed: {ex.Message}");
+            return new ModelProviderConnectionTestResult(false, $"Connection failed: {ex.Message}");
         }
     }
 
-    public async Task<ModelProviderTestResult> TestEmbeddingConnectionAsync(ModelProvider provider, CancellationToken ct = default)
+    public async Task<ModelProviderConnectionTestResult> TestEmbeddingConnectionAsync(ModelProvider provider, CancellationToken ct = default)
     {
         try
         {
             var generator = CreateEmbeddingGenerator(provider);
             var result = await generator.GenerateAsync(["hello world"], cancellationToken: ct).ConfigureAwait(false);
             var dims = result.FirstOrDefault()?.Vector.Length ?? 0;
-            return new ModelProviderTestResult(true, $"Embedding successful. Dimensions: {dims}");
+            return new ModelProviderConnectionTestResult(true, $"Embedding successful. Dimensions: {dims}");
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Embedding provider test failed for {ProviderId}", provider.Id);
-            return new ModelProviderTestResult(false, $"Embedding test failed: {ex.Message}");
+            return new ModelProviderConnectionTestResult(false, $"Embedding test failed: {ex.Message}");
         }
     }
 

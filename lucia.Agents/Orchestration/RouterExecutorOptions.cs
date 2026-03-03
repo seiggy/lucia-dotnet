@@ -91,35 +91,6 @@ Return **only** a single JSON object that conforms to the JSON Schema below. No 
   }
 }
 
-# Examples (do not copy verbatim; adapt to the catalog)
-- Single agent, confident:
-  {
-    "agentId": "light-agent",
-    "reasoning": "User asked to set living room lights to 30%, which matches the lighting domain and device control capabilities.",
-    "confidence": 0.94,
-    "agentInstructions": [
-      { "agentId": "light-agent", "instruction": "Set the living room lights to 30%." }
-    ]
-  }
-
-- Multi-agent, moderate confidence:
-  {
-    "agentId": "light-agent",
-    "reasoning": "Request includes dimming lights and starting music; lighting goes primary, playback is parallel.",
-    "additionalAgents": ["music-agent"],
-    "confidence": 0.82,
-    "agentInstructions": [
-      { "agentId": "light-agent", "instruction": "Dim the living room lights." },
-      { "agentId": "music-agent", "instruction": "Play soft music." }
-    ]
-  }
-
-- Ambiguous, ask a question (note the final '?'):
-  {
-    "agentId": "music-agent",
-    "reasoning": "User wants to play music but did not specify the room or endpoint; Music Assistant handles playback. Which room or endpoint should I use?",
-    "confidence": 0.55
-  }
 """;
 
     public const string DefaultAgentCatalogHeader = "Available agents:";

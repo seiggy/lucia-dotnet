@@ -33,12 +33,9 @@ public class ChatClientConnectionInfo
         };
 
         // Detect Azure AI Foundry format: has Deployment key (no Provider/Model)
-        if (connectionBuilder.ContainsKey("Deployment"))
-        {
-            return TryParseFoundryFormat(connectionBuilder, out settings);
-        }
-
-        return TryParseCustomFormat(connectionBuilder, out settings);
+        return connectionBuilder.ContainsKey("Deployment") ? 
+            TryParseFoundryFormat(connectionBuilder, out settings) : 
+            TryParseCustomFormat(connectionBuilder, out settings);
     }
 
     private static bool TryParseFoundryFormat(

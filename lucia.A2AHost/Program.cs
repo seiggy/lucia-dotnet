@@ -4,13 +4,15 @@ using lucia.A2AHost.Extensions;
 using lucia.A2AHost.Services;
 using lucia.Agents.Configuration;
 using lucia.Agents.Extensions;
-using lucia.Agents.Mcp;
 using lucia.Agents.Services;
 using lucia.HomeAssistant.Configuration;
 using lucia.HomeAssistant.Services;
 using System.Net.Security;
 using System.Security.Cryptography.X509Certificates;
 using lucia.Agents.Abstractions;
+using lucia.Agents.Integration;
+using lucia.Agents.Models;
+using lucia.Agents.PluginFramework;
 using lucia.Agents.Providers;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -36,7 +38,7 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("luciat
 {
     builder.AddMongoDBClient(connectionName: "luciatasks");
 }
-builder.Services.AddSingleton<lucia.Agents.Services.TracingChatClientFactory>();
+builder.Services.AddSingleton<TracingChatClientFactory>();
 
 // Add MongoDB configuration as highest-priority source (overrides appsettings)
 builder.Configuration.AddMongoConfiguration("luciaconfig");
@@ -90,6 +92,7 @@ builder.Services.AddHttpClient<IHomeAssistantClient, HomeAssistantClient>((sp, c
 });
 builder.Services.AddSingleton<IDeviceCacheService, RedisDeviceCacheService>();
 builder.Services.AddSingleton<IEmbeddingSimilarityService, EmbeddingSimilarityService>();
+builder.Services.AddSingleton<IHybridEntityMatcher, HybridEntityMatcher>();
 builder.Services.AddSingleton<IEntityLocationService, EntityLocationService>();
 
 // Register Redis task store for A2A task persistence (used by TimerAgent)

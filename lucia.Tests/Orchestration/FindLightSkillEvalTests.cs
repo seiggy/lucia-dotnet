@@ -3,7 +3,6 @@
 using System.Text.RegularExpressions;
 using lucia.Agents.Configuration;
 using Microsoft.Extensions.Options;
-using Xunit;
 using Xunit.Abstractions;
 
 namespace lucia.Tests.Orchestration;

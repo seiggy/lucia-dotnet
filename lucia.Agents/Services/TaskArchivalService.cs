@@ -1,4 +1,7 @@
 using A2A;
+using lucia.Agents.Abstractions;
+using lucia.Agents.Configuration;
+using lucia.Agents.DataStores;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;

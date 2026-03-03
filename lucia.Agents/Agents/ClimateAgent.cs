@@ -1,9 +1,7 @@
 using A2A;
 
 using lucia.Agents.Abstractions;
-using lucia.Agents.Configuration;
-using lucia.Agents.Mcp;
-using lucia.Agents.Orchestration;
+using lucia.Agents.Integration;
 using lucia.Agents.Services;
 using lucia.Agents.Skills;
 
@@ -30,13 +28,13 @@ public sealed class ClimateAgent : ILuciaAgent
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<ClimateAgent> _logger;
     private volatile AIAgent _aiAgent;
-    private string? _lastModelConnectionName;
     private string? _lastEmbeddingProviderName;
+    private DateTime? _lastConfigUpdate;
 
     /// <summary>
     /// The system instructions used by this agent.
     /// </summary>
-    public string Instructions { get; }
+    public string Instructions { get; set; }
 
     /// <summary>
     /// The AI tools available to this agent.
@@ -200,6 +198,7 @@ public sealed class ClimateAgent : ILuciaAgent
         await ApplyDefinitionAsync(cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation("ClimateAgent initialized successfully");
+        _lastConfigUpdate = DateTime.Now;
     }
 
     /// <inheritdoc />
@@ -214,7 +213,10 @@ public sealed class ClimateAgent : ILuciaAgent
         var newConnectionName = definition?.ModelConnectionName;
         var newEmbeddingName = definition?.EmbeddingProviderName;
 
-        if (_aiAgent is null || !string.Equals(_lastModelConnectionName, newConnectionName, StringComparison.Ordinal))
+        if (!string.IsNullOrEmpty(definition?.Instructions))
+            Instructions = definition.Instructions; 
+        
+        if (_lastConfigUpdate == null || _lastConfigUpdate < definition?.UpdatedAt)
         {
             var copilotAgent = await _clientResolver.ResolveAIAgentAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
             _aiAgent = copilotAgent ?? BuildAgent(
@@ -223,7 +225,7 @@ public sealed class ClimateAgent : ILuciaAgent
                 .UseOpenTelemetry()
                 .Build();
             _logger.LogInformation("ClimateAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
-            _lastModelConnectionName = newConnectionName;
+            _lastConfigUpdate = DateTime.Now;
         }
 
         if (!string.Equals(_lastEmbeddingProviderName, newEmbeddingName, StringComparison.Ordinal))

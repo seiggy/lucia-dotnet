@@ -74,7 +74,7 @@ public sealed class TimerAgentA2ATests : PlaywrightTestBase
 
         // ── Assert: Response should indicate timer was created ───
         // The response should NOT contain service discovery errors
-        var responseUpper = responseText!.ToUpperInvariant();
+        var responseUpper = responseText.ToUpperInvariant();
         Assert.DoesNotContain("NAME OR SERVICE NOT KNOWN", responseUpper);
         Assert.DoesNotContain("CONNECTION REFUSED", responseUpper);
         Assert.DoesNotContain("UNABLE TO CONNECT", responseUpper);

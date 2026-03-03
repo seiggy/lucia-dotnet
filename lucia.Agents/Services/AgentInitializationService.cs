@@ -1,6 +1,7 @@
 using lucia.Agents.Abstractions;
 using lucia.Agents.Auth;
 using lucia.Agents.Extensions;
+using lucia.Agents.Models;
 using lucia.Agents.Registry;
 using lucia.HomeAssistant.Configuration;
 using Microsoft.Extensions.Configuration;
@@ -89,13 +90,35 @@ public class AgentInitializationService : BackgroundService
         await _definitionRepository.SeedBuiltInAgentDefinitionsAsync(_agents, _logger, stoppingToken).ConfigureAwait(false);
 
         // Initialize entity location cache before agents (skills depend on it)
-        try
+        // Retry with backoff — HA may not be reachable immediately during Aspire startup
+        for (var attempt = 1; attempt <= MaxRetries; attempt++)
         {
-            await _entityLocationService.InitializeAsync(stoppingToken).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Entity location service initialization failed — skills will operate without location cache");
+            try
+            {
+                await _entityLocationService.InitializeAsync(stoppingToken).ConfigureAwait(false);
+                break; // success
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                if (attempt < MaxRetries)
+                {
+                    var delay = InitialRetryDelay * Math.Pow(2, attempt - 1);
+                    _logger.LogWarning(ex,
+                        "Entity location cache initialization failed (attempt {Attempt}/{MaxRetries}). Retrying in {Delay}s...",
+                        attempt, MaxRetries, delay.TotalSeconds);
+                    await Task.Delay(delay, stoppingToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    _logger.LogWarning(ex,
+                        "Entity location cache initialization failed after {MaxRetries} attempts — skills will operate without location cache until next query triggers a reload",
+                        MaxRetries);
+                }
+            }
         }
 
         // Auto-discover presence sensors now that entity locations are loaded

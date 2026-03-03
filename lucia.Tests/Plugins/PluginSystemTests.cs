@@ -1,11 +1,11 @@
 using System.IO.Compression;
-using System.Net;
 using System.Text;
 using System.Text.Json;
 using FakeItEasy;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
 using lucia.Agents.Extensions;
+using lucia.Agents.PluginFramework;
 using lucia.Agents.Services;
 using Microsoft.Extensions.Logging;
 

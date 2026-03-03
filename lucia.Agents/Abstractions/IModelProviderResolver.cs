@@ -1,5 +1,5 @@
 using lucia.Agents.Configuration;
-using lucia.Agents.Mcp;
+using lucia.Agents.Configuration.UserConfiguration;
 using lucia.Agents.Models;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -33,10 +33,10 @@ public interface IModelProviderResolver
     /// <summary>
     /// Sends a simple test message to verify chat connectivity and returns a result.
     /// </summary>
-    Task<ModelProviderTestResult> TestConnectionAsync(ModelProvider provider, CancellationToken ct = default);
+    Task<ModelProviderConnectionTestResult> TestConnectionAsync(ModelProvider provider, CancellationToken ct = default);
 
     /// <summary>
     /// Generates a test embedding to verify embedding connectivity and returns a result.
     /// </summary>
-    Task<ModelProviderTestResult> TestEmbeddingConnectionAsync(ModelProvider provider, CancellationToken ct = default);
+    Task<ModelProviderConnectionTestResult> TestEmbeddingConnectionAsync(ModelProvider provider, CancellationToken ct = default);
 }

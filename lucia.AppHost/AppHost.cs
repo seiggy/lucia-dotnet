@@ -1,5 +1,3 @@
-using Aspire.Hosting.Azure;
-
 var builder = DistributedApplication.CreateBuilder(args);
 
 var redis = builder.AddRedis("redis")

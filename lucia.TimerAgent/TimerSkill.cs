@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using lucia.Agents.Models;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Services;
 using lucia.HomeAssistant.Models;
 using lucia.TimerAgent.ScheduledTasks;

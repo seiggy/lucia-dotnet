@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using lucia.Agents.Agents;
-using lucia.Agents.Mcp;
 
 namespace lucia.Agents.Providers;
 

@@ -2,8 +2,10 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Text.Json;
-
+using lucia.Agents.Abstractions;
+using lucia.Agents.Integration;
 using lucia.Agents.Models;
+using lucia.Agents.Models.HomeAssistant;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
 
@@ -24,12 +26,18 @@ public sealed class EntityLocationService : IEntityLocationService
     private const string FloorsKey = "lucia:location:floors";
     private const string AreasKey = "lucia:location:areas";
     private const string EntitiesKey = "lucia:location:entities";
-    private const string EmbeddingsKey = "lucia:location:embeddings";
     private const string LoadedAtKey = "lucia:location:loaded-at";
     private const string VersionKey = "lucia:location:version";
+    private const string VisibilityKey = "lucia:entity-visibility";
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(24);
-    private const double EmbeddingSimilarityThreshold = 0.90;
     private static readonly TimeSpan VersionCheckInterval = TimeSpan.FromSeconds(30);
+
+    private static readonly HybridMatchOptions DefaultLocationOptions = new()
+    {
+        EmbeddingWeight = 0.55,
+        ScoreDropoffRatio = 0.9,
+        Threshold = 0.2
+    };
 
     private static readonly ActivitySource ActivitySource = new("Lucia.Services.EntityLocation", "1.0.0");
     private static readonly Meter Meter = new("Lucia.Services.EntityLocation", "1.0.0");
@@ -40,15 +48,19 @@ public sealed class EntityLocationService : IEntityLocationService
     private readonly IHomeAssistantClient _haClient;
     private readonly IConnectionMultiplexer _redis;
     private readonly IEmbeddingProviderResolver _embeddingResolver;
-    private readonly IEmbeddingSimilarityService _similarity;
+    private readonly IHybridEntityMatcher _entityMatcher;
     private readonly ILogger<EntityLocationService> _logger;
     private readonly SemaphoreSlim _loadLock = new(1, 1);
 
+    private static readonly TimeSpan EmptyCacheRetryInterval = TimeSpan.FromSeconds(30);
+
     // Thread-safe: all data is held in an immutable snapshot object swapped atomically
     private volatile LocationSnapshot _snapshot = LocationSnapshot.Empty;
+    private volatile EntityVisibilityConfig _visibilityConfig = new();
     private long _lastLoadedAtTicks;
     private long _knownVersion;
     private long _lastVersionCheckTicks;
+    private long _lastEmptyCacheRetryTicks;
 
     public DateTimeOffset? LastLoadedAt
     {
@@ -63,21 +75,32 @@ public sealed class EntityLocationService : IEntityLocationService
         IHomeAssistantClient haClient,
         IConnectionMultiplexer redis,
         IEmbeddingProviderResolver embeddingResolver,
-        IEmbeddingSimilarityService similarity,
+        IHybridEntityMatcher entityMatcher,
         ILogger<EntityLocationService> logger)
     {
         _haClient = haClient;
         _redis = redis;
         _embeddingResolver = embeddingResolver;
-        _similarity = similarity;
+        _entityMatcher = entityMatcher;
         _logger = logger;
     }
 
     public async Task InitializeAsync(CancellationToken ct = default)
     {
+        // Guard: skip if data is already loaded (ensures expensive load happens only once)
+        if (!_snapshot.Entities.IsEmpty)
+        {
+            _logger.LogDebug("Entity location cache already initialized ({Count} entities), skipping", _snapshot.Entities.Length);
+            return;
+        }
+
+        // Always load visibility config first (persisted without TTL)
+        await LoadVisibilityConfigAsync().ConfigureAwait(false);
+
         // Try Redis first, fall back to HA
         if (await TryLoadFromRedisAsync(ct).ConfigureAwait(false))
         {
+            ApplyVisibilityToEntities();
             var snap = _snapshot;
             _logger.LogInformation(
                 "Loaded location data from Redis: {FloorCount} floors, {AreaCount} areas, {EntityCount} entities",
@@ -90,13 +113,13 @@ public sealed class EntityLocationService : IEntityLocationService
 
     public async Task InvalidateAndReloadAsync(CancellationToken ct = default)
     {
-        using var activity = ActivitySource.StartActivity("InvalidateAndReload");
+        using var activity = ActivitySource.StartActivity();
         try
         {
             var db = _redis.GetDatabase();
             await db.KeyDeleteAsync([
                 (RedisKey)FloorsKey, (RedisKey)AreasKey, (RedisKey)EntitiesKey,
-                (RedisKey)EmbeddingsKey, (RedisKey)LoadedAtKey
+                (RedisKey)LoadedAtKey
             ]).ConfigureAwait(false);
 
             _logger.LogInformation("Invalidated entity location cache, reloading from Home Assistant");
@@ -124,175 +147,72 @@ public sealed class EntityLocationService : IEntityLocationService
         return _snapshot.Areas;
     }
 
-    public async Task<IReadOnlyList<EntityLocationInfo>> GetEntitiesAsync(CancellationToken ct = default)
+    public async Task<IReadOnlyList<HomeAssistantEntity>> GetEntitiesAsync(CancellationToken ct = default)
     {
         await EnsureFreshAsync(ct).ConfigureAwait(false);
         return _snapshot.Entities;
     }
 
-    public async Task<IReadOnlyList<EntityLocationInfo>> FindEntitiesByLocationAsync(
+    public Task<IReadOnlyList<HomeAssistantEntity>> FindEntitiesByLocationAsync(
         string locationName, CancellationToken ct = default)
-    {
-        return await FindEntitiesByLocationAsync(locationName, domainFilter: null, ct).ConfigureAwait(false);
-    }
+        => FindEntitiesByLocationAsync(locationName, domainFilter: null, DefaultLocationOptions, ct);
 
-    public async Task<IReadOnlyList<EntityLocationInfo>> FindEntitiesByLocationAsync(
-        string locationName, IReadOnlyList<string>? domainFilter, CancellationToken ct = default)
+    public Task<IReadOnlyList<HomeAssistantEntity>> FindEntitiesByLocationAsync(
+        string locationName,
+        IReadOnlyList<string>? domainFilter,
+        CancellationToken ct = default)
+        => FindEntitiesByLocationAsync(locationName, domainFilter, DefaultLocationOptions, ct);
+
+    public async Task<IReadOnlyList<HomeAssistantEntity>> FindEntitiesByLocationAsync(
+        string locationName,
+        IReadOnlyList<string>? domainFilter,
+        HybridMatchOptions hybridMatchOptions,
+        CancellationToken ct = default)
     {
         await EnsureFreshAsync(ct).ConfigureAwait(false);
-        using var activity = ActivitySource.StartActivity("FindEntitiesByLocation");
+        using var activity = ActivitySource.StartActivity();
         activity?.SetTag("search.query", locationName);
         var start = Stopwatch.GetTimestamp();
         SearchCount.Add(1);
 
         try
         {
-            // Capture current snapshot for consistent reads across the entire search
             var snap = _snapshot;
-            var areas = snap.Areas;
-            var floors = snap.Floors;
-            var entities = snap.Entities;
-
             var matchedAreaIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             string? matchType = null;
 
-            // 1. Exact match on area name
-            foreach (var area in areas)
+            var embeddingService = await _embeddingResolver.ResolveAsync(ct: ct).ConfigureAwait(false);
+
+            // 1. Hybrid search against areas (name + aliases scored by HybridEntityMatcher)
+            if (embeddingService is not null)
             {
-                if (area.Name.Equals(locationName, StringComparison.OrdinalIgnoreCase))
+                var areaMatches = await _entityMatcher.FindMatchesAsync(
+                    locationName, snap.Areas, embeddingService,
+                    hybridMatchOptions, ct).ConfigureAwait(false);
+
+                foreach (var match in areaMatches)
                 {
-                    matchedAreaIds.Add(area.AreaId);
-                    matchType = "exact_area_name";
+                    matchedAreaIds.Add(match.Entity.AreaId);
+                    matchType = "hybrid_area";
                 }
             }
 
-            // 2. Exact match on area aliases
-            if (matchedAreaIds.Count == 0)
+            // 2. Hybrid search against floors → expand to all areas on matched floors
+            if (matchedAreaIds.Count == 0 && embeddingService is not null)
             {
-                foreach (var area in areas)
+                var floorMatches = await _entityMatcher.FindMatchesAsync(
+                    locationName, snap.Floors, embeddingService,
+                    hybridMatchOptions, ct).ConfigureAwait(false);
+
+                foreach (var floorMatch in floorMatches)
                 {
-                    if (area.Aliases.Any(a => a.Equals(locationName, StringComparison.OrdinalIgnoreCase)))
+                    foreach (var area in snap.Areas)
                     {
-                        matchedAreaIds.Add(area.AreaId);
-                        matchType = "exact_area_alias";
+                        if (area.FloorId == floorMatch.Entity.FloorId)
+                            matchedAreaIds.Add(area.AreaId);
                     }
+                    matchType = "hybrid_floor";
                 }
-            }
-
-            // 3. Exact match on floor name → all areas on that floor
-            if (matchedAreaIds.Count == 0)
-            {
-                foreach (var floor in floors)
-                {
-                    if (floor.Name.Equals(locationName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        foreach (var area in areas)
-                        {
-                            if (area.FloorId == floor.FloorId)
-                                matchedAreaIds.Add(area.AreaId);
-                        }
-                        matchType = "exact_floor_name";
-                    }
-                }
-            }
-
-            // 4. Exact match on floor aliases → all areas on that floor
-            if (matchedAreaIds.Count == 0)
-            {
-                foreach (var floor in floors)
-                {
-                    if (floor.Aliases.Any(a => a.Equals(locationName, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        foreach (var area in areas)
-                        {
-                            if (area.FloorId == floor.FloorId)
-                                matchedAreaIds.Add(area.AreaId);
-                        }
-                        matchType = "exact_floor_alias";
-                    }
-                }
-            }
-
-            // 5. Substring match on names and aliases
-            if (matchedAreaIds.Count == 0)
-            {
-                foreach (var area in areas)
-                {
-                    if (area.Name.Contains(locationName, StringComparison.OrdinalIgnoreCase) ||
-                        area.Aliases.Any(a => a.Contains(locationName, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        matchedAreaIds.Add(area.AreaId);
-                        matchType = "substring_area";
-                    }
-                }
-
-                if (matchedAreaIds.Count == 0)
-                {
-                    foreach (var floor in floors)
-                    {
-                        if (floor.Name.Contains(locationName, StringComparison.OrdinalIgnoreCase) ||
-                            floor.Aliases.Any(a => a.Contains(locationName, StringComparison.OrdinalIgnoreCase)))
-                        {
-                            foreach (var area in areas)
-                            {
-                                if (area.FloorId == floor.FloorId)
-                                    matchedAreaIds.Add(area.AreaId);
-                            }
-                            matchType = "substring_floor";
-                        }
-                    }
-                }
-            }
-
-            // 5b. Word-overlap match (no embeddings required)
-            // Handles "bathroom downstairs" → "Basement bathroom" via shared "bathroom" + downstairs≈basement
-            if (matchedAreaIds.Count == 0)
-            {
-                var queryWords = SplitIntoWords(locationName);
-                var expandedWords = ExpandWithLocationSynonyms(queryWords);
-
-                foreach (var area in areas)
-                {
-                    var areaText = $"{area.Name} {string.Join(" ", area.Aliases)}".ToLowerInvariant();
-                    var floor = area.FloorId is not null && snap.FloorById.TryGetValue(area.FloorId, out var f) ? f : null;
-                    var floorText = floor is not null ? $"{floor.Name} {string.Join(" ", floor.Aliases)}".ToLowerInvariant() : "";
-
-                    if (expandedWords.Any(w => areaText.Contains(w) || (!string.IsNullOrEmpty(floorText) && floorText.Contains(w))))
-                    {
-                        matchedAreaIds.Add(area.AreaId);
-                        matchType = "word_overlap";
-                    }
-                }
-
-                if (matchedAreaIds.Count == 0)
-                {
-                    foreach (var floor in floors)
-                    {
-                        var floorText = $"{floor.Name} {string.Join(" ", floor.Aliases)}".ToLowerInvariant();
-                        if (expandedWords.Any(w => floorText.Contains(w)))
-                        {
-                            foreach (var area in areas)
-                            {
-                                if (area.FloorId == floor.FloorId)
-                                    matchedAreaIds.Add(area.AreaId);
-                            }
-                            matchType = "word_overlap_floor";
-                        }
-                    }
-                }
-            }
-
-            // 6. Embedding similarity ≥ 0.90
-            if (matchedAreaIds.Count == 0)
-            {
-                var embeddingMatches = await FindByEmbeddingSimilarityAsync(locationName, areas, floors, ct)
-                    .ConfigureAwait(false);
-
-                foreach (var areaId in embeddingMatches)
-                    matchedAreaIds.Add(areaId);
-
-                if (matchedAreaIds.Count > 0)
-                    matchType = "embedding";
             }
 
             activity?.SetTag("search.match_type", matchType ?? "none");
@@ -301,11 +221,11 @@ public sealed class EntityLocationService : IEntityLocationService
             if (matchedAreaIds.Count == 0)
             {
                 _logger.LogDebug("No location match found for '{LocationName}'", locationName);
-                return ImmutableArray<EntityLocationInfo>.Empty;
+                return ImmutableArray<HomeAssistantEntity>.Empty;
             }
 
-            // Collect entities from matched areas
-            var result = entities
+            // Collect entities from matched areas, applying domain filter
+            var result = snap.Entities
                 .Where(e => e.AreaId is not null && matchedAreaIds.Contains(e.AreaId));
 
             if (domainFilter is { Count: > 0 })
@@ -326,6 +246,189 @@ public sealed class EntityLocationService : IEntityLocationService
         {
             SearchDuration.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
         }
+    }
+
+    public async Task<IReadOnlyList<EntityMatchResult<HomeAssistantEntity>>> SearchEntitiesAsync(
+        string query,
+        IReadOnlyList<string>? domainFilter = null,
+        HybridMatchOptions? options = null,
+        CancellationToken ct = default)
+    {
+        await EnsureFreshAsync(ct).ConfigureAwait(false);
+
+        var embeddingService = await _embeddingResolver.ResolveAsync(ct: ct).ConfigureAwait(false);
+        if (embeddingService is null)
+            return [];
+
+        var candidates = (IReadOnlyList<HomeAssistantEntity>)_snapshot.Entities;
+        if (domainFilter is { Count: > 0 })
+        {
+            var filterSet = domainFilter.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            candidates = _snapshot.Entities.Where(e => filterSet.Contains(e.Domain)).ToList();
+        }
+
+        return await _entityMatcher.FindMatchesAsync(
+            query, candidates, embeddingService, options ?? DefaultLocationOptions, ct).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<EntityMatchResult<AreaInfo>>> SearchAreasAsync(
+        string query,
+        HybridMatchOptions? options = null,
+        CancellationToken ct = default)
+    {
+        await EnsureFreshAsync(ct).ConfigureAwait(false);
+
+        var embeddingService = await _embeddingResolver.ResolveAsync(ct: ct).ConfigureAwait(false);
+        if (embeddingService is null)
+            return [];
+
+        return await _entityMatcher.FindMatchesAsync(
+            query, _snapshot.Areas, embeddingService, options ?? DefaultLocationOptions, ct).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<EntityMatchResult<FloorInfo>>> SearchFloorsAsync(
+        string query,
+        HybridMatchOptions? options = null,
+        CancellationToken ct = default)
+    {
+        await EnsureFreshAsync(ct).ConfigureAwait(false);
+
+        var embeddingService = await _embeddingResolver.ResolveAsync(ct: ct).ConfigureAwait(false);
+        if (embeddingService is null)
+            return [];
+
+        return await _entityMatcher.FindMatchesAsync(
+            query, _snapshot.Floors, embeddingService, options ?? DefaultLocationOptions, ct).ConfigureAwait(false);
+    }
+
+    public async Task<HierarchicalSearchResult> SearchHierarchyAsync(
+        string query,
+        HybridMatchOptions? options = null,
+        IReadOnlyList<string>? domainFilter = null,
+        CancellationToken ct = default)
+    {
+        await EnsureFreshAsync(ct).ConfigureAwait(false);
+
+        var embeddingService = await _embeddingResolver.ResolveAsync(ct: ct).ConfigureAwait(false);
+        var opts = options ?? DefaultLocationOptions;
+        var snap = _snapshot;
+
+        IReadOnlyList<EntityMatchResult<FloorInfo>> floorMatches = [];
+        IReadOnlyList<EntityMatchResult<AreaInfo>> areaMatches = [];
+        IReadOnlyList<EntityMatchResult<HomeAssistantEntity>> entityMatches = [];
+
+        // Build the domain-filtered entity list once
+        var filteredEntities = domainFilter is { Count: > 0 }
+            ? snap.Entities.Where(e => 
+                    domainFilter.Contains(e.Domain, StringComparer.OrdinalIgnoreCase) &&
+                    (e.IncludeForAgent == null || e.IncludeForAgent.Count > 0)
+                )
+                .ToList()
+            : (IReadOnlyList<HomeAssistantEntity>)snap.Entities;
+
+        if (embeddingService is not null)
+        {
+            // Search all three levels in parallel
+            var floorTask = _entityMatcher.FindMatchesAsync(
+                query, snap.Floors, embeddingService, opts, ct);
+            var areaTask = _entityMatcher.FindMatchesAsync(
+                query, snap.Areas, embeddingService, opts, ct);
+            var entityTask = _entityMatcher.FindMatchesAsync(
+                query, filteredEntities, embeddingService, opts, ct);
+
+            await Task.WhenAll(floorTask, areaTask, entityTask).ConfigureAwait(false);
+
+            floorMatches = floorTask.Result;
+            areaMatches = areaTask.Result;
+            entityMatches = entityTask.Result;
+        }
+
+        // Compare best embedding similarity across levels to decide resolution path
+        var bestEntityHybrid = entityMatches.Count > 0
+            ? entityMatches.Max(m => m.HybridScore)
+            : (double?)null;
+        
+        var bestAreaHybrid = areaMatches.Count > 0
+            ? areaMatches.Max(m => m.HybridScore)
+            : (double?)null;
+        var bestFloorHybrid = floorMatches.Count > 0
+            ? floorMatches.Max(m => m.HybridScore)
+            : (double?)null;
+        
+        var margin = opts.EmbeddingResolutionMargin; // new option, default 0.30
+
+        ResolutionStrategy strategy;
+        string reason;
+        List<HomeAssistantEntity> resolvedEntities;
+
+        if (bestEntityHybrid is not null
+            && (bestAreaHybrid is null || bestAreaHybrid - bestEntityHybrid < margin)
+            && (bestFloorHybrid is null || bestFloorHybrid - bestEntityHybrid < margin))
+        {
+            // Entity embedding is clearly stronger — user means a specific device
+            strategy = ResolutionStrategy.Entity;
+            reason = $"Entity path: best entity score {bestEntityHybrid:F4}"
+                   + $" exceeds area {bestAreaHybrid?.ToString("F4") ?? "none"}"
+                   + $" and floor {bestFloorHybrid?.ToString("F4") ?? "none"}"
+                   + $" by margin >{margin:F2}";
+            resolvedEntities = entityMatches.Select(m => m.Entity).ToList();
+        }
+        else if (bestAreaHybrid is not null
+            && (bestFloorHybrid is null || bestFloorHybrid - bestAreaHybrid < margin))
+        {
+            // Area is the best match — expand to all entities in matched areas
+            strategy = ResolutionStrategy.Area;
+            reason = $"Area path: best area score {bestAreaHybrid:F4}"
+                   + $" — entity {bestEntityHybrid?.ToString("F4") ?? "none"}"
+                   + $" did not exceed by margin >{margin:F2}";
+
+            var resolvedAreaIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var am in areaMatches)
+                resolvedAreaIds.Add(am.Entity.AreaId);
+
+            resolvedEntities = filteredEntities
+                .Where(e => e.AreaId is not null && resolvedAreaIds.Contains(e.AreaId))
+                .ToList();
+        }
+        else if (bestFloorHybrid is not null)
+        {
+            // Floor match — expand floors → areas → entities
+            strategy = ResolutionStrategy.Floor;
+            reason = $"Floor path: best floor score {bestFloorHybrid:F4}";
+
+            var resolvedAreaIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var fm in floorMatches)
+            {
+                foreach (var area in snap.Areas)
+                {
+                    if (string.Equals(area.FloorId, fm.Entity.FloorId, StringComparison.OrdinalIgnoreCase))
+                        resolvedAreaIds.Add(area.AreaId);
+                }
+            }
+
+            resolvedEntities = filteredEntities
+                .Where(e => e.AreaId is not null && resolvedAreaIds.Contains(e.AreaId))
+                .ToList();
+        }
+        else
+        {
+            strategy = ResolutionStrategy.None;
+            reason = "No matches at any level";
+            resolvedEntities = [];
+        }
+
+        return new HierarchicalSearchResult
+        {
+            FloorMatches = floorMatches,
+            AreaMatches = areaMatches,
+            EntityMatches = entityMatches,
+            ResolvedEntities = resolvedEntities,
+            ResolutionStrategy = strategy,
+            ResolutionReason = reason,
+            BestEntityScore = bestEntityHybrid,
+            BestAreaScore = bestAreaHybrid,
+            BestFloorScore = bestFloorHybrid
+        };
     }
 
     public AreaInfo? GetAreaForEntity(string entityId)
@@ -362,7 +465,7 @@ public sealed class EntityLocationService : IEntityLocationService
 
         try
         {
-            using var activity = ActivitySource.StartActivity("LoadFromHomeAssistant");
+            using var activity = ActivitySource.StartActivity();
             CacheReloads.Add(1);
 
             _logger.LogInformation("Loading entity location data from Home Assistant config registries...");
@@ -378,6 +481,29 @@ public sealed class EntityLocationService : IEntityLocationService
             var areaEntries = await areaTask.ConfigureAwait(false);
             var entityEntries = await entityTask.ConfigureAwait(false);
 
+            // Optionally filter to only HA-exposed entities
+            if (_visibilityConfig.UseExposedEntitiesOnly)
+            {
+                try
+                {
+                    var exposed = await _haClient.GetExposedEntitiesAsync(ct).ConfigureAwait(false);
+                    var exposedIds = new HashSet<string>(
+                        exposed.Where(kv => kv.Value.IsExposedToAny).Select(kv => kv.Key),
+                        StringComparer.OrdinalIgnoreCase);
+
+                    var before = entityEntries.Length;
+                    entityEntries = entityEntries.Where(e => exposedIds.Contains(e.EntityId)).ToArray();
+                    _logger.LogInformation(
+                        "Filtered to exposed entities only: {Before} → {After}",
+                        before, entityEntries.Length);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Failed to fetch exposed entity list — loading all entities instead");
+                }
+            }
+
             // Get authoritative area→entity mapping via Jinja (handles device inheritance)
             var areaEntityMap = await LoadAreaEntityMapAsync(ct).ConfigureAwait(false);
 
@@ -386,15 +512,18 @@ public sealed class EntityLocationService : IEntityLocationService
             var areas = BuildAreas(areaEntries, areaEntityMap);
             var entities = BuildEntities(entityEntries, areaEntityMap);
 
-            // Generate embeddings for location names
-            var embeddings = await GenerateLocationEmbeddingsAsync(floors, areas, ct).ConfigureAwait(false);
+            // Generate embeddings and phonetic keys for all matchable objects
+            await GenerateMatchDataAsync(floors, areas, entities, ct).ConfigureAwait(false);
 
             // Atomic swap of all collections
-            SwapData(floors, areas, entities, embeddings);
+            SwapData(floors, areas, entities);
+
+            // Apply per-entity agent visibility from config
+            ApplyVisibilityToEntities();
 
             _logger.LogInformation(
-                "Loaded location data: {FloorCount} floors, {AreaCount} areas, {EntityCount} entities, {EmbeddingCount} embeddings",
-                floors.Length, areas.Length, entities.Length, embeddings.Count);
+                "Loaded location data: {FloorCount} floors, {AreaCount} areas, {EntityCount} entities",
+                floors.Length, areas.Length, entities.Length);
 
             // Persist to Redis
             await SaveToRedisAsync(ct).ConfigureAwait(false);
@@ -438,35 +567,39 @@ public sealed class EntityLocationService : IEntityLocationService
 
     private static ImmutableArray<FloorInfo> BuildFloors(FloorRegistryEntry[] entries)
     {
-        return entries.Select(f => new FloorInfo
-        {
-            FloorId = f.FloorId,
-            Name = f.Name,
-            Aliases = f.Aliases.AsReadOnly(),
-            Level = f.Level,
-            Icon = f.Icon
-        }).ToImmutableArray();
+        return [
+            ..entries.Select(f => new FloorInfo
+            {
+                FloorId = f.FloorId,
+                Name = f.Name,
+                Aliases = f.Aliases.AsReadOnly(),
+                Level = f.Level,
+                Icon = f.Icon
+            })
+        ];
     }
 
     private static ImmutableArray<AreaInfo> BuildAreas(
         AreaRegistryEntry[] entries,
         Dictionary<string, List<string>> areaEntityMap)
     {
-        return entries.Select(a => new AreaInfo
-        {
-            AreaId = a.AreaId,
-            Name = a.Name,
-            FloorId = a.FloorId,
-            Aliases = a.Aliases.AsReadOnly(),
-            EntityIds = areaEntityMap.TryGetValue(a.AreaId, out var entityIds)
-                ? entityIds.AsReadOnly()
-                : [],
-            Icon = a.Icon,
-            Labels = a.Labels.AsReadOnly()
-        }).ToImmutableArray();
+        return [
+            ..entries.Select(a => new AreaInfo
+            {
+                AreaId = a.AreaId,
+                Name = a.Name,
+                FloorId = a.FloorId,
+                Aliases = a.Aliases.AsReadOnly(),
+                EntityIds = areaEntityMap.TryGetValue(a.AreaId, out var entityIds)
+                    ? entityIds.AsReadOnly()
+                    : [],
+                Icon = a.Icon,
+                Labels = a.Labels.AsReadOnly()
+            })
+        ];
     }
 
-    private static ImmutableArray<EntityLocationInfo> BuildEntities(
+    private static ImmutableArray<HomeAssistantEntity> BuildEntities(
         EntityRegistryEntry[] entries,
         Dictionary<string, List<string>> areaEntityMap)
     {
@@ -480,174 +613,122 @@ public sealed class EntityLocationService : IEntityLocationService
             }
         }
 
-        return entries
-            .Where(e => e.DisabledBy is null) // Exclude disabled entities
-            .Select(e => new EntityLocationInfo
-            {
-                EntityId = e.EntityId,
-                FriendlyName = e.Name ?? e.OriginalName ?? e.EntityId,
-                Aliases = e.Aliases.AsReadOnly(),
-                // Prefer Jinja area (device-inherited), fall back to registry direct assignment
-                AreaId = entityToArea.TryGetValue(e.EntityId, out var jinjaArea)
-                    ? jinjaArea
-                    : e.AreaId,
-                Platform = e.Platform,
-                SupportedFeatures = (SupportedFeaturesFlags)e.SupportedFeatures
-            }).ToImmutableArray();
+        return [
+            ..entries
+                .Where(e => e.DisabledBy is null) // Exclude disabled entities
+                .Select(e => new HomeAssistantEntity
+                {
+                    EntityId = e.EntityId,
+                    FriendlyName = e.Name ?? e.OriginalName ?? e.EntityId,
+                    Aliases = e.Aliases.AsReadOnly(),
+                    // Prefer Jinja area (device-inherited), fall back to registry direct assignment
+                    AreaId = entityToArea.TryGetValue(e.EntityId, out var jinjaArea)
+                        ? jinjaArea
+                        : e.AreaId,
+                    Platform = e.Platform,
+                    SupportedFeatures = (SupportedFeaturesFlags)e.SupportedFeatures
+                })
+        ];
     }
 
-    private async Task<ImmutableDictionary<string, Embedding<float>>> GenerateLocationEmbeddingsAsync(
+    /// <summary>
+    /// Generates embeddings and phonetic keys for all matchable objects
+    /// (floors, areas, and entities) so the HybridEntityMatcher can score them.
+    /// </summary>
+    private async Task GenerateMatchDataAsync(
         ImmutableArray<FloorInfo> floors,
         ImmutableArray<AreaInfo> areas,
+        ImmutableArray<HomeAssistantEntity> entities,
         CancellationToken ct)
     {
-        var embeddingService = await _embeddingResolver.ResolveAsync(ct: ct).ConfigureAwait(false);
-        if (embeddingService is null)
+        // Phonetic keys are always generated (no external service needed)
+        foreach (var floor in floors)
         {
-            _logger.LogWarning("No embedding provider available — embedding-based location search will be disabled");
-            return ImmutableDictionary<string, Embedding<float>>.Empty;
+            floor.PhoneticKeys = StringSimilarity.BuildPhoneticKeys(floor.Name);
+            floor.AliasPhoneticKeys = BuildAliasPhoneticKeys(floor.Aliases);
         }
-
-        // Collect all searchable location names (area names, area aliases, floor names, floor aliases)
-        var namesToEmbed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var area in areas)
         {
-            namesToEmbed.Add(area.Name);
-            foreach (var alias in area.Aliases)
-                namesToEmbed.Add(alias);
+            area.PhoneticKeys = StringSimilarity.BuildPhoneticKeys(area.Name);
+            area.AliasPhoneticKeys = BuildAliasPhoneticKeys(area.Aliases);
+        }
+
+        foreach (var entity in entities)
+        {
+            entity.PhoneticKeys = StringSimilarity.BuildPhoneticKeys(entity.FriendlyName);
+            entity.AliasPhoneticKeys = BuildAliasPhoneticKeys(entity.Aliases);
+        }
+
+        // Embeddings require an embedding provider
+        var embeddingService = await _embeddingResolver.ResolveAsync(ct: ct).ConfigureAwait(false);
+        if (embeddingService is null)
+        {
+            _logger.LogWarning("No embedding provider available — embedding-based search will be disabled");
+            return;
+        }
+
+        // Collect all unique names to embed (deduplicate across floors/areas/entities)
+        var namesToEmbed = new Dictionary<string, List<Action<Embedding<float>>>>(StringComparer.OrdinalIgnoreCase);
+
+        void RegisterForEmbedding(string name, Action<Embedding<float>> setter)
+        {
+            if (!namesToEmbed.TryGetValue(name, out var setters))
+            {
+                setters = [];
+                namesToEmbed[name] = setters;
+            }
+            setters.Add(setter);
         }
 
         foreach (var floor in floors)
-        {
-            namesToEmbed.Add(floor.Name);
-            foreach (var alias in floor.Aliases)
-                namesToEmbed.Add(alias);
-        }
+            RegisterForEmbedding(floor.Name, e => floor.NameEmbedding = e);
 
-        var builder = ImmutableDictionary.CreateBuilder<string, Embedding<float>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var area in areas)
+            RegisterForEmbedding(area.Name, e => area.NameEmbedding = e);
 
-        foreach (var name in namesToEmbed)
+        foreach (var entity in entities)
+            RegisterForEmbedding(entity.FriendlyName, e => entity.NameEmbedding = e);
+
+        int generated = 0;
+        foreach (var (name, setters) in namesToEmbed)
         {
             try
             {
                 var embedding = await embeddingService.GenerateAsync(name, cancellationToken: ct).ConfigureAwait(false);
-                builder[name] = embedding;
+                foreach (var setter in setters)
+                    setter(CloneEmbedding(embedding));
+                generated++;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to generate embedding for location name '{Name}'", name);
+                _logger.LogWarning(ex, "Failed to generate embedding for '{Name}'", name);
             }
         }
 
-        _logger.LogDebug("Generated {Count} location embeddings", builder.Count);
-        return builder.ToImmutable();
+        _logger.LogDebug("Generated {Count} embeddings for {UniqueNames} unique names", generated, namesToEmbed.Count);
     }
-
-    /// <summary>
-    /// Splits a location query into words for overlap matching.
-    /// </summary>
-    private static IReadOnlyList<string> SplitIntoWords(string query)
+    
+    private static Embedding<float> CloneEmbedding(Embedding<float> source)
     {
-        return query.Split([' ', '-', '_', ',', '.'], StringSplitOptions.RemoveEmptyEntries)
-            .Where(w => w.Length >= 2)
-            .Select(w => w.ToLowerInvariant())
-            .Distinct()
-            .ToList();
-    }
-
-    /// <summary>
-    /// Expands query words with common location synonyms (e.g. downstairs↔basement)
-    /// so "bathroom downstairs" can match "Basement bathroom".
-    /// </summary>
-    private static IReadOnlyList<string> ExpandWithLocationSynonyms(IReadOnlyList<string> words)
-    {
-        var synonyms = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+        var cloned = source.Vector.ToArray();
+        return new Embedding<float>(cloned)
         {
-            ["downstairs"] = ["basement", "lower", "downstairs"],
-            ["basement"] = ["downstairs", "lower", "basement"],
-            ["upstairs"] = ["upper", "upstairs"],
-            ["upper"] = ["upstairs", "upper"],
-            ["lower"] = ["basement", "downstairs", "lower"],
-            ["bathroom"] = ["bath", "bathroom"],
-            ["bath"] = ["bathroom", "bath"],
+            CreatedAt = source.CreatedAt,
+            ModelId = source.ModelId,
+            AdditionalProperties = source.AdditionalProperties
         };
-
-        var result = new HashSet<string>(words, StringComparer.OrdinalIgnoreCase);
-        foreach (var w in words)
-        {
-            if (synonyms.TryGetValue(w, out var syns))
-                foreach (var s in syns)
-                    result.Add(s);
-        }
-        return result.ToList();
     }
 
-    private async Task<IReadOnlyList<string>> FindByEmbeddingSimilarityAsync(
-        string query,
-        ImmutableArray<AreaInfo> areas,
-        ImmutableArray<FloorInfo> floors,
-        CancellationToken ct)
+    private static IReadOnlyList<string[]> BuildAliasPhoneticKeys(IReadOnlyList<string> aliases)
     {
-        var embeddings = _snapshot.Embeddings;
-        if (embeddings.IsEmpty)
+        if (aliases.Count == 0)
             return [];
 
-        var embeddingService = await _embeddingResolver.ResolveAsync(ct: ct).ConfigureAwait(false);
-        if (embeddingService is null)
-            return [];
-
-        Embedding<float> queryEmbedding;
-        try
-        {
-            queryEmbedding = await embeddingService.GenerateAsync(query, cancellationToken: ct).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to generate query embedding for '{Query}'", query);
-            return [];
-        }
-
-        // Score all location names
-        var matches = embeddings
-            .Select(kvp => (Name: kvp.Key, Similarity: _similarity.ComputeSimilarity(queryEmbedding, kvp.Value)))
-            .Where(m => m.Similarity >= EmbeddingSimilarityThreshold)
-            .OrderByDescending(m => m.Similarity)
-            .ToList();
-
-        if (matches.Count == 0)
-            return [];
-
-        // Resolve matched names back to area IDs
-        var areaIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (name, _) in matches)
-        {
-            // Check if it's an area name or alias
-            foreach (var area in areas)
-            {
-                if (area.Name.Equals(name, StringComparison.OrdinalIgnoreCase) ||
-                    area.Aliases.Any(a => a.Equals(name, StringComparison.OrdinalIgnoreCase)))
-                {
-                    areaIds.Add(area.AreaId);
-                }
-            }
-
-            // Check if it's a floor name or alias → expand to all areas on that floor
-            foreach (var floor in floors)
-            {
-                if (floor.Name.Equals(name, StringComparison.OrdinalIgnoreCase) ||
-                    floor.Aliases.Any(a => a.Equals(name, StringComparison.OrdinalIgnoreCase)))
-                {
-                    foreach (var area in areas)
-                    {
-                        if (area.FloorId == floor.FloorId)
-                            areaIds.Add(area.AreaId);
-                    }
-                }
-            }
-        }
-
-        return areaIds.ToList();
+        var result = new string[aliases.Count][];
+        for (var i = 0; i < aliases.Count; i++)
+            result[i] = StringSimilarity.BuildPhoneticKeys(aliases[i]);
+        return result;
     }
 
     // ── Private: Data Swap ──────────────────────────────────────────
@@ -655,16 +736,13 @@ public sealed class EntityLocationService : IEntityLocationService
     private void SwapData(
         ImmutableArray<FloorInfo> floors,
         ImmutableArray<AreaInfo> areas,
-        ImmutableArray<EntityLocationInfo> entities,
-        ImmutableDictionary<string, Embedding<float>> embeddings)
+        ImmutableArray<HomeAssistantEntity> entities)
     {
-        // Build lookup indexes
         var floorById = floors.ToImmutableDictionary(f => f.FloorId, StringComparer.OrdinalIgnoreCase);
         var areaById = areas.ToImmutableDictionary(a => a.AreaId, StringComparer.OrdinalIgnoreCase);
         var entityById = entities.ToImmutableDictionary(e => e.EntityId, StringComparer.OrdinalIgnoreCase);
 
-        // Single atomic swap of the entire snapshot — all readers see a consistent view
-        _snapshot = new LocationSnapshot(floors, areas, entities, embeddings, floorById, areaById, entityById);
+        _snapshot = new LocationSnapshot(floors, areas, entities, floorById, areaById, entityById);
         Volatile.Write(ref _lastLoadedAtTicks, DateTimeOffset.UtcNow.UtcTicks);
     }
 
@@ -676,45 +754,33 @@ public sealed class EntityLocationService : IEntityLocationService
         {
             var db = _redis.GetDatabase();
 
-            var floorsJson = await db.StringGetAsync(FloorsKey).ConfigureAwait(false);
-            var areasJson = await db.StringGetAsync(AreasKey).ConfigureAwait(false);
-            var entitiesJson = await db.StringGetAsync(EntitiesKey).ConfigureAwait(false);
-            var embeddingsJson = await db.StringGetAsync(EmbeddingsKey).ConfigureAwait(false);
-            var loadedAtStr = await db.StringGetAsync(LoadedAtKey).ConfigureAwait(false);
-            var versionVal = await db.StringGetAsync(VersionKey).ConfigureAwait(false);
+            var floorsJson = db.StringGetSetExpiryAsync(FloorsKey, CacheTtl);
+            var areasJson = db.StringGetSetExpiryAsync(AreasKey, CacheTtl);
+            var entitiesJson = db.StringGetSetExpiryAsync(EntitiesKey, CacheTtl);
+            var loadedAtStr = db.StringGetSetExpiryAsync(LoadedAtKey, CacheTtl);
+            var versionVal = db.StringGetSetExpiryAsync(VersionKey, CacheTtl);
 
-            if (floorsJson.IsNullOrEmpty || areasJson.IsNullOrEmpty || entitiesJson.IsNullOrEmpty)
+            await Task.WhenAll(floorsJson, areasJson, entitiesJson, loadedAtStr, versionVal)
+                .ConfigureAwait(false);
+
+            if (floorsJson.Result.IsNullOrEmpty || areasJson.Result.IsNullOrEmpty || entitiesJson.Result.IsNullOrEmpty)
                 return false;
 
-            var floors = JsonSerializer.Deserialize<FloorInfo[]>((string)floorsJson!)
+            var floors = JsonSerializer.Deserialize<FloorInfo[]>((string)floorsJson.Result!)
                 ?.ToImmutableArray() ?? ImmutableArray<FloorInfo>.Empty;
-            var areas = JsonSerializer.Deserialize<AreaInfo[]>((string)areasJson!)
+            var areas = JsonSerializer.Deserialize<AreaInfo[]>((string)areasJson.Result!)
                 ?.ToImmutableArray() ?? ImmutableArray<AreaInfo>.Empty;
-            var entities = JsonSerializer.Deserialize<EntityLocationInfo[]>((string)entitiesJson!)
-                ?.ToImmutableArray() ?? ImmutableArray<EntityLocationInfo>.Empty;
+            var entities = JsonSerializer.Deserialize<HomeAssistantEntity[]>((string)entitiesJson.Result!)
+                ?.ToImmutableArray() ?? ImmutableArray<HomeAssistantEntity>.Empty;
 
-            var embeddings = ImmutableDictionary<string, Embedding<float>>.Empty;
-            if (!embeddingsJson.IsNullOrEmpty)
-            {
-                var dict = JsonSerializer.Deserialize<Dictionary<string, float[]>>((string)embeddingsJson!);
-                if (dict is not null)
-                {
-                    embeddings = dict.ToImmutableDictionary(
-                        kvp => kvp.Key,
-                        kvp => new Embedding<float>(kvp.Value),
-                        StringComparer.OrdinalIgnoreCase);
-                }
-            }
+            SwapData(floors, areas, entities);
 
-            SwapData(floors, areas, entities, embeddings);
-
-            if (!loadedAtStr.IsNullOrEmpty && DateTimeOffset.TryParse((string)loadedAtStr!, out var loadedAt))
+            if (!loadedAtStr.Result.IsNullOrEmpty && DateTimeOffset.TryParse((string)loadedAtStr.Result!, out var loadedAt))
             {
                 Volatile.Write(ref _lastLoadedAtTicks, loadedAt.UtcTicks);
             }
 
-            // Track Redis version so we know when another instance invalidates the cache
-            if (versionVal.TryParse(out long ver))
+            if (versionVal.Result.TryParse(out long ver))
             {
                 Volatile.Write(ref _knownVersion, ver);
             }
@@ -731,14 +797,19 @@ public sealed class EntityLocationService : IEntityLocationService
 
     /// <summary>
     /// Distributed cache freshness check: periodically reads the Redis version counter
-    /// to detect invalidations triggered by the AgentHost. If the version has changed,
-    /// reload data from Redis so A2AHost instances stay in sync without their own HA connection.
+    /// to detect invalidations triggered by the AgentHost.
     /// </summary>
     private async Task EnsureFreshAsync(CancellationToken ct)
     {
-        // Auto-reload if the cache is empty (e.g. HA wasn't reachable at startup)
         if (_snapshot.Entities.IsEmpty)
         {
+            // Throttle empty-cache retries to avoid flooding HA on every query
+            var lastRetry = Volatile.Read(ref _lastEmptyCacheRetryTicks);
+            if (lastRetry != 0 && Stopwatch.GetElapsedTime(lastRetry) < EmptyCacheRetryInterval)
+                return;
+
+            Volatile.Write(ref _lastEmptyCacheRetryTicks, Stopwatch.GetTimestamp());
+
             try
             {
                 _logger.LogInformation("Entity location cache is empty, attempting to load from Home Assistant...");
@@ -746,7 +817,8 @@ public sealed class EntityLocationService : IEntityLocationService
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "Auto-reload of empty entity location cache failed — HA may not be configured yet");
+                _logger.LogWarning(ex, "Auto-reload of empty entity location cache failed — will retry in {Interval}s",
+                    EmptyCacheRetryInterval.TotalSeconds);
             }
 
             return;
@@ -756,13 +828,12 @@ public sealed class EntityLocationService : IEntityLocationService
         if (lastCheck != 0 && Stopwatch.GetElapsedTime(lastCheck) < VersionCheckInterval)
             return;
 
-        // Update check timestamp first to prevent concurrent checks
         Volatile.Write(ref _lastVersionCheckTicks, Stopwatch.GetTimestamp());
 
         try
         {
             var db = _redis.GetDatabase();
-            var versionVal = await db.StringGetAsync(VersionKey).ConfigureAwait(false);
+            var versionVal = await db.StringGetSetExpiryAsync(VersionKey, CacheTtl).ConfigureAwait(false);
 
             if (!versionVal.TryParse(out long remoteVersion))
                 return;
@@ -814,20 +885,13 @@ public sealed class EntityLocationService : IEntityLocationService
             var areasJson = JsonSerializer.Serialize(snap.Areas);
             var entitiesJson = JsonSerializer.Serialize(snap.Entities);
 
-            // Serialize embeddings as Dictionary<string, float[]> for portability
-            var embeddingsDict = snap.Embeddings.ToDictionary(
-                kvp => kvp.Key,
-                kvp => kvp.Value.Vector.ToArray());
-            var embeddingsJson = JsonSerializer.Serialize(embeddingsDict);
-
             var batch = db.CreateBatch();
             var tasks = new List<Task>
             {
-                batch.StringSetAsync(FloorsKey, floorsJson, CacheTtl),
-                batch.StringSetAsync(AreasKey, areasJson, CacheTtl),
-                batch.StringSetAsync(EntitiesKey, entitiesJson, CacheTtl),
-                batch.StringSetAsync(EmbeddingsKey, embeddingsJson, CacheTtl),
-                batch.StringSetAsync(LoadedAtKey, LastLoadedAt?.ToString("O") ?? "", CacheTtl)
+                batch.StringSetAsync(FloorsKey, floorsJson, CacheTtl, flags: CommandFlags.FireAndForget),
+                batch.StringSetAsync(AreasKey, areasJson, CacheTtl, flags: CommandFlags.FireAndForget),
+                batch.StringSetAsync(EntitiesKey, entitiesJson, CacheTtl, flags: CommandFlags.FireAndForget),
+                batch.StringSetAsync(LoadedAtKey, LastLoadedAt?.ToString("O") ?? "", CacheTtl, flags: CommandFlags.FireAndForget)
             };
             batch.Execute();
 
@@ -838,6 +902,107 @@ public sealed class EntityLocationService : IEntityLocationService
         catch (RedisException ex)
         {
             _logger.LogWarning(ex, "Failed to save location data to Redis — data is available in-memory only");
+        }
+    }
+
+    // ── Public: Visibility Configuration ────────────────────────────
+
+    public Task<EntityVisibilityConfig> GetVisibilityConfigAsync(CancellationToken ct = default)
+    {
+        return Task.FromResult(_visibilityConfig);
+    }
+
+    public async Task SetUseExposedOnlyAsync(bool useExposedOnly, CancellationToken ct = default)
+    {
+        var config = _visibilityConfig;
+        if (config.UseExposedEntitiesOnly == useExposedOnly)
+            return;
+
+        config.UseExposedEntitiesOnly = useExposedOnly;
+        await SaveVisibilityConfigAsync().ConfigureAwait(false);
+
+        // Changing this flag requires a full HA reload to apply the filter
+        await InvalidateAndReloadAsync(ct).ConfigureAwait(false);
+    }
+
+    public async Task SetEntityAgentsAsync(Dictionary<string, List<string>?> updates, CancellationToken ct = default)
+    {
+        var config = _visibilityConfig;
+
+        foreach (var (entityId, agents) in updates)
+        {
+            if (agents is null)
+            {
+                // null = visible to all → remove the override
+                config.EntityAgentMap.Remove(entityId);
+            }
+            else
+            {
+                config.EntityAgentMap[entityId] = agents;
+            }
+        }
+
+        await SaveVisibilityConfigAsync().ConfigureAwait(false);
+        ApplyVisibilityToEntities();
+        await BumpRedisVersionAsync().ConfigureAwait(false);
+    }
+
+    public async Task ClearAllAgentFiltersAsync(CancellationToken ct = default)
+    {
+        _visibilityConfig.EntityAgentMap.Clear();
+        await SaveVisibilityConfigAsync().ConfigureAwait(false);
+        ApplyVisibilityToEntities();
+        await BumpRedisVersionAsync().ConfigureAwait(false);
+    }
+
+    // ── Private: Visibility Persistence ─────────────────────────────
+
+    private async Task LoadVisibilityConfigAsync()
+    {
+        try
+        {
+            var db = _redis.GetDatabase();
+            var json = await db.StringGetAsync(VisibilityKey).ConfigureAwait(false);
+            if (!json.IsNullOrEmpty)
+            {
+                _visibilityConfig = JsonSerializer.Deserialize<EntityVisibilityConfig>((string)json!)
+                    ?? new EntityVisibilityConfig();
+            }
+        }
+        catch (RedisException ex)
+        {
+            _logger.LogWarning(ex, "Failed to load entity visibility config from Redis, using defaults");
+        }
+    }
+
+    private async Task SaveVisibilityConfigAsync()
+    {
+        try
+        {
+            var db = _redis.GetDatabase();
+            var json = JsonSerializer.Serialize(_visibilityConfig);
+            // No TTL — user configuration persists indefinitely
+            await db.StringSetAsync(VisibilityKey, json).ConfigureAwait(false);
+        }
+        catch (RedisException ex)
+        {
+            _logger.LogWarning(ex, "Failed to save entity visibility config to Redis");
+        }
+    }
+
+    /// <summary>
+    /// Applies the <see cref="_visibilityConfig"/> agent mappings to all in-memory entities.
+    /// </summary>
+    private void ApplyVisibilityToEntities()
+    {
+        var config = _visibilityConfig;
+        var snap = _snapshot;
+
+        foreach (var entity in snap.Entities)
+        {
+            entity.IncludeForAgent = config.EntityAgentMap.TryGetValue(entity.EntityId, out var agents)
+                ? new HashSet<string>(agents, StringComparer.OrdinalIgnoreCase)
+                : null; // null = visible to all
         }
     }
 
@@ -864,27 +1029,24 @@ public sealed class EntityLocationService : IEntityLocationService
     private sealed class LocationSnapshot(
         ImmutableArray<FloorInfo> floors,
         ImmutableArray<AreaInfo> areas,
-        ImmutableArray<EntityLocationInfo> entities,
-        ImmutableDictionary<string, Embedding<float>> embeddings,
+        ImmutableArray<HomeAssistantEntity> entities,
         ImmutableDictionary<string, FloorInfo> floorById,
         ImmutableDictionary<string, AreaInfo> areaById,
-        ImmutableDictionary<string, EntityLocationInfo> entityById)
+        ImmutableDictionary<string, HomeAssistantEntity> entityById)
     {
         public static readonly LocationSnapshot Empty = new(
             ImmutableArray<FloorInfo>.Empty,
             ImmutableArray<AreaInfo>.Empty,
-            ImmutableArray<EntityLocationInfo>.Empty,
-            ImmutableDictionary<string, Embedding<float>>.Empty,
+            ImmutableArray<HomeAssistantEntity>.Empty,
             ImmutableDictionary<string, FloorInfo>.Empty,
             ImmutableDictionary<string, AreaInfo>.Empty,
-            ImmutableDictionary<string, EntityLocationInfo>.Empty);
+            ImmutableDictionary<string, HomeAssistantEntity>.Empty);
 
         public ImmutableArray<FloorInfo> Floors { get; } = floors;
         public ImmutableArray<AreaInfo> Areas { get; } = areas;
-        public ImmutableArray<EntityLocationInfo> Entities { get; } = entities;
-        public ImmutableDictionary<string, Embedding<float>> Embeddings { get; } = embeddings;
+        public ImmutableArray<HomeAssistantEntity> Entities { get; } = entities;
         public ImmutableDictionary<string, FloorInfo> FloorById { get; } = floorById;
         public ImmutableDictionary<string, AreaInfo> AreaById { get; } = areaById;
-        public ImmutableDictionary<string, EntityLocationInfo> EntityById { get; } = entityById;
+        public ImmutableDictionary<string, HomeAssistantEntity> EntityById { get; } = entityById;
     }
 }

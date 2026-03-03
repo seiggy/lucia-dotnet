@@ -1,7 +1,6 @@
 using lucia.A2AHost.AgentRegistry;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Extensions;
-using lucia.Agents.Mcp;
 using lucia.HomeAssistant.Configuration;
 using Microsoft.Extensions.Options;
 

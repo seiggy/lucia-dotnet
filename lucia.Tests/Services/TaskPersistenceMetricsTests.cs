@@ -1,4 +1,5 @@
 using A2A;
+using lucia.Agents.Integration;
 using lucia.Agents.Services;
 using StackExchange.Redis;
 using Testcontainers.Redis;

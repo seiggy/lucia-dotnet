@@ -2,6 +2,8 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Text;
+using lucia.Agents.Abstractions;
+using lucia.Agents.Models;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
 using lucia.Agents.Services;
@@ -96,18 +98,20 @@ public sealed class SceneControlSkill : IAgentSkill
 
         try
         {
-            var locationEntities = await _locationService.FindEntitiesByLocationAsync(
-                areaName, (IReadOnlyList<string>)["scene"], cancellationToken).ConfigureAwait(false);
+            var hierarchyResult = await _locationService.SearchHierarchyAsync(
+                areaName, new HybridMatchOptions(), (IReadOnlyList<string>)["scene"], cancellationToken).ConfigureAwait(false);
 
-            if (locationEntities.Count == 0)
+            activity?.SetTag("match.resolution", hierarchyResult.ResolutionStrategy.ToString());
+
+            if (hierarchyResult.ResolutionStrategy == ResolutionStrategy.None || hierarchyResult.ResolvedEntities.Count == 0)
             {
                 activity?.SetStatus(ActivityStatusCode.Ok);
-                return $"No scenes found in area '{areaName}'.";
+                return $"No scenes found in area '{areaName}'. {hierarchyResult.ResolutionReason}";
             }
 
             var sb = new StringBuilder();
-            sb.AppendLine($"Found {locationEntities.Count} scene(s) in '{areaName}':");
-            foreach (var entity in locationEntities)
+            sb.AppendLine($"Found {hierarchyResult.ResolvedEntities.Count} scene(s) in '{areaName}':");
+            foreach (var entity in hierarchyResult.ResolvedEntities)
             {
                 sb.AppendLine($"- {entity.FriendlyName ?? entity.EntityId} ({entity.EntityId})");
             }

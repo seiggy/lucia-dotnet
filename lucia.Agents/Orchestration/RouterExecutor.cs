@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using lucia.Agents.Abstractions;
 using AgentCard = A2A.AgentCard;
 using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Registry;
@@ -71,7 +72,7 @@ public sealed class RouterExecutor : Executor
     public async ValueTask<AgentChoiceResult> HandleAsync(ChatMessage message, IWorkflowContext context, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(message);
-        using var activity = ActivitySource.StartActivity("RouterCache.Route");
+        using var activity = ActivitySource.StartActivity();
 
         var availableAgents = await FetchAgentsAsync(cancellationToken).ConfigureAwait(false);
         if (availableAgents.Count == 0)
@@ -91,7 +92,7 @@ public sealed class RouterExecutor : Executor
             try
             {
                 var cacheMessages = new List<ChatMessage> { new(ChatRole.User, userRequest) };
-                var cached = await _promptCache.TryGetCachedResponseAsync(cacheMessages, cancellationToken).ConfigureAwait(false);
+                var cached = await _promptCache.TryGetCachedRoutingDecisionAsync(cacheMessages, cancellationToken).ConfigureAwait(false);
                 if (cached is not null && IsKnownAgent(cached.RoutingDecision.AgentId, availableAgents))
                 {
                     // Skip stale cache entries that route to multiple agents but lack per-agent instructions
@@ -194,19 +195,18 @@ public sealed class RouterExecutor : Executor
         }
 
         // Cache the routing decision for future lookups
-        if (_promptCache is not null)
+        if (_promptCache is null) 
+            return parsed;
+        
+        try
         {
-            try
-            {
-                var cacheMessages = new List<ChatMessage> { new(ChatRole.User, userRequest) };
-                await _promptCache.CacheRoutingDecisionAsync(cacheMessages, parsed, CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to cache routing decision");
-            }
+            var cacheMessages = new List<ChatMessage> { new(ChatRole.User, userRequest) };
+            await _promptCache.CacheRoutingDecisionAsync(cacheMessages, parsed, CancellationToken.None).ConfigureAwait(false);
         }
-
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to cache routing decision");
+        }
         return parsed;
     }
 
@@ -257,7 +257,7 @@ public sealed class RouterExecutor : Executor
             builder.Append(": ");
             builder.AppendLine(agent.Description);
 
-            if (_options.IncludeAgentCapabilities && agent.Capabilities is not null)
+            if (_options.IncludeAgentCapabilities)
             {
                 var tags = new List<string>();
                 if (agent.Capabilities.PushNotifications)
@@ -280,17 +280,15 @@ public sealed class RouterExecutor : Executor
                 }
             }
 
-            if (_options.IncludeSkillExamples && agent.Skills is not null && agent.Skills.Count > 0)
+            if (!_options.IncludeSkillExamples || agent.Skills.Count <= 0) continue;
+            var examples = agent.Skills
+                .Where(skill => skill.Examples is not null)
+                .SelectMany(skill => skill.Examples!);
+            
+            foreach (var example in examples)
             {
-                var examples = agent.Skills
-                    .Where(skill => skill.Examples is not null)
-                    .SelectMany(skill => skill.Examples!);
-
-                foreach (var example in examples)
-                {
-                    builder.Append("  example: ");
-                    builder.AppendLine(example);
-                }
+                builder.Append("  example: ");
+                builder.AppendLine(example);
             }
         }
 

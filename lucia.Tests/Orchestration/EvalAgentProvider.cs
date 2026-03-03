@@ -1,4 +1,6 @@
-using lucia.Agents.Orchestration;
+using System.Collections.Concurrent;
+using System.Collections.Immutable;
+using lucia.Agents.Abstractions;
 using Microsoft.Agents.AI;
 
 namespace lucia.Tests.Orchestration;
@@ -9,15 +11,15 @@ namespace lucia.Tests.Orchestration;
 /// </summary>
 public sealed class EvalAgentProvider : IAgentProvider
 {
-    private readonly IReadOnlyList<AIAgent> _agents;
+    private readonly ImmutableList<AIAgent> _agents;
 
     public EvalAgentProvider(IEnumerable<AIAgent> agents)
     {
-        _agents = agents.ToList().AsReadOnly();
+        _agents = ImmutableList.CreateRange(agents);
     }
 
-    public Task<IReadOnlyList<AIAgent>> GetAgentsAsync(CancellationToken cancellationToken = default)
+    public ImmutableList<AIAgent> GetAgentsAsync(CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(_agents);
+        return _agents;
     }
 }

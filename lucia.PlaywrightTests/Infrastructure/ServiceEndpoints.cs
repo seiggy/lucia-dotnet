@@ -1,5 +1,3 @@
-using Microsoft.Playwright;
-
 namespace lucia.PlaywrightTests.Infrastructure;
 
 /// <summary>

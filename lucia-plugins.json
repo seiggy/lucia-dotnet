@@ -6,7 +6,7 @@
       "id": "metamcp",
       "name": "MetaMCP Bridge",
       "description": "Bridges MetaMCP tool aggregation into Lucia agents via the MetaMCP proxy.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "path": "plugins/metamcp"
     },
     {

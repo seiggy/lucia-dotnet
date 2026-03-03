@@ -4,8 +4,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.Logging;
 using lucia.Agents.Abstractions;
-using lucia.Agents.Configuration;
-using lucia.Agents.Mcp;
+using lucia.Agents.Integration;
 using lucia.Agents.Services;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
@@ -31,8 +30,8 @@ public class MusicAgent : ILuciaAgent
     private readonly IConfiguration _configuration;
     private readonly IServer _server;
     private volatile AIAgent _aiAgent;
-    private string? _lastModelConnectionName;
     private string? _lastEmbeddingProviderName;
+    private DateTime? _lastConfigUpdate;
 
     /// <summary>
     /// The system instructions used by this agent.
@@ -128,18 +127,6 @@ public class MusicAgent : ILuciaAgent
         Instructions = instructions;
         Tools = _musicSkill.GetTools();
 
-        var agentOptions = new ChatClientAgentOptions
-        {
-            Id = AgentId,
-            Name = AgentId,
-            Description = "Handles music playback for MusicAssistant",
-            ChatOptions = new()
-            {
-                Instructions = Instructions,
-                Tools = Tools
-            }
-        };
-
         // _aiAgent is built during InitializeAsync via ApplyDefinitionAsync
         _aiAgent = null!;
     }
@@ -156,7 +143,7 @@ public class MusicAgent : ILuciaAgent
     /// </summary>
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
-        using var activity = ActivitySource.StartActivity("MusicAgent.Initialize", ActivityKind.Internal);
+        using var activity = ActivitySource.StartActivity();
         activity?.SetTag("agent.id", AgentId);
         _logger.LogInformation("Initializing MusicAgent...");
         var selfUrl = _configuration["services:selfUrl"];
@@ -176,8 +163,8 @@ public class MusicAgent : ILuciaAgent
         }
         else
         {
-            var addressesFeature = _server?.Features?.Get<IServerAddressesFeature>();
-            if (addressesFeature?.Addresses != null && addressesFeature.Addresses.Any())
+            var addressesFeature = _server.Features.Get<IServerAddressesFeature>();
+            if (addressesFeature?.Addresses != null &&  addressesFeature.Addresses.Count != 0)
             {
                 _agent.Url = addressesFeature.Addresses.First();
             }
@@ -193,6 +180,7 @@ public class MusicAgent : ILuciaAgent
 
         activity?.SetStatus(ActivityStatusCode.Ok);
         _logger.LogInformation("MusicAgent initialized successfully");
+        _lastConfigUpdate = DateTime.Now;
     }
 
     /// <inheritdoc />
@@ -207,12 +195,12 @@ public class MusicAgent : ILuciaAgent
         var newConnectionName = definition?.ModelConnectionName;
         var newEmbeddingName = definition?.EmbeddingProviderName;
 
-        if (_aiAgent is null || !string.Equals(_lastModelConnectionName, newConnectionName, StringComparison.Ordinal))
+        if (_lastConfigUpdate == null || _lastConfigUpdate < definition?.UpdatedAt)
         {
             var client = await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
             _aiAgent = BuildAgent(client);
             _logger.LogInformation("MusicAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
-            _lastModelConnectionName = newConnectionName;
+            _lastConfigUpdate = DateTime.Now;
         }
 
         if (!string.Equals(_lastEmbeddingProviderName, newEmbeddingName, StringComparison.Ordinal))
@@ -222,7 +210,7 @@ public class MusicAgent : ILuciaAgent
         }
     }
 
-    private ChatClientAgent BuildAgent(IChatClient chatClient)
+    private AIAgent BuildAgent(IChatClient chatClient)
     {
         var traced = _tracingFactory.Wrap(chatClient, AgentId);
         var agentOptions = new ChatClientAgentOptions
@@ -230,13 +218,18 @@ public class MusicAgent : ILuciaAgent
             Id = AgentId,
             Name = AgentId,
             Description = "Handles music playback for MusicAssistant",
-            ChatOptions = new()
+            ChatOptions = new ChatOptions
             {
                 Instructions = Instructions,
-                Tools = Tools
+                Tools = Tools,
+                ToolMode = ChatToolMode.RequireAny,
+                AllowMultipleToolCalls = true
             }
         };
 
-        return new ChatClientAgent(traced, agentOptions, _loggerFactory);
+        return new ChatClientAgent(traced, agentOptions, _loggerFactory)
+            .AsBuilder()
+            .UseOpenTelemetry()
+            .Build();
     }
 }

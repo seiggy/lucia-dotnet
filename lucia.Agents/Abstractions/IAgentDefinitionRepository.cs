@@ -1,4 +1,6 @@
 using lucia.Agents.Configuration;
+using lucia.Agents.Configuration.UserConfiguration;
+using lucia.Agents.Mcp;
 
 namespace lucia.Agents.Abstractions;
 

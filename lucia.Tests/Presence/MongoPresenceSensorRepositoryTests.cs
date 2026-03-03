@@ -1,5 +1,7 @@
 using FakeItEasy;
+using lucia.Agents.DataStores;
 using lucia.Agents.Models;
+using lucia.Agents.Models.HomeAssistant;
 using lucia.Agents.Services;
 using MongoDB.Driver;
 

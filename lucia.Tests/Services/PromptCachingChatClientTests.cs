@@ -1,3 +1,4 @@
+using lucia.Agents.Integration;
 using lucia.Agents.Services;
 
 namespace lucia.Tests.Services;

@@ -1,8 +1,6 @@
 using A2A;
 using lucia.Agents.Abstractions;
-using lucia.Agents.Configuration;
-using lucia.Agents.Mcp;
-using lucia.Agents.Orchestration;
+using lucia.Agents.Integration;
 using lucia.Agents.Services;
 using lucia.Agents.Skills;
 using Microsoft.Agents.AI;
@@ -26,13 +24,13 @@ public sealed class LightAgent : ILuciaAgent
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<LightAgent> _logger;
     private volatile AIAgent _aiAgent;
-    private string? _lastModelConnectionName;
     private string? _lastEmbeddingProviderName;
+    private DateTime? _lastConfigUpdate;
 
     /// <summary>
     /// The system instructions used by this agent.
     /// </summary>
-    public string Instructions { get; }
+    public string Instructions { get; set; }
 
     /// <summary>
     /// The AI tools available to this agent.
@@ -52,7 +50,7 @@ public sealed class LightAgent : ILuciaAgent
         _tracingFactory = tracingFactory;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<LightAgent>();
-
+        
         var lightControlSkill = new AgentSkill()
         {
             Id = "id_light_agent",
@@ -150,6 +148,7 @@ public sealed class LightAgent : ILuciaAgent
         await ApplyDefinitionAsync(cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation("LightAgent initialized successfully");
+        _lastConfigUpdate = DateTime.Now;
     }
 
     /// <inheritdoc />
@@ -163,8 +162,10 @@ public sealed class LightAgent : ILuciaAgent
         var definition = await _definitionRepository.GetAgentDefinitionAsync(AgentId, cancellationToken).ConfigureAwait(false);
         var newConnectionName = definition?.ModelConnectionName;
         var newEmbeddingName = definition?.EmbeddingProviderName;
-
-        if (_aiAgent is null || !string.Equals(_lastModelConnectionName, newConnectionName, StringComparison.Ordinal))
+        if (!string.IsNullOrEmpty(definition?.Instructions))
+            Instructions = definition.Instructions;
+        
+        if (_lastConfigUpdate == null || _lastConfigUpdate < definition?.UpdatedAt)
         {
             // Copilot providers produce an AIAgent directly; others go through IChatClient
             var copilotAgent = await _clientResolver.ResolveAIAgentAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
@@ -175,7 +176,7 @@ public sealed class LightAgent : ILuciaAgent
                 .UseOpenTelemetry()
                 .Build();
             _logger.LogInformation("LightAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
-            _lastModelConnectionName = newConnectionName;
+            _lastConfigUpdate = DateTime.Now;
         }
 
         if (!string.Equals(_lastEmbeddingProviderName, newEmbeddingName, StringComparison.Ordinal))
@@ -193,11 +194,12 @@ public sealed class LightAgent : ILuciaAgent
             Id = AgentId,
             Name = AgentId,
             Description = "Agent for controlling lights in Home Assistant",
-            ChatOptions = new()
+            ChatOptions = new ChatOptions
             {
                 Instructions = Instructions,
                 Tools = Tools,
-                ToolMode = ChatToolMode.RequireAny
+                ToolMode = ChatToolMode.RequireAny,
+                AllowMultipleToolCalls = true
             }
         };
 

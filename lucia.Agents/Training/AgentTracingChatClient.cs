@@ -87,20 +87,19 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
         }
 
         // Capture request messages for this round
-        foreach (var msg in requestMessages)
+        var capturedMessages = _accumulatedMessages.Select(m => m.MessageId).ToList();
+        foreach (var msg in requestMessages.Where(msg => capturedMessages.Contains(msg.MessageId)))
         {
             _accumulatedMessages.Add(new TracedMessage
             {
+                MessageId = msg.MessageId,
                 Role = msg.Role.Value,
                 Content = ExtractTextContent(msg)
             });
-
-            // Capture any function call/result content from prior turns
-            CaptureToolContentFromMessage(msg, _accumulatedToolCalls);
         }
 
         var startTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
-
+        capturedMessages = _accumulatedMessages.Select(m => m.MessageId).ToList();
         try
         {
             var response = await base.GetResponseAsync(requestMessages, options, cancellationToken).ConfigureAwait(false);
@@ -113,12 +112,18 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
             {
                 foreach (var msg in response.Messages)
                 {
-                    _accumulatedMessages.Add(new TracedMessage
+                    // grab any non-tool call messages and add to the accumulated data
+                    if (msg.Role != ChatRole.Tool && !capturedMessages.Contains(msg.MessageId))
                     {
-                        Role = msg.Role.Value,
-                        Content = ExtractTextContent(msg)
-                    });
+                        _accumulatedMessages.Add(new TracedMessage
+                        {
+                            MessageId = msg.MessageId,
+                            Role = msg.Role.Value,
+                            Content = ExtractTextContent(msg)
+                        });
+                    }
 
+                    // grab the tool calls
                     CaptureToolContentFromMessage(msg, _accumulatedToolCalls);
                     EmitLiveToolEvents(msg);
                 }
@@ -129,43 +134,42 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
             // Only persist on the final response — skip intermediate tool-call
             // round-trips so we get one complete trace per agent invocation.
             var hasPendingToolCalls = response.Messages
-                .Any(m => m.Contents?.OfType<FunctionCallContent>().Any() == true);
+                .Any(m => m.Contents.OfType<FunctionCallContent>().Any());
 
-            if (!hasPendingToolCalls)
+            if (hasPendingToolCalls) return response;
+            var trace = new ConversationTrace
             {
-                var trace = new ConversationTrace
+                SystemPrompt = requestMessages.FirstOrDefault(c => c.Role == ChatRole.System)?.Text,
+                SessionId = sessionId,
+                UserInput = ExtractUserInput(requestMessages),
+                FinalResponse = response.Text,
+                TotalDurationMs = _totalElapsedMs,
+                Metadata =
                 {
-                    SessionId = sessionId,
-                    UserInput = ExtractUserInput(requestMessages),
-                    FinalResponse = response.Text,
-                    TotalDurationMs = _totalElapsedMs,
-                    Metadata =
+                    ["traceType"] = "agent",
+                    ["agentId"] = _agentId,
+                    ["toolMode"] = options?.ToolMode?.ToString() ?? "auto",
+                    ["availableTools"] = string.Join(", ", _availableToolsSnapshot ?? availableTools),
+                    ["modelId"] = response.ModelId ?? "unknown",
+                    ["llmRounds"] = _roundCount.ToString()
+                },
+                AgentExecutions =
+                [
+                    new AgentExecutionRecord
                     {
-                        ["traceType"] = "agent",
-                        ["agentId"] = _agentId,
-                        ["toolMode"] = options?.ToolMode?.ToString() ?? "auto",
-                        ["availableTools"] = string.Join(", ", _availableToolsSnapshot ?? availableTools),
-                        ["modelId"] = response.ModelId ?? "unknown",
-                        ["llmRounds"] = _roundCount.ToString()
-                    },
-                    AgentExecutions =
-                    [
-                        new AgentExecutionRecord
-                        {
-                            AgentId = _agentId,
-                            ModelDeploymentName = response.ModelId,
-                            Messages = _accumulatedMessages.ToList(),
-                            ToolCalls = _accumulatedToolCalls.ToList(),
-                            ExecutionDurationMs = _totalElapsedMs,
-                            Success = true,
-                            ResponseContent = response.Text
-                        }
-                    ]
-                };
+                        AgentId = _agentId,
+                        ModelDeploymentName = response.ModelId,
+                        Messages = _accumulatedMessages.ToList(),
+                        ToolCalls = _accumulatedToolCalls.ToList(),
+                        ExecutionDurationMs = _totalElapsedMs,
+                        Success = true,
+                        ResponseContent = response.Text
+                    }
+                ]
+            };
 
-                ResetAccumulators();
-                _ = PersistTraceAsync(trace);
-            }
+            ResetAccumulators();
+            _ = PersistTraceAsync(trace);
 
             return response;
         }
@@ -213,29 +217,30 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
     /// </summary>
     private void EmitLiveToolEvents(ChatMessage message)
     {
-        if (_liveChannel is null || message.Contents is null) return;
+        if (_liveChannel is null) return;
 
         foreach (var content in message.Contents)
         {
-            if (content is FunctionCallContent fc)
+            switch (content)
             {
-                _liveChannel.Write(new LiveEvent
-                {
-                    Type = LiveEvent.Types.ToolCall,
-                    AgentName = _agentId,
-                    ToolName = fc.Name,
-                    State = LiveEvent.States.CallingTools,
-                });
-            }
-            else if (content is FunctionResultContent fr)
-            {
-                _liveChannel.Write(new LiveEvent
-                {
-                    Type = LiveEvent.Types.ToolResult,
-                    AgentName = _agentId,
-                    ToolName = fr.CallId ?? "unknown",
-                    State = LiveEvent.States.ProcessingPrompt,
-                });
+                case FunctionCallContent fc:
+                    _liveChannel.Write(new LiveEvent
+                    {
+                        Type = LiveEvent.Types.ToolCall,
+                        AgentName = _agentId,
+                        ToolName = fc.Name,
+                        State = LiveEvent.States.CallingTools,
+                    });
+                    break;
+                case FunctionResultContent fr:
+                    _liveChannel.Write(new LiveEvent
+                    {
+                        Type = LiveEvent.Types.ToolResult,
+                        AgentName = _agentId,
+                        ToolName = fr.CallId,
+                        State = LiveEvent.States.ProcessingPrompt,
+                    });
+                    break;
             }
         }
     }
@@ -255,15 +260,10 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
 
     private static string ExtractTextContent(ChatMessage message)
     {
-        if (message.Contents is { Count: > 0 })
-        {
-            var textParts = message.Contents.OfType<TextContent>().Select(t => t.Text);
-            var text = string.Join(' ', textParts);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-
-        return message.Text ?? string.Empty;
+        if (message.Contents is not { Count: > 0 }) return message.Text;
+        var textParts = message.Contents.OfType<TextContent>().Select(t => t.Text);
+        var text = string.Join(' ', textParts);
+        return !string.IsNullOrEmpty(text) ? text : message.Text;
     }
 
     private static string ExtractUserInput(IList<ChatMessage> messages)
@@ -277,35 +277,36 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
 
     private static void CaptureToolContentFromMessage(ChatMessage message, List<TracedToolCall> toolCalls)
     {
-        if (message.Contents is null) return;
-
         foreach (var content in message.Contents)
         {
-            if (content is FunctionCallContent fc)
+            switch (content)
             {
-                toolCalls.Add(new TracedToolCall
-                {
-                    ToolName = fc.Name,
-                    Arguments = fc.Arguments is not null
-                        ? JsonSerializer.Serialize(fc.Arguments)
-                        : null
-                });
-            }
-            else if (content is FunctionResultContent fr)
-            {
-                // Try to attach result to the matching tool call
-                var matchingCall = toolCalls.LastOrDefault(tc => tc.ToolName == fr.CallId || tc.Result is null);
-                if (matchingCall is not null)
-                {
-                    matchingCall.Result = fr.Result?.ToString()?[..Math.Min(2000, fr.Result.ToString()?.Length ?? 0)];
-                }
-                else
-                {
+                case FunctionCallContent fc:
                     toolCalls.Add(new TracedToolCall
                     {
-                        ToolName = fr.CallId ?? "unknown",
-                        Result = fr.Result?.ToString()?[..Math.Min(2000, fr.Result.ToString()?.Length ?? 0)]
+                        ToolName = fc.Name,
+                        Arguments = fc.Arguments is not null
+                            ? JsonSerializer.Serialize(fc.Arguments)
+                            : null
                     });
+                    break;
+                case FunctionResultContent fr:
+                {
+                    // Try to attach result to the matching tool call
+                    var matchingCall = toolCalls.LastOrDefault(tc => tc.ToolName == fr.CallId || tc.Result is null);
+                    if (matchingCall is not null)
+                    {
+                        matchingCall.Result = fr.Result?.ToString()?[..Math.Min(2000, fr.Result.ToString()?.Length ?? 0)];
+                    }
+                    else
+                    {
+                        toolCalls.Add(new TracedToolCall
+                        {
+                            ToolName = fr.CallId,
+                            Result = fr.Result?.ToString()?[..Math.Min(2000, fr.Result.ToString()?.Length ?? 0)]
+                        });
+                    }
+                    break;
                 }
             }
         }

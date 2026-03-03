@@ -1,10 +1,11 @@
 using FakeItEasy;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Models;
+using lucia.Agents.Models.HomeAssistant;
 using lucia.Agents.Services;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
 using lucia.TimerAgent.ScheduledTasks;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace lucia.Tests.ScheduledTasks;
@@ -328,7 +329,7 @@ public sealed class AlarmScheduledTaskTests
 
         A.CallTo(() => entityLocationService.FindEntitiesByLocationAsync(
             "bedroom", A<IReadOnlyList<string>>._, A<CancellationToken>._))
-            .Returns(new List<EntityLocationInfo>
+            .Returns(new List<HomeAssistantEntity>
             {
                 new() { EntityId = "media_player.bedroom_speaker", FriendlyName = "Bedroom Speaker", AreaId = "bedroom" }
             });
@@ -368,7 +369,7 @@ public sealed class AlarmScheduledTaskTests
 
         A.CallTo(() => entityLocationService.FindEntitiesByLocationAsync(
             "office", A<IReadOnlyList<string>>._, A<CancellationToken>._))
-            .Returns(new List<EntityLocationInfo>
+            .Returns(new List<HomeAssistantEntity>
             {
                 new() { EntityId = "media_player.office_speaker", FriendlyName = "Office Speaker", AreaId = "office" }
             });
@@ -434,7 +435,7 @@ public sealed class AlarmScheduledTaskTests
 
         A.CallTo(() => entityLocationService.FindEntitiesByLocationAsync(
             "garage", A<IReadOnlyList<string>>._, A<CancellationToken>._))
-            .Returns(new List<EntityLocationInfo>());
+            .Returns(new List<HomeAssistantEntity>());
 
         var sp = BuildPresenceServiceProvider(haClient, presenceService, entityLocationService);
         await task.ExecuteAsync(sp, CancellationToken.None);

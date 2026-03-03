@@ -1,5 +1,4 @@
 using Microsoft.Playwright;
-using lucia.PlaywrightTests.Infrastructure;
 
 namespace lucia.PlaywrightTests.Infrastructure;
 

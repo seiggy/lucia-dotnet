@@ -1,3 +1,4 @@
+using lucia.Agents.Models;
 using lucia.Agents.Services;
 
 namespace lucia.AgentHost.Models;

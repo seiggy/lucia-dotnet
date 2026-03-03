@@ -1,4 +1,5 @@
 using System.Numerics.Tensors;
+using lucia.Agents.Abstractions;
 using Microsoft.Extensions.AI;
 
 namespace lucia.Agents.Services;

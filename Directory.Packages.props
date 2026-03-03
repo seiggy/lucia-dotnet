@@ -66,6 +66,13 @@
     <PackageVersion Include="Microsoft.Extensions.AI.Evaluation.Reporting" Version="$(MicrosoftExtensionsAIVersion)" />
     <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="$(MicrosoftExtensionsAIVersion)" />
   </ItemGroup>
+  
+  <!-- Microsoft.Extensions.Cachine -->
+  <ItemGroup Label="Microsoft Extensions Caching">
+    <PackageVersion Include="Microsoft.Extensions.Caching.Hybrid" Version="10.3.0" />
+    <PackageVersion Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.3" />
+  </ItemGroup>
+  
   <!-- ── Microsoft.Extensions (core framework) ────────────────── -->
   <ItemGroup Label="Microsoft Extensions">
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="$(MicrosoftExtensionsVersion)" />

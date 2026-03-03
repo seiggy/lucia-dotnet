@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   fetchEntityLocationSummary,
   fetchEntityLocationFloors,
@@ -6,9 +6,15 @@ import {
   fetchEntityLocationEntities,
   searchEntityLocation,
   invalidateEntityLocationCache,
+  fetchEntityVisibility,
+  updateVisibilitySettings,
+  updateEntityAgents,
+  clearAllAgentFilters,
+  fetchAvailableAgents,
 } from '../api'
 import {
-  MapPin, Building2, Layers, Hash, Loader2, RefreshCw, Search, Clock, ChevronLeft, ChevronRight,
+  MapPin, Building2, Layers, Hash, Loader2, RefreshCw, Search, Clock,
+  ChevronLeft, ChevronRight, Shield, ShieldOff, Users, X, Check, Trash2, Eye, EyeOff,
 } from 'lucide-react'
 
 interface FloorInfo {
@@ -37,6 +43,7 @@ interface EntityLocationInfo {
   aliases: string[]
   areaId: string | null
   platform: string | null
+  includeForAgent: string[] | null
 }
 
 interface LocationSummary {
@@ -59,6 +66,7 @@ function Badge({ children, color = 'amber' }: { children: React.ReactNode; color
     sage: 'bg-sage/15 text-sage',
     sky: 'bg-sky-400/15 text-sky-400',
     fog: 'bg-fog/15 text-fog',
+    rose: 'bg-rose/15 text-rose',
   }
   return (
     <span className={`rounded-md px-2 py-0.5 text-xs font-medium ${colorMap[color] ?? colorMap.fog}`}>
@@ -84,12 +92,49 @@ export default function EntityLocationPage() {
   const [entityPage, setEntityPage] = useState(0)
   const entityPageSize = 50
 
+  // Visibility state
+  const [useExposedOnly, setUseExposedOnly] = useState(false)
+  const [availableAgents, setAvailableAgents] = useState<string[]>([])
+  const [entityAgentMap, setEntityAgentMap] = useState<Record<string, string[]>>({})
+  const [togglingExposed, setTogglingExposed] = useState(false)
+
+  // Selection state for bulk operations
+  const [selectedEntityIds, setSelectedEntityIds] = useState<Set<string>>(new Set())
+  const [bulkAgentDropdownOpen, setBulkAgentDropdownOpen] = useState(false)
+
+  // Per-row agent dropdown
+  const [agentDropdownEntityId, setAgentDropdownEntityId] = useState<string | null>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setAgentDropdownEntityId(null)
+        setBulkAgentDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
   const loadSummary = useCallback(async () => {
     try {
       const data = await fetchEntityLocationSummary()
       setSummary(data)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load summary')
+    }
+  }, [])
+
+  const loadVisibility = useCallback(async () => {
+    try {
+      const [vis, agents] = await Promise.all([fetchEntityVisibility(), fetchAvailableAgents()])
+      setUseExposedOnly(vis.useExposedEntitiesOnly)
+      setEntityAgentMap(vis.entityAgentMap)
+      setAvailableAgents(agents)
+    } catch {
+      // Visibility config may not exist yet — ignore
     }
   }, [])
 
@@ -104,6 +149,7 @@ export default function EntityLocationPage() {
         const result = await fetchEntityLocationEntities(domainFilter || undefined)
         setEntities(result)
         setEntityPage(0)
+        setSelectedEntityIds(new Set())
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
@@ -114,8 +160,9 @@ export default function EntityLocationPage() {
 
   useEffect(() => {
     loadSummary()
+    loadVisibility()
     loadTab('floors')
-  }, [loadSummary, loadTab])
+  }, [loadSummary, loadVisibility, loadTab])
 
   useEffect(() => {
     if (activeTab !== 'search') loadTab(activeTab)
@@ -127,7 +174,7 @@ export default function EntityLocationPage() {
     setError(null)
     try {
       await invalidateEntityLocationCache()
-      await loadSummary()
+      await Promise.all([loadSummary(), loadVisibility()])
       await loadTab(activeTab)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to invalidate cache')
@@ -136,10 +183,25 @@ export default function EntityLocationPage() {
     }
   }
 
+  async function handleToggleExposed() {
+    setTogglingExposed(true)
+    setError(null)
+    try {
+      await updateVisibilitySettings(!useExposedOnly)
+      setUseExposedOnly(!useExposedOnly)
+      await Promise.all([loadSummary(), loadTab(activeTab)])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to toggle exposed filter')
+    } finally {
+      setTogglingExposed(false)
+    }
+  }
+
   async function handleSearch() {
     if (!searchTerm.trim()) return
     setSearching(true)
     setError(null)
+    setSelectedEntityIds(new Set())
     try {
       const data = await searchEntityLocation(searchTerm.trim(), searchDomain || undefined)
       setSearchResults(data.entities ?? data)
@@ -150,8 +212,96 @@ export default function EntityLocationPage() {
     }
   }
 
+  // ── Agent visibility helpers ──────────────────────────────────
+
+  function getEntityAgents(entityId: string): string[] | null {
+    if (entityId in entityAgentMap) return entityAgentMap[entityId]
+    return null // visible to all
+  }
+
+  async function setAgentsForEntity(entityId: string, agents: string[] | null) {
+    try {
+      await updateEntityAgents({ [entityId]: agents })
+      setEntityAgentMap(prev => {
+        const next = { ...prev }
+        if (agents === null) {
+          delete next[entityId]
+        } else {
+          next[entityId] = agents
+        }
+        return next
+      })
+      // Update in-memory entity list
+      setEntities(prev => prev.map(e =>
+        e.entityId === entityId ? { ...e, includeForAgent: agents } : e
+      ))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update agent visibility')
+    }
+  }
+
+  async function handleBulkAssign(agents: string[] | null) {
+    const ids = Array.from(selectedEntityIds)
+    if (ids.length === 0) return
+    try {
+      const updates: Record<string, string[] | null> = {}
+      ids.forEach(id => { updates[id] = agents })
+      await updateEntityAgents(updates)
+      setEntityAgentMap(prev => {
+        const next = { ...prev }
+        ids.forEach(id => {
+          if (agents === null) {
+            delete next[id]
+          } else {
+            next[id] = agents
+          }
+        })
+        return next
+      })
+      setEntities(prev => prev.map(e =>
+        selectedEntityIds.has(e.entityId) ? { ...e, includeForAgent: agents } : e
+      ))
+      setSelectedEntityIds(new Set())
+      setBulkAgentDropdownOpen(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to bulk-assign agents')
+    }
+  }
+
+  async function handleClearAllFilters() {
+    if (!confirm('Clear all per-entity agent filters? Every entity will become visible to all agents.')) return
+    try {
+      await clearAllAgentFilters()
+      setEntityAgentMap({})
+      setEntities(prev => prev.map(e => ({ ...e, includeForAgent: null })))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to clear agent filters')
+    }
+  }
+
+  function toggleSelect(entityId: string) {
+    setSelectedEntityIds(prev => {
+      const next = new Set(prev)
+      if (next.has(entityId)) next.delete(entityId)
+      else next.add(entityId)
+      return next
+    })
+  }
+
+  function toggleSelectAll(entityList: EntityLocationInfo[]) {
+    const allSelected = entityList.every(e => selectedEntityIds.has(e.entityId))
+    if (allSelected) {
+      setSelectedEntityIds(new Set())
+    } else {
+      setSelectedEntityIds(new Set(entityList.map(e => e.entityId)))
+    }
+  }
+
+  // ── Derived state ──────────────────────────────────────────────
+
   const entityPageCount = Math.max(1, Math.ceil(entities.length / entityPageSize))
   const pagedEntities = entities.slice(entityPage * entityPageSize, (entityPage + 1) * entityPageSize)
+  const hasFilters = Object.keys(entityAgentMap).length > 0
 
   const tabs: { id: Tab; label: string; icon: typeof Layers }[] = [
     { id: 'floors', label: 'Floors', icon: Layers },
@@ -160,20 +310,306 @@ export default function EntityLocationPage() {
     { id: 'search', label: 'Search', icon: Search },
   ]
 
+  // ── Agent badge renderer ──────────────────────────────────────
+
+  function AgentBadges({ entityId }: { entityId: string }) {
+    const agents = getEntityAgents(entityId)
+    if (agents === null) return <Badge color="amber">All</Badge>
+    if (agents.length === 0) return <Badge color="rose">None</Badge>
+    return (
+      <div className="flex flex-wrap gap-1">
+        {agents.map(a => <Badge key={a} color="sky">{a}</Badge>)}
+      </div>
+    )
+  }
+
+  // ── Per-entity agent dropdown ─────────────────────────────────
+
+  function AgentDropdown({ entityId }: { entityId: string }) {
+    const isOpen = agentDropdownEntityId === entityId
+    const currentAgents = getEntityAgents(entityId)
+
+    function toggleAgent(agent: string) {
+      const current = currentAgents ?? [...availableAgents] // null = all → start with all
+      const updated = current.includes(agent)
+        ? current.filter(a => a !== agent)
+        : [...current, agent]
+      setAgentsForEntity(entityId, updated.length === 0 ? [] : updated)
+    }
+
+    return (
+      <div className="relative">
+        <button
+          onClick={() => setAgentDropdownEntityId(isOpen ? null : entityId)}
+          className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-dust transition-colors hover:bg-stone/40 hover:text-fog"
+          title="Edit agent visibility"
+        >
+          <AgentBadges entityId={entityId} />
+          <Users className="ml-1 h-3 w-3 flex-shrink-0 opacity-50" />
+        </button>
+
+        {isOpen && (
+          <div
+            ref={dropdownRef}
+            className="absolute right-0 top-full z-50 mt-1 w-56 rounded-lg border border-stone bg-basalt shadow-xl shadow-black/40"
+          >
+            <div className="border-b border-stone/60 px-3 py-2 text-xs font-medium uppercase tracking-wider text-dust">
+              Agent Visibility
+            </div>
+            <div className="max-h-48 overflow-y-auto p-1">
+              {/* Reset to All */}
+              <button
+                onClick={() => { setAgentsForEntity(entityId, null); setAgentDropdownEntityId(null) }}
+                className={`flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm transition-colors ${
+                  currentAgents === null ? 'bg-amber/15 text-amber' : 'text-fog hover:bg-stone/40'
+                }`}
+              >
+                <Eye className="h-3.5 w-3.5" />
+                All Agents
+                {currentAgents === null && <Check className="ml-auto h-3.5 w-3.5" />}
+              </button>
+
+              {/* Exclude from all */}
+              <button
+                onClick={() => { setAgentsForEntity(entityId, []); setAgentDropdownEntityId(null) }}
+                className={`flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm transition-colors ${
+                  currentAgents?.length === 0 ? 'bg-rose/15 text-rose' : 'text-fog hover:bg-stone/40'
+                }`}
+              >
+                <EyeOff className="h-3.5 w-3.5" />
+                No Agents
+                {currentAgents?.length === 0 && <Check className="ml-auto h-3.5 w-3.5" />}
+              </button>
+
+              <div className="my-1 border-t border-stone/40" />
+
+              {/* Individual agents */}
+              {availableAgents.map(agent => {
+                const isSelected = currentAgents === null || currentAgents.includes(agent)
+                return (
+                  <button
+                    key={agent}
+                    onClick={() => toggleAgent(agent)}
+                    className={`flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm transition-colors ${
+                      isSelected ? 'text-sky-400' : 'text-dust hover:text-fog'
+                    } hover:bg-stone/40`}
+                  >
+                    <div className={`flex h-4 w-4 items-center justify-center rounded border ${
+                      isSelected ? 'border-sky-400 bg-sky-400/20' : 'border-stone'
+                    }`}>
+                      {isSelected && <Check className="h-3 w-3" />}
+                    </div>
+                    {agent}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ── Bulk action bar ───────────────────────────────────────────
+
+  function BulkActionBar({ entityList }: { entityList: EntityLocationInfo[] }) {
+    const count = selectedEntityIds.size
+    if (count === 0) return null
+
+    return (
+      <div className="flex items-center gap-3 rounded-xl border border-amber/30 bg-amber/5 px-4 py-2.5">
+        <span className="text-sm font-medium text-amber">{count} selected</span>
+        <div className="h-4 w-px bg-stone/60" />
+
+        {/* Assign to agents dropdown */}
+        <div className="relative" ref={bulkAgentDropdownOpen ? dropdownRef : undefined}>
+          <button
+            onClick={() => setBulkAgentDropdownOpen(!bulkAgentDropdownOpen)}
+            className="flex items-center gap-1.5 rounded-lg bg-sky-400/15 px-3 py-1.5 text-xs font-medium text-sky-400 transition-colors hover:bg-sky-400/25"
+          >
+            <Users className="h-3.5 w-3.5" />
+            Assign to Agent
+          </button>
+          {bulkAgentDropdownOpen && (
+            <div className="absolute left-0 top-full z-50 mt-1 w-52 rounded-lg border border-stone bg-basalt shadow-xl shadow-black/40">
+              <div className="max-h-48 overflow-y-auto p-1">
+                {availableAgents.map(agent => (
+                  <button
+                    key={agent}
+                    onClick={() => {
+                      // Add this agent to each selected entity's agent list
+                      const updates: Record<string, string[] | null> = {}
+                      selectedEntityIds.forEach(id => {
+                        const current = getEntityAgents(id) ?? []
+                        if (!current.includes(agent)) {
+                          updates[id] = [...current, agent]
+                        }
+                      })
+                      if (Object.keys(updates).length > 0) {
+                        handleBulkAssign(null) // won't run, we handle inline
+                        updateEntityAgents(updates).then(() => {
+                          setEntityAgentMap(prev => ({ ...prev, ...updates as Record<string, string[]> }))
+                          setEntities(prev => prev.map(e => {
+                            if (e.entityId in updates) return { ...e, includeForAgent: updates[e.entityId] }
+                            return e
+                          }))
+                        })
+                      }
+                      setBulkAgentDropdownOpen(false)
+                    }}
+                    className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm text-fog transition-colors hover:bg-stone/40"
+                  >
+                    <Shield className="h-3.5 w-3.5 text-sky-400" />
+                    {agent}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <button
+          onClick={() => handleBulkAssign(null)}
+          className="flex items-center gap-1.5 rounded-lg bg-amber/15 px-3 py-1.5 text-xs font-medium text-amber transition-colors hover:bg-amber/25"
+          title="Reset selected to visible by all agents"
+        >
+          <Eye className="h-3.5 w-3.5" />
+          All Agents
+        </button>
+
+        <button
+          onClick={() => handleBulkAssign([])}
+          className="flex items-center gap-1.5 rounded-lg bg-rose/15 px-3 py-1.5 text-xs font-medium text-rose transition-colors hover:bg-rose/25"
+          title="Exclude selected from all agents"
+        >
+          <EyeOff className="h-3.5 w-3.5" />
+          No Agents
+        </button>
+
+        <button
+          onClick={() => { setSelectedEntityIds(new Set()) }}
+          className="ml-auto rounded-lg p-1.5 text-dust transition-colors hover:bg-stone/40 hover:text-fog"
+          title="Clear selection"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+    )
+  }
+
+  // ── Entity table renderer (shared between tabs) ───────────────
+
+  function EntityTable({ entityList, showSelect }: { entityList: EntityLocationInfo[]; showSelect: boolean }) {
+    const allSelected = entityList.length > 0 && entityList.every(e => selectedEntityIds.has(e.entityId))
+
+    return (
+      <div className="glass-panel overflow-x-auto rounded-xl">
+        <table className="w-full text-left text-sm">
+          <thead className="border-b border-stone text-xs font-medium uppercase tracking-wider text-dust">
+            <tr>
+              {showSelect && (
+                <th className="w-10 px-3 py-3">
+                  <button
+                    onClick={() => toggleSelectAll(entityList)}
+                    className={`flex h-4 w-4 items-center justify-center rounded border transition-colors ${
+                      allSelected ? 'border-amber bg-amber/20 text-amber' : 'border-stone hover:border-fog'
+                    }`}
+                  >
+                    {allSelected && <Check className="h-3 w-3" />}
+                  </button>
+                </th>
+              )}
+              <th className="px-4 py-3">Entity ID</th>
+              <th className="px-4 py-3">Friendly Name</th>
+              <th className="px-4 py-3">Domain</th>
+              <th className="px-4 py-3">Area</th>
+              <th className="px-4 py-3">Agents</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-stone/50">
+            {entityList.map((e) => (
+              <tr key={e.entityId} className="transition-colors hover:bg-basalt/60">
+                {showSelect && (
+                  <td className="px-3 py-3">
+                    <button
+                      onClick={() => toggleSelect(e.entityId)}
+                      className={`flex h-4 w-4 items-center justify-center rounded border transition-colors ${
+                        selectedEntityIds.has(e.entityId) ? 'border-amber bg-amber/20 text-amber' : 'border-stone hover:border-fog'
+                      }`}
+                    >
+                      {selectedEntityIds.has(e.entityId) && <Check className="h-3 w-3" />}
+                    </button>
+                  </td>
+                )}
+                <td className="px-4 py-3 font-mono text-xs text-fog">{e.entityId}</td>
+                <td className="px-4 py-3 text-light">{e.friendlyName}</td>
+                <td className="px-4 py-3"><Badge>{e.domain}</Badge></td>
+                <td className="px-4 py-3 text-fog">{e.areaId ?? '—'}</td>
+                <td className="px-4 py-3">
+                  <AgentDropdown entityId={e.entityId} />
+                </td>
+              </tr>
+            ))}
+            {entityList.length === 0 && (
+              <tr>
+                <td colSpan={showSelect ? 6 : 5} className="px-4 py-12 text-center text-dust">
+                  No entities found.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      {/* Header with actions */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="font-display text-2xl font-bold text-light">Entity Locations</h1>
-        <button
-          onClick={handleInvalidate}
-          disabled={invalidating}
-          className="flex items-center gap-1.5 rounded-xl bg-amber/15 px-4 py-2 text-sm font-medium text-amber transition-colors hover:bg-amber/25 disabled:opacity-40"
-        >
-          {invalidating
-            ? <Loader2 className="h-4 w-4 animate-spin" />
-            : <RefreshCw className="h-4 w-4" />}
-          Reload from HA
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Exposed-only toggle */}
+          <button
+            onClick={handleToggleExposed}
+            disabled={togglingExposed}
+            className={`flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
+              useExposedOnly
+                ? 'bg-sage/15 text-sage hover:bg-sage/25'
+                : 'bg-stone/30 text-dust hover:bg-stone/40 hover:text-fog'
+            } disabled:opacity-40`}
+            title={useExposedOnly ? 'Loading only HA-exposed entities' : 'Loading all entities'}
+          >
+            {togglingExposed
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : useExposedOnly ? <Shield className="h-4 w-4" /> : <ShieldOff className="h-4 w-4" />}
+            {useExposedOnly ? 'Exposed Only' : 'All Entities'}
+          </button>
+
+          {/* Clear all filters */}
+          {hasFilters && (
+            <button
+              onClick={handleClearAllFilters}
+              className="flex items-center gap-1.5 rounded-xl bg-rose/15 px-4 py-2 text-sm font-medium text-rose transition-colors hover:bg-rose/25"
+              title="Clear all per-entity agent filters"
+            >
+              <Trash2 className="h-4 w-4" />
+              Clear All Filters
+            </button>
+          )}
+
+          {/* Reload from HA */}
+          <button
+            onClick={handleInvalidate}
+            disabled={invalidating}
+            className="flex items-center gap-1.5 rounded-xl bg-amber/15 px-4 py-2 text-sm font-medium text-amber transition-colors hover:bg-amber/25 disabled:opacity-40"
+          >
+            {invalidating
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : <RefreshCw className="h-4 w-4" />}
+            Reload from HA
+          </button>
+        </div>
       </div>
 
       {/* Summary cards */}
@@ -215,7 +651,7 @@ export default function EntityLocationPage() {
         {tabs.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
-            onClick={() => setActiveTab(id)}
+            onClick={() => { setActiveTab(id); setSelectedEntityIds(new Set()) }}
             className={`flex items-center gap-1.5 border-b-2 px-4 py-2.5 text-sm font-medium transition-colors ${
               activeTab === id
                 ? 'border-amber text-amber'
@@ -329,43 +765,14 @@ export default function EntityLocationPage() {
               Filter
             </button>
           </div>
+
+          <BulkActionBar entityList={pagedEntities} />
+
           {loading ? (
             <p className="flex items-center gap-2 text-dust"><Loader2 className="h-4 w-4 animate-spin" /> Loading entities…</p>
           ) : (
             <>
-              <div className="glass-panel overflow-x-auto rounded-xl">
-                <table className="w-full text-left text-sm">
-                  <thead className="border-b border-stone text-xs font-medium uppercase tracking-wider text-dust">
-                    <tr>
-                      <th className="px-4 py-3">Entity ID</th>
-                      <th className="px-4 py-3">Friendly Name</th>
-                      <th className="px-4 py-3">Domain</th>
-                      <th className="px-4 py-3">Area</th>
-                      <th className="px-4 py-3">Aliases</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone/50">
-                    {pagedEntities.map((e) => (
-                      <tr key={e.entityId} className="transition-colors hover:bg-basalt/60">
-                        <td className="px-4 py-3 font-mono text-xs text-fog">{e.entityId}</td>
-                        <td className="px-4 py-3 text-light">{e.friendlyName}</td>
-                        <td className="px-4 py-3"><Badge>{e.domain}</Badge></td>
-                        <td className="px-4 py-3 text-fog">{e.areaId ?? '—'}</td>
-                        <td className="px-4 py-3">
-                          <div className="flex flex-wrap gap-1">
-                            {e.aliases.length > 0
-                              ? e.aliases.map((a) => <Badge key={a} color="sage">{a}</Badge>)
-                              : <span className="text-dust">—</span>}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {entities.length === 0 && (
-                      <tr><td colSpan={5} className="px-4 py-12 text-center text-dust">No entities found.</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+              <EntityTable entityList={pagedEntities} showSelect />
               {entityPageCount > 1 && (
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-dust">
@@ -445,33 +852,15 @@ export default function EntityLocationPage() {
           </div>
 
           {searchResults.length > 0 && (
-            <div className="glass-panel overflow-x-auto rounded-xl">
-              <div className="border-b border-stone px-4 py-2">
+            <>
+              <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-dust">
                   {searchResults.length} entit{searchResults.length === 1 ? 'y' : 'ies'} matched
                 </span>
               </div>
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-stone text-xs font-medium uppercase tracking-wider text-dust">
-                  <tr>
-                    <th className="px-4 py-3">Entity ID</th>
-                    <th className="px-4 py-3">Friendly Name</th>
-                    <th className="px-4 py-3">Domain</th>
-                    <th className="px-4 py-3">Area</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone/50">
-                  {searchResults.map((e) => (
-                    <tr key={e.entityId} className="transition-colors hover:bg-basalt/60">
-                      <td className="px-4 py-3 font-mono text-xs text-fog">{e.entityId}</td>
-                      <td className="px-4 py-3 text-light">{e.friendlyName}</td>
-                      <td className="px-4 py-3"><Badge>{e.domain}</Badge></td>
-                      <td className="px-4 py-3 text-fog">{e.areaId ?? '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+              <BulkActionBar entityList={searchResults} />
+              <EntityTable entityList={searchResults} showSelect />
+            </>
           )}
           {!searching && searchTerm && searchResults.length === 0 && (
             <p className="text-center text-dust">No entities matched &ldquo;{searchTerm}&rdquo;.</p>

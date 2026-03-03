@@ -6,11 +6,14 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Text;
 using System.Text.Json;
+using lucia.Agents.Abstractions;
 using lucia.HomeAssistant.Services;
 using lucia.HomeAssistant.Models;
 using lucia.Agents.Models;
 using lucia.Agents.Services;
 using lucia.Agents.Configuration;
+using lucia.Agents.Integration;
+using lucia.Agents.Models.HomeAssistant;
 using Microsoft.Extensions.AI;
 
 namespace lucia.Agents.Skills;
@@ -106,7 +109,9 @@ public class LightControlSkill : IAgentSkill, IOptimizableSkill
         {
             Threshold = opts.HybridSimilarityThreshold,
             EmbeddingWeight = opts.EmbeddingWeight,
-            ScoreDropoffRatio = opts.ScoreDropoffRatio
+            ScoreDropoffRatio = opts.ScoreDropoffRatio,
+            DisagreementPenalty = opts.DisagreementPenalty,
+            EmbeddingResolutionMargin = opts.EmbeddingResolutionMargin
         };
     }
 
@@ -153,16 +158,19 @@ public class LightControlSkill : IAgentSkill, IOptimizableSkill
 
         try
         {
-            // Delegate area resolution to the shared entity location service
-            var locationMatches = await _locationService.FindEntitiesByLocationAsync(
-                area, (IReadOnlyList<string>)["light", "switch"]).ConfigureAwait(false);
+            // Delegate resolution to the shared hierarchical entity search
+            var hierarchyResult = await _locationService.SearchHierarchyAsync(
+                area, GetCurrentMatchOptions(), (IReadOnlyList<string>)["light", "switch"]).ConfigureAwait(false);
+            var locationMatches = hierarchyResult.ResolvedEntities;
 
-            if (locationMatches.Count == 0)
+            activity?.SetTag("match.resolution", hierarchyResult.ResolutionStrategy.ToString());
+
+            if (hierarchyResult.ResolutionStrategy == ResolutionStrategy.None || locationMatches.Count == 0)
             {
                 LightSearchFailures.Add(1, [
                     new KeyValuePair<string, object?>("reason", "no-area-match")
                 ]);
-                return $"No areas found matching '{area}'.";
+                return $"No lights found matching '{area}'. {hierarchyResult.ResolutionReason}";
             }
 
             // When the light device cache is populated, intersect with it for capability info.
@@ -276,7 +284,9 @@ public class LightControlSkill : IAgentSkill, IOptimizableSkill
             {
                 Threshold = opts.HybridSimilarityThreshold,
                 EmbeddingWeight = opts.EmbeddingWeight,
-                ScoreDropoffRatio = opts.ScoreDropoffRatio
+                ScoreDropoffRatio = opts.ScoreDropoffRatio,
+                DisagreementPenalty = opts.DisagreementPenalty,
+                EmbeddingResolutionMargin = opts.EmbeddingResolutionMargin
             };
 
             var matches = await _entityMatcher.FindMatchesAsync(
@@ -327,11 +337,14 @@ public class LightControlSkill : IAgentSkill, IOptimizableSkill
                 return stringBuilder.ToString().TrimEnd();
             }
 
-            // Fallback: try area-based search via the location service
-            var locationMatches = await _locationService.FindEntitiesByLocationAsync(
-                searchTerm, (IReadOnlyList<string>)["light", "switch"]).ConfigureAwait(false);
+            // Fallback: try hierarchical search via the location service
+            var hierarchyResult = await _locationService.SearchHierarchyAsync(
+                searchTerm, GetCurrentMatchOptions(), (IReadOnlyList<string>)["light", "switch"]).ConfigureAwait(false);
+            var locationMatches = hierarchyResult.ResolvedEntities;
 
-            if (locationMatches.Count > 0)
+            activity?.SetTag("match.resolution", hierarchyResult.ResolutionStrategy.ToString());
+
+            if (hierarchyResult.ResolutionStrategy != ResolutionStrategy.None && locationMatches.Count > 0)
             {
                 var matchedEntityIds = locationMatches.Select(e => e.EntityId).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 var areaLights = _cachedLights.Where(l => matchedEntityIds.Contains(l.EntityId)).ToList();
@@ -577,7 +590,7 @@ public class LightControlSkill : IAgentSkill, IOptimizableSkill
     /// </summary>
     private async Task<string> BuildAreaResponseFromLocationServiceAsync(
         string area,
-        IReadOnlyList<EntityLocationInfo> locationMatches,
+        IReadOnlyList<HomeAssistantEntity> locationMatches,
         Activity? activity)
     {
         _logger.LogInformation(

@@ -1,6 +1,6 @@
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
-using lucia.Agents.Mcp;
+using lucia.Agents.Configuration.UserConfiguration;
 using Microsoft.Extensions.Logging;
 
 namespace lucia.Agents.Extensions;

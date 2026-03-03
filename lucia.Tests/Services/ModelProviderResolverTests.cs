@@ -1,12 +1,9 @@
 using lucia.Agents.Configuration;
-using lucia.Agents.Mcp;
+using lucia.Agents.Configuration.UserConfiguration;
 using lucia.Agents.Providers;
 using lucia.Tests.TestDoubles;
-using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Xunit;
 
 namespace lucia.Tests.Services;
 

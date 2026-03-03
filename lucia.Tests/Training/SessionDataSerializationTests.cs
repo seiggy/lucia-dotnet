@@ -1,4 +1,5 @@
 using System.Text.Json;
+using lucia.Agents.Models;
 using lucia.Agents.Services;
 
 namespace lucia.Tests.Training;

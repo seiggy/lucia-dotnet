@@ -847,6 +847,68 @@ export async function invalidateEntityLocationCache() {
   return res.json();
 }
 
+// ── Entity Visibility ──────────────────────────────────────────────
+
+export async function fetchEntityVisibility(): Promise<{
+  useExposedEntitiesOnly: boolean
+  entityAgentMap: Record<string, string[]>
+}> {
+  const res = await fetch(`${BASE}/entity-location/visibility`);
+  if (!res.ok) throw new Error(`Failed to fetch visibility config: ${res.statusText}`);
+  return res.json();
+}
+
+export async function updateVisibilitySettings(useExposedEntitiesOnly: boolean) {
+  const res = await fetch(`${BASE}/entity-location/visibility/settings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ useExposedEntitiesOnly }),
+  });
+  if (!res.ok) throw new Error(`Failed to update visibility settings: ${res.statusText}`);
+  return res.json();
+}
+
+export async function updateEntityAgents(updates: Record<string, string[] | null>) {
+  const res = await fetch(`${BASE}/entity-location/visibility/agents`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) throw new Error(`Failed to update entity agents: ${res.statusText}`);
+  return res.json();
+}
+
+export async function clearAllAgentFilters() {
+  const res = await fetch(`${BASE}/entity-location/visibility/agents`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Failed to clear agent filters: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchAvailableAgents(): Promise<string[]> {
+  const res = await fetch(`${BASE}/entity-location/visibility/available-agents`);
+  if (!res.ok) throw new Error(`Failed to fetch available agents: ${res.statusText}`);
+  return res.json();
+}
+
+// ── Matcher Debug API ──────────────────────────────────────────────
+
+export async function searchMatcherDebug(
+  term: string,
+  options?: { threshold?: number; embeddingWeight?: number; dropoff?: number; disagreementPenalty?: number; embeddingResolutionMargin?: number; domains?: string[] }
+): Promise<any> {
+  const params = new URLSearchParams();
+  if (options?.threshold !== undefined) params.set('threshold', String(options.threshold));
+  if (options?.embeddingWeight !== undefined) params.set('embeddingWeight', String(options.embeddingWeight));
+  if (options?.dropoff !== undefined) params.set('dropoff', String(options.dropoff));
+  if (options?.disagreementPenalty !== undefined) params.set('disagreementPenalty', String(options.disagreementPenalty));
+  if (options?.embeddingResolutionMargin !== undefined) params.set('embeddingResolutionMargin', String(options.embeddingResolutionMargin));
+  if (options?.domains?.length) params.set('domains', options.domains.join(','));
+  const qs = params.toString();
+  const res = await fetch(`${BASE}/matcher-debug/search/${encodeURIComponent(term)}${qs ? `?${qs}` : ''}`);
+  if (!res.ok) throw new Error(`Failed to search matcher debug: ${res.statusText}`);
+  return res.json();
+}
+
 // ── Alarm Clocks API ───────────────────────────────────────────────
 
 export async function fetchAlarms(): Promise<import('./types').AlarmClock[]> {
