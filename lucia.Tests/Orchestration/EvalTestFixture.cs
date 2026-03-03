@@ -325,15 +325,10 @@ public sealed class EvalTestFixture : IAsyncLifetime
         string embeddingModelName,
         IOptionsMonitor<LightControlSkillOptions> optionsMonitor)
     {
-        var embeddingResolver = ResolveEmbeddingProvider(embeddingModelName);
         var skill = new LightControlSkill(
             _haClient,
-            embeddingResolver,
             _loggerFactory.CreateLogger<LightControlSkill>(),
-            _deviceCache,
             _mockLocationService,
-            _similarity,
-            _entityMatcher,
             optionsMonitor);
         await skill.InitializeAsync();
         return skill;
@@ -344,15 +339,10 @@ public sealed class EvalTestFixture : IAsyncLifetime
         string? embeddingModelName = null)
     {
         var resolver = CreateAgentResolver(CreateBaseChatClient(deploymentName));
-        var embeddingResolver = ResolveEmbeddingProvider(embeddingModelName);
         var lightSkill = new LightControlSkill(
             _haClient,
-            embeddingResolver,
             _loggerFactory.CreateLogger<LightControlSkill>(),
-            _deviceCache,
             _mockLocationService,
-            _similarity,
-            _entityMatcher,
             CreateLightControlSkillOptionsMonitor());
         var agent = new LightAgent(resolver, _mockDefinitionRepo, lightSkill, _tracingFactory, _loggerFactory);
         await agent.InitializeAsync();
@@ -395,15 +385,10 @@ public sealed class EvalTestFixture : IAsyncLifetime
     {
         var capture = new ChatHistoryCapture(CreateBaseChatClient(deploymentName));
         var resolver = CreateAgentResolver(capture);
-        var embeddingResolver = ResolveEmbeddingProvider(embeddingModelName);
         var lightSkill = new LightControlSkill(
             _haClient,
-            embeddingResolver,
             _loggerFactory.CreateLogger<LightControlSkill>(),
-            _deviceCache,
             _mockLocationService,
-            _similarity,
-            _entityMatcher,
             CreateLightControlSkillOptionsMonitor());
         var agent = new LightAgent(resolver, _mockDefinitionRepo, lightSkill, _tracingFactory, _loggerFactory);
         await agent.InitializeAsync();
@@ -546,10 +531,9 @@ public sealed class EvalTestFixture : IAsyncLifetime
     {
         // LightAgent card
         var lightSkill = new LightControlSkill(
-            _haClient, _embeddingResolver,
+            _haClient,
             _loggerFactory.CreateLogger<LightControlSkill>(),
-            _deviceCache, _mockLocationService, _similarity,
-            _entityMatcher,
+            _mockLocationService,
             CreateLightControlSkillOptionsMonitor());
         var lightAgent = new LightAgent(_mockChatClientResolver, _mockDefinitionRepo, lightSkill, _tracingFactory, _loggerFactory);
         _lightAgentCard = lightAgent.GetAgentCard();

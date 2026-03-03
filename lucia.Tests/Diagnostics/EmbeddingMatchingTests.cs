@@ -1,3 +1,5 @@
+#pragma warning disable CS0618 // Testing obsolete methods until migrated
+
 using FakeItEasy;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
@@ -128,7 +130,7 @@ public sealed class EmbeddingMatchingTests
         var similarity = new EmbeddingSimilarityService();
         var entityMatcher = new HybridEntityMatcher(similarity, loggerFactory.CreateLogger<HybridEntityMatcher>());
         
-        var skill = new LightControlSkill(haClient, new StubEmbeddingProviderResolver(embGen), logger, A.Fake<IDeviceCacheService>(), A.Fake<IEntityLocationService>(), similarity, entityMatcher, optionsMonitor);
+        var skill = new LightControlSkill(haClient, logger, A.Fake<IEntityLocationService>(), optionsMonitor);
 
         _output.WriteLine($"Calling FindLightAsync('{searchTerm}')...");
         var result = await skill.FindLightAsync(searchTerm);

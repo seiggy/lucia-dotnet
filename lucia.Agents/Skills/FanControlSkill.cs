@@ -119,12 +119,6 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
     public IReadOnlyList<string> EntityDomains { get; } = ["fan"];
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<IMatchableEntity>> GetCachedEntitiesAsync(CancellationToken cancellationToken = default)
-    {
-        await EnsureCacheIsCurrentAsync(cancellationToken).ConfigureAwait(false);
-        return _fans.CastArray<IMatchableEntity>();
-    }
-
     /// <inheritdoc/>
     public HybridMatchOptions GetCurrentMatchOptions()
     {

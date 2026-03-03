@@ -103,8 +103,8 @@ public sealed class SkillOptimizerService
 
                 var found = matches.Any(m =>
                     string.Equals(m.Entity.MatchableName, tc.ExpectedEntityId, StringComparison.OrdinalIgnoreCase) ||
-                    (m.Entity is LightEntity le &&
-                     string.Equals(le.EntityId, tc.ExpectedEntityId, StringComparison.OrdinalIgnoreCase)));
+                    (m.Entity is HomeAssistantEntity he &&
+                     string.Equals(he.EntityId, tc.ExpectedEntityId, StringComparison.OrdinalIgnoreCase)));
 
                 var count = matches.Count;
                 var countOk = count <= tc.MaxResults;

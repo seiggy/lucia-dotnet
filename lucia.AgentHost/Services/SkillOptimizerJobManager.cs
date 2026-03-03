@@ -111,16 +111,8 @@ public sealed class SkillOptimizerJobManager
                 return;
             }
 
-            // Get cached entities from the skill, fall back to location service
-            var entities = await skill.GetCachedEntitiesAsync(ct).ConfigureAwait(false);
-            if (entities.Count == 0)
-            {
-                _logger.LogInformation(
-                    "Skill cache empty for {SkillId}, building matchable entities from location service",
-                    request.SkillId);
-
-                entities = await BuildEntitiesFromLocationServiceAsync(skill, generator, ct).ConfigureAwait(false);
-            }
+            // Always build entities from the central location service
+            var entities = await BuildEntitiesFromLocationServiceAsync(skill, generator, ct).ConfigureAwait(false);
 
             if (entities.Count == 0)
             {

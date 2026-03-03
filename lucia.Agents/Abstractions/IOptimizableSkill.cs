@@ -32,12 +32,6 @@ public interface IOptimizableSkill
     IReadOnlyList<string> EntityDomains { get; }
 
     /// <summary>
-    /// Returns the cached matchable entities for optimization.
-    /// The optimizer searches these candidates with different parameter combinations.
-    /// </summary>
-    Task<IReadOnlyList<IMatchableEntity>> GetCachedEntitiesAsync(CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// Returns the current hybrid match options from the skill's configuration.
     /// Used as the starting point for optimization.
     /// </summary>

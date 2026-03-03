@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
 using lucia.Agents.Configuration.UserConfiguration;
@@ -20,8 +21,15 @@ public sealed class EmbeddingProviderResolver : IEmbeddingProviderResolver
 
     /// <summary>
     /// Cache of already-created embedding generators keyed by provider ID.
+    /// Thread-safe for concurrent agent initialization.
     /// </summary>
-    private readonly Dictionary<string, IEmbeddingGenerator<string, Embedding<float>>> _cache = new();
+    private readonly ConcurrentDictionary<string, IEmbeddingGenerator<string, Embedding<float>>> _cache = new();
+
+    /// <summary>
+    /// Per-provider-ID lock to prevent duplicate generator creation when multiple
+    /// callers race on the same provider key.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _creationLocks = new();
 
     public EmbeddingProviderResolver(
         IModelProviderRepository providerRepository,
@@ -67,7 +75,7 @@ public sealed class EmbeddingProviderResolver : IEmbeddingProviderResolver
             return null;
         }
 
-        return CreateAndCache(provider);
+        return await GetOrCreateAsync(provider.Id, provider).ConfigureAwait(false);
     }
 
     private async Task<IEmbeddingGenerator<string, Embedding<float>>?> ResolveDefaultAsync(CancellationToken ct)
@@ -85,18 +93,28 @@ public sealed class EmbeddingProviderResolver : IEmbeddingProviderResolver
             return null;
         }
 
-        var generator = CreateAndCache(embeddingProvider);
+        var generator = await GetOrCreateAsync(embeddingProvider.Id, embeddingProvider).ConfigureAwait(false);
         // Also cache under the default key for quick lookup
         _cache[defaultKey] = generator;
         return generator;
     }
 
-    private IEmbeddingGenerator<string, Embedding<float>> CreateAndCache(ModelProvider provider)
+    private async Task<IEmbeddingGenerator<string, Embedding<float>>> GetOrCreateAsync(
+        string key, ModelProvider provider)
     {
+        if (_cache.TryGetValue(key, out var cached))
+            return cached;
+
+        var semaphore = _creationLocks.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
+        await semaphore.WaitAsync().ConfigureAwait(false);
         try
         {
+            // Double-check after acquiring the lock
+            if (_cache.TryGetValue(key, out cached))
+                return cached;
+
             var generator = _providerResolver.CreateEmbeddingGenerator(provider);
-            _cache[provider.Id] = generator;
+            _cache[key] = generator;
             _logger.LogInformation("Created embedding generator for provider '{ProviderId}' ({ProviderType}, model={Model})",
                 provider.Id, provider.ProviderType, provider.ModelName);
             return generator;
@@ -105,6 +123,10 @@ public sealed class EmbeddingProviderResolver : IEmbeddingProviderResolver
         {
             _logger.LogError(ex, "Failed to create embedding generator for provider '{ProviderId}'", provider.Id);
             throw;
+        }
+        finally
+        {
+            semaphore.Release();
         }
     }
 }
