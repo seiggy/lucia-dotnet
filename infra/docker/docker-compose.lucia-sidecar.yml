@@ -9,7 +9,8 @@
 #
 # This override adds:
 #   - extra_hosts so Lucia can reach host services (Ollama, SearXNG, ComfyUI, etc.)
-#   - env_file to load .env so ConnectionStrings__chat-model passes through correctly
+#   - env_file: .env — preloads ALL variables from .env into the lucia container (required for
+#     headless setup, HA, Ollama, METAMCP, etc.). Path is relative to this compose file's directory.
 #
 # MetaMCP connectivity: Lucia uses METAMCP_URL from .env. If 172.18.0.1 or host.docker.internal
 # fail, attach Lucia to Open Web UI network: uncomment the networks section below and set
@@ -21,6 +22,7 @@ services:
   lucia:
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Preload .env into container (all vars: DASHBOARD_API_KEY, HomeAssistant__*, ConnectionStrings__*, etc.)
     env_file:
       - .env
     environment:

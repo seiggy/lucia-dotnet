@@ -227,6 +227,17 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+// Headless seed: run before app accepts requests so env-based setup is in MongoDB
+// before OnboardingMiddleware or MongoConfigurationProvider are first read
+await using (var seedScope = app.Services.CreateAsyncScope())
+{
+    var apiKeyService = seedScope.ServiceProvider.GetRequiredService<IApiKeyService>();
+    var configStore = seedScope.ServiceProvider.GetRequiredService<ConfigStoreWriter>();
+    var config = seedScope.ServiceProvider.GetRequiredService<IConfiguration>();
+    var seedLogger = seedScope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("Lucia.HeadlessSeed");
+    await apiKeyService.SeedSetupFromEnvAsync(configStore, config, seedLogger, CancellationToken.None).ConfigureAwait(false);
+}
+
 app.MapOpenApi()
     .CacheOutput();
 

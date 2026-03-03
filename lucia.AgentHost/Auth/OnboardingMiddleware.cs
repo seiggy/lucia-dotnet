@@ -61,7 +61,8 @@ public sealed class OnboardingMiddleware
             return;
         }
 
-        // Determine setup state — fast path uses cached IConfiguration
+        // Determine setup state: IConfiguration (MongoDB-backed, 5s poll) and direct ConfigStore
+        // so headless seed is respected immediately without waiting for config poll
         var setupComplete = _setupCompleteLatch;
         if (!setupComplete)
         {
@@ -70,6 +71,13 @@ public sealed class OnboardingMiddleware
                 var configuration = context.RequestServices.GetRequiredService<IConfiguration>();
                 setupComplete = string.Equals(
                     configuration["Auth:SetupComplete"], "true", StringComparison.OrdinalIgnoreCase);
+                if (!setupComplete)
+                {
+                    var configStore = context.RequestServices.GetRequiredService<ConfigStoreWriter>();
+                    var directValue = await configStore.GetAsync("Auth:SetupComplete", context.RequestAborted)
+                        .ConfigureAwait(false);
+                    setupComplete = string.Equals(directValue, "true", StringComparison.OrdinalIgnoreCase);
+                }
             }
             catch (Exception ex)
             {
