@@ -17,9 +17,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
+    NumberSelectorMode,
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
+    SelectOptionDict,
     TemplateSelector,
 )
 
@@ -141,16 +143,11 @@ class LuciaConfigFlow(ConfigFlow, domain=DOMAIN):
         config_entry: ConfigEntry,
     ) -> OptionsFlow:
         """Get the options flow for this handler."""
-        return LuciaOptionsFlow(config_entry)
+        return LuciaOptionsFlow()
 
 
 class LuciaOptionsFlow(OptionsFlow):
     """Handle options for Lucia integration."""
-
-    def __init__(self, config_entry: ConfigEntry) -> None:
-        """Initialize options flow."""
-        super().__init__()
-        self.config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -164,7 +161,7 @@ class LuciaOptionsFlow(OptionsFlow):
         catalog = entry_data.get("catalog", [])
 
         # Build agent selection options
-        agent_options = []
+        agent_options: list[SelectOptionDict] = []
         for agent in catalog:
             agent_name = agent.get("name", "unknown")
             agent_description = agent.get("description", "")
@@ -172,15 +169,15 @@ class LuciaOptionsFlow(OptionsFlow):
             label = f"{agent_name}"
             if agent_description:
                 label = f"{agent_name} - {agent_description}"
-            agent_options.append({
-                "value": agent_name,
-                "label": label
-            })
+            agent_options.append(SelectOptionDict(
+                value=agent_name,
+                label=label
+            ))
 
         # If no agents found in catalog, show error
         if not agent_options:
             _LOGGER.warning("No agents available in catalog for options flow")
-            agent_options = [{"value": "none", "label": "No agents available"}]
+            agent_options = [SelectOptionDict(value="none", label="No agents available")]
 
         options = self.config_entry.options or {}
 
@@ -213,7 +210,7 @@ class LuciaOptionsFlow(OptionsFlow):
                         min=10,
                         max=4000,
                         step=10,
-                        mode="box",
+                        mode=NumberSelectorMode.BOX,
                     )
                 ),
             }),
