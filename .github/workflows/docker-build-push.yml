@@ -104,11 +104,11 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}},enable=${{ github.ref_type == 'tag' && steps.preview.outputs.is_preview != 'true' }}
-            type=raw,value=latest,enable=${{ github.event_name != 'pull_request' && steps.preview.outputs.is_preview != 'true' && github.ref_type == 'tag' }}
+            type=raw,value=latest,enable=${{ github.event_name != 'pull_request' && steps.preview.outputs.is_preview != 'true' && (github.ref_type == 'tag' || github.ref == 'refs/heads/main') }}
             type=ref,event=branch
             type=ref,event=pr
             type=sha,prefix=sha-
-            type=raw,value=${{ steps.preview.outputs.version_tag }},enable=${{ steps.preview.outputs.is_preview == 'true' && steps.preview.outputs.version_tag != '' }}
+            type=raw,value=${{ steps.preview.outputs.version_tag }},enable=${{ github.event_name == 'workflow_dispatch' && steps.preview.outputs.is_preview == 'true' && steps.preview.outputs.version_tag != '' }}
           labels: |
             org.opencontainers.image.title=${{ matrix.title }}
             org.opencontainers.image.description=${{ matrix.description }}
