@@ -62,10 +62,12 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
         if (!hasToolResults)
         {
             var normalizedKey = NormalizeChatKey(messageList, options);
+            var semanticQuery = StripVolatileFields(ExtractLastUserText(messageList))
+                .Trim().ToLowerInvariant();
 
             try
             {
-                var cached = await _cacheService.TryGetCachedChatResponseAsync(normalizedKey, cancellationToken).ConfigureAwait(false);
+                var cached = await _cacheService.TryGetCachedChatResponseAsync(normalizedKey, semanticQuery, cancellationToken).ConfigureAwait(false);
                 if (cached is not null)
                 {
                     _logger.LogInformation("Chat cache hit — returning cached LLM decision (key={CacheKey})", cached.CacheKey);
@@ -91,7 +93,8 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
                 var data = ExtractCacheData(response);
                 if (data is not null)
                 {
-                    data.NormalizedPrompt = StripVolatileFields(ExtractLastUserText(messageList));
+                    data.NormalizedPrompt = StripVolatileFields(ExtractLastUserText(messageList))
+                        .Trim().ToLowerInvariant();
                     await _cacheService.CacheChatResponseAsync(normalizedKey, data, CancellationToken.None).ConfigureAwait(false);
                     activity?.SetTag("cache.stored", true);
                 }
@@ -309,14 +312,23 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
     }
 
     /// <summary>
-    /// Extracts the last user message text for a human-readable display prompt.
+    /// Extracts the last non-empty line from the last user message.
+    /// User messages are often prefixed with HA context data — the actual
+    /// user request is on the final line.
     /// </summary>
     private static string ExtractLastUserText(IList<ChatMessage> messages)
     {
         for (var i = messages.Count - 1; i >= 0; i--)
         {
-            if (messages[i].Role == ChatRole.User && !string.IsNullOrWhiteSpace(messages[i].Text))
-                return messages[i].Text.Trim();
+            if (messages[i].Role != ChatRole.User || string.IsNullOrWhiteSpace(messages[i].Text))
+                continue;
+
+            var lines = messages[i].Text.Split(["\r\n", "\n"], StringSplitOptions.None);
+            for (var j = lines.Length - 1; j >= 0; j--)
+            {
+                if (!string.IsNullOrWhiteSpace(lines[j]))
+                    return lines[j].Trim();
+            }
         }
 
         return "(no user message)";

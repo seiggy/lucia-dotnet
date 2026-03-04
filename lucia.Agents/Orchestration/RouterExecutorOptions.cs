@@ -102,6 +102,12 @@ Return **only** a single JSON object that conforms to the JSON Schema below. No 
 
     public double ConfidenceThreshold { get; set; } = 0.7;
 
+    /// <summary>
+    /// Minimum cosine similarity (0.0–1.0) for a routing or chat cache entry to count
+    /// as a semantic hit. Lower values match more liberally (e.g., "lamp" ↔ "light").
+    /// </summary>
+    public double SemanticSimilarityThreshold { get; set; } = 0.90;
+
     public int MaxAttempts { get; set; } = 2;
 
     public double Temperature { get; set; } = 1.0;

@@ -29,7 +29,6 @@ public sealed class CachedPromptEntry
     public List<string>? AdditionalAgents { get; set; }
 
     /// <summary>Embedding vector for semantic similarity matching (stored as float[]).</summary>
-    [JsonIgnore]
     public float[]? Embedding { get; set; }
 
     /// <summary>Number of times this cache entry has been hit.</summary>

@@ -28,9 +28,10 @@ public interface IPromptCacheService
     /// <summary>
     /// Try to find a cached LLM response for the given normalized prompt.
     /// The normalized prompt should include the system instructions and user messages
-    /// to differentiate between agents.
+    /// to differentiate between agents. The optional <paramref name="semanticQueryText"/>
+    /// provides user-text-only content for embedding comparison (avoids system-prompt-dominated embeddings).
     /// </summary>
-    Task<CachedChatResponseData?> TryGetCachedChatResponseAsync(string normalizedPrompt, CancellationToken cancellationToken = default);
+    Task<CachedChatResponseData?> TryGetCachedChatResponseAsync(string normalizedPrompt, string? semanticQueryText = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Cache an LLM response (text and/or function calls) for a normalized prompt.

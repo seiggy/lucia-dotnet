@@ -5,9 +5,11 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using lucia.Agents.Abstractions;
+using lucia.Agents.Orchestration;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 using lucia.Agents.Models;
 using lucia.Agents.Orchestration.Models;
@@ -36,10 +38,6 @@ public sealed class RedisPromptCacheService : IPromptCacheService
 
     private const int DefaultPromptCacheTtlHours = 48;
 
-    // High threshold required — home automation prompts differ by a single noun
-    // (e.g., "kitchen lights" vs "office lights" score ~0.95 with embeddings)
-    private const double SemanticSimilarityThreshold = 0.99;
-
     private static readonly ActivitySource ActivitySource = new("Lucia.Services.PromptCache", "1.0.0");
     private static readonly Meter Meter = new("Lucia.Services.PromptCache", "1.0.0");
 
@@ -62,6 +60,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
     private IEmbeddingGenerator<string, Embedding<float>>? _embeddingGenerator;
     private readonly ILogger<RedisPromptCacheService> _logger;
     private readonly TimeSpan _cacheTtl;
+    private readonly double _semanticSimilarityThreshold;
     private IEmbeddingSimilarityService _embeddingSimilarityService;
 
     public RedisPromptCacheService(
@@ -69,16 +68,19 @@ public sealed class RedisPromptCacheService : IPromptCacheService
         IEmbeddingProviderResolver embeddingResolver,
         IConfiguration configuration,
         IEmbeddingSimilarityService embeddingSimilarityService,
+        IOptions<RouterExecutorOptions> routerOptions,
         ILogger<RedisPromptCacheService> logger)
     {
         _redis = redis;
         _embeddingResolver = embeddingResolver;
         _logger = logger;
         _embeddingSimilarityService = embeddingSimilarityService;
+        _semanticSimilarityThreshold = routerOptions.Value.SemanticSimilarityThreshold;
 
         var ttlHours = configuration.GetValue("Redis:PromptCacheTtlHours", DefaultPromptCacheTtlHours);
         _cacheTtl = TimeSpan.FromHours(ttlHours);
-        _logger.LogInformation("Prompt cache LRU TTL configured to {TtlHours}h", ttlHours);
+        _logger.LogInformation("Prompt cache LRU TTL configured to {TtlHours}h, semantic threshold={Threshold:F2}",
+            ttlHours, _semanticSimilarityThreshold);
     }
 
     public async Task<CachedPromptResponse?> TryGetCachedRoutingDecisionAsync(
@@ -177,7 +179,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 _logger.LogDebug("Cleaned {Count} expired routing cache entries from index", expiredMembers.Count);
             }
 
-            if (bestEntry is not null && bestScore >= SemanticSimilarityThreshold)
+            if (bestEntry is not null && bestScore >= _semanticSimilarityThreshold)
             {
                 bestEntry.HitCount++;
                 bestEntry.LastHitAt = DateTime.UtcNow;
@@ -198,6 +200,25 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                     SimilarityScore = bestScore,
                     MatchedCacheKey = bestEntry.CacheKey
                 };
+            }
+
+            // Log why the semantic fallback didn't produce a hit
+            if (bestEntry is not null)
+            {
+                _logger.LogDebug(
+                    "Routing cache semantic miss: bestScore={BestScore:F4} < threshold={Threshold:F4}, " +
+                    "query=\"{Query}\", bestMatch=\"{BestMatch}\", candidates={CandidateCount}",
+                    bestScore, _semanticSimilarityThreshold, normalizedPrompt,
+                    bestEntry.NormalizedPrompt, indexMembers.Length);
+                activity?.SetTag("cache.miss_reason", "below_threshold");
+                activity?.SetTag("cache.best_score", bestScore);
+            }
+            else
+            {
+                _logger.LogDebug(
+                    "Routing cache semantic miss: no candidates with embeddings, query=\"{Query}\", indexSize={IndexSize}",
+                    normalizedPrompt, indexMembers.Length);
+                activity?.SetTag("cache.miss_reason", "no_candidates_with_embeddings");
             }
 
             await db.StringIncrementAsync(StatsMissesKey).ConfigureAwait(false);
@@ -254,8 +275,9 @@ public sealed class RedisPromptCacheService : IPromptCacheService
             await db.KeyExpireAsync(cacheKey, _cacheTtl, flags: CommandFlags.FireAndForget).ConfigureAwait(false);
             await db.SetAddAsync(IndexKey, cacheKey, flags: CommandFlags.FireAndForget).ConfigureAwait(false);
 
-            _logger.LogInformation("Cached routing decision for prompt key {CacheKey}: agent={AgentId}, confidence={Confidence:F2}",
-                cacheKey, decision.AgentId, decision.Confidence);
+            _logger.LogInformation(
+                "Cached routing decision for prompt key {CacheKey}: agent={AgentId}, confidence={Confidence:F2}, hasEmbedding={HasEmbedding}",
+                cacheKey, decision.AgentId, decision.Confidence, embedding is not null);
         }
         catch (Exception ex)
         {
@@ -267,6 +289,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
 
     public async Task<CachedChatResponseData?> TryGetCachedChatResponseAsync(
         string normalizedPrompt,
+        string? semanticQueryText = null,
         CancellationToken cancellationToken = default)
     {
         using var activity = ActivitySource.StartActivity();
@@ -303,7 +326,9 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 }
             }
 
-            // Semantic similarity fallback
+            // Semantic similarity fallback — embed only the user text (not the full
+            // key which includes the system prompt). Stored embeddings use the same
+            // user-text-only approach via CacheChatResponseAsync.
             var indexMembers = await db.SetMembersAsync(ChatIndexKey).ConfigureAwait(false);
             if (indexMembers.Length == 0)
             {
@@ -313,7 +338,8 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 return null;
             }
 
-            var queryEmbedding = await GenerateEmbeddingAsync(normalizedPrompt, cancellationToken).ConfigureAwait(false);
+            var embeddingInput = semanticQueryText ?? normalizedPrompt;
+            var queryEmbedding = await GenerateEmbeddingAsync(embeddingInput, cancellationToken).ConfigureAwait(false);
             if (queryEmbedding is null)
             {
                 await db.StringIncrementAsync(ChatStatsMissesKey).ConfigureAwait(false);
@@ -359,7 +385,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 _logger.LogDebug("Cleaned {Count} expired chat cache entries from index", expiredMembers.Count);
             }
 
-            if (bestEntry is not null && bestScore >= SemanticSimilarityThreshold && bestKey is not null)
+            if (bestEntry is not null && bestScore >= _semanticSimilarityThreshold && bestKey is not null)
             {
                 bestEntry.HitCount++;
                 bestEntry.LastHitAt = DateTime.UtcNow;
@@ -375,6 +401,25 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                     "Chat cache hit (semantic, score={Score:F3}): key={CacheKey}",
                     bestScore, bestKey);
                 return bestEntry;
+            }
+
+            // Log why the semantic fallback didn't produce a hit
+            if (bestEntry is not null)
+            {
+                _logger.LogDebug(
+                    "Chat cache semantic miss: bestScore={BestScore:F4} < threshold={Threshold:F4}, " +
+                    "query=\"{Query}\", bestMatch=\"{BestMatch}\", candidates={CandidateCount}",
+                    bestScore, _semanticSimilarityThreshold, embeddingInput,
+                    bestEntry.NormalizedPrompt, indexMembers.Length);
+                activity?.SetTag("cache.miss_reason", "below_threshold");
+                activity?.SetTag("cache.best_score", bestScore);
+            }
+            else
+            {
+                _logger.LogDebug(
+                    "Chat cache semantic miss: no candidates with embeddings, query=\"{Query}\", indexSize={IndexSize}",
+                    embeddingInput, indexMembers.Length);
+                activity?.SetTag("cache.miss_reason", "no_candidates_with_embeddings");
             }
 
             await db.StringIncrementAsync(ChatStatsMissesKey).ConfigureAwait(false);
@@ -409,12 +454,16 @@ public sealed class RedisPromptCacheService : IPromptCacheService
 
             activity?.SetTag("cache.key", cacheKey);
 
-            var embedding = await GenerateEmbeddingAsync(normalizedPrompt, cancellationToken).ConfigureAwait(false);
-
             data.CacheKey = hash;
             // Preserve the clean display prompt if already set by the caller
             if (string.IsNullOrEmpty(data.NormalizedPrompt))
                 data.NormalizedPrompt = normalizedPrompt;
+
+            // Embed only the user text (NormalizedPrompt), NOT the full key which
+            // includes the system prompt. The system prompt dominates the embedding
+            // and makes all entries look identical, defeating semantic similarity.
+            var embeddingText = data.NormalizedPrompt;
+            var embedding = await GenerateEmbeddingAsync(embeddingText, cancellationToken).ConfigureAwait(false);
             data.Embedding = embedding?.Vector.ToArray();
             data.CreatedAt = DateTime.UtcNow;
             data.LastHitAt = DateTime.UtcNow;
@@ -668,7 +717,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
         for (var i = promptLineArray.Length - 1; i >= 0; i--)
         {
             if (string.IsNullOrWhiteSpace(promptLineArray[i])) continue;
-            return promptLineArray[i];
+            return promptLineArray[i].Trim().ToLowerInvariant();
         }
 
         return string.Empty;
@@ -688,7 +737,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
             _embeddingGenerator ??= await _embeddingResolver.ResolveAsync(ct: cancellationToken).ConfigureAwait(false);
             if (_embeddingGenerator is null)
             {
-                _logger.LogDebug("No embedding provider configured — prompt cache similarity search disabled.");
+                _logger.LogWarning("No embedding provider configured — prompt cache similarity search disabled.");
                 return null;
             }
 
