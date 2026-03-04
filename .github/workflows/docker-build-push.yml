@@ -99,7 +99,7 @@ jobs:
         with:
           images: ${{ matrix.image }}
           tags: |
-            type=match,pattern=(\d{4}\.\d{1,2}\.\d{1,2}.*),group=1
+            type=match,pattern=(20\d{2}\.\d+\.\d+.*),group=1
             type=raw,value={{date 'YYYY.MM.DD'}},enable=${{ github.event_name != 'pull_request' && steps.preview.outputs.is_preview != 'true' }}
             type=ref,event=branch
             type=ref,event=pr
