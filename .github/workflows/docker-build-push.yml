@@ -5,7 +5,7 @@ on:
     branches:
       - main
     tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+*'  # Semantic versioning (vX.Y.Z and vX.Y.Z-preview.N)
+      - 'v[0-9]*.[0-9]*.[0-9]*'  # Semantic versioning (vX.Y.Z and vX.Y.Z-preview.N)
   pull_request:
     branches:
       - main
@@ -103,11 +103,11 @@ jobs:
           images: ${{ matrix.image }}
           tags: |
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ github.ref_type == 'tag' && steps.preview.outputs.is_preview != 'true' }}
             type=raw,value=latest,enable=${{ github.event_name != 'pull_request' && steps.preview.outputs.is_preview != 'true' && github.ref_type == 'tag' }}
             type=ref,event=branch
             type=ref,event=pr
-            type=sha,prefix=
+            type=sha,prefix=sha-
             type=raw,value=${{ steps.preview.outputs.version_tag }},enable=${{ steps.preview.outputs.is_preview == 'true' && steps.preview.outputs.version_tag != '' }}
           labels: |
             org.opencontainers.image.title=${{ matrix.title }}
