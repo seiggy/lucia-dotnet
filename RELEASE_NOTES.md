@@ -1,4 +1,4 @@
-# Release Notes - 2026.03.06
+# Release Notes - 1.1.0-preview.1
 
 **Release Date:** March 6, 2026  
 **Code Name:** "Spectra"
@@ -63,7 +63,7 @@
 
 ### 🐳 CI/CD
 
-- **Preview releases** — Push a tag like `2026.03.06-preview.1` to build and push Docker images without updating the `latest` tag. Also available via `workflow_dispatch` with the "preview" checkbox.
+- **Preview releases** — Push a tag like `v1.1.0-preview.1` to build and push Docker images without updating the `latest` tag. Also available via `workflow_dispatch` with the "preview" checkbox.
 
 ## 🐛 Bug Fixes
 
