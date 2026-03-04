@@ -103,10 +103,20 @@ Return **only** a single JSON object that conforms to the JSON Schema below. No 
     public double ConfidenceThreshold { get; set; } = 0.7;
 
     /// <summary>
-    /// Minimum cosine similarity (0.0–1.0) for a routing or chat cache entry to count
-    /// as a semantic hit. Lower values match more liberally (e.g., "lamp" ↔ "light").
+    /// Minimum cosine similarity (0.0–1.0) for a <b>routing</b> cache entry to count
+    /// as a semantic hit. The routing cache only decides which agent to invoke —
+    /// the user's original text is still forwarded — so this can be fairly liberal
+    /// (e.g., "lamp" ↔ "light" both route to light-agent).
     /// </summary>
-    public double SemanticSimilarityThreshold { get; set; } = 0.90;
+    public double SemanticSimilarityThreshold { get; set; } = 0.95;
+
+    /// <summary>
+    /// Minimum cosine similarity (0.0–1.0) for a <b>chat</b> cache entry to count
+    /// as a semantic hit. Chat cache stores actual tool-call decisions, so a match
+    /// must be near-identical to avoid replaying the wrong action
+    /// (e.g., "turn off" ≠ "turn on").
+    /// </summary>
+    public double ChatCacheSemanticThreshold { get; set; } = 0.98;
 
     public int MaxAttempts { get; set; } = 2;
 

@@ -60,7 +60,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
     private IEmbeddingGenerator<string, Embedding<float>>? _embeddingGenerator;
     private readonly ILogger<RedisPromptCacheService> _logger;
     private readonly TimeSpan _cacheTtl;
-    private readonly double _semanticSimilarityThreshold;
+    private readonly IOptionsMonitor<RouterExecutorOptions> _routerOptions;
     private IEmbeddingSimilarityService _embeddingSimilarityService;
 
     public RedisPromptCacheService(
@@ -68,19 +68,20 @@ public sealed class RedisPromptCacheService : IPromptCacheService
         IEmbeddingProviderResolver embeddingResolver,
         IConfiguration configuration,
         IEmbeddingSimilarityService embeddingSimilarityService,
-        IOptions<RouterExecutorOptions> routerOptions,
+        IOptionsMonitor<RouterExecutorOptions> routerOptions,
         ILogger<RedisPromptCacheService> logger)
     {
         _redis = redis;
         _embeddingResolver = embeddingResolver;
         _logger = logger;
         _embeddingSimilarityService = embeddingSimilarityService;
-        _semanticSimilarityThreshold = routerOptions.Value.SemanticSimilarityThreshold;
+        _routerOptions = routerOptions;
 
         var ttlHours = configuration.GetValue("Redis:PromptCacheTtlHours", DefaultPromptCacheTtlHours);
         _cacheTtl = TimeSpan.FromHours(ttlHours);
-        _logger.LogInformation("Prompt cache LRU TTL configured to {TtlHours}h, semantic threshold={Threshold:F2}",
-            ttlHours, _semanticSimilarityThreshold);
+        _logger.LogInformation(
+            "Prompt cache LRU TTL configured to {TtlHours}h, routing threshold={RoutingThreshold:F2}, chat threshold={ChatThreshold:F2}",
+            ttlHours, routerOptions.CurrentValue.SemanticSimilarityThreshold, routerOptions.CurrentValue.ChatCacheSemanticThreshold);
     }
 
     public async Task<CachedPromptResponse?> TryGetCachedRoutingDecisionAsync(
@@ -179,7 +180,8 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 _logger.LogDebug("Cleaned {Count} expired routing cache entries from index", expiredMembers.Count);
             }
 
-            if (bestEntry is not null && bestScore >= _semanticSimilarityThreshold)
+            var routingThreshold = _routerOptions.CurrentValue.SemanticSimilarityThreshold;
+            if (bestEntry is not null && bestScore >= routingThreshold)
             {
                 bestEntry.HitCount++;
                 bestEntry.LastHitAt = DateTime.UtcNow;
@@ -208,7 +210,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 _logger.LogDebug(
                     "Routing cache semantic miss: bestScore={BestScore:F4} < threshold={Threshold:F4}, " +
                     "query=\"{Query}\", bestMatch=\"{BestMatch}\", candidates={CandidateCount}",
-                    bestScore, _semanticSimilarityThreshold, normalizedPrompt,
+                    bestScore, routingThreshold, normalizedPrompt,
                     bestEntry.NormalizedPrompt, indexMembers.Length);
                 activity?.SetTag("cache.miss_reason", "below_threshold");
                 activity?.SetTag("cache.best_score", bestScore);
@@ -385,7 +387,8 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 _logger.LogDebug("Cleaned {Count} expired chat cache entries from index", expiredMembers.Count);
             }
 
-            if (bestEntry is not null && bestScore >= _semanticSimilarityThreshold && bestKey is not null)
+            var chatThreshold = _routerOptions.CurrentValue.ChatCacheSemanticThreshold;
+            if (bestEntry is not null && bestScore >= chatThreshold && bestKey is not null)
             {
                 bestEntry.HitCount++;
                 bestEntry.LastHitAt = DateTime.UtcNow;
@@ -409,7 +412,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 _logger.LogDebug(
                     "Chat cache semantic miss: bestScore={BestScore:F4} < threshold={Threshold:F4}, " +
                     "query=\"{Query}\", bestMatch=\"{BestMatch}\", candidates={CandidateCount}",
-                    bestScore, _semanticSimilarityThreshold, embeddingInput,
+                    bestScore, chatThreshold, embeddingInput,
                     bestEntry.NormalizedPrompt, indexMembers.Length);
                 activity?.SetTag("cache.miss_reason", "below_threshold");
                 activity?.SetTag("cache.best_score", bestScore);

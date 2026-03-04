@@ -281,7 +281,8 @@ public static class ConfigurationApi
             Properties =
             [
                 new("ConfidenceThreshold", "number", "Minimum confidence to accept routing (0.0-1.0)", "0.7"),
-                new("SemanticSimilarityThreshold", "number", "Minimum cosine similarity for semantic cache hits (0.0-1.0)", "0.90"),
+                new("SemanticSimilarityThreshold", "number", "Minimum cosine similarity for routing cache semantic hits (0.0-1.0)", "0.95"),
+                new("ChatCacheSemanticThreshold", "number", "Minimum cosine similarity for chat cache semantic hits (0.0-1.0)", "0.98"),
                 new("MaxAttempts", "number", "Maximum routing retry attempts", "2"),
                 new("Temperature", "number", "LLM temperature for routing (0.0-2.0)", "1.0"),
                 new("MaxOutputTokens", "number", "Maximum output tokens for router", "512"),
