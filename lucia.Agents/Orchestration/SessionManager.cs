@@ -1,4 +1,6 @@
 using A2A;
+using lucia.Agents.Abstractions;
+using lucia.Agents.Models;
 using lucia.Agents.Services;
 using Microsoft.Extensions.Logging;
 
@@ -86,7 +88,15 @@ public sealed class SessionManager
         bool final,
         CancellationToken cancellationToken)
     {
-        return _taskManager.UpdateStatusAsync(taskId, state, message, final, cancellationToken);
+        try
+        {
+            return _taskManager.UpdateStatusAsync(taskId, state, message, final, cancellationToken);
+        }
+        catch (Exception e)
+        {
+            _logger.LogError(e, "Error attempting to update the task status.");
+            return Task.CompletedTask;
+        }
     }
 
     /// <summary>

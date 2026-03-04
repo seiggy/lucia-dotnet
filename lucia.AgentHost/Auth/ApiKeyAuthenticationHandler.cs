@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Encodings.Web;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Auth;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;

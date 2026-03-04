@@ -1,6 +1,6 @@
 using A2A;
 using lucia.Agents.Abstractions;
-using lucia.Agents.Configuration;
+using lucia.Agents.Integration;
 using lucia.Agents.Skills;
 using lucia.Agents.Services;
 using Microsoft.Agents.AI;
@@ -24,9 +24,9 @@ public sealed class SceneAgent : ILuciaAgent
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<SceneAgent> _logger;
     private volatile AIAgent _aiAgent;
-    private string? _lastModelConnectionName;
+    private DateTime? _lastConfigUpdate;
 
-    public string Instructions { get; }
+    public string Instructions { get; set; }
     public IList<AITool> Tools { get; }
 
     public SceneAgent(
@@ -113,6 +113,7 @@ public sealed class SceneAgent : ILuciaAgent
         await _sceneSkill.InitializeAsync(cancellationToken).ConfigureAwait(false);
         await ApplyDefinitionAsync(cancellationToken).ConfigureAwait(false);
         _logger.LogInformation("SceneAgent initialized successfully");
+        _lastConfigUpdate = DateTime.Now;
     }
 
     public async Task RefreshConfigAsync(CancellationToken cancellationToken = default)
@@ -124,18 +125,22 @@ public sealed class SceneAgent : ILuciaAgent
     {
         var definition = await _definitionRepository.GetAgentDefinitionAsync(AgentId, cancellationToken).ConfigureAwait(false);
         var newConnectionName = definition?.ModelConnectionName;
+        if (!string.IsNullOrEmpty(definition?.Instructions))
+            Instructions = definition.Instructions;
 
-        if (_aiAgent is not null && string.Equals(_lastModelConnectionName, newConnectionName, StringComparison.Ordinal))
-            return;
-
-        var copilotAgent = await _clientResolver.ResolveAIAgentAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
-        _aiAgent = copilotAgent ?? BuildAgent(
-            await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false))
-            .AsBuilder()
-            .UseOpenTelemetry()
-            .Build();
-        _logger.LogInformation("SceneAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
-        _lastModelConnectionName = newConnectionName;
+        if (_lastConfigUpdate == null || _lastConfigUpdate < definition?.UpdatedAt)
+        {
+            var copilotAgent = await _clientResolver.ResolveAIAgentAsync(newConnectionName, cancellationToken)
+                .ConfigureAwait(false);
+            _aiAgent = copilotAgent ?? BuildAgent(
+                    await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false))
+                .AsBuilder()
+                .UseOpenTelemetry()
+                .Build();
+            _logger.LogInformation("SceneAgent: using model provider '{Provider}'",
+                newConnectionName ?? "default-chat");
+            _lastConfigUpdate = DateTime.Now;
+        }
     }
 
     private AIAgent BuildAgent(IChatClient chatClient)

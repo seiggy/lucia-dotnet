@@ -3,6 +3,9 @@ using lucia.Agents.Services;
 using Microsoft.Extensions.AI;
 
 using lucia.AgentHost.Models;
+using lucia.Agents.Abstractions;
+using lucia.Agents.Integration;
+using lucia.Agents.Models;
 
 namespace lucia.AgentHost.Services;
 
@@ -108,16 +111,8 @@ public sealed class SkillOptimizerJobManager
                 return;
             }
 
-            // Get cached entities from the skill, fall back to location service
-            var entities = await skill.GetCachedEntitiesAsync(ct).ConfigureAwait(false);
-            if (entities.Count == 0)
-            {
-                _logger.LogInformation(
-                    "Skill cache empty for {SkillId}, building matchable entities from location service",
-                    request.SkillId);
-
-                entities = await BuildEntitiesFromLocationServiceAsync(skill, generator, ct).ConfigureAwait(false);
-            }
+            // Always build entities from the central location service
+            var entities = await BuildEntitiesFromLocationServiceAsync(skill, generator, ct).ConfigureAwait(false);
 
             if (entities.Count == 0)
             {
@@ -190,13 +185,10 @@ public sealed class SkillOptimizerJobManager
         var result = new List<IMatchableEntity>(filtered.Count);
         for (var i = 0; i < filtered.Count; i++)
         {
-            result.Add(new MatchableEntityInfo
-            {
-                EntityId = filtered[i].EntityId,
-                MatchableName = filtered[i].FriendlyName,
-                NameEmbedding = embeddings[i],
-                PhoneticKeys = StringSimilarity.BuildPhoneticKeys(filtered[i].FriendlyName)
-            });
+            // Enrich with fresh embeddings from the optimizer's generator
+            filtered[i].NameEmbedding = embeddings[i];
+            filtered[i].PhoneticKeys = StringSimilarity.BuildPhoneticKeys(filtered[i].FriendlyName);
+            result.Add(filtered[i]);
         }
 
         _logger.LogInformation(

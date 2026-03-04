@@ -1,4 +1,5 @@
 using FakeItEasy;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Services;
 using lucia.TimerAgent;
 using lucia.TimerAgent.ScheduledTasks;

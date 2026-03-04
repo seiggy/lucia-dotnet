@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using lucia.Agents.Abstractions;
 using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 

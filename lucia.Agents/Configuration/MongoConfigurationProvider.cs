@@ -1,3 +1,4 @@
+using lucia.Agents.Configuration.UserConfiguration;
 using Microsoft.Extensions.Configuration;
 using MongoDB.Driver;
 

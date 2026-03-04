@@ -1,3 +1,4 @@
+using lucia.Agents.Abstractions;
 using lucia.Agents.Services;
 using Microsoft.Extensions.AI;
 

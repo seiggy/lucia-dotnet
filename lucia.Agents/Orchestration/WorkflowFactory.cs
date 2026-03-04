@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using A2A;
 using lucia.Agents.Abstractions;
-using lucia.Agents.Mcp;
 using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Providers;
 using lucia.Agents.Registry;
@@ -37,6 +36,8 @@ public sealed class WorkflowFactory
     private readonly IAgentProvider? _agentProvider;
     private readonly IPromptCacheService? _promptCache;
     private readonly IDynamicAgentProvider? _dynamicAgentProvider;
+    
+    private static readonly ActivitySource ActivitySource = new("Lucia.Agents.Orchestration.WorkflowFactory", "1.0.0");
 
     public WorkflowFactory(
         IChatClientResolver clientResolver,
@@ -75,28 +76,24 @@ public sealed class WorkflowFactory
     /// Resolves available AI agents from the agent provider or from DI-registered
     /// ILuciaAgent instances and remote agent cards.
     /// </summary>
-    public async Task<IReadOnlyList<AIAgent>> ResolveAgentsAsync(
-        IReadOnlyCollection<AgentCard> agentCards,
-        CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<AIAgent>> ResolveAgentsAsync(CancellationToken cancellationToken)
     {
+        var activity = ActivitySource.StartActivity();
         if (_agentProvider is not null)
-            return await _agentProvider.GetAgentsAsync(cancellationToken).ConfigureAwait(false);
+            return _agentProvider.GetAgentsAsync(cancellationToken);
 
         var resolved = new List<AIAgent>();
 
         // Resolve in-process agents from ILuciaAgent DI registrations
-        var luciaAgents = _serviceProvider.GetServices<Abstractions.ILuciaAgent>();
+        var luciaAgents = _serviceProvider.GetServices<ILuciaAgent>();
         foreach (var luciaAgent in luciaAgents)
         {
             try
             {
                 await luciaAgent.RefreshConfigAsync(cancellationToken).ConfigureAwait(false);
                 var aiAgent = luciaAgent.GetAIAgent();
-                if (aiAgent is not null)
-                {
-                    resolved.Add(aiAgent);
-                    _logger.LogDebug("Resolved local AIAgent: {AgentName}", aiAgent.Name ?? aiAgent.Id);
-                }
+                resolved.Add(aiAgent);
+                _logger.LogDebug("Resolved local AIAgent: {AgentName}", aiAgent.Name ?? aiAgent.Id);
             }
             catch (Exception ex)
             {
@@ -110,26 +107,23 @@ public sealed class WorkflowFactory
         // that bypasses Aspire service discovery).
 
         // Resolve dynamic agents (user-defined via MCP) — lazily built from latest Mongo definition
-        if (_dynamicAgentProvider is not null)
+        if (_dynamicAgentProvider is null) return resolved.AsReadOnly();
+        
+        foreach (var dynamicAgent in _dynamicAgentProvider.GetAllAgents())
         {
-            foreach (var dynamicAgent in _dynamicAgentProvider.GetAllAgents())
+            try
             {
-                try
-                {
-                    var aiAgent = dynamicAgent.GetAIAgent();
-                    if (aiAgent is not null)
-                    {
-                        resolved.Add(aiAgent);
-                        _logger.LogDebug("Resolved dynamic AIAgent: {AgentName}", aiAgent.Name ?? aiAgent.Id);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to resolve dynamic AIAgent {AgentId}", dynamicAgent.GetAgentCard().Name);
-                }
+                var aiAgent = dynamicAgent.GetAIAgent();
+                resolved.Add(aiAgent);
+                _logger.LogDebug("Resolved dynamic AIAgent: {AgentName}", aiAgent.Name ?? aiAgent.Id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to resolve dynamic AIAgent {AgentId}", dynamicAgent.GetAgentCard().Name);
             }
         }
 
+        activity?.SetStatus(ActivityStatusCode.Ok);
         return resolved.AsReadOnly();
     }
 
@@ -139,7 +133,7 @@ public sealed class WorkflowFactory
     /// session persistence. Remote agents route through <see cref="A2AClient"/>
     /// with service-discovery-enabled HttpClient.
     /// </summary>
-    public Dictionary<string, IAgentInvoker> CreateInvokers(
+    public Dictionary<string, IAgentInvoker> CreateAgentInvokers(
         IReadOnlyCollection<AgentCard> agentCards,
         IReadOnlyList<AIAgent> aiAgents)
     {
@@ -155,7 +149,7 @@ public sealed class WorkflowFactory
 
         var cardsByKey = agentCards
             .Where(card => !string.IsNullOrWhiteSpace(card.Name))
-            .GroupBy(card => card.Name!, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(card => card.Name, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
 
         var allKeys = new HashSet<string>(agentsByKey.Keys, StringComparer.OrdinalIgnoreCase);

@@ -375,6 +375,9 @@ internal sealed class FakeHomeAssistantClient : IHomeAssistantClient
     public Task<TodoItem[]> GetTodoItemsAsync(string entityId, CancellationToken cancellationToken = default)
         => Task.FromResult(Array.Empty<TodoItem>());
 
+    public Task<Dictionary<string, ExposedEntityAssistants>> GetExposedEntitiesAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(new Dictionary<string, ExposedEntityAssistants>());
+
     private sealed class AreaSnapshot
     {
         [JsonPropertyName("area_id")]

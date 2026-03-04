@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Orchestration.Models;
 
 namespace lucia.Agents.Orchestration;

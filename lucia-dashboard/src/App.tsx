@@ -25,6 +25,7 @@ import PresencePage from './pages/PresencePage'
 import ListsPage from './pages/ListsPage'
 import SkillOptimizerPage from './pages/SkillOptimizerPage'
 import PluginsPage from './pages/PluginsPage'
+import MatcherDebugPage from './pages/MatcherDebugPage'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Activity', icon: BarChart3, end: true },
@@ -42,6 +43,7 @@ const NAV_ITEMS = [
   { to: '/exports', label: 'Exports', icon: Download },
   { to: '/skill-optimizer', label: 'Skill Optimizer', icon: SlidersHorizontal },
   { to: '/plugins', label: 'Plugins', icon: Puzzle },
+  { to: '/matcher-debug', label: 'Matcher Debug', icon: Sparkles },
   { to: '/configuration', label: 'Configuration', icon: Settings },
 ]
 
@@ -183,6 +185,7 @@ function AppRoutes() {
             <Route path="/exports" element={<ExportPage />} />
             <Route path="/skill-optimizer" element={<SkillOptimizerPage />} />
             <Route path="/plugins" element={<PluginsPage />} />
+            <Route path="/matcher-debug" element={<MatcherDebugPage />} />
             <Route path="/configuration" element={<ConfigurationPage />} />
             <Route path="/agent-dashboard" element={<AgentsPage />} />
             <Route path="/prompt-cache" element={<PromptCachePage />} />

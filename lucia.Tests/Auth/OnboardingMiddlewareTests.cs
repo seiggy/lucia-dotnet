@@ -2,7 +2,6 @@ using FakeItEasy;
 using lucia.AgentHost.Auth;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace lucia.Tests.Auth;

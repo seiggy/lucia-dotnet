@@ -1,3 +1,6 @@
+using lucia.Agents.Abstractions;
+using lucia.Agents.Models;
+using lucia.Agents.Models.HomeAssistant;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
@@ -63,15 +66,15 @@ public sealed class SkillOptimizerService
         var initial = initialParams ?? new HybridMatchOptions();
         var maxScore = testCases.Count * MaxScorePerCase;
 
-        // Evaluation cache keyed by (threshold, weight, dropoff)
-        var cache = new Dictionary<(double T, double W, double D), (double Score, List<OptimizationCaseResult> Cases)>();
+        // Evaluation cache keyed by (threshold, weight, dropoff, penalty, margin)
+        var cache = new Dictionary<(double T, double W, double D, double P, double M), (double Score, List<OptimizationCaseResult> Cases)>();
 
         async Task<(double Score, List<OptimizationCaseResult> Cases)> EvaluateAsync(
-            double threshold, double weight, double dropoff)
+            double threshold, double weight, double dropoff, double penalty, double margin)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var key = (Math.Round(threshold, 4), Math.Round(weight, 4), Math.Round(dropoff, 4));
+            var key = (Math.Round(threshold, 4), Math.Round(weight, 4), Math.Round(dropoff, 4), Math.Round(penalty, 4), Math.Round(margin, 4));
             if (cache.TryGetValue(key, out var cached))
                 return cached;
 
@@ -79,7 +82,9 @@ public sealed class SkillOptimizerService
             {
                 Threshold = key.Item1,
                 EmbeddingWeight = key.Item2,
-                ScoreDropoffRatio = key.Item3
+                ScoreDropoffRatio = key.Item3,
+                DisagreementPenalty = key.Item4,
+                EmbeddingResolutionMargin = key.Item5
             };
 
             double score = 0;
@@ -98,8 +103,8 @@ public sealed class SkillOptimizerService
 
                 var found = matches.Any(m =>
                     string.Equals(m.Entity.MatchableName, tc.ExpectedEntityId, StringComparison.OrdinalIgnoreCase) ||
-                    (m.Entity is Models.LightEntity le &&
-                     string.Equals(le.EntityId, tc.ExpectedEntityId, StringComparison.OrdinalIgnoreCase)));
+                    (m.Entity is HomeAssistantEntity he &&
+                     string.Equals(he.EntityId, tc.ExpectedEntityId, StringComparison.OrdinalIgnoreCase)));
 
                 var count = matches.Count;
                 var countOk = count <= tc.MaxResults;
@@ -127,17 +132,19 @@ public sealed class SkillOptimizerService
         var threshold = initial.Threshold;
         var weight = initial.EmbeddingWeight;
         var dropoff = initial.ScoreDropoffRatio;
+        var penalty = initial.DisagreementPenalty;
+        var margin = initial.EmbeddingResolutionMargin;
         var step = 0.10;
         const double minStep = 0.01;
 
-        var (bestScore, bestCases) = await EvaluateAsync(threshold, weight, dropoff).ConfigureAwait(false);
+        var (bestScore, bestCases) = await EvaluateAsync(threshold, weight, dropoff, penalty, margin).ConfigureAwait(false);
 
-        _logger.LogInformation("Optimizer init: T={Threshold:F4} W={Weight:F4} D={Dropoff:F4} Score={Score:F1}/{Max:F0}",
-            threshold, weight, dropoff, bestScore, maxScore);
+        _logger.LogInformation("Optimizer init: T={Threshold:F4} W={Weight:F4} D={Dropoff:F4} P={Penalty:F4} M={Margin:F4} Score={Score:F1}/{Max:F0}",
+            threshold, weight, dropoff, penalty, margin, bestScore, maxScore);
 
         if (onProgress is not null)
         {
-            await onProgress(CreateProgress(0, bestScore, maxScore, threshold, weight, dropoff, step, cache.Count, "initialized")).ConfigureAwait(false);
+            await onProgress(CreateProgress(0, bestScore, maxScore, threshold, weight, dropoff, penalty, margin, step, cache.Count, "initialized")).ConfigureAwait(false);
         }
 
         var iteration = 0;
@@ -151,7 +158,7 @@ public sealed class SkillOptimizerService
             var tResult = await WalkParameterAsync(
                 current: threshold,
                 step: step,
-                evaluate: t => EvaluateAsync(Clamp(t), weight, dropoff),
+                evaluate: t => EvaluateAsync(Clamp(t), weight, dropoff, penalty, margin),
                 bestScore: bestScore,
                 cancellationToken).ConfigureAwait(false);
 
@@ -168,7 +175,7 @@ public sealed class SkillOptimizerService
             var wResult = await WalkParameterAsync(
                 current: weight,
                 step: step,
-                evaluate: w => EvaluateAsync(threshold, Clamp(w), dropoff),
+                evaluate: w => EvaluateAsync(threshold, Clamp(w), dropoff, penalty, margin),
                 bestScore: bestScore,
                 cancellationToken).ConfigureAwait(false);
 
@@ -185,7 +192,7 @@ public sealed class SkillOptimizerService
             var dResult = await WalkParameterAsync(
                 current: dropoff,
                 step: step,
-                evaluate: d => EvaluateAsync(threshold, weight, Clamp(d)),
+                evaluate: d => EvaluateAsync(threshold, weight, Clamp(d), penalty, margin),
                 bestScore: bestScore,
                 cancellationToken).ConfigureAwait(false);
 
@@ -198,6 +205,40 @@ public sealed class SkillOptimizerService
                 _logger.LogDebug("Iter {Iter}: dropoff→{D:F4} score={Score:F1}", iteration, dropoff, bestScore);
             }
 
+            // --- Walk penalty ---
+            var pResult = await WalkParameterAsync(
+                current: penalty,
+                step: step,
+                evaluate: p => EvaluateAsync(threshold, weight, dropoff, Clamp(p), margin),
+                bestScore: bestScore,
+                cancellationToken).ConfigureAwait(false);
+
+            if (pResult.Score > bestScore)
+            {
+                penalty = pResult.Value;
+                bestScore = pResult.Score;
+                bestCases = pResult.Cases;
+                improved = true;
+                _logger.LogDebug("Iter {Iter}: penalty→{P:F4} score={Score:F1}", iteration, penalty, bestScore);
+            }
+
+            // --- Walk margin ---
+            var mResult = await WalkParameterAsync(
+                current: margin,
+                step: step,
+                evaluate: m => EvaluateAsync(threshold, weight, dropoff, penalty, Clamp(m)),
+                bestScore: bestScore,
+                cancellationToken).ConfigureAwait(false);
+
+            if (mResult.Score > bestScore)
+            {
+                margin = mResult.Value;
+                bestScore = mResult.Score;
+                bestCases = mResult.Cases;
+                improved = true;
+                _logger.LogDebug("Iter {Iter}: margin→{M:F4} score={Score:F1}", iteration, margin, bestScore);
+            }
+
             if (!improved)
             {
                 step /= 2.0;
@@ -207,21 +248,21 @@ public sealed class SkillOptimizerService
             if (onProgress is not null)
             {
                 var msg = improved
-                    ? $"improved T={threshold:F4} W={weight:F4} D={dropoff:F4}"
+                    ? $"improved T={threshold:F4} W={weight:F4} D={dropoff:F4} P={penalty:F4} M={margin:F4}"
                     : $"halving step→{step:F4}";
 
-                await onProgress(CreateProgress(iteration, bestScore, maxScore, threshold, weight, dropoff, step, cache.Count, msg)).ConfigureAwait(false);
+                await onProgress(CreateProgress(iteration, bestScore, maxScore, threshold, weight, dropoff, penalty, margin, step, cache.Count, msg)).ConfigureAwait(false);
             }
         }
 
         _logger.LogInformation(
-            "Optimizer done: T={Threshold:F4} W={Weight:F4} D={Dropoff:F4} Score={Score:F1}/{Max:F0} ({Points} points, {Iters} iters)",
-            threshold, weight, dropoff, bestScore, maxScore, cache.Count, iteration);
+            "Optimizer done: T={Threshold:F4} W={Weight:F4} D={Dropoff:F4} P={Penalty:F4} M={Margin:F4} Score={Score:F1}/{Max:F0} ({Points} points, {Iters} iters)",
+            threshold, weight, dropoff, penalty, margin, bestScore, maxScore, cache.Count, iteration);
 
         // Send final progress
         if (onProgress is not null)
         {
-            await onProgress(CreateProgress(iteration, bestScore, maxScore, threshold, weight, dropoff, step, cache.Count, "complete", isComplete: true)).ConfigureAwait(false);
+            await onProgress(CreateProgress(iteration, bestScore, maxScore, threshold, weight, dropoff, penalty, margin, step, cache.Count, "complete", isComplete: true)).ConfigureAwait(false);
         }
 
         return new OptimizationResult
@@ -230,7 +271,9 @@ public sealed class SkillOptimizerService
             {
                 Threshold = threshold,
                 EmbeddingWeight = weight,
-                ScoreDropoffRatio = dropoff
+                ScoreDropoffRatio = dropoff,
+                DisagreementPenalty = penalty,
+                EmbeddingResolutionMargin = margin
             },
             Score = bestScore,
             MaxScore = maxScore,
@@ -291,7 +334,7 @@ public sealed class SkillOptimizerService
 
     private static OptimizationProgress CreateProgress(
         int iteration, double score, double maxScore,
-        double threshold, double weight, double dropoff,
+        double threshold, double weight, double dropoff, double penalty, double margin,
         double step, int evaluatedPoints, string? message,
         bool isComplete = false)
     {
@@ -304,7 +347,9 @@ public sealed class SkillOptimizerService
             {
                 Threshold = threshold,
                 EmbeddingWeight = weight,
-                ScoreDropoffRatio = dropoff
+                ScoreDropoffRatio = dropoff,
+                DisagreementPenalty = penalty,
+                EmbeddingResolutionMargin = margin
             },
             Step = step,
             EvaluatedPoints = evaluatedPoints,

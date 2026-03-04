@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Orchestration;
 using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Training.Models;
@@ -102,6 +103,8 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
             return Task.CompletedTask;
         }
 
+        var routingDurationMs = active.Stopwatch.Elapsed.TotalMilliseconds;
+
         var trace = active.Trace;
         trace.SystemPrompt = systemPrompt;
 
@@ -111,6 +114,7 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
             AdditionalAgentIds = result.AdditionalAgents ?? [],
             Confidence = result.Confidence,
             Reasoning = result.Reasoning,
+            RoutingDurationMs = routingDurationMs,
             AgentInstructions = result.AgentInstructions?
                 .Select(ai => new AgentInstructionRecord
                 {
@@ -118,6 +122,18 @@ public sealed class TraceCaptureObserver : IOrchestratorObserver
                     Instruction = ai.Instruction
                 }).ToList() ?? []
         };
+
+        // Update the orchestration execution record with the routing phase duration
+        lock (active.SyncRoot)
+        {
+            var orchestrationRecord = trace.AgentExecutions
+                .FirstOrDefault(e => string.Equals(e.AgentId, "orchestration", StringComparison.Ordinal));
+
+            if (orchestrationRecord is not null)
+            {
+                orchestrationRecord.ExecutionDurationMs = routingDurationMs;
+            }
+        }
 
         return Task.CompletedTask;
     }

@@ -1,8 +1,6 @@
 using A2A;
 using lucia.Agents.Abstractions;
-using lucia.Agents.Configuration;
-using lucia.Agents.Mcp;
-using lucia.Agents.Orchestration;
+using lucia.Agents.Integration;
 using lucia.Agents.Services;
 using lucia.Agents.Skills;
 using Microsoft.Agents.AI;
@@ -26,13 +24,12 @@ public sealed class LightAgent : ILuciaAgent
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<LightAgent> _logger;
     private volatile AIAgent _aiAgent;
-    private string? _lastModelConnectionName;
-    private string? _lastEmbeddingProviderName;
+    private DateTime? _lastConfigUpdate;
 
     /// <summary>
     /// The system instructions used by this agent.
     /// </summary>
-    public string Instructions { get; }
+    public string Instructions { get; set; }
 
     /// <summary>
     /// The AI tools available to this agent.
@@ -52,7 +49,7 @@ public sealed class LightAgent : ILuciaAgent
         _tracingFactory = tracingFactory;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<LightAgent>();
-
+        
         var lightControlSkill = new AgentSkill()
         {
             Id = "id_light_agent",
@@ -91,37 +88,32 @@ public sealed class LightAgent : ILuciaAgent
 
                 Your responsibilities:
                 - Control lights and light switches (turn on/off, dimming, color changes)
-                - Monitor light status and state
-                - Handle lighting scenes and automation
-                - Respond to questions about light status
+                - Report on light status when asked
 
-                You have access to these light control functions:
-                - FindLight: Find a light entity by name or description using natural language
-                - FindLightsByArea: Find a collection of lights by the area they exist in
-                - GetLightState: Get the current state of a specific light
-                - SetLightState: Control a light or group of lights to the same new state (on/off, brightness, color)
+                You have two tools:
+                - GetLightsState: Find lights by name, area, or floor and return their current state
+                - ControlLights: Find lights by name, area, or floor and set them to a new state (on/off, brightness, color)
 
-                ## MANDATORY RULES — NEVER SKIP THESE
-                1. You MUST call at least one tool function for EVERY request. NEVER respond based on assumptions.
-                2. You do NOT know the current state of any light. You MUST call a tool to check.
-                3. NEVER say a light "is already off" or "is already on" without first calling GetLightState.
-                4. For turn on/off requests: call FindLight or FindLightsByArea FIRST, then call SetLightState.
-                5. For status questions: call FindLight or FindLightsByArea FIRST, then call GetLightState.
+                Both tools accept natural language search terms — you can use room names ("kitchen"),
+                floor names ("upstairs"), or specific light names ("bedroom lamp"). You can pass
+                multiple search terms at once to target lights across different locations.
 
-                ## How to find lights
-                - When users refer to lights by common names like "living room light", "kitchen lights",
-                    or "bedroom lamp", ALWAYS use the FindLight function first to get the correct entity ID(s),
-                    then use those entity ID(s) for GetLightState or SetLightState operations.
+                ## MANDATORY RULES
+                1. You MUST call a tool for EVERY request. NEVER assume the state of any light.
+                2. For control requests (turn on/off, dim, color): call ControlLights directly.
+                   Do NOT call GetLightsState first — just send the desired state.
+                3. For status questions ("are the lights on?"): call GetLightsState.
+                4. Use the user's own words as search terms. Don't try to guess entity IDs.
 
                 ## Response format
-                * Keep your responses short and informative only. Examples: "I've turned on the kitchen lights.", "I've set the office lights to red."
-                * Do not offer to provide other assistance.
-                * If you need to ask for user feedback, ensure your response ends in a '?'. Examples: "Did you mean the kitchen light?", "I'm sorry, I couldn't find the living room light; Is it known by another name?"
-                * Focus only on lighting - if asked about other home automation features,
-                  politely indicate that another agent handles those functions.
+                * Keep responses short and informative. Examples: "Done — kitchen lights turned on at 50%.", "The living room light is on at 80% brightness."
+                * Do not offer additional assistance or suggestions.
+                * If no lights match, say so and ask for clarification ending with '?'.
+                * Focus only on lighting — politely redirect other home automation requests.
                 """;
 
         Instructions = instructions;
+        _lightPlugin.AgentId = AgentId;
         Tools = _lightPlugin.GetTools();
 
         // _aiAgent is built during InitializeAsync via ApplyDefinitionAsync
@@ -150,6 +142,7 @@ public sealed class LightAgent : ILuciaAgent
         await ApplyDefinitionAsync(cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation("LightAgent initialized successfully");
+        _lastConfigUpdate = DateTime.Now;
     }
 
     /// <inheritdoc />
@@ -162,9 +155,10 @@ public sealed class LightAgent : ILuciaAgent
     {
         var definition = await _definitionRepository.GetAgentDefinitionAsync(AgentId, cancellationToken).ConfigureAwait(false);
         var newConnectionName = definition?.ModelConnectionName;
-        var newEmbeddingName = definition?.EmbeddingProviderName;
-
-        if (_aiAgent is null || !string.Equals(_lastModelConnectionName, newConnectionName, StringComparison.Ordinal))
+        if (!string.IsNullOrEmpty(definition?.Instructions))
+            Instructions = definition.Instructions;
+        
+        if (_lastConfigUpdate == null || _lastConfigUpdate < definition?.UpdatedAt)
         {
             // Copilot providers produce an AIAgent directly; others go through IChatClient
             var copilotAgent = await _clientResolver.ResolveAIAgentAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
@@ -175,13 +169,7 @@ public sealed class LightAgent : ILuciaAgent
                 .UseOpenTelemetry()
                 .Build();
             _logger.LogInformation("LightAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
-            _lastModelConnectionName = newConnectionName;
-        }
-
-        if (!string.Equals(_lastEmbeddingProviderName, newEmbeddingName, StringComparison.Ordinal))
-        {
-            await _lightPlugin.UpdateEmbeddingProviderAsync(newEmbeddingName, cancellationToken).ConfigureAwait(false);
-            _lastEmbeddingProviderName = newEmbeddingName;
+            _lastConfigUpdate = DateTime.Now;
         }
     }
 
@@ -193,11 +181,10 @@ public sealed class LightAgent : ILuciaAgent
             Id = AgentId,
             Name = AgentId,
             Description = "Agent for controlling lights in Home Assistant",
-            ChatOptions = new()
+            ChatOptions = new ChatOptions
             {
                 Instructions = Instructions,
-                Tools = Tools,
-                ToolMode = ChatToolMode.RequireAny
+                Tools = Tools
             }
         };
 

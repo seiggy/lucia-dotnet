@@ -1,5 +1,7 @@
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
+using lucia.Agents.Configuration.UserConfiguration;
+using lucia.Agents.Mcp;
 using MongoDB.Driver;
 
 namespace lucia.Agents.Providers;

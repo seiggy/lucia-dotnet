@@ -1,5 +1,9 @@
+#pragma warning disable CS0618 // Testing obsolete methods until migrated
+
 using FakeItEasy;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
+using lucia.Agents.Models;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -125,8 +129,8 @@ public sealed class EmbeddingMatchingTests
 
         var similarity = new EmbeddingSimilarityService();
         var entityMatcher = new HybridEntityMatcher(similarity, loggerFactory.CreateLogger<HybridEntityMatcher>());
-
-        var skill = new LightControlSkill(haClient, new StubEmbeddingProviderResolver(embGen), logger, A.Fake<IDeviceCacheService>(), A.Fake<IEntityLocationService>(), similarity, entityMatcher, optionsMonitor);
+        
+        var skill = new LightControlSkill(haClient, logger, A.Fake<IEntityLocationService>(), optionsMonitor);
 
         _output.WriteLine($"Calling FindLightAsync('{searchTerm}')...");
         var result = await skill.FindLightAsync(searchTerm);
@@ -135,7 +139,7 @@ public sealed class EmbeddingMatchingTests
         // Should find "Zack's Light" (light.zacks_light)
         Assert.Contains("zacks_light", result, StringComparison.OrdinalIgnoreCase);
     }
-
+    
     private static double CosineSimilarity(Embedding<float> a, Embedding<float> b)
     {
         var s1 = a.Vector.Span;

@@ -1,3 +1,135 @@
+# Release Notes - 2026.03.06
+
+**Release Date:** March 6, 2026  
+**Code Name:** "Spectra"
+
+---
+
+## 🔮 Overview
+
+"Spectra" overhauls Lucia's entity matching and prompt caching infrastructure. Just as a spectrum reveals the distinct wavelengths hidden in a beam of light, this release decomposes the monolithic entity lookup into a multi-signal search pipeline — combining fuzzy text matching, phonetic analysis, alias resolution, and embedding similarity into a single `HybridEntityMatcher`. Alongside that, the prompt cache system has been rearchitected to correctly persist embeddings, separate routing and chat cache thresholds, and support hot-reloadable configuration from the dashboard.
+
+## 🚀 Highlights
+
+- **Unified Entity Model** — All Home Assistant entity types (lights, climate, fans, music players) now share a common `HomeAssistantEntity` base with domain-specific subtypes, replacing fragmented per-skill entity caches.
+- **HybridEntityMatcher** — Multi-weighted entity search using Levenshtein distance, Jaro-Winkler similarity, phonetic (Soundex/Metaphone) matching, and alias resolution — all tunable via `HybridMatchOptions`.
+- **Prompt Cache Embedding Fix** — Embeddings are now correctly persisted to Redis (previously silently dropped due to `[JsonIgnore]`), making semantic cache matching fully functional for the first time.
+- **Split Cache Thresholds** — Routing cache (which agent to invoke) and chat cache (tool-call decisions) now have independent similarity thresholds, preventing dangerous cross-action cache hits like "turn off" matching "turn on".
+- **Entity Visibility Filtering** — New API and dashboard controls for filtering entities by HA's exposed entity list, giving users granular control over which devices Lucia can see.
+- **Preview Docker Releases** — CI/CD now supports `-preview.N` suffixed tags for pre-release testing without touching the `latest` tag.
+
+## ✨ What's New
+
+### 🔍 HybridEntityMatcher
+
+- **Multi-signal scoring** — Combines normalized Levenshtein, Jaro-Winkler, token overlap, phonetic matching, and exact/prefix bonuses into a weighted composite score.
+- **Configurable via `HybridMatchOptions`** — Tune weights, minimum thresholds, and phonetic algorithm (Soundex vs Double Metaphone) per search context.
+- **`IMatchableEntity` interface** — Any entity type can participate in hybrid search by implementing this lightweight interface.
+- **`EntityMatchResult`** — Rich result type carrying the matched entity, composite score, individual signal scores, and match metadata.
+
+### 🏠 Unified Entity Architecture
+
+- **`HomeAssistantEntity` base class** — Shared properties (entity ID, friendly name, area, floor, aliases, state, supported features as `SupportedFeatures` bitflag enum) for all HA entity types.
+- **Domain subtypes** — `LightEntity`, `ClimateEntity`, `FanEntity`, `MusicPlayerEntity` extend the base with domain-specific attributes (color modes, HVAC modes, fan speeds, media metadata).
+- **`EntityLocationService` refactor** — Centralized entity resolution service replaces per-skill `FindLightsByAreaAsync`/`FindLightAsync` methods. Skills now delegate entity lookup to the location service.
+- **`AreaInfo` caching** — Areas now pre-build and cache entity collections, floor associations, and phonetic data for fast hierarchical search.
+- **`FloorInfo` model** — First-class floor representation with area containment for multi-level home topologies.
+
+### 👁️ Entity Visibility
+
+- **`EntityVisibilityConfig`** — Per-entity visibility settings stored in MongoDB, letting users hide entities from Lucia without removing them from Home Assistant.
+- **`EntityVisibilityApi`** — REST endpoints for bulk visibility management with area/domain filtering.
+- **HA Exposed Entity List** — Support for pulling the pre-filtered exposed entity list from Home Assistant via WebSocket (`homeassistant/expose_entity/list`).
+
+### 🧠 Prompt Cache Overhaul
+
+- **Embedding persistence fixed** — Removed `[JsonIgnore]` from `CachedPromptEntry.Embedding` and `CachedChatResponseData.Embedding` that prevented embeddings from ever being serialized to Redis.
+- **Split thresholds** — `SemanticSimilarityThreshold` (routing, default 0.95) and `ChatCacheSemanticThreshold` (chat, default 0.98) are independently configurable. Routing can be liberal (synonyms like "lamp" ↔ "light" score ~0.96); chat must be strict to avoid replaying wrong tool calls.
+- **Hot-reload via `IOptionsMonitor`** — Cache thresholds update within 5 seconds of a dashboard config change, no restart required.
+- **Hit count tracking fix** — Routing cache exact-match hits now correctly persist the incremented `HitCount` back to Redis.
+- **Normalized prompt keys** — `NormalizePrompt` applies `Trim().ToLowerInvariant()` for stable, case-insensitive cache keys.
+- **User-text-only embedding** — Chat cache embeddings are computed from the user's request text only, not the full system+user prompt concatenation.
+
+### 🐛 Matcher Debug API
+
+- **`/api/matcher/debug`** — Interactive endpoint for testing `HybridEntityMatcher` queries against live entity data, returning scored results with per-signal breakdowns.
+- **Dashboard page** — `MatcherDebugPage.tsx` provides a UI for experimenting with matcher queries and visualizing score distributions.
+
+### 🔧 Skill Optimizer Migration
+
+- **`GetCachedEntitiesAsync` removed** from `IOptimizableSkill` — All entity resolution now flows through `EntityLocationService` via `BuildEntitiesFromLocationServiceAsync`.
+- **Legacy skill methods gutted** — `LightControlSkill.FindLightsByAreaAsync`, `FindLightAsync`, `GetLightStateAsync`, `SetLightStateAsync` now throw `NotSupportedException`. All callers use the unified entity tools.
+- **Device cache dependencies removed** — `LightAgent` no longer depends on embedding provider or device cache directly.
+
+### 🐳 CI/CD
+
+- **Preview releases** — Push a tag like `2026.03.06-preview.1` to build and push Docker images without updating the `latest` tag. Also available via `workflow_dispatch` with the "preview" checkbox.
+
+## 🐛 Bug Fixes
+
+- **Prompt cache embeddings never persisted** — `[JsonIgnore]` on `Embedding` properties made semantic cache matching permanently non-functional. Fixed by removing the attribute. (b7e9c3d)
+- **Chat cache replaying wrong action** — "turn on lamp" semantically matched "turn off light" (score ~0.96) and replayed the cached `light.turn_off` tool calls. Fixed by splitting routing/chat thresholds. (6a6a375)
+- **Routing cache hit count always 0** — Exact-match path incremented `HitCount` in memory but never wrote back to Redis. (a429ede)
+- **Config changes required restart** — `RedisPromptCacheService` used `IOptions<T>` (singleton, read-once) instead of `IOptionsMonitor<T>` (hot-reload). (6a6a375)
+- **Embedding provider race condition** — `EmbeddingProviderResolver` used `Dictionary` which corrupted under concurrent agent initialization. Replaced with `ConcurrentDictionary` + per-key `SemaphoreSlim`. (0d044bf)
+- **Tracing duration always 0ms** — `TraceCaptureObserver.OnRoutingCompletedAsync` now measures elapsed time from request start. (0d044bf)
+- **Tool chain config removed** — Removed unsupported tool chain configuration flag that caused errors with many model providers. (a28b3ca)
+- **Dashboard dependency vulnerabilities** — Patched minimatch (CVE-2026-27903, ReDoS) and rollup (CVE-2026-27606, path traversal) via npm overrides. (26a4a90)
+
+## 🧪 Testing
+
+- **Playwright e2e test** — `PromptCacheRoutingTests` validates the full cache embedding round-trip: send "turn off dianna's lamp" → verify routing cache entry with embedding → send "turn off dianna's light" → verify semantic match or second entry, both routing to `light-agent`.
+- **Embedding matching diagnostics** — `EmbeddingMatchingTests` with cosine similarity measurements across prompt variants (synonym, opposite action, cross-entity, cross-domain).
+
+## 📋 New Files
+
+| Path | Purpose |
+|------|---------|
+| `lucia.Agents/Abstractions/IEntityLocationService.cs` | Centralized entity resolution interface |
+| `lucia.Agents/Abstractions/IHybridEntityMatcher.cs` | Multi-signal entity search interface |
+| `lucia.Agents/Abstractions/IMatchableEntity.cs` | Entity search participation contract |
+| `lucia.Agents/Models/HomeAssistant/HomeAssistantEntity.cs` | Unified HA entity base class |
+| `lucia.Agents/Models/HomeAssistant/SupportedColorModes.cs` | Light color mode bitflag enum |
+| `lucia.Agents/Models/HomeAssistant/FloorInfo.cs` | Floor model with area containment |
+| `lucia.Agents/Models/HomeAssistant/OccupiedArea.cs` | Area occupancy tracking |
+| `lucia.Agents/Models/HomeAssistant/EntityVisibilityConfig.cs` | Per-entity visibility settings |
+| `lucia.Agents/Models/HybridEntityMatcher.cs` | Multi-weighted entity matching engine |
+| `lucia.Agents/Models/HybridMatchOptions.cs` | Matcher configuration (weights, thresholds) |
+| `lucia.Agents/Models/MatchableEntityInfo.cs` | Searchable entity wrapper |
+| `lucia.Agents/Models/EntityMatchResult.cs` | Scored match result with signal breakdown |
+| `lucia.Agents/Models/HierarchicalSearchResult.cs` | Floor→Area→Entity search result |
+| `lucia.Agents/Models/ResolutionStrategy.cs` | Entity resolution strategy enum |
+| `lucia.Agents/Integration/SearchTermCache.cs` | Cached search term normalization |
+| `lucia.Agents/Integration/SearchTermNormalizer.cs` | Query normalization pipeline |
+| `lucia.HomeAssistant/Models/ExposedEntityListResponse.cs` | HA WebSocket exposed entity response |
+| `lucia.AgentHost/Apis/EntityVisibilityApi.cs` | Entity visibility REST endpoints |
+| `lucia.AgentHost/Apis/MatcherDebugApi.cs` | Matcher debug/testing REST endpoints |
+| `lucia-dashboard/src/pages/MatcherDebugPage.tsx` | Matcher debug dashboard page |
+| `lucia.PlaywrightTests/Agents/PromptCacheRoutingTests.cs` | Cache embedding e2e test |
+
+## 🗑️ Removed / Deprecated
+
+| Path | Reason |
+|------|--------|
+| `lucia.Agents/Services/IEntityLocationService.cs` | Moved to `Abstractions/` namespace |
+| `lucia.Agents/Models/FloorInfo.cs` | Moved to `Models/HomeAssistant/` |
+| `lucia.Agents/Models/OccupiedArea.cs` | Moved to `Models/HomeAssistant/` |
+| `lucia.Agents/Agents/DiagnosticChatClientWrapper.cs` | Replaced by `TracingChatClientFactory` |
+| `lucia.Agents/Configuration/AgentConfiguration.cs` | Replaced by `AgentDefinition` |
+| `LightControlSkill.FindLightsByAreaAsync` | Throws `NotSupportedException` — use entity tools |
+| `LightControlSkill.FindLightAsync` | Throws `NotSupportedException` — use entity tools |
+| `IOptimizableSkill.GetCachedEntitiesAsync` | Removed — optimizer uses location service |
+
+---
+
+## ⬆️ Upgrade Notes
+
+1. **Cache eviction recommended** — After upgrading, evict both routing and chat caches via the dashboard (or `DELETE /api/prompt-cache` and `DELETE /api/chat-cache`) to clear entries that were stored without embeddings.
+2. **New config properties** — `RouterExecutor:SemanticSimilarityThreshold` (0.95) and `RouterExecutor:ChatCacheSemanticThreshold` (0.98) are now available in dashboard settings. Adjust if you see too many or too few cache hits.
+3. **Skill API breaking changes** — Skills that called `FindLightsByAreaAsync`, `FindLightAsync`, or `GetCachedEntitiesAsync` must migrate to the unified entity tools provided by `EntityLocationService`.
+
+---
+
 # Release Notes - 2026.03.01
 
 **Release Date:** March 1, 2026  

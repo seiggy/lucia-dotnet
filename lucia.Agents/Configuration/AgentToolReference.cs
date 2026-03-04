@@ -1,3 +1,5 @@
+using lucia.Agents.Configuration.UserConfiguration;
+
 namespace lucia.Agents.Configuration;
 
 /// <summary>

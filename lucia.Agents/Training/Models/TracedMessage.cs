@@ -5,6 +5,7 @@ namespace lucia.Agents.Training.Models;
 /// </summary>
 public sealed class TracedMessage
 {
+    public string? MessageId { get; set; }
     public required string Role { get; set; }
 
     public string? Content { get; set; }

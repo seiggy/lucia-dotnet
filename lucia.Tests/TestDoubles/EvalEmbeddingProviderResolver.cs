@@ -1,6 +1,7 @@
 using System.ClientModel;
 using Azure;
 using Azure.AI.OpenAI;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Services;
 using lucia.Tests.Orchestration;
 using Microsoft.Extensions.AI;

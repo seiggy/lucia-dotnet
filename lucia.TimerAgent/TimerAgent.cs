@@ -1,8 +1,7 @@
 using System.Diagnostics;
 using A2A;
 using lucia.Agents.Abstractions;
-using lucia.Agents.Mcp;
-using lucia.Agents.Orchestration;
+using lucia.Agents.Integration;
 using lucia.Agents.Services;
 using Microsoft.Agents.AI;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -30,6 +29,7 @@ public sealed class TimerAgent : ILuciaAgent
     private readonly IServer _server;
     private volatile AIAgent _aiAgent;
     private string? _lastModelConnectionName;
+    private DateTime? _lastConfigUpdate;
 
     /// <summary>
     /// The system instructions used by this agent.
@@ -181,18 +181,6 @@ public sealed class TimerAgent : ILuciaAgent
         // Merge all skill tool sets
         Tools = [.. timerSkill.GetTools(), .. alarmSkill.GetTools(), .. schedulerSkill.GetTools()];
 
-        var agentOptions = new ChatClientAgentOptions
-        {
-            Id = "timer-agent",
-            Name = "timer-agent",
-            Description = "Sets timed announcements on satellite devices",
-            ChatOptions = new()
-            {
-                Instructions = Instructions,
-                Tools = Tools
-            }
-        };
-
         // _aiAgent is built during InitializeAsync via ApplyDefinitionAsync
         _aiAgent = null!;
     }
@@ -203,7 +191,7 @@ public sealed class TimerAgent : ILuciaAgent
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
-        using var activity = ActivitySource.StartActivity("TimerAgent.Initialize", ActivityKind.Internal);
+        using var activity = ActivitySource.StartActivity();
         activity?.SetTag("agent.id", "timer-agent");
         _logger.LogInformation("Initializing TimerAgent...");
 
@@ -239,6 +227,7 @@ public sealed class TimerAgent : ILuciaAgent
 
         activity?.SetStatus(ActivityStatusCode.Ok);
         _logger.LogInformation("TimerAgent initialized successfully");
+        _lastConfigUpdate = DateTime.Now;
     }
 
     public async Task RefreshConfigAsync(CancellationToken cancellationToken = default)
@@ -251,16 +240,18 @@ public sealed class TimerAgent : ILuciaAgent
         var definition = await _definitionRepository.GetAgentDefinitionAsync("timer-agent", cancellationToken).ConfigureAwait(false);
         var newConnectionName = definition?.ModelConnectionName;
 
-        if (_aiAgent is not null && string.Equals(_lastModelConnectionName, newConnectionName, StringComparison.Ordinal))
-            return;
-
-        var client = await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
-        _aiAgent = BuildAgent(client);
-        _logger.LogInformation("TimerAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
-        _lastModelConnectionName = newConnectionName;
+        if (_lastConfigUpdate == null || _lastConfigUpdate < definition?.UpdatedAt)
+        {
+            var client = await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
+            _aiAgent = BuildAgent(client);
+            _logger.LogInformation("TimerAgent: using model provider '{Provider}'",
+                newConnectionName ?? "default-chat");
+            _lastModelConnectionName = newConnectionName;
+            _lastConfigUpdate = DateTime.Now;
+        }
     }
 
-    private ChatClientAgent BuildAgent(IChatClient chatClient)
+    private AIAgent BuildAgent(IChatClient chatClient)
     {
         var traced = _tracingFactory.Wrap(chatClient, "timer-agent");
         var agentOptions = new ChatClientAgentOptions
@@ -274,6 +265,9 @@ public sealed class TimerAgent : ILuciaAgent
                 Tools = Tools
             }
         };
-        return new ChatClientAgent(traced, agentOptions, _loggerFactory);
+        return new ChatClientAgent(traced, agentOptions, _loggerFactory)
+            .AsBuilder()
+            .UseOpenTelemetry()
+            .Build();
     }
 }

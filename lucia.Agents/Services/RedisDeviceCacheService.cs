@@ -1,12 +1,12 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Text.Json;
-
+using lucia.Agents.Abstractions;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
 using lucia.Agents.Models;
-
+using lucia.Agents.Models.HomeAssistant;
 using StackExchange.Redis;
 
 namespace lucia.Agents.Services;

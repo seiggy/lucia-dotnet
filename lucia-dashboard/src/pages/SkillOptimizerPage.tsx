@@ -210,6 +210,8 @@ export default function SkillOptimizerPage() {
         HybridSimilarityThreshold: String(bestParams.threshold),
         EmbeddingWeight: String(bestParams.embeddingWeight),
         ScoreDropoffRatio: String(bestParams.scoreDropoffRatio),
+        DisagreementPenalty: String(bestParams.disagreementPenalty),
+        EmbeddingResolutionMargin: String(bestParams.embeddingResolutionMargin),
       })
       addToast('Optimal parameters applied to configuration', 'success')
 
@@ -260,6 +262,8 @@ export default function SkillOptimizerPage() {
               <p>Threshold: <span className="text-light">{selectedSkill.currentParams.threshold}</span></p>
               <p>Embedding Weight: <span className="text-light">{selectedSkill.currentParams.embeddingWeight}</span></p>
               <p>Score Drop-off: <span className="text-light">{selectedSkill.currentParams.scoreDropoffRatio}</span></p>
+              <p>Disagreement Penalty: <span className="text-light">{selectedSkill.currentParams.disagreementPenalty}</span></p>
+              <p>Embedding Resolution Margin: <span className="text-light">{selectedSkill.currentParams.embeddingResolutionMargin}</span></p>
             </div>
           )}
         </div>
@@ -429,7 +433,9 @@ export default function SkillOptimizerPage() {
             <span>
               T={progress.bestParams.threshold.toFixed(4)}{' '}
               W={progress.bestParams.embeddingWeight.toFixed(4)}{' '}
-              D={progress.bestParams.scoreDropoffRatio.toFixed(4)}
+              D={progress.bestParams.scoreDropoffRatio.toFixed(4)}{' '}
+              P={progress.bestParams.disagreementPenalty.toFixed(4)}{' '}
+              M={progress.bestParams.embeddingResolutionMargin.toFixed(4)}
             </span>
             <span>Step: {progress.step.toFixed(4)}</span>
           </div>
@@ -473,6 +479,8 @@ function ResultsPanel({ result, currentParams }: {
           <ParamComparison label="Threshold" current={currentParams?.threshold} optimal={result.bestParams.threshold} />
           <ParamComparison label="Embedding Weight" current={currentParams?.embeddingWeight} optimal={result.bestParams.embeddingWeight} />
           <ParamComparison label="Score Drop-off" current={currentParams?.scoreDropoffRatio} optimal={result.bestParams.scoreDropoffRatio} />
+          <ParamComparison label="Disagreement Penalty" current={currentParams?.disagreementPenalty} optimal={result.bestParams.disagreementPenalty} />
+          <ParamComparison label="Embedding Resolution Margin" current={currentParams?.embeddingResolutionMargin} optimal={result.bestParams.embeddingResolutionMargin} />
         </div>
 
         <p className="mt-3 text-xs text-fog">

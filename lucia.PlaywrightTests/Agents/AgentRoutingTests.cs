@@ -119,7 +119,7 @@ public sealed class AgentRoutingTests : PlaywrightTestBase
 
         await TakeScreenshotAsync($"routing_{message[..Math.Min(20, message.Length)].Replace(' ', '_')}");
 
-        return responseText!;
+        return responseText;
     }
 
     private static void AssertNotErrorResponse(string response, string agentDescription)

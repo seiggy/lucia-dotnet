@@ -1,5 +1,7 @@
 using FakeItEasy;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Models;
+using lucia.Agents.Models.HomeAssistant;
 using lucia.Agents.Services;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;

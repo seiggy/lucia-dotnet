@@ -1,6 +1,6 @@
 using lucia.Agents.Abstractions;
 using lucia.Agents.Agents;
-using lucia.Agents.Mcp;
+using lucia.Agents.Integration;
 using lucia.Agents.Providers;
 using lucia.Agents.Registry;
 using Microsoft.Extensions.Hosting;
@@ -83,7 +83,8 @@ public sealed class DynamicAgentLoader : BackgroundService
     public async Task ReloadAsync(CancellationToken ct = default)
     {
         _logger.LogInformation("Reloading dynamic agent definitions...");
-        await LoadAndRegisterAgentsAsync(ct).ConfigureAwait(false);
+        await LoadAndRegisterAgentsAsync(ct)
+            .ConfigureAwait(false);
     }
 
     private async Task LoadAndRegisterAgentsAsync(CancellationToken ct)

@@ -1,25 +1,26 @@
+using A2A;
+using lucia.Agents.Abstractions;
+using lucia.Agents.Agents;
+using lucia.Agents.Configuration;
+using lucia.Agents.Configuration.UserConfiguration;
+using lucia.Agents.DataStores;
+using lucia.Agents.GitHubCopilot;
+using lucia.Agents.Integration;
+using lucia.Agents.Mcp;
+using lucia.Agents.Models;
+using lucia.Agents.Orchestration;
+using lucia.Agents.Orchestration.Models;
+using lucia.Agents.Providers;
+using lucia.Agents.Registry;
+using lucia.Agents.Services;
+using lucia.Agents.Services.HealthChecks;
+using lucia.Agents.Skills;
+using lucia.HomeAssistant.Configuration;
+using lucia.HomeAssistant.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using lucia.Agents.Abstractions;
-using lucia.Agents.Registry;
-using lucia.Agents.Integration;
-using lucia.Agents.Orchestration;
-using lucia.Agents.Skills;
-using lucia.Agents.Agents;
-using lucia.Agents.Services;
-using lucia.Agents.Training;
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
-using lucia.HomeAssistant.Services;
-using A2A;
-using lucia.Agents.Configuration;
-using lucia.Agents.Mcp;
-using lucia.HomeAssistant.Configuration;
 using Microsoft.Extensions.Options;
-using System.Net.Security;
-using System.Security.Cryptography.X509Certificates;
-using lucia.Agents.GitHubCopilot;
-using lucia.Agents.Providers;
 
 namespace lucia.Agents.Extensions;
 
@@ -40,11 +41,9 @@ public static class ServiceCollectionExtensions
             // Only set BaseAddress if fully configured (URL + token).
             // During wizard flow, these are empty at DI time and will be set
             // per-request via EnsureHttpClientConfigured() once the wizard saves config.
-            if (!string.IsNullOrWhiteSpace(options.BaseUrl) && !string.IsNullOrWhiteSpace(options.AccessToken))
-            {
-                client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/') + "/");
-                client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", $"Bearer {options.AccessToken}");
-            }
+            if (string.IsNullOrWhiteSpace(options.BaseUrl) || string.IsNullOrWhiteSpace(options.AccessToken)) return;
+            client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/') + "/");
+            client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", $"Bearer {options.AccessToken}");
         })
         .ConfigurePrimaryHttpMessageHandler(sp =>
         {
@@ -54,7 +53,8 @@ public static class ServiceCollectionExtensions
             if (!options.ValidateSSL)
             {
                 handler.ServerCertificateCustomValidationCallback =
-                    (HttpRequestMessage message, X509Certificate2? certificate, X509Chain? chain, SslPolicyErrors sslPolicyErrors) => true;
+                    (_, _, _, _) => 
+                        true;
             }
 
             return handler;

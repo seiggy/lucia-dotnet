@@ -375,6 +375,8 @@ export interface HybridMatchOptions {
   threshold: number
   embeddingWeight: number
   scoreDropoffRatio: number
+  disagreementPenalty: number
+  embeddingResolutionMargin: number
 }
 
 export interface OptimizableSkillInfo {

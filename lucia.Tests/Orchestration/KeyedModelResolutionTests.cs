@@ -140,62 +140,6 @@ public sealed class KeyedModelResolutionTests
         Assert.Same(routerClient, provider.GetRequiredKeyedService<IChatClient>(OrchestratorServiceKeys.RouterModel));
     }
 
-    // ─── Config Binding ───────────────────────────────────────────────
-
-    [Fact]
-    public void ConfigBinding_AgentWithModelConnectionName_BindsCorrectly()
-    {
-        // Arrange: JSON config with ModelConnectionName set
-        var config = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Agents:0:AgentName"] = "light-agent",
-                ["Agents:0:AgentType"] = "lucia.Agents.Agents.LightAgent",
-                ["Agents:0:ModelConnectionName"] = "chat-mini",
-                ["Agents:1:AgentName"] = "music-agent",
-                ["Agents:1:AgentType"] = "lucia.MusicAgent.MusicAgent",
-                ["Agents:1:ModelConnectionName"] = "phi4",
-                ["Agents:2:AgentName"] = "general-assistant",
-                ["Agents:2:AgentType"] = "lucia.Agents.Agents.GeneralAgent",
-                ["Agents:2:ModelConnectionName"] = null, // uses default
-            })
-            .Build();
-
-        // Act
-        var agents = config.GetSection("Agents").Get<List<AgentConfiguration>>();
-
-        // Assert
-        Assert.NotNull(agents);
-        Assert.Equal(3, agents.Count);
-
-        Assert.Equal("light-agent", agents[0].AgentName);
-        Assert.Equal("chat-mini", agents[0].ModelConnectionName);
-
-        Assert.Equal("music-agent", agents[1].AgentName);
-        Assert.Equal("phi4", agents[1].ModelConnectionName);
-
-        Assert.Equal("general-assistant", agents[2].AgentName);
-        Assert.Null(agents[2].ModelConnectionName);
-    }
-
-    [Fact]
-    public void ConfigBinding_NullModelConnectionName_SkipsOverride()
-    {
-        // This simulates what happens in AddLuciaAgents when ModelConnectionName is null
-        var agents = new List<AgentConfiguration>
-        {
-            new() { AgentName = "light-agent", AgentType = "LightAgent", ModelConnectionName = null },
-            new() { AgentName = "music-agent", AgentType = "MusicAgent", ModelConnectionName = null },
-        };
-
-        // Count how many overrides would be applied
-        var overridesApplied = agents
-            .Where(a => !string.IsNullOrWhiteSpace(a.ModelConnectionName))
-            .Count();
-
-        Assert.Equal(0, overridesApplied);
-    }
-
     // ─── Agent Name → Service Key Mapping ─────────────────────────────
 
     [Theory]

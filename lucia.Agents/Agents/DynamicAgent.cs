@@ -2,7 +2,8 @@ using System.Diagnostics;
 using A2A;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
-using lucia.Agents.Mcp;
+using lucia.Agents.Configuration.UserConfiguration;
+using lucia.Agents.Integration;
 using lucia.Agents.Services;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -86,7 +87,7 @@ public sealed class DynamicAgent : ILuciaAgent
     /// </summary>
     public async Task RebuildAsync(CancellationToken cancellationToken = default)
     {
-        using var activity = ActivitySource.StartActivity("DynamicAgent.RebuildAsync", ActivityKind.Internal);
+        using var activity = ActivitySource.StartActivity();
         activity?.SetTag("agent.id", _agentId);
 
         var definition = await _repository.GetAgentDefinitionAsync(_agentId, cancellationToken)
@@ -158,7 +159,7 @@ public sealed class DynamicAgent : ILuciaAgent
         var traced = _tracingFactory.Wrap(chatClient, _agentId);
         var chatOptions = new ChatOptions
         {
-            Instructions = definition.Instructions ?? "You are a helpful assistant."
+            Instructions = definition.Instructions.Length == 0 ? "You are a helpful assistant." : definition.Instructions,
         };
 
         if (tools.Count > 0)
@@ -169,7 +170,7 @@ public sealed class DynamicAgent : ILuciaAgent
         var agentOptions = new ChatClientAgentOptions
         {
             Id = definition.Name,
-            Name = definition.DisplayName ?? definition.Name,
+            Name = definition.DisplayName,
             Description = definition.Description ?? "",
             ChatOptions = chatOptions
         };
@@ -189,7 +190,7 @@ public sealed class DynamicAgent : ILuciaAgent
             skills.Add(new AgentSkill
             {
                 Id = definition.Name,
-                Name = definition.DisplayName ?? definition.Name,
+                Name = definition.DisplayName.Length == 0 ? definition.Name : definition.DisplayName,
                 Description = definition.Description
             });
         }
@@ -198,7 +199,7 @@ public sealed class DynamicAgent : ILuciaAgent
         {
             Url = $"/a2a/{definition.Name}",
             Name = definition.Name,
-            Description = definition.Description ?? $"User-defined agent: {definition.DisplayName ?? definition.Name}",
+            Description = definition.Description.Length == 0 ? $"User-defined agent: {definition.DisplayName ?? definition.Name}" : definition.Description,
             Capabilities = new AgentCapabilities
             {
                 PushNotifications = false,

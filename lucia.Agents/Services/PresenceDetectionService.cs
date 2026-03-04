@@ -1,4 +1,6 @@
+using lucia.Agents.Abstractions;
 using lucia.Agents.Models;
+using lucia.Agents.Models.HomeAssistant;
 using lucia.HomeAssistant.Services;
 using Microsoft.Extensions.Logging;
 

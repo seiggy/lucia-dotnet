@@ -1,4 +1,5 @@
 using lucia.Agents.Configuration;
+using lucia.Agents.Configuration.UserConfiguration;
 
 namespace lucia.Agents.Abstractions;
 

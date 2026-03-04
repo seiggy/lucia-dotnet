@@ -1,5 +1,7 @@
 using FakeItEasy;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Models;
+using lucia.Agents.Models.HomeAssistant;
 using lucia.Agents.Services;
 using lucia.TimerAgent;
 using lucia.TimerAgent.ScheduledTasks;
@@ -146,7 +148,7 @@ public sealed class AlarmSkillTests
     {
         A.CallTo(() => _entityLocationService.FindEntitiesByLocationAsync(
             "bedroom", A<IReadOnlyList<string>>._, A<CancellationToken>._))
-            .Returns(new List<EntityLocationInfo>
+            .Returns(new List<HomeAssistantEntity>
             {
                 new() { EntityId = "media_player.bedroom_speaker", FriendlyName = "Bedroom Speaker", AreaId = "bedroom" }
             });
@@ -164,7 +166,7 @@ public sealed class AlarmSkillTests
     {
         A.CallTo(() => _entityLocationService.FindEntitiesByLocationAsync(
             "garage", A<IReadOnlyList<string>>._, A<CancellationToken>._))
-            .Returns(new List<EntityLocationInfo>());
+            .Returns(new List<HomeAssistantEntity>());
 
         var result = await _skill.SetAlarmAsync("Test", "07:00", "garage");
 

@@ -1,8 +1,6 @@
-using A2A;
 using A2A.AspNetCore;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Extensions;
-using Microsoft.Agents.AI.Hosting;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;

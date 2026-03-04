@@ -1,4 +1,5 @@
 using A2A;
+using lucia.Agents.Integration;
 using StackExchange.Redis;
 using Testcontainers.Redis;
 
@@ -31,7 +32,7 @@ public sealed class DurableTaskPersistenceTests : IAsyncLifetime
         _redisDb = _redis.GetDatabase();
 
         // Create real TaskStore and A2A's TaskManager for integration testing
-        _taskStore = new lucia.Agents.Services.RedisTaskStore(_redis);
+        _taskStore = new RedisTaskStore(_redis);
         var httpClient = new HttpClient();
         _taskManager = new TaskManager(httpClient, _taskStore);
     }

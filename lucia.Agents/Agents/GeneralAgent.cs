@@ -1,9 +1,7 @@
 using System.Diagnostics;
 using A2A;
 using lucia.Agents.Abstractions;
-using lucia.Agents.Configuration;
-using lucia.Agents.Mcp;
-using lucia.Agents.Orchestration;
+using lucia.Agents.Integration;
 using lucia.Agents.Services;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -24,12 +22,12 @@ public sealed class GeneralAgent : ILuciaAgent
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<GeneralAgent> _logger;
     private volatile AIAgent _aiAgent;
-    private string? _lastModelConnectionName;
+    private DateTime? _lastConfigUpdate;
 
     /// <summary>
     /// The system instructions used by this agent.
     /// </summary>
-    public string Instructions { get; }
+    public string Instructions { get; set; }
 
     /// <summary>
     /// The AI tools available to this agent (web search when a provider is registered).
@@ -135,6 +133,7 @@ public sealed class GeneralAgent : ILuciaAgent
         activity?.SetTag("agent.id", AgentId);
         activity?.SetStatus(ActivityStatusCode.Ok);
         _logger.LogInformation("General Knowledge initialized successfully");
+        _lastConfigUpdate = DateTime.Now;
     }
 
     /// <inheritdoc />
@@ -148,17 +147,23 @@ public sealed class GeneralAgent : ILuciaAgent
         var definition = await _definitionRepository.GetAgentDefinitionAsync(AgentId, cancellationToken).ConfigureAwait(false);
         var newConnectionName = definition?.ModelConnectionName;
 
-        if (_aiAgent is not null && string.Equals(_lastModelConnectionName, newConnectionName, StringComparison.Ordinal))
-            return;
+        if (!string.IsNullOrEmpty(definition?.Instructions))
+            Instructions = definition.Instructions;
 
-        var copilotAgent = await _clientResolver.ResolveAIAgentAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
-        _aiAgent = copilotAgent ?? BuildAgent(
-            await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false))
-            .AsBuilder()
-            .UseOpenTelemetry()
-            .Build();
-        _logger.LogInformation("GeneralAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
-        _lastModelConnectionName = newConnectionName;
+        if (_lastConfigUpdate == null || _lastConfigUpdate < definition?.UpdatedAt)
+        {
+
+            var copilotAgent = await _clientResolver.ResolveAIAgentAsync(newConnectionName, cancellationToken)
+                .ConfigureAwait(false);
+            _aiAgent = copilotAgent ?? BuildAgent(
+                    await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false))
+                .AsBuilder()
+                .UseOpenTelemetry()
+                .Build();
+            _logger.LogInformation("GeneralAgent: using model provider '{Provider}'",
+                newConnectionName ?? "default-chat");
+            _lastConfigUpdate = DateTime.Now;
+        }
     }
 
     private AIAgent BuildAgent(IChatClient chatClient)

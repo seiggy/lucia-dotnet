@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Auth;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;

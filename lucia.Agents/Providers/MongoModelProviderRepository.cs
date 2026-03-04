@@ -1,5 +1,6 @@
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
+using lucia.Agents.Configuration.UserConfiguration;
 using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 

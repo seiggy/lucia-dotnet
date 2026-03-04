@@ -1,9 +1,9 @@
 #pragma warning disable AIEVAL001 // Microsoft.Extensions.AI.Evaluation is experimental
+#pragma warning disable CS0618 // Testing obsolete methods until migrated
 
 using System.Text.RegularExpressions;
 using lucia.Agents.Configuration;
 using Microsoft.Extensions.Options;
-using Xunit;
 using Xunit.Abstractions;
 
 namespace lucia.Tests.Orchestration;

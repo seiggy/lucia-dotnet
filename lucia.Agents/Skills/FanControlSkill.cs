@@ -4,8 +4,12 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Text;
 using System.Text.Json;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
+using lucia.Agents.Configuration.UserConfiguration;
+using lucia.Agents.Integration;
 using lucia.Agents.Models;
+using lucia.Agents.Models.HomeAssistant;
 using lucia.Agents.Services;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
@@ -115,12 +119,6 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
     public IReadOnlyList<string> EntityDomains { get; } = ["fan"];
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<IMatchableEntity>> GetCachedEntitiesAsync(CancellationToken cancellationToken = default)
-    {
-        await EnsureCacheIsCurrentAsync(cancellationToken).ConfigureAwait(false);
-        return _fans.CastArray<IMatchableEntity>();
-    }
-
     /// <inheritdoc/>
     public HybridMatchOptions GetCurrentMatchOptions()
     {
@@ -129,7 +127,9 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
         {
             Threshold = opts.HybridSimilarityThreshold,
             EmbeddingWeight = opts.EmbeddingWeight,
-            ScoreDropoffRatio = opts.ScoreDropoffRatio
+            ScoreDropoffRatio = opts.ScoreDropoffRatio,
+            DisagreementPenalty = opts.DisagreementPenalty,
+            EmbeddingResolutionMargin = opts.EmbeddingResolutionMargin
         };
     }
 
@@ -161,7 +161,9 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
             {
                 Threshold = opts.HybridSimilarityThreshold,
                 EmbeddingWeight = opts.EmbeddingWeight,
-                ScoreDropoffRatio = opts.ScoreDropoffRatio
+                ScoreDropoffRatio = opts.ScoreDropoffRatio,
+                DisagreementPenalty = opts.DisagreementPenalty,
+                EmbeddingResolutionMargin = opts.EmbeddingResolutionMargin
             };
 
             var matches = await _entityMatcher.FindMatchesAsync(
@@ -182,11 +184,14 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
                 return sb.ToString();
             }
 
-            // Fall back to area-based search using location service
-            var locationEntities = await _locationService.FindEntitiesByLocationAsync(
-                searchTerm, (IReadOnlyList<string>)["fan"], CancellationToken.None).ConfigureAwait(false);
+            // Fall back to hierarchical search using location service
+            var hierarchyResult = await _locationService.SearchHierarchyAsync(
+                searchTerm, GetCurrentMatchOptions(), (IReadOnlyList<string>)["fan"], CancellationToken.None).ConfigureAwait(false);
+            var locationEntities = hierarchyResult.ResolvedEntities;
 
-            if (locationEntities.Count > 0)
+            activity?.SetTag("match.resolution", hierarchyResult.ResolutionStrategy.ToString());
+
+            if (hierarchyResult.ResolutionStrategy != ResolutionStrategy.None && locationEntities.Count > 0)
             {
                 var matchedEntityIds = locationEntities.Select(e => e.EntityId).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 var areaFans = fans.Where(f => matchedEntityIds.Contains(f.EntityId)).ToList();
@@ -235,11 +240,14 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
             if (fans.IsEmpty)
                 return "No fans found. The fan cache may be empty.";
 
-            var locationEntities = await _locationService.FindEntitiesByLocationAsync(
-                areaName, (IReadOnlyList<string>)["fan"], CancellationToken.None).ConfigureAwait(false);
+            var hierarchyResult = await _locationService.SearchHierarchyAsync(
+                areaName, GetCurrentMatchOptions(), (IReadOnlyList<string>)["fan"], CancellationToken.None).ConfigureAwait(false);
+            var locationEntities = hierarchyResult.ResolvedEntities;
 
-            if (locationEntities.Count == 0)
-                return $"No area found matching '{areaName}'.";
+            activity?.SetTag("match.resolution", hierarchyResult.ResolutionStrategy.ToString());
+
+            if (hierarchyResult.ResolutionStrategy == ResolutionStrategy.None || locationEntities.Count == 0)
+                return $"No fans found matching '{areaName}'. {hierarchyResult.ResolutionReason}";
 
             var matchedEntityIds = locationEntities.Select(e => e.EntityId).ToHashSet(StringComparer.OrdinalIgnoreCase);
             var areaFans = fans.Where(f => matchedEntityIds.Contains(f.EntityId)).ToList();

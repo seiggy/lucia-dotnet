@@ -1,5 +1,6 @@
 using System.Text.Json;
 using FakeItEasy;
+using lucia.Agents.Abstractions;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 using lucia.HomeAssistant.Models;
