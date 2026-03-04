@@ -5,11 +5,17 @@ on:
     branches:
       - main
     tags:
-      - '20[2-9][0-9].*.*'  # Calendar versioning (YYYY.MM.DD)
+      - '20[2-9][0-9].*.*'  # Calendar versioning (YYYY.MM.DD and YYYY.MM.DD-preview.N)
   pull_request:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      preview:
+        description: 'Build as preview (skips latest tag)'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -72,18 +78,34 @@ jobs:
           driver-opts: |
             image=moby/buildkit:latest
 
+      - name: Detect preview release
+        id: preview
+        run: |
+          IS_PREVIEW=false
+          VERSION_TAG=""
+          if [[ "${{ github.ref_type }}" == "tag" && "${{ github.ref_name }}" == *"-preview"* ]]; then
+            IS_PREVIEW=true
+            VERSION_TAG="${{ github.ref_name }}"
+          elif [[ "${{ inputs.preview }}" == "true" ]]; then
+            IS_PREVIEW=true
+            VERSION_TAG="$(date +'%Y.%m.%d')-preview.$(echo ${{ github.sha }} | cut -c1-7)"
+          fi
+          echo "is_preview=$IS_PREVIEW" >> "$GITHUB_OUTPUT"
+          echo "version_tag=$VERSION_TAG" >> "$GITHUB_OUTPUT"
+
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ matrix.image }}
           tags: |
-            type=match,pattern=\d{4}\.\d{1,2}\.\d{1,2},group=0
-            type=raw,value={{date 'YYYY.MM.DD'}},enable=${{ github.event_name != 'pull_request' }}
+            type=match,pattern=(\d{4}\.\d{1,2}\.\d{1,2}.*),group=1
+            type=raw,value={{date 'YYYY.MM.DD'}},enable=${{ github.event_name != 'pull_request' && steps.preview.outputs.is_preview != 'true' }}
             type=ref,event=branch
             type=ref,event=pr
             type=sha,prefix={{date 'YYYY.MM.DD'}}-
-            type=raw,value=latest,enable=${{ github.event_name != 'pull_request' }}
+            type=raw,value=latest,enable=${{ github.event_name != 'pull_request' && steps.preview.outputs.is_preview != 'true' }}
+            type=raw,value=${{ steps.preview.outputs.version_tag }},enable=${{ steps.preview.outputs.is_preview == 'true' && steps.preview.outputs.version_tag != '' }}
           labels: |
             org.opencontainers.image.title=${{ matrix.title }}
             org.opencontainers.image.description=${{ matrix.description }}
