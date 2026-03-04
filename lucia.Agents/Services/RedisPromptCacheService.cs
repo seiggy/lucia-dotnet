@@ -108,7 +108,7 @@ public sealed class RedisPromptCacheService : IPromptCacheService
                 {
                     entry.HitCount++;
                     entry.LastHitAt = DateTime.UtcNow;
-                    await db.KeyExpireAsync(cacheKey, _cacheTtl, flags: CommandFlags.FireAndForget).ConfigureAwait(false);
+                    await db.StringSetAsync(cacheKey, JsonSerializer.Serialize(entry, SerializerOptions), _cacheTtl, flags: CommandFlags.FireAndForget).ConfigureAwait(false);
                     await db.StringIncrementAsync(StatsHitsKey, flags: CommandFlags.FireAndForget).ConfigureAwait(false);
                     HitsCounter.Add(1);
                     activity?.SetTag("cache.hit", true);
