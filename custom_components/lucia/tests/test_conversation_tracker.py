@@ -1,6 +1,5 @@
 """Tests for ConversationTracker and A2A Task/Message parsing."""
 import time
-from unittest.mock import patch
 
 from custom_components.lucia.conversation_tracker import ConversationTracker
 

@@ -7,7 +7,7 @@ from a2a.types import Message, Part, Role, TextPart
 
 async def test_agent_catalog(repository_url: str, api_key: str | None):
     """Test fetching the agent catalog from /agents endpoint."""
-    print(f"\n=== Testing Agent Catalog Discovery ===")
+    print("\n=== Testing Agent Catalog Discovery ===")
     print(f"Catalog URL: {repository_url}/agents")
 
     # Create HTTP client with X-Api-Key header if provided
@@ -28,7 +28,7 @@ async def test_agent_catalog(repository_url: str, api_key: str | None):
         response.raise_for_status()
 
         catalog = response.json()
-        print(f"\n✓ Catalog retrieved successfully")
+        print("\n✓ Catalog retrieved successfully")
         print(f"  Status Code: {response.status_code}")
         print(f"  Response Type: {type(catalog)}")
 
@@ -61,7 +61,7 @@ async def test_agent_catalog(repository_url: str, api_key: str | None):
 
 async def test_agent_discovery(repository_url: str, api_key: str | None):
     """Test discovering agents using A2ACardResolver."""
-    print(f"\n=== Testing A2A Agent Discovery ===")
+    print("\n=== Testing A2A Agent Discovery ===")
     print(f"Repository: {repository_url}")
 
     # Create HTTP client with X-Api-Key header if provided
@@ -107,7 +107,7 @@ async def test_agent_discovery(repository_url: str, api_key: str | None):
 
 async def test_send_message(agent_url: str, api_key: str | None, agent_id: str, message_text: str):
     """Test sending a message to an agent."""
-    print(f"\n=== Testing Message Sending ===")
+    print("\n=== Testing Message Sending ===")
     print(f"Agent URL: {agent_url}")
     print(f"Agent ID: {agent_id}")
     print(f"Message: {message_text}")
@@ -151,7 +151,7 @@ async def test_send_message(agent_url: str, api_key: str | None, agent_id: str, 
         # Send message to agent
         response = await client.send_message(request_message)
 
-        print(f"\n✓ Response received:")
+        print("\n✓ Response received:")
         print(f"  Type: {type(response)}")
         if hasattr(response, 'parts'):
             for part in response.parts:
@@ -181,7 +181,7 @@ async def main():
     REPOSITORY_URL = "https://localhost:7235"  # Your agent repository URL
     API_KEY = None  # Set to None if no auth required, or "your-api-key-here"
 
-    print(f"\nConfiguration:")
+    print("\nConfiguration:")
     print(f"  Repository: {REPOSITORY_URL}")
     print(f"  API Key: {'(none)' if not API_KEY else '*' * len(API_KEY)}")
 

@@ -1,15 +1,12 @@
 """Conversation platform for Lucia integration."""
 from __future__ import annotations
 
-import json
 import logging
 import uuid
-from datetime import datetime
 from typing import Any, Literal
 
 from homeassistant.components import conversation
 from homeassistant.components.conversation import (
-    ConversationEntity,
     ConversationInput,
     ConversationResult,
 )
@@ -31,20 +28,14 @@ except ImportError:
         _HAS_CHAT_LOG_API = False
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError, TemplateError
+from homeassistant.exceptions import TemplateError
 from homeassistant.helpers import area_registry, device_registry, entity_registry, intent, template
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.util import ulid, dt as dt_util
+from homeassistant.util import dt as dt_util
 
 from .const import (
-    CONF_MAX_TOKENS,
     CONF_PROMPT,
-    CONF_TEMPERATURE,
-    CONF_TOP_P,
-    DEFAULT_MAX_TOKENS,
     DEFAULT_PROMPT,
-    DEFAULT_TEMPERATURE,
-    DEFAULT_TOP_P,
     DOMAIN,
 )
 from .conversation_tracker import ConversationTracker
@@ -128,7 +119,6 @@ class LuciaConversationEntity(conversation.ConversationEntity):
                 continue_conversation=False,
             )
 
-        agent_card = client_data.get("agent_card")
         httpx_client = client_data.get("httpx_client")
         agent_url = client_data.get("agent_url")
 

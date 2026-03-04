@@ -22,7 +22,7 @@ async def test_catalog_endpoint():
     REPOSITORY_URL = "https://localhost:7235"
     API_KEY = None  # Set if needed
 
-    print(f"\nConfiguration:")
+    print("\nConfiguration:")
     print(f"  Base URL: {REPOSITORY_URL}")
     print(f"  Catalog Endpoint: {REPOSITORY_URL}/agents")
     print(f"  API Key: {'(none)' if not API_KEY else '***'}")
@@ -48,7 +48,7 @@ async def test_catalog_endpoint():
             try:
                 catalog = response.json()
                 print(f"\nCatalog Data Type: {type(catalog)}")
-                print(f"\nFormatted Response:")
+                print("\nFormatted Response:")
                 print(json.dumps(catalog, indent=2))
 
                 # If it's a list, show agent details
@@ -91,7 +91,7 @@ async def test_catalog_endpoint():
                 print(f"Response Text: {response.text[:500]}")
                 return None
         else:
-            print(f"✗ Request failed")
+            print("✗ Request failed")
             print(f"Response: {response.text}")
             return None
 
@@ -130,7 +130,7 @@ async def test_agent_card_endpoint(base_url: str):
 
             try:
                 card = response.json()
-                print(f"\nAgent Card:")
+                print("\nAgent Card:")
                 print(json.dumps(card, indent=2))
                 return card
             except json.JSONDecodeError:
@@ -199,7 +199,7 @@ async def test_message_endpoint(agent_url: str):
 
         openapi_endpoint = f"{agent_url}/v1/message:send"
         print(f"\nTrying endpoint: {openapi_endpoint}")
-        print(f"\nRequest payload:")
+        print("\nRequest payload:")
         print(json.dumps(openapi_request, indent=2))
 
         response = await client.post(
@@ -216,7 +216,7 @@ async def test_message_endpoint(agent_url: str):
 
             try:
                 result = response.json()
-                print(f"\nResponse:")
+                print("\nResponse:")
                 print(json.dumps(result, indent=2))
 
                 # Extract message text if present
@@ -226,13 +226,13 @@ async def test_message_endpoint(agent_url: str):
                     if 'parts' in msg:
                         for part in msg['parts']:
                             if part.get('kind') == 'text':
-                                print(f"\n✓✓✓ SUCCESS! Agent Response Text:")
+                                print("\n✓✓✓ SUCCESS! Agent Response Text:")
                                 print(f"    {part.get('text', '')[:200]}...")
                                 openapi_success = True
                 elif isinstance(result, dict) and 'parts' in result:
                     for part in result['parts']:
                         if part.get('kind') == 'text':
-                            print(f"\n✓✓✓ SUCCESS! Agent Response Text:")
+                            print("\n✓✓✓ SUCCESS! Agent Response Text:")
                             print(f"    {part.get('text', '')[:200]}...")
                             openapi_success = True
 
@@ -243,7 +243,7 @@ async def test_message_endpoint(agent_url: str):
                 print(f"Response Text: {response.text}")
                 return response.text
         else:
-            print(f"✗ Request failed")
+            print("✗ Request failed")
             print(f"Response: {response.text[:500]}")
 
         # Test 2: Also try JSON-RPC format to compare
@@ -273,7 +273,7 @@ async def test_message_endpoint(agent_url: str):
         }
 
         print(f"\nTrying endpoint: {agent_url}")
-        print(f"Method: message/send")
+        print("Method: message/send")
 
         response = await client.post(
             agent_url,
@@ -288,7 +288,7 @@ async def test_message_endpoint(agent_url: str):
 
             try:
                 result = response.json()
-                print(f"\nResponse:")
+                print("\nResponse:")
                 print(json.dumps(result, indent=2))
 
                 # Check for JSON-RPC error
@@ -302,7 +302,7 @@ async def test_message_endpoint(agent_url: str):
                         if 'parts' in res:
                             for part in res['parts']:
                                 if part.get('kind') == 'text':
-                                    print(f"\n✓✓✓ SUCCESS! Agent Response Text:")
+                                    print("\n✓✓✓ SUCCESS! Agent Response Text:")
                                     print(f"    {part.get('text', '')[:200]}...")
                     return result
 

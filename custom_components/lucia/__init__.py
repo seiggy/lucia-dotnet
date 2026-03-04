@@ -1,9 +1,7 @@
 """The Lucia Home Agent integration."""
 from __future__ import annotations
 
-import json
 import logging
-from typing import Any
 
 import httpx
 
@@ -20,7 +18,6 @@ from .const import (
     CONF_REPOSITORY,
     CONF_VERIFY_SSL,
     DOMAIN,
-    NAME,
 )
 
 _LOGGER = logging.getLogger(__name__)
