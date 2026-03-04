@@ -22,20 +22,24 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
 
 - **🤖 Multi-Agent Orchestration** — Router, dispatcher, and result aggregator executors coordinate specialized agents end-to-end using the A2A (Agent-to-Agent) protocol
 - **🧠 Semantic Understanding** — Natural language processing using embeddings and semantic search—no rigid command structures required
+- **🔍 HybridEntityMatcher** — Multi-weighted entity search combining Levenshtein distance, Jaro-Winkler similarity, phonetic matching (Soundex/Metaphone), alias resolution, and embedding similarity—all tunable per-search
 - **🔒 Privacy First** — Fully local operation with optional cloud LLM support; your data stays yours
-- **🏠 Deep Home Assistant Integration** — Native integration via custom component with agent selection, conversation API, and JSON-RPC communication
+- **🏠 Deep Home Assistant Integration** — Native integration via custom component with agent selection, conversation API, JSON-RPC communication, and WebSocket entity registry access
+- **👁️ Entity Visibility Filtering** — Control which Home Assistant entities Lucia can see via dashboard UI or by pulling the HA exposed-entity list over WebSocket
 - **📊 Live Activity Dashboard** — Real-time agent mesh visualization with SSE-powered event streaming, summary metrics, and activity timeline
-- **📋 Management Dashboard** — React-based dark-themed dashboard for agent management, trace inspection, configuration, and dataset exports
+- **📋 Management Dashboard** — React-based dark-themed dashboard with 20+ pages for agent management, trace inspection, configuration, entity management, and dataset exports
+- **🧙 Guided Setup Wizard** — Multi-step onboarding with AI provider configuration, live connectivity tests, agent health gate, and Home Assistant plugin connection
 - **📦 Kubernetes Ready** — Cloud-native deployment with .NET Aspire, Helm charts, and K8s manifests
 - **⏰ Alarm Clock System** — CRON-scheduled alarms with volume ramping, voice dismissal/snooze, presence-based speaker routing, and sound library with file upload
 - **📡 Presence Detection** — Auto-discovered motion/occupancy/mmWave sensors with room-level confidence scoring for context-aware automations
 - **📅 Scheduled Task System** — Extensible CRON-based scheduler with MongoDB persistence supporting alarms, timers, and deferred agent actions
 - **🔌 Extensible** — Script-based plugin system for adding capabilities without recompiling. Plugin repository for discovery and one-click install.
 - **🛠️ Runtime Agent Builder** — Create custom agents via the dashboard with MCP tool integration—no code required
+- **🔌 Model Provider System** — Configure 6+ LLM backends (OpenAI, Azure OpenAI, Azure AI Inference, Ollama, Anthropic, Google Gemini) from the dashboard with per-agent model assignment
 - **🧭 General Knowledge Fallback** — Built-in `general-assistant` handles open-ended requests when no specialist is a clean match
-- **🎭 Dynamic Agent Selection** — Switch between specialized agents (light control, music, timers, etc.) without reconfiguring
+- **🎭 Dynamic Agent Selection** — Switch between specialized agents (light control, climate, scenes, music, timers, lists, etc.) without reconfiguring
 - **💬 Conversation Threading** — Context-aware conversations with proper message threading support
-- **⚡ Prompt Caching** — Intelligent caching of routing decisions for faster repeated queries
+- **⚡ Two-Tier Prompt Caching** — Independent routing and chat caches with semantic similarity matching, hot-reloadable thresholds, and infinite retention
 
 ### Supported Inference Platforms
 
@@ -44,7 +48,11 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
 | Azure OpenAI / AI Foundry | ✅ Supported |
 | OpenAI | ✅ Supported |
 | Ollama | ✅ Supported |
-| Open Router (OpenAI-compatible) | ✅ Supported |
+| Anthropic (Claude) | ✅ Supported |
+| Google Gemini | ✅ Supported |
+| Azure AI Inference | ✅ Supported |
+| OpenAI-compatible (Open Router, etc.) | ✅ Supported |
+| GitHub Copilot SDK | 🧪 Experimental |
 | ONNX | ❌ No function calling support |
 
 ## 🚀 Quick Start
@@ -52,7 +60,7 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
 ### Prerequisites
 
 - [Docker](https://www.docker.com/) and Docker Compose
-- Home Assistant instance (2024.1 or later)
+- Home Assistant instance (2024.12 or later)
 - An LLM provider API key (Azure AI Foundry, OpenAI, Ollama, etc.)
 
 ### Installation
@@ -229,13 +237,21 @@ Export labeled conversation traces as training datasets. Filter by label, date r
 
 ![Prompt Cache](docs/images/prompt-cache.png)
 
-Monitor the routing prompt cache that accelerates repeated queries. View cache statistics (total entries, hit rate, hits vs misses), browse cached entries with their routed agents and confidence scores, and clear the cache when needed.
+Monitor the routing prompt cache that accelerates repeated queries. View cache statistics (total entries, hit rate, hits vs misses), browse cached entries with their routed agents and confidence scores, and clear the cache when needed. Tabbed view separates Router and Agent cache namespaces with independent stats.
 
 ### Tasks
 
 ![Tasks](docs/images/tasks.png)
 
 Track active and archived tasks with status counters (Active, Completed, Failed, Cancelled). Switch between Active Tasks and Task History views to monitor ongoing work and review completed operations.
+
+### Entity Location
+
+Manage the Home Assistant entity hierarchy — floors, areas, and entities — with visibility controls. Toggle entity visibility to control which devices Lucia agents can see. Pull the HA exposed-entity list over WebSocket for pre-filtered entity management. Search and filter entities by area, domain, or name.
+
+### Matcher Debug
+
+Interactive testing page for the HybridEntityMatcher. Enter a search query and see scored results with per-signal breakdowns (Levenshtein, Jaro-Winkler, phonetic, embedding similarity, alias match). Useful for tuning match weights and diagnosing entity resolution issues.
 
 ## 🏗️ Architecture
 
@@ -253,6 +269,8 @@ graph TB
 
     Dispatch <--> LA[LightAgent]
     Dispatch <--> CA[ClimateAgent]
+    Dispatch <--> SA[SceneAgent]
+    Dispatch <--> LiA[ListsAgent]
     Dispatch <--> GA[GeneralAgent]
     Dispatch <-->|A2A| A2A[A2AHost]
 
@@ -267,6 +285,8 @@ graph TB
         Azure[Azure AI Foundry]
         OAI[OpenAI]
         Ollama[Ollama]
+        Anthropic[Anthropic]
+        Gemini[Google Gemini]
     end
 
     Router -.-> Azure
@@ -279,7 +299,7 @@ graph TB
 
 1. **User Input** → Home Assistant receives a voice or text command
 2. **Conversation API** → Lucia custom component sends the message via JSON-RPC
-3. **Orchestrator** → RouterExecutor selects the best agent using semantic matching
+3. **Orchestrator** → RouterExecutor selects the best agent using semantic matching and prompt caching
 4. **Agent Dispatch** → AgentDispatchExecutor forwards the request (in-process or via A2A)
 5. **LLM Processing** → The selected agent calls its LLM with domain-specific tools
 6. **Result Aggregation** → ResultAggregatorExecutor formats the final response
@@ -292,9 +312,12 @@ graph TB
 | **AgentHost** (`lucia.AgentHost`) | Main API server hosting the orchestrator, agents, auth, configuration, and dashboard proxy |
 | **A2AHost** (`lucia.A2AHost`) | Satellite host for running agents as separate processes (MusicAgent, TimerAgent) |
 | **Orchestrator** (`lucia.Agents/Orchestration`) | Router → Dispatch → Aggregator pipeline for multi-agent coordination |
-| **Dashboard** (`lucia-dashboard`) | React 19 SPA for management, traces, exports, and configuration |
+| **Dashboard** (`lucia-dashboard`) | React 19 SPA with 20+ pages for management, traces, entity control, exports, and configuration |
 | **Home Assistant Integration** (`custom_components/lucia`) | Python custom component with conversation platform |
-| **HomeAssistant Client** (`lucia.HomeAssistant`) | Strongly-typed .NET client for the HA REST API |
+| **HomeAssistant Client** (`lucia.HomeAssistant`) | Strongly-typed .NET client for the HA REST and WebSocket APIs |
+| **Entity Location Service** (`lucia.Agents/Services`) | Centralized entity resolution with hierarchical floor/area/entity search and Redis caching |
+| **HybridEntityMatcher** (`lucia.Agents/Models`) | Multi-weighted entity matching engine (Levenshtein, Jaro-Winkler, phonetic, embeddings, aliases) |
+| **Model Provider System** (`lucia.Agents/Services`) | Configurable LLM backend management with per-agent model assignment and connection testing |
 | **Plugin System** (`lucia.Agents/Extensions`) | Roslyn script plugin engine with four-hook lifecycle, repository management, and dashboard UI |
 | **Alarm Clock System** (`lucia.Agents/Alarms`) | CRON-scheduled alarms with volume ramping, sound library, and voice dismissal |
 | **Presence Detection** (`lucia.Agents/Services`) | Auto-discovered room-level presence with confidence-weighted sensor fusion |
@@ -313,14 +336,16 @@ lucia-dotnet/
 │   ├── Extensions/               # A2A endpoint mapping
 │   └── Services/                 # Agent initialization
 ├── lucia.Agents/                 # Shared agent implementations and orchestration
-│   ├── Abstractions/             # ILuciaPlugin, IWebSearchSkill, IPluginRepositorySource
-│   ├── Agents/                   # GeneralAgent, LightAgent, OrchestratorAgent
+│   ├── Abstractions/             # ILuciaPlugin, IWebSearchSkill, IEntityLocationService, IHybridEntityMatcher
+│   ├── Agents/                   # GeneralAgent, LightAgent, ClimateAgent, SceneAgent, ListsAgent, OrchestratorAgent
 │   ├── Configuration/            # Plugin, repository, and manifest models
 │   ├── Extensions/               # PluginLoader, PluginScriptHost, service registrations
+│   ├── Integration/              # SearchTermCache, SearchTermNormalizer
+│   ├── Models/                   # HybridEntityMatcher, HomeAssistantEntity, HybridMatchOptions
 │   ├── Orchestration/            # RouterExecutor, AgentDispatchExecutor, etc.
 │   ├── Registry/                 # Agent discovery and registration
-│   ├── Services/                 # PluginManagementService, Git/Local repo sources
-│   ├── Skills/                   # LightControlSkill and tool definitions
+│   ├── Services/                 # EntityLocationService, PresenceDetection, PluginManagement, ModelProviders
+│   ├── Skills/                   # LightControlSkill, ClimateControlSkill, FanControlSkill, SceneControlSkill, ListSkill
 │   └── Training/                 # Trace capture and export
 ├── lucia.MusicAgent/             # Music Assistant playback agent (A2AHost)
 ├── lucia.TimerAgent/             # Timer and reminder agent (A2AHost)
@@ -330,7 +355,7 @@ lucia-dotnet/
 │   └── Configuration/            # Client settings
 ├── lucia-dashboard/              # React 19 + Vite 7 management dashboard
 │   └── src/
-│       ├── pages/                # Activity, Traces, Agents, Config, Exports, Cache, Tasks, Alarms, Presence, Plugins
+│       ├── pages/                # Activity, Traces, Agents, AgentDefs, ModelProviders, McpServers, Config, Exports, Cache, Tasks, Alarms, Presence, Plugins, EntityLocation, MatcherDebug, SkillOptimizer, Lists
 │       ├── components/           # MeshGraph, PluginRepoDialog, RestartBanner, shared UI
 │       ├── hooks/                # useActivityStream and custom React hooks
 │       ├── context/              # Auth context and providers
@@ -362,7 +387,7 @@ Lucia uses a schema-driven configuration system stored in MongoDB. On first run,
 | Section | Description |
 |---------|-------------|
 | **HomeAssistant** | Base URL, access token, API timeout, SSL validation |
-| **RouterExecutor** | Agent routing model and parameters |
+| **RouterExecutor** | Agent routing model, semantic similarity threshold |
 | **AgentInvoker** | Agent execution timeout settings |
 | **ResultAggregator** | Response aggregation settings |
 | **Redis** | Connection string and task persistence TTL |
@@ -370,6 +395,8 @@ Lucia uses a schema-driven configuration system stored in MongoDB. On first run,
 | **TraceCapture** | Conversation trace storage settings |
 | **ConnectionStrings** | AI Foundry, MongoDB, and Redis connection details |
 | **Agents** | Agent definitions and registration |
+| **ModelProviders** | LLM backend configurations (per-agent model assignment) |
+| **PromptCache** | Routing and chat cache thresholds (hot-reloadable) |
 
 ### Home Assistant Integration Setup
 
@@ -385,7 +412,7 @@ After installing the custom component:
 
 ### A2A Protocol (Agent-to-Agent)
 
-Agents communicate via the A2A Protocol with JSON-RPC 2.0. The AgentHost runs in-process agents (LightAgent, GeneralAgent, Orchestrator) while the A2AHost runs satellite agents (MusicAgent, TimerAgent) as separate processes.
+Agents communicate via the A2A Protocol with JSON-RPC 2.0. The AgentHost runs in-process agents (LightAgent, ClimateAgent, SceneAgent, ListsAgent, GeneralAgent, Orchestrator) while the A2AHost runs satellite agents (MusicAgent, TimerAgent) as separate processes.
 
 #### Agent Discovery
 
@@ -779,19 +806,26 @@ The Aspire Dashboard provides built-in log aggregation, trace visualization, and
 - Multi-agent orchestration with Router → Dispatch → Aggregator pipeline
 - LightAgent with semantic entity search
 - ClimateAgent with HVAC and fan control
+- SceneAgent for scene activation and management
+- ListsAgent for todo and reminder list management
 - MusicAgent for Music Assistant playback
 - TimerAgent with background timer lifecycle and satellite announce
 - Entity Location Service with floor/area/alias/feature resolution
-- Runtime MCP tool server registration and dynamic agent definitions
+- HybridEntityMatcher with multi-weighted search (Levenshtein, Jaro-Winkler, phonetic, embeddings, aliases)
+- Unified entity architecture with `HomeAssistantEntity` base class and domain subtypes
+- Entity visibility filtering with dashboard controls and HA exposed-entity WebSocket support
+- Model Provider system with 6+ LLM backends configurable from the dashboard
+- Runtime MCP tool server registration and dynamic agent definitions with hot-reload
 - A2A Protocol (JSON-RPC 2.0) implementation
 - Home Assistant custom component with agent selection
-- React management dashboard with traces, exports, configuration
+- Guided setup wizard with AI provider configuration, agent health gate, and resume flow
+- React management dashboard (20+ pages) with traces, entity management, exports, configuration
 - Live Activity Dashboard with real-time agent mesh visualization
 - Full OpenTelemetry coverage for LLM calls (gen_ai.* spans)
 - Per-agent error rate metrics and observability
-- Prompt caching for routing acceleration
+- Two-tier prompt caching (routing + chat) with semantic similarity and hot-reloadable thresholds
 - Helm charts and Kubernetes manifests
-- Multi-LLM support (Azure AI Foundry, OpenAI, Ollama)
+- Multi-LLM support (Azure AI Foundry, OpenAI, Ollama, Anthropic, Google Gemini, Azure AI Inference)
 - Dataset export for fine-tuning workflows
 - Schema-driven configuration system
 - Playwright E2E tests for all agent routing modes
@@ -804,18 +838,24 @@ The Aspire Dashboard provides built-in log aggregation, trace visualization, and
 - Mesh mode deployment hardening (conditional service registration, URL resolution, endpoint deduplication)
 - Script-based plugin system with Roslyn CSharpScript, four-hook lifecycle, and plugin repository management
 - Plugin dashboard with store, install/uninstall, enable/disable, and repository management
+- Internal token authentication for service-to-service A2A communication
+- SemVer versioning with preview release support in CI/CD
+- Matcher debug API and dashboard page for testing entity search queries
 
 ### 🔄 In Progress
 
-- WebSocket real-time event streaming from Home Assistant
+- Unified entity search pipeline (replacing per-skill entity lookups with HybridEntityMatcher)
+- WebSocket real-time event streaming from Home Assistant (persistent connection)
 - HACS store listing for one-click installation
 
 ### ⏳ Planned
 
-- SceneAgent (scene activation and management)
+- CalendarAgent (calendar management and scheduling)
+- SecurityAgent (security monitoring and alerts)
 - Pattern recognition and automation suggestions
-- Local LLM optimization (Ollama performance tuning)
+- Local LLM optimization (Ollama performance tuning, edge deployment)
 - Voice integration (local STT/TTS)
+- GitHub Copilot SDK as a first-class LLM provider
 - Mobile companion app
 
 See [.docs/product/roadmap.md](.docs/product/roadmap.md) for the detailed roadmap.
@@ -833,13 +873,14 @@ We welcome contributions! Whether you're fixing bugs, adding agents, or improvin
 
 ### Areas for Contribution
 
-- 🤖 New specialized agents (security, scene, calendar, etc.)
+- 🤖 New specialized agents (security, calendar, media, etc.)
 - 🔌 Community plugins (search providers, notification services, calendar integrations)
 - 🧠 Additional LLM provider integrations
 - 🏠 Enhanced Home Assistant integrations
 - 📊 Dashboard features and improvements
 - 📚 Documentation
 - 🧪 Test coverage
+- 🌍 Translations for the Home Assistant custom component
 
 ## 📄 License
 
