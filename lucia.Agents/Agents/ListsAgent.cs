@@ -142,8 +142,7 @@ public sealed class ListsAgent : ILuciaAgent
             ChatOptions = new()
             {
                 Instructions = Instructions,
-                Tools = Tools,
-                ToolMode = ChatToolMode.RequireAny
+                Tools = Tools
             }
         };
 

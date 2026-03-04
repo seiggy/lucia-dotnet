@@ -184,9 +184,7 @@ public sealed class LightAgent : ILuciaAgent
             ChatOptions = new ChatOptions
             {
                 Instructions = Instructions,
-                Tools = Tools,
-                ToolMode = ChatToolMode.RequireAny,
-                AllowMultipleToolCalls = true
+                Tools = Tools
             }
         };
 

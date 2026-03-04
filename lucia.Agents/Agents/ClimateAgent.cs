@@ -248,8 +248,7 @@ public sealed class ClimateAgent : ILuciaAgent
             ChatOptions = new ChatOptions
             {
                 Instructions = Instructions,
-                Tools = Tools,
-                ToolMode = ChatToolMode.RequireAny
+                Tools = Tools
             }
         };
 
