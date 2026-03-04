@@ -22,3 +22,5 @@ jobs:
         with:
           category: "integration"
           ignore: brands
+      - name: hassfest validate
+        uses: home-assistant/actions/hassfest@master

@@ -1,4 +1,5 @@
 ﻿{
   "name": "lucia Home Agent",
-  "homeassistant": "2024.12.0b0"
+  "homeassistant": "2025.3.0b0",
+  "hacs": "2.0.0"
 }
