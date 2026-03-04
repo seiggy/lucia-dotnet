@@ -5,7 +5,7 @@ on:
     branches:
       - main
     tags:
-      - '20[2-9][0-9].*.*'  # Calendar versioning (YYYY.MM.DD and YYYY.MM.DD-preview.N)
+      - 'v[0-9]+.[0-9]+.[0-9]+*'  # Semantic versioning (vX.Y.Z and vX.Y.Z-preview.N)
   pull_request:
     branches:
       - main
@@ -83,12 +83,15 @@ jobs:
         run: |
           IS_PREVIEW=false
           VERSION_TAG=""
-          if [[ "${{ github.ref_type }}" == "tag" && "${{ github.ref_name }}" == *"-preview"* ]]; then
+          REF_NAME="${{ github.ref_name }}"
+          # Strip leading 'v' prefix from tag for Docker image tags
+          VERSION="${REF_NAME#v}"
+          if [[ "${{ github.ref_type }}" == "tag" && "$VERSION" == *"-preview"* ]]; then
             IS_PREVIEW=true
-            VERSION_TAG="${{ github.ref_name }}"
+            VERSION_TAG="$VERSION"
           elif [[ "${{ inputs.preview }}" == "true" ]]; then
             IS_PREVIEW=true
-            VERSION_TAG="$(date +'%Y.%m.%d')-preview.$(echo ${{ github.sha }} | cut -c1-7)"
+            VERSION_TAG="0.0.0-preview.$(echo ${{ github.sha }} | cut -c1-7)"
           fi
           echo "is_preview=$IS_PREVIEW" >> "$GITHUB_OUTPUT"
           echo "version_tag=$VERSION_TAG" >> "$GITHUB_OUTPUT"
@@ -99,12 +102,12 @@ jobs:
         with:
           images: ${{ matrix.image }}
           tags: |
-            type=match,pattern=(20\d{2}\.\d+\.\d+.*),group=1
-            type=raw,value={{date 'YYYY.MM.DD'}},enable=${{ github.event_name != 'pull_request' && steps.preview.outputs.is_preview != 'true' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ github.event_name != 'pull_request' && steps.preview.outputs.is_preview != 'true' && github.ref_type == 'tag' }}
             type=ref,event=branch
             type=ref,event=pr
-            type=sha,prefix={{date 'YYYY.MM.DD'}}-
-            type=raw,value=latest,enable=${{ github.event_name != 'pull_request' && steps.preview.outputs.is_preview != 'true' }}
+            type=sha,prefix=
             type=raw,value=${{ steps.preview.outputs.version_tag }},enable=${{ steps.preview.outputs.is_preview == 'true' && steps.preview.outputs.version_tag != '' }}
           labels: |
             org.opencontainers.image.title=${{ matrix.title }}
