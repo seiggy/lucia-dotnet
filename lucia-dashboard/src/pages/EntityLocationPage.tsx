@@ -412,7 +412,7 @@ export default function EntityLocationPage() {
 
   // ── Bulk action bar ───────────────────────────────────────────
 
-  function BulkActionBar({ entityList }: { entityList: EntityLocationInfo[] }) {
+  function BulkActionBar({ entityList: _entityList }: { entityList: EntityLocationInfo[] }) {
     const count = selectedEntityIds.size
     if (count === 0) return null
 
