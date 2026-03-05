@@ -849,6 +849,18 @@ export function connectActivityStream(
 
 // ── Entity Location Cache ──────────────────────────────────────────
 
+export interface EntityLocationEmbeddingProgress {
+  floorTotalCount: number
+  floorGeneratedCount: number
+  areaTotalCount: number
+  areaGeneratedCount: number
+  entityTotalCount: number
+  entityGeneratedCount: number
+  entityMissingCount: number
+  isGenerationRunning: boolean
+  lastLoadedAt: string | null
+}
+
 export async function fetchEntityLocationSummary() {
   const res = await fetch(`${BASE}/entity-location`);
   if (!res.ok) throw new Error(`Failed to fetch location summary: ${res.statusText}`);
@@ -884,6 +896,42 @@ export async function searchEntityLocation(term: string, domain?: string) {
 export async function invalidateEntityLocationCache() {
   const res = await fetch(`${BASE}/entity-location/invalidate`, { method: 'POST' });
   if (!res.ok) throw new Error(`Failed to invalidate location cache: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchEntityLocationEmbeddingProgress(): Promise<EntityLocationEmbeddingProgress> {
+  const res = await fetch(`${BASE}/entity-location/embedding-progress`);
+  if (!res.ok) throw new Error(`Failed to fetch embedding progress: ${res.statusText}`);
+  return res.json();
+}
+
+export function connectEntityLocationEmbeddingProgressStream(
+  onProgress: (progress: EntityLocationEmbeddingProgress) => void,
+  onError?: (err: Event) => void,
+): EventSource {
+  const source = new EventSource(`${BASE}/entity-location/embedding-progress/live`);
+  source.onmessage = (e) => {
+    try {
+      onProgress(JSON.parse(e.data));
+    } catch { /* ignore parse errors */ }
+  };
+  if (onError) source.onerror = onError;
+  return source;
+}
+
+export async function evictEntityLocationEmbedding(itemType: 'floor' | 'area' | 'entity', itemId: string) {
+  const res = await fetch(`${BASE}/entity-location/embeddings/${encodeURIComponent(itemType)}/${encodeURIComponent(itemId)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`Failed to evict embedding: ${res.statusText}`);
+  return res.json();
+}
+
+export async function regenerateEntityLocationEmbedding(itemType: 'floor' | 'area' | 'entity', itemId: string) {
+  const res = await fetch(`${BASE}/entity-location/embeddings/${encodeURIComponent(itemType)}/${encodeURIComponent(itemId)}/regenerate`, {
+    method: 'POST',
+  });
+  if (!res.ok) throw new Error(`Failed to regenerate embedding: ${res.statusText}`);
   return res.json();
 }
 

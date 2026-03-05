@@ -1,16 +1,21 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   fetchEntityLocationSummary,
+  fetchEntityLocationEmbeddingProgress,
   fetchEntityLocationFloors,
   fetchEntityLocationAreas,
   fetchEntityLocationEntities,
   searchEntityLocation,
+  connectEntityLocationEmbeddingProgressStream,
   invalidateEntityLocationCache,
+  evictEntityLocationEmbedding,
+  regenerateEntityLocationEmbedding,
   fetchEntityVisibility,
   updateVisibilitySettings,
   updateEntityAgents,
   clearAllAgentFilters,
   fetchAvailableAgents,
+  type EntityLocationEmbeddingProgress,
 } from '../api'
 import {
   MapPin, Building2, Layers, Hash, Loader2, RefreshCw, Search, Clock,
@@ -43,6 +48,7 @@ interface EntityLocationInfo {
   aliases: string[]
   areaId: string | null
   platform: string | null
+  embeddingGenerated?: boolean
   includeForAgent: string[] | null
 }
 
@@ -50,6 +56,11 @@ interface LocationSummary {
   floorCount: number
   areaCount: number
   entityCount: number
+  floorEmbeddingsGenerated?: number
+  areaEmbeddingsGenerated?: number
+  entityEmbeddingsGenerated?: number
+  entityEmbeddingsMissing?: number
+  embeddingGenerationInProgress?: boolean
   lastLoadedAt: string | null
 }
 
@@ -91,6 +102,8 @@ export default function EntityLocationPage() {
   const [domainFilter, setDomainFilter] = useState('')
   const [entityPage, setEntityPage] = useState(0)
   const entityPageSize = 50
+  const [embeddingActionKey, setEmbeddingActionKey] = useState<string | null>(null)
+  const [embeddingProgress, setEmbeddingProgress] = useState<EntityLocationEmbeddingProgress | null>(null)
 
   // Visibility state
   const [useExposedOnly, setUseExposedOnly] = useState(false)
@@ -105,6 +118,8 @@ export default function EntityLocationPage() {
   // Per-row agent dropdown
   const [agentDropdownEntityId, setAgentDropdownEntityId] = useState<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const embeddingStreamRef = useRef<EventSource | null>(null)
+  const embeddingGenerationWasRunningRef = useRef(false)
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -126,6 +141,33 @@ export default function EntityLocationPage() {
       setError(err instanceof Error ? err.message : 'Failed to load summary')
     }
   }, [])
+
+  const applyEmbeddingProgress = useCallback((progress: EntityLocationEmbeddingProgress) => {
+    setEmbeddingProgress(progress)
+    setSummary(prev => {
+      if (!prev) {
+        return prev
+      }
+
+      return {
+        ...prev,
+        floorEmbeddingsGenerated: progress.floorGeneratedCount,
+        areaEmbeddingsGenerated: progress.areaGeneratedCount,
+        entityEmbeddingsGenerated: progress.entityGeneratedCount,
+        entityEmbeddingsMissing: progress.entityMissingCount,
+        embeddingGenerationInProgress: progress.isGenerationRunning,
+      }
+    })
+  }, [])
+
+  const loadEmbeddingProgress = useCallback(async () => {
+    try {
+      const progress = await fetchEntityLocationEmbeddingProgress()
+      applyEmbeddingProgress(progress)
+    } catch {
+      // Non-fatal; SSE stream may still reconnect and provide updates.
+    }
+  }, [applyEmbeddingProgress])
 
   const loadVisibility = useCallback(async () => {
     try {
@@ -160,13 +202,47 @@ export default function EntityLocationPage() {
 
   useEffect(() => {
     loadSummary()
+    loadEmbeddingProgress()
     loadVisibility()
     loadTab('floors')
-  }, [loadSummary, loadVisibility, loadTab])
+  }, [loadSummary, loadEmbeddingProgress, loadVisibility, loadTab])
 
   useEffect(() => {
     if (activeTab !== 'search') loadTab(activeTab)
   }, [activeTab, loadTab])
+
+  useEffect(() => {
+    const source = connectEntityLocationEmbeddingProgressStream(
+      (progress) => {
+        applyEmbeddingProgress(progress)
+      },
+      () => {
+        // EventSource auto-reconnects; avoid noisy UI errors for transient disconnects.
+      },
+    )
+
+    embeddingStreamRef.current = source
+
+    return () => {
+      source.close()
+      if (embeddingStreamRef.current === source) {
+        embeddingStreamRef.current = null
+      }
+    }
+  }, [applyEmbeddingProgress])
+
+  useEffect(() => {
+    if (!embeddingProgress) {
+      return
+    }
+
+    const wasRunning = embeddingGenerationWasRunningRef.current
+    embeddingGenerationWasRunningRef.current = embeddingProgress.isGenerationRunning
+
+    if (wasRunning && !embeddingProgress.isGenerationRunning && activeTab === 'entities') {
+      void loadTab('entities')
+    }
+  }, [embeddingProgress, activeTab, loadTab])
 
   async function handleInvalidate() {
     if (!confirm('Invalidate and reload all location data from Home Assistant?')) return
@@ -174,7 +250,7 @@ export default function EntityLocationPage() {
     setError(null)
     try {
       await invalidateEntityLocationCache()
-      await Promise.all([loadSummary(), loadVisibility()])
+      await Promise.all([loadSummary(), loadEmbeddingProgress(), loadVisibility()])
       await loadTab(activeTab)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to invalidate cache')
@@ -209,6 +285,37 @@ export default function EntityLocationPage() {
       setError(err instanceof Error ? err.message : 'Search failed')
     } finally {
       setSearching(false)
+    }
+  }
+
+  async function handleEvictEmbedding(entityId: string) {
+    if (!confirm(`Evict cached embedding for "${entityId}"?`)) return
+    setEmbeddingActionKey(`${entityId}:evict`)
+    setError(null)
+    try {
+      await evictEntityLocationEmbedding('entity', entityId)
+      setEntities(prev => prev.map(e => e.entityId === entityId ? { ...e, embeddingGenerated: false } : e))
+      setSearchResults(prev => prev.map(e => e.entityId === entityId ? { ...e, embeddingGenerated: false } : e))
+      await loadSummary()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to evict embedding')
+    } finally {
+      setEmbeddingActionKey(null)
+    }
+  }
+
+  async function handleRegenerateEmbedding(entityId: string) {
+    setEmbeddingActionKey(`${entityId}:regenerate`)
+    setError(null)
+    try {
+      await regenerateEntityLocationEmbedding('entity', entityId)
+      setEntities(prev => prev.map(e => e.entityId === entityId ? { ...e, embeddingGenerated: true } : e))
+      setSearchResults(prev => prev.map(e => e.entityId === entityId ? { ...e, embeddingGenerated: true } : e))
+      await loadSummary()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to regenerate embedding')
+    } finally {
+      setEmbeddingActionKey(null)
     }
   }
 
@@ -523,7 +630,9 @@ export default function EntityLocationPage() {
               <th className="px-4 py-3">Friendly Name</th>
               <th className="px-4 py-3">Domain</th>
               <th className="px-4 py-3">Area</th>
+              <th className="px-4 py-3">Embedding</th>
               <th className="px-4 py-3">Agents</th>
+              <th className="px-4 py-3">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-stone/50">
@@ -546,13 +655,42 @@ export default function EntityLocationPage() {
                 <td className="px-4 py-3"><Badge>{e.domain}</Badge></td>
                 <td className="px-4 py-3 text-fog">{e.areaId ?? '—'}</td>
                 <td className="px-4 py-3">
+                  {e.embeddingGenerated
+                    ? <Badge color="sage">Generated</Badge>
+                    : <Badge color="rose">Missing</Badge>}
+                </td>
+                <td className="px-4 py-3">
                   <AgentDropdown entityId={e.entityId} />
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => handleRegenerateEmbedding(e.entityId)}
+                      disabled={embeddingActionKey !== null}
+                      className="rounded-md p-1 text-sky-400 transition-colors hover:bg-sky-400/15 disabled:opacity-40"
+                      title="Regenerate embedding"
+                    >
+                      {embeddingActionKey === `${e.entityId}:regenerate`
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <RefreshCw className="h-3.5 w-3.5" />}
+                    </button>
+                    <button
+                      onClick={() => handleEvictEmbedding(e.entityId)}
+                      disabled={embeddingActionKey !== null}
+                      className="rounded-md p-1 text-rose transition-colors hover:bg-rose/15 disabled:opacity-40"
+                      title="Evict cached embedding"
+                    >
+                      {embeddingActionKey === `${e.entityId}:evict`
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <Trash2 className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
             {entityList.length === 0 && (
               <tr>
-                <td colSpan={showSelect ? 6 : 5} className="px-4 py-12 text-center text-dust">
+                <td colSpan={showSelect ? 8 : 7} className="px-4 py-12 text-center text-dust">
                   No entities found.
                 </td>
               </tr>
@@ -562,6 +700,17 @@ export default function EntityLocationPage() {
       </div>
     )
   }
+
+  const entityTotalForProgress = embeddingProgress?.entityTotalCount ?? summary?.entityCount ?? 0
+  const entityGeneratedForProgress = embeddingProgress?.entityGeneratedCount ?? summary?.entityEmbeddingsGenerated ?? 0
+  const entityMissingForProgress = embeddingProgress?.entityMissingCount
+    ?? Math.max(entityTotalForProgress - entityGeneratedForProgress, 0)
+  const entityProgressPercent = entityTotalForProgress > 0
+    ? Math.round((entityGeneratedForProgress / entityTotalForProgress) * 100)
+    : 0
+  const embeddingGenerationInProgress = embeddingProgress?.isGenerationRunning
+    ?? summary?.embeddingGenerationInProgress
+    ?? false
 
   return (
     <div className="space-y-6">
@@ -635,6 +784,9 @@ export default function EntityLocationPage() {
               <span className="text-xs font-medium uppercase tracking-wider text-dust">Entities</span>
             </div>
             <p className="font-display text-2xl font-bold text-sky-400">{summary.entityCount}</p>
+            <p className="mt-1 text-xs text-dust">
+              Embeddings: {summary.entityEmbeddingsGenerated ?? 0}/{summary.entityCount}
+            </p>
           </div>
           <div className="glass-panel rounded-xl p-4">
             <div className="mb-1 flex items-center gap-1.5">
@@ -643,6 +795,33 @@ export default function EntityLocationPage() {
             </div>
             <p className="text-sm font-medium text-fog">{formatDate(summary.lastLoadedAt)}</p>
           </div>
+        </div>
+      )}
+
+      {summary && (
+        <div className="glass-panel rounded-xl p-4">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-light">Entity Embedding Generation</span>
+              {embeddingGenerationInProgress
+                ? <Badge color="amber">In Progress</Badge>
+                : <Badge color="sage">Idle</Badge>}
+            </div>
+            <span className="text-xs text-dust">
+              Missing embeddings: {entityMissingForProgress} / {entityTotalForProgress}
+            </span>
+          </div>
+
+          <div className="h-2 w-full overflow-hidden rounded-full bg-stone/50">
+            <div
+              className="h-full rounded-full bg-sky-400 transition-all duration-300"
+              style={{ width: `${Math.min(entityProgressPercent, 100)}%` }}
+            />
+          </div>
+
+          <p className="mt-2 text-xs text-dust">
+            Generated {entityGeneratedForProgress} of {entityTotalForProgress} ({entityProgressPercent}%)
+          </p>
         </div>
       )}
 

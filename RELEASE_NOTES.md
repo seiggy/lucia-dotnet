@@ -14,6 +14,7 @@
 - **Unified Entity Model** — All Home Assistant entity types now share a common `HomeAssistantEntity` base with domain-specific subtypes.
 - **HybridEntityMatcher** — Multi-weighted search combines Levenshtein, Jaro-Winkler, phonetic matching, aliases, and token overlap.
 - **Prompt Cache Overhaul** — Embeddings now persist correctly, routing/chat thresholds are split, and cache settings hot-reload without restart.
+- **Embedding Resiliency + Live Progress** — Entity-location embeddings now generate in throttled background batches, expose SSE progress, and support per-item evict/regenerate controls.
 - **Home Assistant Multi-turn Continuity** — Follow-up conversation flow restored and HA commit validation tightened.
 - **OpenRouter + Discovery** — OpenRouter added as a first-class provider with model discovery support.
 - **Plugin/Setup/Dashboard Stabilization** — Headless setup and HA setup-step UX improvements, plugin installation reliability fixes, and dashboard/tooling cleanup.
@@ -41,6 +42,15 @@
 - **`EntityVisibilityConfig`** — Per-entity visibility settings stored in MongoDB, letting users hide entities from Lucia without removing them from Home Assistant.
 - **`EntityVisibilityApi`** — REST endpoints for bulk visibility management with area/domain filtering.
 - **HA Exposed Entity List** — Support for pulling the pre-filtered exposed entity list from Home Assistant via WebSocket (`homeassistant/expose_entity/list`).
+
+### 📡 Entity Embedding Resiliency + Live Progress
+
+- **Name fallback for embedding safety** — When an entity/floor/area has no name or alias, matchable names now fall back to IDs (entity IDs strip domain and replace `_` with spaces) to avoid invalid empty embedding inputs.
+- **Non-blocking embedding generation** — `EntityLocationService` now loads/cache location data first, then generates embeddings asynchronously in throttled batches with retry/backoff.
+- **Batch embedding pipeline** — Uses provider batch generation (`GenerateAsync(IEnumerable<string>)`) to reduce request pressure and better handle provider-side limits.
+- **Progress API + SSE stream** — Added `/api/entity-location/embedding-progress` and `/api/entity-location/embedding-progress/live` for real-time generation status.
+- **Per-item cache controls** — Added embedding eviction/regeneration endpoints for floors, areas, and entities.
+- **Dashboard live status** — Entity Location page now shows a live generation progress bar, missing-embedding count, and updates without manual refresh.
 
 ### 🧠 Prompt Cache Overhaul
 
@@ -98,12 +108,15 @@
 - **Home Assistant follow-up flow regression** — Fixed continuity and follow-up behavior for multi-turn requests.
 - **Plugin install regressions** — Fixed install path/tooling issues affecting plugin usability.
 - **HACS validation workflow failure** — Corrected CI step order to ensure repository content is present.
+- **Startup embedding failures from blank input** — Prevented invalid embedding calls caused by empty match names.
+- **Embedding request bursts during cache reloads** — Moved generation to throttled background batching to reduce provider rate-limit pressure.
 
 ## 🧪 Testing
 
 - **Playwright e2e test** — `PromptCacheRoutingTests` validates prompt-cache embedding round-trip and semantic route matching behavior.
 - **Embedding diagnostics** — `EmbeddingMatchingTests` measure similarity behavior across synonym/opposite/cross-domain prompt variants.
 - **Plugin/install regression coverage** — Added and updated tests around plugin installability and related dashboard/setup flows.
+- **Name fallback tests** — `EntityMatchNameFormatterTests` validates alias sanitization and ID-based fallback behavior used by embedding inputs.
 
 ## 📋 New Files
 
@@ -128,7 +141,10 @@
 | `lucia.HomeAssistant/Models/ExposedEntityListResponse.cs` | HA WebSocket exposed entity response |
 | `lucia.AgentHost/Apis/EntityVisibilityApi.cs` | Entity visibility REST endpoints |
 | `lucia.AgentHost/Apis/MatcherDebugApi.cs` | Matcher debug/testing REST endpoints |
+| `lucia.Agents/Models/HomeAssistant/EntityLocationEmbeddingProgress.cs` | Embedding coverage/progress snapshot model |
+| `lucia.Agents/Services/EntityMatchNameFormatter.cs` | Safe name/alias formatter with ID fallback |
 | `lucia-dashboard/src/pages/MatcherDebugPage.tsx` | Matcher debug dashboard page |
+| `lucia-dashboard/src/pages/EntityLocationPage.tsx` | Live embedding progress UI + embedding actions |
 | `lucia.PlaywrightTests/Agents/PromptCacheRoutingTests.cs` | Cache embedding e2e test |
 
 ## 🗑️ Removed / Deprecated
