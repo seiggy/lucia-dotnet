@@ -4,6 +4,7 @@ import {
   fetchPresenceSensors, fetchOccupiedAreas, fetchPresenceConfig,
   updatePresenceConfig, updatePresenceSensor, deletePresenceSensor, refreshPresenceSensors
 } from '../api'
+import CustomSelect from '../components/CustomSelect'
 import type { PresenceSensorMapping, OccupiedArea, PresenceConfidence } from '../types'
 
 const CONFIDENCE_LABELS: Record<PresenceConfidence, { label: string; color: string }> = {
@@ -15,6 +16,11 @@ const CONFIDENCE_LABELS: Record<PresenceConfidence, { label: string; color: stri
 }
 
 const CONFIDENCE_OPTIONS: PresenceConfidence[] = ['Highest', 'High', 'Medium', 'Low', 'None']
+const CONFIDENCE_SELECT_OPTIONS = CONFIDENCE_OPTIONS.map(value => ({ value, label: value }))
+
+function isPresenceConfidence(value: string): value is PresenceConfidence {
+  return CONFIDENCE_OPTIONS.includes(value as PresenceConfidence)
+}
 
 export default function PresencePage() {
   const [sensors, setSensors] = useState<PresenceSensorMapping[]>([])
@@ -237,15 +243,17 @@ export default function PresencePage() {
                     </div>
 
                     {/* Confidence selector */}
-                    <select
+                    <CustomSelect
+                      options={CONFIDENCE_SELECT_OPTIONS}
                       value={sensor.confidence}
-                      onChange={e => changeConfidence(sensor, e.target.value as PresenceConfidence)}
-                      className="rounded-lg border border-stone/40 bg-basalt px-2 py-1.5 text-xs text-light input-focus"
-                    >
-                      {CONFIDENCE_OPTIONS.map(c => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
+                      onChange={value => {
+                        if (isPresenceConfidence(value)) {
+                          changeConfidence(sensor, value)
+                        }
+                      }}
+                      className="w-28"
+                      size="sm"
+                    />
 
                     {/* Toggle enabled/disabled */}
                     <button

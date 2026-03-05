@@ -87,6 +87,30 @@ public sealed class ModelProviderResolverTests
 
     #endregion
 
+    #region OpenRouter
+
+    [Fact]
+    public void CreateClient_OpenRouter_UsesDefaultEndpoint_ReturnsClient()
+    {
+        var provider = MakeProvider(ProviderType.OpenRouter,
+            endpoint: null,
+            model: "openai/gpt-4o");
+        using var client = _resolver.CreateClient(provider);
+        Assert.NotNull(client);
+    }
+
+    [Fact]
+    public void CreateClient_OpenRouter_WithCustomEndpoint_ReturnsClient()
+    {
+        var provider = MakeProvider(ProviderType.OpenRouter,
+            endpoint: "https://custom-openrouter.example/api/v1",
+            model: "openai/gpt-4o");
+        using var client = _resolver.CreateClient(provider);
+        Assert.NotNull(client);
+    }
+
+    #endregion
+
     #region Azure OpenAI
 
     [Fact]
@@ -321,6 +345,14 @@ public sealed class ModelProviderResolverTests
         var provider = MakeProvider(ProviderType.OpenAI,
             endpoint: "https://custom-endpoint.example.com/v1",
             model: "text-embedding-3-small");
+        var generator = _resolver.CreateEmbeddingGenerator(provider);
+        Assert.NotNull(generator);
+    }
+
+    [Fact]
+    public void CreateEmbeddingGenerator_OpenRouter_ReturnsGenerator()
+    {
+        var provider = MakeProvider(ProviderType.OpenRouter, model: "text-embedding-3-small");
         var generator = _resolver.CreateEmbeddingGenerator(provider);
         Assert.NotNull(generator);
     }

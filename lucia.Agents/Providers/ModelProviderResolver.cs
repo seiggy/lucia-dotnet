@@ -20,11 +20,13 @@ namespace lucia.Agents.Providers;
 
 /// <summary>
 /// Creates IChatClient and IEmbeddingGenerator instances from stored ModelProvider configurations.
-/// Supports OpenAI, Azure OpenAI, Azure AI Inference, Ollama, Anthropic, Google Gemini,
+/// Supports OpenAI, OpenRouter, Azure OpenAI, Azure AI Inference, Ollama, Anthropic, Google Gemini,
 /// and GitHub Copilot SDK.
 /// </summary>
 public sealed class ModelProviderResolver : IModelProviderResolver
 {
+    private const string DefaultOpenRouterEndpoint = "https://openrouter.ai/api/v1";
+
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<ModelProviderResolver> _logger;
     private readonly IServiceProvider _serviceProvider;
@@ -47,6 +49,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         IChatClient inner = provider.ProviderType switch
         {
             ProviderType.OpenAI => CreateOpenAIClient(provider),
+            ProviderType.OpenRouter => CreateOpenRouterClient(provider),
             ProviderType.AzureOpenAI => CreateAzureOpenAIClient(provider),
             ProviderType.AzureAIInference => CreateAzureAIInferenceClient(provider),
             ProviderType.Ollama => CreateOllamaClient(provider),
@@ -72,13 +75,14 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         return provider.ProviderType switch
         {
             ProviderType.OpenAI => CreateOpenAIEmbeddingGenerator(provider),
+            ProviderType.OpenRouter => CreateOpenRouterEmbeddingGenerator(provider),
             ProviderType.AzureOpenAI => CreateAzureOpenAIEmbeddingGenerator(provider),
             ProviderType.AzureAIInference => CreateAzureAIInferenceEmbeddingGenerator(provider),
             ProviderType.Ollama => CreateOllamaEmbeddingGenerator(provider),
             ProviderType.GoogleGemini => CreateGeminiEmbeddingGenerator(provider),
             _ => throw new NotSupportedException(
                 $"Provider type '{provider.ProviderType}' does not support embedding generation. " +
-                "Supported types: OpenAI, AzureOpenAI, AzureAIInference, Ollama, GoogleGemini.")
+                "Supported types: OpenAI, OpenRouter, AzureOpenAI, AzureAIInference, Ollama, GoogleGemini.")
         };
     }
 
@@ -116,15 +120,10 @@ public sealed class ModelProviderResolver : IModelProviderResolver
 
     private static IChatClient CreateOpenAIClient(ModelProvider provider)
     {
-        // Works for OpenAI, OpenRouter, GitHub Models, and any OpenAI-compatible endpoint
+        // Works for OpenAI and generic OpenAI-compatible endpoints.
         var apiKey = provider.Auth.ApiKey ?? "unused";
         var credential = new ApiKeyCredential(apiKey);
-
-        var options = new OpenAIClientOptions();
-        if (!string.IsNullOrWhiteSpace(provider.Endpoint))
-        {
-            options.Endpoint = new Uri(provider.Endpoint);
-        }
+        var options = CreateOpenAiCompatibleOptions(provider.Endpoint);
 
         var client = new OpenAIClient(credential, options);
         return client.GetChatClient(provider.ModelName)
@@ -133,6 +132,33 @@ public sealed class ModelProviderResolver : IModelProviderResolver
             .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
                 cfg.EnableSensitiveData = true)
             .Build();
+    }
+
+    private static IChatClient CreateOpenRouterClient(ModelProvider provider)
+    {
+        var apiKey = provider.Auth.ApiKey ?? "unused";
+        var credential = new ApiKeyCredential(apiKey);
+        var options = CreateOpenAiCompatibleOptions(provider.Endpoint, DefaultOpenRouterEndpoint);
+
+        var client = new OpenAIClient(credential, options);
+        return client.GetChatClient(provider.ModelName)
+            .AsIChatClient()
+            .AsBuilder()
+            .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+                cfg.EnableSensitiveData = true)
+            .Build();
+    }
+
+    private static OpenAIClientOptions CreateOpenAiCompatibleOptions(string? endpoint, string? defaultEndpoint = null)
+    {
+        var options = new OpenAIClientOptions();
+        var resolvedEndpoint = !string.IsNullOrWhiteSpace(endpoint) ? endpoint : defaultEndpoint;
+        if (!string.IsNullOrWhiteSpace(resolvedEndpoint))
+        {
+            options.Endpoint = new Uri(resolvedEndpoint);
+        }
+
+        return options;
     }
 
     private static IChatClient CreateAzureOpenAIClient(ModelProvider provider)
@@ -290,12 +316,21 @@ public sealed class ModelProviderResolver : IModelProviderResolver
     {
         var apiKey = provider.Auth.ApiKey ?? "unused";
         var credential = new ApiKeyCredential(apiKey);
+        var options = CreateOpenAiCompatibleOptions(provider.Endpoint);
 
-        var options = new OpenAIClientOptions();
-        if (!string.IsNullOrWhiteSpace(provider.Endpoint))
-        {
-            options.Endpoint = new Uri(provider.Endpoint);
-        }
+        var client = new OpenAIClient(credential, options);
+        return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator()
+            .AsBuilder()
+            .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+                cfg.EnableSensitiveData = true)
+            .Build();
+    }
+
+    private static IEmbeddingGenerator<string, Embedding<float>> CreateOpenRouterEmbeddingGenerator(ModelProvider provider)
+    {
+        var apiKey = provider.Auth.ApiKey ?? "unused";
+        var credential = new ApiKeyCredential(apiKey);
+        var options = CreateOpenAiCompatibleOptions(provider.Endpoint, DefaultOpenRouterEndpoint);
 
         var client = new OpenAIClient(credential, options);
         return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator()

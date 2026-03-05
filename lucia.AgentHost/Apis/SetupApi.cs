@@ -71,7 +71,8 @@ public static class SetupApi
         var setupComplete = await configStore.GetAsync("Auth:SetupComplete", ct).ConfigureAwait(false);
 
         var providers = await providerRepository.GetEnabledProvidersAsync(ct).ConfigureAwait(false);
-        var hasChatProvider = providers.Any(p => p.Purpose == ModelPurpose.Chat);
+        var hasChatProvider = providers.Any(
+            p => p.Purpose == ModelPurpose.Chat && !string.IsNullOrWhiteSpace(p.ModelName));
 
         return Results.Ok(new
         {

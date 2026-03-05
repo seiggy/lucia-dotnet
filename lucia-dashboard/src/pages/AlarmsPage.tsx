@@ -9,6 +9,7 @@ import {
   dismissAlarm, snoozeAlarm,
   fetchAlarmSounds, createAlarmSound, uploadAlarmSound, deleteAlarmSound, setDefaultAlarmSound,
 } from '../api'
+import CustomSelect from '../components/CustomSelect'
 
 // ── Toast notifications ──
 
@@ -695,16 +696,18 @@ export default function AlarmsPage() {
               {/* Alarm Sound */}
               <div>
                 <label className="block text-xs font-medium uppercase tracking-wider text-dust mb-1.5">Alarm Sound</label>
-                <select
+                <CustomSelect
+                  options={[
+                    { value: '', label: 'TTS Announcement (default)' },
+                    ...sounds.map(s => ({
+                      value: s.id,
+                      label: `${s.name}${s.isDefault ? ' \u2605' : ''}`,
+                    })),
+                  ]}
                   value={alarmForm.alarmSoundId}
-                  onChange={e => setAlarmForm(f => ({ ...f, alarmSoundId: e.target.value }))}
-                  className="w-full rounded-lg border border-stone/40 bg-basalt px-3 py-2.5 text-sm text-light input-focus"
-                >
-                  <option value="">TTS Announcement (default)</option>
-                  {sounds.map(s => (
-                    <option key={s.id} value={s.id}>{s.name}{s.isDefault ? ' ★' : ''}</option>
-                  ))}
-                </select>
+                  onChange={value => setAlarmForm(f => ({ ...f, alarmSoundId: value }))}
+                  className="w-full"
+                />
               </div>
 
               {/* Schedule Type */}
