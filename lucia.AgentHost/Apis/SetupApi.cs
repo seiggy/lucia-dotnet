@@ -55,7 +55,16 @@ public static class SetupApi
     {
         var ct = httpContext.RequestAborted;
 
-        var hasKeys = await apiKeyService.HasAnyKeysAsync(ct).ConfigureAwait(false);
+        var keys = await apiKeyService.ListKeysAsync(ct).ConfigureAwait(false);
+        var now = DateTime.UtcNow;
+        var hasDashboardKey = keys.Any(
+            k => string.Equals(k.Name, "Dashboard", StringComparison.Ordinal)
+                && !k.IsRevoked
+                && (!k.ExpiresAt.HasValue || k.ExpiresAt.Value > now));
+        var hasHaApiKey = keys.Any(
+            k => string.Equals(k.Name, "Home Assistant", StringComparison.Ordinal)
+                && !k.IsRevoked
+                && (!k.ExpiresAt.HasValue || k.ExpiresAt.Value > now));
         var haUrl = await configStore.GetAsync("HomeAssistant:BaseUrl", ct).ConfigureAwait(false);
         var haToken = await configStore.GetAsync("HomeAssistant:AccessToken", ct).ConfigureAwait(false);
         var pluginValidated = await configStore.GetAsync("HomeAssistant:PluginValidated", ct).ConfigureAwait(false);
@@ -66,8 +75,9 @@ public static class SetupApi
 
         return Results.Ok(new
         {
-            hasDashboardKey = hasKeys,
+            hasDashboardKey,
             hasHaConnection = !string.IsNullOrWhiteSpace(haUrl) && !string.IsNullOrWhiteSpace(haToken),
+            hasHaApiKey,
             haUrl = !string.IsNullOrWhiteSpace(haUrl) ? haUrl : null,
             hasChatProvider,
             pluginValidated = string.Equals(pluginValidated, "true", StringComparison.OrdinalIgnoreCase),
@@ -84,7 +94,11 @@ public static class SetupApi
     {
         // Idempotent: if a Dashboard key already exists and is active, don't create another
         var existingKeys = await apiKeyService.ListKeysAsync(httpContext.RequestAborted).ConfigureAwait(false);
-        var dashboardKey = existingKeys.FirstOrDefault(k => k.Name == "Dashboard" && !k.IsRevoked);
+        var now = DateTime.UtcNow;
+        var dashboardKey = existingKeys.FirstOrDefault(
+            k => string.Equals(k.Name, "Dashboard", StringComparison.Ordinal)
+                && !k.IsRevoked
+                && (!k.ExpiresAt.HasValue || k.ExpiresAt.Value > now));
         if (dashboardKey is not null)
         {
             return Results.Conflict(new
@@ -123,15 +137,20 @@ public static class SetupApi
             return Results.BadRequest(new { error = "Invalid Home Assistant URL. Must be http:// or https://." });
         }
 
-        if (string.IsNullOrWhiteSpace(request.AccessToken))
+        var ct = httpContext.RequestAborted;
+        var existingToken = await configStore.GetAsync("HomeAssistant:AccessToken", ct).ConfigureAwait(false);
+        var hasExistingConnection = !string.IsNullOrWhiteSpace(await configStore.GetAsync("HomeAssistant:BaseUrl", ct).ConfigureAwait(false)) && !string.IsNullOrWhiteSpace(existingToken);
+
+        if (string.IsNullOrWhiteSpace(request.AccessToken) && !hasExistingConnection)
         {
             return Results.BadRequest(new { error = "Home Assistant long-lived access token is required." });
         }
 
-        var ct = httpContext.RequestAborted;
-
         await configStore.SetAsync("HomeAssistant:BaseUrl", request.BaseUrl.TrimEnd('/'), "setup-wizard", cancellationToken: ct).ConfigureAwait(false);
-        await configStore.SetAsync("HomeAssistant:AccessToken", request.AccessToken, "setup-wizard", isSensitive: true, cancellationToken: ct).ConfigureAwait(false);
+        if (!string.IsNullOrWhiteSpace(request.AccessToken))
+        {
+            await configStore.SetAsync("HomeAssistant:AccessToken", request.AccessToken, "setup-wizard", isSensitive: true, cancellationToken: ct).ConfigureAwait(false);
+        }
 
         return Results.Ok(new { saved = true });
     }
@@ -248,7 +267,11 @@ public static class SetupApi
         HttpContext httpContext)
     {
         var existingKeys = await apiKeyService.ListKeysAsync(httpContext.RequestAborted).ConfigureAwait(false);
-        var haKey = existingKeys.FirstOrDefault(k => k.Name == "Home Assistant" && !k.IsRevoked);
+        var now = DateTime.UtcNow;
+        var haKey = existingKeys.FirstOrDefault(
+            k => string.Equals(k.Name, "Home Assistant", StringComparison.Ordinal)
+                && !k.IsRevoked
+                && (!k.ExpiresAt.HasValue || k.ExpiresAt.Value > now));
         if (haKey is not null)
         {
             return Results.Conflict(new

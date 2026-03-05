@@ -176,8 +176,45 @@ public sealed class PluginManagementService
 
     // ── Plugin State Management ─────────────────────────────────
 
-    public Task<List<InstalledPluginRecord>> GetInstalledPluginsAsync(CancellationToken ct = default) =>
-        _repository.GetInstalledPluginsAsync(ct);
+    /// <summary>
+    /// Returns installed plugins from MongoDB, merged with any plugins present on disk
+    /// (e.g. baked into the image) that are not yet in the store.
+    /// </summary>
+    public async Task<List<InstalledPluginRecord>> GetInstalledPluginsAsync(CancellationToken ct = default)
+    {
+        var fromDb = await _repository.GetInstalledPluginsAsync(ct).ConfigureAwait(false);
+        var knownIds = new HashSet<string>(fromDb.Select(p => p.Id), StringComparer.OrdinalIgnoreCase);
+
+        if (!Directory.Exists(_pluginDirectory))
+            return fromDb;
+
+        foreach (var dir in Directory.EnumerateDirectories(_pluginDirectory))
+        {
+            var pluginCs = Path.Combine(dir, "plugin.cs");
+            if (!File.Exists(pluginCs))
+                continue;
+
+            var id = Path.GetFileName(dir);
+            if (string.IsNullOrEmpty(id) || knownIds.Contains(id))
+                continue;
+
+            knownIds.Add(id);
+            fromDb.Add(new InstalledPluginRecord
+            {
+                Id = id,
+                Name = id,
+                Version = null,
+                Source = "bundled",
+                RepositoryId = null,
+                Description = "Plugin present on disk (e.g. image-bundled).",
+                PluginPath = dir,
+                Enabled = true,
+                InstalledAt = DateTime.UtcNow,
+            });
+        }
+
+        return fromDb;
+    }
 
     public async Task SetPluginEnabledAsync(string pluginId, bool enabled, CancellationToken ct = default)
     {

@@ -10,6 +10,7 @@ namespace lucia.Agents.Extensions;
 /// Seeds setup wizard values from environment variables for headless/Docker deployments.
 /// When DASHBOARD_API_KEY, HomeAssistant__BaseUrl, HomeAssistant__AccessToken, and optionally
 /// LUCIA_HA_API_KEY are set in .env, Lucia auto-configures and skips the setup wizard.
+/// Optionally MusicAssistant__IntegrationId seeds the HA Music Assistant config entry ID for the music agent.
 /// </summary>
 public static class SetupSeedExtensions
 {
@@ -30,7 +31,6 @@ public static class SetupSeedExtensions
         var luciaHaKey = configuration["LUCIA_HA_API_KEY"]?.Trim();
 
         var seededKeys = 0;
-        var seededHa = false;
 
         if (!string.IsNullOrEmpty(dashboardKey))
         {
@@ -59,33 +59,44 @@ public static class SetupSeedExtensions
             {
                 await configStore.SetAsync("HomeAssistant:BaseUrl", haUrl.TrimEnd('/'), "env-seed", cancellationToken: ct).ConfigureAwait(false);
                 await configStore.SetAsync("HomeAssistant:AccessToken", haToken, "env-seed", isSensitive: true, cancellationToken: ct).ConfigureAwait(false);
-                seededHa = true;
                 logger.LogInformation("Seeded Home Assistant connection from env (BaseUrl, AccessToken)");
             }
         }
 
-        if (seededKeys > 0 || seededHa)
+        // Music Assistant: seed HA integration config entry ID for headless (music agent uses this when calling HA music_assistant services)
+        var musicAssistantEntryId = configuration["MusicAssistant__IntegrationId"]?.Trim();
+        if (!string.IsNullOrEmpty(musicAssistantEntryId))
         {
-            var hasAnyKeys = await apiKeyService.HasAnyKeysAsync(ct).ConfigureAwait(false);
-            var hasHaConnection = !string.IsNullOrEmpty(haUrl) && !string.IsNullOrEmpty(haToken);
+            await configStore.SetAsync("MusicAssistant:IntegrationId", musicAssistantEntryId, "env-seed", cancellationToken: ct).ConfigureAwait(false);
+            logger.LogInformation("Seeded Music Assistant integration from env (IntegrationId={EntryId})", musicAssistantEntryId);
+        }
 
-            if (hasAnyKeys && !string.IsNullOrEmpty(dashboardKey) && (!string.IsNullOrEmpty(haUrl) || hasHaConnection))
+        // Skip wizard when all non-optional values are present (from env seed or existing store)
+        var existingComplete = await configStore.GetAsync("Auth:SetupComplete", ct).ConfigureAwait(false);
+        if (string.Equals(existingComplete, "true", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        var keys = await apiKeyService.ListKeysAsync(ct).ConfigureAwait(false);
+        var now = DateTime.UtcNow;
+        var hasDashboardKey = keys.Any(
+            k => string.Equals(k.Name, "Dashboard", StringComparison.Ordinal)
+                && !k.IsRevoked
+                && (!k.ExpiresAt.HasValue || k.ExpiresAt.Value > now));
+        var storedHaUrl = await configStore.GetAsync("HomeAssistant:BaseUrl", ct).ConfigureAwait(false);
+        var storedHaToken = await configStore.GetAsync("HomeAssistant:AccessToken", ct).ConfigureAwait(false);
+        var hasHaConnection = !string.IsNullOrWhiteSpace(storedHaUrl) && !string.IsNullOrWhiteSpace(storedHaToken);
+
+        if (hasDashboardKey && hasHaConnection)
+        {
+            var existingSigningKey = await configStore.GetAsync("Auth:SessionSigningKey", ct).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(existingSigningKey))
             {
-                var existingComplete = await configStore.GetAsync("Auth:SetupComplete", ct).ConfigureAwait(false);
-                if (!string.Equals(existingComplete, "true", StringComparison.OrdinalIgnoreCase))
-                {
-                    // Generate session signing key (matches wizard's CompleteSetupAsync behavior)
-                    var existingSigningKey = await configStore.GetAsync("Auth:SessionSigningKey", ct).ConfigureAwait(false);
-                    if (string.IsNullOrWhiteSpace(existingSigningKey))
-                    {
-                        var signingKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
-                        await configStore.SetAsync("Auth:SessionSigningKey", signingKey, "env-seed", isSensitive: true, cancellationToken: ct).ConfigureAwait(false);
-                    }
-
-                    await configStore.SetAsync("Auth:SetupComplete", "true", "env-seed", cancellationToken: ct).ConfigureAwait(false);
-                    logger.LogInformation("Headless setup complete from env — wizard skipped. Use DASHBOARD_API_KEY to log in.");
-                }
+                var signingKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+                await configStore.SetAsync("Auth:SessionSigningKey", signingKey, "env-seed", isSensitive: true, cancellationToken: ct).ConfigureAwait(false);
             }
+
+            await configStore.SetAsync("Auth:SetupComplete", "true", "env-seed", cancellationToken: ct).ConfigureAwait(false);
+            logger.LogInformation("Setup complete (all non-optional values present) — wizard skipped.");
         }
     }
 }

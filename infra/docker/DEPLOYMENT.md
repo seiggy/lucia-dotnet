@@ -95,10 +95,8 @@ curl -X POST http://localhost:7233/api/chat \
 
 Lucia supports two deployment topologies controlled by the `Deployment__Mode` environment variable:
 
-| Mode | Value | Description |
-|------|-------|-------------|
-| **Standalone** (default) | `standalone` | All agents run embedded in the main AgentHost process. Simplest setup — single container plus Redis and MongoDB. |
-| **Mesh** | `mesh` | Agents run as separate A2A containers that register with the AgentHost over the network. Used for Kubernetes, horizontal scaling, or multi-node distribution. |
+- **Standalone** (default) — `standalone`: All agents run embedded in the main AgentHost process. Simplest setup — single container plus Redis and MongoDB.
+- **Mesh** — `mesh`: Agents run as separate A2A containers that register with the AgentHost over the network. Used for Kubernetes, horizontal scaling, or multi-node distribution.
 
 **When to use each mode:**
 
@@ -125,14 +123,14 @@ docker compose -f docker-compose.yml -f docker-compose.lucia-sidecar.yml exec lu
 docker compose -f docker-compose.yml -f docker-compose.lucia-sidecar.yml restart lucia
 ```
 
-Then open http://localhost:7233 and complete the wizard (generate new Dashboard key, configure HA, complete).
+Then open <http://localhost:7233> and complete the wizard (generate new Dashboard key, configure HA, complete).
 
 ### Environment Variables (Infrastructure Only)
 
 The `docker-compose.yml` only contains infrastructure-level environment variables that are deterministic within the compose network:
 
 | Variable | Purpose | Default |
-|----------|---------|---------|
+| -------- | ------- | ------- |
 | `ASPNETCORE_ENVIRONMENT` | Runtime environment | `Production` |
 | `ASPNETCORE_URLS` | Listen address | `http://+:8080` |
 | `ConnectionStrings__luciatraces` | MongoDB traces DB | `mongodb://lucia-mongo:27017/luciatraces` |
@@ -155,6 +153,10 @@ environment:
 ```
 
 See `.env.example` in the repository root for all available variables.
+
+**Headless (skip wizard):** When both a dashboard API key and a Home Assistant connection (BaseUrl + AccessToken) are present—either seeded from env or already in the config store—Lucia marks setup complete and the wizard is not shown. Set `DASHBOARD_API_KEY`, `HomeAssistant__BaseUrl`, and `HomeAssistant__AccessToken` in the `lucia` service (or via `env_file: .env`) for fully headless startup.
+
+**Plugins and tools:** The production image includes the official plugins (MetaMCP, SearXNG) under `/app/plugins` (`PluginDirectory=/app/plugins`). Set `SEARXNG_URL` and/or `METAMCP_URL` (and `METAMCP_API_KEY` if required) to register web search and MCP tools at startup. The dashboard **Plugins** page lists these as installed when present on disk. See `infra/docker/.env.lucia.example` for a full env template.
 
 ### LLM Provider Examples
 

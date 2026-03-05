@@ -412,7 +412,7 @@ export default function EntityLocationPage() {
 
   // ── Bulk action bar ───────────────────────────────────────────
 
-  function BulkActionBar({ entityList: _entityList }: { entityList: EntityLocationInfo[] }) {
+  function BulkActionBar() {
     const count = selectedEntityIds.size
     if (count === 0) return null
 
@@ -766,7 +766,7 @@ export default function EntityLocationPage() {
             </button>
           </div>
 
-          <BulkActionBar entityList={pagedEntities} />
+          <BulkActionBar />
 
           {loading ? (
             <p className="flex items-center gap-2 text-dust"><Loader2 className="h-4 w-4 animate-spin" /> Loading entities…</p>
@@ -858,7 +858,7 @@ export default function EntityLocationPage() {
                   {searchResults.length} entit{searchResults.length === 1 ? 'y' : 'ies'} matched
                 </span>
               </div>
-              <BulkActionBar entityList={searchResults} />
+              <BulkActionBar />
               <EntityTable entityList={searchResults} showSelect />
             </>
           )}

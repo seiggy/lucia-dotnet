@@ -197,9 +197,22 @@ function LuciaHaStep({
   const [testResult, setTestResult] = useState<TestHaConnectionResponse | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [connectionOkAtStartup, setConnectionOkAtStartup] = useState<TestHaConnectionResponse | null>(null)
+  const [connectionTestBusy, setConnectionTestBusy] = useState(false)
+  const [showHaForm, setShowHaForm] = useState(false)
 
   const hasDashKey = status?.hasDashboardKey || dashboardKey !== null
   const isAuthenticated = dashboardKey !== null || resumed || authFromContext
+
+  // Test HA connection at startup when we already have config (e.g. headless)
+  useEffect(() => {
+    if (!status?.hasHaConnection || connectionOkAtStartup !== null) return
+    setConnectionTestBusy(true)
+    testHaConnection()
+      .then((res) => setConnectionOkAtStartup(res))
+      .catch(() => setConnectionOkAtStartup({ connected: false, error: 'Connection test failed' }))
+      .finally(() => setConnectionTestBusy(false))
+  }, [status?.hasHaConnection, connectionOkAtStartup])
 
   async function handleGenerateKey() {
     setError('')
@@ -344,61 +357,85 @@ function LuciaHaStep({
         <h3 className="mb-3 flex items-center gap-2 font-display text-sm font-semibold text-amber">
           <Plug className="h-4 w-4" /> Home Assistant Connection
         </h3>
-        <p className="mb-3 text-sm text-fog">
-          Enter your Home Assistant URL and a long-lived access token.
-        </p>
-        <div className="mb-4 rounded-lg border border-stone bg-void/50 p-3 text-xs text-dust">
-          <p className="mb-1.5 font-semibold text-fog">How to create a long-lived access token:</p>
-          <ol className="list-inside list-decimal space-y-0.5">
-            <li>Open your Home Assistant instance</li>
-            <li>Click your profile picture (bottom-left)</li>
-            <li>Scroll to <strong className="text-fog">Security</strong> tab</li>
-            <li>Under "Long-lived access tokens", click <strong className="text-fog">Create Token</strong></li>
-            <li>Name it "Lucia" and copy the token</li>
-          </ol>
-        </div>
-        <div className="space-y-3">
-          <input
-            type="url"
-            placeholder="http://homeassistant.local:8123"
-            value={haUrl}
-            onChange={(e) => setHaUrl(e.target.value)}
-            className={inputStyle}
-          />
-          <input
-            type="password"
-            placeholder="Paste your long-lived access token"
-            value={haToken}
-            onChange={(e) => setHaToken(e.target.value)}
-            className={inputStyle}
-          />
-          <div className="flex gap-2">
-            <button
-              onClick={handleSaveHa}
-              disabled={busy || !haUrl || !haToken}
-              className={btnPrimary}
-            >
-              {busy ? 'Saving...' : 'Save'}
-            </button>
-            {haSaved && (
-              <button onClick={handleTestConnection} disabled={busy} className={btnSuccess}>
-                {busy ? 'Testing...' : 'Test Connection'}
-              </button>
+        {connectionTestBusy ? (
+          <p className="text-sm text-fog">Testing connection to Home Assistant…</p>
+        ) : status?.hasHaConnection && !showHaForm ? (
+          <div className="space-y-3">
+            {connectionOkAtStartup?.connected ? (
+              <div className="rounded-lg border border-sage/30 bg-sage/10 p-3 text-sm text-sage">
+                ✓ Connected to {connectionOkAtStartup.locationName ?? 'Home Assistant'}
+                {connectionOkAtStartup.haVersion != null && ` (v${connectionOkAtStartup.haVersion})`}
+              </div>
+            ) : connectionOkAtStartup && !connectionOkAtStartup.connected ? (
+              <div className="rounded-lg border border-amber/30 bg-amber/10 p-3 text-sm text-amber">
+                Connection is configured (test failed: {connectionOkAtStartup.error ?? 'Unknown'}). You can proceed or change the URL/token below.
+              </div>
+            ) : (
+              <div className="rounded-lg border border-sage/30 bg-sage/10 p-3 text-sm text-sage">
+                Connection configured (e.g. from headless). You can proceed or change it below.
+              </div>
             )}
+            <button type="button" onClick={() => setShowHaForm(true)} className={btnSecondary}>
+              Change connection
+            </button>
           </div>
-        </div>
-        {testResult && (
-          <div
-            className={`mt-3 rounded-lg p-3 text-sm ${
-              testResult.connected
-                ? 'border border-sage/30 bg-sage/10 text-sage'
-                : 'border border-ember/30 bg-ember/10 text-rose'
-            }`}
-          >
-            {testResult.connected
-              ? `✓ Connected to ${testResult.locationName ?? 'Home Assistant'} (v${testResult.haVersion})`
-              : `✗ ${testResult.error}`}
-          </div>
+        ) : (
+          <>
+            <p className="mb-3 text-sm text-fog">
+              Enter your Home Assistant URL and a long-lived access token.
+            </p>
+            <div className="mb-4 rounded-lg border border-stone bg-void/50 p-3 text-xs text-dust">
+              <p className="mb-1.5 font-semibold text-fog">How to create a long-lived access token:</p>
+              <ol className="list-inside list-decimal space-y-0.5">
+                <li>Open your Home Assistant instance</li>
+                <li>Click your profile picture (bottom-left)</li>
+                <li>Scroll to <strong className="text-fog">Security</strong> tab</li>
+                <li>Under "Long-lived access tokens", click <strong className="text-fog">Create Token</strong></li>
+                <li>Name it "Lucia" and copy the token</li>
+              </ol>
+            </div>
+            <div className="space-y-3">
+              <input
+                type="url"
+                placeholder="http://homeassistant.local:8123"
+                value={haUrl}
+                onChange={(e) => setHaUrl(e.target.value)}
+                className={inputStyle}
+              />
+              <input
+                type="password"
+                placeholder={status?.hasHaConnection ? 'Leave blank to keep current token' : 'Paste your long-lived access token'}
+                value={haToken}
+                onChange={(e) => setHaToken(e.target.value)}
+                className={inputStyle}
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={handleSaveHa}
+                  disabled={busy || !haUrl || (!haToken && !status?.hasHaConnection)}
+                  className={btnPrimary}
+                >
+                  {busy ? 'Saving...' : 'Save'}
+                </button>
+                <button onClick={handleTestConnection} disabled={busy} className={btnSuccess}>
+                  {busy ? 'Testing...' : 'Test Connection'}
+                </button>
+              </div>
+            </div>
+            {testResult && (
+              <div
+                className={`mt-3 rounded-lg p-3 text-sm ${
+                  testResult.connected
+                    ? 'border border-sage/30 bg-sage/10 text-sage'
+                    : 'border border-ember/30 bg-ember/10 text-rose'
+                }`}
+              >
+                {testResult.connected
+                  ? `✓ Connected to ${testResult.locationName ?? 'Home Assistant'} (v${testResult.haVersion})`
+                  : `✗ ${testResult.error}`}
+              </div>
+            )}
+          </>
         )}
       </section>
 
@@ -414,7 +451,7 @@ function LuciaHaStep({
             const s = await fetchSetupStatus()
             onComplete(s)
           }}
-          disabled={!isAuthenticated || (!haSaved && !status?.hasHaConnection)}
+          disabled={!isAuthenticated || (!(status?.hasHaConnection && !showHaForm) && !haSaved)}
           className={`group inline-flex items-center gap-2 ${btnPrimary}`}
         >
           Next
@@ -852,7 +889,7 @@ function HaPluginStep({
     <div className="space-y-6">
       <h2 className="font-display text-xl font-semibold text-light">Connect Home Assistant Plugin</h2>
 
-      {/* 3a: Generate HA key */}
+      {/* 3a: Generate HA key (or show already configured when headless-seeded) */}
       <section className="rounded-xl border border-stone bg-basalt/50 p-5">
         <h3 className="mb-3 flex items-center gap-2 font-display text-sm font-semibold text-amber">
           <Key className="h-4 w-4" /> Generate Home Assistant API Key
@@ -860,7 +897,11 @@ function HaPluginStep({
         <p className="mb-3 text-sm text-fog">
           This key lets the Home Assistant plugin authenticate with Lucia.
         </p>
-        {!haKey ? (
+        {status?.hasHaApiKey && !haKey ? (
+          <p className="flex items-center gap-1.5 text-sm text-sage">
+            <CheckCircle2 className="h-4 w-4" /> Home Assistant API key is already configured (e.g. from headless setup). Use the key from your <code className="text-amber">LUCIA_HA_API_KEY</code> in the HA plugin.
+          </p>
+        ) : !haKey ? (
           <button onClick={handleGenerateHaKey} disabled={busy} className={btnPrimary}>
             {busy ? 'Generating...' : 'Generate HA Key'}
           </button>
@@ -916,7 +957,7 @@ function HaPluginStep({
             Waiting for Home Assistant plugin to connect...
           </div>
         ) : (
-          <button onClick={pollForPlugin} disabled={!haKey} className={btnSecondary}>
+          <button onClick={pollForPlugin} disabled={!haKey && !status?.hasHaApiKey} className={btnSecondary}>
             Start Waiting for Plugin
           </button>
         )}

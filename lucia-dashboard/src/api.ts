@@ -227,6 +227,8 @@ export async function logout(): Promise<void> {
 export interface SetupStatus {
   hasDashboardKey: boolean;
   hasHaConnection: boolean;
+  /** True when a "Home Assistant" API key exists (e.g. seeded via LUCIA_HA_API_KEY headless). */
+  hasHaApiKey?: boolean;
   haUrl: string | null;
   hasChatProvider: boolean;
   pluginValidated: boolean;
@@ -895,7 +897,7 @@ export async function fetchAvailableAgents(): Promise<string[]> {
 export async function searchMatcherDebug(
   term: string,
   options?: { threshold?: number; embeddingWeight?: number; dropoff?: number; disagreementPenalty?: number; embeddingResolutionMargin?: number; domains?: string[] }
-): Promise<any> {
+): Promise<unknown> {
   const params = new URLSearchParams();
   if (options?.threshold !== undefined) params.set('threshold', String(options.threshold));
   if (options?.embeddingWeight !== undefined) params.set('embeddingWeight', String(options.embeddingWeight));

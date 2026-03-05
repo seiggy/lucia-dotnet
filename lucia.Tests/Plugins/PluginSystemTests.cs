@@ -282,6 +282,78 @@ public sealed class PluginSystemTests : IDisposable
         Assert.True(changeTracker.IsRestartRequired);
     }
 
+    // ── GetInstalledPluginsAsync: merge on-disk (bundled) plugins ─────
+
+    [Fact]
+    public async Task GetInstalledPluginsAsync_ReturnsDbPluginsMergedWithOnDiskPlugins()
+    {
+        var tempDir = CreateTempDir();
+        var pluginDir = Path.Combine(tempDir, "plugins");
+        Directory.CreateDirectory(pluginDir);
+        var metamcpDir = Path.Combine(pluginDir, "metamcp");
+        var searxngDir = Path.Combine(pluginDir, "searxng");
+        Directory.CreateDirectory(metamcpDir);
+        Directory.CreateDirectory(searxngDir);
+        await File.WriteAllTextAsync(Path.Combine(metamcpDir, "plugin.cs"), MinimalPluginCs.Replace("testplugin", "metamcp"));
+        await File.WriteAllTextAsync(Path.Combine(searxngDir, "plugin.cs"), MinimalPluginCs.Replace("testplugin", "searxng"));
+
+        var fakeDbRepo = A.Fake<IPluginManagementRepository>();
+        A.CallTo(() => fakeDbRepo.GetInstalledPluginsAsync(A<CancellationToken>._))
+            .Returns(new List<InstalledPluginRecord>());
+
+        var svc = CreateService(repo: fakeDbRepo, pluginDirectory: pluginDir);
+        var result = await svc.GetInstalledPluginsAsync();
+
+        Assert.Equal(2, result.Count);
+        var ids = result.Select(p => p.Id).OrderBy(x => x).ToList();
+        Assert.Equal(["metamcp", "searxng"], ids);
+        Assert.All(result, r => Assert.Equal("bundled", r.Source));
+        Assert.All(result, r => Assert.True(r.Enabled));
+    }
+
+    [Fact]
+    public async Task GetInstalledPluginsAsync_ReturnsOnlyDbPlugins_WhenPluginDirMissing()
+    {
+        var fakeDbRepo = A.Fake<IPluginManagementRepository>();
+        var fromDb = new List<InstalledPluginRecord>
+        {
+            new() { Id = "store-plugin", Name = "Store Plugin", Source = "test-repo", PluginPath = "/app/plugins/store-plugin" },
+        };
+        A.CallTo(() => fakeDbRepo.GetInstalledPluginsAsync(A<CancellationToken>._))
+            .Returns(fromDb);
+
+        var nonExistentDir = Path.Combine(Path.GetTempPath(), "lucia-nonexistent-" + Guid.NewGuid().ToString("N")[..8]);
+        var svc = CreateService(repo: fakeDbRepo, pluginDirectory: nonExistentDir);
+        var result = await svc.GetInstalledPluginsAsync();
+
+        Assert.Single(result);
+        Assert.Equal("store-plugin", result[0].Id);
+    }
+
+    [Fact]
+    public async Task GetInstalledPluginsAsync_DoesNotDuplicate_WhenPluginAlreadyInDb()
+    {
+        var tempDir = CreateTempDir();
+        var pluginDir = Path.Combine(tempDir, "plugins");
+        var metamcpDir = Path.Combine(pluginDir, "metamcp");
+        Directory.CreateDirectory(metamcpDir);
+        await File.WriteAllTextAsync(Path.Combine(metamcpDir, "plugin.cs"), MinimalPluginCs.Replace("testplugin", "metamcp"));
+
+        var fakeDbRepo = A.Fake<IPluginManagementRepository>();
+        A.CallTo(() => fakeDbRepo.GetInstalledPluginsAsync(A<CancellationToken>._))
+            .Returns(new List<InstalledPluginRecord>
+            {
+                new() { Id = "metamcp", Name = "MetaMCP Bridge", Source = "lucia-official", PluginPath = metamcpDir },
+            });
+
+        var svc = CreateService(repo: fakeDbRepo, pluginDirectory: pluginDir);
+        var result = await svc.GetInstalledPluginsAsync();
+
+        Assert.Single(result);
+        Assert.Equal("metamcp", result[0].Id);
+        Assert.Equal("lucia-official", result[0].Source);
+    }
+
     // ── Test 7: UninstallPluginAsync removes folder and signals restart ─
 
     [Fact]

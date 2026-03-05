@@ -382,6 +382,28 @@ lucia-dotnet/
 
 Lucia uses a schema-driven configuration system stored in MongoDB. On first run, the setup wizard guides you through the essential settings. After setup, all configuration can be managed through the dashboard's Configuration page.
 
+### Headless setup (Docker / env)
+
+When deploying with Docker or automation, you can skip the setup wizard by providing all required values via environment variables. If **both** a dashboard API key and a Home Assistant connection are present (in the config store or seeded from env), Lucia marks setup complete and the wizard is not shown.
+
+| Variable | Purpose |
+|----------|---------|
+| `DASHBOARD_API_KEY` | Dashboard login key (e.g. `lk_...`). Used to seed the Dashboard API key. |
+| `HomeAssistant__BaseUrl` | Home Assistant instance URL (e.g. `http://homeassistant.local:8123`). |
+| `HomeAssistant__AccessToken` | Long-lived access token from HA (Profile → Long-Lived Access Tokens). |
+| `LUCIA_HA_API_KEY` | Optional: API key for the Home Assistant integration (same as shown in the wizard). |
+| `MusicAssistant__IntegrationId` | Optional: HA Music Assistant config entry ID for the music agent. |
+
+The Docker image includes the official plugins (MetaMCP, SearXNG) under `/app/plugins`. To register **tools** from env without using the dashboard:
+
+| Variable | Purpose |
+|----------|---------|
+| `SEARXNG_URL` | When set, the General Agent gets a `web_search` tool (SearXNG instance URL). |
+| `METAMCP_URL` | When set, MetaMCP is seeded as an MCP tool server (full URL to SSE or MCP endpoint). |
+| `METAMCP_API_KEY` | Optional: Bearer token for MetaMCP (e.g. from Open Web UI Dashboard → Keys). |
+
+See `infra/docker/.env.lucia.example` for a full template. ComfyUI, Whisper, Piper, and Wyoming env vars are **not** used by Lucia (they may be used by other stacks such as Open Web UI).
+
 ### Key Configuration Sections
 
 | Section | Description |
@@ -578,24 +600,7 @@ Plugin scripts run in a sandboxed Roslyn environment with a curated set of assem
 
 ### Plugin Examples
 
-**MetaMCP Bridge** (`plugins/metamcp/`) — Seeds a MetaMCP tool server into the agent registry:
-
-```csharp
-public class MetaMcpPlugin : ILuciaPlugin
-{
-    public string PluginId => "metamcp";
-
-    public async Task ExecuteAsync(IServiceProvider services, CancellationToken ct = default)
-    {
-        var config = services.GetRequiredService<IConfiguration>();
-        var url = config["METAMCP_URL"];
-        if (string.IsNullOrWhiteSpace(url)) return;
-        // ... seed the MCP tool server definition into MongoDB
-    }
-}
-
-new MetaMcpPlugin()
-```
+**MetaMCP Bridge** (`plugins/metamcp/`) — Seeds a MetaMCP tool server into the agent registry when `METAMCP_URL` (and optionally `METAMCP_API_KEY`) are set. The plugin runs in `OnSystemReadyAsync` so the host invokes it after agents and HA are ready.
 
 **SearXNG Web Search** (`plugins/searxng/`) — Registers `IWebSearchSkill` so the GeneralAgent gains web search:
 
