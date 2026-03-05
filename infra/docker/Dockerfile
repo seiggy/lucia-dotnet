@@ -166,6 +166,12 @@ COPY --from=copilot-cli --chown=appuser:appuser /copilot-out/ ./
 # Copy built SPA dashboard into wwwroot for static file serving
 COPY --from=node-build --chown=appuser:appuser /app/dist ./wwwroot/
 
+# Copy official plugins (MetaMCP, SearXNG) so env-based tools are registered at startup
+COPY --from=build --chown=appuser:appuser /src/plugins ./plugins
+
+# PluginDirectory default is {AppContext.BaseDirectory}/plugins = /app/plugins
+ENV PluginDirectory=/app/plugins
+
 # Switch to non-root user for runtime security
 USER appuser
 

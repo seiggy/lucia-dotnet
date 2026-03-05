@@ -2,9 +2,14 @@
 # Deploy Lucia using the sidecar compose (alongside Open Web UI, remote Home Assistant).
 #
 # Usage:
-#   ./deploy-lucia.sh [--env-file .env]
+#   ./deploy-lucia.sh [--env-file .env] [--wipe] [--rebuild]
 #   From repo root: infra/docker/deploy-lucia.sh
 #   From infra/docker: ./deploy-lucia.sh
+#
+# Options:
+#   --wipe     Stop containers and remove all Lucia volumes (Redis + MongoDB).
+#              Next up will start with empty DBs; you will need to run setup again.
+#   --rebuild  Build images with --no-cache before starting.
 #
 # If .env is missing, copies .env.lucia.example to .env and prompts you to set
 # HomeAssistant__AccessToken (and optionally other vars) before re-running.
@@ -15,15 +20,25 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 ENV_FILE=".env"
+WIPE=0
+REBUILD=0
 while [[ $# -gt 0 ]]; do
   case $1 in
     --env-file)
       ENV_FILE="$2"
       shift 2
       ;;
+    --wipe)
+      WIPE=1
+      shift
+      ;;
+    --rebuild)
+      REBUILD=1
+      shift
+      ;;
     *)
       echo "Unknown option: $1"
-      echo "Usage: $0 [--env-file .env]"
+      echo "Usage: $0 [--env-file .env] [--wipe] [--rebuild]"
       exit 1
       ;;
   esac
@@ -42,8 +57,21 @@ if [[ ! -f "$ENV_FILE" ]]; then
   fi
 fi
 
+COMPOSE_CMD="docker compose -f docker-compose.yml -f docker-compose.lucia-sidecar.yml --env-file $ENV_FILE"
+
+if [[ $WIPE -eq 1 ]]; then
+  echo "Wiping Lucia data: stopping containers and removing volumes (lucia-redis-data, lucia-mongo-data)..."
+  $COMPOSE_CMD down -v
+  echo "Lucia data wiped."
+fi
+
+if [[ $REBUILD -eq 1 ]]; then
+  echo "Rebuilding Lucia image (no cache)..."
+  $COMPOSE_CMD build --no-cache
+fi
+
 echo "Starting Lucia (sidecar mode) with env file: $ENV_FILE"
-docker compose -f docker-compose.yml -f docker-compose.lucia-sidecar.yml --env-file "$ENV_FILE" up -d
+$COMPOSE_CMD up -d
 
 # Try to determine host IP for Agent Repository URL (best effort)
 HA_REPO_IP=""

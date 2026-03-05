@@ -9,11 +9,17 @@ public class MetaMcpPlugin : ILuciaPlugin
 {
     public string PluginId => "metamcp";
 
-    public async Task ExecuteAsync(IServiceProvider services, CancellationToken cancellationToken = default)
+    public Task ExecuteAsync(IServiceProvider services, CancellationToken cancellationToken = default) =>
+        Task.CompletedTask;
+
+    public async Task OnSystemReadyAsync(IServiceProvider services, CancellationToken cancellationToken = default)
+    {
+        await SeedMetaMcpAsync(services, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task SeedMetaMcpAsync(IServiceProvider services, CancellationToken cancellationToken)
     {
         var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger("MetaMcpPlugin");
-        logger.LogInformation("MetaMCP plugin executing.");
-
         var config = services.GetRequiredService<IConfiguration>();
         var url = config["METAMCP_URL"];
         if (string.IsNullOrWhiteSpace(url))
@@ -28,7 +34,7 @@ public class MetaMcpPlugin : ILuciaPlugin
             : url.TrimEnd('/') + "/metamcp/openwebui-api/sse";
 
         var repo = services.GetRequiredService<IAgentDefinitionRepository>();
-        var existing = await repo.GetToolServerAsync("metamcp", cancellationToken);
+        var existing = await repo.GetToolServerAsync("metamcp", cancellationToken).ConfigureAwait(false);
         if (existing is not null)
         {
             logger.LogInformation("MetaMCP server already registered — no changes needed.");
@@ -51,7 +57,7 @@ public class MetaMcpPlugin : ILuciaPlugin
             Enabled = true,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
-        }, cancellationToken);
+        }, cancellationToken).ConfigureAwait(false);
 
         logger.LogInformation("Seeded MetaMCP server ({Url}).", baseUri);
     }
