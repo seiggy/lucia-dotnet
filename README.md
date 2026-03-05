@@ -903,3 +903,7 @@ This project is licensed under the MIT License — see the [LICENSE](LICENSE) fi
 ---
 
 **Built with ❤️ for the Home Assistant community**
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/image?repos=seiggy/lucia-dotnet&type=date&legend=top-left)](https://www.star-history.com/?repos=seiggy%2Flucia-dotnet&type=date&legend=top-left)
