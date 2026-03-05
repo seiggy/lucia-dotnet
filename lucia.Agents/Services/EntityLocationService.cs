@@ -31,6 +31,10 @@ public sealed class EntityLocationService : IEntityLocationService
     private const string VisibilityKey = "lucia:entity-visibility";
     private static readonly TimeSpan CacheTtl = TimeSpan.FromHours(24);
     private static readonly TimeSpan VersionCheckInterval = TimeSpan.FromSeconds(30);
+    private const int EmbeddingBatchSize = 25;
+    private const int EmbeddingBatchMaxAttempts = 3;
+    private static readonly TimeSpan EmbeddingBatchDelay = TimeSpan.FromMilliseconds(250);
+    private static readonly TimeSpan EmbeddingRetryDelay = TimeSpan.FromSeconds(1);
 
     private static readonly HybridMatchOptions DefaultLocationOptions = new()
     {
@@ -51,6 +55,12 @@ public sealed class EntityLocationService : IEntityLocationService
     private readonly IHybridEntityMatcher _entityMatcher;
     private readonly ILogger<EntityLocationService> _logger;
     private readonly SemaphoreSlim _loadLock = new(1, 1);
+    private readonly object _embeddingJobGate = new();
+    private CancellationTokenSource? _embeddingJobCts;
+    private Task? _embeddingJobTask;
+    private long _embeddingJobCounter;
+    private long _activeEmbeddingJobId;
+    private int _isEmbeddingGenerationRunning;
 
     private static readonly TimeSpan EmptyCacheRetryInterval = TimeSpan.FromSeconds(30);
 
@@ -69,6 +79,29 @@ public sealed class EntityLocationService : IEntityLocationService
             var ticks = Volatile.Read(ref _lastLoadedAtTicks);
             return ticks == 0 ? null : new DateTimeOffset(ticks, TimeSpan.Zero);
         }
+    }
+
+    public Task<EntityLocationEmbeddingProgress> GetEmbeddingProgressAsync(CancellationToken ct = default)
+    {
+        var snap = _snapshot;
+        var floorGeneratedCount = snap.Floors.Count(f => f.NameEmbedding is not null);
+        var areaGeneratedCount = snap.Areas.Count(a => a.NameEmbedding is not null);
+        var entityGeneratedCount = snap.Entities.Count(e => e.NameEmbedding is not null);
+
+        var progress = new EntityLocationEmbeddingProgress
+        {
+            FloorTotalCount = snap.Floors.Length,
+            FloorGeneratedCount = floorGeneratedCount,
+            AreaTotalCount = snap.Areas.Length,
+            AreaGeneratedCount = areaGeneratedCount,
+            EntityTotalCount = snap.Entities.Length,
+            EntityGeneratedCount = entityGeneratedCount,
+            EntityMissingCount = Math.Max(snap.Entities.Length - entityGeneratedCount, 0),
+            IsGenerationRunning = Volatile.Read(ref _isEmbeddingGenerationRunning) == 1,
+            LastLoadedAt = LastLoadedAt
+        };
+
+        return Task.FromResult(progress);
     }
 
     public EntityLocationService(
@@ -102,6 +135,7 @@ public sealed class EntityLocationService : IEntityLocationService
         {
             ApplyVisibilityToEntities();
             var snap = _snapshot;
+            StartEmbeddingGenerationJob(snap.Floors, snap.Areas, snap.Entities);
             _logger.LogInformation(
                 "Loaded location data from Redis: {FloorCount} floors, {AreaCount} areas, {EntityCount} entities",
                 snap.Floors.Length, snap.Areas.Length, snap.Entities.Length);
@@ -512,8 +546,8 @@ public sealed class EntityLocationService : IEntityLocationService
             var areas = BuildAreas(areaEntries, areaEntityMap);
             var entities = BuildEntities(entityEntries, areaEntityMap);
 
-            // Generate embeddings and phonetic keys for all matchable objects
-            await GenerateMatchDataAsync(floors, areas, entities, ct).ConfigureAwait(false);
+            // Generate phonetic keys eagerly; embeddings are generated in a throttled background job.
+            GeneratePhoneticData(floors, areas, entities);
 
             // Atomic swap of all collections
             SwapData(floors, areas, entities);
@@ -527,6 +561,9 @@ public sealed class EntityLocationService : IEntityLocationService
 
             // Persist to Redis
             await SaveToRedisAsync(ct).ConfigureAwait(false);
+
+            // Generate embeddings asynchronously in throttled batches.
+            StartEmbeddingGenerationJob(floors, areas, entities);
         }
         catch (Exception ex)
         {
@@ -571,8 +608,11 @@ public sealed class EntityLocationService : IEntityLocationService
             ..entries.Select(f => new FloorInfo
             {
                 FloorId = f.FloorId,
-                Name = f.Name,
-                Aliases = f.Aliases.AsReadOnly(),
+                Aliases = EntityMatchNameFormatter.SanitizeAliases(f.Aliases).AsReadOnly(),
+                Name = EntityMatchNameFormatter.ResolveName(
+                    f.Name,
+                    f.Aliases,
+                    f.FloorId),
                 Level = f.Level,
                 Icon = f.Icon
             })
@@ -587,9 +627,12 @@ public sealed class EntityLocationService : IEntityLocationService
             ..entries.Select(a => new AreaInfo
             {
                 AreaId = a.AreaId,
-                Name = a.Name,
+                Name = EntityMatchNameFormatter.ResolveName(
+                    a.Name,
+                    a.Aliases,
+                    a.AreaId),
                 FloorId = a.FloorId,
-                Aliases = a.Aliases.AsReadOnly(),
+                Aliases = EntityMatchNameFormatter.SanitizeAliases(a.Aliases).AsReadOnly(),
                 EntityIds = areaEntityMap.TryGetValue(a.AreaId, out var entityIds)
                     ? entityIds.AsReadOnly()
                     : [],
@@ -619,8 +662,12 @@ public sealed class EntityLocationService : IEntityLocationService
                 .Select(e => new HomeAssistantEntity
                 {
                     EntityId = e.EntityId,
-                    FriendlyName = e.Name ?? e.OriginalName ?? e.EntityId,
-                    Aliases = e.Aliases.AsReadOnly(),
+                    FriendlyName = EntityMatchNameFormatter.ResolveName(
+                        e.Name ?? e.OriginalName,
+                        e.Aliases,
+                        e.EntityId,
+                        stripDomainFromId: true),
+                    Aliases = EntityMatchNameFormatter.SanitizeAliases(e.Aliases).AsReadOnly(),
                     // Prefer Jinja area (device-inherited), fall back to registry direct assignment
                     AreaId = entityToArea.TryGetValue(e.EntityId, out var jinjaArea)
                         ? jinjaArea
@@ -631,17 +678,11 @@ public sealed class EntityLocationService : IEntityLocationService
         ];
     }
 
-    /// <summary>
-    /// Generates embeddings and phonetic keys for all matchable objects
-    /// (floors, areas, and entities) so the HybridEntityMatcher can score them.
-    /// </summary>
-    private async Task GenerateMatchDataAsync(
+    private void GeneratePhoneticData(
         ImmutableArray<FloorInfo> floors,
         ImmutableArray<AreaInfo> areas,
-        ImmutableArray<HomeAssistantEntity> entities,
-        CancellationToken ct)
+        ImmutableArray<HomeAssistantEntity> entities)
     {
-        // Phonetic keys are always generated (no external service needed)
         foreach (var floor in floors)
         {
             floor.PhoneticKeys = StringSimilarity.BuildPhoneticKeys(floor.Name);
@@ -659,54 +700,179 @@ public sealed class EntityLocationService : IEntityLocationService
             entity.PhoneticKeys = StringSimilarity.BuildPhoneticKeys(entity.FriendlyName);
             entity.AliasPhoneticKeys = BuildAliasPhoneticKeys(entity.Aliases);
         }
+    }
 
-        // Embeddings require an embedding provider
-        var embeddingService = await _embeddingResolver.ResolveAsync(ct: ct).ConfigureAwait(false);
-        if (embeddingService is null)
+    private void StartEmbeddingGenerationJob(
+        ImmutableArray<FloorInfo> floors,
+        ImmutableArray<AreaInfo> areas,
+        ImmutableArray<HomeAssistantEntity> entities)
+    {
+        lock (_embeddingJobGate)
         {
-            _logger.LogWarning("No embedding provider available — embedding-based search will be disabled");
-            return;
+            _embeddingJobCts?.Cancel();
+            _embeddingJobCts?.Dispose();
+
+            var cts = new CancellationTokenSource();
+            _embeddingJobCts = cts;
+            var jobId = Interlocked.Increment(ref _embeddingJobCounter);
+            Volatile.Write(ref _activeEmbeddingJobId, jobId);
+            Volatile.Write(ref _isEmbeddingGenerationRunning, 1);
+            _embeddingJobTask = Task.Run(
+                () => RunEmbeddingGenerationJobAsync(floors, areas, entities, jobId, cts.Token),
+                cts.Token);
         }
+    }
 
-        // Collect all unique names to embed (deduplicate across floors/areas/entities)
-        var namesToEmbed = new Dictionary<string, List<Action<Embedding<float>>>>(StringComparer.OrdinalIgnoreCase);
-
-        void RegisterForEmbedding(string name, Action<Embedding<float>> setter)
+    private async Task RunEmbeddingGenerationJobAsync(
+        ImmutableArray<FloorInfo> floors,
+        ImmutableArray<AreaInfo> areas,
+        ImmutableArray<HomeAssistantEntity> entities,
+        long jobId,
+        CancellationToken ct)
+    {
+        try
         {
-            if (!namesToEmbed.TryGetValue(name, out var setters))
+            var embeddingService = await _embeddingResolver.ResolveAsync(ct: ct).ConfigureAwait(false);
+            if (embeddingService is null)
             {
-                setters = [];
-                namesToEmbed[name] = setters;
+                _logger.LogWarning("No embedding provider available — embedding-based search will be disabled");
+                return;
             }
-            setters.Add(setter);
+
+            var namesToEmbed = new Dictionary<string, List<Action<Embedding<float>>>>(StringComparer.OrdinalIgnoreCase);
+
+            void RegisterForEmbedding(string name, Action<Embedding<float>> setter, bool hasEmbedding)
+            {
+                if (hasEmbedding || string.IsNullOrWhiteSpace(name))
+                {
+                    return;
+                }
+
+                if (!namesToEmbed.TryGetValue(name, out var setters))
+                {
+                    setters = [];
+                    namesToEmbed[name] = setters;
+                }
+
+                setters.Add(setter);
+            }
+
+            foreach (var floor in floors)
+            {
+                RegisterForEmbedding(floor.Name, e => floor.NameEmbedding = e, floor.NameEmbedding is not null);
+            }
+
+            foreach (var area in areas)
+            {
+                RegisterForEmbedding(area.Name, e => area.NameEmbedding = e, area.NameEmbedding is not null);
+            }
+
+            foreach (var entity in entities)
+            {
+                RegisterForEmbedding(entity.FriendlyName, e => entity.NameEmbedding = e, entity.NameEmbedding is not null);
+            }
+
+            if (namesToEmbed.Count == 0)
+            {
+                _logger.LogDebug("Embedding cache already complete for current location snapshot");
+                return;
+            }
+
+            var names = namesToEmbed.Keys.ToList();
+            var generated = 0;
+
+            for (var offset = 0; offset < names.Count; offset += EmbeddingBatchSize)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                var batchNames = names.Skip(offset).Take(EmbeddingBatchSize).ToArray();
+                var batchEmbeddings = await TryGenerateBatchWithRetryAsync(embeddingService, batchNames, ct).ConfigureAwait(false);
+                if (batchEmbeddings is null)
+                {
+                    continue;
+                }
+
+                var count = Math.Min(batchNames.Length, batchEmbeddings.Count);
+                for (var i = 0; i < count; i++)
+                {
+                    if (!namesToEmbed.TryGetValue(batchNames[i], out var setters))
+                    {
+                        continue;
+                    }
+
+                    foreach (var setter in setters)
+                    {
+                        setter(CloneEmbedding(batchEmbeddings[i]));
+                    }
+
+                    generated++;
+                }
+
+                await PersistEmbeddingUpdatesAsync(ct).ConfigureAwait(false);
+
+                if (offset + EmbeddingBatchSize < names.Count)
+                {
+                    await Task.Delay(EmbeddingBatchDelay, ct).ConfigureAwait(false);
+                }
+            }
+
+            _logger.LogInformation(
+                "Generated {GeneratedCount} embeddings for location snapshot (requested {RequestedCount})",
+                generated,
+                namesToEmbed.Count);
         }
-
-        foreach (var floor in floors)
-            RegisterForEmbedding(floor.Name, e => floor.NameEmbedding = e);
-
-        foreach (var area in areas)
-            RegisterForEmbedding(area.Name, e => area.NameEmbedding = e);
-
-        foreach (var entity in entities)
-            RegisterForEmbedding(entity.FriendlyName, e => entity.NameEmbedding = e);
-
-        int generated = 0;
-        foreach (var (name, setters) in namesToEmbed)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
+            _logger.LogDebug("Embedding generation job cancelled");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Background embedding generation failed");
+        }
+        finally
+        {
+            if (Volatile.Read(ref _activeEmbeddingJobId) == jobId)
+            {
+                Volatile.Write(ref _isEmbeddingGenerationRunning, 0);
+            }
+        }
+    }
+
+    private async Task<GeneratedEmbeddings<Embedding<float>>?> TryGenerateBatchWithRetryAsync(
+        IEmbeddingGenerator<string, Embedding<float>> embeddingService,
+        string[] batchNames,
+        CancellationToken ct)
+    {
+        for (var attempt = 1; attempt <= EmbeddingBatchMaxAttempts; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+
             try
             {
-                var embedding = await embeddingService.GenerateAsync(name, cancellationToken: ct).ConfigureAwait(false);
-                foreach (var setter in setters)
-                    setter(CloneEmbedding(embedding));
-                generated++;
+                return await embeddingService.GenerateAsync(batchNames, cancellationToken: ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (attempt < EmbeddingBatchMaxAttempts)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Embedding batch failed on attempt {Attempt}/{MaxAttempts}; retrying in {DelayMs}ms",
+                    attempt,
+                    EmbeddingBatchMaxAttempts,
+                    EmbeddingRetryDelay.TotalMilliseconds);
+                await Task.Delay(EmbeddingRetryDelay, ct).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to generate embedding for '{Name}'", name);
+                _logger.LogWarning(
+                    ex,
+                    "Embedding batch failed after {MaxAttempts} attempts for {ItemCount} items",
+                    EmbeddingBatchMaxAttempts,
+                    batchNames.Length);
+                return null;
             }
         }
 
-        _logger.LogDebug("Generated {Count} embeddings for {UniqueNames} unique names", generated, namesToEmbed.Count);
+        return null;
     }
     
     private static Embedding<float> CloneEmbedding(Embedding<float> source)
@@ -849,6 +1015,8 @@ public sealed class EntityLocationService : IEntityLocationService
             if (await TryLoadFromRedisAsync(ct).ConfigureAwait(false))
             {
                 CacheReloads.Add(1);
+                var snap = _snapshot;
+                StartEmbeddingGenerationJob(snap.Floors, snap.Areas, snap.Entities);
             }
         }
         catch (RedisException ex)
@@ -872,6 +1040,12 @@ public sealed class EntityLocationService : IEntityLocationService
         {
             _logger.LogWarning(ex, "Failed to bump Redis location cache version");
         }
+    }
+
+    private async Task PersistEmbeddingUpdatesAsync(CancellationToken ct)
+    {
+        await SaveToRedisAsync(ct).ConfigureAwait(false);
+        await BumpRedisVersionAsync().ConfigureAwait(false);
     }
 
     private async Task SaveToRedisAsync(CancellationToken ct)
@@ -955,6 +1129,56 @@ public sealed class EntityLocationService : IEntityLocationService
         await BumpRedisVersionAsync().ConfigureAwait(false);
     }
 
+    public async Task<bool> EvictEmbeddingAsync(string itemType, string itemId, CancellationToken ct = default)
+    {
+        if (!TryResolveEmbeddingTarget(itemType, itemId, out _, out var setEmbedding))
+        {
+            return false;
+        }
+
+        setEmbedding(null);
+        await PersistEmbeddingUpdatesAsync(ct).ConfigureAwait(false);
+        return true;
+    }
+
+    public async Task<bool> RegenerateEmbeddingAsync(string itemType, string itemId, CancellationToken ct = default)
+    {
+        if (!TryResolveEmbeddingTarget(itemType, itemId, out var matchableName, out var setEmbedding))
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(matchableName))
+        {
+            return false;
+        }
+
+        var embeddingService = await _embeddingResolver.ResolveAsync(ct: ct).ConfigureAwait(false);
+        if (embeddingService is null)
+        {
+            return false;
+        }
+
+        try
+        {
+            var embedding = await embeddingService
+                .GenerateAsync(matchableName, cancellationToken: ct)
+                .ConfigureAwait(false);
+            setEmbedding(CloneEmbedding(embedding));
+            await PersistEmbeddingUpdatesAsync(ct).ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to regenerate embedding for {ItemType} '{ItemId}'",
+                itemType,
+                itemId);
+            return false;
+        }
+    }
+
     // ── Private: Visibility Persistence ─────────────────────────────
 
     private async Task LoadVisibilityConfigAsync()
@@ -1003,6 +1227,58 @@ public sealed class EntityLocationService : IEntityLocationService
             entity.IncludeForAgent = config.EntityAgentMap.TryGetValue(entity.EntityId, out var agents)
                 ? new HashSet<string>(agents, StringComparer.OrdinalIgnoreCase)
                 : null; // null = visible to all
+        }
+    }
+
+    private bool TryResolveEmbeddingTarget(
+        string itemType,
+        string itemId,
+        out string matchableName,
+        out Action<Embedding<float>?> setEmbedding)
+    {
+        matchableName = string.Empty;
+        setEmbedding = _ => { };
+
+        if (string.IsNullOrWhiteSpace(itemType) || string.IsNullOrWhiteSpace(itemId))
+        {
+            return false;
+        }
+
+        var snap = _snapshot;
+        switch (itemType.Trim().ToLowerInvariant())
+        {
+            case "entity":
+                if (!snap.EntityById.TryGetValue(itemId, out var entity))
+                {
+                    return false;
+                }
+
+                matchableName = entity.FriendlyName;
+                setEmbedding = embedding => entity.NameEmbedding = embedding;
+                return true;
+
+            case "area":
+                if (!snap.AreaById.TryGetValue(itemId, out var area))
+                {
+                    return false;
+                }
+
+                matchableName = area.Name;
+                setEmbedding = embedding => area.NameEmbedding = embedding;
+                return true;
+
+            case "floor":
+                if (!snap.FloorById.TryGetValue(itemId, out var floor))
+                {
+                    return false;
+                }
+
+                matchableName = floor.Name;
+                setEmbedding = embedding => floor.NameEmbedding = embedding;
+                return true;
+
+            default:
+                return false;
         }
     }
 
