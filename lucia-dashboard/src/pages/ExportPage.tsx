@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchExports, createExport, getExportDownloadUrl, fetchStats } from '../api'
+import CustomSelect from '../components/CustomSelect'
 import { LabelStatus } from '../types'
 import type { ExportFilterCriteria } from '../types'
 import { Download, FileDown, Filter, CheckCircle2, Loader2 } from 'lucide-react'
@@ -49,6 +50,23 @@ export default function ExportPage() {
     queryFn: fetchStats,
   })
 
+  const labelOptions = [
+    { value: '', label: 'All' },
+    { value: '0', label: 'Unlabeled' },
+    { value: '1', label: 'Positive' },
+    { value: '2', label: 'Negative' },
+  ]
+
+  const agentOptions = [
+    { value: '', label: 'All Agents' },
+    ...(stats
+      ? Object.keys(stats.byAgent).sort().map((agentId) => ({
+          value: agentId,
+          label: `${agentId} (${stats.byAgent[agentId]})`,
+        }))
+      : []),
+  ]
+
   const mutation = useMutation({
     mutationFn: (filter: ExportFilterCriteria) => createExport(filter),
     onSuccess: () => {
@@ -80,16 +98,11 @@ export default function ExportPage() {
         <div className="flex flex-wrap items-end gap-4">
           <div>
             <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-dust">Label Filter</label>
-            <select
+            <CustomSelect
+              options={labelOptions}
               value={labelFilter}
-              onChange={(e) => setLabelFilter(e.target.value)}
-              className={inputStyle}
-            >
-              <option value="">All</option>
-              <option value="0">Unlabeled</option>
-              <option value="1">Positive</option>
-              <option value="2">Negative</option>
-            </select>
+              onChange={(value) => setLabelFilter(value)}
+            />
           </div>
           <div>
             <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-dust">From</label>
@@ -111,18 +124,11 @@ export default function ExportPage() {
           </div>
           <div>
             <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-dust">Agent</label>
-            <select
+            <CustomSelect
+              options={agentOptions}
               value={agentFilter}
-              onChange={(e) => setAgentFilter(e.target.value)}
-              className={inputStyle}
-            >
-              <option value="">All Agents</option>
-              {stats && Object.keys(stats.byAgent).sort().map((agentId) => (
-                <option key={agentId} value={agentId}>
-                  {agentId} ({stats.byAgent[agentId]})
-                </option>
-              ))}
-            </select>
+              onChange={(value) => setAgentFilter(value)}
+            />
           </div>
           <label className="flex items-center gap-2 pb-0.5 text-sm text-fog">
             <input

@@ -13,11 +13,14 @@ import type {
   McpServerStatus,
   AgentDefinition,
   ModelProvider,
+  ProviderModelsResponse,
   OptimizableSkillInfo,
   SkillDeviceInfo,
   TraceSearchTerm,
   OptimizationTestCase,
   JobStatusResponse,
+  ModelAuthConfig,
+  ProviderType,
 } from './types';
 
 const BASE = '/api';
@@ -744,6 +747,41 @@ export async function testModelProvider(id: string): Promise<{ success: boolean;
 
 export async function testEmbeddingProvider(id: string): Promise<{ success: boolean; message: string }> {
   const res = await fetch(`${BASE}/model-providers/${encodeURIComponent(id)}/test-embedding`, { method: 'POST' });
+  return res.json();
+}
+
+export async function fetchProviderModels(id: string): Promise<ProviderModelsResponse> {
+  const res = await fetch(`${BASE}/model-providers/${encodeURIComponent(id)}/models`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to fetch provider models: ${res.statusText}`);
+  return res.json();
+}
+
+export interface ProviderModelDiscoveryRequest {
+  providerType: ProviderType;
+  endpoint?: string | null;
+  auth: ModelAuthConfig;
+}
+
+export async function discoverProviderModels(request: ProviderModelDiscoveryRequest): Promise<ProviderModelsResponse> {
+  const res = await fetch(`${BASE}/model-providers/models/discover`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) throw new Error(`Failed to discover provider models: ${res.statusText}`);
+  return res.json();
+}
+
+export async function setProviderModel(id: string, modelName: string): Promise<ModelProvider> {
+  const res = await fetch(`${BASE}/model-providers/${encodeURIComponent(id)}/model`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ modelName }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Failed to set provider model: ${res.statusText}`);
+  }
   return res.json();
 }
 

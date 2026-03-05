@@ -5,6 +5,7 @@ import {
   fetchTaskStats,
   cancelTask,
 } from '../api'
+import CustomSelect from '../components/CustomSelect'
 import type {
   ActiveTaskSummary,
   ArchivedTask,
@@ -298,20 +299,22 @@ function ArchivedTasksTable({
   page: number
   onPageChange: (p: number) => void
 }) {
+  const statusOptions = [
+    { value: '', label: 'All Statuses' },
+    { value: 'Completed', label: 'Completed' },
+    { value: 'Failed', label: 'Failed' },
+    { value: 'Canceled', label: 'Canceled' },
+  ]
+
   return (
     <div>
       {/* Filters */}
       <div className="mb-4 flex flex-wrap gap-3">
-        <select
-          className="rounded-xl border border-stone bg-basalt px-4 py-2 text-sm text-light input-focus appearance-none"
+        <CustomSelect
+          options={statusOptions}
           value={statusFilter}
-          onChange={(e) => onStatusChange(e.target.value)}
-        >
-          <option value="">All Statuses</option>
-          <option value="Completed">Completed</option>
-          <option value="Failed">Failed</option>
-          <option value="Canceled">Canceled</option>
-        </select>
+          onChange={onStatusChange}
+        />
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-dust" />
           <input

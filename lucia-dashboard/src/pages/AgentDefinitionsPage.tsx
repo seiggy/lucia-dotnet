@@ -12,6 +12,7 @@ import {
   fetchMcpServerStatuses,
   fetchModelProviders,
 } from '../api'
+import CustomSelect from '../components/CustomSelect'
 import type { McpToolServerDefinition, McpServerStatus } from '../types'
 
 type FormMode = 'list' | 'create' | 'edit'
@@ -345,33 +346,37 @@ function AgentForm({
             </label>
             <label className="block">
               <span className="text-sm text-dust">Model Provider</span>
-              <select
+              <CustomSelect
+                options={[
+                  { value: '', label: '\u2014 Select a model provider \u2014' },
+                  ...providers
+                    .filter(p => p.purpose !== 'Embedding')
+                    .map(p => ({
+                      value: p.id,
+                      label: `${p.name} (${p.providerType} \u00b7 ${p.modelName})`,
+                    })),
+                ]}
                 value={form.modelConnectionName}
-                onChange={e => setForm(f => ({ ...f, modelConnectionName: e.target.value }))}
-                className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 text-sm"
-              >
-                <option value="">— Select a model provider —</option>
-                {providers.filter(p => p.purpose !== 'Embedding').map(p => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.providerType} · {p.modelName})
-                  </option>
-                ))}
-              </select>
+                onChange={value => setForm(f => ({ ...f, modelConnectionName: value }))}
+                className="mt-1 w-full"
+              />
             </label>
             <label className="block">
               <span className="text-sm text-rose">Embedding Provider</span>
-              <select
+              <CustomSelect
+                options={[
+                  { value: '', label: '\u2014 Select an embedding provider \u2014' },
+                  ...providers
+                    .filter(p => p.purpose === 'Embedding')
+                    .map(p => ({
+                      value: p.id,
+                      label: `${p.name} (${p.providerType} \u00b7 ${p.modelName})`,
+                    })),
+                ]}
                 value={form.embeddingProviderName}
-                onChange={e => setForm(f => ({ ...f, embeddingProviderName: e.target.value }))}
-                className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 text-sm"
-              >
-                <option value="">— Select an embedding provider —</option>
-                {providers.filter(p => p.purpose === 'Embedding').map(p => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.providerType} · {p.modelName})
-                  </option>
-                ))}
-              </select>
+                onChange={value => setForm(f => ({ ...f, embeddingProviderName: value }))}
+                className="mt-1 w-full"
+              />
               <p className="mt-1 text-xs text-dust">Used by skills for vector search (device matching, semantic lookup)</p>
             </label>
           </div>

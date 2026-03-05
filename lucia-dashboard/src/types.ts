@@ -215,12 +215,12 @@ export interface AgentDefinition {
 }
 
 // Model Providers
-export type ProviderType = 'OpenAI' | 'AzureOpenAI' | 'AzureAIInference' | 'Ollama' | 'Anthropic' | 'GoogleGemini' | 'GitHubCopilot';
+export type ProviderType = 'OpenAI' | 'OpenRouter' | 'AzureOpenAI' | 'AzureAIInference' | 'Ollama' | 'Anthropic' | 'GoogleGemini' | 'GitHubCopilot';
 
 export type ModelPurpose = 'Chat' | 'Embedding';
 
 /// Provider types that support embedding generation
-export const EmbeddingCapableProviders: ProviderType[] = ['OpenAI', 'AzureOpenAI', 'AzureAIInference', 'Ollama', 'GoogleGemini'];
+export const EmbeddingCapableProviders: ProviderType[] = ['OpenAI', 'OpenRouter', 'AzureOpenAI', 'AzureAIInference', 'Ollama', 'GoogleGemini'];
 
 export interface ModelAuthConfig {
   authType: string;
@@ -241,6 +241,11 @@ export interface ModelProvider {
   isBuiltIn: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ProviderModelsResponse {
+  models: string[];
+  error?: string;
 }
 
 export interface CopilotModelMetadata {

@@ -1,6 +1,5 @@
-using System.Text.Json;
-using lucia.AgentHost.Extensions;
 using lucia.AgentHost.Models;
+using lucia.AgentHost.Services;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
 using lucia.Agents.Configuration.UserConfiguration;
@@ -30,8 +29,11 @@ public static class ModelProviderApi
         group.MapDelete("/{id}", DeleteProviderAsync);
         group.MapPost("/{id}/test", TestProviderAsync);
         group.MapPost("/{id}/test-embedding", TestEmbeddingAsync);
+        group.MapPost("/{id}/models", ListProviderModelsAsync);
+        group.MapPost("/{id}/model", SetProviderModelAsync);
         group.MapPost("/copilot/connect", CopilotConnectAsync);
         group.MapPost("/ollama/models", ListOllamaModelsAsync);
+        group.MapPost("/models/discover", DiscoverProviderModelsAsync);
 
         return endpoints;
     }
@@ -151,6 +153,46 @@ public static class ModelProviderApi
         return TypedResults.Ok(result);
     }
 
+    private static async Task<Results<Ok<ProviderModelsResponse>, NotFound>> ListProviderModelsAsync(
+        string id,
+        [FromServices] IModelProviderRepository repository,
+        [FromServices] ProviderModelCatalogService modelCatalogService,
+        CancellationToken ct)
+    {
+        var provider = await repository.GetProviderAsync(id, ct).ConfigureAwait(false);
+        if (provider is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        var result = await modelCatalogService.ListModelsAsync(provider, ct).ConfigureAwait(false);
+        return TypedResults.Ok(result);
+    }
+
+    private static async Task<Results<Ok<ModelProvider>, NotFound, BadRequest<string>>> SetProviderModelAsync(
+        string id,
+        [FromBody] SetProviderModelRequest request,
+        [FromServices] IModelProviderRepository repository,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(request.ModelName))
+        {
+            return TypedResults.BadRequest("Model name is required");
+        }
+
+        var provider = await repository.GetProviderAsync(id, ct).ConfigureAwait(false);
+        if (provider is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        provider.ModelName = request.ModelName.Trim();
+        provider.UpdatedAt = DateTime.UtcNow;
+
+        await repository.UpsertProviderAsync(provider, ct).ConfigureAwait(false);
+        return TypedResults.Ok(provider);
+    }
+
     private static async Task<Ok<CopilotConnectResult>> CopilotConnectAsync(
         [FromBody] CopilotConnectRequest request,
         [FromServices] CopilotConnectService connectService,
@@ -162,41 +204,25 @@ public static class ModelProviderApi
 
     private static async Task<Ok<OllamaModelsResponse>> ListOllamaModelsAsync(
         [FromBody] OllamaModelsRequest request,
-        [FromServices] IHttpClientFactory httpClientFactory,
+        [FromServices] ProviderModelCatalogService modelCatalogService,
         CancellationToken ct)
     {
-        var result = new OllamaModelsResponse();
-        var baseUrl = (request?.Endpoint ?? "").Trim();
-        if (string.IsNullOrEmpty(baseUrl))
-            baseUrl = "http://localhost:11434";
-
-        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri) || (uri.Scheme != "http" && uri.Scheme != "https"))
+        var catalogResult = await modelCatalogService.ListOllamaModelsAsync(request.Endpoint, ct).ConfigureAwait(false);
+        return TypedResults.Ok(new OllamaModelsResponse
         {
-            result.Error = "Invalid Ollama endpoint URL";
-            return TypedResults.Ok(result);
-        }
+            Models = catalogResult.Models,
+            Error = catalogResult.Error
+        });
+    }
 
-        var url = uri.ToString().TrimEnd('/') + "/api/tags";
-        try
-        {
-            var client = httpClientFactory.CreateClient("OllamaModels");
-            var response = await client.GetAsync(url, ct).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
-
-            var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            var parsed = JsonSerializer.Deserialize<OllamaTagsResponse>(json);
-            result.Models = (parsed?.Models ?? [])
-                .Select(m => m.Name)
-                .Where(n => !string.IsNullOrEmpty(n))
-                .OrderBy(n => n)
-                .ToList();
-        }
-        catch (Exception ex)
-        {
-            result.Error = ex is HttpRequestException
-                ? $"Cannot reach Ollama at {baseUrl}: {ex.Message}"
-                : $"Failed to list models: {ex.Message}";
-        }
+    private static async Task<Ok<ProviderModelsResponse>> DiscoverProviderModelsAsync(
+        [FromBody] ProviderModelDiscoveryRequest request,
+        [FromServices] ProviderModelCatalogService modelCatalogService,
+        CancellationToken ct)
+    {
+        var result = await modelCatalogService
+            .ListModelsAsync(request.ProviderType, request.Endpoint, request.Auth, ct)
+            .ConfigureAwait(false);
 
         return TypedResults.Ok(result);
     }
