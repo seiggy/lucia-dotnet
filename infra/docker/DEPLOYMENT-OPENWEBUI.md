@@ -28,7 +28,9 @@ DASHBOARD_API_KEY=lk_YourGeneratedKey   # Log in to Lucia dashboard
 LUCIA_HA_API_KEY=lk_YourGeneratedKey    # Enter in HA integration → Lucia → API Key
 ```
 
-With `HomeAssistant__BaseUrl`, `HomeAssistant__AccessToken`, and `DASHBOARD_API_KEY` set, Lucia auto-configures on startup and skips the wizard. Use `LUCIA_HA_API_KEY` when adding the Lucia integration in HA.
+With `HomeAssistant__BaseUrl`, `HomeAssistant__AccessToken`, and `DASHBOARD_API_KEY` set, Lucia auto-configures on startup and skips the wizard. If the config store already has both an API key and a full HA connection (from a previous run or from env seeding), setup is also marked complete. Use `LUCIA_HA_API_KEY` when adding the Lucia integration in HA.
+
+**Tools (web search, MCP):** The image includes the official plugins (MetaMCP, SearXNG) under `/app/plugins`. Set `SEARXNG_URL` and/or `METAMCP_URL` (and `METAMCP_API_KEY` if required) in `.env`; they are registered at startup. The dashboard **Plugins** page shows these as "Installed" (merged from disk). Installing them again from the Store is safe (read-only dirs are reused and only the DB is updated).
 
 ## Shared Capabilities (Machine A)
 

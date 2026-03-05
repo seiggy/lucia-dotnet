@@ -156,6 +156,10 @@ environment:
 
 See `.env.example` in the repository root for all available variables.
 
+**Headless (skip wizard):** When both a dashboard API key and a Home Assistant connection (BaseUrl + AccessToken) are present—either seeded from env or already in the config store—Lucia marks setup complete and the wizard is not shown. Set `DASHBOARD_API_KEY`, `HomeAssistant__BaseUrl`, and `HomeAssistant__AccessToken` in the `lucia` service (or via `env_file: .env`) for fully headless startup.
+
+**Plugins and tools:** The production image includes the official plugins (MetaMCP, SearXNG) under `/app/plugins` (`PluginDirectory=/app/plugins`). Set `SEARXNG_URL` and/or `METAMCP_URL` (and `METAMCP_API_KEY` if required) to register web search and MCP tools at startup. The dashboard **Plugins** page lists these as installed when present on disk. See `infra/docker/.env.lucia.example` for a full env template.
+
 ### LLM Provider Examples
 
 #### OpenAI (Recommended)
