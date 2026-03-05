@@ -285,7 +285,6 @@ class LuciaConversationEntity(conversation.ConversationEntity):
                 ha_conversation_id,
                 context_id=response_context_id,
                 task_id=None,
-                last_assistant_text=response_text or None,
             )
 
             _LOGGER.debug("Received response from agent: %s", response_text[:100])
