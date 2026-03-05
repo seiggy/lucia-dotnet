@@ -12,7 +12,16 @@ if [[ -z "$STAGED_FILES" ]]; then
 fi
 
 echo "[pre-commit] Validating UTF-8 (no BOM) for hacs.json..."
-python3 scripts/check_utf8_no_bom.py hacs.json
+if command -v python3 >/dev/null 2>&1; then
+  PYTHON_CMD=python3
+elif command -v python >/dev/null 2>&1; then
+  PYTHON_CMD=python
+else
+  echo "[pre-commit] Python (python3 or python) is required to validate hacs.json encoding."
+  exit 1
+fi
+
+"$PYTHON_CMD" scripts/check_utf8_no_bom.py hacs.json
 
 if ! grep -Eq '^(custom_components/lucia/|hacs\.json$)' <<< "$STAGED_FILES"; then
   echo "[pre-commit] No Lucia/HACS files staged; skipping ruff + hassfest."
@@ -20,6 +29,12 @@ if ! grep -Eq '^(custom_components/lucia/|hacs\.json$)' <<< "$STAGED_FILES"; the
 fi
 
 echo "[pre-commit] Running ruff..."
+if ! command -v ruff >/dev/null 2>&1; then
+  echo "[pre-commit] ruff is required to run Python style checks."
+  echo "[pre-commit] Install it with e.g.: pipx install ruff  # or: python3 -m pip install --user ruff"
+  exit 1
+fi
+
 ruff check custom_components/lucia
 
 if ! command -v docker >/dev/null 2>&1; then
