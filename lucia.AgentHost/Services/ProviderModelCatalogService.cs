@@ -201,7 +201,23 @@ public sealed class ProviderModelCatalogService
             }
 
             using var response = await client.SendAsync(request, ct).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
+            if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            {
+                result.Error = $"Authentication failed for provider endpoint at {modelsUri}. Verify the API key or credentials.";
+                return result;
+            }
+
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                result.Error = $"Provider models endpoint not found at {modelsUri}. Verify the endpoint URL.";
+                return result;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                result.Error = $"Model discovery failed at {modelsUri}: {(int)response.StatusCode} {response.ReasonPhrase}.";
+                return result;
+            }
 
             using var payload = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
             using var document = await JsonDocument.ParseAsync(payload, cancellationToken: ct).ConfigureAwait(false);

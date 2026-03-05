@@ -753,22 +753,22 @@ function AiProviderStep({ onComplete }: { onComplete: () => void }) {
                 : <span className="text-dust"> (optional{providerType === 'Ollama' ? ', default: http://localhost:11434' : ''})</span>
               }
             </label>
-              <input
-                type="text"
-                value={endpoint}
-                onChange={e => setEndpoint(e.target.value)}
-                placeholder={
-                  isAzure
-                    ? 'https://my-resource.openai.azure.com'
-                    : providerType === 'Ollama'
-                      ? 'http://localhost:11434'
-                      : providerType === 'OpenRouter'
-                        ? 'https://openrouter.ai/api/v1'
-                        : 'Leave blank for default'
-                }
-                className={inputStyle}
-              />
-            </div>
+            <input
+              type="text"
+              value={endpoint}
+              onChange={e => setEndpoint(e.target.value)}
+              placeholder={
+                isAzure
+                  ? 'https://my-resource.openai.azure.com'
+                  : providerType === 'Ollama'
+                    ? 'http://localhost:11434'
+                    : providerType === 'OpenRouter'
+                      ? 'https://openrouter.ai/api/v1'
+                      : 'Leave blank for default'
+              }
+              className={inputStyle}
+            />
+          </div>
 
           {/* Azure Default Credential toggle */}
           {isAzure && (

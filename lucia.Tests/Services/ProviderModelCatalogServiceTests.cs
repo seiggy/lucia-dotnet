@@ -181,6 +181,44 @@ public sealed class ProviderModelCatalogServiceTests
     }
 
     [Fact]
+    public async Task ListModelsAsync_OpenAiCompatibleUnauthorized_ReturnsExplicitAuthError()
+    {
+        var httpFactory = A.Fake<IHttpClientFactory>();
+        A.CallTo(() => httpFactory.CreateClient("ProviderModelCatalog"))
+            .Returns(new HttpClient(new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized))));
+        A.CallTo(() => httpFactory.CreateClient("OllamaModels"))
+            .Returns(new HttpClient(new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound))));
+
+        var service = new ProviderModelCatalogService(httpFactory, NullLogger<ProviderModelCatalogService>.Instance);
+        var provider = BuildProvider(ProviderType.OpenAI, endpoint: "https://api.openai.com/v1", apiKey: "bad-key");
+
+        var result = await service.ListModelsAsync(provider);
+
+        Assert.NotNull(result.Error);
+        Assert.Contains("Authentication failed", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(result.Models);
+    }
+
+    [Fact]
+    public async Task ListModelsAsync_OpenAiCompatibleNotFound_ReturnsExplicitEndpointError()
+    {
+        var httpFactory = A.Fake<IHttpClientFactory>();
+        A.CallTo(() => httpFactory.CreateClient("ProviderModelCatalog"))
+            .Returns(new HttpClient(new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound))));
+        A.CallTo(() => httpFactory.CreateClient("OllamaModels"))
+            .Returns(new HttpClient(new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.NotFound))));
+
+        var service = new ProviderModelCatalogService(httpFactory, NullLogger<ProviderModelCatalogService>.Instance);
+        var provider = BuildProvider(ProviderType.OpenAI, endpoint: "https://api.openai.com/v1/invalid", apiKey: "test-key");
+
+        var result = await service.ListModelsAsync(provider);
+
+        Assert.NotNull(result.Error);
+        Assert.Contains("not found", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(result.Models);
+    }
+
+    [Fact]
     public async Task ListModelsAsync_Ollama_ReturnsSortedNames()
     {
         var responseBody = """

@@ -36,8 +36,12 @@ const AUTH_TYPES = [
   { value: 'none', label: 'None (local)' },
 ]
 
+function supportsOpenAiCompatibleModelDiscovery(providerType: ProviderType): boolean {
+  return providerType === 'OpenAI' || providerType === 'OpenRouter' || providerType === 'GoogleGemini'
+}
+
 function supportsModelDiscovery(providerType: ProviderType): boolean {
-  return providerType === 'OpenAI' || providerType === 'OpenRouter' || providerType === 'Ollama'
+  return providerType === 'Ollama' || supportsOpenAiCompatibleModelDiscovery(providerType)
 }
 
 function emptyProvider(): Partial<ModelProvider> {
@@ -286,7 +290,11 @@ export default function ModelProvidersPage() {
   const handleLoadOpenAiModels = async () => {
     const auth = form.auth ?? { authType: 'api-key', apiKey: '', useDefaultCredentials: false }
     const endpoint = (form.endpoint ?? '').trim()
-    const providerType: ProviderType = form.providerType === 'OpenRouter' ? 'OpenRouter' : 'OpenAI'
+    const providerType: ProviderType = form.providerType === 'OpenRouter'
+      ? 'OpenRouter'
+      : form.providerType === 'GoogleGemini'
+        ? 'GoogleGemini'
+        : 'OpenAI'
 
     setOpenAiLoading(true)
     setOpenAiError(null)
@@ -425,7 +433,7 @@ export default function ModelProvidersPage() {
                   setOllamaModels([])
                   setOllamaError(null)
                 }
-                if (newType !== 'OpenAI' && newType !== 'OpenRouter') {
+                if (!supportsOpenAiCompatibleModelDiscovery(newType)) {
                   resetOpenAiModelDiscovery()
                 }
               }}
@@ -568,9 +576,11 @@ export default function ModelProvidersPage() {
                       ? 'http://localhost:11434'
                       : form.providerType === 'OpenRouter'
                         ? 'https://openrouter.ai/api/v1'
-                      : form.providerType === 'OpenAI'
-                        ? 'Leave blank for api.openai.com, or set custom OpenAI-compatible endpoint'
-                        : 'https://...'
+                        : form.providerType === 'OpenAI'
+                          ? 'Leave blank for api.openai.com, or set custom OpenAI-compatible endpoint'
+                          : form.providerType === 'GoogleGemini'
+                            ? 'Leave blank for Gemini default endpoint, or set custom OpenAI-compatible endpoint'
+                            : 'https://...'
                   }
                   className="w-full rounded bg-basalt px-3 py-2 text-sm text-light placeholder-dust/60 input-focus focus:ring-1 focus:ring-blue-500"
                 />
@@ -605,7 +615,7 @@ export default function ModelProvidersPage() {
                 </div>
               )}
 
-              {(form.providerType === 'OpenAI' || form.providerType === 'OpenRouter') && (
+              {supportsOpenAiCompatibleModelDiscovery(form.providerType ?? 'OpenAI') && (
                 <div className="space-y-2">
                   <button
                     type="button"
@@ -636,7 +646,7 @@ export default function ModelProvidersPage() {
               {/* Model Name (for non-Ollama, or manual entry when Ollama dropdown not used) */}
               <div>
                 <label className="mb-1 block text-sm text-fog">
-                  {(form.providerType === 'Ollama' && ollamaModels.length > 0) || ((form.providerType === 'OpenAI' || form.providerType === 'OpenRouter') && openAiModels.length > 0)
+                  {(form.providerType === 'Ollama' && ollamaModels.length > 0) || (supportsOpenAiCompatibleModelDiscovery(form.providerType ?? 'OpenAI') && openAiModels.length > 0)
                     ? 'Model (or override above)'
                     : 'Model / Deployment Name (optional)'}
                 </label>
@@ -649,9 +659,11 @@ export default function ModelProvidersPage() {
                       ? 'e.g. llama3.1:8b or use Load models'
                       : form.providerType === 'OpenRouter'
                         ? 'e.g. openai/gpt-4.1-mini or use Load models'
-                      : form.providerType === 'OpenAI'
-                        ? 'e.g. gpt-4o or use Load models'
-                        : 'e.g. gpt-4o, claude-sonnet-4-20250514'
+                        : form.providerType === 'OpenAI'
+                          ? 'e.g. gpt-4o or use Load models'
+                          : form.providerType === 'GoogleGemini'
+                            ? 'e.g. gemini-2.5-pro or use Load models'
+                            : 'e.g. gpt-4o, claude-sonnet-4-20250514'
                   }
                   className="w-full rounded bg-basalt px-3 py-2 text-sm text-light placeholder-dust/60 input-focus focus:ring-1 focus:ring-blue-500"
                 />
@@ -684,7 +696,13 @@ export default function ModelProvidersPage() {
                       type="password"
                       value={form.auth?.apiKey ?? ''}
                       onChange={e => updateAuth({ apiKey: e.target.value })}
-                      placeholder={form.providerType === 'OpenRouter' ? 'sk-or-v1-... (OpenRouter API key)' : 'sk-... or your API key'}
+                      placeholder={
+                        form.providerType === 'OpenRouter'
+                          ? 'sk-or-v1-... (OpenRouter API key)'
+                          : form.providerType === 'GoogleGemini'
+                            ? 'AIza... (Google API key)'
+                            : 'sk-... or your API key'
+                      }
                       className="w-full rounded bg-basalt px-3 py-2 text-sm text-light placeholder-dust/60 input-focus focus:ring-1 focus:ring-blue-500"
                     />
                   </div>
