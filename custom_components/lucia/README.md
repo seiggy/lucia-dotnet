@@ -145,6 +145,12 @@ If the agent connects but doesn't respond properly:
 
 This integration is part of the larger Lucia project. For development information:
 
+- Install repository git hooks to run Lucia Python + hassfest checks on commit:
+  ```bash
+  ./scripts/install-git-hooks.sh
+  ```
+- The hook enforces UTF-8 without BOM for `hacs.json`.
+
 - [Main Repository](https://github.com/seiggy/lucia-dotnet)
 - [Issue Tracker](https://github.com/seiggy/lucia-dotnet/issues)
 
