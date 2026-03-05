@@ -897,7 +897,7 @@ export async function fetchAvailableAgents(): Promise<string[]> {
 export async function searchMatcherDebug(
   term: string,
   options?: { threshold?: number; embeddingWeight?: number; dropoff?: number; disagreementPenalty?: number; embeddingResolutionMargin?: number; domains?: string[] }
-): Promise<any> {
+): Promise<unknown> {
   const params = new URLSearchParams();
   if (options?.threshold !== undefined) params.set('threshold', String(options.threshold));
   if (options?.embeddingWeight !== undefined) params.set('embeddingWeight', String(options.embeddingWeight));

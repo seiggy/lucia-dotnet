@@ -7,6 +7,7 @@ export function useActivityStream() {
   const [lastEvent, setLastEvent] = useState<LiveEvent | null>(null)
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected')
   const sourceRef = useRef<EventSource | null>(null)
+  const connectRef = useRef<(() => void) | null>(null)
   const retriesRef = useRef(0)
   const maxRetries = 10
 
@@ -44,17 +45,21 @@ export function useActivityStream() {
         setConnectionState('reconnecting')
         const delay = Math.min(1000 * Math.pow(2, retriesRef.current), 30000)
         retriesRef.current++
-        setTimeout(connect, delay)
+        setTimeout(() => connectRef.current?.(), delay)
       } else {
         setConnectionState('disconnected')
       }
     }
   }, [])
 
+  useEffect(() => {
+    connectRef.current = connect
+  }, [connect])
+
   const reconnect = useCallback(() => {
     retriesRef.current = 0
-    connect()
-  }, [connect])
+    connectRef.current?.()
+  }, [])
 
   useEffect(() => {
     connect()

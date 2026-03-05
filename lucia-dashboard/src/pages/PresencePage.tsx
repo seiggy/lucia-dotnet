@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { RefreshCw, Eye, EyeOff, Wifi, WifiOff, Users, Trash2, Shield, ShieldOff } from 'lucide-react'
 import {
   fetchPresenceSensors, fetchOccupiedAreas, fetchPresenceConfig,
@@ -24,13 +24,13 @@ export default function PresencePage() {
   const [refreshing, setRefreshing] = useState(false)
   const [toasts, setToasts] = useState<{ id: number; msg: string; type: 'success' | 'error' }[]>([])
   const [filter, setFilter] = useState('')
+  const toastIdRef = useRef(0)
 
-  let toastId = 0
-  function addToast(msg: string, type: 'success' | 'error' = 'success') {
-    const id = ++toastId
+  const addToast = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
+    const id = ++toastIdRef.current
     setToasts(t => [...t, { id, msg, type }])
     setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3500)
-  }
+  }, [])
 
   const loadData = useCallback(async () => {
     try {
@@ -47,7 +47,7 @@ export default function PresencePage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [addToast])
 
   useEffect(() => { loadData() }, [loadData])
 

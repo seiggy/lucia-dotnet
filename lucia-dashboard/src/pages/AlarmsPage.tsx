@@ -185,7 +185,8 @@ export default function AlarmsPage() {
       setEditingAlarm(alarm)
       const isCron = !!alarm.cronSchedule
       let preset = 'Custom'
-      let hour = '07', minute = '00', custom = alarm.cronSchedule || ''
+      let hour = '07', minute = '00'
+      const custom = alarm.cronSchedule || ''
       if (alarm.cronSchedule) {
         const p = alarm.cronSchedule.split(' ')
         if (p.length === 5) {

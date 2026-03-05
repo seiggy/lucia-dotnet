@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import {
   Puzzle,
   Store,
@@ -39,21 +39,26 @@ export default function PluginsPage() {
   const [loadingStore, setLoadingStore] = useState(false)
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set())
   const [toasts, setToasts] = useState<Toast[]>([])
+  const toastIdRef = useRef(0)
 
-  const addToast = (message: string, type: 'success' | 'error') => {
-    const id = Date.now()
+  const addToast = useCallback((message: string, type: 'success' | 'error') => {
+    const id = ++toastIdRef.current
     setToasts(prev => [...prev, { id, message, type }])
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000)
-  }
+  }, [])
 
   const markBusy = (id: string, busy: boolean) =>
     setBusyIds(prev => {
       const next = new Set(prev)
-      busy ? next.add(id) : next.delete(id)
+      if (busy) {
+        next.add(id)
+      } else {
+        next.delete(id)
+      }
       return next
     })
 
-  const loadInstalled = async () => {
+  const loadInstalled = useCallback(async () => {
     setLoadingInstalled(true)
     try {
       setInstalled(await fetchInstalledPlugins())
@@ -62,9 +67,9 @@ export default function PluginsPage() {
     } finally {
       setLoadingInstalled(false)
     }
-  }
+  }, [addToast])
 
-  const loadStore = async () => {
+  const loadStore = useCallback(async () => {
     setLoadingStore(true)
     try {
       setAvailable(await fetchAvailablePlugins(search || undefined))
@@ -73,16 +78,16 @@ export default function PluginsPage() {
     } finally {
       setLoadingStore(false)
     }
-  }
+  }, [addToast, search])
 
   useEffect(() => {
     loadInstalled()
     loadStore()
-  }, [])
+  }, [loadInstalled, loadStore])
 
   useEffect(() => {
     if (tab === 'store') loadStore()
-  }, [tab, search])
+  }, [tab, loadStore])
 
   const handleToggle = async (p: InstalledPlugin) => {
     markBusy(p.id, true)

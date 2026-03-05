@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from 'react'
+import { useMemo, useCallback, useEffect } from 'react'
 import {
   ReactFlow,
   Background,
@@ -206,24 +206,23 @@ interface MeshGraphProps {
 }
 
 export default function MeshGraph({ topology, nodeStates }: MeshGraphProps) {
-  if (!topology || topology.nodes.length === 0) {
-    return (
-      <div className="flex h-64 items-center justify-center rounded-xl border border-stone bg-charcoal text-dust">
-        No agents registered
-      </div>
-    )
-  }
+  const hasTopology = Boolean(topology && topology.nodes.length > 0)
 
   const { nodes: layoutedNodes, edges: layoutedEdges } = useMemo(
-    () => layoutNodes(topology.nodes, topology.edges, nodeStates),
-    [topology, nodeStates],
+    () => {
+      if (!hasTopology || !topology) {
+        return { nodes: [], edges: [] }
+      }
+      return layoutNodes(topology.nodes, topology.edges, nodeStates)
+    },
+    [hasTopology, topology, nodeStates],
   )
 
   const [nodes, setNodes, onNodesChange] = useNodesState(layoutedNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(layoutedEdges)
 
   // Sync layout when topology or states change
-  useMemo(() => {
+  useEffect(() => {
     setNodes(layoutedNodes)
     setEdges(layoutedEdges)
   }, [layoutedNodes, layoutedEdges, setNodes, setEdges])
@@ -231,6 +230,14 @@ export default function MeshGraph({ topology, nodeStates }: MeshGraphProps) {
   const onInit = useCallback((instance: { fitView: () => void }) => {
     instance.fitView()
   }, [])
+
+  if (!hasTopology) {
+    return (
+      <div className="flex h-64 items-center justify-center rounded-xl border border-stone bg-charcoal text-dust">
+        No agents registered
+      </div>
+    )
+  }
 
   return (
     <div className="h-[420px] rounded-xl border border-stone bg-charcoal overflow-hidden">

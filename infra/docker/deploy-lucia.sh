@@ -57,21 +57,26 @@ if [[ ! -f "$ENV_FILE" ]]; then
   fi
 fi
 
-COMPOSE_CMD="docker compose -f docker-compose.yml -f docker-compose.lucia-sidecar.yml --env-file $ENV_FILE"
+COMPOSE_FILES=(-f docker-compose.yml -f docker-compose.lucia-sidecar.yml)
+COMPOSE_ENV=(--env-file "$ENV_FILE")
+
+compose() {
+  docker compose "${COMPOSE_FILES[@]}" "${COMPOSE_ENV[@]}" "$@"
+}
 
 if [[ $WIPE -eq 1 ]]; then
   echo "Wiping Lucia data: stopping containers and removing volumes (lucia-redis-data, lucia-mongo-data)..."
-  $COMPOSE_CMD down -v
+  compose down -v
   echo "Lucia data wiped."
 fi
 
 if [[ $REBUILD -eq 1 ]]; then
   echo "Rebuilding Lucia image (no cache)..."
-  $COMPOSE_CMD build --no-cache
+  compose build --no-cache
 fi
 
 echo "Starting Lucia (sidecar mode) with env file: $ENV_FILE"
-$COMPOSE_CMD up -d
+compose up -d
 
 # Try to determine host IP for Agent Repository URL (best effort)
 HA_REPO_IP=""

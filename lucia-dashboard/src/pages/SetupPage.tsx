@@ -212,7 +212,7 @@ function LuciaHaStep({
       .then((res) => setConnectionOkAtStartup(res))
       .catch(() => setConnectionOkAtStartup({ connected: false, error: 'Connection test failed' }))
       .finally(() => setConnectionTestBusy(false))
-  }, [status?.hasHaConnection])
+  }, [status?.hasHaConnection, connectionOkAtStartup])
 
   async function handleGenerateKey() {
     setError('')
