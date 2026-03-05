@@ -204,13 +204,13 @@ function AgentCardView({
   return (
     <div
       onClick={onSelect}
-      className={`cursor-pointer rounded-xl border p-4 transition-all ${
+      className={`cursor-pointer rounded-xl border p-4 transition-all min-w-0 ${
         selected
           ? 'border-amber bg-amber-glow/5 shadow-lg shadow-amber/10'
           : 'border-stone bg-charcoal hover:border-stone'
       }`}
     >
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-semibold text-light truncate">{agent.name}</h3>
@@ -248,11 +248,11 @@ function AgentCardView({
 
       {/* Skills */}
       {agent.skills && agent.skills.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1">
+        <div className="mt-3 flex flex-wrap gap-1.5">
           {agent.skills.map((s) => (
             <span
               key={s.id}
-              className="rounded bg-basalt px-2 py-0.5 text-[10px] font-medium text-fog"
+              className="inline-flex shrink-0 rounded bg-basalt px-2 py-0.5 text-[10px] font-medium text-fog whitespace-nowrap"
               title={s.description}
             >
               {s.name}
@@ -502,11 +502,11 @@ function AgentDetailPanel({
               <h4 className="text-xs font-semibold text-dust uppercase tracking-wider">Skills</h4>
               <div className="grid gap-2 md:grid-cols-2">
                 {agent.skills.map((skill) => (
-                  <div key={skill.id} className="rounded-xl bg-basalt border border-stone p-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-light">{skill.name}</span>
+                  <div key={skill.id} className="rounded-xl bg-basalt border border-stone p-3 min-w-0">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="text-sm font-medium text-light shrink-0">{skill.name}</span>
                       {skill.tags?.map((tag) => (
-                        <span key={tag} className="rounded bg-amber-glow/10 px-1.5 py-0.5 text-[10px] text-amber">
+                        <span key={tag} className="inline-flex shrink-0 rounded bg-amber-glow/10 px-1.5 py-0.5 text-[10px] text-amber whitespace-nowrap">
                           {tag}
                         </span>
                       ))}

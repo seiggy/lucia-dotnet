@@ -197,7 +197,20 @@ public sealed class GitPluginRepositorySource : IPluginRepositorySource
         using var archive = new ZipArchive(zipStream, ZipArchiveMode.Read);
 
         if (Directory.Exists(targetPath))
-            Directory.Delete(targetPath, recursive: true);
+        {
+            try
+            {
+                Directory.Delete(targetPath, recursive: true);
+            }
+            catch (IOException ex) when (File.Exists(Path.Combine(targetPath, "plugin.cs")))
+            {
+                _logger.LogInformation(
+                    ex,
+                    "Plugin directory '{Path}' could not be removed (e.g. read-only in container); existing plugin.cs present — registering as installed without re-extract.",
+                    targetPath);
+                return;
+            }
+        }
         Directory.CreateDirectory(targetPath);
 
         foreach (var entry in archive.Entries)
@@ -246,7 +259,20 @@ public sealed class GitPluginRepositorySource : IPluginRepositorySource
         using var archive = new ZipArchive(zipStream, ZipArchiveMode.Read);
 
         if (Directory.Exists(targetPath))
-            Directory.Delete(targetPath, recursive: true);
+        {
+            try
+            {
+                Directory.Delete(targetPath, recursive: true);
+            }
+            catch (IOException ex) when (File.Exists(Path.Combine(targetPath, "plugin.cs")))
+            {
+                _logger.LogInformation(
+                    ex,
+                    "Plugin directory '{Path}' could not be removed (e.g. read-only in container); existing plugin.cs present — registering as installed without re-extract.",
+                    targetPath);
+                return;
+            }
+        }
         Directory.CreateDirectory(targetPath);
 
         var pluginPathNormalized = plugin.Path.Replace('\\', '/').TrimEnd('/') + "/";
