@@ -54,6 +54,11 @@ export default function EntityMultiSelect({ devices, selected, onChange }: Entit
     return () => document.removeEventListener('mousedown', handleClick)
   }, [open])
 
+  // Clear filter text when dropdown closes
+  useEffect(() => {
+    if (!open) setFilter('')
+  }, [open])
+
   useEffect(() => {
     if (open && containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect()
