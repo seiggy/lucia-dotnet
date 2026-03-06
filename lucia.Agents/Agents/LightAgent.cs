@@ -12,7 +12,7 @@ namespace lucia.Agents.Agents;
 /// <summary>
 /// Specialized agent for controlling lights in Home Assistant
 /// </summary>
-public sealed class LightAgent : ILuciaAgent
+public sealed class LightAgent : ILuciaAgent, ISkillConfigProvider
 {
     private const string AgentId = "light-agent";
 
@@ -124,7 +124,18 @@ public sealed class LightAgent : ILuciaAgent
     /// Get the agent card for registration with the registry and A2A endpoints.
     /// </summary>
     public AgentCard GetAgentCard() => _agent;
-    
+
+    /// <inheritdoc/>
+    public IReadOnlyList<SkillConfigSection> GetSkillConfigSections() =>
+    [
+        new()
+        {
+            SectionName = Configuration.LightControlSkillOptions.SectionName,
+            DisplayName = "Light Control",
+            OptionsType = typeof(Configuration.LightControlSkillOptions)
+        }
+    ];
+
     /// <summary>
     /// Get the underlying AI agent for processing requests.
     /// </summary>

@@ -405,9 +405,18 @@ export interface TraceSearchTerm {
 
 export interface OptimizationTestCase {
   searchTerm: string
-  expectedEntityId: string
+  expectedEntityIds: string[]
   maxResults: number
   variant: string | null
+}
+
+export interface SkillTestDataset {
+  skillId: string
+  skillDisplayName: string
+  currentParams: HybridMatchOptions
+  exportedAt: string
+  testCases: OptimizationTestCase[]
+  entities: SkillDeviceInfo[]
 }
 
 export interface OptimizationProgress {
@@ -424,6 +433,8 @@ export interface OptimizationProgress {
 export interface OptimizationCaseResult {
   testCase: OptimizationTestCase
   found: boolean
+  foundEntityIds: string[]
+  missedEntityIds: string[]
   matchCount: number
   countWithinLimit: boolean
   caseScore: number

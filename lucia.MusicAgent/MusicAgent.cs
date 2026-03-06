@@ -15,7 +15,7 @@ namespace lucia.MusicAgent;
 /// <summary>
 /// Specialized agent that controls Satellite1 music playback through the Home Assistant Music Assistant integration.
 /// </summary>
-public class MusicAgent : ILuciaAgent
+public class MusicAgent : ILuciaAgent, ISkillConfigProvider
 {
     private const string AgentId = "music-agent";
     private static readonly ActivitySource ActivitySource = new("Lucia.Agents.Music", "1.0.0");
@@ -30,7 +30,6 @@ public class MusicAgent : ILuciaAgent
     private readonly IConfiguration _configuration;
     private readonly IServer _server;
     private volatile AIAgent _aiAgent;
-    private string? _lastEmbeddingProviderName;
     private DateTime? _lastConfigUpdate;
 
     /// <summary>
@@ -132,6 +131,7 @@ public class MusicAgent : ILuciaAgent
             """;
 
         Instructions = instructions;
+        _musicSkill.AgentId = AgentId;
         Tools = _musicSkill.GetTools();
 
         // _aiAgent is built during InitializeAsync via ApplyDefinitionAsync
@@ -142,7 +142,18 @@ public class MusicAgent : ILuciaAgent
     /// Provides the agent card for registration with the registry and A2A endpoints.
     /// </summary>
     public AgentCard GetAgentCard() => _agent;
-    
+
+    /// <inheritdoc/>
+    public IReadOnlyList<SkillConfigSection> GetSkillConfigSections() =>
+    [
+        new()
+        {
+            SectionName = MusicPlaybackSkillOptions.SectionName,
+            DisplayName = "Music Playback",
+            OptionsType = typeof(MusicPlaybackSkillOptions)
+        }
+    ];
+
     public AIAgent GetAIAgent() => _aiAgent;
 
     /// <summary>
@@ -200,7 +211,6 @@ public class MusicAgent : ILuciaAgent
     {
         var definition = await _definitionRepository.GetAgentDefinitionAsync(AgentId, cancellationToken).ConfigureAwait(false);
         var newConnectionName = definition?.ModelConnectionName;
-        var newEmbeddingName = definition?.EmbeddingProviderName;
 
         if (_lastConfigUpdate == null || _lastConfigUpdate < definition?.UpdatedAt)
         {
@@ -208,12 +218,6 @@ public class MusicAgent : ILuciaAgent
             _aiAgent = BuildAgent(client);
             _logger.LogInformation("MusicAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
             _lastConfigUpdate = DateTime.Now;
-        }
-
-        if (!string.Equals(_lastEmbeddingProviderName, newEmbeddingName, StringComparison.Ordinal))
-        {
-            await _musicSkill.UpdateEmbeddingProviderAsync(newEmbeddingName, cancellationToken).ConfigureAwait(false);
-            _lastEmbeddingProviderName = newEmbeddingName;
         }
     }
 

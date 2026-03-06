@@ -63,12 +63,13 @@ var deploymentMode = builder.Configuration
     .GetValue<string>("Deployment:Mode") ?? "standalone";
 var isStandalone = deploymentMode.Equals("standalone", StringComparison.OrdinalIgnoreCase);
 
+// Music agent always runs in-process with AgentHost
+var musicPlugin = new MusicAgentPlugin();
+musicPlugin.ConfigureAgentHost(builder);
+builder.Services.AddSingleton<IAgentPlugin>(musicPlugin);
+
 if (isStandalone)
 {
-    var musicPlugin = new MusicAgentPlugin();
-    musicPlugin.ConfigureAgentHost(builder);
-    builder.Services.AddSingleton<IAgentPlugin>(musicPlugin);
-
     var timerPlugin = new TimerAgentPlugin();
     timerPlugin.ConfigureAgentHost(builder);
     builder.Services.AddSingleton<IAgentPlugin>(timerPlugin);

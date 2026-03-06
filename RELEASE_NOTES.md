@@ -105,6 +105,36 @@
 - **Legacy skill methods retired** — `LightControlSkill.FindLightsByAreaAsync`, `FindLightAsync`, `GetLightStateAsync`, and `SetLightStateAsync` now throw `NotSupportedException`.
 - **Device cache dependencies removed** — `LightAgent` no longer depends directly on embedding provider or device cache.
 
+### 🎯 Skill Optimizer Enhancements
+
+- **Import from Traces** — Fixed and operational. Extracts search terms from traced tool calls for the skill's owning agent, using skill-declared `SearchToolNames` and `AgentId` instead of hardcoded values.
+- **Multi-entity expected results** — Test cases now support multiple expected entities (e.g., "kitchen lights" → 2 light entities). New `EntityMultiSelect` component with chip display, searchable dropdown, and keyboard navigation (↑/↓/Enter/Tab/Escape/Backspace).
+- **Partial scoring** — Recall (3.0 max) goes negative when expected entities are missed or when results exceed the max count. Precision (1.0 max) rewards exact count matches with partial credit for extras within limits.
+- **Export test dataset** — New "Export Dataset" button downloads a JSON file containing test cases + entity location data for offline replay and issue reporting.
+
+### 🕵️ Agent Impersonation & Entity Debugging
+
+- **Impersonate Agent filter** — New dropdown on Entity Locations page (Entities + Search tabs) filters the entity view to what a specific agent can see. Auto-applies the agent's configured entity domains and visibility restrictions.
+- **Agent domain metadata** — `available-agents` API returns `{name, domains}` objects by aggregating `EntityDomains` from `IOptimizableSkill` registrations. Domainless agents are filtered out.
+- **Server-side domain+agent filtering** — Entity and search endpoints accept comma-separated `domain` and `agent` query parameters for combined filtering.
+- **Entity removal** — Delete button on Entity Locations page now fully removes entities from the cache (not just embeddings), fixing issues with stale/duplicate entity IDs.
+
+### ⚙️ Configurable Skill Domains & Agent Definitions
+
+- **`ISkillConfigProvider` interface** — Agents expose their skill config sections with `OptionsType` for schema generation. Implemented by LightAgent, ClimateAgent, SceneAgent, and MusicAgent.
+- **Dynamic skill config editor** — Agent Definitions page renders a schema-driven form for each agent's skill options (EntityDomains, matcher thresholds, etc.). Controls: tag picker for string arrays (backed by available HA domains), range sliders for numbers, integer inputs.
+- **`EntityDomains` via `IOptionsMonitor`** — All skill options classes (`LightControlSkillOptions`, `ClimateControlSkillOptions`, `FanControlSkillOptions`, `SceneControlSkillOptions`, `MusicPlaybackSkillOptions`) now include `EntityDomains` with hot-reload from MongoDB config.
+- **`IAgentSkill.EntityDomains`** — All agent skills declare their operating domains. `SearchHierarchyAsync` calls use the options-backed value instead of hardcoded arrays.
+- **Config seeder upgrade** — Seeds missing config sections on restart (not just when collection is empty), handling upgrades gracefully.
+- **Skill sections hidden from raw Config page** — Skill config is managed exclusively through the Agent Definitions page.
+
+### 🎵 Music Agent Consolidation
+
+- **In-process execution** — Music Agent moved from a separate A2A container to always running in-process with AgentHost. Enables `IOptimizableSkill` and `ISkillConfigProvider` visibility in the AgentHost DI container.
+- **`IEntityLocationService` migration** — Replaced ~300 lines of custom entity resolution (Redis cache, embeddings, Music Assistant-specific filtering, cosine similarity) with the shared `SearchHierarchyAsync` pipeline.
+- **`MusicPlaybackSkillOptions`** — New options class with `EntityDomains` defaulting to `["media_player"]` plus standard matcher params, hot-reloaded via `IOptionsMonitor`.
+- **Kubernetes cleanup** — Removed music-agent Service, Deployment, and image overrides from helm chart and raw manifests. Only timer-agent remains as an external A2A pod.
+
 ### 🐳 CI/CD and Delivery
 
 - Added support for pre-release Docker tags without moving `latest`.
@@ -127,6 +157,10 @@
 - **Startup embedding failures from blank input** — Prevented invalid embedding calls caused by empty match names.
 - **Embedding request bursts during cache reloads** — Moved generation to throttled background batching to reduce provider rate-limit pressure.
 - **Presence sensor refresh duplicate-key crashes** — Fixed MongoDB duplicate key failures on re-scan by deduplicating auto-detected sensor IDs and skipping IDs already reserved by user overrides (issue #41).
+- **Skill Optimizer "Import from Traces" broken** — Fixed hardcoded tool names (used deprecated `FindLightAsync` instead of `GetLightsState`), missing agent filter on trace queries, and parameter name mismatch (`searchTerm` vs `searchTerms` array). Trace import now uses skill-declared `SearchToolNames` and `AgentId`.
+- **Music Agent playback regression** — Removed unnecessary `?return_response` query parameter from `play_media` service calls. Migrated Music Agent from custom entity resolution (Redis cache, embeddings, MA-specific filtering) to shared `IEntityLocationService`.
+- **Stale entities in location cache** — Added full entity removal (not just embedding eviction) so duplicate/orphaned entities can be deleted from the cache.
+- **Kubernetes HPA for single-instance app** — Removed HorizontalPodAutoscaler from helm chart and raw manifests since Lucia doesn't support multi-instance yet.
 
 ## 🧪 Testing
 
@@ -136,6 +170,9 @@
 - **Name fallback tests** — `EntityMatchNameFormatterTests` validates alias sanitization and ID-based fallback behavior used by embedding inputs.
 - **Brave Search contract tests** — `BraveSearchWebSearchSkillTests` validates HTTP request format, auth headers, JSON deserialization, empty results, and error handling.
 - **Plugin config schema tests** — `PluginConfigSchemaTests` validates default interface members, schema declaration, property equality, and filtering logic.
+- **Skill Optimizer trace import e2e** — `03-skill-optimizer-traces.spec.ts` validates traces API returns Light Agent data, skill traces API extracts search terms, and UI "Import from Traces" populates test cases.
+- **Agent impersonation e2e** — `04-entity-location-impersonate.spec.ts` validates agent domain metadata, entity filtering by domain+agent (22 light/switch entities for light-agent), and search scoping ("zack's light" returns 1 result as light-agent).
+- **Dashboard port pinned** — Vite dashboard pinned to port 7233 via Aspire `WithEndpoint` for stable Playwright test URLs.
 
 ## 📋 New Files
 
@@ -172,6 +209,15 @@
 | `lucia-dashboard/src/components/PluginConfigTab.tsx` | Plugin configuration tab component |
 | `lucia.Tests/BraveSearchWebSearchSkillTests.cs` | Brave Search HTTP contract tests |
 | `lucia.Tests/PluginConfigSchemaTests.cs` | Plugin config schema infrastructure tests |
+| `lucia.Agents/Abstractions/ISkillConfigProvider.cs` | Agent skill config section exposure interface |
+| `lucia.Agents/Abstractions/SkillConfigSection.cs` | Skill config section descriptor with OptionsType |
+| `lucia.Agents/Configuration/SceneControlSkillOptions.cs` | Scene skill configurable options |
+| `lucia.MusicAgent/MusicPlaybackSkillOptions.cs` | Music skill configurable options |
+| `lucia.AgentHost/Apis/AgentInfo.cs` | Agent info DTO with domain metadata |
+| `lucia-dashboard/src/components/EntityMultiSelect.tsx` | Multi-select with chips, search, keyboard nav |
+| `lucia-dashboard/src/components/SkillConfigEditor.tsx` | Schema-driven skill config form editor |
+| `lucia-playwright/e2e/03-skill-optimizer-traces.spec.ts` | Skill optimizer trace import e2e tests |
+| `lucia-playwright/e2e/04-entity-location-impersonate.spec.ts` | Agent impersonation filter e2e tests |
 
 ## 🗑️ Removed / Deprecated
 
@@ -185,6 +231,9 @@
 | `LightControlSkill.FindLightsByAreaAsync` | Throws `NotSupportedException` — use entity tools |
 | `LightControlSkill.FindLightAsync` | Throws `NotSupportedException` — use entity tools |
 | `IOptimizableSkill.GetCachedEntitiesAsync` | Removed — optimizer uses location service |
+| `infra/kubernetes/manifests/07-hpa.yaml` | Removed — single-instance constraint, no HPA needed |
+| `MusicPlaybackSkill` custom resolution | Replaced by `IEntityLocationService.SearchHierarchyAsync` |
+| Music Agent A2A container | Moved in-process with AgentHost |
 
 ---
 
@@ -193,6 +242,10 @@
 1. **Cache eviction recommended** — Evict routing and chat caches via dashboard (or `DELETE /api/prompt-cache` and `DELETE /api/chat-cache`) to clear stale entries.
 2. **New cache config properties** — `RouterExecutor:SemanticSimilarityThreshold` (0.95) and `RouterExecutor:ChatCacheSemanticThreshold` (0.98) can be tuned in dashboard settings.
 3. **Skill API breaking changes** — Skills calling `FindLightsByAreaAsync`, `FindLightAsync`, or `GetCachedEntitiesAsync` must migrate to unified entity tools via `EntityLocationService`.
+4. **Music Agent now in-process** — The music-agent container is no longer deployed separately. Remove the `music-agent` Deployment/Service from your Kubernetes cluster if upgrading from mesh mode.
+5. **HPA removed** — If you had a HorizontalPodAutoscaler for the `lucia` deployment, remove it. Lucia requires a single replica until HA support is implemented.
+6. **Skill config auto-seeded** — New skill option sections (`LightControlSkill`, `ClimateControlSkill`, `FanControlSkill`, `SceneControlSkill`, `MusicPlaybackSkill`) are auto-seeded to MongoDB on first startup. Edit via Agent Definitions page, not the raw Configuration page.
+7. **Entity cleanup** — Use the new delete button on Entity Locations to remove stale/duplicate entities that may cause service call failures.
 
 ---
 

@@ -24,10 +24,6 @@ lucia:
       cpu: 100m
       memory: 128Mi
 
-  # Disable autoscaling in development
-  autoscaling:
-    enabled: false
-
   # Development ingress configuration
   ingress:
     enabled: true

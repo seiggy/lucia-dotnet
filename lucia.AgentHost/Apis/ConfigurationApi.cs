@@ -31,6 +31,19 @@ public static class ConfigurationApi
     }
 
     /// <summary>
+    /// Skill config sections managed via the Agent Definitions page.
+    /// Hidden from the raw Configuration page to avoid duplicate editing.
+    /// </summary>
+    private static readonly HashSet<string> SkillConfigSections = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "LightControlSkill",
+        "ClimateControlSkill",
+        "FanControlSkill",
+        "MusicPlaybackSkill",
+        "SceneControlSkill"
+    };
+
+    /// <summary>
     /// Lists all configuration sections with key counts.
     /// Merges MongoDB-stored sections with live IConfiguration sections from the schema.
     /// </summary>
@@ -43,6 +56,7 @@ public static class ConfigurationApi
 
         var sections = entries
             .GroupBy(e => e.Section)
+            .Where(g => !SkillConfigSections.Contains(g.Key))
             .Select(g => new ConfigSectionSummary
             {
                 Section = g.Key,

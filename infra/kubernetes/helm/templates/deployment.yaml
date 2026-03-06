@@ -18,9 +18,7 @@ metadata:
   labels:
     {{- include "lucia.labels" . | nindent 4 }}
 spec:
-  {{- if not .Values.lucia.autoscaling.enabled }}
   replicas: {{ .Values.lucia.replicaCount }}
-  {{- end }}
   strategy:
     type: RollingUpdate
     rollingUpdate:

@@ -6,10 +6,9 @@ A production-ready Kubernetes Helm chart for deploying Lucia AI Agent Host with 
 
 This Helm chart deploys Lucia as a scalable, resilient Kubernetes application with:
 
-- **Multi-replica deployment** with rolling updates for zero-downtime deployments
+- **Single-replica deployment** with rolling updates for zero-downtime deployments
 - **Redis StatefulSet** for task persistence and session state
 - **Ingress support** with TLS termination and cert-manager integration
-- **Horizontal Pod Autoscaling** based on CPU and memory metrics
 - **Pod Disruption Budgets** for high availability
 - **Security hardening** with non-root user execution and restricted capabilities
 - **Comprehensive monitoring** with Prometheus pod annotations
@@ -82,8 +81,7 @@ curl http://localhost:8080/health
 helm install lucia . \
   --namespace lucia \
   -f values.dev.yaml \
-  --set redis.storage.storageClassName=local-path \
-  --set lucia.autoscaling.enabled=false
+  --set redis.storage.storageClassName=local-path
 ```
 
 #### Scenario 2: Production with Azure OpenAI
@@ -163,13 +161,6 @@ helm install lucia . \
 --set lucia.resources.limits.memory=1Gi
 ```
 
-#### Disabling Autoscaling
-
-```bash
---set lucia.autoscaling.enabled=false \
---set lucia.replicaCount=2
-```
-
 #### Configuring Redis
 
 ```bash
@@ -188,7 +179,7 @@ global:
   environment: production
 
 lucia:
-  replicaCount: 3
+  replicaCount: 1
   image:
     tag: "1.0.0"
   resources:
@@ -198,11 +189,6 @@ lucia:
     limits:
       cpu: 2000m
       memory: 1Gi
-  autoscaling:
-    enabled: true
-    minReplicas: 3
-    maxReplicas: 10
-    targetCPUUtilizationPercentage: 70
   ingress:
     enabled: true
     className: nginx
@@ -391,17 +377,6 @@ kubectl get pdb -n lucia
 
 # View PDB details
 kubectl describe pdb lucia -n lucia
-```
-
-### Horizontal Pod Autoscaling
-
-```bash
-# Check HPA status
-kubectl get hpa -n lucia
-kubectl describe hpa lucia -n lucia
-
-# View current metrics
-kubectl top pod -n lucia
 ```
 
 ### Node Affinity and Tolerations

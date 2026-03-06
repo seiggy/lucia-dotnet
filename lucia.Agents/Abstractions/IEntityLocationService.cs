@@ -153,6 +153,12 @@ public interface IEntityLocationService
     Task<bool> RegenerateEmbeddingAsync(string itemType, string itemId, CancellationToken ct = default);
 
     /// <summary>
+    /// Remove an entity from the location cache entirely. The entity will
+    /// reappear on the next cache invalidation if it still exists in Home Assistant.
+    /// </summary>
+    Task<bool> RemoveEntityAsync(string entityId, CancellationToken ct = default);
+
+    /// <summary>
     /// Get current embedding generation progress across floors, areas, and entities.
     /// </summary>
     Task<EntityLocationEmbeddingProgress> GetEmbeddingProgressAsync(CancellationToken ct = default);

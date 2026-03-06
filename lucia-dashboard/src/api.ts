@@ -684,6 +684,39 @@ export async function deleteAgentDefinition(id: string): Promise<void> {
   if (!res.ok) throw new Error(`Failed to delete agent definition: ${res.statusText}`);
 }
 
+export interface SkillConfigProperty {
+  name: string
+  type: 'string' | 'number' | 'integer' | 'boolean' | 'string[]'
+  defaultValue: unknown
+}
+
+export interface SkillConfigSectionData {
+  sectionName: string
+  displayName: string
+  schema: SkillConfigProperty[]
+  values: Record<string, unknown>
+}
+
+export async function fetchSkillConfig(agentId: string): Promise<SkillConfigSectionData[]> {
+  const res = await fetch(`${BASE}/agent-definitions/${agentId}/skill-config`);
+  if (res.status === 404) return [];
+  if (!res.ok) throw new Error(`Failed to fetch skill config: ${res.statusText}`);
+  return res.json();
+}
+
+export async function updateSkillConfig(
+  agentId: string,
+  section: string,
+  values: Record<string, unknown>
+): Promise<void> {
+  const res = await fetch(`${BASE}/agent-definitions/${agentId}/skill-config/${section}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(values),
+  });
+  if (!res.ok) throw new Error(`Failed to update skill config: ${res.statusText}`);
+}
+
 export async function reloadDynamicAgents(): Promise<void> {
   const res = await fetch(`${BASE}/agent-definitions/reload`, { method: 'POST' });
   if (!res.ok) throw new Error(`Failed to reload agents: ${res.statusText}`);
@@ -867,6 +900,12 @@ export async function fetchEntityLocationSummary() {
   return res.json();
 }
 
+export async function fetchAvailableDomains(): Promise<string[]> {
+  const res = await fetch(`${BASE}/entity-location/domains`);
+  if (!res.ok) throw new Error(`Failed to fetch domains: ${res.statusText}`);
+  return res.json();
+}
+
 export async function fetchEntityLocationFloors() {
   const res = await fetch(`${BASE}/entity-location/floors`);
   if (!res.ok) throw new Error(`Failed to fetch floors: ${res.statusText}`);
@@ -879,16 +918,22 @@ export async function fetchEntityLocationAreas() {
   return res.json();
 }
 
-export async function fetchEntityLocationEntities(domain?: string) {
-  const params = domain ? `?domain=${encodeURIComponent(domain)}` : '';
-  const res = await fetch(`${BASE}/entity-location/entities${params}`);
+export async function fetchEntityLocationEntities(domain?: string, agent?: string) {
+  const params = new URLSearchParams();
+  if (domain) params.set('domain', domain);
+  if (agent) params.set('agent', agent);
+  const qs = params.toString();
+  const res = await fetch(`${BASE}/entity-location/entities${qs ? `?${qs}` : ''}`);
   if (!res.ok) throw new Error(`Failed to fetch entities: ${res.statusText}`);
   return res.json();
 }
 
-export async function searchEntityLocation(term: string, domain?: string) {
-  const params = domain ? `?domain=${encodeURIComponent(domain)}` : '';
-  const res = await fetch(`${BASE}/entity-location/search/${encodeURIComponent(term)}${params}`);
+export async function searchEntityLocation(term: string, domain?: string, agent?: string) {
+  const params = new URLSearchParams();
+  if (domain) params.set('domain', domain);
+  if (agent) params.set('agent', agent);
+  const qs = params.toString();
+  const res = await fetch(`${BASE}/entity-location/search/${encodeURIComponent(term)}${qs ? `?${qs}` : ''}`);
   if (!res.ok) throw new Error(`Failed to search locations: ${res.statusText}`);
   return res.json();
 }
@@ -935,6 +980,14 @@ export async function regenerateEntityLocationEmbedding(itemType: 'floor' | 'are
   return res.json();
 }
 
+export async function removeEntityFromCache(entityId: string) {
+  const res = await fetch(`${BASE}/entity-location/entities/${encodeURIComponent(entityId)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`Failed to remove entity: ${res.statusText}`);
+  return res.json();
+}
+
 // ── Entity Visibility ──────────────────────────────────────────────
 
 export async function fetchEntityVisibility(): Promise<{
@@ -972,7 +1025,7 @@ export async function clearAllAgentFilters() {
   return res.json();
 }
 
-export async function fetchAvailableAgents(): Promise<string[]> {
+export async function fetchAvailableAgents(): Promise<{ name: string; domains: string[] }[]> {
   const res = await fetch(`${BASE}/entity-location/visibility/available-agents`);
   if (!res.ok) throw new Error(`Failed to fetch available agents: ${res.statusText}`);
   return res.json();

@@ -1,19 +1,17 @@
 namespace lucia.Agents.Configuration;
 
 /// <summary>
-/// Configurable options for <see cref="Skills.LightControlSkill"/>.
-/// Stored in MongoDB configuration under the <c>LightControlSkill</c> section
+/// Configurable options for <see cref="Skills.SceneControlSkill"/>.
+/// Stored in MongoDB configuration under the <c>SceneControlSkill</c> section
 /// and hot-reloaded via <see cref="MongoConfigurationProvider"/>.
 /// </summary>
-public sealed class LightControlSkillOptions
+public sealed class SceneControlSkillOptions
 {
-    public const string SectionName = "LightControlSkill";
+    public const string SectionName = "SceneControlSkill";
 
     /// <summary>
-    /// Minimum hybrid similarity score (0–1) for a light entity to be included
-    /// in search results. The hybrid score blends embedding cosine similarity
-    /// with string-level (Levenshtein / token-core / phonetic) similarity to
-    /// reduce false positives from shared generic terms like "light".
+    /// Minimum hybrid similarity score (0–1) for a scene entity to be included
+    /// in search results.
     /// </summary>
     public double HybridSimilarityThreshold { get; set; } = 0.55;
 
@@ -25,17 +23,12 @@ public sealed class LightControlSkillOptions
 
     /// <summary>
     /// After sorting matches by score, only keep results whose score is at
-    /// least this fraction of the top match's score. For example 0.80 means
-    /// a result must score ≥ 80 % of the best match to be included.
-    /// This eliminates "long-tail" false positives that pass the absolute
-    /// threshold but are clearly worse than the best match.
-    /// Set to 0 to disable relative filtering.
+    /// least this fraction of the top match's score. Set to 0 to disable.
     /// </summary>
     public double ScoreDropoffRatio { get; set; } = 0.80;
 
     /// <summary>
     /// Penalty applied when string-level similarity metrics disagree (0–1).
-    /// Higher values penalize spread between best and mean string scores.
     /// </summary>
     public double DisagreementPenalty { get; set; } = 0.4;
 
@@ -46,13 +39,12 @@ public sealed class LightControlSkillOptions
     public double EmbeddingResolutionMargin { get; set; } = 0.30;
 
     /// <summary>
-    /// How often the light entity cache is refreshed from Home Assistant, in minutes.
+    /// How often the scene entity cache is refreshed from Home Assistant, in minutes.
     /// </summary>
     public int CacheRefreshMinutes { get; set; } = 30;
 
     /// <summary>
     /// The Home Assistant entity domains this skill operates on.
-    /// Configurable so users can extend or restrict which domains the light agent searches.
     /// </summary>
-    public List<string> EntityDomains { get; set; } = ["light", "switch"];
+    public List<string> EntityDomains { get; set; } = ["scene"];
 }

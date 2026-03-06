@@ -12,7 +12,7 @@ namespace lucia.Agents.Agents;
 /// <summary>
 /// Specialized agent for activating Home Assistant scenes.
 /// </summary>
-public sealed class SceneAgent : ILuciaAgent
+public sealed class SceneAgent : ILuciaAgent, ISkillConfigProvider
 {
     private const string AgentId = "scene-agent";
 
@@ -100,11 +100,23 @@ public sealed class SceneAgent : ILuciaAgent
                 """;
 
         Instructions = instructions;
+        _sceneSkill.AgentId = AgentId;
         Tools = _sceneSkill.GetTools();
         _aiAgent = null!;
     }
 
     public AgentCard GetAgentCard() => _agent;
+
+    /// <inheritdoc/>
+    public IReadOnlyList<SkillConfigSection> GetSkillConfigSections() =>
+    [
+        new()
+        {
+            SectionName = Configuration.SceneControlSkillOptions.SectionName,
+            DisplayName = "Scene Control",
+            OptionsType = typeof(Configuration.SceneControlSkillOptions)
+        }
+    ];
     public AIAgent GetAIAgent() => _aiAgent;
 
     public async Task InitializeAsync(CancellationToken cancellationToken = default)

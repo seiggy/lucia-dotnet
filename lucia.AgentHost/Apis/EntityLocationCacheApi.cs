@@ -29,12 +29,14 @@ public static class EntityLocationCacheApi
         group.MapGet("/floors", GetFloorsAsync);
         group.MapGet("/areas", GetAreasAsync);
         group.MapGet("/entities", GetEntitiesAsync);
+        group.MapGet("/domains", GetAvailableDomainsAsync);
         group.MapGet("/search/{term}", SearchAsync);
         group.MapGet("/embedding-progress", GetEmbeddingProgressAsync);
         group.MapGet("/embedding-progress/live", StreamEmbeddingProgressAsync);
         group.MapPost("/invalidate", InvalidateAsync);
         group.MapDelete("/embeddings/{itemType}/{itemId}", EvictEmbeddingAsync);
         group.MapPost("/embeddings/{itemType}/{itemId}/regenerate", RegenerateEmbeddingAsync);
+        group.MapDelete("/entities/{entityId}", RemoveEntityAsync);
 
         return endpoints;
     }
@@ -149,13 +151,25 @@ public static class EntityLocationCacheApi
     private static async Task<Ok<object>> GetEntitiesAsync(
         [FromServices] IEntityLocationService locationService,
         [FromQuery] string? domain,
+        [FromQuery] string? agent,
         CancellationToken ct)
     {
         var entities = await locationService.GetEntitiesAsync(ct).ConfigureAwait(false);
 
-        var filtered = string.IsNullOrWhiteSpace(domain)
-            ? entities
-            : entities.Where(e => e.Domain.Equals(domain, StringComparison.OrdinalIgnoreCase)).ToList();
+        IEnumerable<HomeAssistantEntity> filtered = entities;
+
+        if (!string.IsNullOrWhiteSpace(domain))
+        {
+            var domains = domain.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            filtered = filtered.Where(e => domains.Contains(e.Domain, StringComparer.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(agent))
+        {
+            filtered = filtered.Where(e =>
+                e.IncludeForAgent is null ||
+                e.IncludeForAgent.Contains(agent, StringComparer.OrdinalIgnoreCase));
+        }
 
         var result = filtered.Select(e => new
         {
@@ -174,32 +188,61 @@ public static class EntityLocationCacheApi
         return TypedResults.Ok<object>(result);
     }
 
+    /// <summary>
+    /// Returns the distinct entity domains present in the entity location cache.
+    /// </summary>
+    private static async Task<Ok<List<string>>> GetAvailableDomainsAsync(
+        [FromServices] IEntityLocationService locationService,
+        CancellationToken ct)
+    {
+        var entities = await locationService.GetEntitiesAsync(ct).ConfigureAwait(false);
+
+        var domains = entities
+            .Select(e => e.Domain)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(d => d, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return TypedResults.Ok(domains);
+    }
+
     private static async Task<Ok<object>> SearchAsync(
         [FromServices] IEntityLocationService locationService,
         [FromRoute] string term,
         [FromQuery] string? domain,
+        [FromQuery] string? agent,
         CancellationToken ct)
     {
         var domainFilter = string.IsNullOrWhiteSpace(domain)
             ? null
-            : new List<string> { domain };
+            : (IReadOnlyList<string>)domain.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
         var entities = await locationService.SearchEntitiesAsync(term, domainFilter, ct: ct)
             .ConfigureAwait(false);
+
+        // When impersonating an agent, filter to entities visible to that agent
+        var filtered = string.IsNullOrWhiteSpace(agent)
+            ? entities
+            : entities.Where(e =>
+                e.Entity.IncludeForAgent is null ||
+                e.Entity.IncludeForAgent.Contains(agent, StringComparer.OrdinalIgnoreCase)).ToList();
 
         return TypedResults.Ok<object>(new
         {
             query = term,
             domainFilter = domain,
-            matchCount = entities.Count,
-            entities = entities.Select(e => new
+            agentFilter = agent,
+            matchCount = filtered.Count,
+            entities = filtered.Select(e => new
             {
                 e.Entity.EntityId,
                 e.Entity.FriendlyName,
                 e.Entity.Domain,
                 e.Entity.AreaId,
                 embeddingGenerated = e.Entity.NameEmbedding is not null,
-                AreaName = e.Entity.AreaId is not null ? locationService.GetAreaForEntity(e.Entity.EntityId)?.Name : null
+                AreaName = e.Entity.AreaId is not null ? locationService.GetAreaForEntity(e.Entity.EntityId)?.Name : null,
+                e.HybridScore,
+                e.EmbeddingSimilarity
             })
         });
     }
@@ -283,5 +326,23 @@ public static class EntityLocationCacheApi
             itemType,
             itemId
         });
+    }
+
+    /// <summary>
+    /// Removes an entity from the location cache entirely.
+    /// The entity will reappear on the next cache invalidation if it still exists in Home Assistant.
+    /// </summary>
+    private static async Task<Results<Ok<object>, NotFound<object>>> RemoveEntityAsync(
+        [FromServices] IEntityLocationService locationService,
+        [FromRoute] string entityId,
+        CancellationToken ct)
+    {
+        var removed = await locationService.RemoveEntityAsync(entityId, ct).ConfigureAwait(false);
+        if (!removed)
+        {
+            return TypedResults.NotFound<object>(new { error = $"Entity '{entityId}' not found in cache" });
+        }
+
+        return TypedResults.Ok<object>(new { message = "Entity removed from cache", entityId });
     }
 }

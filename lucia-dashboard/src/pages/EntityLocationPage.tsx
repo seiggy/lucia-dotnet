@@ -10,6 +10,7 @@ import {
   invalidateEntityLocationCache,
   evictEntityLocationEmbedding,
   regenerateEntityLocationEmbedding,
+  removeEntityFromCache,
   fetchEntityVisibility,
   updateVisibilitySettings,
   updateEntityAgents,
@@ -107,13 +108,16 @@ export default function EntityLocationPage() {
 
   // Visibility state
   const [useExposedOnly, setUseExposedOnly] = useState(false)
-  const [availableAgents, setAvailableAgents] = useState<string[]>([])
+  const [availableAgents, setAvailableAgents] = useState<{ name: string; domains: string[] }[]>([])
   const [entityAgentMap, setEntityAgentMap] = useState<Record<string, string[]>>({})
   const [togglingExposed, setTogglingExposed] = useState(false)
 
   // Selection state for bulk operations
   const [selectedEntityIds, setSelectedEntityIds] = useState<Set<string>>(new Set())
   const [bulkAgentDropdownOpen, setBulkAgentDropdownOpen] = useState(false)
+
+  // Agent impersonation — filters entities and search to a specific agent's view
+  const [impersonateAgent, setImpersonateAgent] = useState('')
 
   // Per-row agent dropdown
   const [agentDropdownEntityId, setAgentDropdownEntityId] = useState<string | null>(null)
@@ -180,6 +184,22 @@ export default function EntityLocationPage() {
     }
   }, [])
 
+  /** Load entities with specific domain/agent filters, bypassing stale state */
+  const loadEntitiesFiltered = useCallback(async (domain: string, agentName: string) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const result = await fetchEntityLocationEntities(domain || undefined, agentName || undefined)
+      setEntities(result)
+      setEntityPage(0)
+      setSelectedEntityIds(new Set())
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load data')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
   const loadTab = useCallback(async (tab: Tab) => {
     if (tab === 'search') return
     setLoading(true)
@@ -188,7 +208,7 @@ export default function EntityLocationPage() {
       if (tab === 'floors') setFloors(await fetchEntityLocationFloors())
       else if (tab === 'areas') setAreas(await fetchEntityLocationAreas())
       else if (tab === 'entities') {
-        const result = await fetchEntityLocationEntities(domainFilter || undefined)
+        const result = await fetchEntityLocationEntities(domainFilter || undefined, impersonateAgent || undefined)
         setEntities(result)
         setEntityPage(0)
         setSelectedEntityIds(new Set())
@@ -198,7 +218,7 @@ export default function EntityLocationPage() {
     } finally {
       setLoading(false)
     }
-  }, [domainFilter])
+  }, [domainFilter, impersonateAgent])
 
   useEffect(() => {
     loadSummary()
@@ -279,7 +299,7 @@ export default function EntityLocationPage() {
     setError(null)
     setSelectedEntityIds(new Set())
     try {
-      const data = await searchEntityLocation(searchTerm.trim(), searchDomain || undefined)
+      const data = await searchEntityLocation(searchTerm.trim(), searchDomain || undefined, impersonateAgent || undefined)
       setSearchResults(data.entities ?? data)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Search failed')
@@ -288,17 +308,17 @@ export default function EntityLocationPage() {
     }
   }
 
-  async function handleEvictEmbedding(entityId: string) {
-    if (!confirm(`Evict cached embedding for "${entityId}"?`)) return
-    setEmbeddingActionKey(`${entityId}:evict`)
+  async function handleRemoveEntity(entityId: string) {
+    if (!confirm(`Remove "${entityId}" from the entity cache? It will reappear on next cache reload if it still exists in Home Assistant.`)) return
+    setEmbeddingActionKey(`${entityId}:remove`)
     setError(null)
     try {
-      await evictEntityLocationEmbedding('entity', entityId)
-      setEntities(prev => prev.map(e => e.entityId === entityId ? { ...e, embeddingGenerated: false } : e))
-      setSearchResults(prev => prev.map(e => e.entityId === entityId ? { ...e, embeddingGenerated: false } : e))
+      await removeEntityFromCache(entityId)
+      setEntities(prev => prev.filter(e => e.entityId !== entityId))
+      setSearchResults(prev => prev.filter(e => e.entityId !== entityId))
       await loadSummary()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to evict embedding')
+      setError(err instanceof Error ? err.message : 'Failed to remove entity')
     } finally {
       setEmbeddingActionKey(null)
     }
@@ -406,8 +426,11 @@ export default function EntityLocationPage() {
 
   // ── Derived state ──────────────────────────────────────────────
 
-  const entityPageCount = Math.max(1, Math.ceil(entities.length / entityPageSize))
-  const pagedEntities = entities.slice(entityPage * entityPageSize, (entityPage + 1) * entityPageSize)
+  // Entities are already filtered by agent on the server when impersonating
+  const visibleEntities = entities
+
+  const entityPageCount = Math.max(1, Math.ceil(visibleEntities.length / entityPageSize))
+  const pagedEntities = visibleEntities.slice(entityPage * entityPageSize, (entityPage + 1) * entityPageSize)
   const hasFilters = Object.keys(entityAgentMap).length > 0
 
   const tabs: { id: Tab; label: string; icon: typeof Layers }[] = [
@@ -437,7 +460,7 @@ export default function EntityLocationPage() {
     const currentAgents = getEntityAgents(entityId)
 
     function toggleAgent(agent: string) {
-      const current = currentAgents ?? [...availableAgents] // null = all → start with all
+      const current = currentAgents ?? [...availableAgents.map(a => a.name)] // null = all → start with all
       const updated = current.includes(agent)
         ? current.filter(a => a !== agent)
         : [...current, agent]
@@ -491,7 +514,7 @@ export default function EntityLocationPage() {
               <div className="my-1 border-t border-stone/40" />
 
               {/* Individual agents */}
-              {availableAgents.map(agent => {
+              {availableAgents.map(({ name: agent }) => {
                 const isSelected = currentAgents === null || currentAgents.includes(agent)
                 return (
                   <button
@@ -540,7 +563,7 @@ export default function EntityLocationPage() {
           {bulkAgentDropdownOpen && (
             <div className="absolute left-0 top-full z-50 mt-1 w-52 rounded-lg border border-stone bg-basalt shadow-xl shadow-black/40">
               <div className="max-h-48 overflow-y-auto p-1">
-                {availableAgents.map(agent => (
+                {availableAgents.map(({ name: agent }) => (
                   <button
                     key={agent}
                     onClick={() => {
@@ -675,12 +698,12 @@ export default function EntityLocationPage() {
                         : <RefreshCw className="h-3.5 w-3.5" />}
                     </button>
                     <button
-                      onClick={() => handleEvictEmbedding(e.entityId)}
+                      onClick={() => handleRemoveEntity(e.entityId)}
                       disabled={embeddingActionKey !== null}
                       className="rounded-md p-1 text-rose transition-colors hover:bg-rose/15 disabled:opacity-40"
-                      title="Evict cached embedding"
+                      title="Remove entity from cache"
                     >
-                      {embeddingActionKey === `${e.entityId}:evict`
+                      {embeddingActionKey === `${e.entityId}:remove`
                         ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         : <Trash2 className="h-3.5 w-3.5" />}
                     </button>
@@ -937,6 +960,31 @@ export default function EntityLocationPage() {
               onKeyDown={(e) => { if (e.key === 'Enter') loadTab('entities') }}
               className="rounded-lg border border-stone bg-basalt px-3 py-2 text-sm text-fog placeholder:text-dust/50 focus:border-amber focus:outline-none"
             />
+            <select
+              value={impersonateAgent}
+              onChange={(e) => {
+                const agentName = e.target.value
+                setImpersonateAgent(agentName)
+                setEntityPage(0)
+                const agent = availableAgents.find(a => a.name === agentName)
+                const newDomain = agent && agent.domains.length > 0 ? agent.domains.join(',') : ''
+                setDomainFilter(newDomain)
+                loadEntitiesFiltered(newDomain, agentName)
+              }}
+              className="rounded-lg border border-stone bg-basalt px-3 py-2 text-sm text-fog focus:border-amber focus:outline-none"
+            >
+              <option value="">All Agents</option>
+              {availableAgents.map(a => (
+                <option key={a.name} value={a.name}>
+                  {a.name}{a.domains.length > 0 ? ` (${a.domains.join(', ')})` : ''}
+                </option>
+              ))}
+            </select>
+            {impersonateAgent && (
+              <span className="rounded-md bg-sky-400/15 px-2 py-1 text-xs font-medium text-sky-400">
+                👁 {impersonateAgent} view — {visibleEntities.length} entities
+              </span>
+            )}
             <button
               onClick={() => loadTab('entities')}
               className="rounded-lg border border-stone bg-basalt px-3 py-2 text-sm font-medium text-fog hover:bg-stone/40"
@@ -955,7 +1003,7 @@ export default function EntityLocationPage() {
               {entityPageCount > 1 && (
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-dust">
-                    Showing {entityPage * entityPageSize + 1}–{Math.min((entityPage + 1) * entityPageSize, entities.length)} of {entities.length}
+                    Showing {entityPage * entityPageSize + 1}–{Math.min((entityPage + 1) * entityPageSize, visibleEntities.length)} of {visibleEntities.length}
                   </span>
                   <div className="flex items-center gap-1">
                     <button
@@ -1020,6 +1068,27 @@ export default function EntityLocationPage() {
               onKeyDown={(e) => { if (e.key === 'Enter') handleSearch() }}
               className="w-40 rounded-lg border border-stone bg-basalt px-3 py-2 text-sm text-fog placeholder:text-dust/50 focus:border-amber focus:outline-none"
             />
+            <select
+              value={impersonateAgent}
+              onChange={(e) => {
+                const agentName = e.target.value
+                setImpersonateAgent(agentName)
+                const agent = availableAgents.find(a => a.name === agentName)
+                if (agent && agent.domains.length > 0) {
+                  setSearchDomain(agent.domains.join(','))
+                } else if (!agentName) {
+                  setSearchDomain('')
+                }
+              }}
+              className="rounded-lg border border-stone bg-basalt px-3 py-2 text-sm text-fog focus:border-amber focus:outline-none"
+            >
+              <option value="">All Agents</option>
+              {availableAgents.map(a => (
+                <option key={a.name} value={a.name}>
+                  {a.name}{a.domains.length > 0 ? ` (${a.domains.join(', ')})` : ''}
+                </option>
+              ))}
+            </select>
             <button
               onClick={handleSearch}
               disabled={searching || !searchTerm.trim()}

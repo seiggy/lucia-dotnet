@@ -1,18 +1,17 @@
-namespace lucia.Agents.Configuration.UserConfiguration;
+namespace lucia.MusicAgent;
 
 /// <summary>
-/// Configurable options for <see cref="Skills.FanControlSkill"/>.
-/// Stored in MongoDB configuration under the <c>FanControlSkill</c> section
-/// and hot-reloaded via <see cref="MongoConfigurationProvider"/>.
+/// Configurable options for <see cref="MusicPlaybackSkill"/>.
+/// Stored in MongoDB configuration under the <c>MusicPlaybackSkill</c> section
+/// and hot-reloaded via <see cref="lucia.Agents.Configuration.MongoConfigurationProvider"/>.
 /// </summary>
-public sealed class FanControlSkillOptions
+public sealed class MusicPlaybackSkillOptions
 {
-    public const string SectionName = "FanControlSkill";
+    public const string SectionName = "MusicPlaybackSkill";
 
     /// <summary>
-    /// Minimum hybrid similarity score (0–1) for a fan entity to be included
-    /// in search results. The hybrid score blends embedding cosine similarity
-    /// with string-level (Levenshtein / token-core / phonetic) similarity.
+    /// Minimum hybrid similarity score (0–1) for a media player entity to be
+    /// included in search results.
     /// </summary>
     public double HybridSimilarityThreshold { get; set; } = 0.55;
 
@@ -30,7 +29,6 @@ public sealed class FanControlSkillOptions
 
     /// <summary>
     /// Penalty applied when string-level similarity metrics disagree (0–1).
-    /// Higher values penalize spread between best and mean string scores.
     /// </summary>
     public double DisagreementPenalty { get; set; } = 0.4;
 
@@ -41,13 +39,12 @@ public sealed class FanControlSkillOptions
     public double EmbeddingResolutionMargin { get; set; } = 0.30;
 
     /// <summary>
-    /// How often the fan entity cache is refreshed from Home Assistant, in minutes.
+    /// How often the entity cache is refreshed from Home Assistant, in minutes.
     /// </summary>
-    public int CacheRefreshMinutes { get; set; } = 5;
+    public int CacheRefreshMinutes { get; set; } = 30;
 
     /// <summary>
     /// The Home Assistant entity domains this skill operates on.
-    /// Configurable so users can extend or restrict which domains the fan agent searches.
     /// </summary>
-    public List<string> EntityDomains { get; set; } = ["fan"];
+    public List<string> EntityDomains { get; set; } = ["media_player"];
 }

@@ -31,6 +31,5 @@
   </Folder>
   <Folder Name="/Tests/">
     <Project Path="lucia.Tests/lucia.Tests.csproj" />
-    <Project Path="lucia.PlaywrightTests/lucia.PlaywrightTests.csproj" />
   </Folder>
 </Solution>

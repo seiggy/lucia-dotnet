@@ -31,7 +31,12 @@ public sealed class ConfigSeeder : IHostedService
         "MusicAssistant",
         "Agent",
         "PluginDirectory",
-        "TraceCapture"
+        "TraceCapture",
+        LightControlSkillOptions.SectionName,
+        ClimateControlSkillOptions.SectionName,
+        FanControlSkillOptions.SectionName,
+        "MusicPlaybackSkill",
+        SceneControlSkillOptions.SectionName
     ];
 
     private static readonly string[] SensitiveKeywords =
@@ -56,25 +61,35 @@ public sealed class ConfigSeeder : IHostedService
             var existingCount = await collection.CountDocumentsAsync(
                 FilterDefinition<ConfigEntry>.Empty, cancellationToken: cancellationToken).ConfigureAwait(false);
 
-            if (existingCount > 0)
-            {
-                _logger.LogInformation("MongoDB config already seeded ({Count} entries). Skipping.", existingCount);
-                return;
-            }
-
-            _logger.LogInformation("Seeding MongoDB configuration from appsettings...");
-
             var entries = new List<ConfigEntry>();
             FlattenConfiguration(_configuration, "", entries);
 
-            if (entries.Count > 0)
+            if (existingCount == 0)
             {
-                await collection.InsertManyAsync(entries, cancellationToken: cancellationToken).ConfigureAwait(false);
-                _logger.LogInformation("Seeded {Count} configuration entries to MongoDB.", entries.Count);
+                _logger.LogInformation("Seeding MongoDB configuration from appsettings...");
+                if (entries.Count > 0)
+                {
+                    await collection.InsertManyAsync(entries, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    _logger.LogInformation("Seeded {Count} configuration entries to MongoDB.", entries.Count);
+                }
+                return;
+            }
+
+            // Seed any new sections that don't have entries yet (handles upgrades)
+            var existingKeys = (await collection.Find(FilterDefinition<ConfigEntry>.Empty)
+                .Project(e => e.Key)
+                .ToListAsync(cancellationToken).ConfigureAwait(false))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var missing = entries.Where(e => !existingKeys.Contains(e.Key)).ToList();
+            if (missing.Count > 0)
+            {
+                await collection.InsertManyAsync(missing, cancellationToken: cancellationToken).ConfigureAwait(false);
+                _logger.LogInformation("Seeded {Count} new configuration entries for upgraded sections.", missing.Count);
             }
             else
             {
-                _logger.LogWarning("No configuration entries found to seed.");
+                _logger.LogDebug("MongoDB config up to date ({Count} entries). No new sections to seed.", existingCount);
             }
         }
         catch (Exception ex)
