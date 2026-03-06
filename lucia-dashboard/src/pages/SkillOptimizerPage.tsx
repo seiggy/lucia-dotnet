@@ -152,6 +152,28 @@ export default function SkillOptimizerPage() {
     setTestCases((prev) => prev.filter((_, i) => i !== index))
   }
 
+  const exportTestDataset = useCallback(() => {
+    if (!selectedSkill || testCases.length === 0) return
+
+    const dataset = {
+      skillId: selectedSkill.skillId,
+      skillDisplayName: selectedSkill.displayName,
+      currentParams: selectedSkill.currentParams,
+      exportedAt: new Date().toISOString(),
+      testCases,
+      entities: devices,
+    }
+
+    const blob = new Blob([JSON.stringify(dataset, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${selectedSkill.skillId}-test-dataset.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    addToast(`Exported ${testCases.length} test cases + ${devices.length} entities`, 'success')
+  }, [selectedSkill, testCases, devices])
+
   // ── Start optimization ────────────────────────────────────────
   const handleStartOptimization = async () => {
     if (!selectedSkill || testCases.length === 0 || !selectedModel) return
@@ -302,6 +324,13 @@ export default function SkillOptimizerPage() {
               className="rounded-lg bg-ash/80 px-3 py-1.5 text-xs font-medium text-fog hover:text-light disabled:opacity-40"
             >
               Import from Traces
+            </button>
+            <button
+              onClick={exportTestDataset}
+              disabled={!selectedSkill || testCases.length === 0}
+              className="rounded-lg bg-ash/80 px-3 py-1.5 text-xs font-medium text-fog hover:text-light disabled:opacity-40"
+            >
+              Export Dataset
             </button>
             <button
               onClick={addTestCase}

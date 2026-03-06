@@ -410,6 +410,15 @@ export interface OptimizationTestCase {
   variant: string | null
 }
 
+export interface SkillTestDataset {
+  skillId: string
+  skillDisplayName: string
+  currentParams: HybridMatchOptions
+  exportedAt: string
+  testCases: OptimizationTestCase[]
+  entities: SkillDeviceInfo[]
+}
+
 export interface OptimizationProgress {
   iteration: number
   currentScore: number
