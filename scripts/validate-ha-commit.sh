@@ -25,24 +25,34 @@ fi
 
 if ! grep -Eq '^(custom_components/lucia/|hacs\.json$)' <<< "$STAGED_FILES"; then
   echo "[pre-commit] No Lucia/HACS files staged; skipping ruff + hassfest."
-  exit 0
+else
+  echo "[pre-commit] Running ruff..."
+  if ! command -v ruff >/dev/null 2>&1; then
+    echo "[pre-commit] ruff is required to run Python style checks."
+    echo "[pre-commit] Install it with e.g.: pipx install ruff  # or: python3 -m pip install --user ruff"
+    exit 1
+  fi
+
+  ruff check custom_components/lucia
+
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "[pre-commit] Docker is required to run hassfest."
+    exit 1
+  fi
+
+  echo "[pre-commit] Running hassfest..."
+  docker run --rm -v "$REPO_ROOT":/github/workspace ghcr.io/home-assistant/hassfest
+
+  echo "[pre-commit] HA validation complete."
 fi
 
-echo "[pre-commit] Running ruff..."
-if ! command -v ruff >/dev/null 2>&1; then
-  echo "[pre-commit] ruff is required to run Python style checks."
-  echo "[pre-commit] Install it with e.g.: pipx install ruff  # or: python3 -m pip install --user ruff"
-  exit 1
+# ── TypeScript type-check (lucia-dashboard) ──────────────────────
+if grep -Eq '^lucia-dashboard/' <<< "$STAGED_FILES"; then
+  echo "[pre-commit] Running TypeScript type-check for lucia-dashboard..."
+  if [ -d "$REPO_ROOT/lucia-dashboard/node_modules" ]; then
+    (cd "$REPO_ROOT/lucia-dashboard" && npx tsc -p tsconfig.app.json --noEmit)
+    echo "[tsc] OK"
+  else
+    echo "[pre-commit] Skipping tsc — node_modules not installed. Run: cd lucia-dashboard && npm install"
+  fi
 fi
-
-ruff check custom_components/lucia
-
-if ! command -v docker >/dev/null 2>&1; then
-  echo "[pre-commit] Docker is required to run hassfest."
-  exit 1
-fi
-
-echo "[pre-commit] Running hassfest..."
-docker run --rm -v "$REPO_ROOT":/github/workspace ghcr.io/home-assistant/hassfest
-
-echo "[pre-commit] Validation complete."

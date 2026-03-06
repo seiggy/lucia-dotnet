@@ -8,7 +8,6 @@ import {
   searchEntityLocation,
   connectEntityLocationEmbeddingProgressStream,
   invalidateEntityLocationCache,
-  evictEntityLocationEmbedding,
   regenerateEntityLocationEmbedding,
   removeEntityFromCache,
   fetchEntityVisibility,
