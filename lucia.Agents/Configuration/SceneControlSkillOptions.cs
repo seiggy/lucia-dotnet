@@ -39,6 +39,11 @@ public sealed class SceneControlSkillOptions
     public double EmbeddingResolutionMargin { get; set; } = 0.30;
 
     /// <summary>
+    /// How often the scene entity cache is refreshed from Home Assistant, in minutes.
+    /// </summary>
+    public int CacheRefreshMinutes { get; set; } = 30;
+
+    /// <summary>
     /// The Home Assistant entity domains this skill operates on.
     /// </summary>
     public List<string> EntityDomains { get; set; } = ["scene"];

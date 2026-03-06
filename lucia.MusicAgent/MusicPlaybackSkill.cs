@@ -372,7 +372,13 @@ public class MusicPlaybackSkill : IOptimizableSkill
     private async Task<HomeAssistantEntity?> ResolvePlayerAsync(string? playerName, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(playerName))
-            return null;
+        {
+            // No player specified — return the first available media_player entity
+            var allEntities = await _locationService.GetEntitiesAsync(cancellationToken).ConfigureAwait(false);
+            return allEntities
+                .Where(e => EntityDomains.Contains(e.Domain, StringComparer.OrdinalIgnoreCase))
+                .FirstOrDefault(e => e.IncludeForAgent is null || e.IncludeForAgent.Contains(AgentId));
+        }
 
         var matchOptions = GetCurrentMatchOptions();
         var result = await _locationService.SearchHierarchyAsync(

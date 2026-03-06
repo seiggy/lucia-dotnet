@@ -31,10 +31,6 @@ public static class ConfigurationApi
     }
 
     /// <summary>
-    /// Lists all configuration sections with key counts.
-    /// Merges MongoDB-stored sections with live IConfiguration sections from the schema.
-    /// </summary>
-    /// <summary>
     /// Skill config sections managed via the Agent Definitions page.
     /// Hidden from the raw Configuration page to avoid duplicate editing.
     /// </summary>
@@ -47,6 +43,10 @@ public static class ConfigurationApi
         "SceneControlSkill"
     };
 
+    /// <summary>
+    /// Lists all configuration sections with key counts.
+    /// Merges MongoDB-stored sections with live IConfiguration sections from the schema.
+    /// </summary>
     private static async Task<Ok<List<ConfigSectionSummary>>> ListSectionsAsync(
         IMongoClient mongoClient,
         IConfiguration configuration)

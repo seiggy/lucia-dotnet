@@ -23,8 +23,7 @@ For local development, start the solution through `lucia.AppHost` so supporting 
 
 Current AppHost composition includes:
 
-- `lucia-agenthost` (agent registry/API)
-- `timer-agent` (`lucia.A2AHost` with timer plugin)
+- `lucia-agenthost` (agent registry/API, includes music agent in-process)
 - `timer-agent` (`lucia.A2AHost` with timer plugin)
 - `lucia-dashboard` (Vite app)
 - Redis (persistent container + RedisInsight)

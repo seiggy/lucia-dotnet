@@ -189,9 +189,9 @@ public static class AgentDefinitionApi
 
         foreach (var section in provider.GetSkillConfigSections())
         {
-            var prefix = $"{section.SectionName}:";
+            var escapedName = System.Text.RegularExpressions.Regex.Escape(section.SectionName);
             var docs = await collection.Find(
-                Builders<ConfigEntry>.Filter.Regex(e => e.Key, $"^{section.SectionName}:"))
+                Builders<ConfigEntry>.Filter.Regex(e => e.Key, $"^{escapedName}:"))
                 .ToListAsync(ct).ConfigureAwait(false);
 
             var schema = BuildSchema(section.OptionsType);
@@ -241,9 +241,10 @@ public static class AgentDefinitionApi
         {
             if (value is System.Text.Json.JsonElement jsonElement && jsonElement.ValueKind == System.Text.Json.JsonValueKind.Array)
             {
+                var escapedKey = System.Text.RegularExpressions.Regex.Escape(key);
                 // Delete existing indexed keys then insert new ones
                 await collection.DeleteManyAsync(
-                    Builders<ConfigEntry>.Filter.Regex(e => e.Key, $"^{section}:{key}:"),
+                    Builders<ConfigEntry>.Filter.Regex(e => e.Key, $"^{section}:{escapedKey}:"),
                     ct).ConfigureAwait(false);
 
                 var items = jsonElement.EnumerateArray().Select(e => e.GetString()).Where(s => s is not null).ToList();
