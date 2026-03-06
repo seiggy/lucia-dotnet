@@ -684,6 +684,39 @@ export async function deleteAgentDefinition(id: string): Promise<void> {
   if (!res.ok) throw new Error(`Failed to delete agent definition: ${res.statusText}`);
 }
 
+export interface SkillConfigProperty {
+  name: string
+  type: 'string' | 'number' | 'integer' | 'boolean' | 'string[]'
+  defaultValue: unknown
+}
+
+export interface SkillConfigSectionData {
+  sectionName: string
+  displayName: string
+  schema: SkillConfigProperty[]
+  values: Record<string, unknown>
+}
+
+export async function fetchSkillConfig(agentId: string): Promise<SkillConfigSectionData[]> {
+  const res = await fetch(`${BASE}/agent-definitions/${agentId}/skill-config`);
+  if (res.status === 404) return [];
+  if (!res.ok) throw new Error(`Failed to fetch skill config: ${res.statusText}`);
+  return res.json();
+}
+
+export async function updateSkillConfig(
+  agentId: string,
+  section: string,
+  values: Record<string, unknown>
+): Promise<void> {
+  const res = await fetch(`${BASE}/agent-definitions/${agentId}/skill-config/${section}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(values),
+  });
+  if (!res.ok) throw new Error(`Failed to update skill config: ${res.statusText}`);
+}
+
 export async function reloadDynamicAgents(): Promise<void> {
   const res = await fetch(`${BASE}/agent-definitions/reload`, { method: 'POST' });
   if (!res.ok) throw new Error(`Failed to reload agents: ${res.statusText}`);

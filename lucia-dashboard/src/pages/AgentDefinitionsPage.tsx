@@ -11,8 +11,11 @@ import {
   discoverMcpTools,
   fetchMcpServerStatuses,
   fetchModelProviders,
+  fetchSkillConfig,
+  type SkillConfigSectionData,
 } from '../api'
 import CustomSelect from '../components/CustomSelect'
+import SkillConfigEditor from '../components/SkillConfigEditor'
 import type { McpToolServerDefinition, McpServerStatus } from '../types'
 
 type FormMode = 'list' | 'create' | 'edit'
@@ -223,6 +226,7 @@ function AgentForm({
   const [serverTools, setServerTools] = useState<Record<string, McpToolInfo[]>>({})
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [skillConfigSections, setSkillConfigSections] = useState<SkillConfigSectionData[]>([])
 
   useEffect(() => {
     const load = async () => {
@@ -251,7 +255,14 @@ function AgentForm({
       }
     }
     load()
-  }, [])
+
+    // Load skill config sections for this agent (if any)
+    if (definition?.name) {
+      fetchSkillConfig(definition.name)
+        .then(setSkillConfigSections)
+        .catch(() => setSkillConfigSections([]))
+    }
+  }, [definition?.name])
 
   const toggleTool = (serverId: string, toolName: string) => {
     setSelectedTools(prev => {
@@ -477,6 +488,15 @@ function AgentForm({
             </div>
           )}
         </div>
+        )}
+
+        {/* Skill Configuration (built-in agents with ISkillConfigProvider) */}
+        {skillConfigSections.length > 0 && definition?.name && (
+          <SkillConfigEditor
+            agentId={definition.name}
+            sections={skillConfigSections}
+            onSaved={() => fetchSkillConfig(definition.name).then(setSkillConfigSections).catch(() => {})}
+          />
         )}
 
         <div className="flex gap-3 pt-2">

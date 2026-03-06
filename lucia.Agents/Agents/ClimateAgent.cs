@@ -15,7 +15,7 @@ namespace lucia.Agents.Agents;
 /// Specialized agent for controlling HVAC systems and fans in Home Assistant.
 /// Handles climate entities (thermostats, AC units) and fan entities (ceiling fans, portable fans).
 /// </summary>
-public sealed class ClimateAgent : ILuciaAgent
+public sealed class ClimateAgent : ILuciaAgent, ISkillConfigProvider
 {
     private const string AgentId = "climate-agent";
 
@@ -183,6 +183,23 @@ public sealed class ClimateAgent : ILuciaAgent
     /// Get the agent card for registration with the registry and A2A endpoints.
     /// </summary>
     public AgentCard GetAgentCard() => _agent;
+
+    /// <inheritdoc/>
+    public IReadOnlyList<SkillConfigSection> GetSkillConfigSections() =>
+    [
+        new()
+        {
+            SectionName = Configuration.UserConfiguration.ClimateControlSkillOptions.SectionName,
+            DisplayName = "Climate Control",
+            OptionsType = typeof(Configuration.UserConfiguration.ClimateControlSkillOptions)
+        },
+        new()
+        {
+            SectionName = Configuration.UserConfiguration.FanControlSkillOptions.SectionName,
+            DisplayName = "Fan Control",
+            OptionsType = typeof(Configuration.UserConfiguration.FanControlSkillOptions)
+        }
+    ];
 
     /// <summary>
     /// Get the underlying AI agent for processing requests.
