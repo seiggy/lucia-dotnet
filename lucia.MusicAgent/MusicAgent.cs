@@ -77,7 +77,11 @@ public class MusicAgent : ILuciaAgent
                 "Play relaxed jazz on Satellite1 kitchen",
                 "Shuffle Satellite1 loft",
                 "Play the album Random Access Memories on the office speaker",
-                "Play the song Shivers by Ed Sheeran int the bedroom"
+                "Play the song Shivers by Ed Sheeran in the bedroom",
+                "Turn up the volume on the kitchen speaker",
+                "Set volume to 50% on Loft",
+                "Stop the music",
+                "Turn off the music on the loft"
             ]
         };
 
@@ -109,6 +113,8 @@ public class MusicAgent : ILuciaAgent
             - Resolve media speaker endpoints by friendly name or description.
             - Play music by artist, album, genre, or specific song requests.
             - Offer shuffle and radio mixes when users ask to "just shuffle" or "play something fitting".
+            - Control volume: set a specific level (0–100%), turn volume up, or turn volume down when the user asks.
+            - Stop or turn off playback when the user says stop, turn off, pause, or stop the music. Use the StopMusic tool immediately; do not refuse or explain that you cannot — just call the tool (use the player name if given, otherwise a generic term like "speaker" to resolve a default).
             - Confirm the selected device, the requested media, and whether shuffle/radio mode is enabled.
             - Stay focused on music playback. For other smart home tasks, politely route to the appropriate specialist agent.
 
@@ -119,7 +125,8 @@ public class MusicAgent : ILuciaAgent
             If the user does not specify any details about the type of music, simply shuffle music from their library.
             
             ## IMPORTANT
-            * Keep your responses short and informative only. Examples: "Shuffling some music!", "Playing 'The Hanging Garden' by 'The Cure'."
+            * Keep your responses short and informative only. Examples: "Shuffling some music!", "Playing 'The Hanging Garden' by 'The Cure'.", "Stopped."
+            * When the user asks to stop, turn off, or pause music: call StopMusic (with the player name if given, or e.g. "speaker" to pick a default), then reply briefly e.g. "Stopped." or "Music is off." Do not say you cannot do it or ask unnecessary questions.
             * Do not offer to provide other assistance.
             * If you need to ask for user feedback, ensure your response ends in a '?'. Examples: "Did you mean the Bedroom Speaker?", "I'm sorry, I couldn't find a speaker named 'Living Room Speakers'; Is it known by another name?"
             """;

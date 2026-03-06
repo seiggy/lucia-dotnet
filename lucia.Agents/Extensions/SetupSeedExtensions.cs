@@ -8,9 +8,9 @@ namespace lucia.Agents.Extensions;
 
 /// <summary>
 /// Seeds setup wizard values from environment variables for headless/Docker deployments.
-/// When DASHBOARD_API_KEY, HomeAssistant__BaseUrl, HomeAssistant__AccessToken, and optionally
+/// When DASHBOARD_API_KEY, HOMEASSISTANT__BASEURL, HOMEASSISTANT__ACCESSTOKEN, and optionally
 /// LUCIA_HA_API_KEY are set in .env, Lucia auto-configures and skips the setup wizard.
-/// Optionally MusicAssistant__IntegrationId seeds the HA Music Assistant config entry ID for the music agent.
+/// Optionally MUSICASSISTANT__INTEGRATIONID seeds the HA Music Assistant config entry ID for the music agent.
 /// </summary>
 public static class SetupSeedExtensions
 {
@@ -26,8 +26,8 @@ public static class SetupSeedExtensions
         CancellationToken ct = default)
     {
         var dashboardKey = configuration["DASHBOARD_API_KEY"]?.Trim();
-        var haUrl = configuration["HomeAssistant__BaseUrl"]?.Trim();
-        var haToken = configuration["HomeAssistant__AccessToken"]?.Trim();
+        var haUrl = GetEnv(configuration, "HOMEASSISTANT__BASEURL", "HomeAssistant__BaseUrl")?.Trim();
+        var haToken = GetEnv(configuration, "HOMEASSISTANT__ACCESSTOKEN", "HomeAssistant__AccessToken")?.Trim();
         var luciaHaKey = configuration["LUCIA_HA_API_KEY"]?.Trim();
 
         var seededKeys = 0;
@@ -64,7 +64,7 @@ public static class SetupSeedExtensions
         }
 
         // Music Assistant: seed HA integration config entry ID for headless (music agent uses this when calling HA music_assistant services)
-        var musicAssistantEntryId = configuration["MusicAssistant__IntegrationId"]?.Trim();
+        var musicAssistantEntryId = GetEnv(configuration, "MUSICASSISTANT__INTEGRATIONID", "MusicAssistant__IntegrationId")?.Trim();
         if (!string.IsNullOrEmpty(musicAssistantEntryId))
         {
             await configStore.SetAsync("MusicAssistant:IntegrationId", musicAssistantEntryId, "env-seed", cancellationToken: ct).ConfigureAwait(false);
@@ -93,5 +93,17 @@ public static class SetupSeedExtensions
             await configStore.SetAsync("Auth:SetupComplete", "true", "env-seed", cancellationToken: ct).ConfigureAwait(false);
             logger.LogInformation("Setup complete (all non-optional values present) — wizard skipped.");
         }
+    }
+
+    private static string? GetEnv(IConfiguration configuration, params string[] keys)
+    {
+        foreach (var key in keys)
+        {
+            var value = configuration[key];
+            if (!string.IsNullOrEmpty(value))
+                return value;
+        }
+
+        return null;
     }
 }

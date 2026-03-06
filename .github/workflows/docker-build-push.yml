@@ -191,8 +191,8 @@ jobs:
           echo "Testing container startup..."
 
           docker run -d --name lucia-test \
-            -e HomeAssistant__BaseUrl=http://localhost:8123 \
-            -e HomeAssistant__AccessToken=test-token \
+            -e HOMEASSISTANT__BASEURL=http://localhost:8123 \
+            -e HOMEASSISTANT__ACCESSTOKEN=test-token \
             -e OpenAI__ApiKey=test-key \
             -e OpenAI__ModelId=gpt-4o \
             -e OpenAI__EmbeddingModelId=text-embedding-3-small \
