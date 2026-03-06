@@ -120,6 +120,7 @@ public static class EntityVisibilityApi
                 Name = d.Name,
                 Domains = domainsByAgent.GetValueOrDefault(d.Name) ?? []
             })
+            .Where(a => a.Domains.Count > 0)
             .OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
