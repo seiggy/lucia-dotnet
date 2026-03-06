@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import CustomSelect from '../components/CustomSelect'
+import EntityMultiSelect from '../components/EntityMultiSelect'
 import {
   fetchOptimizableSkills,
   fetchSkillDevices,
@@ -104,7 +105,7 @@ export default function SkillOptimizerPage() {
   const autoGenerateTestCases = useCallback(() => {
     const cases: OptimizationTestCase[] = devices.map((d) => ({
       searchTerm: d.friendlyName,
-      expectedEntityId: d.entityId,
+      expectedEntityIds: [d.entityId],
       maxResults: 1,
       variant: 'auto',
     }))
@@ -123,7 +124,7 @@ export default function SkillOptimizerPage() {
       }
       const newCases: OptimizationTestCase[] = traces.map((t) => ({
         searchTerm: t.searchTerm,
-        expectedEntityId: '',
+        expectedEntityIds: [],
         maxResults: 1,
         variant: 'trace',
       }))
@@ -140,7 +141,7 @@ export default function SkillOptimizerPage() {
 
   // ── Test case CRUD ────────────────────────────────────────────
   const addTestCase = () => {
-    setTestCases((prev) => [...prev, { searchTerm: '', expectedEntityId: '', maxResults: 1, variant: 'manual' }])
+    setTestCases((prev) => [...prev, { searchTerm: '', expectedEntityIds: [], maxResults: 1, variant: 'manual' }])
   }
 
   const updateTestCase = (index: number, updates: Partial<OptimizationTestCase>) => {
@@ -155,7 +156,7 @@ export default function SkillOptimizerPage() {
   const handleStartOptimization = async () => {
     if (!selectedSkill || testCases.length === 0 || !selectedModel) return
 
-    const validCases = testCases.filter((c) => c.searchTerm && c.expectedEntityId)
+    const validCases = testCases.filter((c) => c.searchTerm && c.expectedEntityIds.length > 0)
     if (validCases.length === 0) {
       addToast('At least one test case with search term and expected entity is required', 'error')
       return
@@ -340,11 +341,10 @@ export default function SkillOptimizerPage() {
                       />
                     </td>
                     <td className="px-2 py-1.5">
-                      <CustomSelect
-                        options={[{ value: '', label: 'Select device...' }, ...devices.map((d) => ({ value: d.entityId, label: d.friendlyName }))]}
-                        value={tc.expectedEntityId}
-                        onChange={(v) => updateTestCase(i, { expectedEntityId: v })}
-                        size="sm"
+                      <EntityMultiSelect
+                        devices={devices}
+                        selected={tc.expectedEntityIds}
+                        onChange={(ids) => updateTestCase(i, { expectedEntityIds: ids })}
                       />
                     </td>
                     <td className="px-2 py-1.5">
@@ -535,7 +535,7 @@ function ParamComparison({ label, current, optimal }: {
 }
 
 function CaseRow({ caseResult }: { caseResult: OptimizationCaseResult }) {
-  const { testCase, found, matchCount, countWithinLimit, caseScore } = caseResult
+  const { testCase, found, foundEntityIds, missedEntityIds, matchCount, countWithinLimit, caseScore } = caseResult
   const maxScore = 4 // FoundWeight + CountWeight
   const status = caseScore >= maxScore ? '✅' : found ? '⚠️' : '❌'
 
@@ -543,15 +543,24 @@ function CaseRow({ caseResult }: { caseResult: OptimizationCaseResult }) {
     <tr className="border-b border-stone/20">
       <td className="px-2 py-1.5 text-center">{status}</td>
       <td className="px-2 py-1.5 text-light">{testCase.searchTerm}</td>
-      <td className="px-2 py-1.5 font-mono text-fog">{testCase.expectedEntityId}</td>
+      <td className="px-2 py-1.5 font-mono text-fog">
+        <div className="flex flex-wrap gap-1">
+          {foundEntityIds.map((id) => (
+            <span key={id} className="rounded bg-sage/20 px-1 text-[10px] text-sage">{id}</span>
+          ))}
+          {missedEntityIds.map((id) => (
+            <span key={id} className="rounded bg-ember/20 px-1 text-[10px] text-ember line-through">{id}</span>
+          ))}
+        </div>
+      </td>
       <td className="px-2 py-1.5">
         <span className={countWithinLimit ? 'text-sage' : 'text-amber'}>
           {matchCount}/{testCase.maxResults}
         </span>
       </td>
       <td className="px-2 py-1.5">
-        <span className={`font-medium ${caseScore >= maxScore ? 'text-sage' : found ? 'text-amber' : 'text-ember'}`}>
-          {caseScore.toFixed(0)}/{maxScore}
+        <span className={`font-medium ${caseScore >= maxScore ? 'text-sage' : caseScore > 0 ? 'text-amber' : 'text-ember'}`}>
+          {caseScore.toFixed(1)}/{maxScore}
         </span>
       </td>
     </tr>

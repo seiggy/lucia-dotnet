@@ -101,20 +101,65 @@ public sealed class SkillOptimizerService
                     options,
                     cancellationToken).ConfigureAwait(false);
 
-                var found = matches.Any(m =>
-                    string.Equals(m.Entity.MatchableName, tc.ExpectedEntityId, StringComparison.OrdinalIgnoreCase) ||
-                    (m.Entity is HomeAssistantEntity he &&
-                     string.Equals(he.EntityId, tc.ExpectedEntityId, StringComparison.OrdinalIgnoreCase)));
+                var matchedEntityIds = matches.Select(m =>
+                    m.Entity is HomeAssistantEntity he ? he.EntityId : m.Entity.MatchableName).ToList();
 
+                var foundIds = new List<string>();
+                var missedIds = new List<string>();
+
+                foreach (var expected in tc.ExpectedEntityIds)
+                {
+                    if (matchedEntityIds.Any(id => string.Equals(id, expected, StringComparison.OrdinalIgnoreCase)))
+                        foundIds.Add(expected);
+                    else
+                        missedIds.Add(expected);
+                }
+
+                var expectedCount = tc.ExpectedEntityIds.Count;
                 var count = matches.Count;
                 var countOk = count <= tc.MaxResults;
-                var caseScore = (found ? FoundWeight : 0) + (countOk ? CountWeight : 0);
+                var allFound = missedIds.Count == 0 && expectedCount > 0;
+
+                // Recall: +3.0 if all found, negative proportional to misses
+                double recallScore;
+                if (allFound)
+                {
+                    recallScore = FoundWeight;
+                }
+                else if (expectedCount > 0)
+                {
+                    var missRatio = (double)missedIds.Count / expectedCount;
+                    recallScore = -missRatio * FoundWeight;
+                }
+                else
+                {
+                    recallScore = 0;
+                }
+
+                // Precision: +1.0 for exact match, partial for extras within limit
+                double precisionScore;
+                if (allFound && count == expectedCount)
+                {
+                    precisionScore = CountWeight;
+                }
+                else if (allFound && countOk && count > 0)
+                {
+                    precisionScore = CountWeight * ((double)expectedCount / count);
+                }
+                else
+                {
+                    precisionScore = 0;
+                }
+
+                var caseScore = recallScore + precisionScore;
                 score += caseScore;
 
                 caseResults.Add(new OptimizationCaseResult
                 {
                     TestCase = tc,
-                    Found = found,
+                    Found = allFound,
+                    FoundEntityIds = foundIds,
+                    MissedEntityIds = missedIds,
                     MatchCount = count,
                     CountWithinLimit = countOk,
                     CaseScore = caseScore
