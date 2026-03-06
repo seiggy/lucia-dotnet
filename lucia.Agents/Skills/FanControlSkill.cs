@@ -116,7 +116,7 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
     public string AgentId { get; set; } = string.Empty;
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> SearchToolNames { get; } = [nameof(FindFanAsync), nameof(FindFansByAreaAsync)];
+    public IReadOnlyList<string> SearchToolNames { get; } = ["FindFan", "FindFansByArea"];
 
     /// <inheritdoc/>
     public string ConfigSectionName => FanControlSkillOptions.SectionName;

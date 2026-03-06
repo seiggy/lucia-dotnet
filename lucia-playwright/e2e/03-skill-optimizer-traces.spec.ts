@@ -1,4 +1,4 @@
-import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
+import { test, expect, type APIRequestContext } from '@playwright/test';
 import dotenv from 'dotenv';
 import path from 'path';
 
@@ -23,16 +23,15 @@ import path from 'path';
 dotenv.config({ path: path.resolve(import.meta.dirname, '../../.env') });
 dotenv.config({ path: path.resolve(import.meta.dirname, '../.env') });
 
-// AgentHost has a fixed port from launchSettings.json — used for direct API tests
-// Use 127.0.0.1 instead of localhost to avoid Node.js IPv6 resolution issues
-const AGENTHOST_URL = process.env.AGENTHOST_URL ?? 'http://127.0.0.1:5151';
-// Dashboard is pinned to port 7233 in AppHost.cs via WithHttpEndpoint
-const DASHBOARD_URL = process.env.BASE_URL ?? 'http://127.0.0.1:7233';
+// Dashboard is pinned to port 7233 in AppHost.cs — proxies /api/* to agenthost
+const BASE_URL = process.env.BASE_URL ?? 'http://127.0.0.1:7233';
 
 function getDashboardApiKey(): string {
-  const key =
+  const key = (
     process.env.LUCIA_DASHBOARD_API_KEY ??
-    process.env.DASHBOARD_API_KEY;
+    process.env.DASHBOARD_API_KEY ??
+    ''
+  ).trim();
 
   if (!key || key.includes('fake'))
     throw new Error(
@@ -42,28 +41,21 @@ function getDashboardApiKey(): string {
   return key;
 }
 
-/** Authenticate against the agenthost API directly (bypasses Vite proxy). */
-async function loginApi(request: APIRequestContext) {
-  const res = await request.post(`${AGENTHOST_URL}/api/auth/login`, {
+/** Authenticate via the dashboard proxy (sets session cookie). */
+async function login(request: APIRequestContext) {
+  const res = await request.post(`${BASE_URL}/api/auth/login`, {
     data: { apiKey: getDashboardApiKey() },
   });
   expect(res.ok(), `Login failed: ${res.status()} ${res.statusText()}`).toBeTruthy();
 }
 
-/** Authenticate the browser page session (for UI tests via the dashboard). */
-async function loginPage(page: Page) {
-  await page.request.post('/api/auth/login', {
-    data: { apiKey: getDashboardApiKey() },
-  });
-}
-
 test.describe.serial('Skill Optimizer — Import from Traces', () => {
 
   test('traces API returns Light Agent traces', async ({ request }) => {
-    await loginApi(request);
+    await login(request);
 
     const res = await request.get(
-      `${AGENTHOST_URL}/api/traces?agentFilter=light-agent&pageSize=10&page=1`
+      `${BASE_URL}/api/traces?agentFilter=light-agent&pageSize=10&page=1`
     );
     expect(res.ok()).toBeTruthy();
 
@@ -81,10 +73,10 @@ test.describe.serial('Skill Optimizer — Import from Traces', () => {
   });
 
   test('skill traces API returns search terms for light-control', async ({ request }) => {
-    await loginApi(request);
+    await login(request);
 
     const res = await request.get(
-      `${AGENTHOST_URL}/api/skill-optimizer/skills/light-control/traces?limit=200`
+      `${BASE_URL}/api/skill-optimizer/skills/light-control/traces?limit=200`
     );
     expect(res.ok()).toBeTruthy();
 
@@ -106,9 +98,13 @@ test.describe.serial('Skill Optimizer — Import from Traces', () => {
     }
   });
 
-  test('Import from Traces button populates test cases in the UI', async ({ page }) => {
-    await loginPage(page);
-    await page.goto('/skill-optimizer');
+  test('Import from Traces button populates test cases in the UI', async ({ page, request }) => {
+    await login(request);
+    // Transfer auth cookie to the page context
+    const cookies = await request.storageState();
+    await page.context().addCookies(cookies.cookies);
+
+    await page.goto(`${BASE_URL}/skill-optimizer`);
     await page.waitForLoadState('networkidle');
 
     // Select the "Light Control" skill from the CustomSelect dropdown
