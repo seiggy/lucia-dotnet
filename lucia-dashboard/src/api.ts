@@ -900,6 +900,12 @@ export async function fetchEntityLocationSummary() {
   return res.json();
 }
 
+export async function fetchAvailableDomains(): Promise<string[]> {
+  const res = await fetch(`${BASE}/entity-location/domains`);
+  if (!res.ok) throw new Error(`Failed to fetch domains: ${res.statusText}`);
+  return res.json();
+}
+
 export async function fetchEntityLocationFloors() {
   const res = await fetch(`${BASE}/entity-location/floors`);
   if (!res.ok) throw new Error(`Failed to fetch floors: ${res.statusText}`);

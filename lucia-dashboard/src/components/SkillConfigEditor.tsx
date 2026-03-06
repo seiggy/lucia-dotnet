@@ -1,7 +1,7 @@
-import { useState, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import type { SkillConfigSectionData } from '../api'
-import { updateSkillConfig } from '../api'
-import { Save, Plus, X } from 'lucide-react'
+import { updateSkillConfig, fetchAvailableDomains } from '../api'
+import { Save, Plus, X, ChevronDown } from 'lucide-react'
 
 interface SkillConfigEditorProps {
   agentId: string
@@ -24,6 +24,11 @@ export default function SkillConfigEditor({ agentId, sections, onSaved }: SkillC
   })
   const [saving, setSaving] = useState<string | null>(null)
   const [savedSection, setSavedSection] = useState<string | null>(null)
+  const [availableDomains, setAvailableDomains] = useState<string[]>([])
+
+  useEffect(() => {
+    fetchAvailableDomains().then(setAvailableDomains).catch(() => {})
+  }, [])
 
   const updateValue = useCallback((section: string, key: string, value: unknown) => {
     setEditedValues((prev) => ({
@@ -85,6 +90,7 @@ export default function SkillConfigEditor({ agentId, sections, onSaved }: SkillC
               value={editedValues[section.sectionName]?.[prop.name]}
               defaultValue={prop.defaultValue}
               onChange={(v) => updateValue(section.sectionName, prop.name, v)}
+              suggestions={prop.type === 'string[]' && /domain/i.test(prop.name) ? availableDomains : undefined}
             />
           ))}
         </div>
@@ -98,17 +104,20 @@ function FieldEditor({
   type,
   value,
   onChange,
+  suggestions,
 }: {
   name: string
   type: string
   value: unknown
   defaultValue: unknown
   onChange: (v: unknown) => void
+  suggestions?: string[]
 }) {
   const label = name.replace(/([A-Z])/g, ' $1').trim()
 
   if (type === 'string[]') {
     const items = (Array.isArray(value) ? value : []) as string[]
+    const unusedSuggestions = suggestions?.filter((s) => !items.includes(s)) ?? []
     return (
       <div>
         <label className="mb-1 block text-xs font-medium text-fog">{label}</label>
@@ -128,11 +137,18 @@ function FieldEditor({
               </button>
             </span>
           ))}
-          <AddTagButton
-            onAdd={(tag) => {
-              if (tag && !items.includes(tag)) onChange([...items, tag])
-            }}
-          />
+          {unusedSuggestions.length > 0 ? (
+            <DomainPicker
+              options={unusedSuggestions}
+              onSelect={(domain) => onChange([...items, domain])}
+            />
+          ) : (
+            <AddTagButton
+              onAdd={(tag) => {
+                if (tag && !items.includes(tag)) onChange([...items, tag])
+              }}
+            />
+          )}
         </div>
       </div>
     )
@@ -249,5 +265,41 @@ function AddTagButton({ onAdd }: { onAdd: (tag: string) => void }) {
       placeholder="domain name"
       className="w-24 rounded border border-amber/50 bg-ash/40 px-1.5 py-0.5 text-xs text-light outline-none"
     />
+  )
+}
+
+function DomainPicker({ options, onSelect }: { options: string[]; onSelect: (domain: string) => void }) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="inline-flex items-center gap-0.5 rounded-md border border-dashed border-stone/40 px-1.5 py-0.5 text-xs text-dust hover:border-amber hover:text-amber"
+      >
+        <Plus className="h-3 w-3" /> Add
+        <ChevronDown className="h-3 w-3" />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-50 mt-1 w-40 rounded-lg border border-stone bg-basalt shadow-xl">
+          <div className="max-h-48 overflow-y-auto p-1">
+            {options.map((domain) => (
+              <button
+                key={domain}
+                type="button"
+                onClick={() => {
+                  onSelect(domain)
+                  setOpen(false)
+                }}
+                className="flex w-full rounded-md px-2 py-1 text-left text-xs text-fog hover:bg-stone/40"
+              >
+                {domain}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

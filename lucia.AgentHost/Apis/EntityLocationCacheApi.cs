@@ -29,6 +29,7 @@ public static class EntityLocationCacheApi
         group.MapGet("/floors", GetFloorsAsync);
         group.MapGet("/areas", GetAreasAsync);
         group.MapGet("/entities", GetEntitiesAsync);
+        group.MapGet("/domains", GetAvailableDomainsAsync);
         group.MapGet("/search/{term}", SearchAsync);
         group.MapGet("/embedding-progress", GetEmbeddingProgressAsync);
         group.MapGet("/embedding-progress/live", StreamEmbeddingProgressAsync);
@@ -184,6 +185,24 @@ public static class EntityLocationCacheApi
         });
 
         return TypedResults.Ok<object>(result);
+    }
+
+    /// <summary>
+    /// Returns the distinct entity domains present in the entity location cache.
+    /// </summary>
+    private static async Task<Ok<List<string>>> GetAvailableDomainsAsync(
+        [FromServices] IEntityLocationService locationService,
+        CancellationToken ct)
+    {
+        var entities = await locationService.GetEntitiesAsync(ct).ConfigureAwait(false);
+
+        var domains = entities
+            .Select(e => e.Domain)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(d => d, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return TypedResults.Ok(domains);
     }
 
     private static async Task<Ok<object>> SearchAsync(
