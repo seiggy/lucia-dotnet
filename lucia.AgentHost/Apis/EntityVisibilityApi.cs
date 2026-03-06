@@ -94,21 +94,36 @@ public static class EntityVisibilityApi
     }
 
     /// <summary>
-    /// Returns the list of available agent names for the multi-select UI.
+    /// Returns the list of available agents with their entity domains for the UI.
+    /// Aggregates domains from <see cref="IOptimizableSkill"/> registrations.
     /// </summary>
-    private static async Task<Ok<List<string>>> GetAvailableAgentsAsync(
+    private static async Task<Ok<List<AgentInfo>>> GetAvailableAgentsAsync(
         [FromServices] IAgentDefinitionRepository repository,
+        [FromServices] IEnumerable<IOptimizableSkill> skills,
         CancellationToken ct)
     {
         var definitions = await repository.GetAllAgentDefinitionsAsync(ct).ConfigureAwait(false);
 
-        var names = definitions
+        // Build agent → domains lookup from registered skills
+        var domainsByAgent = skills
+            .Where(s => !string.IsNullOrEmpty(s.AgentId))
+            .GroupBy(s => s.AgentId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                g => g.Key,
+                g => g.SelectMany(s => s.EntityDomains).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+                StringComparer.OrdinalIgnoreCase);
+
+        var agents = definitions
             .Where(d => d.Enabled && !d.IsOrchestrator)
-            .Select(d => d.Name)
-            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .Select(d => new AgentInfo
+            {
+                Name = d.Name,
+                Domains = domainsByAgent.GetValueOrDefault(d.Name) ?? []
+            })
+            .OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        return TypedResults.Ok(names);
+        return TypedResults.Ok(agents);
     }
 }
 

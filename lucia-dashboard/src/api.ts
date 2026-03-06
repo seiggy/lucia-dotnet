@@ -975,7 +975,7 @@ export async function clearAllAgentFilters() {
   return res.json();
 }
 
-export async function fetchAvailableAgents(): Promise<string[]> {
+export async function fetchAvailableAgents(): Promise<{ name: string; domains: string[] }[]> {
   const res = await fetch(`${BASE}/entity-location/visibility/available-agents`);
   if (!res.ok) throw new Error(`Failed to fetch available agents: ${res.statusText}`);
   return res.json();

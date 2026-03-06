@@ -107,7 +107,7 @@ export default function EntityLocationPage() {
 
   // Visibility state
   const [useExposedOnly, setUseExposedOnly] = useState(false)
-  const [availableAgents, setAvailableAgents] = useState<string[]>([])
+  const [availableAgents, setAvailableAgents] = useState<{ name: string; domains: string[] }[]>([])
   const [entityAgentMap, setEntityAgentMap] = useState<Record<string, string[]>>({})
   const [togglingExposed, setTogglingExposed] = useState(false)
 
@@ -447,7 +447,7 @@ export default function EntityLocationPage() {
     const currentAgents = getEntityAgents(entityId)
 
     function toggleAgent(agent: string) {
-      const current = currentAgents ?? [...availableAgents] // null = all → start with all
+      const current = currentAgents ?? [...availableAgents.map(a => a.name)] // null = all → start with all
       const updated = current.includes(agent)
         ? current.filter(a => a !== agent)
         : [...current, agent]
@@ -501,7 +501,7 @@ export default function EntityLocationPage() {
               <div className="my-1 border-t border-stone/40" />
 
               {/* Individual agents */}
-              {availableAgents.map(agent => {
+              {availableAgents.map(({ name: agent }) => {
                 const isSelected = currentAgents === null || currentAgents.includes(agent)
                 return (
                   <button
@@ -550,7 +550,7 @@ export default function EntityLocationPage() {
           {bulkAgentDropdownOpen && (
             <div className="absolute left-0 top-full z-50 mt-1 w-52 rounded-lg border border-stone bg-basalt shadow-xl shadow-black/40">
               <div className="max-h-48 overflow-y-auto p-1">
-                {availableAgents.map(agent => (
+                {availableAgents.map(({ name: agent }) => (
                   <button
                     key={agent}
                     onClick={() => {
@@ -949,12 +949,27 @@ export default function EntityLocationPage() {
             />
             <select
               value={impersonateAgent}
-              onChange={(e) => { setImpersonateAgent(e.target.value); setEntityPage(0) }}
+              onChange={(e) => {
+                const agentName = e.target.value
+                setImpersonateAgent(agentName)
+                setEntityPage(0)
+                // Auto-apply domain filter from agent's skill domains
+                const agent = availableAgents.find(a => a.name === agentName)
+                if (agent && agent.domains.length > 0) {
+                  setDomainFilter(agent.domains.join(','))
+                  // Reload with the new domain filter
+                  setTimeout(() => loadTab('entities'), 0)
+                } else if (!agentName) {
+                  setDomainFilter('')
+                }
+              }}
               className="rounded-lg border border-stone bg-basalt px-3 py-2 text-sm text-fog focus:border-amber focus:outline-none"
             >
               <option value="">All Agents</option>
               {availableAgents.map(a => (
-                <option key={a} value={a}>{a}</option>
+                <option key={a.name} value={a.name}>
+                  {a.name}{a.domains.length > 0 ? ` (${a.domains.join(', ')})` : ''}
+                </option>
               ))}
             </select>
             {impersonateAgent && (
@@ -1047,12 +1062,23 @@ export default function EntityLocationPage() {
             />
             <select
               value={impersonateAgent}
-              onChange={(e) => setImpersonateAgent(e.target.value)}
+              onChange={(e) => {
+                const agentName = e.target.value
+                setImpersonateAgent(agentName)
+                const agent = availableAgents.find(a => a.name === agentName)
+                if (agent && agent.domains.length > 0) {
+                  setSearchDomain(agent.domains.join(','))
+                } else if (!agentName) {
+                  setSearchDomain('')
+                }
+              }}
               className="rounded-lg border border-stone bg-basalt px-3 py-2 text-sm text-fog focus:border-amber focus:outline-none"
             >
               <option value="">All Agents</option>
               {availableAgents.map(a => (
-                <option key={a} value={a}>{a}</option>
+                <option key={a.name} value={a.name}>
+                  {a.name}{a.domains.length > 0 ? ` (${a.domains.join(', ')})` : ''}
+                </option>
               ))}
             </select>
             <button
