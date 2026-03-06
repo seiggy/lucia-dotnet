@@ -15,8 +15,11 @@ namespace lucia.MusicAgent
         {
             builder.Services.Configure<MusicAssistantConfig>(
                 builder.Configuration.GetSection("MusicAssistant"));
+            builder.Services.Configure<MusicPlaybackSkillOptions>(
+                builder.Configuration.GetSection(MusicPlaybackSkillOptions.SectionName));
 
             builder.Services.AddSingleton<MusicPlaybackSkill>();
+            builder.Services.AddSingleton<IOptimizableSkill>(sp => sp.GetRequiredService<MusicPlaybackSkill>());
 
             builder.Services.AddSingleton<ILuciaAgent, MusicAgent>();
         }

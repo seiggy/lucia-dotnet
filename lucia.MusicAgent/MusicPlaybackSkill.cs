@@ -1,11 +1,8 @@
-using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
-using System.Globalization;
 using System.Text.Json;
 using lucia.Agents.Abstractions;
-using lucia.Agents.Services;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using lucia.Agents.Models;
@@ -20,7 +17,7 @@ namespace lucia.MusicAgent;
 /// <summary>
 /// Semantic Kernel plugin that controls Music Assistant playback on Satellite endpoints via Home Assistant.
 /// </summary>
-public class MusicPlaybackSkill
+public class MusicPlaybackSkill : IOptimizableSkill
 {
     private static readonly ActivitySource ActivitySource = new("Lucia.Skills.MusicPlayback", "1.0.0");
     private static readonly Meter Meter = new("Lucia.Skills.MusicPlayback", "1.0.0");
@@ -31,29 +28,57 @@ public class MusicPlaybackSkill
 
     private const string? ReturnResponseToken = "return_response=1";
     private readonly IHomeAssistantClient _homeAssistantClient;
-    private readonly IEmbeddingProviderResolver _embeddingResolver;
-    private IEmbeddingGenerator<string, Embedding<float>>? _embeddingGenerator;
     private readonly ILogger<MusicPlaybackSkill> _logger;
-    private readonly IDeviceCacheService _deviceCache;
-    private volatile IReadOnlyList<MusicPlayerEntity> _cachedPlayers = Array.Empty<MusicPlayerEntity>();
-    private readonly ConcurrentDictionary<string, Embedding<float>> _searchTermEmbeddingCache = new(StringComparer.OrdinalIgnoreCase);
-    private readonly SemaphoreSlim _cacheLock = new(1, 1);
-    private readonly TimeSpan _cacheRefreshInterval = TimeSpan.FromMinutes(30);
+    private readonly IEntityLocationService _locationService;
+    private readonly IOptionsMonitor<MusicPlaybackSkillOptions> _options;
     private readonly IOptionsMonitor<MusicAssistantConfig> _config;
-    private long _lastCacheUpdateTicks = DateTime.MinValue.Ticks;
 
     public MusicPlaybackSkill(
         IHomeAssistantClient homeAssistantClient,
-        IOptionsMonitor<MusicAssistantConfig> config,
-        IEmbeddingProviderResolver embeddingResolver,
-        IDeviceCacheService deviceCache,
-        ILogger<MusicPlaybackSkill> logger)
+        ILogger<MusicPlaybackSkill> logger,
+        IEntityLocationService locationService,
+        IOptionsMonitor<MusicPlaybackSkillOptions> options,
+        IOptionsMonitor<MusicAssistantConfig> config)
     {
         _homeAssistantClient = homeAssistantClient;
-        _embeddingResolver = embeddingResolver;
-        _deviceCache = deviceCache;
         _logger = logger;
+        _locationService = locationService;
+        _options = options;
         _config = config;
+    }
+
+    // ── IOptimizableSkill ─────────────────────────────────────────
+
+    /// <inheritdoc/>
+    public string SkillDisplayName => "Music Playback";
+
+    /// <inheritdoc/>
+    public string SkillId => "music-playback";
+
+    /// <inheritdoc/>
+    public string AgentId { get; set; } = string.Empty;
+
+    /// <inheritdoc/>
+    public IReadOnlyList<string> SearchToolNames { get; } = ["FindPlayer"];
+
+    /// <inheritdoc/>
+    public string ConfigSectionName => MusicPlaybackSkillOptions.SectionName;
+
+    /// <inheritdoc/>
+    public IReadOnlyList<string> EntityDomains => _options.CurrentValue.EntityDomains;
+
+    /// <inheritdoc/>
+    public HybridMatchOptions GetCurrentMatchOptions()
+    {
+        var opts = _options.CurrentValue;
+        return new HybridMatchOptions
+        {
+            Threshold = opts.HybridSimilarityThreshold,
+            EmbeddingWeight = opts.EmbeddingWeight,
+            ScoreDropoffRatio = opts.ScoreDropoffRatio,
+            DisagreementPenalty = opts.DisagreementPenalty,
+            EmbeddingResolutionMargin = opts.EmbeddingResolutionMargin
+        };
     }
 
     public IList<AITool> GetTools()
@@ -70,28 +95,12 @@ public class MusicPlaybackSkill
     }
 
     /// <summary>
-    /// Pre-loads Satellite music player metadata so requests are fast and resilient.
+    /// Initialize the plugin — entity search is delegated to <see cref="IEntityLocationService"/>.
     /// </summary>
-    public async Task InitializeAsync(CancellationToken cancellationToken = default)
+    public Task InitializeAsync(CancellationToken cancellationToken = default)
     {
-        _embeddingGenerator = await _embeddingResolver.ResolveAsync(ct: cancellationToken).ConfigureAwait(false);
-        if (_embeddingGenerator is null)
-        {
-            _logger.LogWarning("No embedding provider configured — music player semantic search will not be available.");
-            return;
-        }
-
-        await RefreshPlayerCacheAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Re-resolves the embedding generator using the specified provider name.
-    /// Called by the owning agent when the embedding configuration changes.
-    /// </summary>
-    public async Task UpdateEmbeddingProviderAsync(string? providerName, CancellationToken cancellationToken = default)
-    {
-        _embeddingGenerator = await _embeddingResolver.ResolveAsync(providerName, cancellationToken).ConfigureAwait(false);
-        _logger.LogInformation("MusicPlaybackSkill: embedding provider updated to '{Provider}'", providerName ?? "system-default");
+        _logger.LogInformation("MusicPlaybackSkill initialized — entity search delegated to IEntityLocationService.");
+        return Task.CompletedTask;
     }
 
     [Description("Stops music on the identified player")]
@@ -304,7 +313,7 @@ public class MusicPlaybackSkill
         }
     }
 
-    private async Task<string> PlayMediaAsync(MusicPlayerEntity player, ServiceCallRequest payload, string successMessage, CancellationToken cancellationToken = default)
+    private async Task<string> PlayMediaAsync(HomeAssistantEntity player, ServiceCallRequest payload, string successMessage, CancellationToken cancellationToken = default)
     {
         using var activity = ActivitySource.StartActivity("MusicPlaybackSkill.PlayMedia", ActivityKind.Internal);
         activity?.SetTag("player.entity_id", player.EntityId);
@@ -329,7 +338,7 @@ public class MusicPlaybackSkill
         }
     }
 
-    private async Task EnqueueTracks(MusicPlayerEntity player, IReadOnlyList<string> tracks, bool clearQueue = false, CancellationToken cancellationToken = default)
+    private async Task EnqueueTracks(HomeAssistantEntity player, IReadOnlyList<string> tracks, bool clearQueue = false, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -360,226 +369,19 @@ public class MusicPlaybackSkill
         await _homeAssistantClient.CallServiceAsync("media_player", "media_play", null, new ServiceCallRequest { EntityId = entityId }, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<MusicPlayerEntity?> ResolvePlayerAsync(string? playerName, CancellationToken cancellationToken = default)
+    private async Task<HomeAssistantEntity?> ResolvePlayerAsync(string? playerName, CancellationToken cancellationToken = default)
     {
-        await EnsureCacheIsCurrentAsync(cancellationToken).ConfigureAwait(false);
-
-        if (!_cachedPlayers.Any())
-        {
-            await _cacheLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                if (!_cachedPlayers.Any())
-                {
-                    await RefreshPlayerCacheAsync(cancellationToken)
-                        .ConfigureAwait(false);
-                }
-            }
-            finally
-            {
-                _cacheLock.Release();
-            }
-
-            if (!_cachedPlayers.Any())
-                return null;
-        }
-
         if (string.IsNullOrWhiteSpace(playerName))
-        {
-            return _cachedPlayers.FirstOrDefault(p => p.IsSatellite) ?? _cachedPlayers.First();
-        }
+            return null;
 
-        var trimmed = playerName.Trim();
+        var matchOptions = GetCurrentMatchOptions();
+        var result = await _locationService.SearchHierarchyAsync(
+            playerName, matchOptions, EntityDomains, cancellationToken).ConfigureAwait(false);
 
-        // Prefer exact matches on entity id
-        var exactEntity = _cachedPlayers.FirstOrDefault(p => string.Equals(p.EntityId, trimmed, StringComparison.OrdinalIgnoreCase));
-        if (exactEntity is not null)
-        {
-            return exactEntity;
-        }
+        var entity = result.ResolvedEntities
+            .FirstOrDefault(e => e.IncludeForAgent is null || e.IncludeForAgent.Contains(AgentId));
 
-        // Prefer exact friendly name matches
-        var exactFriendly = _cachedPlayers.FirstOrDefault(p => string.Equals(p.FriendlyName, trimmed, StringComparison.OrdinalIgnoreCase));
-        if (exactFriendly is not null)
-        {
-            return exactFriendly;
-        }
-
-        // Partial match prioritising Satellite endpoints
-        var satellitePartial = _cachedPlayers
-            .Where(p => p.IsSatellite)
-            .FirstOrDefault(p => p.FriendlyName.Contains(trimmed, StringComparison.OrdinalIgnoreCase) || p.EntityId.Contains(trimmed, StringComparison.OrdinalIgnoreCase));
-        if (satellitePartial is not null)
-        {
-            return satellitePartial;
-        }
-
-        var genericPartial = _cachedPlayers
-            .FirstOrDefault(p => p.FriendlyName.Contains(trimmed, StringComparison.OrdinalIgnoreCase) || p.EntityId.Contains(trimmed, StringComparison.OrdinalIgnoreCase));
-        if (genericPartial is not null)
-        {
-            return genericPartial;
-        }
-
-        // Fallback to semantic similarity
-        try
-        {
-            var searchEmbedding = await GetOrCreateSearchEmbeddingAsync(trimmed).ConfigureAwait(false);
-            var bestMatch = _cachedPlayers
-                .Select(player => new
-                {
-                    Player = player,
-                    Similarity = CosineSimilarity(searchEmbedding, player.NameEmbedding)
-                })
-                .OrderByDescending(x => x.Similarity)
-                .FirstOrDefault();
-
-            if (bestMatch is not null && bestMatch.Similarity >= 0.6)
-            {
-                return bestMatch.Player;
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Embedding lookup failed for MusicAssistant player '{PlayerName}'", trimmed);
-        }
-
-        return null;
-    }
-
-    private async Task EnsureCacheIsCurrentAsync(CancellationToken cancellationToken = default)
-    {
-        if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) < _cacheRefreshInterval)
-        {
-            return;
-        }
-
-        await _cacheLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) < _cacheRefreshInterval)
-            {
-                return;
-            }
-
-            await RefreshPlayerCacheAsync(cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _cacheLock.Release();
-        }
-    }
-
-    private async Task FindMusicAssistantInstanceAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            _logger.LogInformation("Finding music assistant instance");
-            // need to use the Home Assistant WebSocket API to call {"type":"config_entries/get","type_filter":["device","hub","service"],"domain":"music_assistant","id": <<generated_int>> }
-            // we don't have the websocket api integated yet, so just return the config added by the service config.
-            
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to find Music Assistant instance");
-        }
-    }
-    
-    private async Task RefreshPlayerCacheAsync(CancellationToken cancellationToken)
-    {
-        if (_embeddingGenerator is null)
-        {
-            _logger.LogWarning("Skipping player cache refresh — no embedding provider available.");
-            return;
-        }
-
-        try
-        {
-            _logger.LogInformation("Refreshing Music Assistant player cache...");
-
-            // Try Redis cache first
-            var cachedPlayers = await _deviceCache.GetCachedPlayersAsync(cancellationToken);
-            if (cachedPlayers is { Count: > 0 })
-            {
-                _logger.LogInformation("Loaded {PlayerCount} players from Redis cache", cachedPlayers.Count);
-                var restoredPlayers = new List<MusicPlayerEntity>(cachedPlayers.Count);
-                
-                // Re-attach embeddings from Redis for each player
-                var allRestored = true;
-                foreach (var player in cachedPlayers)
-                {
-                    var embedding = await _deviceCache.GetEmbeddingAsync($"player:{player.EntityId}", cancellationToken);
-                    if (embedding is not null)
-                    {
-                        player.NameEmbedding = embedding;
-                        restoredPlayers.Add(player);
-                    }
-                    else
-                    {
-                        _logger.LogWarning("Missing embedding for player {EntityId} in Redis, will re-fetch", player.EntityId);
-                        allRestored = false;
-                        break;
-                    }
-                }
-                
-                if (allRestored && restoredPlayers.Count == cachedPlayers.Count)
-                {
-                    _cachedPlayers = restoredPlayers;
-                    Volatile.Write(ref _lastCacheUpdateTicks, DateTime.UtcNow.Ticks);
-                    return; // Cache hit
-                }
-                
-                // Partial — fall through to full refresh
-            }
-
-            var states = await _homeAssistantClient.GetAllEntityStatesAsync(cancellationToken).ConfigureAwait(false);
-            var players = states.Where(IsMusicAssistantPlayer).ToList();
-            
-            var newPlayers = new List<MusicPlayerEntity>(players.Count);
-
-            foreach (var state in players)
-            {
-                var friendlyName = GetFriendlyName(state);
-                try
-                {
-                    var embedding = await _embeddingGenerator!.GenerateAsync(friendlyName, cancellationToken: cancellationToken).ConfigureAwait(false);
-                    var entity = new MusicPlayerEntity
-                    {
-                        EntityId = state.EntityId,
-                        FriendlyName = friendlyName,
-                        ConfigEntryId = TryGetString(state.Attributes, "config_entry_id"),
-                        IsSatellite = ContainsSatelliteHint(state),
-                        NameEmbedding = embedding
-                    };
-
-                    newPlayers.Add(entity);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to build embedding for music player {EntityId}", state.EntityId);
-                }
-            }
-
-            // Atomic swap — readers see either the old or new snapshot, never a partial list
-            _cachedPlayers = newPlayers;
-            Volatile.Write(ref _lastCacheUpdateTicks, DateTime.UtcNow.Ticks);
-
-            // Save to Redis
-            var playerCacheTtl = TimeSpan.FromMinutes(30);
-            var embeddingCacheTtl = TimeSpan.FromHours(24);
-            await _deviceCache.SetCachedPlayersAsync(newPlayers, playerCacheTtl, cancellationToken);
-            foreach (var player in newPlayers)
-            {
-                await _deviceCache.SetEmbeddingAsync($"player:{player.EntityId}", player.NameEmbedding, embeddingCacheTtl, cancellationToken);
-            }
-            _logger.LogInformation("Saved {PlayerCount} players to Redis cache", newPlayers.Count);
-
-            _logger.LogInformation("Cached {Count} Music Assistant players", newPlayers.Count);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Unable to refresh Music Assistant player cache");
-        }
+        return entity;
     }
 
     private async Task<IReadOnlyList<string>> GetRandomTrackUrisAsync(string? configEntryId, int trackSeedCount, CancellationToken cancellationToken = default)
@@ -661,124 +463,5 @@ public class MusicPlaybackSkill
                 }
                 break;
         }
-    }
-
-    private static bool IsMusicAssistantPlayer(HomeAssistantState state)
-    {
-        if (!state.EntityId.StartsWith("media_player.", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        if (state.Attributes.TryGetValue("music_assistant_player_id", out _))
-        {
-            return true;
-        }
-
-        if (state.EntityId.Contains("ma_", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        if (state.Attributes.TryGetValue("app_id", out var appId) &&
-            appId?.ToString()?.Contains("music_assistant", StringComparison.OrdinalIgnoreCase) == true)
-        {
-            return true;
-        }
-
-        if (state.Attributes.TryGetValue("source", out var source) && source?.ToString()?.Contains("Music Assistant", StringComparison.OrdinalIgnoreCase) == true)
-        {
-            return true;
-        }
-
-        if (state.Attributes.TryGetValue("integration", out var integration) && integration?.ToString()?.Contains("music_assistant", StringComparison.OrdinalIgnoreCase) == true)
-        {
-            return true;
-        }
-
-        return false;
-    }
-
-    private static string GetFriendlyName(HomeAssistantState state)
-    {
-        if (state.Attributes.TryGetValue("friendly_name", out var friendlyObj) && TryConvertToString(friendlyObj) is { Length: > 0 } friendly)
-        {
-            return friendly;
-        }
-
-        return CultureInfo.InvariantCulture.TextInfo.ToTitleCase(state.EntityId.Replace("_", " ").Replace("media_player.", string.Empty, StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static string? TryGetString(Dictionary<string, object> attributes, string key)
-    {
-        return attributes.TryGetValue(key, out var value) ? TryConvertToString(value) : null;
-    }
-
-    private static string? TryConvertToString(object? value)
-    {
-        return value switch
-        {
-            null => null,
-            string s => s,
-            JsonElement element when element.ValueKind == JsonValueKind.String => element.GetString(),
-            JsonElement element when element.ValueKind == JsonValueKind.Number => element.GetDouble().ToString(CultureInfo.InvariantCulture),
-            JsonElement element when element.ValueKind == JsonValueKind.True => bool.TrueString,
-            JsonElement element when element.ValueKind == JsonValueKind.False => bool.FalseString,
-            _ => value.ToString()
-        };
-    }
-
-    private static bool ContainsSatelliteHint(HomeAssistantState state)
-    {
-        var friendly = GetFriendlyName(state);
-        return state.EntityId.Contains("satellite", StringComparison.OrdinalIgnoreCase) ||
-               friendly.Contains("Satellite", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static double CosineSimilarity(Embedding<float> vector1, Embedding<float> vector2)
-    {
-        var span1 = vector1.Vector.Span;
-        var span2 = vector2.Vector.Span;
-
-        if (span1.Length != span2.Length)
-        {
-            return 0.0;
-        }
-
-        double dotProduct = 0;
-        double magnitude1 = 0;
-        double magnitude2 = 0;
-
-        for (var i = 0; i < span1.Length; i++)
-        {
-            dotProduct += span1[i] * span2[i];
-            magnitude1 += span1[i] * span1[i];
-            magnitude2 += span2[i] * span2[i];
-        }
-
-        if (magnitude1 == 0 || magnitude2 == 0)
-        {
-            return 0;
-        }
-
-        return dotProduct / (Math.Sqrt(magnitude1) * Math.Sqrt(magnitude2));
-    }
-
-    /// <summary>
-    /// Returns a cached embedding for the search term, or generates and caches a new one.
-    /// </summary>
-    private async Task<Embedding<float>> GetOrCreateSearchEmbeddingAsync(string searchTerm)
-    {
-        if (_searchTermEmbeddingCache.TryGetValue(searchTerm, out var cached))
-        {
-            _logger.LogDebug("Search term embedding cache hit for '{SearchTerm}'", searchTerm);
-            return cached;
-        }
-
-        var embedding = await _embeddingGenerator!.GenerateAsync(searchTerm).ConfigureAwait(false);
-        _searchTermEmbeddingCache.TryAdd(searchTerm, embedding);
-        _logger.LogDebug("Cached search term embedding for '{SearchTerm}' ({Dimensions} dims)",
-            searchTerm, embedding.Vector.Length);
-        return embedding;
     }
 }

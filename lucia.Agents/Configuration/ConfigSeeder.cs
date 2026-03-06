@@ -34,7 +34,8 @@ public sealed class ConfigSeeder : IHostedService
         "TraceCapture",
         LightControlSkillOptions.SectionName,
         ClimateControlSkillOptions.SectionName,
-        FanControlSkillOptions.SectionName
+        FanControlSkillOptions.SectionName,
+        "MusicPlaybackSkill"
     ];
 
     private static readonly string[] SensitiveKeywords =

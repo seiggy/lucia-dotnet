@@ -1,44 +1,46 @@
 using System.Text.Json;
 using FakeItEasy;
 using lucia.Agents.Abstractions;
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
-using lucia.Agents.Services;
-using lucia.Tests.TestDoubles;
-using Microsoft.Extensions.Options;
+using lucia.Agents.Models;
+using lucia.Agents.Models.HomeAssistant;
 using lucia.Agents.Skills.Models;
 using lucia.MusicAgent;
+using Microsoft.Extensions.Options;
 
 namespace lucia.Tests;
 
 public class MusicPlaybackSkillTests
 {
     private readonly IHomeAssistantClient _homeAssistantClient = A.Fake<IHomeAssistantClient>();
-    private readonly IEmbeddingGenerator<string, Embedding<float>> _embeddingGenerator = new StubEmbeddingGenerator();
-    private readonly IDeviceCacheService _deviceCache = A.Fake<IDeviceCacheService>();
+    private readonly IEntityLocationService _locationService = A.Fake<IEntityLocationService>();
     private readonly MusicPlaybackSkill _skill;
 
     public MusicPlaybackSkillTests()
     {
-        ConfigureDefaultStates();
-        var optionsMonitor = A.Fake<IOptionsMonitor<MusicAssistantConfig>>();
-        A.CallTo(() => optionsMonitor.CurrentValue).Returns(new MusicAssistantConfig
+        ConfigureDefaultLocationService();
+
+        var musicConfig = A.Fake<IOptionsMonitor<MusicAssistantConfig>>();
+        A.CallTo(() => musicConfig.CurrentValue).Returns(new MusicAssistantConfig
         {
             IntegrationId = "DEMO"
         });
 
+        var skillOptions = A.Fake<IOptionsMonitor<MusicPlaybackSkillOptions>>();
+        A.CallTo(() => skillOptions.CurrentValue).Returns(new MusicPlaybackSkillOptions());
+
         _skill = new MusicPlaybackSkill(
             _homeAssistantClient,
-            optionsMonitor,
-            new StubEmbeddingProviderResolver(_embeddingGenerator),
-            _deviceCache,
-            NullLogger<MusicPlaybackSkill>.Instance);
+            NullLogger<MusicPlaybackSkill>.Instance,
+            _locationService,
+            skillOptions,
+            musicConfig);
     }
 
     [Fact]
-    public async Task InitializeAsync_PrimesCache_AndFindsPlayer()
+    public async Task InitializeAsync_FindsPlayer_ViaLocationService()
     {
         await _skill.InitializeAsync();
 
@@ -98,22 +100,30 @@ public class MusicPlaybackSkillTests
         Assert.Contains("Shuffling", response);
     }
 
-    private void ConfigureDefaultStates()
+    private void ConfigureDefaultLocationService()
     {
-        var state = new HomeAssistantState
+        var kitchenPlayer = new HomeAssistantEntity
         {
             EntityId = "media_player.satellite1_kitchen",
-            State = "idle",
-            Attributes = new Dictionary<string, object>
-            {
-                ["friendly_name"] = "Satellite1 Kitchen",
-                ["config_entry_id"] = "Music Assistant",
-                ["music_assistant_player_id"] = "ma_player_1"
-            }
+            FriendlyName = "Satellite1 Kitchen"
         };
 
-        A.CallTo(() => _homeAssistantClient.GetAllEntityStatesAsync(A<CancellationToken>._))
-            .Returns(Task.FromResult<IEnumerable<HomeAssistantState>>(new[] { state }));
+        var searchResult = new HierarchicalSearchResult
+        {
+            FloorMatches = [],
+            AreaMatches = [],
+            EntityMatches = [],
+            ResolvedEntities = [kitchenPlayer],
+            ResolutionStrategy = ResolutionStrategy.Entity,
+            ResolutionReason = "Direct entity match"
+        };
+
+        A.CallTo(() => _locationService.SearchHierarchyAsync(
+                A<string>._,
+                A<HybridMatchOptions?>._,
+                A<IReadOnlyList<string>?>._,
+                A<CancellationToken>._))
+            .Returns(Task.FromResult(searchResult));
     }
 
     private static JsonElement CreateLibraryResponseJson()

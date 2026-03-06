@@ -42,7 +42,8 @@ public static class ConfigurationApi
     {
         "LightControlSkill",
         "ClimateControlSkill",
-        "FanControlSkill"
+        "FanControlSkill",
+        "MusicPlaybackSkill"
     };
 
     private static async Task<Ok<List<ConfigSectionSummary>>> ListSectionsAsync(
