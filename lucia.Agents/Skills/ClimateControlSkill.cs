@@ -105,7 +105,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill
     public string ConfigSectionName => ClimateControlSkillOptions.SectionName;
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> EntityDomains { get; } = ["climate"];
+    public IReadOnlyList<string> EntityDomains => _options.CurrentValue.EntityDomains;
 
     /// <inheritdoc/>
     /// <inheritdoc/>
@@ -227,7 +227,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill
 
             // Fallback: use hierarchical search for area-based resolution
             var hierarchyResult = await _locationService.SearchHierarchyAsync(
-                searchTerm, GetCurrentMatchOptions(), (IReadOnlyList<string>)["climate"], CancellationToken.None).ConfigureAwait(false);
+                searchTerm, GetCurrentMatchOptions(), EntityDomains, CancellationToken.None).ConfigureAwait(false);
             var locationEntities = hierarchyResult.ResolvedEntities;
 
             activity?.SetTag("match.resolution", hierarchyResult.ResolutionStrategy.ToString());
@@ -285,7 +285,7 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill
         try
         {
             var hierarchyResult = await _locationService.SearchHierarchyAsync(
-                areaName, GetCurrentMatchOptions(), (IReadOnlyList<string>)["climate"], CancellationToken.None).ConfigureAwait(false);
+                areaName, GetCurrentMatchOptions(), EntityDomains, CancellationToken.None).ConfigureAwait(false);
             var locationEntities = hierarchyResult.ResolvedEntities;
 
             activity?.SetTag("match.resolution", hierarchyResult.ResolutionStrategy.ToString());

@@ -13,6 +13,8 @@ namespace lucia.Agents.Skills;
 /// </summary>
 public sealed class ListSkill : IAgentSkill
 {
+    public IReadOnlyList<string> EntityDomains { get; } = ["todo"];
+
     private readonly IHomeAssistantClient _ha;
     private readonly ILogger<ListSkill> _logger;
 

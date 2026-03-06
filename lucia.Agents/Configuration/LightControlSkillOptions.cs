@@ -49,4 +49,10 @@ public sealed class LightControlSkillOptions
     /// How often the light entity cache is refreshed from Home Assistant, in minutes.
     /// </summary>
     public int CacheRefreshMinutes { get; set; } = 30;
+
+    /// <summary>
+    /// The Home Assistant entity domains this skill operates on.
+    /// Configurable so users can extend or restrict which domains the light agent searches.
+    /// </summary>
+    public List<string> EntityDomains { get; set; } = ["light", "switch"];
 }

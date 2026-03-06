@@ -44,4 +44,10 @@ public sealed class FanControlSkillOptions
     /// How often the fan entity cache is refreshed from Home Assistant, in minutes.
     /// </summary>
     public int CacheRefreshMinutes { get; set; } = 5;
+
+    /// <summary>
+    /// The Home Assistant entity domains this skill operates on.
+    /// Configurable so users can extend or restrict which domains the fan agent searches.
+    /// </summary>
+    public List<string> EntityDomains { get; set; } = ["fan"];
 }

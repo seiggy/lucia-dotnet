@@ -17,6 +17,8 @@ namespace lucia.Agents.Skills;
 /// </summary>
 public sealed class SceneControlSkill : IAgentSkill
 {
+    public IReadOnlyList<string> EntityDomains { get; } = ["scene"];
+
     private readonly IHomeAssistantClient _homeAssistantClient;
     private readonly IEntityLocationService _locationService;
     private readonly ILogger<SceneControlSkill> _logger;

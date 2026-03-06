@@ -108,6 +108,9 @@ test.describe.serial('Entity Locations — Agent Impersonation', () => {
     // Wait for the impersonation badge to appear (indicates data reloaded)
     await expect(page.locator('text=light-agent view')).toBeVisible({ timeout: 10_000 });
 
+    // Wait for table to settle after reload
+    await page.waitForTimeout(1000);
+
     // Count visible entity rows
     const entityRows = page.locator('tbody tr').filter({ has: page.locator('td') });
     const rowCount = await entityRows.count();

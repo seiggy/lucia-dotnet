@@ -1,7 +1,12 @@
-﻿namespace lucia.Agents.Skills
+﻿namespace lucia.Agents.Skills;
+
+internal interface IAgentSkill
 {
-    internal interface IAgentSkill
-    {
-        Task InitializeAsync(CancellationToken cancellationToken = default);
-    }
+    /// <summary>
+    /// The Home Assistant entity domains this skill operates on (e.g. "light", "switch").
+    /// Loaded from the skill's configuration section and hot-reloaded at runtime.
+    /// </summary>
+    IReadOnlyList<string> EntityDomains { get; }
+
+    Task InitializeAsync(CancellationToken cancellationToken = default);
 }

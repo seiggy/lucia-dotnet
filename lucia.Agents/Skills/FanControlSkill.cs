@@ -122,7 +122,7 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
     public string ConfigSectionName => FanControlSkillOptions.SectionName;
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> EntityDomains { get; } = ["fan"];
+    public IReadOnlyList<string> EntityDomains => _options.CurrentValue.EntityDomains;
 
     /// <inheritdoc/>
     /// <inheritdoc/>
@@ -192,7 +192,7 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
 
             // Fall back to hierarchical search using location service
             var hierarchyResult = await _locationService.SearchHierarchyAsync(
-                searchTerm, GetCurrentMatchOptions(), (IReadOnlyList<string>)["fan"], CancellationToken.None).ConfigureAwait(false);
+                searchTerm, GetCurrentMatchOptions(), EntityDomains, CancellationToken.None).ConfigureAwait(false);
             var locationEntities = hierarchyResult.ResolvedEntities;
 
             activity?.SetTag("match.resolution", hierarchyResult.ResolutionStrategy.ToString());
@@ -247,7 +247,7 @@ public sealed class FanControlSkill : IAgentSkill, IOptimizableSkill
                 return "No fans found. The fan cache may be empty.";
 
             var hierarchyResult = await _locationService.SearchHierarchyAsync(
-                areaName, GetCurrentMatchOptions(), (IReadOnlyList<string>)["fan"], CancellationToken.None).ConfigureAwait(false);
+                areaName, GetCurrentMatchOptions(), EntityDomains, CancellationToken.None).ConfigureAwait(false);
             var locationEntities = hierarchyResult.ResolvedEntities;
 
             activity?.SetTag("match.resolution", hierarchyResult.ResolutionStrategy.ToString());

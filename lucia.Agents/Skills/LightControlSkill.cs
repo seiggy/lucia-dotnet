@@ -74,7 +74,7 @@ public class LightControlSkill : IAgentSkill, IOptimizableSkill
     public string ConfigSectionName => LightControlSkillOptions.SectionName;
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> EntityDomains { get; } = ["light", "switch"];
+    public IReadOnlyList<string> EntityDomains => _options.CurrentValue.EntityDomains;
 
     /// <inheritdoc/>
     public HybridMatchOptions GetCurrentMatchOptions()
@@ -145,7 +145,7 @@ public class LightControlSkill : IAgentSkill, IOptimizableSkill
             foreach (var term in searchTerms)
             {
                 var hierarchyResult = await _locationService.SearchHierarchyAsync(
-                    term, matchOptions, (IReadOnlyList<string>)["light", "switch"]).ConfigureAwait(false);
+                    term, matchOptions, EntityDomains).ConfigureAwait(false);
 
                 activity?.SetTag($"resolution.{term}", hierarchyResult.ResolutionStrategy.ToString());
 
@@ -229,7 +229,7 @@ public class LightControlSkill : IAgentSkill, IOptimizableSkill
             foreach (var term in searchTerms)
             {
                 var hierarchyResult = await _locationService.SearchHierarchyAsync(
-                    term, matchOptions, (IReadOnlyList<string>)["light", "switch"]).ConfigureAwait(false);
+                    term, matchOptions, EntityDomains).ConfigureAwait(false);
 
                 activity?.SetTag($"resolution.{term}", hierarchyResult.ResolutionStrategy.ToString());
 
