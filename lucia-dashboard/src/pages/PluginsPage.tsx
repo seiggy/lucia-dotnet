@@ -159,7 +159,7 @@ export default function PluginsPage() {
         {(
           [
             { id: 'installed' as Tab, label: 'Installed', icon: Puzzle, count: installed.length },
-            { id: 'config' as Tab, label: 'Configuration', icon: SlidersHorizontal },
+            { id: 'config' as Tab, label: 'Configuration', icon: SlidersHorizontal, count: undefined },
             { id: 'store' as Tab, label: 'Store', icon: Store, count: available.length },
           ] as const
         ).map(({ id, label, icon: Icon, count }) => (
