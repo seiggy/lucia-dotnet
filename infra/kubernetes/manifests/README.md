@@ -31,7 +31,8 @@ curl http://localhost:8080/health
 | `04-deployment.yaml` | Application | Lucia app Deployment and Service |
 | `05-ingress.yaml` | Routing | Ingress configuration for external access |
 | `06-rbac.yaml` | Access Control | ServiceAccount, Role, RoleBinding, PDB |
-| `07-hpa.yaml` | Auto-scaling | Horizontal Pod Autoscaler configuration |
+| `07-mongodb.yaml` | Database | MongoDB StatefulSet and Service for persistence |
+| `08-a2a-deployment.yaml` | A2A Agents | Separate A2A agent Deployments (mesh mode) |
 | `kustomization.yaml` | Orchestration | Kustomize configuration file |
 
 ## Applying Manifests
@@ -50,15 +51,13 @@ kubectl apply -f 03-redis.yaml
 kubectl apply -f 04-deployment.yaml
 kubectl apply -f 05-ingress.yaml
 kubectl apply -f 06-rbac.yaml
-kubectl apply -f 07-hpa.yaml
+kubectl apply -f 07-mongodb.yaml
+kubectl apply -f 08-a2a-deployment.yaml
 ```
 
 ### Option 2: Apply with Custom Values
 
 ```bash
-# Override replica count
-kubectl apply -k . && kubectl patch deployment lucia -n lucia -p '{"spec":{"replicas":3}}'
-
 # Override image tag
 kubectl set image deployment/lucia lucia=seiggy/lucia-agenthost:v1.1.0 -n lucia
 ```
@@ -119,7 +118,7 @@ metadata:
   name: lucia
   namespace: lucia
 spec:
-  replicas: 2  # Change this to scale
+  replicas: 1  # Must be 1 — multi-instance not yet supported
   template:
     spec:
       containers:
@@ -134,15 +133,7 @@ spec:
             memory: 512Mi
 ```
 
-**Scaling:**
-
-```bash
-# Manual scaling
-kubectl scale deployment lucia -n lucia --replicas=5
-
-# Or patch the deployment
-kubectl patch deployment lucia -n lucia -p '{"spec":{"replicas":5}}'
-```
+**Note:** Lucia must run as a single replica. Multi-instance support (HA) is a planned future feature.
 
 ### Redis StatefulSet (03-redis.yaml)
 
@@ -191,30 +182,6 @@ kubectl port-forward -n lucia svc/lucia 8080:80
 # - cert-manager issuer configuration
 ```
 
-### Horizontal Pod Autoscaler (07-hpa.yaml)
-
-```yaml
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: lucia
-spec:
-  minReplicas: 2
-  maxReplicas: 5
-  targetCPUUtilizationPercentage: 70  # Scale up if CPU > 70%
-  targetMemoryUtilizationPercentage: 80  # Scale up if memory > 80%
-```
-
-**Modify autoscaling:**
-
-```bash
-# Edit HPA settings
-kubectl edit hpa lucia -n lucia
-
-# Or delete to disable autoscaling
-kubectl delete hpa lucia -n lucia
-```
-
 ## Common Operations
 
 ### View Resources
@@ -229,7 +196,6 @@ kubectl get pods -n lucia
 kubectl get svc -n lucia
 kubectl get configmap -n lucia
 kubectl get secret -n lucia
-kubectl get hpa -n lucia
 
 # Detailed view
 kubectl describe deployment lucia -n lucia
@@ -266,19 +232,6 @@ kubectl rollout restart deployment/lucia -n lucia
 
 # Watch rollout
 kubectl rollout status deployment/lucia -n lucia
-```
-
-### Scale Deployment
-
-```bash
-# Scale manually
-kubectl scale deployment lucia -n lucia --replicas=3
-
-# Check current replicas
-kubectl get deployment lucia -n lucia -o jsonpath='{.spec.replicas}'
-
-# Monitor scaling
-kubectl get pods -n lucia -w
 ```
 
 ### Update Image
@@ -458,8 +411,7 @@ No administrative permissions granted.
 ### 4. Network Policies
 
 ```bash
-# Enable network policies in 07-hpa.yaml or create separately
-# Restrict traffic to/from pods
+# Create network policies to restrict traffic to/from pods
 ```
 
 ## Cleanup

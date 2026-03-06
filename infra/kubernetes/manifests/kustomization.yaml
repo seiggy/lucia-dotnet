@@ -18,9 +18,8 @@ resources:
   - 04-deployment.yaml
   - 05-ingress.yaml
   - 06-rbac.yaml
-  - 07-hpa.yaml
-  - 08-mongodb.yaml
-  - 09-a2a-deployment.yaml
+  - 07-mongodb.yaml
+  - 08-a2a-deployment.yaml
 
 # Labels applied to all resources (not injected into selectors)
 labels:
@@ -37,7 +36,7 @@ commonAnnotations:
 # Replica override for all Deployments
 replicas:
   - name: lucia
-    count: 2
+    count: 1
 
 # Image overrides (update tag here for all deployments)
 images:

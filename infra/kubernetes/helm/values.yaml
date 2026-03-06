@@ -26,8 +26,9 @@ lucia:
     # Image tag (defaults to Chart.appVersion)
     tag: ""
 
-  # Number of replicas for the lucia deployment
-  replicaCount: 2
+  # Number of replicas for the lucia deployment.
+  # Must be 1 — multi-instance is not yet supported and causes state desync.
+  replicaCount: 1
 
   # Service configuration
   service:
@@ -71,19 +72,6 @@ lucia:
     requests:
       cpu: 250m
       memory: 256Mi
-
-  # Pod autoscaling configuration
-  autoscaling:
-    # Enable autoscaling
-    enabled: true
-    # Minimum replicas
-    minReplicas: 2
-    # Maximum replicas
-    maxReplicas: 5
-    # Target CPU utilization percentage
-    targetCPUUtilizationPercentage: 70
-    # Target memory utilization percentage
-    targetMemoryUtilizationPercentage: 80
 
   # Pod security context
   podSecurityContext:

@@ -63,9 +63,6 @@
   {{- if not .Values.lucia.ingress.enabled }}
   - Enable ingress in values.yaml for production deployments
   {{- end }}
-  {{- if .Values.lucia.autoscaling.enabled }}
-  - Monitor HPA status: kubectl get hpa --namespace {{ .Release.Namespace }}
-  {{- end }}
   - Review the README.md for advanced configuration options
   - Set up monitoring with Prometheus and Grafana (see documentation)
 
