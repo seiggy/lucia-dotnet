@@ -88,7 +88,10 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<SkillOptimizerService>();
 
         // Register presence detection service (auto-discovers sensors, maps to areas)
-        builder.Services.AddSingleton<IPresenceSensorRepository, MongoPresenceSensorRepository>();
+        if (!builder.Services.Any(s => s.ServiceType == typeof(IPresenceSensorRepository)))
+        {
+            builder.Services.AddSingleton<IPresenceSensorRepository, MongoPresenceSensorRepository>();
+        }
         builder.Services.AddSingleton<IPresenceDetectionService, PresenceDetectionService>();
 
         // Register A2A TaskManager (T037)
@@ -169,14 +172,20 @@ public static class ServiceCollectionExtensions
             .AddCheck<AgentInitializationHealthCheck>("agent-initialization", tags: ["ready"]);
 
         // Register MCP tool registry and dynamic agent system
-        builder.Services.AddSingleton<IAgentDefinitionRepository, MongoAgentDefinitionRepository>();
+        if (!builder.Services.Any(s => s.ServiceType == typeof(IAgentDefinitionRepository)))
+        {
+            builder.Services.AddSingleton<IAgentDefinitionRepository, MongoAgentDefinitionRepository>();
+        }
         builder.Services.AddSingleton<IMcpToolRegistry, McpToolRegistry>();
         builder.Services.AddSingleton<IDynamicAgentProvider, DynamicAgentProvider>();
         builder.Services.AddSingleton<DynamicAgentLoader>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<DynamicAgentLoader>());
 
         // Register model provider system
-        builder.Services.AddSingleton<IModelProviderRepository, MongoModelProviderRepository>();
+        if (!builder.Services.Any(s => s.ServiceType == typeof(IModelProviderRepository)))
+        {
+            builder.Services.AddSingleton<IModelProviderRepository, MongoModelProviderRepository>();
+        }
         builder.Services.AddSingleton<IModelProviderResolver, ModelProviderResolver>();
         builder.Services.AddSingleton<CopilotConnectService>();
         builder.Services.AddSingleton<CopilotClientLifecycleService>();

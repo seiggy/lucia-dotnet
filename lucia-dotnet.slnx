@@ -33,4 +33,7 @@
     <Project Path="lucia.Tests/lucia.Tests.csproj" />
     <Project Path="lucia.PlaywrightTests/lucia.PlaywrightTests.csproj" />
   </Folder>
+  <Folder Name="/Data/">
+    <Project Path="lucia.Data/lucia.Data.csproj" />
+  </Folder>
 </Solution>

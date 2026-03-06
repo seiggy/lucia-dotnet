@@ -12,6 +12,7 @@ using lucia.Agents.Orchestration;
 using lucia.Agents.PluginFramework;
 using lucia.Agents.Training;
 using lucia.Agents.Services;
+using lucia.Data.Extensions;
 using lucia.MusicAgent;
 using lucia.TimerAgent;
 using lucia.TimerAgent.ScheduledTasks;
@@ -29,17 +30,23 @@ builder.AddRedisClient(connectionName: "redis");
 // Register prompt cache services
 builder.Services.AddSingleton<IPromptCacheService, RedisPromptCacheService>();
 
-// MongoDB for trace capture
-builder.AddMongoDBClient(connectionName: "luciatraces");
+// Data provider selection — must be called before MongoDB-specific registrations
+builder.AddLuciaDataProvider();
 
-// MongoDB for configuration (shared across services)
-builder.AddMongoDBClient(connectionName: "luciaconfig");
+if (!DataProviderExtensions.IsEfCoreProvider())
+{
+    // MongoDB for trace capture
+    builder.AddMongoDBClient(connectionName: "luciatraces");
 
-// MongoDB for task archive
-builder.AddMongoDBClient(connectionName: "luciatasks");
+    // MongoDB for configuration (shared across services)
+    builder.AddMongoDBClient(connectionName: "luciaconfig");
 
-// Add MongoDB configuration as highest-priority source (overrides appsettings)
-builder.Configuration.AddMongoConfiguration("luciaconfig");
+    // MongoDB for task archive
+    builder.AddMongoDBClient(connectionName: "luciatasks");
+
+    // Add MongoDB configuration as highest-priority source (overrides appsettings)
+    builder.Configuration.AddMongoConfiguration("luciaconfig");
+}
 
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
@@ -81,8 +88,12 @@ else
     // services (ScheduledTaskService, BackgroundServices) which run in the agent process.
     builder.Services.AddSingleton<ScheduledTaskStore>();
     builder.Services.AddSingleton<CronScheduleService>();
-    builder.Services.AddSingleton<IScheduledTaskRepository, MongoScheduledTaskRepository>();
-    builder.Services.AddSingleton<IAlarmClockRepository, MongoAlarmClockRepository>();
+
+    if (!DataProviderExtensions.IsEfCoreProvider())
+    {
+        builder.Services.AddSingleton<IScheduledTaskRepository, MongoScheduledTaskRepository>();
+        builder.Services.AddSingleton<IAlarmClockRepository, MongoAlarmClockRepository>();
+    }
 }
 
 // Plugin directory configuration
@@ -97,7 +108,10 @@ builder.Services.AddSingleton<IPluginRepositorySource, LocalPluginRepositorySour
 builder.Services.AddSingleton<IPluginRepositorySource, GitPluginRepositorySource>();
 
 // Plugin management (repository CRUD, install, enable/disable)
-builder.Services.AddSingleton<IPluginManagementRepository, MongoPluginManagementRepository>();
+if (!DataProviderExtensions.IsEfCoreProvider())
+{
+    builder.Services.AddSingleton<IPluginManagementRepository, MongoPluginManagementRepository>();
+}
 builder.Services.AddSingleton(sp =>
 {
     return new PluginManagementService(
@@ -124,7 +138,10 @@ foreach (var plugin in luciaPlugins)
 // Trace capture services
 builder.Services.Configure<TraceCaptureOptions>(
     builder.Configuration.GetSection(TraceCaptureOptions.SectionName));
-builder.Services.AddSingleton<ITraceRepository, MongoTraceRepository>();
+if (!DataProviderExtensions.IsEfCoreProvider())
+{
+    builder.Services.AddSingleton<ITraceRepository, MongoTraceRepository>();
+}
 builder.Services.AddSingleton<LiveActivityChannel>();
 builder.Services.AddSingleton<SpanCollectorProcessor>();
 builder.Services.AddSingleton<ISpanCollector>(sp => sp.GetRequiredService<SpanCollectorProcessor>());
@@ -145,7 +162,10 @@ builder.Services.AddOpenTelemetry()
 // Task archive services
 builder.Services.Configure<TaskArchiveOptions>(
     builder.Configuration.GetSection(TaskArchiveOptions.SectionName));
-builder.Services.AddSingleton<ITaskArchiveStore, MongoTaskArchiveStore>();
+if (!DataProviderExtensions.IsEfCoreProvider())
+{
+    builder.Services.AddSingleton<ITaskArchiveStore, MongoTaskArchiveStore>();
+}
 builder.Services.AddHostedService<TaskArchivalService>();
 
 // Configuration seeder — copies appsettings to MongoDB on first run
@@ -153,7 +173,10 @@ builder.Services.AddHostedService<ConfigSeeder>();
 
 // API key authentication
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection(AuthOptions.SectionName));
-builder.Services.AddSingleton<IApiKeyService, MongoApiKeyService>();
+if (!DataProviderExtensions.IsEfCoreProvider())
+{
+    builder.Services.AddSingleton<IApiKeyService, MongoApiKeyService>();
+}
 builder.Services.AddSingleton<ISessionService, HmacSessionService>();
 builder.Services.AddSingleton<ConfigStoreWriter>();
 

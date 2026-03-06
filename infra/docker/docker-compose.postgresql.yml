@@ -1,0 +1,196 @@
+# Lucia Agent Host - Docker Compose (PostgreSQL)
+#
+# Deployment using PostgreSQL for data persistence.
+# PostgreSQL provides enterprise-grade relational storage with JSONB support.
+#
+# Services:
+#   - lucia: Agent Host API
+#   - lucia-redis: Task persistence and session state
+#   - lucia-postgres: PostgreSQL database
+#
+# Usage:
+#   docker-compose -f docker-compose.postgresql.yml up -d
+
+services:
+
+  # ========================================================================
+  # Redis Service - Task Persistence and Session State
+  # ========================================================================
+  lucia-redis:
+    image: redis:8.2-alpine
+    container_name: lucia-redis
+    networks:
+      - lucia-network
+    ports:
+      - "127.0.0.1:6379:6379"
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --loglevel notice
+    volumes:
+      - lucia-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "PING"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "lucia-redis"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+
+  # ========================================================================
+  # PostgreSQL Service - Data Persistence
+  # ========================================================================
+  lucia-postgres:
+    image: postgres:17-alpine
+    container_name: lucia-postgres
+    networks:
+      - lucia-network
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      - POSTGRES_USER=lucia
+      - POSTGRES_PASSWORD=lucia_dev_password
+      - POSTGRES_DB=lucia
+    volumes:
+      - lucia-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lucia"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "lucia-postgres"
+    security_opt:
+      - no-new-privileges:true
+
+
+  # ========================================================================
+  # Lucia Agent Host Service - PostgreSQL Data Provider
+  # ========================================================================
+  lucia:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
+      args:
+        BUILD_CONFIGURATION: Release
+        BUILD_TARGET_FRAMEWORK: net10.0
+      cache_from:
+        - lucia:latest
+
+    image: lucia:latest
+    container_name: lucia
+
+    depends_on:
+      lucia-redis:
+        condition: service_healthy
+      lucia-postgres:
+        condition: service_healthy
+
+    networks:
+      - lucia-network
+
+    ports:
+      - "7233:8080"
+
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      # Database provider selection
+      - LUCIA_DB_PROVIDER=postgresql
+      # PostgreSQL connection string
+      - DataProvider__PostgreSqlConnectionString=Host=lucia-postgres;Port=5432;Database=lucia;Username=lucia;Password=lucia_dev_password
+      # Redis connection string
+      - ConnectionStrings__redis=lucia-redis:6379
+      # .NET Runtime
+      - DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
+      - DOTNET_RUNNING_IN_CONTAINER=true
+      - COMPlus_EnableDiagnostics=0
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '1'
+          memory: 512M
+
+    restart: unless-stopped
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+        tag: "lucia"
+
+    security_opt:
+      - no-new-privileges:true
+
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/bin
+
+    cap_drop:
+      - NET_RAW
+      - SYS_PTRACE
+      - SYS_ADMIN
+
+
+networks:
+  lucia-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
+
+
+volumes:
+  lucia-redis-data:
+    driver: local
+  lucia-postgres-data:
+    driver: local

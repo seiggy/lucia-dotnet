@@ -1,0 +1,156 @@
+# Lucia Agent Host - Docker Compose (SQLite)
+#
+# Lightweight deployment using SQLite for data persistence.
+# SQLite stores data in a local file — no database server required.
+#
+# Services:
+#   - lucia: Agent Host API
+#   - lucia-redis: Task persistence and session state
+#
+# Usage:
+#   docker-compose -f docker-compose.sqlite.yml up -d
+
+services:
+
+  # ========================================================================
+  # Redis Service - Task Persistence and Session State
+  # ========================================================================
+  lucia-redis:
+    image: redis:8.2-alpine
+    container_name: lucia-redis
+    networks:
+      - lucia-network
+    ports:
+      - "127.0.0.1:6379:6379"
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --loglevel notice
+    volumes:
+      - lucia-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "PING"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "lucia-redis"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+
+  # ========================================================================
+  # Lucia Agent Host Service - SQLite Data Provider
+  # ========================================================================
+  lucia:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
+      args:
+        BUILD_CONFIGURATION: Release
+        BUILD_TARGET_FRAMEWORK: net10.0
+      cache_from:
+        - lucia:latest
+
+    image: lucia:latest
+    container_name: lucia
+
+    depends_on:
+      lucia-redis:
+        condition: service_healthy
+
+    networks:
+      - lucia-network
+
+    ports:
+      - "7233:8080"
+
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      # Database provider selection
+      - LUCIA_DB_PROVIDER=sqlite
+      # SQLite stores data in a single file on the mounted volume
+      - DataProvider__SqliteConnectionString=Data Source=/app/data/lucia.db
+      # Redis connection string
+      - ConnectionStrings__redis=lucia-redis:6379
+      # .NET Runtime
+      - DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
+      - DOTNET_RUNNING_IN_CONTAINER=true
+      - COMPlus_EnableDiagnostics=0
+
+    volumes:
+      # SQLite database file persistence
+      - lucia-sqlite-data:/app/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '1'
+          memory: 512M
+
+    restart: unless-stopped
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+        tag: "lucia"
+
+    security_opt:
+      - no-new-privileges:true
+
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/bin
+
+    cap_drop:
+      - NET_RAW
+      - SYS_PTRACE
+      - SYS_ADMIN
+
+
+networks:
+  lucia-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
+
+
+volumes:
+  lucia-redis-data:
+    driver: local
+  lucia-sqlite-data:
+    driver: local

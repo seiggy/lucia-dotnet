@@ -34,6 +34,7 @@
     <PackageVersion Include="Aspire.Hosting.JavaScript" Version="$(AspireVersion)" />
     <PackageVersion Include="Aspire.Hosting.MongoDB" Version="$(AspireVersion)" />
     <PackageVersion Include="Aspire.Hosting.OpenAI" Version="$(AspireVersion)" />
+    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="$(AspireVersion)" />
     <PackageVersion Include="Aspire.Hosting.Redis" Version="$(AspireVersion)" />
     <PackageVersion Include="Aspire.Hosting.Testing" Version="$(AspireVersion)" />
   </ItemGroup>
@@ -42,6 +43,7 @@
     <PackageVersion Include="Aspire.Azure.AI.OpenAI" Version="$(AspirePreviewVersion)" />
     <PackageVersion Include="Aspire.MongoDB.Driver" Version="$(AspireVersion)" />
     <PackageVersion Include="Aspire.MongoDB.Driver.v3" Version="9.5.2" />
+    <PackageVersion Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" Version="$(AspireVersion)" />
     <PackageVersion Include="Aspire.StackExchange.Redis" Version="$(AspireVersion)" />
   </ItemGroup>
   <!-- ── Microsoft Agent Framework ────────────────────────────── -->
@@ -115,6 +117,13 @@
     <PackageVersion Include="OllamaSharp" Version="5.4.18" />
     <PackageVersion Include="System.Linq.Async" Version="7.0.0" />
     <PackageVersion Include="System.Text.Json" Version="$(MicrosoftExtensionsVersion)" />
+  </ItemGroup>
+  <!-- ── Entity Framework Core ──────────────────────────────────── -->
+  <ItemGroup Label="Entity Framework Core">
+    <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="10.0.3" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.3" />
+    <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.3" />
   </ItemGroup>
   <!-- ── API Documentation ────────────────────────────────────── -->
   <ItemGroup Label="API Documentation">
