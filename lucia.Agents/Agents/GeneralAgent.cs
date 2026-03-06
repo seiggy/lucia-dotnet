@@ -58,7 +58,7 @@ public sealed class GeneralAgent : ILuciaAgent
             {
                 Id = "id_web_search",
                 Name = "Web Search",
-                Description = "Search the web for current events, news, and facts via SearXNG",
+                Description = "Search the web for current events, news, and facts",
             });
         }
 

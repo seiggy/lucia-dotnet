@@ -488,3 +488,18 @@ export interface InstalledPlugin {
   pluginPath: string
   enabled: boolean
 }
+
+export interface PluginConfigSchema {
+  pluginId: string
+  section: string
+  description: string
+  properties: PluginConfigPropertySchema[]
+}
+
+export interface PluginConfigPropertySchema {
+  name: string
+  type: string
+  description: string
+  defaultValue: string
+  isSensitive: boolean
+}

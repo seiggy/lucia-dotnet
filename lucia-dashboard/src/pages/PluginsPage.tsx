@@ -8,6 +8,7 @@ import {
   Power,
   PowerOff,
   Trash2,
+  SlidersHorizontal,
 } from 'lucide-react'
 import type { InstalledPlugin, AvailablePlugin } from '../types'
 import {
@@ -20,8 +21,9 @@ import {
 } from '../api'
 import RestartBanner from '../components/RestartBanner'
 import PluginRepoDialog from '../components/PluginRepoDialog'
+import PluginConfigTab from '../components/PluginConfigTab'
 
-type Tab = 'installed' | 'store'
+type Tab = 'installed' | 'store' | 'config'
 
 interface Toast {
   id: number
@@ -157,6 +159,7 @@ export default function PluginsPage() {
         {(
           [
             { id: 'installed' as Tab, label: 'Installed', icon: Puzzle, count: installed.length },
+            { id: 'config' as Tab, label: 'Configuration', icon: SlidersHorizontal },
             { id: 'store' as Tab, label: 'Store', icon: Store, count: available.length },
           ] as const
         ).map(({ id, label, icon: Icon, count }) => (
@@ -171,7 +174,9 @@ export default function PluginsPage() {
           >
             <Icon className="h-4 w-4" />
             {label}
-            <span className="rounded-full bg-stone/40 px-2 py-0.5 text-xs">{count}</span>
+            {count !== undefined && (
+              <span className="rounded-full bg-stone/40 px-2 py-0.5 text-xs">{count}</span>
+            )}
           </button>
         ))}
       </div>
@@ -302,6 +307,9 @@ export default function PluginsPage() {
           )}
         </div>
       )}
+
+      {/* Configuration Tab */}
+      {tab === 'config' && <PluginConfigTab />}
 
       <PluginRepoDialog open={repoDialogOpen} onClose={() => setRepoDialogOpen(false)} />
 
