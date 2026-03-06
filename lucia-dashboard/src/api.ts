@@ -1301,6 +1301,12 @@ export async function uninstallPlugin(id: string): Promise<void> {
   if (!res.ok) throw new Error(`Failed to uninstall plugin`);
 }
 
+export async function fetchPluginConfigSchemas(): Promise<import('./types').PluginConfigSchema[]> {
+  const res = await fetch(`${BASE}/plugins/config/schemas`);
+  if (!res.ok) throw new Error(`Failed to fetch plugin config schemas`);
+  return res.json();
+}
+
 // ─── System ───
 
 export async function fetchRestartRequired(): Promise<{ restartRequired: boolean }> {

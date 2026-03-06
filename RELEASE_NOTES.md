@@ -18,6 +18,7 @@
 - **Home Assistant Multi-turn Continuity** — Follow-up conversation flow restored and HA commit validation tightened.
 - **OpenRouter + Discovery** — OpenRouter added as a first-class provider with model discovery support.
 - **Plugin/Setup/Dashboard Stabilization** — Headless setup and HA setup-step UX improvements, plugin installation reliability fixes, and dashboard/tooling cleanup.
+- **Brave Search API Plugin** — New privacy-respecting web search plugin using the Brave Search API, with full plugin config GUI for managing API keys from the dashboard.
 - **CI Hardening** — HACS validation workflow corrected, deployment docs lint cleanup, and release pipeline reliability improvements.
 
 ## ✨ What's New
@@ -78,6 +79,21 @@
 - Fixed plugin tooling/integration issues that blocked reliable plugin installation.
 - Resolved setup/plugin/dashboard review and lint issues.
 
+### 🌐 Brave Search API Plugin
+
+- **New web search provider** — `plugins/brave-search/plugin.cs` implements `IWebSearchSkill` using the [Brave Search API](https://brave.com/search/api/) as an alternative to SearXNG.
+- **API key authentication** — Configurable via `BraveSearch:ApiKey`, `BRAVE_SEARCH_API_KEY` env var, or the new plugin config GUI.
+- **Full telemetry** — OpenTelemetry `ActivitySource` and `Meter` instrumentation for request counts, failure counts, and search duration.
+- **Provider-agnostic agent** — General Agent skill description no longer references SearXNG; works with whichever search plugin is active.
+
+### ⚙️ Plugin Configuration GUI
+
+- **Schema-driven config** — Plugins can now declare configurable properties via `ConfigSection`, `ConfigDescription`, and `ConfigProperties` on the `ILuciaPlugin` interface (default interface members — non-breaking).
+- **`PluginConfigProperty` record** — Defines name, type, description, default value, and sensitivity for each config field.
+- **`GET /api/plugins/config/schemas`** — New endpoint aggregates config schemas from all loaded plugins.
+- **Dashboard Configuration tab** — New tab on the Plugins page renders dynamic forms from plugin schemas, with sensitive-field masking, save/discard, and toast notifications.
+- **SearXNG retrofitted** — SearXNG plugin now declares its `BaseUrl` in the config schema so it can also be configured from the UI.
+
 ### 🐛 Matcher Debug API
 
 - **`/api/matcher/debug`** — Interactive endpoint for testing `HybridEntityMatcher` queries against live entity data with per-signal score breakdowns.
@@ -118,6 +134,8 @@
 - **Embedding diagnostics** — `EmbeddingMatchingTests` measure similarity behavior across synonym/opposite/cross-domain prompt variants.
 - **Plugin/install regression coverage** — Added and updated tests around plugin installability and related dashboard/setup flows.
 - **Name fallback tests** — `EntityMatchNameFormatterTests` validates alias sanitization and ID-based fallback behavior used by embedding inputs.
+- **Brave Search contract tests** — `BraveSearchWebSearchSkillTests` validates HTTP request format, auth headers, JSON deserialization, empty results, and error handling.
+- **Plugin config schema tests** — `PluginConfigSchemaTests` validates default interface members, schema declaration, property equality, and filtering logic.
 
 ## 📋 New Files
 
@@ -147,6 +165,13 @@
 | `lucia-dashboard/src/pages/MatcherDebugPage.tsx` | Matcher debug dashboard page |
 | `lucia-dashboard/src/pages/EntityLocationPage.tsx` | Live embedding progress UI + embedding actions |
 | `lucia.PlaywrightTests/Agents/PromptCacheRoutingTests.cs` | Cache embedding e2e test |
+| `plugins/brave-search/plugin.cs` | Brave Search API web search plugin |
+| `lucia.Agents/Abstractions/PluginConfigProperty.cs` | Plugin config property record type |
+| `lucia.AgentHost/PluginFramework/Models/PluginConfigSchemaDto.cs` | Plugin config schema API DTO |
+| `lucia.AgentHost/PluginFramework/Models/PluginConfigPropertyDto.cs` | Plugin config property API DTO |
+| `lucia-dashboard/src/components/PluginConfigTab.tsx` | Plugin configuration tab component |
+| `lucia.Tests/BraveSearchWebSearchSkillTests.cs` | Brave Search HTTP contract tests |
+| `lucia.Tests/PluginConfigSchemaTests.cs` | Plugin config schema infrastructure tests |
 
 ## 🗑️ Removed / Deprecated
 

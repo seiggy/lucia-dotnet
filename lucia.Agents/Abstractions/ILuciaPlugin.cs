@@ -17,6 +17,24 @@ public interface ILuciaPlugin
     string PluginId { get; }
 
     /// <summary>
+    /// Optional configuration section name used by this plugin (e.g. "BraveSearch").
+    /// When set, the dashboard can render a configuration form for this plugin.
+    /// </summary>
+    string? ConfigSection => null;
+
+    /// <summary>
+    /// Human-readable description of this plugin's configuration section.
+    /// </summary>
+    string? ConfigDescription => null;
+
+    /// <summary>
+    /// Configurable properties exposed by this plugin.
+    /// The dashboard generates a dynamic form from these definitions.
+    /// Values are stored in the standard MongoDB config store under <see cref="ConfigSection"/>.
+    /// </summary>
+    IReadOnlyList<PluginConfigProperty> ConfigProperties => [];
+
+    /// <summary>
     /// Registers services into the DI container <b>before</b> the host is built.
     /// Use this to add interfaces (e.g. <c>IWebSearchSkill</c>) that core agents
     /// resolve via optional injection.
