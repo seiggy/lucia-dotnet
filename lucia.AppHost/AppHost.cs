@@ -85,6 +85,10 @@ builder.AddViteApp("lucia-dashboard", "../lucia-dashboard")
     .WithReference(registryApi)
     .WaitFor(registryApi)
     .WithExternalHttpEndpoints()
-    .WithNpm();
+    .WithNpm()
+    .WithEndpoint("http", endpoint =>
+    {
+        endpoint.Port = 7233;
+    });
 
 builder.Build().Run();
