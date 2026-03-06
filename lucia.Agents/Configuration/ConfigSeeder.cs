@@ -35,7 +35,8 @@ public sealed class ConfigSeeder : IHostedService
         LightControlSkillOptions.SectionName,
         ClimateControlSkillOptions.SectionName,
         FanControlSkillOptions.SectionName,
-        "MusicPlaybackSkill"
+        "MusicPlaybackSkill",
+        SceneControlSkillOptions.SectionName
     ];
 
     private static readonly string[] SensitiveKeywords =

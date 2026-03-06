@@ -3,24 +3,27 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Text;
 using lucia.Agents.Abstractions;
+using lucia.Agents.Configuration;
 using lucia.Agents.Models;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
 using lucia.Agents.Services;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace lucia.Agents.Skills;
 
 /// <summary>
 /// Skill for activating Home Assistant scenes (scene.turn_on).
 /// </summary>
-public sealed class SceneControlSkill : IAgentSkill
+public sealed class SceneControlSkill : IAgentSkill, IOptimizableSkill
 {
-    public IReadOnlyList<string> EntityDomains { get; } = ["scene"];
+    public IReadOnlyList<string> EntityDomains => _options.CurrentValue.EntityDomains;
 
     private readonly IHomeAssistantClient _homeAssistantClient;
     private readonly IEntityLocationService _locationService;
+    private readonly IOptionsMonitor<SceneControlSkillOptions> _options;
     private readonly ILogger<SceneControlSkill> _logger;
 
     private static readonly ActivitySource ActivitySource = new("Lucia.Skills.SceneControl", "1.0.0");
@@ -33,10 +36,12 @@ public sealed class SceneControlSkill : IAgentSkill
     public SceneControlSkill(
         IHomeAssistantClient homeAssistantClient,
         IEntityLocationService locationService,
+        IOptionsMonitor<SceneControlSkillOptions> options,
         ILogger<SceneControlSkill> logger)
     {
         _homeAssistantClient = homeAssistantClient;
         _locationService = locationService;
+        _options = options;
         _logger = logger;
     }
 
@@ -53,6 +58,37 @@ public sealed class SceneControlSkill : IAgentSkill
     {
         _logger.LogInformation("SceneControlSkill initialized.");
         return Task.CompletedTask;
+    }
+
+    // ── IOptimizableSkill ─────────────────────────────────────────
+
+    /// <inheritdoc/>
+    public string SkillDisplayName => "Scene Control";
+
+    /// <inheritdoc/>
+    public string SkillId => "scene-control";
+
+    /// <inheritdoc/>
+    public string AgentId { get; set; } = string.Empty;
+
+    /// <inheritdoc/>
+    public IReadOnlyList<string> SearchToolNames { get; } = ["FindScenesByArea"];
+
+    /// <inheritdoc/>
+    public string ConfigSectionName => SceneControlSkillOptions.SectionName;
+
+    /// <inheritdoc/>
+    public HybridMatchOptions GetCurrentMatchOptions()
+    {
+        var opts = _options.CurrentValue;
+        return new HybridMatchOptions
+        {
+            Threshold = opts.HybridSimilarityThreshold,
+            EmbeddingWeight = opts.EmbeddingWeight,
+            ScoreDropoffRatio = opts.ScoreDropoffRatio,
+            DisagreementPenalty = opts.DisagreementPenalty,
+            EmbeddingResolutionMargin = opts.EmbeddingResolutionMargin
+        };
     }
 
     [Description("List all available Home Assistant scenes. Returns scene names and entity IDs.")]
@@ -101,7 +137,7 @@ public sealed class SceneControlSkill : IAgentSkill
         try
         {
             var hierarchyResult = await _locationService.SearchHierarchyAsync(
-                areaName, new HybridMatchOptions(), (IReadOnlyList<string>)["scene"], cancellationToken).ConfigureAwait(false);
+                areaName, GetCurrentMatchOptions(), EntityDomains, cancellationToken).ConfigureAwait(false);
 
             activity?.SetTag("match.resolution", hierarchyResult.ResolutionStrategy.ToString());
 

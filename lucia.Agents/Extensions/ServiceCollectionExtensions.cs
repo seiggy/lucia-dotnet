@@ -141,6 +141,9 @@ public static class ServiceCollectionExtensions
         builder.Services.Configure<FanControlSkillOptions>(
             builder.Configuration.GetSection(FanControlSkillOptions.SectionName));
 
+        builder.Services.Configure<SceneControlSkillOptions>(
+            builder.Configuration.GetSection(SceneControlSkillOptions.SectionName));
+
         // Register agent skills and agents
         builder.Services.AddSingleton<LightControlSkill>();
         builder.Services.AddSingleton<IOptimizableSkill>(sp => sp.GetRequiredService<LightControlSkill>());
@@ -155,6 +158,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<ClimateAgent>();
         builder.Services.AddSingleton<ILuciaAgent>(sp => sp.GetRequiredService<ClimateAgent>());
         builder.Services.AddSingleton<SceneControlSkill>();
+        builder.Services.AddSingleton<IOptimizableSkill>(sp => sp.GetRequiredService<SceneControlSkill>());
         builder.Services.AddSingleton<SceneAgent>();
         builder.Services.AddSingleton<ILuciaAgent>(sp => sp.GetRequiredService<SceneAgent>());
 
