@@ -120,11 +120,17 @@ public sealed class SkillOptimizerService
                 var countOk = count <= tc.MaxResults;
                 var allFound = missedIds.Count == 0 && expectedCount > 0;
 
-                // Recall: +3.0 if all found, negative proportional to misses
+                // Recall: +3.0 if all found and within limits, negative when misses or over max
                 double recallScore;
-                if (allFound)
+                if (allFound && countOk)
                 {
                     recallScore = FoundWeight;
+                }
+                else if (allFound)
+                {
+                    // All expected found but too many results — over-matching penalty
+                    var overflowRatio = (double)(count - tc.MaxResults) / tc.MaxResults;
+                    recallScore = -overflowRatio * FoundWeight;
                 }
                 else if (expectedCount > 0)
                 {
