@@ -115,6 +115,9 @@ export default function EntityLocationPage() {
   const [selectedEntityIds, setSelectedEntityIds] = useState<Set<string>>(new Set())
   const [bulkAgentDropdownOpen, setBulkAgentDropdownOpen] = useState(false)
 
+  // Agent impersonation — filters entities and search to a specific agent's view
+  const [impersonateAgent, setImpersonateAgent] = useState('')
+
   // Per-row agent dropdown
   const [agentDropdownEntityId, setAgentDropdownEntityId] = useState<string | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -279,7 +282,7 @@ export default function EntityLocationPage() {
     setError(null)
     setSelectedEntityIds(new Set())
     try {
-      const data = await searchEntityLocation(searchTerm.trim(), searchDomain || undefined)
+      const data = await searchEntityLocation(searchTerm.trim(), searchDomain || undefined, impersonateAgent || undefined)
       setSearchResults(data.entities ?? data)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Search failed')
@@ -406,8 +409,15 @@ export default function EntityLocationPage() {
 
   // ── Derived state ──────────────────────────────────────────────
 
-  const entityPageCount = Math.max(1, Math.ceil(entities.length / entityPageSize))
-  const pagedEntities = entities.slice(entityPage * entityPageSize, (entityPage + 1) * entityPageSize)
+  // When impersonating an agent, filter entities to only those visible to that agent
+  const visibleEntities = impersonateAgent
+    ? entities.filter(e =>
+        e.includeForAgent === null ||
+        e.includeForAgent.includes(impersonateAgent))
+    : entities
+
+  const entityPageCount = Math.max(1, Math.ceil(visibleEntities.length / entityPageSize))
+  const pagedEntities = visibleEntities.slice(entityPage * entityPageSize, (entityPage + 1) * entityPageSize)
   const hasFilters = Object.keys(entityAgentMap).length > 0
 
   const tabs: { id: Tab; label: string; icon: typeof Layers }[] = [
@@ -937,6 +947,21 @@ export default function EntityLocationPage() {
               onKeyDown={(e) => { if (e.key === 'Enter') loadTab('entities') }}
               className="rounded-lg border border-stone bg-basalt px-3 py-2 text-sm text-fog placeholder:text-dust/50 focus:border-amber focus:outline-none"
             />
+            <select
+              value={impersonateAgent}
+              onChange={(e) => { setImpersonateAgent(e.target.value); setEntityPage(0) }}
+              className="rounded-lg border border-stone bg-basalt px-3 py-2 text-sm text-fog focus:border-amber focus:outline-none"
+            >
+              <option value="">All Agents</option>
+              {availableAgents.map(a => (
+                <option key={a} value={a}>{a}</option>
+              ))}
+            </select>
+            {impersonateAgent && (
+              <span className="rounded-md bg-sky-400/15 px-2 py-1 text-xs font-medium text-sky-400">
+                👁 {impersonateAgent} view — {visibleEntities.length} entities
+              </span>
+            )}
             <button
               onClick={() => loadTab('entities')}
               className="rounded-lg border border-stone bg-basalt px-3 py-2 text-sm font-medium text-fog hover:bg-stone/40"
@@ -955,7 +980,7 @@ export default function EntityLocationPage() {
               {entityPageCount > 1 && (
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-dust">
-                    Showing {entityPage * entityPageSize + 1}–{Math.min((entityPage + 1) * entityPageSize, entities.length)} of {entities.length}
+                    Showing {entityPage * entityPageSize + 1}–{Math.min((entityPage + 1) * entityPageSize, visibleEntities.length)} of {visibleEntities.length}
                   </span>
                   <div className="flex items-center gap-1">
                     <button
@@ -1020,6 +1045,16 @@ export default function EntityLocationPage() {
               onKeyDown={(e) => { if (e.key === 'Enter') handleSearch() }}
               className="w-40 rounded-lg border border-stone bg-basalt px-3 py-2 text-sm text-fog placeholder:text-dust/50 focus:border-amber focus:outline-none"
             />
+            <select
+              value={impersonateAgent}
+              onChange={(e) => setImpersonateAgent(e.target.value)}
+              className="rounded-lg border border-stone bg-basalt px-3 py-2 text-sm text-fog focus:border-amber focus:outline-none"
+            >
+              <option value="">All Agents</option>
+              {availableAgents.map(a => (
+                <option key={a} value={a}>{a}</option>
+              ))}
+            </select>
             <button
               onClick={handleSearch}
               disabled={searching || !searchTerm.trim()}

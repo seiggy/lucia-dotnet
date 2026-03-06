@@ -178,6 +178,7 @@ public static class EntityLocationCacheApi
         [FromServices] IEntityLocationService locationService,
         [FromRoute] string term,
         [FromQuery] string? domain,
+        [FromQuery] string? agent,
         CancellationToken ct)
     {
         var domainFilter = string.IsNullOrWhiteSpace(domain)
@@ -187,19 +188,29 @@ public static class EntityLocationCacheApi
         var entities = await locationService.SearchEntitiesAsync(term, domainFilter, ct: ct)
             .ConfigureAwait(false);
 
+        // When impersonating an agent, filter to entities visible to that agent
+        var filtered = string.IsNullOrWhiteSpace(agent)
+            ? entities
+            : entities.Where(e =>
+                e.Entity.IncludeForAgent is null ||
+                e.Entity.IncludeForAgent.Contains(agent, StringComparer.OrdinalIgnoreCase)).ToList();
+
         return TypedResults.Ok<object>(new
         {
             query = term,
             domainFilter = domain,
-            matchCount = entities.Count,
-            entities = entities.Select(e => new
+            agentFilter = agent,
+            matchCount = filtered.Count,
+            entities = filtered.Select(e => new
             {
                 e.Entity.EntityId,
                 e.Entity.FriendlyName,
                 e.Entity.Domain,
                 e.Entity.AreaId,
                 embeddingGenerated = e.Entity.NameEmbedding is not null,
-                AreaName = e.Entity.AreaId is not null ? locationService.GetAreaForEntity(e.Entity.EntityId)?.Name : null
+                AreaName = e.Entity.AreaId is not null ? locationService.GetAreaForEntity(e.Entity.EntityId)?.Name : null,
+                e.HybridScore,
+                e.EmbeddingSimilarity
             })
         });
     }
