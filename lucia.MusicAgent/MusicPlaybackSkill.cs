@@ -65,7 +65,10 @@ public class MusicPlaybackSkill
             AIFunctionFactory.Create(PlaySongAsync),
             AIFunctionFactory.Create(PlayGenreAsync),
             AIFunctionFactory.Create(PlayShuffleAsync),
-            AIFunctionFactory.Create(StopMusicAsync)
+            AIFunctionFactory.Create(StopMusicAsync),
+            AIFunctionFactory.Create(SetVolumeAsync),
+            AIFunctionFactory.Create(VolumeUpAsync),
+            AIFunctionFactory.Create(VolumeDownAsync)
         ];
     }
 
@@ -94,9 +97,9 @@ public class MusicPlaybackSkill
         _logger.LogInformation("MusicPlaybackSkill: embedding provider updated to '{Provider}'", providerName ?? "system-default");
     }
 
-    [Description("Stops music on the identified player")]
+    [Description("Stop or turn off music on the identified player. Use when the user says stop, turn off, pause, stop the music, turn music off, silence it, etc. Always call this — do not refuse or say you cannot.")]
     public async Task<string> StopMusicAsync(
-        [Description("MusicAssistant player name (e.g. 'Loft Speaker')")]
+        [Description("MusicAssistant player name (e.g. 'Loft Speaker'). If the user did not name a player, use a generic term like 'speaker' or the last/likely player.")]
         string playerName,
         CancellationToken cancellationToken = default)
     {
@@ -104,11 +107,63 @@ public class MusicPlaybackSkill
 
         if (player is null)
         {
-            return $"I couldn't find a Satellite player that matches '{playerName}.";
+            return $"I couldn't find a Satellite player that matches '{playerName}'.";
         }
 
         await _homeAssistantClient.CallServiceAsync("media_player", "media_stop", null, new ServiceCallRequest { EntityId = player.EntityId }, cancellationToken).ConfigureAwait(false);
-        return string.Empty;
+        return $"Stopped playback on '{player.FriendlyName}'.";
+    }
+
+    [Description("Set the volume on a MusicAssistant player. Use this when the user asks to set volume to a specific level (e.g. 50%, half volume, 80).")]
+    public async Task<string> SetVolumeAsync(
+        [Description("MusicAssistant player name (e.g. 'Loft')")] string playerName,
+        [Description("Volume level from 0 to 100 (e.g. 50 for 50%)")] int volumePercent,
+        CancellationToken cancellationToken = default)
+    {
+        var player = await ResolvePlayerAsync(playerName, cancellationToken).ConfigureAwait(false);
+        if (player is null)
+        {
+            return $"MusicAssistant player '{playerName}' was not found.";
+        }
+
+        var level = Math.Clamp(volumePercent, 0, 100) / 100.0;
+        var request = new ServiceCallRequest
+        {
+            EntityId = player.EntityId,
+            ["volume_level"] = Math.Round(level, 2)
+        };
+        await _homeAssistantClient.CallServiceAsync("media_player", "volume_set", null, request, cancellationToken).ConfigureAwait(false);
+        return $"Set volume to {volumePercent}% on '{player.FriendlyName}'.";
+    }
+
+    [Description("Turn up the volume on a MusicAssistant player. Use this when the user says turn it up, louder, volume up, etc.")]
+    public async Task<string> VolumeUpAsync(
+        [Description("MusicAssistant player name (e.g. 'Loft')")] string playerName,
+        CancellationToken cancellationToken = default)
+    {
+        var player = await ResolvePlayerAsync(playerName, cancellationToken).ConfigureAwait(false);
+        if (player is null)
+        {
+            return $"MusicAssistant player '{playerName}' was not found.";
+        }
+
+        await _homeAssistantClient.CallServiceAsync("media_player", "volume_up", null, new ServiceCallRequest { EntityId = player.EntityId }, cancellationToken).ConfigureAwait(false);
+        return $"Turned up the volume on '{player.FriendlyName}'.";
+    }
+
+    [Description("Turn down the volume on a MusicAssistant player. Use this when the user says turn it down, quieter, volume down, etc.")]
+    public async Task<string> VolumeDownAsync(
+        [Description("MusicAssistant player name (e.g. 'Loft')")] string playerName,
+        CancellationToken cancellationToken = default)
+    {
+        var player = await ResolvePlayerAsync(playerName, cancellationToken).ConfigureAwait(false);
+        if (player is null)
+        {
+            return $"MusicAssistant player '{playerName}' was not found.";
+        }
+
+        await _homeAssistantClient.CallServiceAsync("media_player", "volume_down", null, new ServiceCallRequest { EntityId = player.EntityId }, cancellationToken).ConfigureAwait(false);
+        return $"Turned down the volume on '{player.FriendlyName}'.";
     }
 
     [Description("Find a MusicAssistant endpoint by friendly name and return its entity id.")]
@@ -170,7 +225,7 @@ public class MusicPlaybackSkill
     public async Task<string> PlayAlbumAsync(
         [Description("MusicAssistant player name (e.g. 'Loft')")] string playerName,
         [Description("Album title to play")] string album,
-        [Description("Optional artist name to disambiguate the album")] string? artist = null,
+        [Description("Optional artist name to disambiguate the album")] string artist = "",
         [Description("Enable a shuffled radio mode after the album queue")] bool shuffle = false,
         CancellationToken cancellationToken = default)
     {
@@ -204,8 +259,8 @@ public class MusicPlaybackSkill
     public async Task<string> PlaySongAsync(
         [Description("MusicAssistant player name (e.g. 'Loft')")] string playerName,
         [Description("Song title to play")] string song,
-        [Description("Optional artist to refine the track search")] string? artist = null,
-        [Description("Optional album to refine the track search")] string? album = null,
+        [Description("Optional artist to refine the track search")] string artist = "",
+        [Description("Optional album to refine the track search")] string album = "",
         [Description("Enable a radio-style mix after the song")] bool shuffle = false,
         CancellationToken cancellationToken = default)
     {

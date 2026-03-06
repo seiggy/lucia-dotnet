@@ -389,10 +389,10 @@ When deploying with Docker or automation, you can skip the setup wizard by provi
 | Variable | Purpose |
 |----------|---------|
 | `DASHBOARD_API_KEY` | Dashboard login key (e.g. `lk_...`). Used to seed the Dashboard API key. |
-| `HomeAssistant__BaseUrl` | Home Assistant instance URL (e.g. `http://homeassistant.local:8123`). |
-| `HomeAssistant__AccessToken` | Long-lived access token from HA (Profile → Long-Lived Access Tokens). |
+| `HOMEASSISTANT__BASEURL` | Home Assistant instance URL (e.g. `http://homeassistant.local:8123`). |
+| `HOMEASSISTANT__ACCESSTOKEN` | Long-lived access token from HA (Profile → Long-Lived Access Tokens). |
 | `LUCIA_HA_API_KEY` | Optional: API key for the Home Assistant integration (same as shown in the wizard). |
-| `MusicAssistant__IntegrationId` | Optional: HA Music Assistant config entry ID for the music agent. |
+| `MUSICASSISTANT__INTEGRATIONID` | Optional: HA Music Assistant config entry ID for the music agent. |
 
 The Docker image includes the official plugins (MetaMCP, SearXNG) under `/app/plugins`. To register **tools** from env without using the dashboard:
 

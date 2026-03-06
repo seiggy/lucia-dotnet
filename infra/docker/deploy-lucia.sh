@@ -12,7 +12,7 @@
 #   --rebuild  Build images with --no-cache before starting.
 #
 # If .env is missing, copies .env.lucia.example to .env and prompts you to set
-# HomeAssistant__AccessToken (and optionally other vars) before re-running.
+# HOMEASSISTANT__ACCESSTOKEN (and optionally other vars) before re-running.
 
 set -e
 
@@ -48,7 +48,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
   if [[ -f .env.lucia.example ]]; then
     cp .env.lucia.example "$ENV_FILE"
     echo "Created $ENV_FILE from .env.lucia.example."
-    echo "Edit $ENV_FILE and set at least: HomeAssistant__AccessToken"
+    echo "Edit $ENV_FILE and set at least: HOMEASSISTANT__ACCESSTOKEN (or HomeAssistant__AccessToken)"
     echo "Then run: $0 --env-file $ENV_FILE"
     exit 1
   else
@@ -99,5 +99,5 @@ echo "---"
 echo "Next steps:"
 echo "  1. Open http://localhost:7233 and complete setup if needed (or verify config)."
 echo "  2. On Home Assistant: Add Integration → Lucia → Agent Repository URL = http://${HA_REPO_IP}:7233"
-echo "  3. Create a long-lived access token in HA (Profile → Long-Lived Access Tokens) and set HomeAssistant__AccessToken in $ENV_FILE if using headless config."
+echo "  3. Create a long-lived access token in HA (Profile → Long-Lived Access Tokens) and set HOMEASSISTANT__ACCESSTOKEN in $ENV_FILE if using headless config."
 echo ""

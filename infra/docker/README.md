@@ -64,7 +64,7 @@ If you already run Open Web UI (Ollama, SearXNG, ComfyUI, Whisper, Piper, MetaMC
 
 ```bash
 cp .env.lucia.example .env
-# Edit .env: set HomeAssistant__AccessToken (and optionally BaseUrl)
+# Edit .env: set HOMEASSISTANT__ACCESSTOKEN (and optionally HOMEASSISTANT__BASEURL)
 ./deploy-lucia.sh
 ```
 
@@ -128,8 +128,8 @@ For headless or automated deployments, add config directly to the `lucia` servic
 ```yaml
 environment:
   - ConnectionStrings__chat-model=Endpoint=https://api.openai.com/v1;AccessKey=sk-proj-YOUR_KEY;Model=gpt-4o;Provider=openai
-  - HomeAssistant__BaseUrl=http://192.168.1.100:8123
-  - HomeAssistant__AccessToken=eyJ...
+  - HOMEASSISTANT__BASEURL=http://192.168.1.100:8123
+  - HOMEASSISTANT__ACCESSTOKEN=eyJ...
 ```
 
 ### LLM Providers

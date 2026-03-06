@@ -148,13 +148,13 @@ environment:
   # LLM Provider
   - ConnectionStrings__chat-model=Endpoint=https://api.openai.com/v1;AccessKey=sk-proj-YOUR_KEY;Model=gpt-4o;Provider=openai
   # Home Assistant
-  - HomeAssistant__BaseUrl=http://192.168.1.100:8123
-  - HomeAssistant__AccessToken=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+  - HOMEASSISTANT__BASEURL=http://192.168.1.100:8123
+  - HOMEASSISTANT__ACCESSTOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
 See `.env.example` in the repository root for all available variables.
 
-**Headless (skip wizard):** When both a dashboard API key and a Home Assistant connection (BaseUrl + AccessToken) are present—either seeded from env or already in the config store—Lucia marks setup complete and the wizard is not shown. Set `DASHBOARD_API_KEY`, `HomeAssistant__BaseUrl`, and `HomeAssistant__AccessToken` in the `lucia` service (or via `env_file: .env`) for fully headless startup.
+**Headless (skip wizard):** When both a dashboard API key and a Home Assistant connection (BaseUrl + AccessToken) are present—either seeded from env or already in the config store—Lucia marks setup complete and the wizard is not shown. Set `DASHBOARD_API_KEY`, `HOMEASSISTANT__BASEURL`, and `HOMEASSISTANT__ACCESSTOKEN` in the `lucia` service (or via `env_file: .env`) for fully headless startup.
 
 **Plugins and tools:** The production image includes the official plugins (MetaMCP, SearXNG) under `/app/plugins` (`PluginDirectory=/app/plugins`). Set `SEARXNG_URL` and/or `METAMCP_URL` (and `METAMCP_API_KEY` if required) to register web search and MCP tools at startup. The dashboard **Plugins** page lists these as installed when present on disk. See `infra/docker/.env.lucia.example` for a full env template.
 
@@ -250,8 +250,8 @@ HA_TOKEN="eyJ..."
 
 docker compose up -d \
   -e "ConnectionStrings__chat-model=$CHAT_MODEL" \
-  -e "HomeAssistant__BaseUrl=$HA_URL" \
-  -e "HomeAssistant__AccessToken=$HA_TOKEN"
+  -e "HOMEASSISTANT__BASEURL=$HA_URL" \
+  -e "HOMEASSISTANT__ACCESSTOKEN=$HA_TOKEN"
 ```
 
 ## Operational Tasks
