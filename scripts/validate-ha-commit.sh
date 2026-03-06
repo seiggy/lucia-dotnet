@@ -50,9 +50,14 @@ fi
 if grep -Eq '^lucia-dashboard/' <<< "$STAGED_FILES"; then
   echo "[pre-commit] Running TypeScript type-check for lucia-dashboard..."
   if [ -d "$REPO_ROOT/lucia-dashboard/node_modules" ]; then
-    (cd "$REPO_ROOT/lucia-dashboard" && npx tsc -p tsconfig.app.json --noEmit)
+    (cd "$REPO_ROOT/lucia-dashboard" && npx --no-install tsc -p tsconfig.app.json --noEmit)
     echo "[tsc] OK"
+  elif [ "${LUCIA_DASHBOARD_SKIP_TSC:-}" != "" ]; then
+    echo "[pre-commit] Skipping tsc — LUCIA_DASHBOARD_SKIP_TSC is set."
   else
-    echo "[pre-commit] Skipping tsc — node_modules not installed. Run: cd lucia-dashboard && npm install"
+    echo "[pre-commit] ERROR: node_modules not installed for lucia-dashboard."
+    echo "[pre-commit] Run: cd lucia-dashboard && npm install"
+    echo "[pre-commit] To bypass: set LUCIA_DASHBOARD_SKIP_TSC=1"
+    exit 1
   fi
 fi
