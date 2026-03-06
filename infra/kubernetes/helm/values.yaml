@@ -297,20 +297,7 @@ a2aAgents:
     repository: docker.io/seiggy/lucia-a2ahost
     pullPolicy: IfNotPresent
     tag: ""
-  musicAgent:
-    enabled: true
-    replicaCount: 1
-    # Override image for agent-specific container built with --target music-agent
-    image:
-      repository: docker.io/seiggy/lucia-music-agent
-      tag: ""
-    resources:
-      limits:
-        cpu: 500m
-        memory: 256Mi
-      requests:
-        cpu: 100m
-        memory: 128Mi
+  # Note: Music Agent runs in-process with AgentHost (not as a separate A2A pod)
   timerAgent:
     enabled: true
     replicaCount: 1

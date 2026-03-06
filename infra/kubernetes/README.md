@@ -303,14 +303,14 @@ kubectl logs -n lucia lucia-redis-0 -f
 
 ### Scaling Deployment
 
-> **⚠️ Single-Instance Constraint:** The AgentHost (lucia) must run as a **single replica**. The in-memory `ScheduledTaskStore` holds active alarms and timers — multiple replicas would split task state and cause missed alarms or duplicate firings. True HA support is a planned future feature. In mesh mode, individual A2A agents (Music Agent, Timer Agent) can scale independently if needed.
+> **⚠️ Single-Instance Constraint:** The AgentHost (lucia) must run as a **single replica**. The in-memory `ScheduledTaskStore` holds active alarms and timers — multiple replicas would split task state and cause missed alarms or duplicate firings. True HA support is a planned future feature. In mesh mode, the Timer Agent can scale independently if needed.
 
 ```bash
 # AgentHost must stay at 1 replica
 helm upgrade lucia ./helm -n lucia --set lucia.replicaCount=1
 
-# In mesh mode, A2A agents can be scaled independently
-kubectl scale deployment music-agent -n lucia --replicas=2
+# In mesh mode, Timer Agent can be scaled independently
+kubectl scale deployment timer-agent -n lucia --replicas=2
 ```
 
 ### Rolling Updates

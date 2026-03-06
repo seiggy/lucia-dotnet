@@ -43,9 +43,6 @@ images:
   - name: docker.io/seiggy/lucia-agenthost
     newName: docker.io/seiggy/lucia-agenthost
     newTag: latest
-  - name: docker.io/seiggy/lucia-music-agent
-    newName: docker.io/seiggy/lucia-music-agent
-    newTag: latest
   - name: docker.io/seiggy/lucia-timer-agent
     newName: docker.io/seiggy/lucia-timer-agent
     newTag: latest

@@ -24,7 +24,7 @@ For local development, start the solution through `lucia.AppHost` so supporting 
 Current AppHost composition includes:
 
 - `lucia-agenthost` (agent registry/API)
-- `music-agent` (`lucia.A2AHost` with music plugin)
+- `timer-agent` (`lucia.A2AHost` with timer plugin)
 - `timer-agent` (`lucia.A2AHost` with timer plugin)
 - `lucia-dashboard` (Vite app)
 - Redis (persistent container + RedisInsight)
@@ -60,7 +60,7 @@ docker compose up -d
 
 ### ☸️ [Kubernetes Deployment](./kubernetes/helm/README.md) — **For Production & High Availability**
 
-Deploy Lucia on Kubernetes clusters using Helm charts or raw manifests. Runs in **mesh mode** by default, with Music Agent and Timer Agent as separate pods.
+Deploy Lucia on Kubernetes clusters using Helm charts or raw manifests. Runs in **mesh mode** by default, with Timer Agent as a separate pod. Music Agent runs in-process with AgentHost.
 
 - **Best for**: Production deployments, high availability, auto-scaling
 - **Time to deploy**: ~20 minutes
@@ -175,7 +175,7 @@ Essential variables for manual/headless configuration:
 ```
 lucia.AppHost (dev orchestration — mesh mode)
     ├── lucia-agenthost (registry + APIs)
-    ├── music-agent (A2AHost plugin)
+    ├── timer-agent (A2AHost plugin)
     ├── timer-agent (A2AHost plugin)
     ├── lucia-dashboard (UI)
     ├── redis (state persistence)
