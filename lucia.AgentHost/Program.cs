@@ -207,6 +207,11 @@ builder.Services.AddHttpClient("OllamaModels", client =>
 {
     client.Timeout = TimeSpan.FromSeconds(15);
 });
+builder.Services.AddHttpClient("ProviderModelCatalog", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(20);
+});
+builder.Services.AddSingleton<ProviderModelCatalogService>();
 
 // Skill optimizer job manager
 builder.Services.AddSingleton<SkillOptimizerJobManager>();

@@ -210,6 +210,14 @@ public sealed class GitPluginRepositorySource : IPluginRepositorySource
                     targetPath);
                 return;
             }
+            catch (UnauthorizedAccessException ex) when (File.Exists(Path.Combine(targetPath, "plugin.cs")))
+            {
+                _logger.LogInformation(
+                    ex,
+                    "Plugin directory '{Path}' could not be removed (e.g. read-only in container); existing plugin.cs present — registering as installed without re-extract.",
+                    targetPath);
+                return;
+            }
         }
         Directory.CreateDirectory(targetPath);
 
@@ -265,6 +273,14 @@ public sealed class GitPluginRepositorySource : IPluginRepositorySource
                 Directory.Delete(targetPath, recursive: true);
             }
             catch (IOException ex) when (File.Exists(Path.Combine(targetPath, "plugin.cs")))
+            {
+                _logger.LogInformation(
+                    ex,
+                    "Plugin directory '{Path}' could not be removed (e.g. read-only in container); existing plugin.cs present — registering as installed without re-extract.",
+                    targetPath);
+                return;
+            }
+            catch (UnauthorizedAccessException ex) when (File.Exists(Path.Combine(targetPath, "plugin.cs")))
             {
                 _logger.LogInformation(
                     ex,

@@ -95,10 +95,8 @@ curl -X POST http://localhost:7233/api/chat \
 
 Lucia supports two deployment topologies controlled by the `Deployment__Mode` environment variable:
 
-| Mode | Value | Description |
-|------|-------|-------------|
-| **Standalone** (default) | `standalone` | All agents run embedded in the main AgentHost process. Simplest setup — single container plus Redis and MongoDB. |
-| **Mesh** | `mesh` | Agents run as separate A2A containers that register with the AgentHost over the network. Used for Kubernetes, horizontal scaling, or multi-node distribution. |
+- **Standalone** (default) — `standalone`: All agents run embedded in the main AgentHost process. Simplest setup — single container plus Redis and MongoDB.
+- **Mesh** — `mesh`: Agents run as separate A2A containers that register with the AgentHost over the network. Used for Kubernetes, horizontal scaling, or multi-node distribution.
 
 **When to use each mode:**
 
@@ -132,7 +130,7 @@ Then open <http://localhost:7233> and complete the wizard (generate new Dashboar
 The `docker-compose.yml` only contains infrastructure-level environment variables that are deterministic within the compose network:
 
 | Variable | Purpose | Default |
-|----------|---------|---------|
+| -------- | ------- | ------- |
 | `ASPNETCORE_ENVIRONMENT` | Runtime environment | `Production` |
 | `ASPNETCORE_URLS` | Listen address | `http://+:8080` |
 | `ConnectionStrings__luciatraces` | MongoDB traces DB | `mongodb://lucia-mongo:27017/luciatraces` |

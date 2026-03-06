@@ -38,6 +38,7 @@ from .const import (
     DEFAULT_PROMPT,
     DOMAIN,
 )
+from .a2a_payload import build_a2a_user_message
 from .conversation_tracker import ConversationTracker
 
 _LOGGER = logging.getLogger(__name__)
@@ -152,40 +153,22 @@ class LuciaConversationEntity(conversation.ConversationEntity):
         if user_input.conversation_id:
             tracked = self._tracker.get(user_input.conversation_id)
 
+        is_new_conversation = tracked is None
+
         if tracked:
             context_id = tracked.context_id
-            task_id = tracked.task_id
         else:
             context_id = str(uuid.uuid4())
-            task_id = None
 
         ha_conversation_id = user_input.conversation_id or context_id
 
-        # Build the message content: include previous assistant response when continuing
-        # a conversation so the agent can resolve "them", "both", etc. from context
-        message_text = f"{system_prompt}\n\n"
-        if tracked and getattr(tracked, "last_assistant_text", None):
-            message_text += f"Previous assistant response: {tracked.last_assistant_text}\n\n"
-        message_text += f"User: {user_input.text}"
-
-        # Create the A2A message structure
-        message = {
-            "kind": "message",
-            "role": "user",
-            "parts": [
-                {
-                    "kind": "text",
-                    "text": message_text,
-                    "metadata": None
-                }
-            ],
-            "messageId": None,
-            "contextId": context_id,
-            "taskId": task_id,
-            "metadata": None,
-            "referenceTaskIds": [],
-            "extensions": []
-        }
+        # For follow-up turns, context/session history should provide continuity.
+        message = build_a2a_user_message(
+            user_text=user_input.text,
+            system_prompt=system_prompt,
+            context_id=context_id,
+            is_new_conversation=is_new_conversation,
+        )
 
         # Create JSON-RPC 2.0 request
         jsonrpc_request = {
@@ -252,7 +235,7 @@ class LuciaConversationEntity(conversation.ConversationEntity):
             response_text = ""
             continue_conversation = False
             response_context_id = context_id
-            response_task_id = task_id
+            response_task_id = None
 
             if "result" in result and isinstance(result["result"], dict):
                 a2a_result = result["result"]
@@ -262,7 +245,7 @@ class LuciaConversationEntity(conversation.ConversationEntity):
                     # This is an AgentTask response
                     status = a2a_result.get("status", {})
                     state = status.get("state", "completed")
-                    response_task_id = a2a_result.get("id") or task_id
+                    response_task_id = a2a_result.get("id")
                     response_context_id = a2a_result.get("contextId") or context_id
 
                     # Extract text from status.message.parts
@@ -301,8 +284,7 @@ class LuciaConversationEntity(conversation.ConversationEntity):
             self._tracker.store(
                 ha_conversation_id,
                 context_id=response_context_id,
-                task_id=response_task_id if continue_conversation else None,
-                last_assistant_text=response_text or None,
+                task_id=None,
             )
 
             _LOGGER.debug("Received response from agent: %s", response_text[:100])

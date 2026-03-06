@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import {
   Puzzle,
   Store,
@@ -8,6 +8,7 @@ import {
   Power,
   PowerOff,
   Trash2,
+  SlidersHorizontal,
 } from 'lucide-react'
 import type { InstalledPlugin, AvailablePlugin } from '../types'
 import {
@@ -20,8 +21,9 @@ import {
 } from '../api'
 import RestartBanner from '../components/RestartBanner'
 import PluginRepoDialog from '../components/PluginRepoDialog'
+import PluginConfigTab from '../components/PluginConfigTab'
 
-type Tab = 'installed' | 'store'
+type Tab = 'installed' | 'store' | 'config'
 
 interface Toast {
   id: number
@@ -39,21 +41,26 @@ export default function PluginsPage() {
   const [loadingStore, setLoadingStore] = useState(false)
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set())
   const [toasts, setToasts] = useState<Toast[]>([])
+  const toastIdRef = useRef(0)
 
-  const addToast = (message: string, type: 'success' | 'error') => {
-    const id = Date.now()
+  const addToast = useCallback((message: string, type: 'success' | 'error') => {
+    const id = ++toastIdRef.current
     setToasts(prev => [...prev, { id, message, type }])
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000)
-  }
+  }, [])
 
   const markBusy = (id: string, busy: boolean) =>
     setBusyIds(prev => {
       const next = new Set(prev)
-      busy ? next.add(id) : next.delete(id)
+      if (busy) {
+        next.add(id)
+      } else {
+        next.delete(id)
+      }
       return next
     })
 
-  const loadInstalled = async () => {
+  const loadInstalled = useCallback(async () => {
     setLoadingInstalled(true)
     try {
       setInstalled(await fetchInstalledPlugins())
@@ -62,9 +69,9 @@ export default function PluginsPage() {
     } finally {
       setLoadingInstalled(false)
     }
-  }
+  }, [addToast])
 
-  const loadStore = async () => {
+  const loadStore = useCallback(async () => {
     setLoadingStore(true)
     try {
       setAvailable(await fetchAvailablePlugins(search || undefined))
@@ -73,16 +80,16 @@ export default function PluginsPage() {
     } finally {
       setLoadingStore(false)
     }
-  }
+  }, [addToast, search])
 
   useEffect(() => {
     loadInstalled()
     loadStore()
-  }, [])
+  }, [loadInstalled, loadStore])
 
   useEffect(() => {
     if (tab === 'store') loadStore()
-  }, [tab, search])
+  }, [tab, loadStore])
 
   const handleToggle = async (p: InstalledPlugin) => {
     markBusy(p.id, true)
@@ -152,6 +159,7 @@ export default function PluginsPage() {
         {(
           [
             { id: 'installed' as Tab, label: 'Installed', icon: Puzzle, count: installed.length },
+            { id: 'config' as Tab, label: 'Configuration', icon: SlidersHorizontal, count: undefined },
             { id: 'store' as Tab, label: 'Store', icon: Store, count: available.length },
           ] as const
         ).map(({ id, label, icon: Icon, count }) => (
@@ -166,7 +174,9 @@ export default function PluginsPage() {
           >
             <Icon className="h-4 w-4" />
             {label}
-            <span className="rounded-full bg-stone/40 px-2 py-0.5 text-xs">{count}</span>
+            {count !== undefined && (
+              <span className="rounded-full bg-stone/40 px-2 py-0.5 text-xs">{count}</span>
+            )}
           </button>
         ))}
       </div>
@@ -297,6 +307,9 @@ export default function PluginsPage() {
           )}
         </div>
       )}
+
+      {/* Configuration Tab */}
+      {tab === 'config' && <PluginConfigTab />}
 
       <PluginRepoDialog open={repoDialogOpen} onClose={() => setRepoDialogOpen(false)} />
 

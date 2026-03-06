@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../auth/AuthContext'
+import CustomSelect from '../components/CustomSelect'
 import {
   fetchSetupStatus,
   generateDashboardKey,
@@ -14,6 +15,8 @@ import {
   testModelProvider,
   testEmbeddingProvider,
   deleteModelProvider,
+  fetchProviderModels,
+  setProviderModel,
 } from '../api'
 import type { SetupStatus, GenerateKeyResponse, TestHaConnectionResponse, AgentStatusResponse } from '../api'
 import type { ProviderType, ModelPurpose, ModelAuthConfig, ModelProvider } from '../types'
@@ -212,7 +215,7 @@ function LuciaHaStep({
       .then((res) => setConnectionOkAtStartup(res))
       .catch(() => setConnectionOkAtStartup({ connected: false, error: 'Connection test failed' }))
       .finally(() => setConnectionTestBusy(false))
-  }, [status?.hasHaConnection])
+  }, [status?.hasHaConnection, connectionOkAtStartup])
 
   async function handleGenerateKey() {
     setError('')
@@ -466,11 +469,16 @@ function LuciaHaStep({
 
 const PROVIDER_TYPES: { value: ProviderType; label: string; placeholder: string }[] = [
   { value: 'OpenAI', label: 'OpenAI', placeholder: 'gpt-4o' },
+  { value: 'OpenRouter', label: 'OpenRouter', placeholder: 'openai/gpt-4.1-mini' },
   { value: 'Anthropic', label: 'Anthropic', placeholder: 'claude-sonnet-4-20250514' },
   { value: 'GoogleGemini', label: 'Google Gemini', placeholder: 'gemini-2.0-flash' },
   { value: 'Ollama', label: 'Ollama (local)', placeholder: 'llama3.2:3b' },
   { value: 'AzureOpenAI', label: 'Azure OpenAI', placeholder: 'my-gpt4o-deployment' },
   { value: 'AzureAIInference', label: 'Azure AI Inference', placeholder: 'my-model' },
+]
+const PURPOSE_OPTIONS: { value: ModelPurpose; label: string }[] = [
+  { value: 'Chat', label: 'Chat (required)' },
+  { value: 'Embedding', label: 'Embedding (optional)' },
 ]
 
 function AiProviderStep({ onComplete }: { onComplete: () => void }) {
@@ -478,13 +486,18 @@ function AiProviderStep({ onComplete }: { onComplete: () => void }) {
   const [showForm, setShowForm] = useState(false)
   const [providerType, setProviderType] = useState<ProviderType>('OpenAI')
   const [purpose, setPurpose] = useState<ModelPurpose>('Chat')
-  const [modelName, setModelName] = useState('')
   const [endpoint, setEndpoint] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [useDefaultCreds, setUseDefaultCreds] = useState(false)
   const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({})
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [modelProviderId, setModelProviderId] = useState<string | null>(null)
+  const [modelOptions, setModelOptions] = useState<string[]>([])
+  const [modelDraft, setModelDraft] = useState('')
+  const [modelLoading, setModelLoading] = useState(false)
+  const [modelSaving, setModelSaving] = useState(false)
+  const [modelError, setModelError] = useState('')
 
   const refreshProviders = useCallback(async () => {
     try {
@@ -499,39 +512,40 @@ function AiProviderStep({ onComplete }: { onComplete: () => void }) {
 
   const isAzure = providerType === 'AzureOpenAI' || providerType === 'AzureAIInference'
   const needsApiKey = providerType !== 'Ollama' && !useDefaultCreds
-  const modelPlaceholder = PROVIDER_TYPES.find(p => p.value === providerType)?.placeholder ?? ''
-  const hasChatProvider = providers.some(p => p.purpose === 'Chat')
+  const hasChatProvider = providers.some(p => p.purpose === 'Chat' && Boolean(p.modelName?.trim()))
 
   async function handleCreate() {
     setError('')
     setBusy(true)
     try {
-      const id = `${providerType.toLowerCase()}-${modelName.replace(/[^a-z0-9]/gi, '-').toLowerCase()}`
+      const suffix = Math.random().toString(36).slice(2, 8)
+      const id = `${providerType.toLowerCase()}-${suffix}`
+      const providerLabel = PROVIDER_TYPES.find(p => p.value === providerType)?.label ?? providerType
       const auth: ModelAuthConfig = useDefaultCreds
         ? { authType: 'default-credential', useDefaultCredentials: true }
         : needsApiKey
           ? { authType: 'api-key', apiKey, useDefaultCredentials: false }
           : { authType: 'none', useDefaultCredentials: false }
 
-      await createModelProvider({
+      const created = await createModelProvider({
         id,
-        name: `${PROVIDER_TYPES.find(p => p.value === providerType)?.label} — ${modelName}`,
+        name: `${providerLabel} Connection ${suffix}`,
         providerType,
         purpose,
         endpoint: endpoint || undefined,
-        modelName,
+        modelName: '',
         auth,
         enabled: true,
       })
 
       // Reset form and refresh list
-      setModelName('')
       setEndpoint('')
       setApiKey('')
       setUseDefaultCreds(false)
       setPurpose('Chat')
       setShowForm(false)
       await refreshProviders()
+      await handleOpenModelPicker(created.id, '')
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to create provider')
     } finally {
@@ -561,12 +575,53 @@ function AiProviderStep({ onComplete }: { onComplete: () => void }) {
     }
   }
 
+  async function handleOpenModelPicker(id: string, currentModel: string) {
+    setModelProviderId(id)
+    setModelDraft(currentModel ?? '')
+    setModelOptions([])
+    setModelError('')
+    setModelLoading(true)
+    try {
+      const result = await fetchProviderModels(id)
+      setModelOptions(result.models ?? [])
+      if (result.error) {
+        setModelError(result.error)
+      } else if ((result.models ?? []).length > 0 && !currentModel) {
+        setModelDraft(result.models[0])
+      }
+    } catch (err: unknown) {
+      setModelError(err instanceof Error ? err.message : 'Failed to load models')
+    } finally {
+      setModelLoading(false)
+    }
+  }
+
+  async function handleSaveModel() {
+    if (!modelProviderId || !modelDraft.trim()) {
+      return
+    }
+
+    setModelSaving(true)
+    setModelError('')
+    try {
+      await setProviderModel(modelProviderId, modelDraft.trim())
+      setModelProviderId(null)
+      setModelDraft('')
+      setModelOptions([])
+      await refreshProviders()
+    } catch (err: unknown) {
+      setModelError(err instanceof Error ? err.message : 'Failed to save model')
+    } finally {
+      setModelSaving(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <h2 className="font-display text-xl font-semibold text-light">Configure AI Provider</h2>
       <p className="text-sm text-fog">
-        Lucia needs at least one Chat model provider to power its agents.
-        Add your preferred AI service below.
+        Create a provider connection first (endpoint + auth), then select a model from that provider.
+        Lucia needs at least one Chat provider with a selected model.
       </p>
 
       {/* Existing providers */}
@@ -579,7 +634,9 @@ function AiProviderStep({ onComplete }: { onComplete: () => void }) {
                 <Brain className="h-4 w-4 shrink-0 text-amber" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-light">{p.name}</p>
-                  <p className="text-xs text-dust">{p.providerType} · {p.purpose} · {p.modelName}</p>
+                  <p className="text-xs text-dust">
+                    {p.providerType} · {p.purpose} · {p.modelName ? p.modelName : 'No model selected'}
+                  </p>
                 </div>
                 {result && (
                   <span className={`text-xs ${result.success ? 'text-sage' : 'text-rose'}`}>
@@ -589,6 +646,13 @@ function AiProviderStep({ onComplete }: { onComplete: () => void }) {
                 <button onClick={() => handleTest(p.id)} className="rounded-lg bg-basalt px-2.5 py-1.5 text-xs text-fog hover:bg-stone" title="Test">
                   <FlaskConical className="h-3.5 w-3.5" />
                 </button>
+                <button
+                  onClick={() => handleOpenModelPicker(p.id, p.modelName)}
+                  className="rounded-lg bg-basalt px-2.5 py-1.5 text-xs text-fog hover:bg-stone"
+                  title="Select model"
+                >
+                  <Cpu className="h-3.5 w-3.5" />
+                </button>
                 {!p.isBuiltIn && (
                   <button onClick={() => handleDelete(p.id)} className="rounded-lg bg-basalt px-2.5 py-1.5 text-xs text-rose/70 hover:bg-ember/20" title="Delete">
                     <Trash2 className="h-3.5 w-3.5" />
@@ -597,6 +661,48 @@ function AiProviderStep({ onComplete }: { onComplete: () => void }) {
               </div>
             )
           })}
+        </section>
+      )}
+
+      {modelProviderId && (
+        <section className="rounded-xl border border-stone bg-basalt/50 p-5 space-y-3">
+          <h3 className="flex items-center gap-2 font-display text-sm font-semibold text-amber">
+            <Cpu className="h-4 w-4" /> Select Model
+          </h3>
+          {modelError && (
+            <div className="rounded bg-red-900/30 px-3 py-2 text-xs text-rose">{modelError}</div>
+          )}
+          {modelOptions.length > 0 && (
+            <CustomSelect
+              options={modelOptions.map(model => ({ value: model, label: model }))}
+              value={modelDraft}
+              onChange={value => setModelDraft(value)}
+              placeholder="Choose model..."
+              className="w-full"
+            />
+          )}
+          <input
+            type="text"
+            value={modelDraft}
+            onChange={e => setModelDraft(e.target.value)}
+            placeholder="Model / deployment name"
+            className={inputStyle}
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={handleSaveModel}
+              disabled={modelSaving || modelLoading || !modelDraft.trim()}
+              className={btnPrimary}
+            >
+              {modelSaving ? 'Saving...' : modelLoading ? 'Loading...' : 'Save Model'}
+            </button>
+            <button
+              onClick={() => setModelProviderId(null)}
+              className={btnSecondary}
+            >
+              Cancel
+            </button>
+          </div>
         </section>
       )}
 
@@ -610,36 +716,32 @@ function AiProviderStep({ onComplete }: { onComplete: () => void }) {
           {/* Purpose */}
           <div>
             <label className="mb-1 block text-sm text-fog">Purpose</label>
-            <select value={purpose} onChange={e => setPurpose(e.target.value as ModelPurpose)} className={inputStyle}>
-              <option value="Chat">Chat (required)</option>
-              <option value="Embedding">Embedding (optional)</option>
-            </select>
+            <CustomSelect
+              options={PURPOSE_OPTIONS}
+              value={purpose}
+              onChange={value => setPurpose(value as ModelPurpose)}
+              className="w-full"
+            />
           </div>
 
           {/* Provider Type */}
           <div>
             <label className="mb-1 block text-sm text-fog">Provider Type</label>
-            <select
+            <CustomSelect
+              options={PROVIDER_TYPES.map(pt => ({ value: pt.value, label: pt.label }))}
               value={providerType}
-              onChange={e => { setProviderType(e.target.value as ProviderType); setEndpoint(''); setUseDefaultCreds(false) }}
-              className={inputStyle}
-            >
-              {PROVIDER_TYPES.map(pt => (
-                <option key={pt.value} value={pt.value}>{pt.label}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Model Name */}
-          <div>
-            <label className="mb-1 block text-sm text-fog">{isAzure ? 'Deployment Name' : 'Model Name'}</label>
-            <input
-              type="text"
-              value={modelName}
-              onChange={e => setModelName(e.target.value)}
-              placeholder={modelPlaceholder}
-              className={inputStyle}
+              onChange={value => {
+                setProviderType(value as ProviderType)
+                setEndpoint('')
+                setUseDefaultCreds(false)
+              }}
+              className="w-full"
             />
+            {providerType === 'OpenRouter' && (
+              <p className="mt-1 text-xs text-dust">
+                OpenRouter uses an OpenAI-compatible API. Use your OpenRouter API key and endpoint.
+              </p>
+            )}
           </div>
 
           {/* Endpoint */}
@@ -655,7 +757,15 @@ function AiProviderStep({ onComplete }: { onComplete: () => void }) {
               type="text"
               value={endpoint}
               onChange={e => setEndpoint(e.target.value)}
-              placeholder={isAzure ? 'https://my-resource.openai.azure.com' : providerType === 'Ollama' ? 'http://localhost:11434' : 'Leave blank for default'}
+              placeholder={
+                isAzure
+                  ? 'https://my-resource.openai.azure.com'
+                  : providerType === 'Ollama'
+                    ? 'http://localhost:11434'
+                    : providerType === 'OpenRouter'
+                      ? 'https://openrouter.ai/api/v1'
+                      : 'Leave blank for default'
+              }
               className={inputStyle}
             />
           </div>
@@ -683,7 +793,7 @@ function AiProviderStep({ onComplete }: { onComplete: () => void }) {
                 type="password"
                 value={apiKey}
                 onChange={e => setApiKey(e.target.value)}
-                placeholder="sk-... or your API key"
+                placeholder={providerType === 'OpenRouter' ? 'sk-or-v1-... (OpenRouter API key)' : 'sk-... or your API key'}
                 className={inputStyle}
               />
             </div>
@@ -692,13 +802,16 @@ function AiProviderStep({ onComplete }: { onComplete: () => void }) {
           <div className="flex gap-2 pt-1">
             <button
               onClick={handleCreate}
-              disabled={busy || !modelName || (needsApiKey && !apiKey) || (isAzure && !endpoint)}
+              disabled={busy || (needsApiKey && !apiKey) || (isAzure && !endpoint)}
               className={btnPrimary}
             >
-              {busy ? 'Saving...' : 'Save Provider'}
+              {busy ? 'Saving...' : 'Save Connection'}
             </button>
             <button onClick={() => setShowForm(false)} className={btnSecondary}>Cancel</button>
           </div>
+          <p className="text-xs text-dust">
+            After saving the connection, use the model selector to choose the model/deployment.
+          </p>
         </section>
       ) : (
         <button onClick={() => setShowForm(true)} className={btnSecondary}>

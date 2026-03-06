@@ -139,4 +139,21 @@ public interface IEntityLocationService
     /// Clear all per-entity agent filters, resetting every entity to visible-to-all.
     /// </summary>
     Task ClearAllAgentFiltersAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Evict a cached embedding for a floor, area, or entity.
+    /// Valid itemType values: <c>floor</c>, <c>area</c>, <c>entity</c>.
+    /// </summary>
+    Task<bool> EvictEmbeddingAsync(string itemType, string itemId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Regenerate a cached embedding for a floor, area, or entity.
+    /// Valid itemType values: <c>floor</c>, <c>area</c>, <c>entity</c>.
+    /// </summary>
+    Task<bool> RegenerateEmbeddingAsync(string itemType, string itemId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Get current embedding generation progress across floors, areas, and entities.
+    /// </summary>
+    Task<EntityLocationEmbeddingProgress> GetEmbeddingProgressAsync(CancellationToken ct = default);
 }

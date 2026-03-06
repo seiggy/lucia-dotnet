@@ -13,11 +13,14 @@ import type {
   McpServerStatus,
   AgentDefinition,
   ModelProvider,
+  ProviderModelsResponse,
   OptimizableSkillInfo,
   SkillDeviceInfo,
   TraceSearchTerm,
   OptimizationTestCase,
   JobStatusResponse,
+  ModelAuthConfig,
+  ProviderType,
 } from './types';
 
 const BASE = '/api';
@@ -747,6 +750,41 @@ export async function testEmbeddingProvider(id: string): Promise<{ success: bool
   return res.json();
 }
 
+export async function fetchProviderModels(id: string): Promise<ProviderModelsResponse> {
+  const res = await fetch(`${BASE}/model-providers/${encodeURIComponent(id)}/models`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to fetch provider models: ${res.statusText}`);
+  return res.json();
+}
+
+export interface ProviderModelDiscoveryRequest {
+  providerType: ProviderType;
+  endpoint?: string | null;
+  auth: ModelAuthConfig;
+}
+
+export async function discoverProviderModels(request: ProviderModelDiscoveryRequest): Promise<ProviderModelsResponse> {
+  const res = await fetch(`${BASE}/model-providers/models/discover`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) throw new Error(`Failed to discover provider models: ${res.statusText}`);
+  return res.json();
+}
+
+export async function setProviderModel(id: string, modelName: string): Promise<ModelProvider> {
+  const res = await fetch(`${BASE}/model-providers/${encodeURIComponent(id)}/model`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ modelName }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `Failed to set provider model: ${res.statusText}`);
+  }
+  return res.json();
+}
+
 export interface OllamaModelsResponse {
   models: string[];
   error?: string;
@@ -811,6 +849,18 @@ export function connectActivityStream(
 
 // ── Entity Location Cache ──────────────────────────────────────────
 
+export interface EntityLocationEmbeddingProgress {
+  floorTotalCount: number
+  floorGeneratedCount: number
+  areaTotalCount: number
+  areaGeneratedCount: number
+  entityTotalCount: number
+  entityGeneratedCount: number
+  entityMissingCount: number
+  isGenerationRunning: boolean
+  lastLoadedAt: string | null
+}
+
 export async function fetchEntityLocationSummary() {
   const res = await fetch(`${BASE}/entity-location`);
   if (!res.ok) throw new Error(`Failed to fetch location summary: ${res.statusText}`);
@@ -846,6 +896,42 @@ export async function searchEntityLocation(term: string, domain?: string) {
 export async function invalidateEntityLocationCache() {
   const res = await fetch(`${BASE}/entity-location/invalidate`, { method: 'POST' });
   if (!res.ok) throw new Error(`Failed to invalidate location cache: ${res.statusText}`);
+  return res.json();
+}
+
+export async function fetchEntityLocationEmbeddingProgress(): Promise<EntityLocationEmbeddingProgress> {
+  const res = await fetch(`${BASE}/entity-location/embedding-progress`);
+  if (!res.ok) throw new Error(`Failed to fetch embedding progress: ${res.statusText}`);
+  return res.json();
+}
+
+export function connectEntityLocationEmbeddingProgressStream(
+  onProgress: (progress: EntityLocationEmbeddingProgress) => void,
+  onError?: (err: Event) => void,
+): EventSource {
+  const source = new EventSource(`${BASE}/entity-location/embedding-progress/live`);
+  source.onmessage = (e) => {
+    try {
+      onProgress(JSON.parse(e.data));
+    } catch { /* ignore parse errors */ }
+  };
+  if (onError) source.onerror = onError;
+  return source;
+}
+
+export async function evictEntityLocationEmbedding(itemType: 'floor' | 'area' | 'entity', itemId: string) {
+  const res = await fetch(`${BASE}/entity-location/embeddings/${encodeURIComponent(itemType)}/${encodeURIComponent(itemId)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`Failed to evict embedding: ${res.statusText}`);
+  return res.json();
+}
+
+export async function regenerateEntityLocationEmbedding(itemType: 'floor' | 'area' | 'entity', itemId: string) {
+  const res = await fetch(`${BASE}/entity-location/embeddings/${encodeURIComponent(itemType)}/${encodeURIComponent(itemId)}/regenerate`, {
+    method: 'POST',
+  });
+  if (!res.ok) throw new Error(`Failed to regenerate embedding: ${res.statusText}`);
   return res.json();
 }
 
@@ -897,7 +983,7 @@ export async function fetchAvailableAgents(): Promise<string[]> {
 export async function searchMatcherDebug(
   term: string,
   options?: { threshold?: number; embeddingWeight?: number; dropoff?: number; disagreementPenalty?: number; embeddingResolutionMargin?: number; domains?: string[] }
-): Promise<any> {
+): Promise<unknown> {
   const params = new URLSearchParams();
   if (options?.threshold !== undefined) params.set('threshold', String(options.threshold));
   if (options?.embeddingWeight !== undefined) params.set('embeddingWeight', String(options.embeddingWeight));
@@ -1213,6 +1299,12 @@ export async function disablePlugin(id: string): Promise<void> {
 export async function uninstallPlugin(id: string): Promise<void> {
   const res = await fetch(`${BASE}/plugins/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`Failed to uninstall plugin`);
+}
+
+export async function fetchPluginConfigSchemas(): Promise<import('./types').PluginConfigSchema[]> {
+  const res = await fetch(`${BASE}/plugins/config/schemas`);
+  if (!res.ok) throw new Error(`Failed to fetch plugin config schemas`);
+  return res.json();
 }
 
 // ─── System ───

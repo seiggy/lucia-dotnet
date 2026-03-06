@@ -7,7 +7,6 @@ export default function RestartBanner() {
   const [restarting, setRestarting] = useState(false)
 
   useEffect(() => {
-    let timer: ReturnType<typeof setInterval>
     const poll = async () => {
       try {
         const { restartRequired } = await fetchRestartRequired()
@@ -17,7 +16,7 @@ export default function RestartBanner() {
       }
     }
     poll()
-    timer = setInterval(poll, 5000)
+    const timer = setInterval(poll, 5000)
     return () => clearInterval(timer)
   }, [])
 

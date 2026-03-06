@@ -8,8 +8,11 @@ namespace lucia.Agents.Configuration;
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum ProviderType
 {
-    /// <summary>OpenAI API (or any OpenAI-compatible endpoint like OpenRouter, GitHub Models).</summary>
+    /// <summary>OpenAI API (or other generic OpenAI-compatible endpoints).</summary>
     OpenAI,
+
+    /// <summary>OpenRouter API (OpenAI-compatible endpoint with OpenRouter model metadata).</summary>
+    OpenRouter,
 
     /// <summary>Azure OpenAI Service.</summary>
     AzureOpenAI,

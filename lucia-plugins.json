@@ -10,6 +10,13 @@
       "path": "plugins/metamcp"
     },
     {
+      "id": "brave-search",
+      "name": "Brave Search",
+      "description": "Web search skill using the Brave Search API for privacy-respecting search.",
+      "version": "1.0.0",
+      "path": "plugins/brave-search"
+    },
+    {
       "id": "searxng",
       "name": "SearXNG Web Search",
       "description": "Web search skill using a SearXNG instance for privacy-respecting search.",

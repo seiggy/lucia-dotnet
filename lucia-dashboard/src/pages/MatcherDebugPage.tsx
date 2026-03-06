@@ -111,10 +111,10 @@ export default function MatcherDebugPage() {
         disagreementPenalty,
         embeddingResolutionMargin,
         domains: selectedDomains.length > 0 ? selectedDomains : undefined,
-      })
+      }) as SearchResult
       setResult(r)
-    } catch (e: any) {
-      setError(e.message ?? 'Search failed')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Search failed')
       setResult(null)
     } finally {
       setLoading(false)

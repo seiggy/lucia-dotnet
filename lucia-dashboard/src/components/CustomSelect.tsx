@@ -34,17 +34,14 @@ export default function CustomSelect({ options, value, onChange, placeholder, cl
     ? options.filter((o) => o.label.toLowerCase().includes(filter.toLowerCase()))
     : options;
 
-  // Keep ref in sync for keyboard handler closures
-  highlightRef.current = highlight;
-
-  // Reset filter and highlight when opening/closing
   useEffect(() => {
-    if (open) {
-      setFilter('');
-      setHighlight(-1);
-      // Focus the search input after portal renders
-      requestAnimationFrame(() => inputRef.current?.focus());
-    }
+    highlightRef.current = highlight;
+  }, [highlight]);
+
+  // Focus the search input after portal renders
+  useEffect(() => {
+    if (!open) return;
+    requestAnimationFrame(() => inputRef.current?.focus());
   }, [open]);
 
   // Close when clicking outside
@@ -96,6 +93,12 @@ export default function CustomSelect({ options, value, onChange, placeholder, cl
     items[highlight]?.scrollIntoView({ block: 'nearest' });
   }, [highlight]);
 
+  const openDropdown = useCallback(() => {
+    setFilter('');
+    setHighlight(-1);
+    setOpen(true);
+  }, []);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
@@ -124,8 +127,19 @@ export default function CustomSelect({ options, value, onChange, placeholder, cl
       <button
         ref={buttonRef}
         type="button"
-        onClick={() => setOpen(!open)}
-        onKeyDown={(e) => { if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); setOpen(true); } }}
+        onClick={() => {
+          if (open) {
+            setOpen(false);
+          } else {
+            openDropdown();
+          }
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            openDropdown();
+          }
+        }}
         className={`flex w-full items-center justify-between border border-stone/40 bg-slate-warm px-3 py-2 text-sm text-light ${borderRadius}`}
       >
         <span className="truncate">{selected?.label ?? placeholder ?? 'Select...'}</span>

@@ -11,6 +11,7 @@ import {
   completeTodoItem,
   removeTodoItem,
 } from '../api'
+import CustomSelect from '../components/CustomSelect'
 import type { ShoppingListItem, TodoItem, TodoEntitySummary } from '../api'
 
 type Tab = 'shopping' | 'todo'
@@ -245,15 +246,11 @@ export default function ListsPage() {
             <>
               <div className="mb-4 flex flex-wrap items-center gap-3">
                 <label className="text-sm text-dust">List:</label>
-                <select
+                <CustomSelect
+                  options={todoEntities.map(e => ({ value: e.entityId, label: e.name }))}
                   value={selectedTodoId}
-                  onChange={e => setSelectedTodoId(e.target.value)}
-                  className="rounded border border-stone/60 bg-basalt px-3 py-2 text-sm text-light"
-                >
-                  {todoEntities.map(e => (
-                    <option key={e.entityId} value={e.entityId}>{e.name}</option>
-                  ))}
-                </select>
+                  onChange={value => setSelectedTodoId(value)}
+                />
                 <div className="flex flex-1 gap-2">
                   <input
                     value={newItem}

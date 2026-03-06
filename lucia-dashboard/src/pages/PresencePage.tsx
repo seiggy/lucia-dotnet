@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { RefreshCw, Eye, EyeOff, Wifi, WifiOff, Users, Trash2, Shield, ShieldOff } from 'lucide-react'
 import {
   fetchPresenceSensors, fetchOccupiedAreas, fetchPresenceConfig,
   updatePresenceConfig, updatePresenceSensor, deletePresenceSensor, refreshPresenceSensors
 } from '../api'
+import CustomSelect from '../components/CustomSelect'
 import type { PresenceSensorMapping, OccupiedArea, PresenceConfidence } from '../types'
 
 const CONFIDENCE_LABELS: Record<PresenceConfidence, { label: string; color: string }> = {
@@ -15,6 +16,11 @@ const CONFIDENCE_LABELS: Record<PresenceConfidence, { label: string; color: stri
 }
 
 const CONFIDENCE_OPTIONS: PresenceConfidence[] = ['Highest', 'High', 'Medium', 'Low', 'None']
+const CONFIDENCE_SELECT_OPTIONS = CONFIDENCE_OPTIONS.map(value => ({ value, label: value }))
+
+function isPresenceConfidence(value: string): value is PresenceConfidence {
+  return CONFIDENCE_OPTIONS.includes(value as PresenceConfidence)
+}
 
 export default function PresencePage() {
   const [sensors, setSensors] = useState<PresenceSensorMapping[]>([])
@@ -24,13 +30,13 @@ export default function PresencePage() {
   const [refreshing, setRefreshing] = useState(false)
   const [toasts, setToasts] = useState<{ id: number; msg: string; type: 'success' | 'error' }[]>([])
   const [filter, setFilter] = useState('')
+  const toastIdRef = useRef(0)
 
-  let toastId = 0
-  function addToast(msg: string, type: 'success' | 'error' = 'success') {
-    const id = ++toastId
+  const addToast = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
+    const id = ++toastIdRef.current
     setToasts(t => [...t, { id, msg, type }])
     setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3500)
-  }
+  }, [])
 
   const loadData = useCallback(async () => {
     try {
@@ -47,7 +53,7 @@ export default function PresencePage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [addToast])
 
   useEffect(() => { loadData() }, [loadData])
 
@@ -237,15 +243,17 @@ export default function PresencePage() {
                     </div>
 
                     {/* Confidence selector */}
-                    <select
+                    <CustomSelect
+                      options={CONFIDENCE_SELECT_OPTIONS}
                       value={sensor.confidence}
-                      onChange={e => changeConfidence(sensor, e.target.value as PresenceConfidence)}
-                      className="rounded-lg border border-stone/40 bg-basalt px-2 py-1.5 text-xs text-light input-focus"
-                    >
-                      {CONFIDENCE_OPTIONS.map(c => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
+                      onChange={value => {
+                        if (isPresenceConfidence(value)) {
+                          changeConfidence(sensor, value)
+                        }
+                      }}
+                      className="w-28"
+                      size="sm"
+                    />
 
                     {/* Toggle enabled/disabled */}
                     <button

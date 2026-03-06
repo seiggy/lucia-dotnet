@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { McpToolServerDefinition, McpServerStatus, McpToolInfo } from '../types'
+import CustomSelect from '../components/CustomSelect'
 import {
   fetchMcpServers,
   createMcpServer,
@@ -12,6 +13,12 @@ import {
 } from '../api'
 
 type FormMode = 'list' | 'create' | 'edit'
+type TransportType = 'stdio' | 'http'
+
+const TRANSPORT_TYPE_OPTIONS: { value: TransportType; label: string }[] = [
+  { value: 'stdio', label: 'stdio (local process)' },
+  { value: 'http', label: 'HTTP/SSE (remote)' },
+]
 
 export default function McpServersPage() {
   const [servers, setServers] = useState<McpToolServerDefinition[]>([])
@@ -251,7 +258,7 @@ function ServerForm({
     id: server?.id ?? '',
     name: server?.name ?? '',
     description: server?.description ?? '',
-    transportType: server?.transportType ?? 'stdio',
+    transportType: (server?.transportType as TransportType | undefined) ?? 'stdio',
     command: server?.command ?? '',
     arguments: (server?.arguments ?? []).join(' '),
     workingDirectory: server?.workingDirectory ?? '',
@@ -347,14 +354,12 @@ function ServerForm({
         <div className="grid grid-cols-2 gap-4">
           <label className="block">
             <span className="text-sm text-dust">Transport Type</span>
-            <select
+            <CustomSelect
+              options={TRANSPORT_TYPE_OPTIONS}
               value={form.transportType}
-              onChange={e => setForm(f => ({ ...f, transportType: e.target.value }))}
-              className="mt-1 block w-full rounded border border-stone bg-basalt px-3 py-2 text-sm"
-            >
-              <option value="stdio">stdio (local process)</option>
-              <option value="http">HTTP/SSE (remote)</option>
-            </select>
+              onChange={value => setForm(f => ({ ...f, transportType: value as TransportType }))}
+              className="mt-1 w-full"
+            />
           </label>
           <label className="flex items-end gap-2 pb-2">
             <input

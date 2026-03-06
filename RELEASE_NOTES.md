@@ -1,4 +1,4 @@
-# Release Notes - 1.1.0-preview.1
+# Release Notes - 1.1.0
 
 **Release Date:** March 6, 2026  
 **Code Name:** "Spectra"
@@ -7,16 +7,19 @@
 
 ## 🔮 Overview
 
-"Spectra" overhauls Lucia's entity matching and prompt caching infrastructure. Just as a spectrum reveals the distinct wavelengths hidden in a beam of light, this release decomposes the monolithic entity lookup into a multi-signal search pipeline — combining fuzzy text matching, phonetic analysis, alias resolution, and embedding similarity into a single `HybridEntityMatcher`. Alongside that, the prompt cache system has been rearchitected to correctly persist embeddings, separate routing and chat cache thresholds, and support hot-reloadable configuration from the dashboard.
+"Spectra" delivers Lucia's largest entity-intelligence upgrade to date and folds in post-cut stabilization work across Home Assistant conversation flow, model-provider support, setup/plugins UX, and CI reliability. This release unifies entity modeling, introduces multi-signal matching, fixes semantic prompt-cache persistence and thresholding, and hardens the platform for day-to-day operation.
 
 ## 🚀 Highlights
 
-- **Unified Entity Model** — All Home Assistant entity types (lights, climate, fans, music players) now share a common `HomeAssistantEntity` base with domain-specific subtypes, replacing fragmented per-skill entity caches.
-- **HybridEntityMatcher** — Multi-weighted entity search using Levenshtein distance, Jaro-Winkler similarity, phonetic (Soundex/Metaphone) matching, and alias resolution — all tunable via `HybridMatchOptions`.
-- **Prompt Cache Embedding Fix** — Embeddings are now correctly persisted to Redis (previously silently dropped due to `[JsonIgnore]`), making semantic cache matching fully functional for the first time.
-- **Split Cache Thresholds** — Routing cache (which agent to invoke) and chat cache (tool-call decisions) now have independent similarity thresholds, preventing dangerous cross-action cache hits like "turn off" matching "turn on".
-- **Entity Visibility Filtering** — New API and dashboard controls for filtering entities by HA's exposed entity list, giving users granular control over which devices Lucia can see.
-- **Preview Docker Releases** — CI/CD now supports `-preview.N` suffixed tags for pre-release testing without touching the `latest` tag.
+- **Unified Entity Model** — All Home Assistant entity types now share a common `HomeAssistantEntity` base with domain-specific subtypes.
+- **HybridEntityMatcher** — Multi-weighted search combines Levenshtein, Jaro-Winkler, phonetic matching, aliases, and token overlap.
+- **Prompt Cache Overhaul** — Embeddings now persist correctly, routing/chat thresholds are split, and cache settings hot-reload without restart.
+- **Embedding Resiliency + Live Progress** — Entity-location embeddings now generate in throttled background batches, expose SSE progress, and support per-item evict/regenerate controls.
+- **Home Assistant Multi-turn Continuity** — Follow-up conversation flow restored and HA commit validation tightened.
+- **OpenRouter + Discovery** — OpenRouter added as a first-class provider with model discovery support.
+- **Plugin/Setup/Dashboard Stabilization** — Headless setup and HA setup-step UX improvements, plugin installation reliability fixes, and dashboard/tooling cleanup.
+- **Brave Search API Plugin** — New privacy-respecting web search plugin using the Brave Search API, with full plugin config GUI for managing API keys from the dashboard.
+- **CI Hardening** — HACS validation workflow corrected, deployment docs lint cleanup, and release pipeline reliability improvements.
 
 ## ✨ What's New
 
@@ -41,45 +44,98 @@
 - **`EntityVisibilityApi`** — REST endpoints for bulk visibility management with area/domain filtering.
 - **HA Exposed Entity List** — Support for pulling the pre-filtered exposed entity list from Home Assistant via WebSocket (`homeassistant/expose_entity/list`).
 
+### 📡 Entity Embedding Resiliency + Live Progress
+
+- **Name fallback for embedding safety** — When an entity/floor/area has no name or alias, matchable names now fall back to IDs (entity IDs strip domain and replace `_` with spaces) to avoid invalid empty embedding inputs.
+- **Non-blocking embedding generation** — `EntityLocationService` now loads/cache location data first, then generates embeddings asynchronously in throttled batches with retry/backoff.
+- **Batch embedding pipeline** — Uses provider batch generation (`GenerateAsync(IEnumerable<string>)`) to reduce request pressure and better handle provider-side limits.
+- **Progress API + SSE stream** — Added `/api/entity-location/embedding-progress` and `/api/entity-location/embedding-progress/live` for real-time generation status.
+- **Per-item cache controls** — Added embedding eviction/regeneration endpoints for floors, areas, and entities.
+- **Dashboard live status** — Entity Location page now shows a live generation progress bar, missing-embedding count, and updates without manual refresh.
+
 ### 🧠 Prompt Cache Overhaul
 
 - **Embedding persistence fixed** — Removed `[JsonIgnore]` from `CachedPromptEntry.Embedding` and `CachedChatResponseData.Embedding` that prevented embeddings from ever being serialized to Redis.
-- **Split thresholds** — `SemanticSimilarityThreshold` (routing, default 0.95) and `ChatCacheSemanticThreshold` (chat, default 0.98) are independently configurable. Routing can be liberal (synonyms like "lamp" ↔ "light" score ~0.96); chat must be strict to avoid replaying wrong tool calls.
-- **Hot-reload via `IOptionsMonitor`** — Cache thresholds update within 5 seconds of a dashboard config change, no restart required.
+- **Split thresholds** — `SemanticSimilarityThreshold` (routing, default 0.95) and `ChatCacheSemanticThreshold` (chat, default 0.98) are independently configurable.
+- **Hot-reload via `IOptionsMonitor`** — Cache thresholds update within seconds of dashboard config changes, no restart required.
 - **Hit count tracking fix** — Routing cache exact-match hits now correctly persist the incremented `HitCount` back to Redis.
 - **Normalized prompt keys** — `NormalizePrompt` applies `Trim().ToLowerInvariant()` for stable, case-insensitive cache keys.
-- **User-text-only embedding** — Chat cache embeddings are computed from the user's request text only, not the full system+user prompt concatenation.
+- **User-text-only embedding** — Chat cache embeddings are computed from the user's request text only.
+
+### 🏠 Home Assistant Conversation Flow
+
+- Restored multi-turn continuity behavior for follow-up requests.
+- Enforced stricter HA-side commit validation in automation and tool flows.
+- Addressed follow-up review feedback for the multi-turn flow fix set.
+
+### 🤖 Model Providers
+
+- Added OpenRouter as a provider option in model-provider interactions.
+- Expanded model discovery flow and post-review provider hardening.
+
+### 🔌 Setup, Plugins, and Dashboard
+
+- Improved headless setup and Home Assistant setup-step UX.
+- Fixed plugin tooling/integration issues that blocked reliable plugin installation.
+- Resolved setup/plugin/dashboard review and lint issues.
+
+### 🌐 Brave Search API Plugin
+
+- **New web search provider** — `plugins/brave-search/plugin.cs` implements `IWebSearchSkill` using the [Brave Search API](https://brave.com/search/api/) as an alternative to SearXNG.
+- **API key authentication** — Configurable via `BraveSearch:ApiKey`, `BRAVE_SEARCH_API_KEY` env var, or the new plugin config GUI.
+- **Full telemetry** — OpenTelemetry `ActivitySource` and `Meter` instrumentation for request counts, failure counts, and search duration.
+- **Provider-agnostic agent** — General Agent skill description no longer references SearXNG; works with whichever search plugin is active.
+
+### ⚙️ Plugin Configuration GUI
+
+- **Schema-driven config** — Plugins can now declare configurable properties via `ConfigSection`, `ConfigDescription`, and `ConfigProperties` on the `ILuciaPlugin` interface (default interface members — non-breaking).
+- **`PluginConfigProperty` record** — Defines name, type, description, default value, and sensitivity for each config field.
+- **`GET /api/plugins/config/schemas`** — New endpoint aggregates config schemas from all loaded plugins.
+- **Dashboard Configuration tab** — New tab on the Plugins page renders dynamic forms from plugin schemas, with sensitive-field masking, save/discard, and toast notifications.
+- **SearXNG retrofitted** — SearXNG plugin now declares its `BaseUrl` in the config schema so it can also be configured from the UI.
 
 ### 🐛 Matcher Debug API
 
-- **`/api/matcher/debug`** — Interactive endpoint for testing `HybridEntityMatcher` queries against live entity data, returning scored results with per-signal breakdowns.
-- **Dashboard page** — `MatcherDebugPage.tsx` provides a UI for experimenting with matcher queries and visualizing score distributions.
+- **`/api/matcher/debug`** — Interactive endpoint for testing `HybridEntityMatcher` queries against live entity data with per-signal score breakdowns.
+- **Dashboard page** — `MatcherDebugPage.tsx` provides a UI for experimenting with matcher queries and score distributions.
 
 ### 🔧 Skill Optimizer Migration
 
-- **`GetCachedEntitiesAsync` removed** from `IOptimizableSkill` — All entity resolution now flows through `EntityLocationService` via `BuildEntitiesFromLocationServiceAsync`.
-- **Legacy skill methods gutted** — `LightControlSkill.FindLightsByAreaAsync`, `FindLightAsync`, `GetLightStateAsync`, `SetLightStateAsync` now throw `NotSupportedException`. All callers use the unified entity tools.
-- **Device cache dependencies removed** — `LightAgent` no longer depends on embedding provider or device cache directly.
+- **`GetCachedEntitiesAsync` removed** from `IOptimizableSkill` — Entity resolution now flows through `EntityLocationService`.
+- **Legacy skill methods retired** — `LightControlSkill.FindLightsByAreaAsync`, `FindLightAsync`, `GetLightStateAsync`, and `SetLightStateAsync` now throw `NotSupportedException`.
+- **Device cache dependencies removed** — `LightAgent` no longer depends directly on embedding provider or device cache.
 
-### 🐳 CI/CD
+### 🐳 CI/CD and Delivery
 
-- **Preview releases** — Push a tag like `v1.1.0-preview.1` to build and push Docker images without updating the `latest` tag. Also available via `workflow_dispatch` with the "preview" checkbox.
+- Added support for pre-release Docker tags without moving `latest`.
+- Fixed CI workflow ordering to check out repository contents before HACS validation.
+- Fixed deployment markdownlint issues and removed defunct documentation.
 
 ## 🐛 Bug Fixes
 
-- **Prompt cache embeddings never persisted** — `[JsonIgnore]` on `Embedding` properties made semantic cache matching permanently non-functional. Fixed by removing the attribute. (b7e9c3d)
-- **Chat cache replaying wrong action** — "turn on lamp" semantically matched "turn off light" (score ~0.96) and replayed the cached `light.turn_off` tool calls. Fixed by splitting routing/chat thresholds. (6a6a375)
-- **Routing cache hit count always 0** — Exact-match path incremented `HitCount` in memory but never wrote back to Redis. (a429ede)
-- **Config changes required restart** — `RedisPromptCacheService` used `IOptions<T>` (singleton, read-once) instead of `IOptionsMonitor<T>` (hot-reload). (6a6a375)
-- **Embedding provider race condition** — `EmbeddingProviderResolver` used `Dictionary` which corrupted under concurrent agent initialization. Replaced with `ConcurrentDictionary` + per-key `SemaphoreSlim`. (0d044bf)
-- **Tracing duration always 0ms** — `TraceCaptureObserver.OnRoutingCompletedAsync` now measures elapsed time from request start. (0d044bf)
-- **Tool chain config removed** — Removed unsupported tool chain configuration flag that caused errors with many model providers. (a28b3ca)
-- **Dashboard dependency vulnerabilities** — Patched minimatch (CVE-2026-27903, ReDoS) and rollup (CVE-2026-27606, path traversal) via npm overrides. (26a4a90)
+- **Prompt cache embeddings never persisted** — Fixed serialization of embedding fields.
+- **Chat cache replayed incorrect actions** — Prevented cross-action semantic collisions by splitting routing/chat thresholds.
+- **Routing cache hit count not persisted** — Exact-hit `HitCount` now writes back to Redis.
+- **Cache config changes required restart** — Migrated to `IOptionsMonitor<T>` for hot-reload.
+- **Embedding provider concurrency issue** — Replaced unsafe dictionary usage with concurrency-safe coordination.
+- **Tracing duration always reported 0ms** — Routing completion timing now measures elapsed request duration correctly.
+- **Unsupported tool-chain config caused provider errors** — Removed invalid configuration path.
+- **Dashboard dependency vulnerabilities** — Patched minimatch (CVE-2026-27903) and rollup (CVE-2026-27606).
+- **Home Assistant follow-up flow regression** — Fixed continuity and follow-up behavior for multi-turn requests.
+- **Plugin install regressions** — Fixed install path/tooling issues affecting plugin usability.
+- **HACS validation workflow failure** — Corrected CI step order to ensure repository content is present.
+- **Startup embedding failures from blank input** — Prevented invalid embedding calls caused by empty match names.
+- **Embedding request bursts during cache reloads** — Moved generation to throttled background batching to reduce provider rate-limit pressure.
+- **Presence sensor refresh duplicate-key crashes** — Fixed MongoDB duplicate key failures on re-scan by deduplicating auto-detected sensor IDs and skipping IDs already reserved by user overrides (issue #41).
 
 ## 🧪 Testing
 
-- **Playwright e2e test** — `PromptCacheRoutingTests` validates the full cache embedding round-trip: send "turn off dianna's lamp" → verify routing cache entry with embedding → send "turn off dianna's light" → verify semantic match or second entry, both routing to `light-agent`.
-- **Embedding matching diagnostics** — `EmbeddingMatchingTests` with cosine similarity measurements across prompt variants (synonym, opposite action, cross-entity, cross-domain).
+- **Playwright e2e test** — `PromptCacheRoutingTests` validates prompt-cache embedding round-trip and semantic route matching behavior.
+- **Embedding diagnostics** — `EmbeddingMatchingTests` measure similarity behavior across synonym/opposite/cross-domain prompt variants.
+- **Plugin/install regression coverage** — Added and updated tests around plugin installability and related dashboard/setup flows.
+- **Name fallback tests** — `EntityMatchNameFormatterTests` validates alias sanitization and ID-based fallback behavior used by embedding inputs.
+- **Brave Search contract tests** — `BraveSearchWebSearchSkillTests` validates HTTP request format, auth headers, JSON deserialization, empty results, and error handling.
+- **Plugin config schema tests** — `PluginConfigSchemaTests` validates default interface members, schema declaration, property equality, and filtering logic.
 
 ## 📋 New Files
 
@@ -104,8 +160,18 @@
 | `lucia.HomeAssistant/Models/ExposedEntityListResponse.cs` | HA WebSocket exposed entity response |
 | `lucia.AgentHost/Apis/EntityVisibilityApi.cs` | Entity visibility REST endpoints |
 | `lucia.AgentHost/Apis/MatcherDebugApi.cs` | Matcher debug/testing REST endpoints |
+| `lucia.Agents/Models/HomeAssistant/EntityLocationEmbeddingProgress.cs` | Embedding coverage/progress snapshot model |
+| `lucia.Agents/Services/EntityMatchNameFormatter.cs` | Safe name/alias formatter with ID fallback |
 | `lucia-dashboard/src/pages/MatcherDebugPage.tsx` | Matcher debug dashboard page |
+| `lucia-dashboard/src/pages/EntityLocationPage.tsx` | Live embedding progress UI + embedding actions |
 | `lucia.PlaywrightTests/Agents/PromptCacheRoutingTests.cs` | Cache embedding e2e test |
+| `plugins/brave-search/plugin.cs` | Brave Search API web search plugin |
+| `lucia.Agents/Abstractions/PluginConfigProperty.cs` | Plugin config property record type |
+| `lucia.AgentHost/PluginFramework/Models/PluginConfigSchemaDto.cs` | Plugin config schema API DTO |
+| `lucia.AgentHost/PluginFramework/Models/PluginConfigPropertyDto.cs` | Plugin config property API DTO |
+| `lucia-dashboard/src/components/PluginConfigTab.tsx` | Plugin configuration tab component |
+| `lucia.Tests/BraveSearchWebSearchSkillTests.cs` | Brave Search HTTP contract tests |
+| `lucia.Tests/PluginConfigSchemaTests.cs` | Plugin config schema infrastructure tests |
 
 ## 🗑️ Removed / Deprecated
 
@@ -124,9 +190,9 @@
 
 ## ⬆️ Upgrade Notes
 
-1. **Cache eviction recommended** — After upgrading, evict both routing and chat caches via the dashboard (or `DELETE /api/prompt-cache` and `DELETE /api/chat-cache`) to clear entries that were stored without embeddings.
-2. **New config properties** — `RouterExecutor:SemanticSimilarityThreshold` (0.95) and `RouterExecutor:ChatCacheSemanticThreshold` (0.98) are now available in dashboard settings. Adjust if you see too many or too few cache hits.
-3. **Skill API breaking changes** — Skills that called `FindLightsByAreaAsync`, `FindLightAsync`, or `GetCachedEntitiesAsync` must migrate to the unified entity tools provided by `EntityLocationService`.
+1. **Cache eviction recommended** — Evict routing and chat caches via dashboard (or `DELETE /api/prompt-cache` and `DELETE /api/chat-cache`) to clear stale entries.
+2. **New cache config properties** — `RouterExecutor:SemanticSimilarityThreshold` (0.95) and `RouterExecutor:ChatCacheSemanticThreshold` (0.98) can be tuned in dashboard settings.
+3. **Skill API breaking changes** — Skills calling `FindLightsByAreaAsync`, `FindLightAsync`, or `GetCachedEntitiesAsync` must migrate to unified entity tools via `EntityLocationService`.
 
 ---
 

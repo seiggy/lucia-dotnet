@@ -820,7 +820,7 @@ export default function AgentsPage() {
         setSending(false)
       }
     },
-    [agents, selectedUrl, showToast],
+    [agents, contextIds, selectedUrl, showToast],
   )
 
   const selectedAgent = agents.find((a) => a.url === selectedUrl) ?? null

@@ -76,12 +76,17 @@ public static class SetupSeedExtensions
         if (string.Equals(existingComplete, "true", StringComparison.OrdinalIgnoreCase))
             return;
 
-        var hasAnyKeys = await apiKeyService.HasAnyKeysAsync(ct).ConfigureAwait(false);
+        var keys = await apiKeyService.ListKeysAsync(ct).ConfigureAwait(false);
+        var now = DateTime.UtcNow;
+        var hasDashboardKey = keys.Any(
+            k => string.Equals(k.Name, "Dashboard", StringComparison.Ordinal)
+                && !k.IsRevoked
+                && (!k.ExpiresAt.HasValue || k.ExpiresAt.Value > now));
         var storedHaUrl = await configStore.GetAsync("HomeAssistant:BaseUrl", ct).ConfigureAwait(false);
         var storedHaToken = await configStore.GetAsync("HomeAssistant:AccessToken", ct).ConfigureAwait(false);
         var hasHaConnection = !string.IsNullOrWhiteSpace(storedHaUrl) && !string.IsNullOrWhiteSpace(storedHaToken);
 
-        if (hasAnyKeys && hasHaConnection)
+        if (hasDashboardKey && hasHaConnection)
         {
             var existingSigningKey = await configStore.GetAsync("Auth:SessionSigningKey", ct).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(existingSigningKey))

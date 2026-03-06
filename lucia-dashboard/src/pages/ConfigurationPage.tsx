@@ -6,6 +6,7 @@ import {
   resetConfig,
   testMusicAssistantIntegration,
 } from '../api'
+import CustomSelect from '../components/CustomSelect'
 import type {
   ConfigSectionSchema,
   ConfigEntryDto,
@@ -876,17 +877,15 @@ export default function ConfigurationPage() {
         {/* Mobile section selector */}
         <div className="border-b border-stone bg-basalt/60 px-4 py-3 md:hidden">
           <label className="mb-1 block text-xs text-dust">Section</label>
-          <select
+          <CustomSelect
+            options={schemas.map((s) => ({
+              value: s.section,
+              label: `${s.section}${s.description ? ` — ${s.description}` : ''}`,
+            }))}
             value={activeSection ?? ''}
-            onChange={(e) => handleSectionChange(e.target.value)}
-            className="w-full rounded-xl border border-stone bg-basalt px-3 py-2 text-sm text-light"
-          >
-            {schemas.map((s) => (
-              <option key={s.section} value={s.section}>
-                {s.section}{s.description ? ` — ${s.description}` : ''}
-              </option>
-            ))}
-          </select>
+            onChange={handleSectionChange}
+            className="w-full"
+          />
         </div>
 
         {/* Desktop section sidebar */}

@@ -118,6 +118,13 @@ public class SearXngPlugin : ILuciaPlugin
 {
     public string PluginId => "searxng";
 
+    public string? ConfigSection => "SearXng";
+    public string? ConfigDescription => "SearXNG web search connection settings";
+    public IReadOnlyList<PluginConfigProperty> ConfigProperties =>
+    [
+        new("BaseUrl", "string", "SearXNG instance base URL (e.g. http://localhost:8888)", ""),
+    ];
+
     public void ConfigureServices(IHostApplicationBuilder builder)
     {
         var config = builder.Configuration;

@@ -22,6 +22,10 @@ public sealed class MongoPresenceSensorRepositoryTests
         A.CallTo(() => _database.GetCollection<PresenceSensorMapping>("presence_sensor_mappings", null))
             .Returns(_mappingsCollection);
         A.CallTo(() => _mappingsCollection.Indexes).Returns(_indexManager);
+        A.CallTo(() => _mappingsCollection.FindAsync(
+            A<FilterDefinition<PresenceSensorMapping>>._,
+            A<FindOptions<PresenceSensorMapping, PresenceSensorMapping>>._,
+            A<CancellationToken>._)).Returns(CreateCursor([]));
 
         _repository = new MongoPresenceSensorRepository(_mongoClient);
     }
@@ -42,10 +46,7 @@ public sealed class MongoPresenceSensorRepositoryTests
             new() { EntityId = "binary_sensor.office_presence", AreaId = "office", Confidence = PresenceConfidence.High },
         };
 
-        var cursor = A.Fake<IAsyncCursor<PresenceSensorMapping>>();
-        A.CallTo(() => cursor.MoveNextAsync(A<CancellationToken>._))
-            .ReturnsNextFromSequence(true, false);
-        A.CallTo(() => cursor.Current).Returns(expected);
+        var cursor = CreateCursor(expected);
 
         A.CallTo(() => _mappingsCollection.FindAsync(
             A<FilterDefinition<PresenceSensorMapping>>._,
@@ -94,6 +95,76 @@ public sealed class MongoPresenceSensorRepositoryTests
     }
 
     [Fact]
+    public async Task ReplaceAutoDetectedMappingsAsync_SkipsEntitiesOwnedByUserOverride()
+    {
+        A.CallTo(() => _mappingsCollection.FindAsync(
+            A<FilterDefinition<PresenceSensorMapping>>._,
+            A<FindOptions<PresenceSensorMapping, PresenceSensorMapping>>._,
+            A<CancellationToken>._)).Returns(CreateCursor([
+                new PresenceSensorMapping
+                {
+                    EntityId = "binary_sensor.kitchen_presence",
+                    AreaId = "kitchen",
+                    IsUserOverride = true,
+                    Confidence = PresenceConfidence.High
+                }
+            ]));
+
+        await _repository.ReplaceAutoDetectedMappingsAsync([
+            new PresenceSensorMapping
+            {
+                EntityId = "binary_sensor.kitchen_presence",
+                AreaId = "kitchen",
+                IsUserOverride = false,
+                Confidence = PresenceConfidence.High
+            },
+            new PresenceSensorMapping
+            {
+                EntityId = "binary_sensor.office_presence",
+                AreaId = "office",
+                IsUserOverride = false,
+                Confidence = PresenceConfidence.Medium
+            }
+        ]);
+
+        A.CallTo(() => _mappingsCollection.InsertManyAsync(
+            A<IEnumerable<PresenceSensorMapping>>.That.Matches(mappings =>
+                mappings.Count() == 1
+                && mappings.Single().EntityId == "binary_sensor.office_presence"),
+            A<InsertManyOptions>._,
+            A<CancellationToken>._)).MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task ReplaceAutoDetectedMappingsAsync_DeduplicatesByEntityId()
+    {
+        await _repository.ReplaceAutoDetectedMappingsAsync([
+            new PresenceSensorMapping
+            {
+                EntityId = "binary_sensor.office_presence",
+                AreaId = "office",
+                IsUserOverride = false,
+                Confidence = PresenceConfidence.Medium
+            },
+            new PresenceSensorMapping
+            {
+                EntityId = "binary_sensor.office_presence",
+                AreaId = "office",
+                IsUserOverride = false,
+                Confidence = PresenceConfidence.High
+            }
+        ]);
+
+        A.CallTo(() => _mappingsCollection.InsertManyAsync(
+            A<IEnumerable<PresenceSensorMapping>>.That.Matches(mappings =>
+                mappings.Count() == 1
+                && mappings.Single().EntityId == "binary_sensor.office_presence"
+                && mappings.Single().Confidence == PresenceConfidence.High),
+            A<InsertManyOptions>._,
+            A<CancellationToken>._)).MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
     public async Task UpsertMappingAsync_CallsReplaceOneWithUpsert()
     {
         var mapping = new PresenceSensorMapping
@@ -121,5 +192,15 @@ public sealed class MongoPresenceSensorRepositoryTests
         A.CallTo(() => _mappingsCollection.DeleteOneAsync(
             A<FilterDefinition<PresenceSensorMapping>>._,
             A<CancellationToken>._)).MustHaveHappenedOnceExactly();
+    }
+
+    private static IAsyncCursor<PresenceSensorMapping> CreateCursor(IEnumerable<PresenceSensorMapping> mappings)
+    {
+        var cursor = A.Fake<IAsyncCursor<PresenceSensorMapping>>();
+        var buffered = mappings.ToList();
+        A.CallTo(() => cursor.MoveNextAsync(A<CancellationToken>._))
+            .ReturnsNextFromSequence(true, false);
+        A.CallTo(() => cursor.Current).Returns(buffered);
+        return cursor;
     }
 }

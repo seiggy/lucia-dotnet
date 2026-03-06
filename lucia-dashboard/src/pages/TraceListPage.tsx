@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { fetchTraces, fetchStats } from '../api'
+import CustomSelect from '../components/CustomSelect'
 import { LabelStatus } from '../types'
 import type { ConversationTrace } from '../types'
 import { Search, ChevronLeft, ChevronRight, Activity, ThumbsUp, ThumbsDown, Tag, AlertTriangle, Loader2 } from 'lucide-react'
@@ -26,7 +27,6 @@ function truncate(text: string, max: number) {
 }
 
 const inputStyle = 'rounded-xl border border-stone bg-basalt px-3 py-2 text-sm text-light placeholder-dust/60 input-focus transition-colors'
-const selectStyle = 'rounded-xl border border-stone bg-basalt px-3 py-2 text-sm text-light input-focus transition-colors appearance-none'
 
 export default function TraceListPage() {
   const navigate = useNavigate()
@@ -53,6 +53,23 @@ export default function TraceListPage() {
     queryKey: ['stats'],
     queryFn: fetchStats,
   })
+
+  const labelOptions = [
+    { value: '', label: 'All' },
+    { value: '0', label: 'Unlabeled' },
+    { value: '1', label: 'Positive' },
+    { value: '2', label: 'Negative' },
+  ]
+
+  const agentOptions = [
+    { value: '', label: 'All Agents' },
+    ...(stats
+      ? Object.keys(stats.byAgent).sort().map((agentId) => ({
+          value: agentId,
+          label: `${agentId} (${stats.byAgent[agentId]})`,
+        }))
+      : []),
+  ]
 
   function agentBadges(trace: ConversationTrace) {
     return trace.agentExecutions.map((exec) => (
@@ -95,31 +112,19 @@ export default function TraceListPage() {
         </div>
         <div>
           <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-dust">Label</label>
-          <select
+          <CustomSelect
+            options={labelOptions}
             value={labelFilter}
-            onChange={(e) => { setLabelFilter(e.target.value); setPage(1) }}
-            className={selectStyle}
-          >
-            <option value="">All</option>
-            <option value="0">Unlabeled</option>
-            <option value="1">Positive</option>
-            <option value="2">Negative</option>
-          </select>
+            onChange={(value) => { setLabelFilter(value); setPage(1) }}
+          />
         </div>
         <div>
           <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-dust">Agent</label>
-          <select
+          <CustomSelect
+            options={agentOptions}
             value={agentFilter}
-            onChange={(e) => { setAgentFilter(e.target.value); setPage(1) }}
-            className={selectStyle}
-          >
-            <option value="">All Agents</option>
-            {stats && Object.keys(stats.byAgent).sort().map((agentId) => (
-              <option key={agentId} value={agentId}>
-                {agentId} ({stats.byAgent[agentId]})
-              </option>
-            ))}
-          </select>
+            onChange={(value) => { setAgentFilter(value); setPage(1) }}
+          />
         </div>
         <div>
           <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-dust">From</label>

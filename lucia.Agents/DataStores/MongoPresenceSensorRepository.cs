@@ -54,7 +54,24 @@ public sealed class MongoPresenceSensorRepository : IPresenceSensorRepository
 
         if (autoDetected.Count > 0)
         {
-            await _mappings.InsertManyAsync(autoDetected, cancellationToken: ct).ConfigureAwait(false);
+            // Preserve user overrides that may already own the same entity IDs.
+            var existingMappings = await GetAllMappingsAsync(ct).ConfigureAwait(false);
+            var reservedEntityIds = existingMappings
+                .Select(m => m.EntityId)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            var filteredMappings = autoDetected
+                .GroupBy(m => m.EntityId, StringComparer.OrdinalIgnoreCase)
+                .Select(static group => group
+                    .OrderByDescending(mapping => mapping.Confidence)
+                    .First())
+                .Where(mapping => !reservedEntityIds.Contains(mapping.EntityId))
+                .ToList();
+
+            if (filteredMappings.Count > 0)
+            {
+                await _mappings.InsertManyAsync(filteredMappings, cancellationToken: ct).ConfigureAwait(false);
+            }
         }
     }
 
