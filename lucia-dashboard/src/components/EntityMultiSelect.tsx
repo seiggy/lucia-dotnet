@@ -32,7 +32,6 @@ export default function EntityMultiSelect({ devices, selected, onChange }: Entit
   const add = useCallback(
     (entityId: string) => {
       onChange([...selected, entityId])
-      setFilter('')
     },
     [selected, onChange]
   )
