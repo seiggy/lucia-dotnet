@@ -10,6 +10,7 @@ import {
   invalidateEntityLocationCache,
   evictEntityLocationEmbedding,
   regenerateEntityLocationEmbedding,
+  removeEntityFromCache,
   fetchEntityVisibility,
   updateVisibilitySettings,
   updateEntityAgents,
@@ -307,17 +308,17 @@ export default function EntityLocationPage() {
     }
   }
 
-  async function handleEvictEmbedding(entityId: string) {
-    if (!confirm(`Evict cached embedding for "${entityId}"?`)) return
-    setEmbeddingActionKey(`${entityId}:evict`)
+  async function handleRemoveEntity(entityId: string) {
+    if (!confirm(`Remove "${entityId}" from the entity cache? It will reappear on next cache reload if it still exists in Home Assistant.`)) return
+    setEmbeddingActionKey(`${entityId}:remove`)
     setError(null)
     try {
-      await evictEntityLocationEmbedding('entity', entityId)
-      setEntities(prev => prev.map(e => e.entityId === entityId ? { ...e, embeddingGenerated: false } : e))
-      setSearchResults(prev => prev.map(e => e.entityId === entityId ? { ...e, embeddingGenerated: false } : e))
+      await removeEntityFromCache(entityId)
+      setEntities(prev => prev.filter(e => e.entityId !== entityId))
+      setSearchResults(prev => prev.filter(e => e.entityId !== entityId))
       await loadSummary()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to evict embedding')
+      setError(err instanceof Error ? err.message : 'Failed to remove entity')
     } finally {
       setEmbeddingActionKey(null)
     }
@@ -697,12 +698,12 @@ export default function EntityLocationPage() {
                         : <RefreshCw className="h-3.5 w-3.5" />}
                     </button>
                     <button
-                      onClick={() => handleEvictEmbedding(e.entityId)}
+                      onClick={() => handleRemoveEntity(e.entityId)}
                       disabled={embeddingActionKey !== null}
                       className="rounded-md p-1 text-rose transition-colors hover:bg-rose/15 disabled:opacity-40"
-                      title="Evict cached embedding"
+                      title="Remove entity from cache"
                     >
-                      {embeddingActionKey === `${e.entityId}:evict`
+                      {embeddingActionKey === `${e.entityId}:remove`
                         ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         : <Trash2 className="h-3.5 w-3.5" />}
                     </button>

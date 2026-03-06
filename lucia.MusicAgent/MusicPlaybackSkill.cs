@@ -59,7 +59,7 @@ public class MusicPlaybackSkill : IOptimizableSkill
     public string AgentId { get; set; } = string.Empty;
 
     /// <inheritdoc/>
-    public IReadOnlyList<string> SearchToolNames { get; } = ["FindPlayer"];
+    public IReadOnlyList<string> SearchToolNames { get; } = ["FindPlayer", "PlayShuffle"];
 
     /// <inheritdoc/>
     public string ConfigSectionName => MusicPlaybackSkillOptions.SectionName;
@@ -315,7 +315,7 @@ public class MusicPlaybackSkill : IOptimizableSkill
 
     private async Task<string> PlayMediaAsync(HomeAssistantEntity player, ServiceCallRequest payload, string successMessage, CancellationToken cancellationToken = default)
     {
-        using var activity = ActivitySource.StartActivity("MusicPlaybackSkill.PlayMedia", ActivityKind.Internal);
+        using var activity = ActivitySource.StartActivity();
         activity?.SetTag("player.entity_id", player.EntityId);
         activity?.SetTag("player.friendly_name", player.FriendlyName);
         PlaybackRequests.Add(1);
@@ -324,7 +324,7 @@ public class MusicPlaybackSkill : IOptimizableSkill
         try
         {
             payload.EntityId = player.EntityId;
-            await _homeAssistantClient.CallServiceAsync("music_assistant", "play_media", ReturnResponseToken, payload, cancellationToken).ConfigureAwait(false);
+            await _homeAssistantClient.CallServiceAsync("music_assistant", "play_media", parameters: null, payload, cancellationToken).ConfigureAwait(false);
             PlaybackDurationMs.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
             activity?.SetStatus(ActivityStatusCode.Ok);
             return $"{successMessage} on '{player.FriendlyName}'.";

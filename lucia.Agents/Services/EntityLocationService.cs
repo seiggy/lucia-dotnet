@@ -1179,6 +1179,22 @@ public sealed class EntityLocationService : IEntityLocationService
         }
     }
 
+    /// <inheritdoc/>
+    public async Task<bool> RemoveEntityAsync(string entityId, CancellationToken ct = default)
+    {
+        var snap = _snapshot;
+        if (!snap.EntityById.TryGetValue(entityId, out var entity))
+            return false;
+
+        var newEntities = snap.Entities.Remove(entity);
+        SwapData(snap.Floors, snap.Areas, newEntities);
+        await SaveToRedisAsync(ct).ConfigureAwait(false);
+        await BumpRedisVersionAsync().ConfigureAwait(false);
+
+        _logger.LogInformation("Removed entity '{EntityId}' from location cache", entityId);
+        return true;
+    }
+
     // ── Private: Visibility Persistence ─────────────────────────────
 
     private async Task LoadVisibilityConfigAsync()

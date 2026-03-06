@@ -36,6 +36,7 @@ public static class EntityLocationCacheApi
         group.MapPost("/invalidate", InvalidateAsync);
         group.MapDelete("/embeddings/{itemType}/{itemId}", EvictEmbeddingAsync);
         group.MapPost("/embeddings/{itemType}/{itemId}/regenerate", RegenerateEmbeddingAsync);
+        group.MapDelete("/entities/{entityId}", RemoveEntityAsync);
 
         return endpoints;
     }
@@ -325,5 +326,23 @@ public static class EntityLocationCacheApi
             itemType,
             itemId
         });
+    }
+
+    /// <summary>
+    /// Removes an entity from the location cache entirely.
+    /// The entity will reappear on the next cache invalidation if it still exists in Home Assistant.
+    /// </summary>
+    private static async Task<Results<Ok<object>, NotFound<object>>> RemoveEntityAsync(
+        [FromServices] IEntityLocationService locationService,
+        [FromRoute] string entityId,
+        CancellationToken ct)
+    {
+        var removed = await locationService.RemoveEntityAsync(entityId, ct).ConfigureAwait(false);
+        if (!removed)
+        {
+            return TypedResults.NotFound<object>(new { error = $"Entity '{entityId}' not found in cache" });
+        }
+
+        return TypedResults.Ok<object>(new { message = "Entity removed from cache", entityId });
     }
 }

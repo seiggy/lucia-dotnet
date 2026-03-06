@@ -980,6 +980,14 @@ export async function regenerateEntityLocationEmbedding(itemType: 'floor' | 'are
   return res.json();
 }
 
+export async function removeEntityFromCache(entityId: string) {
+  const res = await fetch(`${BASE}/entity-location/entities/${encodeURIComponent(entityId)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`Failed to remove entity: ${res.statusText}`);
+  return res.json();
+}
+
 // ── Entity Visibility ──────────────────────────────────────────────
 
 export async function fetchEntityVisibility(): Promise<{
