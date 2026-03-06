@@ -12,10 +12,14 @@ interface EntityMultiSelectProps {
  * Multi-select dropdown for choosing expected entity IDs.
  * Shows selected entities as chips with remove buttons, and a
  * searchable dropdown for adding more.
+ *
+ * Keyboard: Arrow keys to navigate, Enter to select, Escape to close,
+ * Tab to close and advance focus, Backspace to remove last chip.
  */
 export default function EntityMultiSelect({ devices, selected, onChange }: EntityMultiSelectProps) {
   const [open, setOpen] = useState(false)
   const [filter, setFilter] = useState('')
+  const [highlightIndex, setHighlightIndex] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -28,6 +32,12 @@ export default function EntityMultiSelect({ devices, selected, onChange }: Entit
       (d.friendlyName.toLowerCase().includes(filter.toLowerCase()) ||
         d.entityId.toLowerCase().includes(filter.toLowerCase()))
   )
+  const visibleItems = filtered.slice(0, 50)
+
+  // Reset highlight when filter or items change
+  useEffect(() => {
+    setHighlightIndex(0)
+  }, [filter, filtered.length])
 
   const add = useCallback(
     (entityId: string) => {
@@ -66,6 +76,54 @@ export default function EntityMultiSelect({ devices, selected, onChange }: Entit
     }
   }, [open])
 
+  // Scroll highlighted item into view
+  useEffect(() => {
+    if (!open || !dropdownRef.current) return
+    const items = dropdownRef.current.querySelectorAll('[data-option]')
+    items[highlightIndex]?.scrollIntoView({ block: 'nearest' })
+  }, [highlightIndex, open])
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (!open) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        setOpen(true)
+        e.preventDefault()
+      }
+      return
+    }
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault()
+        setHighlightIndex((i) => Math.min(i + 1, visibleItems.length - 1))
+        break
+      case 'ArrowUp':
+        e.preventDefault()
+        setHighlightIndex((i) => Math.max(i - 1, 0))
+        break
+      case 'Enter':
+        e.preventDefault()
+        if (visibleItems[highlightIndex]) {
+          add(visibleItems[highlightIndex].entityId)
+        }
+        break
+      case 'Escape':
+        e.preventDefault()
+        setOpen(false)
+        inputRef.current?.blur()
+        break
+      case 'Tab':
+        // Close dropdown and let default tab behavior advance focus
+        setOpen(false)
+        break
+      case 'Backspace':
+        if (filter === '' && selected.length > 0) {
+          remove(selected[selected.length - 1])
+        }
+        break
+    }
+  }
+
   const deviceMap = new Map(devices.map((d) => [d.entityId, d.friendlyName]))
 
   return (
@@ -86,6 +144,7 @@ export default function EntityMultiSelect({ devices, selected, onChange }: Entit
             {deviceMap.get(id) ?? id}
             <button
               type="button"
+              tabIndex={-1}
               onClick={(e) => {
                 e.stopPropagation()
                 remove(id)
@@ -105,6 +164,7 @@ export default function EntityMultiSelect({ devices, selected, onChange }: Entit
             if (!open) setOpen(true)
           }}
           onFocus={() => setOpen(true)}
+          onKeyDown={handleKeyDown}
           placeholder={selected.length === 0 ? 'Select devices...' : ''}
           className="min-w-[60px] flex-1 bg-transparent text-xs text-light outline-none placeholder:text-fog/50"
         />
@@ -118,17 +178,25 @@ export default function EntityMultiSelect({ devices, selected, onChange }: Entit
             className="fixed z-[9999] max-h-48 overflow-auto rounded-lg border border-stone/40 bg-slate-warm shadow-xl"
             style={{ top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width }}
           >
-            {filtered.length === 0 ? (
+            {visibleItems.length === 0 ? (
               <div className="px-3 py-2 text-xs text-fog">
                 {devices.length === 0 ? 'No devices loaded' : 'No matches'}
               </div>
             ) : (
-              filtered.slice(0, 50).map((d) => (
+              visibleItems.map((d, i) => (
                 <button
                   key={d.entityId}
                   type="button"
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-light hover:bg-ash/60"
-                  onClick={() => add(d.entityId)}
+                  tabIndex={-1}
+                  data-option
+                  className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-light hover:bg-ash/60 ${
+                    i === highlightIndex ? 'bg-ash/60' : ''
+                  }`}
+                  onMouseEnter={() => setHighlightIndex(i)}
+                  onClick={() => {
+                    add(d.entityId)
+                    inputRef.current?.focus()
+                  }}
                 >
                   <span className="truncate">{d.friendlyName}</span>
                   <span className="ml-auto truncate text-[10px] text-fog">{d.entityId}</span>
