@@ -81,8 +81,8 @@ public static class SkillOptimizerApi
 
     /// <summary>
     /// Extracts unique search terms from trace tool calls for a skill.
-    /// Looks for tool calls matching the skill's find methods and extracts
-    /// the search term argument.
+    /// Uses the skill's <see cref="IOptimizableSkill.AgentId"/> to filter traces
+    /// and <see cref="IOptimizableSkill.SearchToolNames"/> to identify relevant tool calls.
     /// </summary>
     private static async Task<Results<Ok<List<TraceSearchTerm>>, NotFound<string>>> GetSkillTracesAsync(
         [FromRoute] string skillId,
@@ -95,21 +95,15 @@ public static class SkillOptimizerApi
         if (skill is null)
             return TypedResults.NotFound($"Skill '{skillId}' not found");
 
-        // Map skill IDs to their tool function names
-        var toolNames = skillId switch
-        {
-            "light-control" => new[] { "FindLightAsync", "FindLightsByAreaAsync" },
-            _ => Array.Empty<string>()
-        };
-
-        if (toolNames.Length == 0)
+        var toolNames = skill.SearchToolNames;
+        if (toolNames.Count == 0)
             return TypedResults.Ok(new List<TraceSearchTerm>());
 
-        // Fetch recent traces and extract search terms from tool calls
         var filter = new TraceFilterCriteria
         {
             Page = 1,
-            PageSize = limit ?? 100
+            PageSize = limit ?? 100,
+            AgentFilter = string.IsNullOrEmpty(skill.AgentId) ? null : skill.AgentId
         };
 
         var traces = await traceRepository.ListTracesAsync(filter, ct).ConfigureAwait(false);
@@ -125,29 +119,28 @@ public static class SkillOptimizerApi
                     if (!toolNames.Contains(toolCall.ToolName, StringComparer.OrdinalIgnoreCase))
                         continue;
 
-                    // Parse the search term from the JSON arguments
-                    var searchTerm = ExtractSearchTerm(toolCall.Arguments);
-                    if (string.IsNullOrWhiteSpace(searchTerm))
-                        continue;
-
-                    if (!searchTerms.ContainsKey(searchTerm))
+                    // Extract all search terms (handles both singular and array parameters)
+                    foreach (var term in ExtractSearchTerms(toolCall.Arguments))
                     {
-                        searchTerms[searchTerm] = new TraceSearchTerm
+                        if (!searchTerms.ContainsKey(term))
                         {
-                            SearchTerm = searchTerm,
-                            OccurrenceCount = 1,
-                            LastSeen = trace.Timestamp,
-                            TraceId = trace.Id
-                        };
-                    }
-                    else
-                    {
-                        var existing = searchTerms[searchTerm];
-                        searchTerms[searchTerm] = existing with
+                            searchTerms[term] = new TraceSearchTerm
+                            {
+                                SearchTerm = term,
+                                OccurrenceCount = 1,
+                                LastSeen = trace.Timestamp,
+                                TraceId = trace.Id
+                            };
+                        }
+                        else
                         {
-                            OccurrenceCount = existing.OccurrenceCount + 1,
-                            LastSeen = trace.Timestamp > existing.LastSeen ? trace.Timestamp : existing.LastSeen
-                        };
+                            var existing = searchTerms[term];
+                            searchTerms[term] = existing with
+                            {
+                                OccurrenceCount = existing.OccurrenceCount + 1,
+                                LastSeen = trace.Timestamp > existing.LastSeen ? trace.Timestamp : existing.LastSeen
+                            };
+                        }
                     }
                 }
             }
@@ -232,25 +225,57 @@ public static class SkillOptimizerApi
     }
 
     /// <summary>
-    /// Extracts the "searchTerm" value from a JSON arguments string.
+    /// Extracts search term values from a JSON arguments string.
+    /// Handles both singular "searchTerm" (string) and plural "searchTerms" (string array).
     /// </summary>
-    private static string? ExtractSearchTerm(string? arguments)
+    private static List<string> ExtractSearchTerms(string? arguments)
     {
+        var results = new List<string>();
         if (string.IsNullOrWhiteSpace(arguments))
-            return null;
+            return results;
 
         try
         {
             using var doc = System.Text.Json.JsonDocument.Parse(arguments);
-            if (doc.RootElement.TryGetProperty("searchTerm", out var prop))
-                return prop.GetString();
-            if (doc.RootElement.TryGetProperty("SearchTerm", out var prop2))
-                return prop2.GetString();
+
+            // Try plural "searchTerms" array first (used by LightControlSkill)
+            if (TryGetStringArray(doc.RootElement, "searchTerms", results) ||
+                TryGetStringArray(doc.RootElement, "SearchTerms", results))
+                return results;
+
+            // Try singular "searchTerm" string (used by Climate/Fan skills)
+            if (TryGetString(doc.RootElement, "searchTerm", out var term) ||
+                TryGetString(doc.RootElement, "SearchTerm", out term))
+            {
+                results.Add(term!);
+                return results;
+            }
+
+            // Try "area" parameter (used by FindLightsByAreaAsync, FindFansByAreaAsync, etc.)
+            if (TryGetString(doc.RootElement, "area", out var area) ||
+                TryGetString(doc.RootElement, "Area", out area))
+            {
+                results.Add(area!);
+                return results;
+            }
+
             // Fall back to first string property
             foreach (var property in doc.RootElement.EnumerateObject())
             {
                 if (property.Value.ValueKind == System.Text.Json.JsonValueKind.String)
-                    return property.Value.GetString();
+                {
+                    var value = property.Value.GetString();
+                    if (!string.IsNullOrWhiteSpace(value))
+                        results.Add(value);
+                    return results;
+                }
+
+                if (property.Value.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    TryGetStringArray(doc.RootElement, property.Name, results);
+                    if (results.Count > 0)
+                        return results;
+                }
             }
         }
         catch
@@ -258,6 +283,33 @@ public static class SkillOptimizerApi
             // Not valid JSON — ignore
         }
 
-        return null;
+        return results;
+    }
+
+    private static bool TryGetString(System.Text.Json.JsonElement element, string propertyName, out string? value)
+    {
+        value = null;
+        if (!element.TryGetProperty(propertyName, out var prop) || prop.ValueKind != System.Text.Json.JsonValueKind.String)
+            return false;
+        value = prop.GetString();
+        return !string.IsNullOrWhiteSpace(value);
+    }
+
+    private static bool TryGetStringArray(System.Text.Json.JsonElement element, string propertyName, List<string> results)
+    {
+        if (!element.TryGetProperty(propertyName, out var prop) || prop.ValueKind != System.Text.Json.JsonValueKind.Array)
+            return false;
+
+        foreach (var item in prop.EnumerateArray())
+        {
+            if (item.ValueKind == System.Text.Json.JsonValueKind.String)
+            {
+                var value = item.GetString();
+                if (!string.IsNullOrWhiteSpace(value))
+                    results.Add(value);
+            }
+        }
+
+        return results.Count > 0;
     }
 }

@@ -68,6 +68,9 @@ public class LightControlSkill : IAgentSkill, IOptimizableSkill
     public string AgentId { get; set; } = string.Empty;
 
     /// <inheritdoc/>
+    public IReadOnlyList<string> SearchToolNames { get; } = [nameof(GetLightsStateAsync), nameof(ControlLightsAsync)];
+
+    /// <inheritdoc/>
     public string ConfigSectionName => LightControlSkillOptions.SectionName;
 
     /// <inheritdoc/>

@@ -96,6 +96,12 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill
     public string SkillId => "climate-control";
 
     /// <inheritdoc/>
+    public string AgentId { get; set; } = string.Empty;
+
+    /// <inheritdoc/>
+    public IReadOnlyList<string> SearchToolNames { get; } = [nameof(FindClimateDeviceAsync), nameof(FindClimateDevicesByAreaAsync)];
+
+    /// <inheritdoc/>
     public string ConfigSectionName => ClimateControlSkillOptions.SectionName;
 
     /// <inheritdoc/>

@@ -165,6 +165,10 @@ public sealed class ClimateAgent : ILuciaAgent
 
         Instructions = instructions;
 
+        // Propagate agent ID to skills for trace filtering
+        _climateSkill.AgentId = AgentId;
+        _fanSkill.AgentId = AgentId;
+
         // Combine tools from both skills
         var allTools = new List<AITool>();
         allTools.AddRange(_climateSkill.GetTools());

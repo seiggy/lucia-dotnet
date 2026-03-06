@@ -19,6 +19,18 @@ public interface IOptimizableSkill
     string SkillId { get; }
 
     /// <summary>
+    /// The agent ID that owns this skill (e.g. "light-agent", "climate-agent").
+    /// Used to filter traces when importing search terms from trace history.
+    /// </summary>
+    string AgentId { get; }
+
+    /// <summary>
+    /// Tool method names whose arguments contain search terms for entity matching.
+    /// Used by the trace import feature to extract search terms from tool call history.
+    /// </summary>
+    IReadOnlyList<string> SearchToolNames { get; }
+
+    /// <summary>
     /// Configuration section name in MongoDB for this skill's options
     /// (e.g. "LightControlSkill"). Used to save optimized values.
     /// </summary>
