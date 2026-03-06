@@ -879,9 +879,12 @@ export async function fetchEntityLocationAreas() {
   return res.json();
 }
 
-export async function fetchEntityLocationEntities(domain?: string) {
-  const params = domain ? `?domain=${encodeURIComponent(domain)}` : '';
-  const res = await fetch(`${BASE}/entity-location/entities${params}`);
+export async function fetchEntityLocationEntities(domain?: string, agent?: string) {
+  const params = new URLSearchParams();
+  if (domain) params.set('domain', domain);
+  if (agent) params.set('agent', agent);
+  const qs = params.toString();
+  const res = await fetch(`${BASE}/entity-location/entities${qs ? `?${qs}` : ''}`);
   if (!res.ok) throw new Error(`Failed to fetch entities: ${res.statusText}`);
   return res.json();
 }

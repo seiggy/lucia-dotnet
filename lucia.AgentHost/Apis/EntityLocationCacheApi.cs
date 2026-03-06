@@ -149,13 +149,25 @@ public static class EntityLocationCacheApi
     private static async Task<Ok<object>> GetEntitiesAsync(
         [FromServices] IEntityLocationService locationService,
         [FromQuery] string? domain,
+        [FromQuery] string? agent,
         CancellationToken ct)
     {
         var entities = await locationService.GetEntitiesAsync(ct).ConfigureAwait(false);
 
-        var filtered = string.IsNullOrWhiteSpace(domain)
-            ? entities
-            : entities.Where(e => e.Domain.Equals(domain, StringComparison.OrdinalIgnoreCase)).ToList();
+        IEnumerable<HomeAssistantEntity> filtered = entities;
+
+        if (!string.IsNullOrWhiteSpace(domain))
+        {
+            var domains = domain.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            filtered = filtered.Where(e => domains.Contains(e.Domain, StringComparer.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(agent))
+        {
+            filtered = filtered.Where(e =>
+                e.IncludeForAgent is null ||
+                e.IncludeForAgent.Contains(agent, StringComparer.OrdinalIgnoreCase));
+        }
 
         var result = filtered.Select(e => new
         {
@@ -183,7 +195,7 @@ public static class EntityLocationCacheApi
     {
         var domainFilter = string.IsNullOrWhiteSpace(domain)
             ? null
-            : new List<string> { domain };
+            : (IReadOnlyList<string>)domain.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
         var entities = await locationService.SearchEntitiesAsync(term, domainFilter, ct: ct)
             .ConfigureAwait(false);

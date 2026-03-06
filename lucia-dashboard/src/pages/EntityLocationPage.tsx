@@ -183,6 +183,22 @@ export default function EntityLocationPage() {
     }
   }, [])
 
+  /** Load entities with specific domain/agent filters, bypassing stale state */
+  const loadEntitiesFiltered = useCallback(async (domain: string, agentName: string) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const result = await fetchEntityLocationEntities(domain || undefined, agentName || undefined)
+      setEntities(result)
+      setEntityPage(0)
+      setSelectedEntityIds(new Set())
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load data')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
   const loadTab = useCallback(async (tab: Tab) => {
     if (tab === 'search') return
     setLoading(true)
@@ -191,7 +207,7 @@ export default function EntityLocationPage() {
       if (tab === 'floors') setFloors(await fetchEntityLocationFloors())
       else if (tab === 'areas') setAreas(await fetchEntityLocationAreas())
       else if (tab === 'entities') {
-        const result = await fetchEntityLocationEntities(domainFilter || undefined)
+        const result = await fetchEntityLocationEntities(domainFilter || undefined, impersonateAgent || undefined)
         setEntities(result)
         setEntityPage(0)
         setSelectedEntityIds(new Set())
@@ -201,7 +217,7 @@ export default function EntityLocationPage() {
     } finally {
       setLoading(false)
     }
-  }, [domainFilter])
+  }, [domainFilter, impersonateAgent])
 
   useEffect(() => {
     loadSummary()
@@ -409,12 +425,8 @@ export default function EntityLocationPage() {
 
   // ── Derived state ──────────────────────────────────────────────
 
-  // When impersonating an agent, filter entities to only those visible to that agent
-  const visibleEntities = impersonateAgent
-    ? entities.filter(e =>
-        e.includeForAgent === null ||
-        e.includeForAgent.includes(impersonateAgent))
-    : entities
+  // Entities are already filtered by agent on the server when impersonating
+  const visibleEntities = entities
 
   const entityPageCount = Math.max(1, Math.ceil(visibleEntities.length / entityPageSize))
   const pagedEntities = visibleEntities.slice(entityPage * entityPageSize, (entityPage + 1) * entityPageSize)
@@ -953,15 +965,10 @@ export default function EntityLocationPage() {
                 const agentName = e.target.value
                 setImpersonateAgent(agentName)
                 setEntityPage(0)
-                // Auto-apply domain filter from agent's skill domains
                 const agent = availableAgents.find(a => a.name === agentName)
-                if (agent && agent.domains.length > 0) {
-                  setDomainFilter(agent.domains.join(','))
-                  // Reload with the new domain filter
-                  setTimeout(() => loadTab('entities'), 0)
-                } else if (!agentName) {
-                  setDomainFilter('')
-                }
+                const newDomain = agent && agent.domains.length > 0 ? agent.domains.join(',') : ''
+                setDomainFilter(newDomain)
+                loadEntitiesFiltered(newDomain, agentName)
               }}
               className="rounded-lg border border-stone bg-basalt px-3 py-2 text-sm text-fog focus:border-amber focus:outline-none"
             >
