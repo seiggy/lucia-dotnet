@@ -110,6 +110,7 @@
 - **HACS validation workflow failure** — Corrected CI step order to ensure repository content is present.
 - **Startup embedding failures from blank input** — Prevented invalid embedding calls caused by empty match names.
 - **Embedding request bursts during cache reloads** — Moved generation to throttled background batching to reduce provider rate-limit pressure.
+- **Presence sensor refresh duplicate-key crashes** — Fixed MongoDB duplicate key failures on re-scan by deduplicating auto-detected sensor IDs and skipping IDs already reserved by user overrides (issue #41).
 
 ## 🧪 Testing
 
