@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react'
 import type { SkillConfigSectionData } from '../api'
 import { updateSkillConfig, fetchAvailableDomains } from '../api'
 import { Save, Plus, X, ChevronDown } from 'lucide-react'
@@ -9,12 +9,17 @@ interface SkillConfigEditorProps {
   onSaved?: () => void
 }
 
+export interface SkillConfigEditorHandle {
+  /** Persist all edited sections to the server. */
+  saveAll: () => Promise<void>
+}
+
 /**
  * Dynamic form editor for agent skill configuration sections.
  * Renders controls based on schema types returned by the skill-config API.
  * Writes to the MongoDB config store, which hot-reloads via IOptionsMonitor.
  */
-export default function SkillConfigEditor({ agentId, sections, onSaved }: SkillConfigEditorProps) {
+const SkillConfigEditor = forwardRef<SkillConfigEditorHandle, SkillConfigEditorProps>(function SkillConfigEditor({ agentId, sections, onSaved }, ref) {
   const [editedValues, setEditedValues] = useState<Record<string, Record<string, unknown>>>(() => {
     const initial: Record<string, Record<string, unknown>> = {}
     for (const s of sections) {
@@ -22,6 +27,7 @@ export default function SkillConfigEditor({ agentId, sections, onSaved }: SkillC
     }
     return initial
   })
+  const [dirtyKeys, setDirtyKeys] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState<string | null>(null)
   const [savedSection, setSavedSection] = useState<string | null>(null)
   const [availableDomains, setAvailableDomains] = useState<string[]>([])
@@ -35,6 +41,7 @@ export default function SkillConfigEditor({ agentId, sections, onSaved }: SkillC
       ...prev,
       [section]: { ...prev[section], [key]: value },
     }))
+    setDirtyKeys((prev) => new Set(prev).add(section))
     setSavedSection(null)
   }, [])
 
@@ -43,6 +50,11 @@ export default function SkillConfigEditor({ agentId, sections, onSaved }: SkillC
       setSaving(section)
       try {
         await updateSkillConfig(agentId, section, editedValues[section])
+        setDirtyKeys((prev) => {
+          const next = new Set(prev)
+          next.delete(section)
+          return next
+        })
         setSavedSection(section)
         onSaved?.()
       } catch (e) {
@@ -53,6 +65,20 @@ export default function SkillConfigEditor({ agentId, sections, onSaved }: SkillC
     },
     [agentId, editedValues, onSaved]
   )
+
+  useImperativeHandle(ref, () => ({
+    saveAll: async () => {
+      for (const section of sections) {
+        if (!dirtyKeys.has(section.sectionName)) continue
+        const values = editedValues[section.sectionName]
+        if (values) {
+          await updateSkillConfig(agentId, section.sectionName, values)
+        }
+      }
+      setDirtyKeys(new Set())
+      onSaved?.()
+    },
+  }), [agentId, sections, editedValues, dirtyKeys, onSaved])
 
   if (sections.length === 0) return null
 
@@ -97,7 +123,9 @@ export default function SkillConfigEditor({ agentId, sections, onSaved }: SkillC
       ))}
     </div>
   )
-}
+})
+
+export default SkillConfigEditor
 
 function FieldEditor({
   name,

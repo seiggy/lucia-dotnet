@@ -83,10 +83,32 @@ public static class AgentDefinitionApi
         var existing = await repository.GetAgentDefinitionAsync(id).ConfigureAwait(false);
         if (existing is null) return TypedResults.NotFound();
 
-        definition.Id = id;
-        definition.CreatedAt = existing.CreatedAt;
-        await repository.UpsertAgentDefinitionAsync(definition).ConfigureAwait(false);
-        return TypedResults.Ok(definition);
+        // Merge incoming fields — only overwrite when the client sent a non-null value.
+        // String properties deserialise to null when absent from the JSON payload.
+        existing.Name = definition.Name ?? existing.Name;
+        existing.DisplayName = definition.DisplayName ?? existing.DisplayName;
+        existing.Description = definition.Description ?? existing.Description;
+        existing.Instructions = definition.Instructions ?? existing.Instructions;
+        existing.ModelConnectionName = definition.ModelConnectionName ?? existing.ModelConnectionName;
+        existing.EmbeddingProviderName = definition.EmbeddingProviderName ?? existing.EmbeddingProviderName;
+
+        // Bool — always present when the frontend submits the form
+        existing.Enabled = definition.Enabled;
+
+        // Collections: null ⇒ "not sent", empty list ⇒ intentional clear.
+        // The property initialiser is [] so an omitted JSON field is
+        // indistinguishable from an explicit []; the frontend always sends
+        // this field so the merge is correct in practice.
+        if (definition.Tools is not null)
+            existing.Tools = definition.Tools;
+
+        existing.UpdatedAt = DateTime.UtcNow;
+
+        // System-managed flags & timestamps — never overwrite from client data.
+        // existing.IsBuiltIn, IsRemote, IsOrchestrator, CreatedAt remain unchanged.
+
+        await repository.UpsertAgentDefinitionAsync(existing).ConfigureAwait(false);
+        return TypedResults.Ok(existing);
     }
 
     private static async Task<Results<NoContent, NotFound>> DeleteDefinitionAsync(

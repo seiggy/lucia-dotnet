@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import type { AgentDefinition, AgentToolReference, McpToolInfo, ModelProvider } from '../types'
 import {
   fetchAgentDefinitions,
@@ -16,6 +16,7 @@ import {
 } from '../api'
 import CustomSelect from '../components/CustomSelect'
 import SkillConfigEditor from '../components/SkillConfigEditor'
+import type { SkillConfigEditorHandle } from '../components/SkillConfigEditor'
 import type { McpToolServerDefinition, McpServerStatus } from '../types'
 
 type FormMode = 'list' | 'create' | 'edit'
@@ -227,6 +228,7 @@ function AgentForm({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [skillConfigSections, setSkillConfigSections] = useState<SkillConfigSectionData[]>([])
+  const skillConfigRef = useRef<SkillConfigEditorHandle>(null)
 
   useEffect(() => {
     const load = async () => {
@@ -282,6 +284,9 @@ function AgentForm({
     setSaving(true)
     setError(null)
     try {
+      // Save any pending skill config changes (e.g. domain list edits)
+      await skillConfigRef.current?.saveAll()
+
       await onSave({
         id: form.id || form.name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
         name: form.name || form.id,
@@ -493,6 +498,7 @@ function AgentForm({
         {/* Skill Configuration (built-in agents with ISkillConfigProvider) */}
         {skillConfigSections.length > 0 && definition?.name && (
           <SkillConfigEditor
+            ref={skillConfigRef}
             agentId={definition.name}
             sections={skillConfigSections}
             onSaved={() => fetchSkillConfig(definition.name).then(setSkillConfigSections).catch(() => {})}
