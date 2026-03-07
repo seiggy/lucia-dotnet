@@ -498,6 +498,16 @@ export interface InstalledPlugin {
   installedAt: string
   pluginPath: string
   enabled: boolean
+  updateAvailable?: boolean
+  availableVersion?: string | null
+}
+
+export interface PluginUpdateInfo {
+  pluginId: string
+  pluginName: string
+  installedVersion: string | null
+  availableVersion: string | null
+  repositoryId: string
 }
 
 export interface PluginConfigSchema {

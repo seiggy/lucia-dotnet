@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Models;
 using Microsoft.Extensions.Logging;
@@ -17,6 +18,7 @@ public sealed class PluginManagementService
     private readonly Dictionary<string, IPluginRepositorySource> _sources;
     private readonly ILogger<PluginManagementService> _logger;
     private readonly string _pluginDirectory;
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _updateLocks = new();
 
     public PluginManagementService(
         IPluginManagementRepository repository,
@@ -241,7 +243,196 @@ public sealed class PluginManagementService
         _logger.LogInformation("Plugin '{Id}' uninstalled.", pluginId);
     }
 
+    // ── Update Detection ────────────────────────────────────────
+
+    /// <summary>
+    /// Compares installed plugin versions against cached repository manifests
+    /// and returns a list of plugins with available updates.
+    /// </summary>
+    public async Task<List<PluginUpdateInfo>> CheckForUpdatesAsync(CancellationToken ct = default)
+    {
+        var installed = await GetInstalledPluginsAsync(ct).ConfigureAwait(false);
+        var repos = await _repository.GetRepositoriesAsync(ct).ConfigureAwait(false);
+
+        var manifestLookup = BuildManifestLookup(repos);
+        var updates = new List<PluginUpdateInfo>();
+
+        foreach (var plugin in installed)
+        {
+            if (!manifestLookup.TryGetValue(plugin.Id, out var entry))
+                continue;
+
+            if (!IsNewerVersion(plugin.Version, entry.ManifestEntry.Version))
+                continue;
+
+            updates.Add(new PluginUpdateInfo
+            {
+                PluginId = plugin.Id,
+                PluginName = plugin.Name,
+                InstalledVersion = plugin.Version,
+                AvailableVersion = entry.ManifestEntry.Version,
+                RepositoryId = entry.RepositoryId,
+            });
+        }
+
+        return updates;
+    }
+
+    /// <summary>
+    /// Updates a plugin to the latest version available in its repository.
+    /// Downloads files, updates the installed record, and marks restart required.
+    /// </summary>
+    public async Task<PluginUpdateResult> UpdatePluginAsync(string pluginId, CancellationToken ct = default)
+    {
+        var semaphore = _updateLocks.GetOrAdd(pluginId, _ => new SemaphoreSlim(1, 1));
+        await semaphore.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var record = await _repository.GetInstalledPluginAsync(pluginId, ct).ConfigureAwait(false);
+            if (record is null)
+            {
+                _logger.LogWarning("Plugin '{Id}' is not installed — cannot update.", pluginId);
+                return PluginUpdateResult.PluginNotInstalled;
+            }
+
+            var repos = await _repository.GetRepositoriesAsync(ct).ConfigureAwait(false);
+            var manifestLookup = BuildManifestLookup(repos);
+
+            if (!manifestLookup.TryGetValue(pluginId, out var entry))
+            {
+                _logger.LogWarning("Plugin '{Id}' not found in any repository — cannot update.", pluginId);
+                return PluginUpdateResult.PluginNotInRepository;
+            }
+
+            if (!IsNewerVersion(record.Version, entry.ManifestEntry.Version))
+            {
+                _logger.LogInformation(
+                    "Plugin '{Id}' is already up to date at version {Version} — no update performed.",
+                    pluginId,
+                    record.Version);
+                return PluginUpdateResult.AlreadyUpToDate;
+            }
+
+            var repo = repos.First(r => r.Id == entry.RepositoryId);
+            var source = ResolveSource(repo.Type);
+            var pluginPath = Path.Combine(_pluginDirectory, pluginId);
+
+            await source.InstallPluginAsync(repo, entry.ManifestEntry, pluginPath, ct).ConfigureAwait(false);
+
+            var oldVersion = record.Version;
+            record.Version = entry.ManifestEntry.Version;
+
+            try
+            {
+                await _repository.UpsertInstalledPluginAsync(record, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogCritical(ex,
+                    "Plugin '{Id}' files updated to {NewVersion} but database update failed. " +
+                    "The system is in an inconsistent state — manual intervention may be required.",
+                    pluginId, entry.ManifestEntry.Version);
+                _changeTracker.MarkRestartRequired();
+                throw;
+            }
+
+            _changeTracker.MarkRestartRequired();
+            _logger.LogInformation(
+                "Plugin '{Id}' updated from {OldVersion} to {NewVersion}.",
+                pluginId, oldVersion, record.Version);
+
+            return PluginUpdateResult.Updated;
+        }
+        finally
+        {
+            semaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// Returns installed plugins enriched with update availability information.
+    /// </summary>
+    public async Task<List<InstalledPluginWithUpdateInfo>> GetInstalledPluginsWithUpdateInfoAsync(
+        CancellationToken ct = default)
+    {
+        var installed = await GetInstalledPluginsAsync(ct).ConfigureAwait(false);
+        var repos = await _repository.GetRepositoriesAsync(ct).ConfigureAwait(false);
+        var manifestLookup = BuildManifestLookup(repos);
+
+        return installed.Select(plugin =>
+        {
+            var hasUpdate = manifestLookup.TryGetValue(plugin.Id, out var entry)
+                && IsNewerVersion(plugin.Version, entry.ManifestEntry.Version);
+
+            return new InstalledPluginWithUpdateInfo
+            {
+                Plugin = plugin,
+                UpdateAvailable = hasUpdate,
+                AvailableVersion = hasUpdate ? entry!.ManifestEntry.Version : null,
+            };
+        }).ToList();
+    }
+
     // ── Helpers ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// Builds a lookup from plugin ID → (manifest entry, repository ID) across all enabled repos.
+    /// If the same plugin appears in multiple repos, the entry with the highest version wins.
+    /// </summary>
+    private static Dictionary<string, (PluginManifestEntry ManifestEntry, string RepositoryId)> BuildManifestLookup(
+        List<PluginRepositoryDefinition> repos)
+    {
+        var lookup = new Dictionary<string, (PluginManifestEntry ManifestEntry, string RepositoryId)>(
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var repo in repos.Where(r => r.Enabled))
+        {
+            foreach (var plugin in repo.CachedPlugins)
+            {
+                if (lookup.TryGetValue(plugin.Id, out var existing))
+                {
+                    // A concrete version always wins over a null version
+                    if (existing.ManifestEntry.Version is null && plugin.Version is not null)
+                    {
+                        lookup[plugin.Id] = (plugin, repo.Id);
+                    }
+                    else if (IsNewerVersion(existing.ManifestEntry.Version, plugin.Version))
+                    {
+                        lookup[plugin.Id] = (plugin, repo.Id);
+                    }
+
+                    continue;
+                }
+
+                lookup[plugin.Id] = (plugin, repo.Id);
+            }
+        }
+
+        return lookup;
+    }
+
+    /// <summary>
+    /// Returns true if <paramref name="availableVersion"/> is strictly newer than
+    /// <paramref name="installedVersion"/>. Returns false for null or unparseable versions.
+    /// </summary>
+    private static bool IsNewerVersion(string? installedVersion, string? availableVersion)
+    {
+        if (string.IsNullOrWhiteSpace(installedVersion) || string.IsNullOrWhiteSpace(availableVersion))
+            return false;
+
+        // Strip leading 'v' if present (e.g. "v1.0.0" → "1.0.0")
+        var installed = installedVersion.TrimStart('v', 'V');
+        var available = availableVersion.TrimStart('v', 'V');
+
+        if (Version.TryParse(installed, out var installedVer) &&
+            Version.TryParse(available, out var availableVer))
+        {
+            return availableVer > installedVer;
+        }
+
+        // Fallback: lexicographic comparison for non-standard versions
+        return string.Compare(available, installed, StringComparison.OrdinalIgnoreCase) > 0;
+    }
 
     private IPluginRepositorySource ResolveSource(string type)
     {
