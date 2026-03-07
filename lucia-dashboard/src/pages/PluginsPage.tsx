@@ -9,6 +9,7 @@ import {
   PowerOff,
   Trash2,
   SlidersHorizontal,
+  ArrowUpCircle,
 } from 'lucide-react'
 import type { InstalledPlugin, AvailablePlugin } from '../types'
 import {
@@ -18,6 +19,7 @@ import {
   disablePlugin,
   uninstallPlugin,
   installPlugin,
+  updatePlugin,
 } from '../api'
 import RestartBanner from '../components/RestartBanner'
 import PluginRepoDialog from '../components/PluginRepoDialog'
@@ -121,6 +123,20 @@ export default function PluginsPage() {
     }
   }
 
+  const handleUpdate = async (p: InstalledPlugin) => {
+    markBusy(p.id, true)
+    const targetVersion = p.availableVersion
+    try {
+      await updatePlugin(p.id)
+      await loadInstalled()
+      addToast(`${p.name || p.id} updated to ${targetVersion}`, 'success')
+    } catch {
+      addToast(`Failed to update ${p.name || p.id}`, 'error')
+    } finally {
+      markBusy(p.id, false)
+    }
+  }
+
   const handleInstall = async (p: AvailablePlugin) => {
     markBusy(p.id, true)
     try {
@@ -205,10 +221,27 @@ export default function PluginsPage() {
                         bundled
                       </span>
                     )}
+                    {p.updateAvailable && p.availableVersion && (
+                      <span className="rounded bg-sky-500/20 px-1.5 py-0.5 text-xs text-sky-400" data-testid="update-badge">
+                        Update Available ({p.version} → {p.availableVersion})
+                      </span>
+                    )}
                   </div>
                   {p.description && <p className="mt-0.5 text-xs text-fog">{p.description}</p>}
                 </div>
                 <div className="ml-4 flex shrink-0 items-center gap-2">
+                  {p.updateAvailable && (
+                    <button
+                      onClick={() => handleUpdate(p)}
+                      disabled={busyIds.has(p.id)}
+                      className="flex items-center gap-1 rounded bg-sky-500/20 px-2 py-1.5 text-xs font-medium text-sky-400 hover:bg-sky-500/30 disabled:opacity-50"
+                      title={`Update to ${p.availableVersion}`}
+                      data-testid="update-button"
+                    >
+                      <ArrowUpCircle className="h-3.5 w-3.5" />
+                      Update
+                    </button>
+                  )}
                   <button
                     onClick={() => handleToggle(p)}
                     disabled={busyIds.has(p.id)}

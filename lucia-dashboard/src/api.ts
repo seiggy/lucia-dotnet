@@ -1339,6 +1339,17 @@ export async function fetchInstalledPlugins(): Promise<import('./types').Install
   return res.json();
 }
 
+export async function checkPluginUpdates(): Promise<import('./types').PluginUpdateInfo[]> {
+  const res = await fetch(`${BASE}/plugins/updates`);
+  if (!res.ok) throw new Error(`Failed to check plugin updates`);
+  return res.json();
+}
+
+export async function updatePlugin(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/plugins/${id}/update`, { method: 'POST' });
+  if (!res.ok) throw new Error(`Failed to update plugin`);
+}
+
 export async function enablePlugin(id: string): Promise<void> {
   const res = await fetch(`${BASE}/plugins/${id}/enable`, { method: 'POST' });
   if (!res.ok) throw new Error(`Failed to enable plugin`);
