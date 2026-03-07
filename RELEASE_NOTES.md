@@ -1,3 +1,65 @@
+# Release Notes - 1.1.1
+
+**Release Date:** March 7, 2026  
+**Code Name:** "Spectra Patch 1"
+
+---
+
+## 🔧 Overview
+
+v1.1.1 is a patch release addressing three bugs discovered shortly after the Spectra launch: an incorrect API integration in the Brave Search plugin, a data-loss issue when editing agent definitions, and a missing plugin update detection mechanism.
+
+## 🐛 Bug Fixes
+
+### Brave Search Plugin — LLM Context API ([#70](https://github.com/seiggy/lucia-dotnet/issues/70), [PR #72](https://github.com/seiggy/lucia-dotnet/pull/72))
+
+The Brave Search plugin was using the raw Web Search API (`/v1/web/search`) which returns unprocessed search result links. It now uses the **LLM Context API** (`/v1/llm/context`), which returns pre-extracted, relevance-scored web content optimized for LLM consumption.
+
+- Switched endpoint to `/v1/llm/context` with `maximum_number_of_tokens=8192`
+- Updated response DTOs to match the grounding/sources schema
+- Added `.Take(8)` limit on grounding items for consistent output size
+- Added null guard on snippets to prevent `NullReferenceException`
+- Bumped plugin version to 1.1.0
+- Updated and expanded unit tests (6 passing)
+
+### Agent Domain Settings Not Persisting ([#71](https://github.com/seiggy/lucia-dotnet/issues/71), [PR #73](https://github.com/seiggy/lucia-dotnet/pull/73))
+
+Editing an agent's domain list in the Definitions page and clicking "Update" silently discarded the changes. Two root causes were identified and fixed:
+
+- **Frontend**: `SkillConfigEditor` maintained its own React state for domain edits, but the parent form never flushed that state before saving. Added `forwardRef`/`useImperativeHandle` exposing a `saveAll()` method with dirty-section tracking to only persist modified sections.
+- **Backend**: `UpdateDefinitionAsync` performed a full document replacement, clobbering system flags (`IsBuiltIn`, `IsRemote`, `IsOrchestrator`) and any fields omitted from the request. Switched to merge-based PUT that preserves existing values when incoming fields are null.
+- Added 8 Playwright E2E tests covering domain persistence and system flag preservation.
+
+### Plugin Update Detection ([#74](https://github.com/seiggy/lucia-dotnet/issues/74), [PR #75](https://github.com/seiggy/lucia-dotnet/pull/75))
+
+The plugin system stored version information but never compared installed versions against repository manifests. Users had no way to know updates were available.
+
+- Added `CheckForUpdatesAsync()` and `UpdatePluginAsync()` to `PluginManagementService` with semver-aware version comparison
+- Added `GET /api/plugins/updates` endpoint to check for available updates
+- Added `POST /api/plugins/{id}/update` endpoint to apply updates in-place
+- Enhanced `GET /api/plugins/installed` response with `UpdateAvailable` and `AvailableVersion` fields
+- Skip redundant downloads when installed version is already current
+- Dashboard now shows "Update Available (v1.0.0 → v1.1.0)" badges with an Update button on the Plugins page
+- 9 unit tests and 5 Playwright E2E tests covering the full update flow
+
+## 📊 Test Coverage
+
+| Area | Unit Tests | E2E Tests |
+|------|-----------|-----------|
+| Brave Search LLM Context API | 6 | — |
+| Agent Domain Settings | — | 8 |
+| Plugin Update Detection | 9 | 5 |
+| **Total New Tests** | **15** | **13** |
+
+## 🔄 Upgrade Notes
+
+- **No breaking changes** — this is a fully backward-compatible patch release
+- **Plugin update UI** — after upgrading, the Plugins page will automatically show update indicators for any outdated plugins
+- **Restart required** — applying a plugin update from the dashboard will prompt for a restart to reload the updated plugin
+
+---
+---
+
 # Release Notes - 1.1.0
 
 **Release Date:** March 6, 2026  
