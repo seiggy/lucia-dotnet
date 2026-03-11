@@ -22,18 +22,36 @@ public static class ModelProviderApi
             .WithTags("Model Providers")
             .RequireAuthorization();
 
-        group.MapGet("/", ListProvidersAsync);
-        group.MapGet("/{id}", GetProviderAsync);
-        group.MapPost("/", CreateProviderAsync);
-        group.MapPut("/{id}", UpdateProviderAsync);
-        group.MapDelete("/{id}", DeleteProviderAsync);
-        group.MapPost("/{id}/test", TestProviderAsync);
-        group.MapPost("/{id}/test-embedding", TestEmbeddingAsync);
-        group.MapPost("/{id}/models", ListProviderModelsAsync);
-        group.MapPost("/{id}/model", SetProviderModelAsync);
-        group.MapPost("/copilot/connect", CopilotConnectAsync);
-        group.MapPost("/ollama/models", ListOllamaModelsAsync);
-        group.MapPost("/models/discover", DiscoverProviderModelsAsync);
+        group.MapGet("/", ListProvidersAsync)
+            .WithSummary("List model providers")
+            .WithDescription("Returns all configured LLM providers. Optionally filter by purpose (Chat or Embedding).");
+        group.MapGet("/{id}", GetProviderAsync)
+            .WithSummary("Get model provider by ID");
+        group.MapPost("/", CreateProviderAsync)
+            .WithSummary("Create a model provider")
+            .WithDescription("Registers a new LLM provider configuration (OpenAI, Azure, Ollama, Anthropic, etc.).");
+        group.MapPut("/{id}", UpdateProviderAsync)
+            .WithSummary("Update a model provider");
+        group.MapDelete("/{id}", DeleteProviderAsync)
+            .WithSummary("Delete a model provider")
+            .WithDescription("Built-in providers cannot be deleted.");
+        group.MapPost("/{id}/test", TestProviderAsync)
+            .WithSummary("Test provider chat connection")
+            .WithDescription("Sends a test completion request to verify the provider is configured correctly.");
+        group.MapPost("/{id}/test-embedding", TestEmbeddingAsync)
+            .WithSummary("Test provider embedding connection");
+        group.MapPost("/{id}/models", ListProviderModelsAsync)
+            .WithSummary("List available models for a provider");
+        group.MapPost("/{id}/model", SetProviderModelAsync)
+            .WithSummary("Set the active model for a provider");
+        group.MapPost("/copilot/connect", CopilotConnectAsync)
+            .WithSummary("Connect to GitHub Copilot")
+            .WithDescription("Experimental. Initiates Copilot connection and discovers available models.");
+        group.MapPost("/ollama/models", ListOllamaModelsAsync)
+            .WithSummary("List Ollama models from a remote endpoint");
+        group.MapPost("/models/discover", DiscoverProviderModelsAsync)
+            .WithSummary("Discover models from a provider endpoint")
+            .WithDescription("Queries the provider's model catalog without saving a provider configuration.");
 
         return endpoints;
     }

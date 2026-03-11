@@ -14,7 +14,8 @@ public static class PresenceApi
     public static IEndpointRouteBuilder MapPresenceApi(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/presence")
-            .WithTags("Presence");
+            .WithTags("Presence")
+            .RequireAuthorization();
 
         // --- Occupancy queries ---
         group.MapGet("/occupied", GetOccupiedAreasAsync);

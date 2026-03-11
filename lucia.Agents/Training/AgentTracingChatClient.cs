@@ -86,9 +86,9 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
             _availableToolsSnapshot = availableTools;
         }
 
-        // Capture request messages for this round
-        var capturedMessages = _accumulatedMessages.Select(m => m.MessageId).ToList();
-        foreach (var msg in requestMessages.Where(msg => capturedMessages.Contains(msg.MessageId)))
+        // Capture request messages for this round (skip already captured)
+        var capturedMessages = _accumulatedMessages.Select(m => m.MessageId).ToHashSet();
+        foreach (var msg in requestMessages.Where(msg => !capturedMessages.Contains(msg.MessageId)))
         {
             _accumulatedMessages.Add(new TracedMessage
             {
@@ -99,7 +99,7 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
         }
 
         var startTimestamp = System.Diagnostics.Stopwatch.GetTimestamp();
-        capturedMessages = _accumulatedMessages.Select(m => m.MessageId).ToList();
+        var capturedMessageIds = _accumulatedMessages.Select(m => m.MessageId).ToHashSet();
         try
         {
             var response = await base.GetResponseAsync(requestMessages, options, cancellationToken).ConfigureAwait(false);
@@ -113,7 +113,7 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
                 foreach (var msg in response.Messages)
                 {
                     // grab any non-tool call messages and add to the accumulated data
-                    if (msg.Role != ChatRole.Tool && !capturedMessages.Contains(msg.MessageId))
+                    if (msg.Role != ChatRole.Tool && !capturedMessageIds.Contains(msg.MessageId))
                     {
                         _accumulatedMessages.Add(new TracedMessage
                         {
@@ -292,18 +292,23 @@ public sealed class AgentTracingChatClient : DelegatingChatClient
                     break;
                 case FunctionResultContent fr:
                 {
+                    var resultText = fr.Result?.ToString();
+                    var truncatedResult = resultText is not null
+                        ? resultText[..Math.Min(2000, resultText.Length)]
+                        : null;
+
                     // Try to attach result to the matching tool call
                     var matchingCall = toolCalls.LastOrDefault(tc => tc.ToolName == fr.CallId || tc.Result is null);
                     if (matchingCall is not null)
                     {
-                        matchingCall.Result = fr.Result?.ToString()?[..Math.Min(2000, fr.Result.ToString()?.Length ?? 0)];
+                        matchingCall.Result = truncatedResult;
                     }
                     else
                     {
                         toolCalls.Add(new TracedToolCall
                         {
                             ToolName = fr.CallId,
-                            Result = fr.Result?.ToString()?[..Math.Min(2000, fr.Result.ToString()?.Length ?? 0)]
+                            Result = truncatedResult
                         });
                     }
                     break;

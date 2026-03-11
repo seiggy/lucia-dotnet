@@ -1,10 +1,12 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { RefreshCw, Eye, EyeOff, Wifi, WifiOff, Users, Trash2, Shield, ShieldOff } from 'lucide-react'
 import {
   fetchPresenceSensors, fetchOccupiedAreas, fetchPresenceConfig,
   updatePresenceConfig, updatePresenceSensor, deletePresenceSensor, refreshPresenceSensors
 } from '../api'
 import CustomSelect from '../components/CustomSelect'
+import ToastContainer from '../components/ToastContainer'
+import { useToast } from '../hooks/useToast'
 import type { PresenceSensorMapping, OccupiedArea, PresenceConfidence } from '../types'
 
 const CONFIDENCE_LABELS: Record<PresenceConfidence, { label: string; color: string }> = {
@@ -28,15 +30,8 @@ export default function PresencePage() {
   const [enabled, setEnabled] = useState(true)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
-  const [toasts, setToasts] = useState<{ id: number; msg: string; type: 'success' | 'error' }[]>([])
+  const { toasts, addToast, dismissToast } = useToast()
   const [filter, setFilter] = useState('')
-  const toastIdRef = useRef(0)
-
-  const addToast = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
-    const id = ++toastIdRef.current
-    setToasts(t => [...t, { id, msg, type }])
-    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3500)
-  }, [])
 
   const loadData = useCallback(async () => {
     try {
@@ -136,13 +131,7 @@ export default function PresencePage() {
   return (
     <div className="space-y-6">
       {/* Toast notifications */}
-      <div className="fixed top-4 right-4 z-50 space-y-2">
-        {toasts.map(t => (
-          <div key={t.id} className={`rounded-lg px-4 py-2.5 text-sm shadow-lg backdrop-blur-sm ${
-            t.type === 'error' ? 'bg-rose/20 text-rose border border-rose/30' : 'bg-sage/20 text-sage border border-sage/30'
-          }`}>{t.msg}</div>
-        ))}
-      </div>
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
       {/* Header */}
       <div className="flex items-center justify-between">

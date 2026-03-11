@@ -10,65 +10,9 @@ import {
   fetchAlarmSounds, createAlarmSound, uploadAlarmSound, deleteAlarmSound, setDefaultAlarmSound,
 } from '../api'
 import CustomSelect from '../components/CustomSelect'
-
-// ── Toast notifications ──
-
-interface Toast {
-  id: number
-  message: string
-  type: 'success' | 'error'
-}
-
-let toastId = 0
-
-function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: number) => void }) {
-  return (
-    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
-      {toasts.map((t) => (
-        <div
-          key={t.id}
-          className={`flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium shadow-lg backdrop-blur-md transition-all ${
-            t.type === 'success'
-              ? 'bg-sage/20 text-sage border border-sage/30'
-              : 'bg-rose/20 text-rose border border-rose/30'
-          }`}
-        >
-          <span>{t.message}</span>
-          <button onClick={() => onDismiss(t.id)} className="ml-2 opacity-60 hover:opacity-100">
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// ── Confirm dialog ──
-
-function ConfirmDialog({
-  open, title, message, onConfirm, onCancel
-}: {
-  open: boolean; title: string; message: string;
-  onConfirm: () => void; onCancel: () => void
-}) {
-  if (!open) return null
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-sm rounded-xl border border-stone/40 bg-obsidian p-6 shadow-2xl">
-        <h3 className="text-base font-semibold text-light">{title}</h3>
-        <p className="mt-2 text-sm text-fog">{message}</p>
-        <div className="mt-5 flex justify-end gap-3">
-          <button onClick={onCancel} className="rounded-lg px-4 py-2 text-sm text-fog hover:text-cloud hover:bg-stone/40">
-            Cancel
-          </button>
-          <button onClick={onConfirm} className="rounded-lg bg-rose/20 px-4 py-2 text-sm font-medium text-rose hover:bg-rose/30">
-            Delete
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
+import ToastContainer from '../components/ToastContainer'
+import ConfirmDialog from '../components/ConfirmDialog'
+import { useToast } from '../hooks/useToast'
 
 // ── Tab type ──
 
@@ -135,7 +79,7 @@ export default function AlarmsPage() {
   const [alarms, setAlarms] = useState<AlarmClock[]>([])
   const [sounds, setSounds] = useState<AlarmSound[]>([])
   const [loading, setLoading] = useState(true)
-  const [toasts, setToasts] = useState<Toast[]>([])
+  const { toasts, addToast, dismissToast } = useToast(4000)
 
   // Alarm form state
   const [showAlarmForm, setShowAlarmForm] = useState(false)
@@ -158,12 +102,6 @@ export default function AlarmsPage() {
 
   // Delete confirmation
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'alarm' | 'sound'; id: string; name: string } | null>(null)
-
-  const addToast = useCallback((message: string, type: 'success' | 'error') => {
-    const id = ++toastId
-    setToasts(prev => [...prev, { id, message, type }])
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000)
-  }, [])
 
   const loadData = useCallback(async () => {
     try {
@@ -989,7 +927,7 @@ export default function AlarmsPage() {
         onCancel={() => setConfirmDelete(null)}
       />
 
-      <ToastContainer toasts={toasts} onDismiss={id => setToasts(prev => prev.filter(t => t.id !== id))} />
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   )
 }

@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
+import ToastContainer from '../components/ToastContainer'
+import { useToast } from '../hooks/useToast'
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -132,37 +134,6 @@ async function sendA2AMessage(
     taskMessage.contextId = task.contextId
   }
   return taskMessage
-}
-
-/* ------------------------------------------------------------------ */
-/*  Toast                                                              */
-/* ------------------------------------------------------------------ */
-
-interface Toast {
-  id: number
-  message: string
-  type: 'success' | 'error'
-}
-
-let toastId = 0
-
-function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: number) => void }) {
-  return (
-    <div className="fixed top-4 right-4 z-50 flex flex-col gap-2">
-      {toasts.map((t) => (
-        <div
-          key={t.id}
-          className={`flex items-center gap-3 rounded-xl px-4 py-3 shadow-lg text-sm font-medium transition-all duration-300 ${
-            t.type === 'success' ? 'bg-sage/20 text-light' : 'bg-ember/20 text-light'
-          }`}
-        >
-          <span>{t.type === 'success' ? '✓' : '✕'}</span>
-          <span className="flex-1">{t.message}</span>
-          <button onClick={() => onDismiss(t.id)} className="ml-2 opacity-70 hover:opacity-100">×</button>
-        </div>
-      ))}
-    </div>
-  )
 }
 
 /* ------------------------------------------------------------------ */
@@ -699,17 +670,7 @@ export default function AgentsPage() {
   const [contextIds, setContextIds] = useState<Record<string, string>>({})
 
   // Toasts
-  const [toasts, setToasts] = useState<Toast[]>([])
-
-  const showToast = useCallback((message: string, type: 'success' | 'error') => {
-    const id = ++toastId
-    setToasts((prev) => [...prev, { id, message, type }])
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3000)
-  }, [])
-
-  const dismissToast = useCallback((id: number) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id))
-  }, [])
+  const { toasts, addToast: showToast, dismissToast } = useToast()
 
   const loadAgents = useCallback(async () => {
     try {

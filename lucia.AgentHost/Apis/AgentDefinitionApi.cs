@@ -22,15 +22,32 @@ public static class AgentDefinitionApi
             .WithTags("Agent Definitions")
             .RequireAuthorization();
 
-        group.MapGet("/", ListDefinitionsAsync);
-        group.MapGet("/{id}", GetDefinitionAsync);
-        group.MapPost("/", CreateDefinitionAsync);
-        group.MapPut("/{id}", UpdateDefinitionAsync);
-        group.MapDelete("/{id}", DeleteDefinitionAsync);
-        group.MapPost("/reload", ReloadAgentsAsync);
-        group.MapPost("/seed", SeedBuiltInAgentsAsync);
-        group.MapGet("/{id}/skill-config", GetSkillConfigAsync);
-        group.MapPut("/{id}/skill-config/{section}", UpdateSkillConfigAsync);
+        group.MapGet("/", ListDefinitionsAsync)
+            .WithSummary("List all agent definitions")
+            .WithDescription("Returns all user-defined and built-in agent definitions from MongoDB.");
+        group.MapGet("/{id}", GetDefinitionAsync)
+            .WithSummary("Get agent definition by ID");
+        group.MapPost("/", CreateDefinitionAsync)
+            .WithSummary("Create a new agent definition")
+            .WithDescription("Creates a user-defined agent. Names that conflict with built-in agents are rejected.");
+        group.MapPut("/{id}", UpdateDefinitionAsync)
+            .WithSummary("Update an agent definition")
+            .WithDescription("Merges provided fields into the existing definition. Null fields are ignored.");
+        group.MapDelete("/{id}", DeleteDefinitionAsync)
+            .WithSummary("Delete an agent definition")
+            .WithDescription("Deletes the definition and unregisters the agent from the in-memory registry.");
+        group.MapPost("/reload", ReloadAgentsAsync)
+            .WithSummary("Reload dynamic agents")
+            .WithDescription("Rebuilds all dynamic agents from their MongoDB definitions without restarting the host.");
+        group.MapPost("/seed", SeedBuiltInAgentsAsync)
+            .WithSummary("Seed built-in agent definitions")
+            .WithDescription("Re-runs the built-in agent seed. Initializes and registers any newly added agents.");
+        group.MapGet("/{id}/skill-config", GetSkillConfigAsync)
+            .WithSummary("Get skill configuration for an agent")
+            .WithDescription("Returns configurable skill sections with schemas and current values from MongoDB.");
+        group.MapPut("/{id}/skill-config/{section}", UpdateSkillConfigAsync)
+            .WithSummary("Update a skill configuration section")
+            .WithDescription("Writes values to MongoDB config collection. Changes hot-reload via the config polling loop.");
 
         return endpoints;
     }

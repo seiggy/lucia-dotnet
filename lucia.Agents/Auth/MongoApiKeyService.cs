@@ -114,9 +114,15 @@ public sealed class MongoApiKeyService : IApiKeyService
             return null;
         }
 
-        // Update last used timestamp (fire-and-forget for performance)
+        // Update last used timestamp (fire-and-forget for performance — intentionally
+        // uses CancellationToken.None so the update completes even if the request ends)
         var update = Builders<ApiKeyEntry>.Update.Set(k => k.LastUsedAt, DateTime.UtcNow);
-        _ = _collection.UpdateOneAsync(k => k.Id == entry.Id, update, cancellationToken: CancellationToken.None);
+        _ = _collection.UpdateOneAsync(k => k.Id == entry.Id, update, cancellationToken: CancellationToken.None)
+            .ContinueWith(t =>
+            {
+                if (t.IsFaulted)
+                    _logger.LogWarning(t.Exception!.InnerException, "Failed to update LastUsedAt for API key '{KeyId}'", entry.Id);
+            }, TaskScheduler.Default);
 
         return entry;
     }
