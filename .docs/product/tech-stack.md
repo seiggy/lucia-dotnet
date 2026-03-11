@@ -1,19 +1,19 @@
 # Technical Stack
 
-> Last Updated: 2026-02-26
-> Version: 1.1.0
+> Last Updated: 2026-03-11
+> Version: 1.2.0
 
 ## Core Technologies
 
 ### Application Framework
 - **Framework:** ASP.NET Core Web API
 - **Version:** .NET 10
-- **Language:** C# 13 with nullable reference types
+- **Language:** C# 14 with nullable reference types
 
 ### AI/ML Framework
 - **Primary:** [Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/)
-- **Version:** 1.0.0
-- **Orchestration:** MagenticOne multi-agent pattern
+- **Version:** 1.0.0-rc3
+- **Orchestration:** Sequential & Fan-out/Fan-in custom orchestration workflow
 
 ### Database
 - **Primary:** Redis + MongoDB (runtime)
@@ -23,25 +23,22 @@
 ## Agent Stack
 
 ### LLM Providers
-- **Online:** OpenAI (GPT-4o), Google Gemini, Anthropic Claude
-- **Offline:** LLaMa and local models (planned)
-- **Embeddings:** TextEmbedding3Large (runtime deployment)
+- **Online:** Azure OpenAI, OpenAI, Google Gemini, Anthropic Claude
+- **Offline:** OLLaMa and llama.CPP
+- **Embeddings:** Support for Azure OpenAI, OpenAI, and local deployed Embeddings
 
 ### Agent Runtime
 - **Core:** Microsoft Agent Framework Agents
 - **Communication:** A2A (Agent-to-Agent) Protocol
 - **Registry:** Custom agent registry with HTTP API
 
-### Web Search (SearXNG)
-- **Integration:** Native SearXNG support via `WebSearchSkill`, aligned with Open Web UI
-- **Configuration:** `SEARXNG_URL` or `SearXng:BaseUrl` — when set, General Agent exposes a `web_search` tool
-- **Privacy:** SearXNG is a privacy-focused meta-search engine (no tracking, no profiling)
+### Web Search (Plugins)
+- **Integration:** Web Search for the General Agent is configured through the plugin library using either the SearXNG or Brave Plugins
 
 ### MCP Tool Servers
 - **Protocol:** [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) over HTTP/SSE
 - **Client:** Microsoft.Extensions.AI ModelContextProtocol (v0.9.0-preview.1)
 - **Transports:** stdio (local processes), HTTP/SSE (remote, e.g. MetaMCP)
-- **MetaMCP:** Full support aligned with Open Web UI — auto-seeded from `METAMCP_URL` and `METAMCP_API_KEY`; uses SSE endpoint `{host}/metamcp/openwebui-api/sse` with Bearer token auth
 - **Dynamic Agents:** MCP tools are assigned to agent definitions and resolved at runtime via `IMcpToolRegistry`
 
 ## Frontend Stack
@@ -51,7 +48,7 @@
 - **Framework:** Home Assistant Custom Component
 - **API Client:** aiohttp for async HTTP
 
-### Management UI (Implemented, Evolving)
+### Management UI
 - **Framework:** React
 - **Version:** Latest stable
 - **Build Tool:** Vite
@@ -61,11 +58,10 @@
 ### Container Platform
 - **Runtime:** Docker with Linux containers
 - **Orchestration:** Kubernetes
-- **Service Mesh:** Istio (optional)
 
 ### Cloud-Native Framework
 - **Platform:** .NET Aspire
-- **Version:** 13.1.1
+- **Version:** 13
 - **Features:** Service discovery, resilience, observability
 
 ### Observability
@@ -110,7 +106,6 @@
 
 ### Service Discovery
 - **Method:** .NET Aspire service discovery
-- **Registry:** Consul (optional for K8s)
 
 ### Configuration
 - **Management:** ASP.NET Core Configuration

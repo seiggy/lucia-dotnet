@@ -59,17 +59,15 @@ The following features have been implemented and are working:
 - [x] Intent processing - Convert natural language to actions `M`
 - [x] Context awareness - Time, location, and state-based responses `M`
 - [x] Multi-agent orchestration - Coordinate between multiple agents `M`
+- [x] ClimateAgent - Temperature and HVAC control `L`
+- [x] SceneAgent - Activate and manage scenes `M`
+- [x] TimerAgent - Create and trigger timers and events `S`
 
 ### In Progress Features
 
-- [ ] ClimateAgent - Temperature and HVAC control `L`
 - [ ] SecurityAgent - Alarm, locks, and camera management `L`
-- [ ] SceneAgent - Activate and manage scenes `M`
-
-### Should-Have Features
-
 - [ ] NotificationAgent - Send alerts and notifications `S`
-- [ ] WebSocket integration - Real-time event streaming from Home Assistant `L`
+- [ ] Improved WebSocket integration - Real-time event streaming from Home Assistant `L`
 
 ### Dependencies
 
@@ -103,95 +101,17 @@ The following features have been implemented and are working:
 
 ## Phase 4: Advanced Features (Future - 4-6 weeks)
 
-**Goal:** Enterprise-grade deployment and management  
-**Success Criteria:** Production-ready Kubernetes deployment
+**Goal:** Full-speech pipeline
+**Success Criteria:** Full-speech pipeline with GPU acceleration support
 
 ### Must-Have Features
 
-- [ ] Kubernetes manifests - Helm charts for deployment `L`
-- [ ] Distributed agents - Agents run in separate containers `XL`
-- [ ] Service mesh integration - Istio for inter-agent communication `L`
-- [ ] Management UI - React dashboard for configuration `XL`
 - [ ] Backup and restore - Agent state persistence `M`
-- [ ] WebSocket real-time communication - Bi-directional agent updates `L`
-
-### Should-Have Features
-
 - [ ] Multi-home support - Manage multiple Home Assistant instances `L`
 - [ ] Voice integration - Local speech-to-text and text-to-speech `L`
-- [ ] Advanced monitoring - OpenTelemetry with Prometheus and Grafana `M`
+- [ ] Diarization for full-speech pipeline `XL`
+- [ ] Satellite1 direct integration `L`
 
 ### Dependencies
 
-- Kubernetes cluster infrastructure
-- React development environment
-- Container orchestration expertise
-
-## Phase 5: Ecosystem & Community (Vision - 6+ weeks)
-
-**Goal:** Build community and extend platform capabilities  
-**Success Criteria:** Active community contributing agents and integrations
-
-### Must-Have Features
-
-- [ ] Agent SDK - Tools for building custom agents `XL`
-- [ ] Documentation site - Comprehensive developer guides `L`
-- [ ] Community hub - Share agents and configurations `XL`
-- [ ] Integration templates - Quick-start for popular devices `M`
-- [ ] Performance benchmarks - Standardized testing suite `M`
-- [ ] Plugin marketplace - Share and install community agents `XL`
-
-### Should-Have Features
-
-- [ ] Commercial agent store - Monetization for developers `XL`
-- [ ] Enterprise features - RBAC, audit logs, compliance `XL`
-- [ ] Cloud hosting option - Managed Lucia service `XL`
-- [ ] Mobile companion app - Remote control and monitoring `L`
-
-### Dependencies
-
-- Stable API contracts
-- Community engagement strategy
-- Documentation infrastructure
-- Legal framework for marketplace
-
-## Progress Summary
-
-### Current Status (February 2026)
-- **Phase 0**: 100% complete
-- **Phase 1**: 100% complete
-- **Phase 2**: Core capabilities delivered; specialist-agent expansion in progress
-- **Phase 3**: Platform foundations delivered (multi-LLM + Redis/Mongo runtime); advanced intelligence features pending
-- **Phase 4**: Planned
-- **Phase 5**: Vision
-
-### Next Sprint Priorities
-1. **ClimateAgent implementation** - HVAC and temperature control
-2. **SecurityAgent development** - Alarm and security device management  
-3. **WebSocket integration** - Real-time Home Assistant event streaming
-4. **Pattern recognition & automation suggestions** - Adaptive intelligence layer
-
-### Technical Debt & Improvements
-- [ ] Comprehensive unit test coverage
-- [ ] API documentation with OpenAPI/Swagger
-- [ ] Error handling and logging improvements
-- [ ] Performance optimization for large Home Assistant instances
-- [ ] Security audit and penetration testing
-
-## Architecture Evolution
-
-### Current Architecture (v2.0)
-- ? Microsoft Agent Framework with A2A Protocol v0.3.0
-- ? .NET 10 with Aspire orchestration
-- ? Home Assistant Python integration via HACS
-- ? JSON-RPC 2.0 communication
-- ? Dynamic agent registry and selection
-- ? Semantic search with embeddings
-- ? Redis + MongoDB runtime persistence
-- ? Multi-agent orchestration and aggregation
-
-### Planned Architecture (v3.0)
-- ? Distributed agent deployment
-- ? WebSocket real-time communication
-- ? Kubernetes-native deployment
-- ? Service mesh integration
+- Custom Satellite1 firmware build
