@@ -412,7 +412,7 @@ public static class ConfigurationApi
                     "System prompt that defines Lucia's personality and communication style. " +
                     "When set, agent responses are summarized through this prompt before being returned to the user. " +
                     "Leave empty to return raw agent responses.", ""),
-                new("ModelConnectionName", "string",
+                new("ModelConnectionName", "model-select",
                     "Model provider name for personality rewriting. " +
                     "Leave empty to use the orchestrator's default model. " +
                     "Set to a configured model provider name to use a different LLM for personality rewriting.", "")

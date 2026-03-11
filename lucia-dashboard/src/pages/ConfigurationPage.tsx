@@ -5,6 +5,7 @@ import {
   updateConfigSection,
   resetConfig,
   testMusicAssistantIntegration,
+  fetchModelProviders,
 } from '../api'
 import CustomSelect from '../components/CustomSelect'
 import type {
@@ -12,6 +13,7 @@ import type {
   ConfigEntryDto,
   ConfigPropertySchema,
 } from '../api'
+import type { ModelProvider } from '../types'
 
 /* ------------------------------------------------------------------ */
 /*  Toast                                                              */
@@ -508,6 +510,15 @@ function FieldEditor({
     )
   }
 
+  if (type === 'model-select') {
+    return (
+      <div>
+        {labelNode}
+        <ModelSelectField value={displayValue} onChange={onChange} />
+      </div>
+    )
+  }
+
   // Default: string (or unknown type)
   return (
     <div>
@@ -523,6 +534,57 @@ function FieldEditor({
         <p className="mt-1 text-xs text-dust">Default: {defaultValue}</p>
       )}
     </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Model Select Field                                                 */
+/* ------------------------------------------------------------------ */
+
+function ModelSelectField({ value, onChange }: { value: string; onChange: (val: string | null) => void }) {
+  const [providers, setProviders] = useState<ModelProvider[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    fetchModelProviders('Chat')
+      .then((data) => {
+        if (!cancelled) setProviders(data.filter((p) => p.enabled))
+      })
+      .catch(() => {
+        /* silently degrade — user can still type manually */
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [])
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 py-2 text-sm text-dust">
+        <svg className="h-4 w-4 animate-spin text-amber" viewBox="0 0 24 24" fill="none">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+        </svg>
+        Loading models…
+      </div>
+    )
+  }
+
+  return (
+    <CustomSelect
+      options={[
+        { value: '', label: '— Use orchestrator default —' },
+        ...providers.map((p) => ({
+          value: p.id,
+          label: `${p.name} (${p.providerType} · ${p.modelName})`,
+        })),
+      ]}
+      value={value}
+      onChange={(val) => onChange(val || null)}
+      className="w-full"
+    />
   )
 }
 
