@@ -356,6 +356,7 @@ public static class AlarmClockApi
         [FromRoute] string id,
         [FromServices] IAlarmClockRepository repo,
         [FromServices] IHomeAssistantClient haClient,
+        [FromServices] ILogger<AlarmClock> logger,
         CancellationToken ct)
     {
         var sound = await repo.GetSoundAsync(id, ct).ConfigureAwait(false);
@@ -369,9 +370,11 @@ public static class AlarmClockApi
             {
                 await haClient.DeleteMediaAsync(sound.MediaSourceUri, ct).ConfigureAwait(false);
             }
-            catch
+            catch (Exception ex)
             {
                 // Best-effort cleanup — don't fail the delete if HA media removal fails
+                logger.LogWarning(ex, "Failed to delete HA media file '{MediaUri}' for sound '{SoundId}'",
+                    sound.MediaSourceUri, id);
             }
         }
 
