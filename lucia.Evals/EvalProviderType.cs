@@ -1,4 +1,4 @@
-namespace lucia.Tests.Orchestration;
+namespace lucia.Evals;
 
 /// <summary>
 /// Supported LLM provider types for evaluation tests.

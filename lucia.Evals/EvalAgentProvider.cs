@@ -1,9 +1,8 @@
-using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using lucia.Agents.Abstractions;
 using Microsoft.Agents.AI;
 
-namespace lucia.Tests.Orchestration;
+namespace lucia.Evals;
 
 /// <summary>
 /// Test-only <see cref="IAgentProvider"/> that returns a pre-built list of

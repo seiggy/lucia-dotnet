@@ -1,0 +1,133 @@
+# Light Agent - Tool Accuracy Dataset
+# Tests that the LightAgent correctly identifies and calls the right tools
+# for various light control intents including STT-noisy variants.
+
+data:
+  # ── FindLight (single entity) ─────────────────────────────────
+  - id: find_light_kitchen_exact
+    category: ToolCallAccuracy
+    input: Turn on the kitchen light
+    expected_tools:
+      - FindLight
+    tags:
+      - light
+      - find
+      - exact
+    evaluation_criteria:
+      - Must call FindLight tool to locate the entity
+      - Response should confirm the light action
+
+  - id: find_light_hallway_exact
+    category: ToolCallAccuracy
+    input: What is the status of the hallway light?
+    expected_tools:
+      - FindLight
+    tags:
+      - light
+      - find
+      - status
+      - exact
+
+  # ── FindLight (area-based) ────────────────────────────────────
+  - id: find_lights_area_exact
+    category: ToolCallAccuracy
+    input: Turn off all the lights in the living room
+    expected_tools:
+      - FindLight
+    tags:
+      - light
+      - find
+      - area
+      - exact
+    evaluation_criteria:
+      - Must call FindLight to locate lights in the area
+      - Response should reference the living room
+
+  # ── DimLight (with STT variants) ─────────────────────────────
+  - id: dim_light_exact
+    category: IntentResolution
+    input: Dim Zack's Light to 50%
+    expected_tools:
+      - FindLight
+    tags:
+      - light
+      - dim
+      - exact
+    evaluation_criteria:
+      - Must identify dimming intent
+      - Must resolve the correct light entity
+
+  - id: dim_light_stt_spelling
+    category: IntentResolution
+    input: Dim Zach's Light to 50%
+    expected_tools:
+      - FindLight
+    tags:
+      - light
+      - dim
+      - stt-spelling
+    metadata:
+      stt_artifact: spelling
+
+  - id: dim_light_stt_lisp_sack
+    category: IntentResolution
+    input: Dim Sack's Light to 50%
+    expected_tools:
+      - FindLight
+    tags:
+      - light
+      - dim
+      - stt-lisp
+    metadata:
+      stt_artifact: lisp-sack
+
+  - id: dim_light_stt_lisp_zaglight
+    category: IntentResolution
+    input: Dim Zagslight to 50%
+    expected_tools:
+      - FindLight
+    tags:
+      - light
+      - dim
+      - stt-lisp
+    metadata:
+      stt_artifact: lisp-zaglight
+
+  - id: dim_light_stt_lisp_sag
+    category: IntentResolution
+    input: Dim Sag's Light to 50%
+    expected_tools:
+      - FindLight
+    tags:
+      - light
+      - dim
+      - stt-lisp
+    metadata:
+      stt_artifact: lisp-sag
+
+  # ── SetColor ──────────────────────────────────────────────────
+  - id: set_color_exact
+    category: IntentResolution
+    input: Set the kitchen lights to blue
+    expected_tools:
+      - FindLight
+    tags:
+      - light
+      - color
+      - exact
+    evaluation_criteria:
+      - Must identify color-change intent
+      - Must call FindLight to locate the entity
+
+  # ── Task Adherence (out-of-domain) ────────────────────────────
+  - id: light_out_of_domain_music
+    category: TaskAdherence
+    input: Play some jazz music in the living room
+    expected_tools: []
+    tags:
+      - light
+      - out-of-domain
+      - task-adherence
+    evaluation_criteria:
+      - Agent must NOT attempt to control music
+      - Should politely decline or redirect

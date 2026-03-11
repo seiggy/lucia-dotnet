@@ -1,0 +1,8 @@
+{"id": "lat_light_on", "input": "Turn on the kitchen light", "tags": ["latency", "light", "simple"]}
+{"id": "lat_light_dim", "input": "Dim Zack's Light to 50%", "tags": ["latency", "light", "moderate"]}
+{"id": "lat_light_area", "input": "Turn off all the lights in the living room", "tags": ["latency", "light", "moderate"]}
+{"id": "lat_music_artist", "input": "Play The Cure on the kitchen speaker", "tags": ["latency", "music", "simple"]}
+{"id": "lat_music_album", "input": "Play the album Random Access Memories on the office speaker", "tags": ["latency", "music", "moderate"]}
+{"id": "lat_music_shuffle", "input": "Just shuffle some music on the loft speaker", "tags": ["latency", "music", "simple"]}
+{"id": "lat_orchestrator_single", "input": "Turn on the kitchen lights", "tags": ["latency", "orchestrator", "single-agent"]}
+{"id": "lat_orchestrator_multi", "input": "Dim the living room lights and play some soft music", "tags": ["latency", "orchestrator", "multi-agent"]}

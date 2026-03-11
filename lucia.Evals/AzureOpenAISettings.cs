@@ -1,4 +1,4 @@
-namespace lucia.Tests.Orchestration;
+namespace lucia.Evals;
 
 /// <summary>
 /// Azure OpenAI / AI Foundry connection settings for evaluation tests.

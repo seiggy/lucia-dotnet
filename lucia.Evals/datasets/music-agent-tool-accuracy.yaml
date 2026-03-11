@@ -1,0 +1,88 @@
+# Music Agent - Tool Accuracy Dataset
+# Tests that the MusicAgent correctly handles various playback intents.
+
+data:
+  # ── PlayArtist ────────────────────────────────────────────────
+  - id: play_artist_exact
+    category: ToolCallAccuracy
+    input: Play The Cure on the kitchen speaker
+    tags:
+      - music
+      - play-artist
+      - exact
+    evaluation_criteria:
+      - Must identify artist playback intent
+      - Response should confirm music playback
+
+  # ── PlayAlbum ─────────────────────────────────────────────────
+  - id: play_album_exact
+    category: ToolCallAccuracy
+    input: Play the album Random Access Memories on the office speaker
+    tags:
+      - music
+      - play-album
+      - exact
+    evaluation_criteria:
+      - Must identify album playback intent
+      - Response should reference the album name
+
+  # ── PlaySong ──────────────────────────────────────────────────
+  - id: play_song_exact
+    category: ToolCallAccuracy
+    input: Play Shivers by Ed Sheeran in the bedroom
+    tags:
+      - music
+      - play-song
+      - exact
+    evaluation_criteria:
+      - Must identify song playback intent
+      - Response should reference the song and artist
+
+  # ── Shuffle ───────────────────────────────────────────────────
+  - id: shuffle_exact
+    category: ToolCallAccuracy
+    input: Just shuffle some music on the loft speaker
+    tags:
+      - music
+      - shuffle
+      - exact
+    evaluation_criteria:
+      - Must identify shuffle intent
+      - Response should confirm shuffle playback
+
+  # ── Stop ──────────────────────────────────────────────────────
+  - id: stop_music_exact
+    category: ToolCallAccuracy
+    input: Stop the music in the kitchen
+    tags:
+      - music
+      - stop
+      - exact
+    evaluation_criteria:
+      - Must identify stop intent
+      - Response should confirm music was stopped
+
+  # ── PlayGenre (intent resolution) ─────────────────────────────
+  - id: play_genre_exact
+    category: IntentResolution
+    input: Play some relaxed jazz on the Satellite1 kitchen
+    tags:
+      - music
+      - play-genre
+      - intent-resolution
+    evaluation_criteria:
+      - Must identify genre-based playback intent
+      - Should resolve the correct media player entity
+
+  # ── Task Adherence (out-of-domain) ────────────────────────────
+  - id: music_out_of_domain_lights
+    category: TaskAdherence
+    input: Turn on the living room lights
+    expected_tools: []
+    tags:
+      - music
+      - out-of-domain
+      - task-adherence
+    evaluation_criteria:
+      - Agent must NOT attempt to control lights
+      - Should politely decline or redirect

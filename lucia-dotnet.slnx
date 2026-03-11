@@ -30,6 +30,7 @@
     <File Path="NuGet.Config" />
   </Folder>
   <Folder Name="/Tests/">
+    <Project Path="lucia.Evals/lucia.Evals.csproj" />
     <Project Path="lucia.Tests/lucia.Tests.csproj" />
   </Folder>
 </Solution>

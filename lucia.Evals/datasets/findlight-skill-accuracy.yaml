@@ -1,0 +1,127 @@
+# FindLight Skill - Embedding Accuracy Dataset
+# Tests the embedding similarity algorithm directly (no LLM).
+# Each case includes STT-artifact variants to test noise resilience.
+
+data:
+  # ── Kitchen Lights ────────────────────────────────────────────
+  - id: skill_kitchen_exact
+    input: Kitchen Lights
+    tags: [skill, kitchen, exact]
+    metadata:
+      expected_entity_id: light.kitchen_lights_light
+      max_results: 1
+
+  - id: skill_kitchen_lowercase
+    input: kitchen light
+    tags: [skill, kitchen, lowercase]
+    metadata:
+      expected_entity_id: light.kitchen_lights_light
+      max_results: 1
+
+  - id: skill_kitchen_singular
+    input: Kitchen Light
+    tags: [skill, kitchen, singular]
+    metadata:
+      expected_entity_id: light.kitchen_lights_light
+      max_results: 1
+
+  - id: skill_kitchen_typo
+    input: Kichen Light
+    tags: [skill, kitchen, stt-typo]
+    metadata:
+      expected_entity_id: light.kitchen_lights_light
+      max_results: 1
+
+  - id: skill_kitchen_phonetic
+    input: Kitchin Lite
+    tags: [skill, kitchen, stt-phonetic]
+    metadata:
+      expected_entity_id: light.kitchen_lights_light
+      max_results: 1
+
+  # ── Zack's Light ──────────────────────────────────────────────
+  - id: skill_zacks_exact
+    input: "Zack\u2019s Light"
+    tags: [skill, zacks, exact]
+    metadata:
+      expected_entity_id: light.zacks_light
+      max_results: 2
+
+  - id: skill_zacks_spelling
+    input: "Zach's Light"
+    tags: [skill, zacks, stt-spelling]
+    metadata:
+      expected_entity_id: light.zacks_light
+      max_results: 2
+
+  - id: skill_zacks_lisp_sack
+    input: "Sack's Light"
+    tags: [skill, zacks, stt-lisp]
+    metadata:
+      expected_entity_id: light.zacks_light
+      max_results: 2
+
+  - id: skill_zacks_lisp_zag
+    input: "Zag's Light"
+    tags: [skill, zacks, stt-lisp]
+    metadata:
+      expected_entity_id: light.zacks_light
+      max_results: 2
+
+  - id: skill_zacks_lisp_zaglight
+    input: Zagslight
+    tags: [skill, zacks, stt-lisp]
+    metadata:
+      expected_entity_id: light.zacks_light
+      max_results: 2
+
+  - id: skill_zacks_lisp_sag
+    input: "Sag's Light"
+    tags: [skill, zacks, stt-lisp]
+    metadata:
+      expected_entity_id: light.zacks_light
+      max_results: 2
+
+  # ── Garage Lights ─────────────────────────────────────────────
+  - id: skill_garage_exact
+    input: Garage Lights
+    tags: [skill, garage, exact]
+    metadata:
+      expected_entity_id: light.garage_lights
+      max_results: 3
+
+  - id: skill_garage_lowercase
+    input: garage light
+    tags: [skill, garage, lowercase]
+    metadata:
+      expected_entity_id: light.garage_lights
+      max_results: 3
+
+  - id: skill_garage_phonetic
+    input: Garaj Light
+    tags: [skill, garage, stt-phonetic]
+    metadata:
+      expected_entity_id: light.garage_lights
+      max_results: 3
+
+  # ── Dianna's Lamp ─────────────────────────────────────────────
+  - id: skill_diannas_exact
+    input: "Dianna\u2019s Lamp"
+    tags: [skill, diannas, exact]
+    metadata:
+      expected_entity_id: light.diannas_lamp
+      max_results: 3
+
+  - id: skill_diannas_spelling
+    input: "Diana's Lamp"
+    tags: [skill, diannas, stt-spelling]
+    metadata:
+      expected_entity_id: light.diannas_lamp
+      max_results: 3
+
+  - id: skill_diannas_synonym
+    input: "Dianna's Light"
+    tags: [skill, diannas, stt-synonym]
+    metadata:
+      expected_entity_id: light.diannas_lamp
+      max_results: 3

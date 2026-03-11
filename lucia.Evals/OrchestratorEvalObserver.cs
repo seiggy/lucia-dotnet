@@ -3,7 +3,7 @@ using lucia.Agents.Orchestration;
 using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Training.Models;
 
-namespace lucia.Tests.Orchestration;
+namespace lucia.Evals;
 
 /// <summary>
 /// Test implementation of <see cref="IOrchestratorObserver"/> that captures

@@ -1,4 +1,4 @@
-namespace lucia.Tests.Orchestration;
+namespace lucia.Evals;
 
 /// <summary>
 /// Configuration for agent evaluation tests. Bound from the <c>EvalConfiguration</c>
@@ -27,7 +27,7 @@ public sealed class EvalConfiguration
 
     /// <summary>
     /// Embedding model deployments. The first entry is used as the default when
-    /// <see cref="IEmbeddingProviderResolver.ResolveAsync"/> is called with a null provider name.
+    /// <see cref="lucia.Agents.Abstractions.IEmbeddingProviderResolver.ResolveAsync"/> is called with a null provider name.
     /// Keyed lookups match on <see cref="EvalModelConfig.DeploymentName"/>.
     /// </summary>
     public List<EvalModelConfig> EmbeddingModels { get; set; } = [];
@@ -36,15 +36,4 @@ public sealed class EvalConfiguration
     /// Deployment name for the LLM-as-judge evaluator. Defaults to <c>gpt-4o</c>.
     /// </summary>
     public string JudgeModel { get; set; } = "gpt-4o";
-
-    /// <summary>
-    /// Directory path for <c>DiskBasedReportingConfiguration</c> storage.
-    /// Defaults to <c>%TEMP%/lucia-eval-reports</c> when null.
-    /// </summary>
-    public string? ReportPath { get; set; }
-
-    /// <summary>
-    /// Execution name for report grouping. Defaults to a timestamp when null.
-    /// </summary>
-    public string? ExecutionName { get; set; }
 }

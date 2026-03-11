@@ -1,8 +1,6 @@
-#pragma warning disable AIEVAL001 // Microsoft.Extensions.AI.Evaluation is experimental
-
 using Microsoft.Extensions.AI;
 
-namespace lucia.Tests.Orchestration;
+namespace lucia.Evals;
 
 /// <summary>
 /// A delegating <see cref="IChatClient"/> that records all response messages

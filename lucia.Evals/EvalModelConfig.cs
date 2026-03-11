@@ -1,4 +1,4 @@
-namespace lucia.Tests.Orchestration;
+namespace lucia.Evals;
 
 /// <summary>
 /// Configuration for a single model deployment used in evaluation tests.

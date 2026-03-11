@@ -1,5 +1,3 @@
-#pragma warning disable AIEVAL001 // Microsoft.Extensions.AI.Evaluation is experimental
-
 using Azure.AI.OpenAI;
 using Azure.Identity;
 using FakeItEasy;
@@ -17,7 +15,6 @@ using lucia.Tests.TestDoubles;
 using Microsoft.Agents.AI;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.AI.Evaluation;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -29,7 +26,7 @@ using lucia.Agents.Integration;
 using lucia.Agents.Models.HomeAssistant;
 using lucia.Agents.Orchestration.Models;
 
-namespace lucia.Tests.Orchestration;
+namespace lucia.Evals;
 
 /// <summary>
 /// Shared test fixture for evaluation tests. Loads configuration from
@@ -39,7 +36,7 @@ namespace lucia.Tests.Orchestration;
 /// eval-model <see cref="IChatClient"/>s — ensuring eval tests exercise the
 /// actual agent code paths. The judge evaluator always uses Azure OpenAI.
 /// </summary>
-public sealed class EvalTestFixture : IAsyncLifetime
+public sealed class EvalTestFixture : IAsyncDisposable
 {
     /// <summary>
     /// Typed eval configuration loaded from <c>appsettings.json</c> with env var overrides.
@@ -52,14 +49,9 @@ public sealed class EvalTestFixture : IAsyncLifetime
     public OpenAIClient AzureClient { get; private set; } = null!;
 
     /// <summary>
-    /// Judge chat client used by LLM-based evaluators.
+    /// Judge chat client used by LLM-based evaluators (e.g. AgentEval LLM-as-judge).
     /// </summary>
     public IChatClient JudgeChatClient { get; private set; } = null!;
-
-    /// <summary>
-    /// Chat configuration for the judge model, used by evaluators.
-    /// </summary>
-    public ChatConfiguration JudgeChatConfiguration { get; private set; } = null!;
 
     // --- Shared dependencies for agent construction ---
 
@@ -122,6 +114,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
         var configBuilder = new ConfigurationBuilder()
             .SetBasePath(AppContext.BaseDirectory)
             .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
+            .AddUserSecrets<EvalTestFixture>(optional: true)
             .AddEnvironmentVariables();
 
         var configRoot = configBuilder.Build();
@@ -132,7 +125,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
         var endpoint = Configuration.AzureOpenAI.Endpoint;
         if (string.IsNullOrWhiteSpace(endpoint))
         {
-            throw new Xunit.SkipException(
+            throw new InvalidOperationException(
                 "Azure OpenAI endpoint is not configured. Set EvalConfiguration:AzureOpenAI:Endpoint " +
                 "in appsettings.json or the EvalConfiguration__AzureOpenAI__Endpoint environment variable.");
         }
@@ -142,11 +135,10 @@ public sealed class EvalTestFixture : IAsyncLifetime
             : new AzureOpenAIClient(new Uri(endpoint), new AzureCliCredential());
 
         JudgeChatClient = AzureClient.GetChatClient(Configuration.JudgeModel).AsIChatClient();
-        JudgeChatConfiguration = new ChatConfiguration(JudgeChatClient);
 
         // Initialize shared dependencies — HA client and embeddings
         _loggerFactory = LoggerFactory.Create(builder =>
-            builder.AddConsole().SetMinimumLevel(LogLevel.Information));
+            builder.SetMinimumLevel(LogLevel.Warning));
         _haClient = CreateHomeAssistantClient();
         _embeddingResolver = new EvalEmbeddingProviderResolver(Configuration);
         _tracingFactory = new TracingChatClientFactory(
@@ -309,10 +301,6 @@ public sealed class EvalTestFixture : IAsyncLifetime
             : _embeddingResolver;
 
     /// <summary>
-    /// Creates a real <see cref="LightAgent"/> backed by the given deployment,
-    /// fully initialized with its AI agent wired to the correct provider.
-    /// </summary>
-    /// <summary>
     /// Creates an initialized <see cref="LightControlSkill"/> wired to a real
     /// Home Assistant client and the requested embedding model. Use this to
     /// test the FindLight algorithm directly without going through the full
@@ -341,6 +329,10 @@ public sealed class EvalTestFixture : IAsyncLifetime
         return skill;
     }
 
+    /// <summary>
+    /// Creates a real <see cref="LightAgent"/> backed by the given deployment,
+    /// fully initialized with its AI agent wired to the correct provider.
+    /// </summary>
     public async Task<LightAgent> CreateLightAgentAsync(
         string deploymentName,
         string? embeddingModelName = null)
@@ -520,12 +512,12 @@ public sealed class EvalTestFixture : IAsyncLifetime
             observer);
     }
 
-    public Task DisposeAsync()
+    public ValueTask DisposeAsync()
     {
         JudgeChatClient?.Dispose();
         if (_haClient is IDisposable disposableHa)
             disposableHa.Dispose();
-        return Task.CompletedTask;
+        return ValueTask.CompletedTask;
     }
 
     /// <summary>

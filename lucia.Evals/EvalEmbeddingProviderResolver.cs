@@ -3,12 +3,13 @@ using Azure;
 using Azure.AI.OpenAI;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Services;
-using lucia.Tests.Orchestration;
+using lucia.Tests.TestDoubles;
+using lucia.Evals;
 using Microsoft.Extensions.AI;
 using OllamaSharp;
 using OpenAI;
 
-namespace lucia.Tests.TestDoubles;
+namespace lucia.Evals;
 
 /// <summary>
 /// <see cref="IEmbeddingProviderResolver"/> backed by <see cref="EvalModelConfig"/> entries.

@@ -1,0 +1,104 @@
+# Orchestrator - Routing and Workflow Dataset
+# Tests the full Router → AgentDispatch → ResultAggregator pipeline.
+
+data:
+  # ── Single-Agent Routing ──────────────────────────────────────
+  - id: route_light_kitchen
+    category: IntentResolution
+    input: Turn on the kitchen lights
+    tags:
+      - orchestrator
+      - routing
+      - single-agent
+      - light
+    evaluation_criteria:
+      - Must route to light agent
+      - Routing confidence should be >= 0.7
+    metadata:
+      expected_agent: light
+
+  - id: route_music_jazz
+    category: IntentResolution
+    input: Play some jazz music on the kitchen speaker
+    tags:
+      - orchestrator
+      - routing
+      - single-agent
+      - music
+    evaluation_criteria:
+      - Must route to music agent
+      - Routing confidence should be >= 0.7
+    metadata:
+      expected_agent: music
+
+  - id: route_light_dimming
+    category: IntentResolution
+    input: Dim the bedroom lamp to 30%
+    tags:
+      - orchestrator
+      - routing
+      - single-agent
+      - light
+      - intent-resolution
+    evaluation_criteria:
+      - Must route to light agent for dimming intent
+      - Should not confuse dimming with music volume
+    metadata:
+      expected_agent: light
+
+  # ── Multi-Agent Routing ───────────────────────────────────────
+  - id: route_multi_light_and_music
+    category: IntentResolution
+    input: Dim the living room lights and play some soft music
+    tags:
+      - orchestrator
+      - routing
+      - multi-agent
+    evaluation_criteria:
+      - Must route to both light and music agents
+      - At least 2 agent responses should be produced
+    metadata:
+      expected_agents:
+        - light
+        - music
+
+  # ── Confidence Calibration ────────────────────────────────────
+  - id: confidence_clear_request
+    category: TaskAdherence
+    input: Turn on the kitchen lights
+    tags:
+      - orchestrator
+      - confidence
+      - high
+    evaluation_criteria:
+      - Routing confidence should be >= 0.7 for clear requests
+    metadata:
+      expected_agent: light
+      min_confidence: 0.7
+
+  - id: confidence_ambiguous_request
+    category: TaskAdherence
+    input: Do something in the bedroom
+    tags:
+      - orchestrator
+      - confidence
+      - ambiguous
+    evaluation_criteria:
+      - Routing confidence should be < 0.9 for ambiguous requests
+    metadata:
+      max_confidence: 0.9
+
+  # ── Fallback Routing ──────────────────────────────────────────
+  - id: fallback_general_knowledge
+    category: IntentResolution
+    input: What is the capital of France?
+    tags:
+      - orchestrator
+      - routing
+      - fallback
+      - general
+    evaluation_criteria:
+      - Must route to general/fallback agent
+      - Should not route to light or music agents
+    metadata:
+      expected_agent: general

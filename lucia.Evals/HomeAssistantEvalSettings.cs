@@ -1,4 +1,4 @@
-namespace lucia.Tests.Orchestration;
+namespace lucia.Evals;
 
 /// <summary>
 /// Home Assistant connection settings for eval tests.

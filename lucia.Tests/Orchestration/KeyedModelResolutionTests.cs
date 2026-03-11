@@ -1,5 +1,3 @@
-#pragma warning disable AIEVAL001 // Microsoft.Extensions.AI.Evaluation is experimental
-
 using FakeItEasy;
 using lucia.Agents.Configuration;
 using lucia.Agents.Orchestration;
@@ -261,19 +259,19 @@ public sealed class KeyedModelResolutionTests
             .AddEnvironmentVariables()
             .Build();
 
-        var evalConfig = new EvalConfiguration();
-        config.GetSection("EvalConfiguration").Bind(evalConfig);
+        var models = config.GetSection("EvalConfiguration:Models").GetChildren().ToList();
 
         // Pass when at least one model is configured
         Assert.True(
-            evalConfig.Models.Count > 0,
+            models.Count > 0,
             "No models configured — add at least one model to EvalConfiguration:Models.");
 
         // Each configured model will be used for ALL agents during its test iteration.
-        foreach (var model in evalConfig.Models)
+        foreach (var model in models)
         {
+            var deploymentName = model["DeploymentName"];
             Assert.False(
-                string.IsNullOrWhiteSpace(model.DeploymentName),
+                string.IsNullOrWhiteSpace(deploymentName),
                 "A model entry has an empty DeploymentName.");
         }
     }
