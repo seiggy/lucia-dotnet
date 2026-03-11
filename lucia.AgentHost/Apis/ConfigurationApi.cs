@@ -410,7 +410,7 @@ public static class ConfigurationApi
             [
                 new("Instructions", "textarea",
                     "System prompt that defines Lucia's personality and communication style. " +
-                    "When set, agent responses are summarized through this prompt before being returned to the user. " +
+                    "When set, agent responses are rewritten using this prompt before being returned to the user. " +
                     "Leave empty to return raw agent responses.", ""),
                 new("ModelConnectionName", "model-select",
                     "Model provider name for personality rewriting. " +

@@ -213,4 +213,34 @@ public sealed class PersonalityPromptTests : TestBase
         // Assert — falls back to raw composed message
         Assert.Equal("Turned on the porch lights.", result.Text);
     }
+
+    [Fact]
+    public async Task HandleAsync_WithPersonality_CancellationPropagates()
+    {
+        // Arrange — LLM throws OperationCanceledException (should NOT be swallowed)
+        var stubClient = new StubChatClient(
+        [
+            _ => throw new OperationCanceledException("Request cancelled")
+        ]);
+
+        var aggregator = new ResultAggregatorExecutor(
+            CreateLogger<ResultAggregatorExecutor>(),
+            CreateOptions(new ResultAggregatorOptions()),
+            personalityChatClient: stubClient,
+            personalityInstructions: "Be a pirate.");
+
+        var responses = new List<OrchestratorAgentResponse>
+        {
+            new AgentResponseBuilder()
+                .WithAgentId("light-agent")
+                .WithContent("Turned on the lights.")
+                .Build()
+        };
+
+        var context = A.Fake<IWorkflowContext>();
+
+        // Act & Assert — cancellation should propagate, not be swallowed
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => aggregator.HandleAsync(responses, context, CancellationToken.None).AsTask());
+    }
 }

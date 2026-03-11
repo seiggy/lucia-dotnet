@@ -49,7 +49,7 @@ public sealed class ResultAggregatorExecutor : Executor
         ArgumentNullException.ThrowIfNull(context);
 
         await context.AddEventAsync(new ExecutorInvokedEvent(this.Id, responses), cancellationToken).ConfigureAwait(false);
-        
+
         // Order responses by agent priority and build summary
         var ordered = OrderResponses(responses);
         var summary = await BuildSummaryAsync(ordered, cancellationToken).ConfigureAwait(false);
@@ -142,6 +142,10 @@ public sealed class ResultAggregatorExecutor : Executor
 
             _logger.LogWarning("Personality rewrite returned empty response, falling back to raw message");
             return composedMessage;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception ex)
         {

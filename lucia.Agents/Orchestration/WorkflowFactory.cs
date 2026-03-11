@@ -210,9 +210,22 @@ public sealed class WorkflowFactory
         if (!string.IsNullOrWhiteSpace(personalityOpts.Instructions))
         {
             personalityInstructions = personalityOpts.Instructions;
-            personalityChatClient = !string.IsNullOrEmpty(personalityOpts.ModelConnectionName)
-                ? await _clientResolver.ResolveAsync(personalityOpts.ModelConnectionName, cancellationToken).ConfigureAwait(false)
-                : chatClient;
+            try
+            {
+                personalityChatClient = !string.IsNullOrEmpty(personalityOpts.ModelConnectionName)
+                    ? await _clientResolver.ResolveAsync(personalityOpts.ModelConnectionName, cancellationToken).ConfigureAwait(false)
+                    : chatClient;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to resolve personality model '{ModelConnectionName}', personality rewriting disabled for this request",
+                    personalityOpts.ModelConnectionName);
+                personalityInstructions = null;
+            }
         }
 
         var routerLogger = _loggerFactory.CreateLogger<RouterExecutor>();
