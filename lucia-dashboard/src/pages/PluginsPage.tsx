@@ -157,7 +157,7 @@ export default function PluginsPage() {
         </button>
       </div>
 
-      <RestartBanner />
+      <RestartBanner onNotify={addToast} />
 
       {/* Tabs */}
       <div className="flex gap-1 rounded-lg border border-stone/40 bg-obsidian p-1">
@@ -333,7 +333,7 @@ export default function PluginsPage() {
       {/* Configuration Tab */}
       {tab === 'config' && <PluginConfigTab />}
 
-      <PluginRepoDialog open={repoDialogOpen} onClose={() => setRepoDialogOpen(false)} />
+      <PluginRepoDialog open={repoDialogOpen} onClose={() => setRepoDialogOpen(false)} onNotify={addToast} />
 
       {/* Toasts */}
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
