@@ -131,6 +131,8 @@ export default function EntityMultiSelect({ devices, selected, onChange }: Entit
       {/* Selected chips + input */}
       <div
         className="flex min-h-[28px] flex-wrap items-center gap-1 rounded border border-stone/30 bg-ash/40 px-1.5 py-0.5 text-xs cursor-text"
+        role="group"
+        aria-label="Selected entities"
         onClick={() => {
           setOpen(true)
           setTimeout(() => inputRef.current?.focus(), 0)
@@ -149,6 +151,7 @@ export default function EntityMultiSelect({ devices, selected, onChange }: Entit
                 e.stopPropagation()
                 remove(id)
               }}
+              aria-label={`Remove ${deviceMap.get(id) ?? id}`}
               className="ml-0.5 text-amber/60 hover:text-amber"
             >
               ×
@@ -165,6 +168,10 @@ export default function EntityMultiSelect({ devices, selected, onChange }: Entit
           }}
           onFocus={() => setOpen(true)}
           onKeyDown={handleKeyDown}
+          role="combobox"
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          aria-label="Search devices"
           placeholder={selected.length === 0 ? 'Select devices...' : ''}
           className="min-w-[60px] flex-1 bg-transparent text-xs text-light outline-none placeholder:text-fog/50"
         />
@@ -175,6 +182,9 @@ export default function EntityMultiSelect({ devices, selected, onChange }: Entit
         createPortal(
           <div
             ref={dropdownRef}
+            role="listbox"
+            aria-label="Available devices"
+            aria-multiselectable="true"
             className="fixed z-[9999] max-h-48 overflow-auto rounded-lg border border-stone/40 bg-slate-warm shadow-xl"
             style={{ top: dropdownPos.top, left: dropdownPos.left, width: dropdownPos.width }}
           >
@@ -188,6 +198,8 @@ export default function EntityMultiSelect({ devices, selected, onChange }: Entit
                   key={d.entityId}
                   type="button"
                   tabIndex={-1}
+                  role="option"
+                  aria-selected={selectedSet.has(d.entityId)}
                   data-option
                   className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-light hover:bg-ash/60 ${
                     i === highlightIndex ? 'bg-ash/60' : ''

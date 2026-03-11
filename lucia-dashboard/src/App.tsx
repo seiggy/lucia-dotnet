@@ -94,6 +94,8 @@ function AppRoutes() {
       {sidebarOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          role="presentation"
+          aria-hidden="true"
           onClick={() => setSidebarOpen(false)}
         />
       )}
@@ -119,13 +121,14 @@ function AppRoutes() {
           <button
             onClick={() => setSidebarOpen(false)}
             className="rounded-md p-1 text-dust hover:text-cloud md:hidden"
+            aria-label="Close sidebar"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto px-3 py-4">
+        <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Main navigation">
           <ul className="space-y-0.5">
             {NAV_ITEMS.map(({ to, label, icon: Icon, end }) => (
               <li key={to}>
@@ -168,6 +171,7 @@ function AppRoutes() {
           <button
             onClick={() => setSidebarOpen(true)}
             className="rounded-md p-1.5 text-fog hover:text-cloud"
+            aria-label="Open sidebar menu"
           >
             <Menu className="h-5 w-5" />
           </button>
