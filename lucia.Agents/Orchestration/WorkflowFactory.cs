@@ -30,6 +30,7 @@ public sealed class WorkflowFactory
     private readonly IOptions<RouterExecutorOptions> _routerOptions;
     private readonly IOptions<AgentInvokerOptions> _invokerOptions;
     private readonly IOptions<ResultAggregatorOptions> _aggregatorOptions;
+    private readonly IOptionsMonitor<PersonalityPromptOptions> _personalityOptionsMonitor;
     private readonly TimeProvider _timeProvider;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IOrchestratorObserver? _observer;
@@ -48,6 +49,7 @@ public sealed class WorkflowFactory
         IOptions<RouterExecutorOptions> routerOptions,
         IOptions<AgentInvokerOptions> invokerOptions,
         IOptions<ResultAggregatorOptions> aggregatorOptions,
+        IOptionsMonitor<PersonalityPromptOptions> personalityOptionsMonitor,
         TimeProvider timeProvider,
         IHttpClientFactory httpClientFactory,
         IOrchestratorObserver? observer = null,
@@ -64,6 +66,7 @@ public sealed class WorkflowFactory
         _routerOptions = routerOptions ?? throw new ArgumentNullException(nameof(routerOptions));
         _invokerOptions = invokerOptions ?? throw new ArgumentNullException(nameof(invokerOptions));
         _aggregatorOptions = aggregatorOptions ?? throw new ArgumentNullException(nameof(aggregatorOptions));
+        _personalityOptionsMonitor = personalityOptionsMonitor ?? throw new ArgumentNullException(nameof(personalityOptionsMonitor));
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
         _observer = observer;
@@ -199,12 +202,38 @@ public sealed class WorkflowFactory
         var definition = await _definitionRepository.GetAgentDefinitionAsync("orchestrator", cancellationToken).ConfigureAwait(false);
         var chatClient = await _clientResolver.ResolveAsync(definition?.ModelConnectionName, cancellationToken).ConfigureAwait(false);
 
+        // Resolve personality rewriting — only when instructions are configured
+        var personalityOpts = _personalityOptionsMonitor.CurrentValue;
+        IChatClient? personalityChatClient = null;
+        string? personalityInstructions = null;
+
+        if (!string.IsNullOrWhiteSpace(personalityOpts.Instructions))
+        {
+            personalityInstructions = personalityOpts.Instructions;
+            try
+            {
+                personalityChatClient = !string.IsNullOrEmpty(personalityOpts.ModelConnectionName)
+                    ? await _clientResolver.ResolveAsync(personalityOpts.ModelConnectionName, cancellationToken).ConfigureAwait(false)
+                    : chatClient;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to resolve personality model '{ModelConnectionName}', personality rewriting disabled for this request",
+                    personalityOpts.ModelConnectionName);
+                personalityInstructions = null;
+            }
+        }
+
         var routerLogger = _loggerFactory.CreateLogger<RouterExecutor>();
         var dispatchLogger = _loggerFactory.CreateLogger<AgentDispatchExecutor>();
         var aggregatorLogger = _loggerFactory.CreateLogger<ResultAggregatorExecutor>();
         var router = new RouterExecutor(chatClient, _agentRegistry, routerLogger, _routerOptions, _promptCache);
         var dispatch = new AgentDispatchExecutor(invokers, dispatchLogger, _routerOptions, chatClient, _observer);
-        var aggregator = new ResultAggregatorExecutor(aggregatorLogger, _aggregatorOptions);
+        var aggregator = new ResultAggregatorExecutor(aggregatorLogger, _aggregatorOptions, personalityChatClient, personalityInstructions);
 
         var chatMessage = new ChatMessage(ChatRole.User, historyAwareRequest);
         dispatch.SetUserMessage(chatMessage);

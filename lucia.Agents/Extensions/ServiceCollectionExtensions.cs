@@ -112,6 +112,10 @@ public static class ServiceCollectionExtensions
             builder.Configuration.GetSection("ResultAggregator")
         );
 
+        builder.Services.Configure<PersonalityPromptOptions>(
+            builder.Configuration.GetSection("PersonalityPrompt")
+        );
+
         builder.Services.Configure<HomeAssistantOptions>(
             builder.Configuration.GetSection("HomeAssistant"));
 

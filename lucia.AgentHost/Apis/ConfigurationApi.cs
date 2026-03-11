@@ -404,6 +404,22 @@ public static class ConfigurationApi
         },
         new()
         {
+            Section = "PersonalityPrompt",
+            Description = "Customize how Lucia responds with a personality prompt",
+            Properties =
+            [
+                new("Instructions", "textarea",
+                    "System prompt that defines Lucia's personality and communication style. " +
+                    "When set, agent responses are rewritten using this prompt before being returned to the user. " +
+                    "Leave empty to return raw agent responses.", ""),
+                new("ModelConnectionName", "model-select",
+                    "Model provider name for personality rewriting. " +
+                    "Leave empty to use the orchestrator's default model. " +
+                    "Set to a configured model provider name to use a different LLM for personality rewriting.", "")
+            ]
+        },
+        new()
+        {
             Section = "ConnectionStrings",
             Description = "Service connection strings (AI models, databases, caches)",
             Properties =
