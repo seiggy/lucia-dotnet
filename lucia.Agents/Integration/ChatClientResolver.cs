@@ -22,7 +22,7 @@ public sealed class ChatClientResolver : IChatClientResolver
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<ChatClientResolver> _logger;
     private readonly Dictionary<string, IChatClient> _cache = new(StringComparer.OrdinalIgnoreCase);
-    private readonly object _lock = new();
+    private readonly SemaphoreSlim _semaphore = new(1, 1);
 
     public ChatClientResolver(
         IModelProviderRepository repository,
@@ -43,55 +43,86 @@ public sealed class ChatClientResolver : IChatClientResolver
         // When no provider is specified, fall back to the built-in default
         var effectiveName = string.IsNullOrWhiteSpace(providerName) ? DefaultChatProviderId : providerName;
 
-        // Check cache first
-        lock (_lock)
+        // Check cache first (fast path without awaiting semaphore)
+        lock (_cache)
         {
             if (_cache.TryGetValue(effectiveName, out var cached))
                 return cached;
         }
 
-        var provider = await _repository.GetProviderAsync(effectiveName, ct).ConfigureAwait(false);
-
-        // If the named provider doesn't exist and we were looking for the default,
-        // fall back to any enabled chat provider so agents work regardless of user-chosen IDs.
-        if ((provider is null || !provider.Enabled)
-            && string.Equals(effectiveName, DefaultChatProviderId, StringComparison.OrdinalIgnoreCase))
-        {
-            var all = await _repository.GetEnabledProvidersAsync(ct).ConfigureAwait(false);
-            provider = all.FirstOrDefault(p => p.Purpose == Configuration.ModelPurpose.Chat);
-            if (provider is not null)
-            {
-                _logger.LogInformation(
-                    "Default chat provider not found — falling back to '{ProviderId}' ({ProviderType})",
-                    provider.Id, provider.ProviderType);
-            }
-        }
-
-        if (provider is null || !provider.Enabled)
-        {
-            _logger.LogWarning(
-                "Model provider '{ProviderName}' not found or disabled",
-                effectiveName);
-            throw new InvalidOperationException(
-                $"Model provider '{effectiveName}' not found or disabled. " +
-                "Configure a default chat model provider in the dashboard.");
-        }
-        if (provider.ProviderType == ProviderType.GitHubCopilot)
-        {
-            _logger.LogWarning(
-                "Provider '{ProviderName}' is GitHubCopilot (AIAgent-only). " +
-                "Falling back to default chat provider for IChatClient callers.",
-                effectiveName);
-            if (!string.Equals(effectiveName, DefaultChatProviderId, StringComparison.OrdinalIgnoreCase))
-                return await ResolveAsync(DefaultChatProviderId, ct).ConfigureAwait(false);
-
-            throw new InvalidOperationException(
-                "Default chat provider is a GitHubCopilot type which cannot produce an IChatClient. " +
-                "Configure a non-Copilot default chat provider.");
-        }
-
+        // Serialize resolution to prevent duplicate client construction
+        await _semaphore.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            // Double-check after acquiring semaphore
+            lock (_cache)
+            {
+                if (_cache.TryGetValue(effectiveName, out var cached))
+                    return cached;
+            }
+
+            var provider = await _repository.GetProviderAsync(effectiveName, ct).ConfigureAwait(false);
+
+            // If the named provider doesn't exist and we were looking for the default,
+            // fall back to any enabled chat provider so agents work regardless of user-chosen IDs.
+            if ((provider is null || !provider.Enabled)
+                && string.Equals(effectiveName, DefaultChatProviderId, StringComparison.OrdinalIgnoreCase))
+            {
+                var all = await _repository.GetEnabledProvidersAsync(ct).ConfigureAwait(false);
+                provider = all.FirstOrDefault(p => p.Purpose == Configuration.ModelPurpose.Chat);
+                if (provider is not null)
+                {
+                    _logger.LogInformation(
+                        "Default chat provider not found — falling back to '{ProviderId}' ({ProviderType})",
+                        provider.Id, provider.ProviderType);
+                }
+            }
+
+            if (provider is null || !provider.Enabled)
+            {
+                _logger.LogWarning(
+                    "Model provider '{ProviderName}' not found or disabled",
+                    effectiveName);
+                throw new InvalidOperationException(
+                    $"Model provider '{effectiveName}' not found or disabled. " +
+                    "Configure a default chat model provider in the dashboard.");
+            }
+
+            if (provider.ProviderType == ProviderType.GitHubCopilot)
+            {
+                _logger.LogWarning(
+                    "Provider '{ProviderName}' is GitHubCopilot (AIAgent-only). " +
+                    "Falling back to default chat provider for IChatClient callers.",
+                    effectiveName);
+
+                // Only recurse when the current name differs from the default to prevent infinite recursion.
+                // If the default itself is GitHubCopilot, we must fail immediately.
+                if (!string.Equals(effectiveName, DefaultChatProviderId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return await ResolveAsync(DefaultChatProviderId, ct).ConfigureAwait(false);
+                }
+
+                // Default is GitHubCopilot — try finding any non-Copilot enabled chat provider
+                var allProviders = await _repository.GetEnabledProvidersAsync(ct).ConfigureAwait(false);
+                var fallback = allProviders.FirstOrDefault(p =>
+                    p.Purpose == Configuration.ModelPurpose.Chat
+                    && p.ProviderType != ProviderType.GitHubCopilot);
+
+                if (fallback is not null)
+                {
+                    _logger.LogInformation(
+                        "Default chat provider is GitHubCopilot — falling back to '{FallbackId}' ({FallbackType})",
+                        fallback.Id, fallback.ProviderType);
+                    provider = fallback;
+                }
+                else
+                {
+                    throw new InvalidOperationException(
+                        "Default chat provider is a GitHubCopilot type which cannot produce an IChatClient. " +
+                        "Configure a non-Copilot default chat provider.");
+                }
+            }
+
             var client = _resolver.CreateClient(provider);
 
             // Wrap with prompt caching so all agent LLM calls benefit from the cache
@@ -103,7 +134,7 @@ public sealed class ChatClientResolver : IChatClientResolver
                     _loggerFactory.CreateLogger<PromptCachingChatClient>());
             }
 
-            lock (_lock)
+            lock (_cache)
             {
                 _cache[effectiveName] = client;
             }
@@ -114,12 +145,16 @@ public sealed class ChatClientResolver : IChatClientResolver
 
             return client;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not InvalidOperationException)
         {
             _logger.LogError(ex,
                 "Failed to create client for provider '{ProviderName}'",
                 effectiveName);
             throw;
+        }
+        finally
+        {
+            _semaphore.Release();
         }
     }
 
