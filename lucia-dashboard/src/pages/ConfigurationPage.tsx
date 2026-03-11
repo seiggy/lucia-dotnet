@@ -490,6 +490,24 @@ function FieldEditor({
     )
   }
 
+  if (type === 'textarea') {
+    return (
+      <div>
+        {labelNode}
+        <textarea
+          value={isMasked ? '' : displayValue}
+          onChange={(e) => onChange(e.target.value || null)}
+          placeholder={isMasked ? '••••••••  (enter new value to change)' : defaultValue || ''}
+          rows={6}
+          className="w-full rounded-xl border border-stone bg-basalt px-3 py-2 text-sm text-light placeholder-dust/60 input-focus focus:ring-1 focus:ring-amber resize-y"
+        />
+        {defaultValue !== undefined && defaultValue !== '' && !isSensitive && (
+          <p className="mt-1 text-xs text-dust">Default: {defaultValue}</p>
+        )}
+      </div>
+    )
+  }
+
   // Default: string (or unknown type)
   return (
     <div>

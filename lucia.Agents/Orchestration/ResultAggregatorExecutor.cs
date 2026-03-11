@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using lucia.Agents.Orchestration.Models;
 using Microsoft.Agents.AI.Workflows;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -23,12 +24,20 @@ public sealed class ResultAggregatorExecutor : Executor
 
     private readonly ILogger<ResultAggregatorExecutor> _logger;
     private readonly ResultAggregatorOptions _options;
+    private readonly IChatClient? _personalityChatClient;
+    private readonly string? _personalityInstructions;
 
-    public ResultAggregatorExecutor(ILogger<ResultAggregatorExecutor> logger, IOptions<ResultAggregatorOptions> options)
+    public ResultAggregatorExecutor(
+        ILogger<ResultAggregatorExecutor> logger,
+        IOptions<ResultAggregatorOptions> options,
+        IChatClient? personalityChatClient = null,
+        string? personalityInstructions = null)
         : base(ExecutorId)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
+        _personalityChatClient = personalityChatClient;
+        _personalityInstructions = personalityInstructions;
     }
 
     protected override ProtocolBuilder ConfigureProtocol(ProtocolBuilder protocolBuilder)
@@ -40,10 +49,10 @@ public sealed class ResultAggregatorExecutor : Executor
         ArgumentNullException.ThrowIfNull(context);
 
         await context.AddEventAsync(new ExecutorInvokedEvent(this.Id, responses), cancellationToken).ConfigureAwait(false);
-
+        
         // Order responses by agent priority and build summary
         var ordered = OrderResponses(responses);
-        var summary = BuildSummary(ordered);
+        var summary = await BuildSummaryAsync(ordered, cancellationToken).ConfigureAwait(false);
 
         await context.AddEventAsync(new ExecutorCompletedEvent(this.Id, summary), cancellationToken).ConfigureAwait(false);
 
@@ -65,7 +74,9 @@ public sealed class ResultAggregatorExecutor : Executor
         };
     }
 
-    private AggregationResult BuildSummary(IEnumerable<OrchestratorAgentResponse> responses)
+    private async Task<AggregationResult> BuildSummaryAsync(
+        IEnumerable<OrchestratorAgentResponse> responses,
+        CancellationToken cancellationToken)
     {
         var successes = new List<OrchestratorAgentResponse>();
         var failures = new List<AggregatedFailure>();
@@ -91,6 +102,13 @@ public sealed class ResultAggregatorExecutor : Executor
         }
 
         var message = ComposeMessage(successes, failures);
+
+        // Apply personality rewriting when configured
+        if (_personalityChatClient is not null && !string.IsNullOrWhiteSpace(_personalityInstructions))
+        {
+            message = await ApplyPersonalityAsync(message, cancellationToken).ConfigureAwait(false);
+        }
+
         var successAgents = successes.Select(r => r.AgentId).ToList();
 
         return new AggregationResult(
@@ -99,6 +117,37 @@ public sealed class ResultAggregatorExecutor : Executor
             failures,
             totalTime,
             needsInput);
+    }
+
+    private async Task<string> ApplyPersonalityAsync(string composedMessage, CancellationToken cancellationToken)
+    {
+        try
+        {
+            _logger.LogDebug("Applying personality rewrite to aggregated response");
+
+            var messages = new List<ChatMessage>
+            {
+                new(ChatRole.System, _personalityInstructions),
+                new(ChatRole.User, composedMessage)
+            };
+
+            var response = await _personalityChatClient!.GetResponseAsync(messages, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var rewritten = response.Text;
+
+            if (!string.IsNullOrWhiteSpace(rewritten))
+            {
+                _logger.LogDebug("Personality rewrite produced {Length} characters", rewritten.Length);
+                return rewritten;
+            }
+
+            _logger.LogWarning("Personality rewrite returned empty response, falling back to raw message");
+            return composedMessage;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Personality rewrite failed, falling back to raw composed message");
+            return composedMessage;
+        }
     }
 
     private IReadOnlyList<OrchestratorAgentResponse> OrderResponses(IEnumerable<OrchestratorAgentResponse> responses)

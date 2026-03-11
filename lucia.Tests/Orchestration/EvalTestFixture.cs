@@ -110,6 +110,13 @@ public sealed class EvalTestFixture : IAsyncLifetime
         return monitor;
     }
 
+    private static IOptionsMonitor<PersonalityPromptOptions> CreatePersonalityOptionsMonitor()
+    {
+        var monitor = A.Fake<IOptionsMonitor<PersonalityPromptOptions>>();
+        A.CallTo(() => monitor.CurrentValue).Returns(new PersonalityPromptOptions());
+        return monitor;
+    }
+
     // --- Agent cards for registry (extracted once) ---
 
     private AgentCard _lightAgentCard = null!;
@@ -506,6 +513,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
             Options.Create(new RouterExecutorOptions()),
             Options.Create(new AgentInvokerOptions()),
             Options.Create(new ResultAggregatorOptions()),
+            CreatePersonalityOptionsMonitor(),
             TimeProvider.System,
             A.Fake<IHttpClientFactory>(),
             observer,
