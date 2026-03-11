@@ -17,20 +17,31 @@ public static class PromptCacheApi
             .WithTags("PromptCache")
             .RequireAuthorization();
 
-        routing.MapGet("/", GetAllEntriesAsync);
-        routing.MapGet("/stats", GetStatsAsync);
-        routing.MapDelete("/entry/{cacheKey}", EvictEntryAsync);
-        routing.MapDelete("/", EvictAllAsync);
+        routing.MapGet("/", GetAllEntriesAsync)
+            .WithSummary("List routing cache entries")
+            .WithDescription("Returns all cached routing decisions for the management UI.");
+        routing.MapGet("/stats", GetStatsAsync)
+            .WithSummary("Get routing cache statistics")
+            .WithDescription("Returns total entries, hit count, miss count, and hit rate.");
+        routing.MapDelete("/entry/{cacheKey}", EvictEntryAsync)
+            .WithSummary("Evict a routing cache entry");
+        routing.MapDelete("/", EvictAllAsync)
+            .WithSummary("Clear all routing cache entries");
 
         // Agent-level chat cache
         var chat = endpoints.MapGroup("/api/chat-cache")
             .WithTags("ChatCache")
             .RequireAuthorization();
 
-        chat.MapGet("/", GetAllChatEntriesAsync);
-        chat.MapGet("/stats", GetChatStatsAsync);
-        chat.MapDelete("/entry/{cacheKey}", EvictChatEntryAsync);
-        chat.MapDelete("/", EvictAllChatEntriesAsync);
+        chat.MapGet("/", GetAllChatEntriesAsync)
+            .WithSummary("List chat cache entries")
+            .WithDescription("Returns all cached agent-level LLM responses.");
+        chat.MapGet("/stats", GetChatStatsAsync)
+            .WithSummary("Get chat cache statistics");
+        chat.MapDelete("/entry/{cacheKey}", EvictChatEntryAsync)
+            .WithSummary("Evict a chat cache entry");
+        chat.MapDelete("/", EvictAllChatEntriesAsync)
+            .WithSummary("Clear all chat cache entries");
 
         return endpoints;
     }
