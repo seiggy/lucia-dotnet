@@ -2,11 +2,13 @@ import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react
 import { createPortal } from 'react-dom';
 import { ChevronDown } from 'lucide-react';
 
+/** A single option in the dropdown. */
 interface SelectOption {
   value: string;
   label: string;
 }
 
+/** Props for the {@link CustomSelect} component. */
 interface CustomSelectProps {
   options: SelectOption[];
   value: string;
@@ -14,9 +16,14 @@ interface CustomSelectProps {
   placeholder?: string;
   className?: string;
   size?: 'sm' | 'md';
+  label?: string;
 }
 
-export default function CustomSelect({ options, value, onChange, placeholder, className = '', size = 'md' }: CustomSelectProps) {
+/**
+ * A styled dropdown select component with search filtering.
+ * Renders the dropdown in a portal to avoid clipping by overflow containers.
+ */
+export default function CustomSelect({ options, value, onChange, placeholder, className = '', size = 'md', label }: CustomSelectProps) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState('');
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -27,6 +34,7 @@ export default function CustomSelect({ options, value, onChange, placeholder, cl
   const [pos, setPos] = useState<{ top: number; left: number; width: number; direction: 'down' | 'up' }>({
     top: 0, left: 0, width: 0, direction: 'down',
   });
+  const listboxId = useRef(`cs-listbox-${Math.random().toString(36).slice(2, 8)}`).current;
 
   const selected = options.find((o) => o.value === value);
 
@@ -127,6 +135,11 @@ export default function CustomSelect({ options, value, onChange, placeholder, cl
       <button
         ref={buttonRef}
         type="button"
+        role="combobox"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={listboxId}
+        aria-label={label ?? placeholder ?? 'Select an option'}
         onClick={() => {
           if (open) {
             setOpen(false);
@@ -149,6 +162,9 @@ export default function CustomSelect({ options, value, onChange, placeholder, cl
       {open && createPortal(
         <ul
           ref={dropdownRef}
+          id={listboxId}
+          role="listbox"
+          aria-label={label ?? placeholder ?? 'Options'}
           className={`fixed z-[9999] max-h-60 overflow-auto ${borderRadius} border border-stone/40 bg-basalt shadow-lg shadow-black/60`}
           style={{
             top: pos.direction === 'down' ? pos.top : undefined,
@@ -165,6 +181,7 @@ export default function CustomSelect({ options, value, onChange, placeholder, cl
               value={filter}
               onChange={(e) => { setFilter(e.target.value); setHighlight(0); }}
               onKeyDown={handleKeyDown}
+              aria-label="Filter options"
               className={`w-full rounded border border-stone/30 bg-slate-warm px-2 py-1 text-light placeholder:text-fog/50 outline-none focus:border-amber/50 ${size === 'sm' ? 'text-xs' : 'text-sm'}`}
               placeholder="Type to filter..."
             />
@@ -175,6 +192,8 @@ export default function CustomSelect({ options, value, onChange, placeholder, cl
             filtered.map((o, idx) => (
               <li
                 key={o.value}
+                role="option"
+                aria-selected={o.value === value}
                 data-option
                 onClick={() => { onChange(o.value); setOpen(false); }}
                 className={`cursor-pointer ${pad} transition-colors ${

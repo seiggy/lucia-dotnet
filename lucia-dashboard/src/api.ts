@@ -1,3 +1,12 @@
+/**
+ * Typed API client for the Lucia AgentHost REST API.
+ *
+ * All functions target `/api/*` endpoints and are consumed by TanStack Query
+ * hooks in page components. Errors are thrown as `Error` instances with
+ * descriptive messages for the UI to display.
+ *
+ * @module api
+ */
 import type {
   ConversationTrace,
   PagedResult,
@@ -25,6 +34,7 @@ import type {
 
 const BASE = '/api';
 
+/** Fetch paginated conversation traces with optional query string filters. */
 export async function fetchTraces(
   params: Record<string, string>,
 ): Promise<PagedResult<ConversationTrace>> {
@@ -40,6 +50,7 @@ export async function fetchTrace(id: string): Promise<ConversationTrace> {
   return res.json();
 }
 
+/** Summary of a trace related to a given trace (e.g., fan companion requests). */
 export interface RelatedTraceSummary {
   id: string;
   timestamp: string;

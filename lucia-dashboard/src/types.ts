@@ -1,3 +1,7 @@
+/**
+ * Fine-tuning label status for conversation traces.
+ * Used by the training pipeline to filter exported JSONL datasets.
+ */
 export const LabelStatus = {
   Unlabeled: 0,
   Positive: 1,
@@ -5,12 +9,14 @@ export const LabelStatus = {
 } as const;
 export type LabelStatus = (typeof LabelStatus)[keyof typeof LabelStatus];
 
+/** A single message (user, assistant, or system) within a traced conversation. */
 export interface TracedMessage {
   role: string;
   content: string | null;
   timestamp: string;
 }
 
+/** A tool invocation recorded during agent execution (arguments and result JSON). */
 export interface TracedToolCall {
   toolName: string;
   arguments: string | null;
@@ -18,6 +24,7 @@ export interface TracedToolCall {
   timestamp: string;
 }
 
+/** Result of a single agent's execution within an orchestration request. */
 export interface AgentExecutionRecord {
   agentId: string;
   modelDeploymentName: string | null;
@@ -29,11 +36,13 @@ export interface AgentExecutionRecord {
   responseContent: string | null;
 }
 
+/** System instruction snapshot sent to an agent during routing. */
 export interface AgentInstructionRecord {
   agentId: string;
   instruction: string;
 }
 
+/** The router's decision about which agent(s) should handle a user request. */
 export interface RoutingDecision {
   selectedAgentId: string;
   additionalAgentIds: string[];
@@ -44,6 +53,7 @@ export interface RoutingDecision {
   agentInstructions: AgentInstructionRecord[];
 }
 
+/** Human-applied label for a conversation trace (used for LLM fine-tuning). */
 export interface TraceLabel {
   status: LabelStatus;
   reviewerNotes: string | null;
@@ -51,6 +61,7 @@ export interface TraceLabel {
   labeledAt: string | null;
 }
 
+/** An OpenTelemetry span captured during an orchestration request. */
 export interface TracedSpan {
   spanId: string;
   parentSpanId: string | null;
@@ -61,6 +72,11 @@ export interface TracedSpan {
   tags: Record<string, string>;
 }
 
+/**
+ * A complete conversation trace from the orchestration pipeline.
+ * Captures user input, routing decision, per-agent execution records,
+ * tool calls, spans, and the aggregated final response.
+ */
 export interface ConversationTrace {
   id: string;
   timestamp: string;
@@ -79,6 +95,7 @@ export interface ConversationTrace {
   spans: TracedSpan[];
 }
 
+/** Generic paginated response wrapper used by all list endpoints. */
 export interface PagedResult<T> {
   items: T[];
   totalCount: number;
@@ -87,6 +104,7 @@ export interface PagedResult<T> {
   totalPages: number;
 }
 
+/** Aggregate statistics for conversation traces (shown on the Activity page). */
 export interface TraceStats {
   totalTraces: number;
   unlabeledCount: number;
@@ -96,6 +114,7 @@ export interface TraceStats {
   byAgent: Record<string, number>;
 }
 
+/** Filter criteria for JSONL dataset exports (fine-tuning pipeline). */
 export interface ExportFilterCriteria {
   labelFilter: LabelStatus | null;
   fromDate: string | null;
@@ -105,6 +124,7 @@ export interface ExportFilterCriteria {
   includeCorrections: boolean;
 }
 
+/** A generated JSONL dataset export record with download metadata. */
 export interface DatasetExportRecord {
   id: string;
   timestamp: string;
@@ -117,6 +137,7 @@ export interface DatasetExportRecord {
 
 // ── Task Types ───────────────────────────────────────────────────
 
+/** Summary of an active (in-progress) task stored in Redis. */
 export interface ActiveTaskSummary {
   id: string;
   contextId: string | null;
@@ -132,6 +153,7 @@ export interface ArchivedMessage {
   messageId: string | null;
 }
 
+/** A completed task archived to MongoDB for long-term storage. */
 export interface ArchivedTask {
   id: string;
   contextId: string | null;
@@ -159,6 +181,7 @@ export interface CombinedTaskStats {
 }
 
 // MCP Tool Servers
+/** Configuration for an MCP (Model Context Protocol) tool server. */
 export interface McpToolServerDefinition {
   id: string;
   name: string;
@@ -192,11 +215,16 @@ export interface McpServerStatus {
 }
 
 // Agent Definitions
+/** Reference to an MCP tool assigned to an agent (server ID + tool name). */
 export interface AgentToolReference {
   serverId: string;
   toolName: string;
 }
 
+/**
+ * A user-defined or built-in agent definition stored in MongoDB.
+ * Defines the agent's identity, system instructions, tool assignments, and model connections.
+ */
 export interface AgentDefinition {
   id: string;
   name: string;
@@ -215,11 +243,13 @@ export interface AgentDefinition {
 }
 
 // Model Providers
+/** LLM provider type identifier. */
 export type ProviderType = 'OpenAI' | 'OpenRouter' | 'AzureOpenAI' | 'AzureAIInference' | 'Ollama' | 'Anthropic' | 'GoogleGemini' | 'GitHubCopilot';
 
+/** Whether a provider is configured for chat completion or embedding generation. */
 export type ModelPurpose = 'Chat' | 'Embedding';
 
-/// Provider types that support embedding generation
+/** Provider types that support embedding generation. */
 export const EmbeddingCapableProviders: ProviderType[] = ['OpenAI', 'OpenRouter', 'AzureOpenAI', 'AzureAIInference', 'Ollama', 'GoogleGemini'];
 
 export interface ModelAuthConfig {
@@ -228,6 +258,10 @@ export interface ModelAuthConfig {
   useDefaultCredentials: boolean;
 }
 
+/**
+ * An LLM model provider configuration stored in MongoDB.
+ * Supports OpenAI, Azure OpenAI, Ollama, Anthropic, Google Gemini, and more.
+ */
 export interface ModelProvider {
   id: string;
   name: string;
@@ -284,6 +318,10 @@ export interface CopilotConnectResult {
 
 // ── Activity Dashboard Types ──
 
+/**
+ * A real-time event from the orchestration pipeline, delivered via Server-Sent Events.
+ * The {@link useActivityStream} hook consumes these to update the mesh graph and timeline.
+ */
 export interface LiveEvent {
   type: 'connected' | 'requestStart' | 'routing' | 'agentStart' | 'toolCall' | 'toolResult' | 'agentComplete' | 'requestComplete' | 'error'
   agentName?: string
@@ -297,6 +335,7 @@ export interface LiveEvent {
   errorMessage?: string
 }
 
+/** A node in the agent mesh graph (orchestrator, agent, or tool). */
 export interface MeshNode {
   id: string
   label: string
@@ -309,11 +348,13 @@ export interface MeshEdge {
   target: string
 }
 
+/** Agent mesh topology returned by `/api/activity/mesh`. */
 export interface MeshTopology {
   nodes: MeshNode[]
   edges: MeshEdge[]
 }
 
+/** Combined activity summary for the dashboard overview cards. */
 export interface ActivitySummary {
   traces: TraceStats
   tasks: { totalTasks: number; completedCount: number; failedCount: number }
@@ -327,6 +368,7 @@ export interface AgentActivityStatsMap {
 
 // ── Alarm Clock Types ──
 
+/** An alarm clock definition with CRON schedule, sound, and volume ramp settings. */
 export interface AlarmClock {
   id: string
   name: string
@@ -376,6 +418,7 @@ export interface OccupiedArea {
 
 // ── Skill Optimizer ─────────────────────────────────────────────
 
+/** Tunable parameters for the HybridEntityMatcher used by agent skills. */
 export interface HybridMatchOptions {
   threshold: number
   embeddingWeight: number
@@ -465,6 +508,7 @@ export interface JobStatusResponse {
 
 // ─── Plugin System ───
 
+/** A plugin repository source (Git-based) for discovering available plugins. */
 export interface PluginRepository {
   id: string
   name: string
@@ -475,6 +519,7 @@ export interface PluginRepository {
   enabled: boolean
 }
 
+/** A plugin available for installation from a repository. */
 export interface AvailablePlugin {
   id: string
   name: string
@@ -488,6 +533,7 @@ export interface AvailablePlugin {
   repositoryName: string
 }
 
+/** A plugin currently installed on the system. */
 export interface InstalledPlugin {
   id: string
   name: string

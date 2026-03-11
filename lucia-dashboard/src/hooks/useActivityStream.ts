@@ -1,8 +1,18 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { LiveEvent } from '../types'
 
+/** Connection state of the SSE activity stream. */
 export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected'
 
+/**
+ * React hook for consuming real-time orchestration events via Server-Sent Events.
+ *
+ * Connects to `/api/activity/live` and provides the latest {@link LiveEvent},
+ * the current {@link ConnectionState}, and a manual `reconnect` function.
+ *
+ * Automatically reconnects on error with exponential backoff (up to 10 retries,
+ * max 30 second delay). Cleans up the EventSource on unmount.
+ */
 export function useActivityStream() {
   const [lastEvent, setLastEvent] = useState<LiveEvent | null>(null)
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected')
