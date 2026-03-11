@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import CustomSelect from '../components/CustomSelect'
 import EntityMultiSelect from '../components/EntityMultiSelect'
+import ToastContainer from '../components/ToastContainer'
+import { useToast } from '../hooks/useToast'
 import {
   fetchOptimizableSkills,
   fetchSkillDevices,
@@ -21,42 +23,11 @@ import type {
 } from '../types'
 
 /* ------------------------------------------------------------------ */
-/*  Toast                                                              */
-/* ------------------------------------------------------------------ */
-
-interface Toast { id: number; message: string; type: 'success' | 'error' }
-let toastId = 0
-
-function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: number) => void }) {
-  return (
-    <div className="fixed top-4 right-4 z-50 flex flex-col gap-2">
-      {toasts.map((t) => (
-        <div
-          key={t.id}
-          className={`flex items-center gap-3 rounded-xl px-4 py-3 shadow-lg text-sm font-medium transition-all duration-300 ${
-            t.type === 'success' ? 'bg-sage/20 text-light' : 'bg-ember/20 text-light'
-          }`}
-        >
-          <span>{t.type === 'success' ? '✓' : '✕'}</span>
-          <span className="flex-1">{t.message}</span>
-          <button onClick={() => onDismiss(t.id)} className="ml-2 opacity-70 hover:opacity-100">×</button>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------ */
 /*  Main Page                                                          */
 /* ------------------------------------------------------------------ */
 
 export default function SkillOptimizerPage() {
-  const [toasts, setToasts] = useState<Toast[]>([])
-  const addToast = (message: string, type: Toast['type']) => {
-    const id = ++toastId
-    setToasts((t) => [...t, { id, message, type }])
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4000)
-  }
+  const { toasts, addToast, dismissToast } = useToast(4000)
 
   // ── State ─────────────────────────────────────────────────────
   const [skills, setSkills] = useState<OptimizableSkillInfo[]>([])
@@ -260,7 +231,7 @@ export default function SkillOptimizerPage() {
   // ── Render ────────────────────────────────────────────────────
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6" style={{ minHeight: 'calc(100vh - 8rem)' }}>
-      <ToastContainer toasts={toasts} onDismiss={(id) => setToasts((t) => t.filter((x) => x.id !== id))} />
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
       <div className="flex items-center justify-between">
         <div>
