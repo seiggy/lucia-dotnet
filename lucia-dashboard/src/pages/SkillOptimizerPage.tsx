@@ -50,7 +50,7 @@ export default function SkillOptimizerPage() {
       setEmbeddingModels(embProviders)
       if (embProviders.length > 0) setSelectedModel(embProviders[0].id)
     }).catch(() => addToast('Failed to load model providers', 'error'))
-  }, [])
+  }, [addToast])
 
   // ── Auto-select first skill ───────────────────────────────────
   useEffect(() => {
@@ -65,7 +65,7 @@ export default function SkillOptimizerPage() {
     fetchSkillDevices(selectedSkill.skillId)
       .then(setDevices)
       .catch(() => addToast('Failed to load devices', 'error'))
-  }, [selectedSkill])
+  }, [selectedSkill, addToast])
 
   // ── Cleanup polling on unmount ────────────────────────────────
   useEffect(() => {
@@ -82,7 +82,7 @@ export default function SkillOptimizerPage() {
     }))
     setTestCases(cases)
     addToast(`Generated ${cases.length} test cases from devices`, 'success')
-  }, [devices])
+  }, [devices, addToast])
 
   // ── Import from traces ────────────────────────────────────────
   const importFromTraces = useCallback(async () => {
@@ -108,7 +108,7 @@ export default function SkillOptimizerPage() {
     } catch {
       addToast('Failed to import traces', 'error')
     }
-  }, [selectedSkill])
+  }, [selectedSkill, addToast])
 
   // ── Test case CRUD ────────────────────────────────────────────
   const addTestCase = () => {
@@ -143,7 +143,7 @@ export default function SkillOptimizerPage() {
     a.click()
     URL.revokeObjectURL(url)
     addToast(`Exported ${testCases.length} test cases + ${devices.length} entities`, 'success')
-  }, [selectedSkill, testCases, devices])
+  }, [selectedSkill, testCases, devices, addToast])
 
   // ── Start optimization ────────────────────────────────────────
   const handleStartOptimization = async () => {

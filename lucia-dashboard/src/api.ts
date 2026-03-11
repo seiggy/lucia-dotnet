@@ -1020,11 +1020,11 @@ export async function fetchEntityLocationEntities(domain?: string, agent?: strin
  * Search results may come as `EntityLocationInfo[]` directly or wrapped in
  * `{ entities: EntityLocationInfo[] }`. Consumers should handle both shapes.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function searchEntityLocation(
   term: string,
   domain?: string,
   agent?: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<any> {
   const params = new URLSearchParams();
   if (domain) params.set('domain', domain);

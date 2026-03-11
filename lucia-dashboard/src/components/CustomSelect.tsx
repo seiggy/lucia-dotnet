@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useId } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown } from 'lucide-react';
 
@@ -34,7 +34,7 @@ export default function CustomSelect({ options, value, onChange, placeholder, cl
   const [pos, setPos] = useState<{ top: number; left: number; width: number; direction: 'down' | 'up' }>({
     top: 0, left: 0, width: 0, direction: 'down',
   });
-  const listboxId = useRef(`cs-listbox-${Math.random().toString(36).slice(2, 8)}`).current;
+  const listboxId = useId();
 
   const selected = options.find((o) => o.value === value);
 
