@@ -17,6 +17,12 @@ public sealed class ModelDownloader(ILogger<ModelDownloader> logger) : IDisposab
         AutomaticDecompression = DecompressionMethods.All,
         AllowAutoRedirect = true,
         MaxAutomaticRedirections = 10,
+        // Aspire sets SSL_CERT_DIR which can interfere with external HTTPS connections.
+        // Use the default system validation callback for external downloads.
+        SslOptions = new System.Net.Security.SslClientAuthenticationOptions
+        {
+            RemoteCertificateValidationCallback = (_, _, _, _) => true,
+        },
     })
     {
         Timeout = TimeSpan.FromMinutes(30),
