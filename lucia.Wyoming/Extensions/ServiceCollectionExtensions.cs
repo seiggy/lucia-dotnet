@@ -44,6 +44,16 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<ModelCatalogService>();
         builder.Services.AddSingleton<ModelManager>();
         builder.Services.AddSingleton<IModelChangeNotifier>(sp => sp.GetRequiredService<ModelManager>());
+        // Named HttpClient for model downloads — long timeout, no resilience pipeline
+        builder.Services.AddHttpClient("WyomingModelDownload", client =>
+        {
+            client.Timeout = TimeSpan.FromMinutes(30);
+        }).ConfigureAdditionalHttpMessageHandlers((handlers, _) =>
+        {
+            // Remove any resilience handlers added by Aspire defaults
+            handlers.Clear();
+        });
+
         builder.Services.AddSingleton<ModelDownloader>();
         builder.Services.AddSingleton<BackgroundTaskService>();
 

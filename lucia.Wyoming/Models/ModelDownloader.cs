@@ -7,6 +7,7 @@ namespace lucia.Wyoming.Models;
 public sealed class ModelDownloader(IHttpClientFactory httpClientFactory, ILogger<ModelDownloader> logger)
 {
     private const int BufferSize = 81_920;
+    private const string HttpClientName = "WyomingModelDownload";
 
     public async Task<ModelDownloadResult> DownloadModelAsync(
         AsrModelDefinition model,
@@ -38,12 +39,15 @@ public sealed class ModelDownloader(IHttpClientFactory httpClientFactory, ILogge
             Directory.CreateDirectory(extractionDirectory);
             Directory.CreateDirectory(targetBasePath);
 
-            var client = httpClientFactory.CreateClient();
+            var client = httpClientFactory.CreateClient(HttpClientName);
+            logger.LogInformation("[background-task] Downloading model {ModelId} from {Url}", model.Id, model.DownloadUrl);
             using var response = await client
                 .GetAsync(model.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, ct)
                 .ConfigureAwait(false);
 
             response.EnsureSuccessStatusCode();
+            logger.LogInformation("[background-task] Download started for {ModelId}, content-length: {Bytes} bytes",
+                model.Id, response.Content.Headers.ContentLength);
 
             var totalBytes = response.Content.Headers.ContentLength ?? model.SizeBytes;
             await using (var contentStream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false))
