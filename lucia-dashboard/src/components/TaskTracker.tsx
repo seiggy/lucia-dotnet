@@ -130,7 +130,7 @@ export default function TaskTracker() {
           if (!disposed) setTasks(sortTasks(next))
         })
         .catch(() => { /* ignore poll failures */ })
-    }, 5_000)
+    }, 2_000)
 
     return () => {
       disposed = true

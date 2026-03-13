@@ -15,11 +15,11 @@ public static class BackgroundTaskApi
     public static void MapBackgroundTaskEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/api/tasks/background")
-            .WithTags("Background Tasks")
-            .RequireAuthorization();
+            .WithTags("Background Tasks");
 
         group.MapGet("/", (BackgroundTaskService taskService) =>
-            Results.Ok(taskService.GetAllTasks()));
+            Results.Ok(taskService.GetAllTasks()))
+            .RequireAuthorization();
 
         group.MapGet("/{taskId}", (string taskId, BackgroundTaskService taskService) =>
         {
@@ -27,23 +27,32 @@ public static class BackgroundTaskApi
             return task is not null
                 ? Results.Ok(task)
                 : Results.NotFound();
-        });
+        }).RequireAuthorization();
 
+        // SSE stream — no auth (EventSource cannot send headers, matches ActivityApi pattern)
+        // Polls task state every second for responsive updates.
         group.MapGet("/stream", async (BackgroundTaskService taskService, HttpContext ctx, CancellationToken ct) =>
         {
             ctx.Response.ContentType = "text/event-stream";
             ctx.Response.Headers.CacheControl = "no-cache";
             ctx.Response.Headers.Connection = "keep-alive";
 
-            await WriteSseAsync(ctx.Response, "snapshot", taskService.GetAllTasks(), ct).ConfigureAwait(false);
-
-            var reader = taskService.GetUpdateReader();
+            var lastSnapshot = "";
             while (!ct.IsCancellationRequested)
             {
                 try
                 {
-                    var update = await reader.ReadAsync(ct).ConfigureAwait(false);
-                    await WriteSseAsync(ctx.Response, "update", update, ct).ConfigureAwait(false);
+                    var tasks = taskService.GetAllTasks();
+                    var json = JsonSerializer.Serialize(tasks, JsonOptions);
+
+                    // Only send if state changed
+                    if (json != lastSnapshot)
+                    {
+                        lastSnapshot = json;
+                        await WriteSseAsync(ctx.Response, "snapshot", tasks, ct).ConfigureAwait(false);
+                    }
+
+                    await Task.Delay(1_000, ct).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
