@@ -1448,3 +1448,67 @@ export async function deleteWakeWord(id: string) {
   const res = await fetch(`${BASE}/wake-words/${id}`, { method: 'DELETE' })
   if (!res.ok) throw new Error(`Failed to delete wake word: ${res.statusText}`)
 }
+
+// Wyoming Model Management
+export interface AsrModel {
+  id: string
+  name: string
+  architecture: string
+  isStreaming: boolean
+  languages: string[]
+  sizeBytes: number
+  description: string
+  downloadUrl: string
+  isDefault: boolean
+  minMemoryMb: number
+}
+
+export interface InstalledModel extends AsrModel {
+  localPath: string
+  isActive: boolean
+}
+
+export interface ModelDownloadResult {
+  success: boolean
+  modelId: string
+  localPath?: string
+  alreadyExisted: boolean
+  error?: string
+}
+
+export async function fetchAvailableModels(): Promise<AsrModel[]> {
+  const res = await fetch(`${BASE}/wyoming/models`)
+  if (!res.ok) return []
+  return res.json()
+}
+
+export async function fetchInstalledModels(): Promise<AsrModel[]> {
+  const res = await fetch(`${BASE}/wyoming/models/installed`)
+  if (!res.ok) return []
+  return res.json()
+}
+
+export async function fetchActiveModel(): Promise<{ activeModel: string }> {
+  const res = await fetch(`${BASE}/wyoming/models/active`)
+  if (!res.ok) return { activeModel: '' }
+  return res.json()
+}
+
+export async function downloadModel(modelId: string): Promise<ModelDownloadResult> {
+  const res = await fetch(`${BASE}/wyoming/models/${encodeURIComponent(modelId)}/download`, {
+    method: 'POST',
+  })
+  return res.json()
+}
+
+export async function activateModel(modelId: string): Promise<void> {
+  await fetch(`${BASE}/wyoming/models/${encodeURIComponent(modelId)}/activate`, {
+    method: 'POST',
+  })
+}
+
+export async function deleteModel(modelId: string): Promise<void> {
+  await fetch(`${BASE}/wyoming/models/${encodeURIComponent(modelId)}`, {
+    method: 'DELETE',
+  })
+}

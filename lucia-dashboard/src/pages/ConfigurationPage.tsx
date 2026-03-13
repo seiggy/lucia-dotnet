@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   fetchConfigSchema,
   fetchConfigSection,
-  fetchWyomingStatus,
   updateConfigSection,
   resetConfig,
   testMusicAssistantIntegration,
@@ -13,7 +12,6 @@ import type {
   ConfigSectionSchema,
   ConfigEntryDto,
   ConfigPropertySchema,
-  WyomingStatus,
 } from '../api'
 import type { ModelProvider } from '../types'
 
@@ -660,118 +658,6 @@ function MusicAssistantTestButton({ integrationId }: { integrationId: string }) 
   )
 }
 
-function StatusDot({ ready, label }: { ready?: boolean; label: string }) {
-  return (
-    <div className="flex items-center gap-3 py-2">
-      <div
-        className={`h-2.5 w-2.5 rounded-full ${
-          ready ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'
-        }`}
-      />
-      <span className="text-sm text-light">{label}</span>
-      <span className="text-xs text-dust">{ready ? 'Ready' : 'Not configured'}</span>
-    </div>
-  )
-}
-
-function VoicePlatformSection() {
-  const [status, setStatus] = useState<WyomingStatus | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    let ignore = false
-
-    async function loadStatus() {
-      const nextStatus = await fetchWyomingStatus()
-      if (ignore) return
-      setStatus(nextStatus)
-      setLoading(false)
-    }
-
-    void loadStatus()
-
-    return () => {
-      ignore = true
-    }
-  }, [])
-
-  if (loading) {
-    return (
-      <div className="rounded-xl border border-stone bg-charcoal p-4 sm:p-6">
-        <h2 className="text-lg font-semibold text-light">Voice Platform</h2>
-        <p className="mt-3 text-sm text-dust">Loading voice platform status…</p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="rounded-xl border border-stone bg-charcoal p-4 sm:p-6">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-light">Voice Platform (Wyoming)</h2>
-          <p className="mt-1 text-sm text-dust">
-            Download and configure sherpa-onnx models before voice enrollment and wake word
-            features become available.
-          </p>
-        </div>
-        <span
-          className={`inline-flex w-fit items-center rounded-full px-3 py-1 text-xs font-medium ${
-            status?.configured
-              ? 'bg-green-500/10 text-green-300'
-              : 'bg-amber/10 text-amber'
-          }`}
-        >
-          {status?.configured ? 'Configured' : 'Setup needed'}
-        </span>
-      </div>
-
-      <div className="mt-5 grid gap-1 sm:grid-cols-2">
-        <StatusDot ready={status?.stt?.ready} label="Speech-to-Text (STT)" />
-        <StatusDot ready={status?.wakeWord?.ready} label="Wake Word Detection" />
-        <StatusDot ready={status?.diarization?.ready} label="Speaker Verification" />
-        <StatusDot ready={status?.customWakeWords?.ready} label="Custom Wake Words" />
-      </div>
-
-      {!status?.configured && (
-        <div className="mt-4 rounded-lg border border-amber-700 bg-amber-900/20 p-3">
-          <p className="text-sm text-amber-200">
-            Voice platform is not yet configured. Download and install sherpa-onnx models to
-            enable voice features. See the{' '}
-            <a
-              href="https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models"
-              target="_blank"
-              rel="noreferrer"
-              className="underline"
-            >
-              sherpa-onnx model releases
-            </a>{' '}
-            for available models.
-          </p>
-        </div>
-      )}
-
-      <div className="mt-5 flex flex-wrap gap-3">
-        <a
-          href="/api/wyoming/models"
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-2 rounded-xl border border-stone bg-basalt px-4 py-2 text-sm font-medium text-fog transition-colors hover:border-amber/30 hover:text-light"
-        >
-          Open model management
-        </a>
-        {status?.configured && (
-          <a
-            href="/voice-onboarding"
-            className="inline-flex items-center gap-2 rounded-xl bg-amber px-4 py-2 text-sm font-medium text-void transition-colors hover:bg-amber-glow"
-          >
-            Set up voice profiles →
-          </a>
-        )}
-      </div>
-    </div>
-  )
-}
-
 /* ------------------------------------------------------------------ */
 /*  Main Page                                                          */
 /* ------------------------------------------------------------------ */
@@ -1143,10 +1029,6 @@ export default function ConfigurationPage() {
             </div>
           ) : (
             <div className="mx-auto max-w-3xl">
-              <div className="mb-6">
-                <VoicePlatformSection />
-              </div>
-
               {/* Section header */}
               <div className="mb-6">
                 <h2 className="text-lg font-semibold text-light">{activeSchema.section}</h2>
