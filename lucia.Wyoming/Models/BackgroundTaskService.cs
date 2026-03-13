@@ -79,8 +79,20 @@ public sealed class BackgroundTaskService(ILogger<BackgroundTaskService> logger)
         _tasks[taskId] = info;
         PublishUpdate(info);
 
+        logger.LogInformation("[background-task] Queued task {TaskId}: {Description}", taskId, description);
+
         var stageProgress = new StageProgress(taskId, stageNames.Length, this);
-        _ = Task.Run(() => RunStagedTaskAsync(taskId, description, stageProgress, work));
+        Task.Run(async () =>
+        {
+            try
+            {
+                await RunStagedTaskAsync(taskId, description, stageProgress, work).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                logger.LogCritical(ex, "[background-task] UNHANDLED exception in Task.Run for {TaskId}", taskId);
+            }
+        });
         return taskId;
     }
 
