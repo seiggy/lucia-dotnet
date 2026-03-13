@@ -8,6 +8,7 @@ import {
   deleteSpeakerProfile,
   deleteWakeWord,
   downloadModel,
+  fetchBackgroundTask,
   fetchActiveModel,
   fetchAvailableModels,
   fetchInstalledModels,
@@ -68,6 +69,31 @@ const tabs: { id: Tab; label: string; icon: typeof Mic }[] = [
   { id: 'wake-words', label: 'Wake Words', icon: Volume2 },
 ]
 
+const architectureLabels: Record<string, string> = {
+  ZipformerTransducer: 'Zipformer Transducer',
+  ZipformerCtc: 'Zipformer CTC',
+  Paraformer: 'Paraformer',
+  Conformer: 'Conformer',
+  NemoFastConformer: 'NeMo FastConformer',
+  NemoParakeet: 'NeMo Parakeet',
+  NemoNemotron: 'NeMo Nemotron',
+  NemoCanary: 'NeMo Canary',
+  Whisper: 'Whisper',
+  SenseVoice: 'SenseVoice',
+  Lstm: 'LSTM',
+  Telespeech: 'TeleSpeech',
+  Unknown: 'Unknown',
+}
+
+function archLabel(value: string | number): string {
+  if (typeof value === 'number') {
+    // Fallback for integer enum values from older API responses
+    const names = Object.keys(architectureLabels)
+    return architectureLabels[names[value] ?? ''] ?? `Type ${value}`
+  }
+  return architectureLabels[value] ?? String(value)
+}
+
 const buttonPrimary = 'inline-flex items-center justify-center gap-2 rounded-xl bg-amber px-4 py-2 text-sm font-semibold text-void transition-colors hover:bg-amber-glow disabled:cursor-not-allowed disabled:opacity-50'
 const buttonSecondary = 'inline-flex items-center justify-center gap-2 rounded-xl border border-stone/50 bg-basalt px-4 py-2 text-sm font-medium text-fog transition-colors hover:border-amber/30 hover:text-light disabled:cursor-not-allowed disabled:opacity-50'
 const inputClass = 'w-full rounded-xl border border-stone/50 bg-basalt px-4 py-2.5 text-sm text-light placeholder:text-dust/70 focus:border-amber/40 focus:outline-none'
@@ -118,6 +144,7 @@ export default function VoicePlatformPage() {
   const animationFrameRef = useRef<number | null>(null)
   const pcmChunksRef = useRef<Float32Array[]>([])
   const sampleRateRef = useRef(TARGET_SAMPLE_RATE)
+  const modelDownloadPollRef = useRef<Record<string, number>>({})
 
   const markModelBusy = useCallback((id: string, busy: boolean) => {
     setBusyModelIds(current => {
@@ -179,48 +206,48 @@ export default function VoicePlatformPage() {
     }
   }, [])
 
-  useEffect(() => {
-    let ignore = false
+  const clearModelDownloadPoll = useCallback((modelId: string) => {
+    const timeoutId = modelDownloadPollRef.current[modelId]
+    if (timeoutId !== undefined) {
+      window.clearTimeout(timeoutId)
+      delete modelDownloadPollRef.current[modelId]
+    }
+  }, [])
 
-    async function hydrate() {
-      await Promise.all([loadStatus(), loadModels(), loadDirectories()])
-      if (ignore) return
+  const watchModelDownload = useCallback((modelId: string, taskId: string) => {
+    clearModelDownloadPoll(modelId)
+
+    const poll = async () => {
+      try {
+        const task = await fetchBackgroundTask(taskId)
+        if (!task || task.status === 'Queued' || task.status === 'Running') {
+          modelDownloadPollRef.current[modelId] = window.setTimeout(() => {
+            void poll()
+          }, 2_000)
+          return
+        }
+
+        clearModelDownloadPoll(modelId)
+        await Promise.all([loadModels(), loadStatus()])
+
+        if (task.status === 'Complete') {
+          setNotice({ type: 'success', message: 'Model downloaded successfully.' })
+        } else if (task.status === 'Failed') {
+          setNotice({ type: 'error', message: task.error || 'Model download failed.' })
+        } else {
+          setNotice({ type: 'info', message: 'Model download was cancelled.' })
+        }
+
+        markModelBusy(modelId, false)
+      } catch {
+        modelDownloadPollRef.current[modelId] = window.setTimeout(() => {
+          void poll()
+        }, 4_000)
+      }
     }
 
-    void hydrate()
-    return () => {
-      ignore = true
-      teardownAudio()
-    }
-  }, [loadDirectories, loadModels, loadStatus])
-
-  const languageOptions = useMemo(
-    () => ['all', ...new Set(models.flatMap(model => model.languages).sort((a, b) => a.localeCompare(b)))],
-    [models],
-  )
-
-  const architectureOptions = useMemo(
-    () => ['all', ...new Set(models.map(model => model.architecture).sort((a, b) => a.localeCompare(b)))],
-    [models],
-  )
-
-  const filteredModels = useMemo(() => {
-    const visible = models
-      .filter(model => languageFilter === 'all' || model.languages.includes(languageFilter))
-      .filter(model => architectureFilter === 'all' || model.architecture === architectureFilter)
-      .filter(model => !streamingOnly || model.isStreaming)
-      .map(model => ({
-        ...model,
-        isInstalled: installedIds.has(model.id),
-        isActive: activeModelId === model.id,
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name))
-
-    return {
-      installed: visible.filter(model => model.isInstalled).sort((a, b) => Number(b.isActive) - Number(a.isActive) || a.name.localeCompare(b.name)),
-      catalog: visible.filter(model => !model.isInstalled),
-    }
-  }, [activeModelId, architectureFilter, installedIds, languageFilter, models, streamingOnly])
+    void poll()
+  }, [clearModelDownloadPoll, loadModels, loadStatus, markModelBusy])
 
   const teardownAudio = useCallback(() => {
     if (animationFrameRef.current !== null) cancelAnimationFrame(animationFrameRef.current)
@@ -241,6 +268,51 @@ export default function VoicePlatformPage() {
     setIsRecording(false)
     setMeterLevel(0)
   }, [])
+
+  useEffect(() => {
+    let ignore = false
+
+    async function hydrate() {
+      await Promise.all([loadStatus(), loadModels(), loadDirectories()])
+      if (ignore) return
+    }
+
+    void hydrate()
+    return () => {
+      ignore = true
+      Object.values(modelDownloadPollRef.current).forEach(timeoutId => window.clearTimeout(timeoutId))
+      modelDownloadPollRef.current = {}
+      teardownAudio()
+    }
+  }, [loadDirectories, loadModels, loadStatus, teardownAudio])
+
+  const languageOptions = useMemo(
+    () => ['all', ...new Set(models.flatMap(model => model.languages ?? []).filter(Boolean).sort((a, b) => String(a).localeCompare(String(b))))],
+    [models],
+  )
+
+  const architectureOptions = useMemo(
+    () => ['all', ...new Set(models.map(model => model.architecture).filter(Boolean).sort((a, b) => String(a).localeCompare(String(b))))],
+    [models],
+  )
+
+  const filteredModels = useMemo(() => {
+    const visible = models
+      .filter(model => languageFilter === 'all' || model.languages.includes(languageFilter))
+      .filter(model => architectureFilter === 'all' || model.architecture === architectureFilter)
+      .filter(model => !streamingOnly || model.isStreaming)
+      .map(model => ({
+        ...model,
+        isInstalled: installedIds.has(model.id),
+        isActive: activeModelId === model.id,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+
+    return {
+      installed: visible.filter(model => model.isInstalled).sort((a, b) => Number(b.isActive) - Number(a.isActive) || a.name.localeCompare(b.name)),
+      catalog: visible.filter(model => !model.isInstalled),
+    }
+  }, [activeModelId, architectureFilter, installedIds, languageFilter, models, streamingOnly])
 
   const startMeter = useCallback(() => {
     const analyser = analyserRef.current
@@ -337,14 +409,14 @@ export default function VoicePlatformPage() {
   async function handleModelDownload(modelId: string) {
     markModelBusy(modelId, true)
     try {
-      const result = await downloadModel(modelId)
-      if (!result.success) throw new Error(result.error || 'Model download failed.')
-      await Promise.all([loadModels(), loadStatus()])
-      setNotice({ type: 'success', message: result.alreadyExisted ? 'Model already installed.' : 'Model downloaded successfully.' })
+      const { taskId } = await downloadModel(modelId)
+      setNotice({ type: 'info', message: 'Model download started. Track progress from the task tracker.' })
+      watchModelDownload(modelId, taskId)
     } catch (error) {
-      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Failed to download model.' })
-    } finally {
+      clearModelDownloadPoll(modelId)
       markModelBusy(modelId, false)
+      console.error('Failed to start download:', error)
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Failed to start model download.' })
     }
   }
 
@@ -551,7 +623,7 @@ export default function VoicePlatformPage() {
             <label className="text-sm text-fog">
               <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.24em] text-dust">Architecture</span>
               <select value={architectureFilter} onChange={event => setArchitectureFilter(event.target.value)} className={inputClass}>
-                {architectureOptions.map(option => <option key={option} value={option}>{option === 'all' ? 'All architectures' : option}</option>)}
+                {architectureOptions.map(option => <option key={option} value={option}>{option === 'all' ? 'All architectures' : archLabel(option)}</option>)}
               </select>
             </label>
             <label className="flex items-center gap-3 rounded-xl border border-stone/50 bg-basalt px-4 py-3 text-sm text-fog">
@@ -713,7 +785,7 @@ function ModelCard({ model, busy, onDownload, onActivate, onDelete }: { model: A
           </div>
           <div className="flex flex-wrap gap-2 text-xs text-dust">
             <InlineMeta icon={Globe} label={model.languages.join(', ')} />
-            <InlineMeta icon={Cpu} label={model.architecture} />
+            <InlineMeta icon={Cpu} label={archLabel(model.architecture)} />
             <InlineMeta icon={Download} label={formatBytes(model.sizeBytes)} />
           </div>
           <p className="text-sm leading-6 text-fog">{model.description || 'Sherpa-onnx speech recognition model.'}</p>

@@ -1468,12 +1468,31 @@ export interface InstalledModel extends AsrModel {
   isActive: boolean
 }
 
-export interface ModelDownloadResult {
-  success: boolean
-  modelId: string
-  localPath?: string
-  alreadyExisted: boolean
+export interface BackgroundTask {
+  id: string
+  description: string
+  status: 'Queued' | 'Running' | 'Complete' | 'Failed' | 'Cancelled'
+  progressPercent: number
+  progressMessage?: string
   error?: string
+  createdAt: string
+  completedAt?: string
+}
+
+export interface ModelDownloadResult {
+  taskId: string
+}
+
+export async function fetchBackgroundTasks(): Promise<BackgroundTask[]> {
+  const res = await fetch(`${BASE}/tasks/background`)
+  if (!res.ok) return []
+  return res.json()
+}
+
+export async function fetchBackgroundTask(taskId: string): Promise<BackgroundTask | null> {
+  const res = await fetch(`${BASE}/tasks/background/${encodeURIComponent(taskId)}`)
+  if (!res.ok) return null
+  return res.json()
 }
 
 export async function fetchAvailableModels(): Promise<AsrModel[]> {
@@ -1498,6 +1517,7 @@ export async function downloadModel(modelId: string): Promise<ModelDownloadResul
   const res = await fetch(`${BASE}/wyoming/models/${encodeURIComponent(modelId)}/download`, {
     method: 'POST',
   })
+  if (!res.ok) throw new Error(`Failed to start model download: ${res.statusText}`)
   return res.json()
 }
 

@@ -31,12 +31,12 @@ public static class WyomingModelApi
             return Results.Ok(new { ActiveModel = manager.ActiveModelId });
         }).WithName("GetActiveModel");
 
-        group.MapPost("/{modelId}/download", async (
+        group.MapPost("/{modelId}/download", (
             string modelId,
             ModelCatalogService catalog,
             ModelDownloader downloader,
-            IOptionsMonitor<SttModelOptions> modelOptions,
-            CancellationToken ct) =>
+            IOptions<SttModelOptions> modelOptions,
+            BackgroundTaskService taskService) =>
         {
             var model = catalog.GetModelById(modelId);
             if (model is null)
@@ -44,12 +44,32 @@ public static class WyomingModelApi
                 return Results.NotFound($"Model '{modelId}' not found in catalog");
             }
 
-            var result = await downloader
-                .DownloadModelAsync(model, modelOptions.CurrentValue.ModelBasePath, ct: ct)
-                .ConfigureAwait(false);
-            return result.Success
-                ? Results.Ok(result)
-                : Results.BadRequest(result);
+            var taskId = taskService.StartTask(
+                $"Downloading {model.Name}",
+                async (_, progress, ct) =>
+                {
+                    var downloadProgress = new Progress<ModelDownloadProgress>(update =>
+                    {
+                        progress.Report((
+                            (int)Math.Round(update.PercentComplete),
+                            $"Downloaded {update.BytesDownloaded / 1024 / 1024}MB"));
+                    });
+
+                    var result = await downloader
+                        .DownloadModelAsync(
+                            model,
+                            modelOptions.Value.ModelBasePath,
+                            downloadProgress,
+                            ct)
+                        .ConfigureAwait(false);
+
+                    if (!result.Success)
+                    {
+                        throw new InvalidOperationException(result.Error ?? "Download failed");
+                    }
+                });
+
+            return Results.Accepted($"/api/tasks/background/{taskId}", new { taskId });
         }).WithName("DownloadModel");
 
         group.MapPost("/{modelId}/activate", async (

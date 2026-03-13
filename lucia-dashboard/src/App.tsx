@@ -27,6 +27,7 @@ import SkillOptimizerPage from './pages/SkillOptimizerPage'
 import PluginsPage from './pages/PluginsPage'
 import MatcherDebugPage from './pages/MatcherDebugPage'
 import VoicePlatformPage from './pages/VoicePlatformPage'
+import TaskTracker from './components/TaskTracker'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Activity', icon: BarChart3, end: true },
@@ -204,6 +205,8 @@ function AppRoutes() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
+
+        <TaskTracker />
       </div>
     </div>
   )

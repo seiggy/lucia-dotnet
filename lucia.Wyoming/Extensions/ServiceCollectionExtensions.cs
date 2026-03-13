@@ -45,6 +45,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<ModelManager>();
         builder.Services.AddSingleton<IModelChangeNotifier>(sp => sp.GetRequiredService<ModelManager>());
         builder.Services.AddSingleton<ModelDownloader>();
+        builder.Services.AddSingleton<BackgroundTaskService>();
 
         builder.Services.AddSingleton<ISttEngine, SherpaSttEngine>();
         builder.Services.AddSingleton<IVadEngine, SherpaVadEngine>();

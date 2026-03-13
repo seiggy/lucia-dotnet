@@ -309,6 +309,7 @@ app.MapSkillOptimizerApi();
 app.MapPluginRepositoryApi();
 app.MapPluginStoreApi();
 app.MapInstalledPluginApi();
+app.MapBackgroundTaskEndpoints();
 app.MapWyomingModelEndpoints();
 app.MapWyomingStatusEndpoints();
 app.MapOnboardingEndpoints();

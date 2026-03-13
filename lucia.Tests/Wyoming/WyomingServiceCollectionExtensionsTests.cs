@@ -2,6 +2,7 @@ using lucia.Agents.Abstractions;
 using lucia.Agents.Models;
 using lucia.Wyoming.CommandRouting;
 using lucia.Wyoming.Diarization;
+using lucia.Wyoming.Models;
 using lucia.Wyoming.Extensions;
 using lucia.Wyoming.WakeWord;
 using Microsoft.Extensions.Configuration;
@@ -92,6 +93,10 @@ public sealed class WyomingServiceCollectionExtensionsTests
             builder.Services,
             descriptor => descriptor.ServiceType == typeof(CustomWakeWordManager)
                 && descriptor.ImplementationType == typeof(CustomWakeWordManager));
+        Assert.Contains(
+            builder.Services,
+            descriptor => descriptor.ServiceType == typeof(BackgroundTaskService)
+                && descriptor.ImplementationType == typeof(BackgroundTaskService));
 
         using var serviceProvider = builder.Services.BuildServiceProvider();
         var diarizationOptions = serviceProvider.GetRequiredService<IOptions<DiarizationOptions>>().Value;
