@@ -1,32 +1,12 @@
-using System.Net;
 using Microsoft.Extensions.Logging;
 using SharpCompress.Common;
 using SharpCompress.Readers;
 
 namespace lucia.Wyoming.Models;
 
-public sealed class ModelDownloader(ILogger<ModelDownloader> logger) : IDisposable
+public sealed class ModelDownloader(IHttpClientFactory httpClientFactory, ILogger<ModelDownloader> logger)
 {
     private const int BufferSize = 81_920;
-
-    // Create HttpClient directly — IHttpClientFactory injects Aspire's service discovery
-    // into all clients via ConfigureHttpClientDefaults, which hangs on external URLs like
-    // github.com when they redirect to release-assets.githubusercontent.com.
-    private readonly HttpClient _client = new(new SocketsHttpHandler
-    {
-        AutomaticDecompression = DecompressionMethods.All,
-        AllowAutoRedirect = true,
-        MaxAutomaticRedirections = 10,
-        // Aspire sets SSL_CERT_DIR which can interfere with external HTTPS connections.
-        // Use the default system validation callback for external downloads.
-        SslOptions = new System.Net.Security.SslClientAuthenticationOptions
-        {
-            RemoteCertificateValidationCallback = (_, _, _, _) => true,
-        },
-    })
-    {
-        Timeout = TimeSpan.FromMinutes(30),
-    };
 
     public async Task<ModelDownloadResult> DownloadModelAsync(
         AsrModelDefinition model,
@@ -58,27 +38,12 @@ public sealed class ModelDownloader(ILogger<ModelDownloader> logger) : IDisposab
             Directory.CreateDirectory(extractionDirectory);
             Directory.CreateDirectory(targetBasePath);
 
-            logger.LogInformation("[background-task] Downloading model {ModelId} from {Url}", model.Id, model.DownloadUrl);
-            
-            HttpResponseMessage response;
-            try
-            {
-                response = await _client
-                    .GetAsync(model.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, ct)
-                    .ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "[background-task] HTTP GET failed for {ModelId}", model.Id);
-                throw;
-            }
+            var client = httpClientFactory.CreateClient();
+            using var response = await client
+                .GetAsync(model.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, ct)
+                .ConfigureAwait(false);
 
-            using var _ = response;
-            logger.LogInformation("[background-task] Got HTTP {StatusCode}, content-length: {ContentLength}",
-                (int)response.StatusCode, response.Content.Headers.ContentLength);
             response.EnsureSuccessStatusCode();
-            logger.LogInformation("[background-task] Download started for {ModelId}, content-length: {Bytes} bytes",
-                model.Id, response.Content.Headers.ContentLength);
 
             var totalBytes = response.Content.Headers.ContentLength ?? model.SizeBytes;
             await using (var contentStream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false))
@@ -173,8 +138,7 @@ public sealed class ModelDownloader(ILogger<ModelDownloader> logger) : IDisposab
         var archiveSize = new FileInfo(archivePath).Length;
         using var stream = File.OpenRead(archivePath);
         using var reader = ReaderFactory.Open(stream);
-
-        var lastReportedPercent = -1;
+        var lastPercent = -1;
 
         while (reader.MoveToNextEntry())
         {
@@ -191,15 +155,10 @@ public sealed class ModelDownloader(ILogger<ModelDownloader> logger) : IDisposab
                     Overwrite = true,
                 });
 
-            // Track progress by how far we've read through the archive stream
             if (archiveSize > 0 && onProgress is not null)
             {
-                var percent = (int)(stream.Position * 100 / archiveSize);
-                if (percent != lastReportedPercent)
-                {
-                    lastReportedPercent = percent;
-                    onProgress(percent);
-                }
+                var pct = (int)(stream.Position * 100 / archiveSize);
+                if (pct != lastPercent) { lastPercent = pct; onProgress(pct); }
             }
         }
     }
@@ -248,9 +207,7 @@ public sealed class ModelDownloader(ILogger<ModelDownloader> logger) : IDisposab
         }
     }
 
-        private static bool IsModelDirectoryReady(string modelDirectory) =>
+    private static bool IsModelDirectoryReady(string modelDirectory) =>
         Directory.Exists(modelDirectory)
         && Directory.EnumerateFiles(modelDirectory, "*.onnx", SearchOption.AllDirectories).Any();
-
-    public void Dispose() => _client.Dispose();
 }

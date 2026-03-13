@@ -47,7 +47,6 @@ public static class ServiceCollectionExtensions
         // Named HttpClient for model downloads — bypasses Aspire service discovery and resilience.
         // We cannot use IHttpClientFactory because ConfigureHttpClientDefaults injects service
         // discovery into ALL clients, causing external URLs (github.com) to hang on redirects.
-        // Instead, ModelDownloader creates its own HttpClient directly.
         builder.Services.AddSingleton<ModelDownloader>();
         builder.Services.AddSingleton<IBackgroundTaskQueue>(_ => new BackgroundTaskQueue(capacity: 100));
         builder.Services.AddSingleton<BackgroundTaskTracker>();

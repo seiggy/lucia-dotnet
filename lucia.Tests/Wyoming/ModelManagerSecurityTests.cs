@@ -68,7 +68,7 @@ public sealed class ModelManagerSecurityTests : IDisposable
         });
 
         var catalog = new ModelCatalogService(options);
-        var downloader = new ModelDownloader(NullLogger<ModelDownloader>.Instance);
+        var downloader = new ModelDownloader(new SimpleHttpClientFactory(), NullLogger<ModelDownloader>.Instance);
 
         return new ModelManager(options, catalog, downloader, NullLogger<ModelManager>.Instance);
     }
@@ -80,4 +80,8 @@ public sealed class ModelManagerSecurityTests : IDisposable
         public IDisposable? OnChange(Action<T, string?> listener) => null;
     }
 
+    private sealed class SimpleHttpClientFactory : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new();
+    }
 }
