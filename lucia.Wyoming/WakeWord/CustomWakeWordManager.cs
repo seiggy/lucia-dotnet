@@ -8,13 +8,15 @@ namespace lucia.Wyoming.WakeWord;
 /// Uses open-vocabulary keyword spotting — no audio training required for basic functionality.
 /// Optional calibration (3-5 samples) auto-tunes boost/threshold.
 /// </summary>
-public sealed class CustomWakeWordManager
+public sealed class CustomWakeWordManager : IWakeWordChangeNotifier
 {
     private readonly IWakeWordStore _store;
     private readonly WakeWordTokenizer _tokenizer;
     private readonly WakeWordOptions _options;
     private readonly ILogger<CustomWakeWordManager> _logger;
     private readonly string _keywordsFilePath;
+
+    public event Action? KeywordsChanged;
 
     public CustomWakeWordManager(
         IWakeWordStore store,
@@ -32,6 +34,19 @@ public sealed class CustomWakeWordManager
         _options = options.Value;
         _logger = logger;
         _keywordsFilePath = ResolveKeywordsFilePath(_options);
+
+        var tokensPath = Path.Combine(_options.ModelPath, "tokens.txt");
+        if (File.Exists(tokensPath))
+        {
+            _tokenizer.LoadVocabulary(tokensPath);
+            _logger.LogInformation("Wake word tokenizer loaded vocabulary from {Path}", tokensPath);
+        }
+        else
+        {
+            _logger.LogWarning(
+                "Wake word tokens.txt not found at {Path}. Custom wake word registration will not be available until a KWS model is installed.",
+                tokensPath);
+        }
     }
 
     /// <summary>
@@ -44,6 +59,12 @@ public sealed class CustomWakeWordManager
         CancellationToken ct = default)
     {
         ValidatePhrase(phrase);
+
+        if (!_tokenizer.IsLoaded)
+        {
+            throw new InvalidOperationException(
+                "Wake word tokenizer is not initialized. Ensure a KWS model with tokens.txt is installed.");
+        }
 
         var now = DateTimeOffset.UtcNow;
         var wakeWord = new CustomWakeWord
@@ -153,6 +174,8 @@ public sealed class CustomWakeWordManager
             "Reloaded {Count} wake words into keywords file {KeywordsFilePath}",
             allWords.Count,
             _keywordsFilePath);
+
+        KeywordsChanged?.Invoke();
     }
 
     private static string ResolveKeywordsFilePath(WakeWordOptions options)

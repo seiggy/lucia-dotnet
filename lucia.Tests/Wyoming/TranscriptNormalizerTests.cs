@@ -16,6 +16,7 @@ public sealed class TranscriptNormalizerTests
     [InlineData("um turn on the lights please", "turn on the lights")]
     [InlineData("uh like set the thermostat", "set the thermostat")]
     [InlineData("okay actually turn off lights", "turn off lights")]
+    [InlineData("you know turn on the lights thank you", "turn on the lights")]
     public void Normalize_RemovesFillerAndPoliteWords(string input, string expected)
     {
         Assert.Equal(expected, TranscriptNormalizer.Normalize(input));
@@ -46,6 +47,12 @@ public sealed class TranscriptNormalizerTests
     public void Normalize_OnlyFillerWords_ReturnsEmpty()
     {
         Assert.Equal(string.Empty, TranscriptNormalizer.Normalize("um uh like okay please"));
+    }
+
+    [Fact]
+    public void Normalize_PreservesOk()
+    {
+        Assert.Equal("ok turn on the lights", TranscriptNormalizer.Normalize("ok turn on the lights"));
     }
 
     [Fact]

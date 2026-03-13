@@ -138,18 +138,27 @@ public sealed class SkillDispatcher
     {
         var captures = route.CapturedValues ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var pattern = route.MatchedPattern!;
+        var entity = captures.GetValueOrDefault("entity", string.Empty);
+        var area = captures.GetValueOrDefault("area", string.Empty);
+        var target = !string.IsNullOrEmpty(entity)
+            ? entity
+            : !string.IsNullOrEmpty(area)
+                ? $"the {area} lights"
+                : "the lights";
 
         return pattern.Action switch
         {
             "toggle" when captures.TryGetValue("action", out var action) =>
-                $"Turn {action} {captures.GetValueOrDefault("entity", captures.GetValueOrDefault("area", "the lights"))}",
-            "brightness" when captures.TryGetValue("value", out var brightness) =>
-                $"Set {captures.GetValueOrDefault("entity", "the lights")} brightness to {brightness} percent",
-            "set_temperature" when captures.TryGetValue("value", out var temperature) =>
-                $"Set {captures.GetValueOrDefault("entity", captures.GetValueOrDefault("area", "thermostat"))} temperature to {temperature}",
+                $"Turn {action} {target}",
+            "brightness" when captures.TryGetValue("value", out var value) =>
+                $"Set {target} brightness to {value} percent",
+            "set_temperature" when captures.TryGetValue("value", out var temp) =>
+                $"Set the thermostat{(!string.IsNullOrEmpty(area) ? $" in the {area}" : string.Empty)} to {temp} degrees",
+            "adjust" when captures.TryGetValue("action", out var adjustment) =>
+                $"Make it {adjustment}{(!string.IsNullOrEmpty(area) ? $" in the {area}" : string.Empty)}",
             "activate" when captures.TryGetValue("scene", out var scene) =>
                 $"Activate the {scene} scene",
-            _ => string.Join(" ", captures.Values),
+            _ => $"{pattern.Action} {string.Join(" ", captures.Values)}",
         };
     }
 

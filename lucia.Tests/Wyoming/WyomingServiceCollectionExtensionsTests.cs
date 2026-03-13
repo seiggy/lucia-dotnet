@@ -1,8 +1,11 @@
+using lucia.Agents.Abstractions;
+using lucia.Agents.Models;
 using lucia.Wyoming.CommandRouting;
 using lucia.Wyoming.Diarization;
 using lucia.Wyoming.Extensions;
 using lucia.Wyoming.WakeWord;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
@@ -54,8 +57,7 @@ public sealed class WyomingServiceCollectionExtensionsTests
 
         Assert.Contains(
             builder.Services,
-            descriptor => descriptor.ServiceType == typeof(CommandPatternRegistry)
-                && descriptor.ImplementationType == typeof(CommandPatternRegistry));
+            descriptor => descriptor.ServiceType == typeof(CommandPatternRegistry));
         Assert.Contains(
             builder.Services,
             descriptor => descriptor.ServiceType == typeof(CommandPatternMatcher)
@@ -102,5 +104,51 @@ public sealed class WyomingServiceCollectionExtensionsTests
         Assert.Equal(0.05f, voiceProfileOptions.AdaptiveAlpha);
         Assert.True(commandRoutingOptions.Enabled);
         Assert.Equal(0.8f, commandRoutingOptions.ConfidenceThreshold);
+    }
+
+    [Fact]
+    public void AddWyomingServer_CommandPatternRegistry_IncludesOptimizableSkillProviders()
+    {
+        var builder = Host.CreateApplicationBuilder();
+
+        builder.Services.AddSingleton<TestOptimizablePatternSkill>();
+        builder.Services.AddSingleton<IOptimizableSkill>(sp => sp.GetRequiredService<TestOptimizablePatternSkill>());
+
+        builder.AddWyomingServer();
+
+        using var serviceProvider = builder.Services.BuildServiceProvider();
+        var registry = serviceProvider.GetRequiredService<CommandPatternRegistry>();
+
+        var patterns = registry.GetAllPatterns();
+
+        Assert.Contains(patterns, pattern => pattern.Id == "test-skill-pattern");
+    }
+
+    private sealed class TestOptimizablePatternSkill : IOptimizableSkill, ICommandPatternProvider
+    {
+        public string SkillDisplayName => "Test Skill";
+
+        public string SkillId => "test-skill";
+
+        public string AgentId => "test-agent";
+
+        public IReadOnlyList<string> SearchToolNames => [];
+
+        public string ConfigSectionName => "TestSkill";
+
+        public IReadOnlyList<string> EntityDomains => [];
+
+        public HybridMatchOptions GetCurrentMatchOptions() => new();
+
+        public IReadOnlyList<CommandPatternDefinition> GetCommandPatterns() =>
+        [
+            new()
+            {
+                Id = "test-skill-pattern",
+                SkillId = "TestSkill",
+                Action = "test",
+                Templates = ["test pattern"],
+            },
+        ];
     }
 }

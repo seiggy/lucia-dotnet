@@ -39,22 +39,26 @@ public sealed class AdaptiveProfileUpdater(
         }
 
         var alpha = opts.AdaptiveAlpha;
-        var updated = new float[profile.AverageEmbedding.Length];
-        for (var i = 0; i < updated.Length; i++)
-        {
-            updated[i] = ((1 - alpha) * profile.AverageEmbedding[i]) + (alpha * currentEmbedding.Vector[i]);
-        }
+        await profileStore.UpdateAtomicAsync(
+            identification.ProfileId,
+            profile =>
+            {
+                var updated = new float[profile.AverageEmbedding.Length];
+                for (var i = 0; i < updated.Length; i++)
+                {
+                    updated[i] = ((1 - alpha) * profile.AverageEmbedding[i]) + (alpha * currentEmbedding.Vector[i]);
+                }
 
-        var now = DateTimeOffset.UtcNow;
-        var updatedProfile = profile with
-        {
-            AverageEmbedding = updated,
-            UpdatedAt = now,
-            LastSeenAt = now,
-            InteractionCount = profile.InteractionCount + 1,
-        };
-
-        await profileStore.UpdateAsync(updatedProfile, ct).ConfigureAwait(false);
+                var now = DateTimeOffset.UtcNow;
+                return profile with
+                {
+                    AverageEmbedding = updated,
+                    UpdatedAt = now,
+                    LastSeenAt = now,
+                    InteractionCount = profile.InteractionCount + 1,
+                };
+            },
+            ct).ConfigureAwait(false);
         logger.LogDebug(
             "Adaptively updated profile {ProfileId} (similarity: {Similarity:F2})",
             identification.ProfileId,

@@ -6,18 +6,23 @@ namespace lucia.Wyoming.WakeWord;
 
 public sealed class SherpaWakeWordDetector : IWakeWordDetector
 {
+    private readonly object _lock = new();
+    private readonly List<KeywordSpotter> _retiredSpotters = [];
     private KeywordSpotter? _spotter;
     private readonly WakeWordOptions _options;
     private readonly ILogger<SherpaWakeWordDetector> _logger;
+    private readonly IWakeWordChangeNotifier? _changeNotifier;
 
     public bool IsReady { get; private set; }
 
     public SherpaWakeWordDetector(
         IOptions<WakeWordOptions> options,
+        IWakeWordChangeNotifier? changeNotifier,
         ILogger<SherpaWakeWordDetector> logger)
     {
         _options = options.Value;
         _logger = logger;
+        _changeNotifier = changeNotifier;
 
         try
         {
@@ -31,26 +36,81 @@ public sealed class SherpaWakeWordDetector : IWakeWordDetector
             _logger.LogError(ex, "Failed to initialize Sherpa wake word detector");
             IsReady = false;
         }
+
+        if (_changeNotifier is not null)
+        {
+            _changeNotifier.KeywordsChanged += OnKeywordsChanged;
+        }
     }
 
     public IWakeWordSession CreateSession()
     {
-        ObjectDisposedException.ThrowIf(_spotter is null, this);
-
-        if (!IsReady)
+        KeywordSpotter spotter;
+        lock (_lock)
         {
-            throw new InvalidOperationException("Wake word detector is not ready");
+            ObjectDisposedException.ThrowIf(_spotter is null, this);
+
+            if (!IsReady)
+            {
+                throw new InvalidOperationException("Wake word detector is not ready");
+            }
+
+            spotter = _spotter;
         }
 
-        var stream = _spotter.CreateStream();
-        return new SherpaWakeWordSession(_spotter, stream);
+        var stream = spotter.CreateStream();
+        return new SherpaWakeWordSession(spotter, stream);
     }
 
     public void Dispose()
     {
-        IsReady = false;
-        _spotter?.Dispose();
-        _spotter = null;
+        if (_changeNotifier is not null)
+        {
+            _changeNotifier.KeywordsChanged -= OnKeywordsChanged;
+        }
+
+        lock (_lock)
+        {
+            IsReady = false;
+            _spotter?.Dispose();
+            _spotter = null;
+
+            foreach (var retiredSpotter in _retiredSpotters)
+            {
+                retiredSpotter.Dispose();
+            }
+
+            _retiredSpotters.Clear();
+        }
+    }
+
+    private void OnKeywordsChanged()
+    {
+        _logger.LogInformation("Keywords changed, rebuilding keyword spotter");
+
+        lock (_lock)
+        {
+            try
+            {
+                var config = BuildConfig(_options);
+                var newSpotter = new KeywordSpotter(config);
+                var oldSpotter = _spotter;
+
+                _spotter = newSpotter;
+                IsReady = true;
+
+                if (oldSpotter is not null)
+                {
+                    _retiredSpotters.Add(oldSpotter);
+                }
+
+                _logger.LogInformation("Keyword spotter rebuilt successfully");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to rebuild keyword spotter after keyword change");
+            }
+        }
     }
 
     private static KeywordSpotterConfig BuildConfig(WakeWordOptions options)

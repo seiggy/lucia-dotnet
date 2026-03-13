@@ -12,6 +12,8 @@ public sealed class CommandPatternRouter : ICommandRouter
     private readonly CommandRoutingOptions _options;
     private readonly ILogger<CommandPatternRouter> _logger;
 
+    public bool FallbackToLlmEnabled => _options.FallbackToLlm;
+
     public CommandPatternRouter(
         CommandPatternMatcher matcher,
         IOptions<CommandRoutingOptions> options,
@@ -26,11 +28,26 @@ public sealed class CommandPatternRouter : ICommandRouter
     {
         if (!_options.Enabled)
         {
-            _logger.LogDebug("Command routing disabled, falling back to LLM");
+            _logger.LogDebug("Command routing disabled");
             return Task.FromResult(CommandRouteResult.NoMatch(TimeSpan.Zero));
         }
 
         var result = _matcher.Match(transcript);
+
+        if (result.IsMatch && result.Confidence < _options.ConfidenceThreshold)
+        {
+            _logger.LogDebug(
+                "Match for '{Transcript}' below global threshold ({Confidence:F2} < {Threshold:F2}), treating as no match",
+                transcript,
+                result.Confidence,
+                _options.ConfidenceThreshold);
+            result = CommandRouteResult.NoMatch(result.MatchDuration);
+        }
+
+        if (!result.IsMatch && !_options.FallbackToLlm)
+        {
+            _logger.LogDebug("No match and FallbackToLlm=false, returning no-match without LLM fallback");
+        }
 
         if (result.IsMatch)
         {
@@ -42,7 +59,7 @@ public sealed class CommandPatternRouter : ICommandRouter
         else
         {
             _logger.LogDebug(
-                "No fast-path match for '{Transcript}', routing to LLM (match took {Duration}ms)",
+                "No fast-path match for '{Transcript}' (match took {Duration}ms)",
                 transcript, result.MatchDuration.TotalMilliseconds);
         }
 

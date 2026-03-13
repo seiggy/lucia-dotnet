@@ -21,6 +21,8 @@ public sealed class TestDiarizationEngine : IDiarizationEngine
 
     public SpeakerIdentification? Identification { get; set; }
 
+    public bool ShouldThrow { get; set; }
+
     public int ExtractEmbeddingCallCount { get; private set; }
 
     public int IdentifySpeakerCallCount { get; private set; }
@@ -31,6 +33,11 @@ public sealed class TestDiarizationEngine : IDiarizationEngine
 
     public SpeakerEmbedding ExtractEmbedding(ReadOnlySpan<float> audioSamples, int sampleRate)
     {
+        if (ShouldThrow)
+        {
+            throw new InvalidOperationException("Test failure");
+        }
+
         ExtractEmbeddingCallCount++;
         LastSampleRate = sampleRate;
         LastAudioSamples = [.. audioSamples];

@@ -744,6 +744,14 @@ public sealed class WyomingSession : IDisposable
                 return fastPathResult.ResponseText;
             }
 
+            if (_commandRouter is { FallbackToLlmEnabled: false })
+            {
+                _logger.LogDebug(
+                    "No fast-path match and router fallback disabled for Wyoming session {SessionId}",
+                    Id);
+                return transcript;
+            }
+
             var fallbackResult = await _skillDispatcher.FallbackToLlmAsync(transcript, route, speaker, ct)
                 .ConfigureAwait(false);
             return fallbackResult.ResponseText;

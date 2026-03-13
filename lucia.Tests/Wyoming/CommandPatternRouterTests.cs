@@ -10,6 +10,7 @@ public sealed class CommandPatternRouterTests
     private static CommandPatternRouter CreateRouter(
         bool enabled = true,
         float threshold = 0.6f,
+        bool fallbackToLlm = true,
         params CommandPattern[] patterns)
     {
         var providers = new[] { new TestRouterPatternProvider(patterns) };
@@ -19,6 +20,7 @@ public sealed class CommandPatternRouterTests
         {
             Enabled = enabled,
             ConfidenceThreshold = threshold,
+            FallbackToLlm = fallbackToLlm,
         });
         return new CommandPatternRouter(matcher, options, NullLogger<CommandPatternRouter>.Instance);
     }
@@ -63,6 +65,25 @@ public sealed class CommandPatternRouterTests
         var router = CreateRouter(patterns: TestLightPattern);
         var result = await router.RouteAsync(string.Empty, default);
         Assert.False(result.IsMatch);
+    }
+
+    [Fact]
+    public async Task Route_MatchBelowGlobalThreshold_ReturnsNoMatch()
+    {
+        var router = CreateRouter(threshold: 0.95f, patterns: TestLightPattern);
+
+        var result = await router.RouteAsync("turn on the kitchen lights", default);
+
+        Assert.False(result.IsMatch);
+        Assert.Null(result.MatchedPattern);
+    }
+
+    [Fact]
+    public void FallbackToLlmEnabled_ReflectsConfiguredOption()
+    {
+        var router = CreateRouter(fallbackToLlm: false, patterns: TestLightPattern);
+
+        Assert.False(router.FallbackToLlmEnabled);
     }
 
     private sealed class TestRouterPatternProvider(CommandPattern[] patterns) : ICommandPatternProvider

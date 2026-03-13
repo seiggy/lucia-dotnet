@@ -18,6 +18,7 @@ public sealed class VoiceOnboardingService
     ];
 
     private readonly ConcurrentDictionary<string, OnboardingSession> _sessions = new();
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _sessionLocks = new();
     private readonly IDiarizationEngine _diarization;
     private readonly ISpeakerProfileStore _profileStore;
     private readonly AudioQualityAnalyzer _qualityAnalyzer;
@@ -44,6 +45,7 @@ public sealed class VoiceOnboardingService
         CancellationToken ct)
     {
         _ = ct;
+        CleanupAbandonedSessions();
 
         var sampleCount = _options.OnboardingSampleCount;
         var prompts = SelectPrompts(sampleCount);
@@ -68,42 +70,52 @@ public sealed class VoiceOnboardingService
         int sampleRate,
         CancellationToken ct)
     {
-        if (!_sessions.TryGetValue(sessionId, out var session))
+        var sessionLock = _sessionLocks.GetOrAdd(sessionId, _ => new SemaphoreSlim(1, 1));
+        await sessionLock.WaitAsync(ct).ConfigureAwait(false);
+        try
         {
-            throw new InvalidOperationException($"Onboarding session '{sessionId}' not found");
-        }
-
-        var quality = _qualityAnalyzer.Analyze(audioSamples.Span, sampleRate);
-        if (!quality.IsAcceptable)
-        {
-            if (quality.IsTooQuiet)
+            if (!_sessions.TryGetValue(sessionId, out var session))
             {
-                return OnboardingStepResult.Retry("That was a bit quiet. Could you speak a little louder?");
+                throw new InvalidOperationException($"Onboarding session '{sessionId}' not found");
             }
 
-            if (quality.IsTooShort)
+            var quality = _qualityAnalyzer.Analyze(audioSamples.Span, sampleRate);
+            if (!quality.IsAcceptable)
             {
-                return OnboardingStepResult.Retry("I need a longer sample. Please say the full phrase.");
+                if (quality.IsTooQuiet)
+                {
+                    return OnboardingStepResult.Retry("That was a bit quiet. Could you speak a little louder?");
+                }
+
+                if (quality.IsTooShort)
+                {
+                    return OnboardingStepResult.Retry("I need a longer sample. Please say the full phrase.");
+                }
             }
+
+            var embedding = _diarization.ExtractEmbedding(audioSamples.Span, sampleRate);
+            session.CollectedEmbeddings.Add(embedding.Vector);
+            session.CurrentPromptIndex++;
+
+            if (session.CurrentPromptIndex >= session.Prompts.Count)
+            {
+                var profile = await FinalizeEnrollmentAsync(session, ct).ConfigureAwait(false);
+                session.Status = OnboardingStatus.Complete;
+                session.CompletedAt = DateTimeOffset.UtcNow;
+                RemoveSession(sessionId);
+
+                return OnboardingStepResult.Complete(
+                    $"Voice profile created for {session.SpeakerName}. I'll recognize your voice from now on.",
+                    profile);
+            }
+
+            var progress = (int)(session.CurrentPromptIndex * 100.0 / session.Prompts.Count);
+            return OnboardingStepResult.CreateNextPrompt(session.Prompts[session.CurrentPromptIndex], progress);
         }
-
-        var embedding = _diarization.ExtractEmbedding(audioSamples.Span, sampleRate);
-        session.CollectedEmbeddings.Add(embedding.Vector);
-        session.CurrentPromptIndex++;
-
-        if (session.CurrentPromptIndex >= session.Prompts.Count)
+        finally
         {
-            var profile = await FinalizeEnrollmentAsync(session, ct).ConfigureAwait(false);
-            session.Status = OnboardingStatus.Complete;
-            session.CompletedAt = DateTimeOffset.UtcNow;
-
-            return OnboardingStepResult.Complete(
-                $"Voice profile created for {session.SpeakerName}. I'll recognize your voice from now on.",
-                profile);
+            sessionLock.Release();
         }
-
-        var progress = (int)(session.CurrentPromptIndex * 100.0 / session.Prompts.Count);
-        return OnboardingStepResult.CreateNextPrompt(session.Prompts[session.CurrentPromptIndex], progress);
     }
 
     public Task<OnboardingSession?> GetSessionAsync(string sessionId, CancellationToken ct)
@@ -151,6 +163,26 @@ public sealed class VoiceOnboardingService
         await _profileStore.CreateAsync(profile, ct).ConfigureAwait(false);
         _logger.LogInformation("Created voice profile {Id} for {Name}", profile.Id, profile.Name);
         return profile;
+    }
+
+    private void CleanupAbandonedSessions()
+    {
+        var cutoff = DateTimeOffset.UtcNow.AddHours(-1);
+        var abandoned = _sessions
+            .Where(kvp => kvp.Value.StartedAt < cutoff && kvp.Value.Status != OnboardingStatus.Complete)
+            .Select(kvp => kvp.Key)
+            .ToList();
+
+        foreach (var key in abandoned)
+        {
+            RemoveSession(key);
+        }
+    }
+
+    private void RemoveSession(string sessionId)
+    {
+        _sessions.TryRemove(sessionId, out _);
+        _sessionLocks.TryRemove(sessionId, out _);
     }
 
     private static List<string> SelectPrompts(int count)

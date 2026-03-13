@@ -8,16 +8,16 @@ namespace lucia.Wyoming.CommandRouting;
 /// </summary>
 public static partial class TranscriptNormalizer
 {
-    private static readonly HashSet<string> FillerWords = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> SingleWordFillers = new(StringComparer.OrdinalIgnoreCase)
     {
-        "um", "uh", "er", "ah", "like", "you know", "basically",
-        "actually", "well", "so", "okay", "ok",
+        "um", "uh", "er", "ah", "like", "basically",
+        "actually", "well", "so", "okay", "please", "kindly",
     };
 
-    private static readonly HashSet<string> PoliteWords = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "please", "thanks", "thank you", "kindly",
-    };
+    private static readonly string[] MultiWordFillers =
+    [
+        "you know", "thank you", "thanks",
+    ];
 
     [GeneratedRegex(@"\s+")]
     private static partial Regex MultipleSpaces();
@@ -36,8 +36,13 @@ public static partial class TranscriptNormalizer
         var result = transcript.ToLowerInvariant().Trim();
         result = Punctuation().Replace(result, "");
 
+        foreach (var phrase in MultiWordFillers)
+        {
+            result = result.Replace(phrase, " ", StringComparison.Ordinal);
+        }
+
         var words = result.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        words = words.Where(w => !FillerWords.Contains(w) && !PoliteWords.Contains(w)).ToArray();
+        words = words.Where(w => !SingleWordFillers.Contains(w)).ToArray();
 
         result = string.Join(' ', words);
 

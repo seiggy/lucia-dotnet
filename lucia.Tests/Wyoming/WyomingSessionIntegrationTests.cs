@@ -340,6 +340,78 @@ public sealed class WyomingSessionIntegrationTests
         Assert.Single(provisionalProfiles);
     }
 
+    [Fact]
+    public async Task RunAsync_NoRouteMatchAndFallbackDisabled_ReturnsOriginalTranscript()
+    {
+        var options = CreateOptions();
+        var wakeSession = new TestWakeWordSession(
+            new WakeWordResult
+            {
+                Keyword = "hey_lucia",
+                Confidence = 0.93f,
+                Timestamp = DateTimeOffset.UtcNow,
+            });
+        var wakeDetector = new TestWakeWordDetector(wakeSession);
+        var sttSession = new TestSttSession(
+            new SttResult
+            {
+                Text = "what is the weather today",
+                Confidence = 0.85f,
+            });
+        var sttEngine = new TestSttEngine(sttSession);
+        var vadEngine = new TestVadEngine(
+            new TestVadSession(
+                new VadSegment
+                {
+                    Samples = [0.1f, -0.1f, 0.1f, -0.1f],
+                    StartTime = TimeSpan.Zero,
+                    EndTime = TimeSpan.FromMilliseconds(250),
+                    SampleRate = 16_000,
+                }));
+        var router = new TestCommandRouter(CommandRouteResult.NoMatch(TimeSpan.Zero))
+        {
+            FallbackToLlmEnabled = false,
+        };
+
+        var (listener, client, serverClient, services, session, writer, parser) = await CreateConnectedSessionAsync(
+            options,
+            wakeDetector,
+            sttEngine,
+            vadEngine,
+            configureServices: serviceCollection =>
+            {
+                serviceCollection.AddSingleton<ICommandRouter>(router);
+            });
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var runTask = session.RunAsync(cts.Token);
+
+        try
+        {
+            await WriteWakeAndSpeechAsync(writer, cts.Token);
+
+            _ = Assert.IsType<DetectionEvent>(await parser.ReadEventAsync(cts.Token));
+
+            await writer.WriteEventAsync(new AudioStopEvent(), cts.Token);
+            await writer.WriteEventAsync(new TranscribeEvent { Name = "default", Language = "en" }, cts.Token);
+
+            var transcript = Assert.IsType<TranscriptEvent>(await parser.ReadEventAsync(cts.Token));
+            Assert.Equal("what is the weather today", transcript.Text);
+            Assert.Equal(1.0f, transcript.Confidence);
+        }
+        finally
+        {
+            client.Close();
+            await runTask;
+            serverClient.Dispose();
+            client.Dispose();
+            listener.Stop();
+            await services.DisposeAsync();
+        }
+
+        Assert.Equal(1, router.RouteCallCount);
+        Assert.Equal("what is the weather today", router.LastTranscript);
+    }
+
     private static WyomingOptions CreateOptions()
     {
         return new WyomingOptions

@@ -9,6 +9,8 @@ public sealed class WakeWordTokenizer
     private readonly Dictionary<string, int> _vocabulary = new();
     private bool _loaded;
 
+    public bool IsLoaded => _loaded;
+
     /// <summary>
     /// Load vocabulary from the model's tokens.txt file.
     /// Each line: "token index" or just "token" (index = line number).

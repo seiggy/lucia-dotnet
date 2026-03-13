@@ -11,7 +11,8 @@ public static class WyomingModelApi
     public static void MapWyomingModelEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/api/wyoming/models")
-            .WithTags("Wyoming Models");
+            .WithTags("Wyoming Models")
+            .RequireAuthorization();
 
         group.MapGet("/", (ModelCatalogService catalog) =>
         {

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using lucia.Agents.Abstractions;
 using lucia.Wyoming.Audio;
 using lucia.Wyoming.CommandRouting;
 using lucia.Wyoming.Diarization;
@@ -56,7 +57,15 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<UnknownSpeakerTracker>();
         builder.Services.AddHostedService<ProvisionalProfileCleanupService>();
 
-        builder.Services.AddSingleton<CommandPatternRegistry>();
+        builder.Services.AddSingleton<CommandPatternRegistry>(sp =>
+        {
+            var providers = sp.GetServices<ICommandPatternProvider>()
+                .Concat(sp.GetServices<IOptimizableSkill>().OfType<ICommandPatternProvider>())
+                .Distinct()
+                .ToArray();
+
+            return new CommandPatternRegistry(providers);
+        });
         builder.Services.AddSingleton<CommandPatternMatcher>();
         builder.Services.AddSingleton<ICommandRouter, CommandPatternRouter>();
         builder.Services.AddSingleton<SkillDispatcher>();
@@ -67,6 +76,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<WakeWordTokenizer>();
         builder.Services.AddSingleton<IWakeWordStore, InMemoryWakeWordStore>();
         builder.Services.AddSingleton<CustomWakeWordManager>();
+        builder.Services.AddSingleton<IWakeWordChangeNotifier>(sp => sp.GetRequiredService<CustomWakeWordManager>());
 
         builder.Services.AddSingleton<WyomingServiceInfo>();
         builder.Services.AddHostedService<WyomingServer>();
