@@ -53,10 +53,23 @@ public sealed class ModelDownloader(ILogger<ModelDownloader> logger) : IDisposab
             Directory.CreateDirectory(targetBasePath);
 
             logger.LogInformation("[background-task] Downloading model {ModelId} from {Url}", model.Id, model.DownloadUrl);
-            using var response = await _client
-                .GetAsync(model.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, ct)
-                .ConfigureAwait(false);
+            
+            HttpResponseMessage response;
+            try
+            {
+                response = await _client
+                    .GetAsync(model.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, ct)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "[background-task] HTTP GET failed for {ModelId}", model.Id);
+                throw;
+            }
 
+            using var _ = response;
+            logger.LogInformation("[background-task] Got HTTP {StatusCode}, content-length: {ContentLength}",
+                (int)response.StatusCode, response.Content.Headers.ContentLength);
             response.EnsureSuccessStatusCode();
             logger.LogInformation("[background-task] Download started for {ModelId}, content-length: {Bytes} bytes",
                 model.Id, response.Content.Headers.ContentLength);
