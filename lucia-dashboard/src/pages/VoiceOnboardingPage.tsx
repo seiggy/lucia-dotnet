@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { ArrowLeft, ArrowRight, CheckCircle2, Mic, MicOff, Trash2, Volume2 } from 'lucide-react'
+import { ArrowLeft, ArrowRight, CheckCircle2, Loader2, Mic, MicOff, Trash2, Volume2 } from 'lucide-react'
 import {
   deleteSpeakerProfile,
   deleteWakeWord,
+  fetchWyomingStatus,
   getOnboardingStatus,
   listSpeakerProfiles,
   listWakeWords,
@@ -71,6 +72,7 @@ const TRAINING_SAMPLE_COUNT = 5
 const CALIBRATION_SAMPLE_COUNT = 3
 
 export default function VoiceOnboardingPage() {
+  const [platformReady, setPlatformReady] = useState<boolean | null>(null)
   const [step, setStep] = useState<WizardStep>('welcome')
   const [speakerName, setSpeakerName] = useState('')
   const [wakeWordMode, setWakeWordMode] = useState<WakeWordMode>('default')
@@ -106,6 +108,22 @@ export default function VoiceOnboardingPage() {
   const activeWakeWord = wakeWordMode === 'custom' ? customWakeWord.trim() : selectedWakeWord
   const stepIndex = steps.findIndex(item => item.key === step)
   const progressPercent = useMemo(() => ((stepIndex + 1) / steps.length) * 100, [stepIndex])
+
+  useEffect(() => {
+    let ignore = false
+
+    async function loadPlatformStatus() {
+      const status = await fetchWyomingStatus()
+      if (ignore) return
+      setPlatformReady(status?.configured ?? false)
+    }
+
+    void loadPlatformStatus()
+
+    return () => {
+      ignore = true
+    }
+  }, [])
 
   const stopMeter = useCallback(() => {
     if (animationFrameRef.current !== null) {
@@ -383,6 +401,35 @@ export default function VoiceOnboardingPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete the wake word.')
     }
+  }
+
+  if (platformReady === null) {
+    return (
+      <div className="flex justify-center p-8">
+        <Loader2 className="h-6 w-6 animate-spin text-amber" />
+      </div>
+    )
+  }
+
+  if (!platformReady) {
+    return (
+      <div className="mx-auto mt-16 max-w-lg rounded-xl bg-white p-8 text-center shadow dark:bg-gray-800">
+        <Mic className="mx-auto mb-4 h-12 w-12 text-gray-400" />
+        <h2 className="mb-2 text-xl font-semibold text-gray-900 dark:text-white">
+          Voice Platform Not Configured
+        </h2>
+        <p className="mb-6 text-gray-500 dark:text-gray-400">
+          The voice platform requires sherpa-onnx models to be installed before you can set up
+          voice profiles and wake words.
+        </p>
+        <a
+          href="/configuration"
+          className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700"
+        >
+          Go to Configuration <ArrowRight className="h-4 w-4" />
+        </a>
+      </div>
+    )
   }
 
   return (

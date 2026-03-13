@@ -5,6 +5,9 @@ namespace lucia.Wyoming.Stt;
 /// </summary>
 public interface ISttEngine : IDisposable
 {
+    /// <summary>Whether the engine is loaded and ready.</summary>
+    bool IsReady { get; }
+
     /// <summary>
     /// Creates a new STT session for a single utterance.
     /// </summary>

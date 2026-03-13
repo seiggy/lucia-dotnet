@@ -148,6 +148,36 @@ public sealed class CustomWakeWordManagerTests : IDisposable
         Assert.Equal($"{wakeWord.Tokens} :{wakeWord.BoostScore:F2} #{wakeWord.Threshold:F2}", content);
     }
 
+    [Fact]
+    public void Constructor_EmptyModelPath_DoesNotThrow_AndIsNotReady()
+    {
+        var exception = Record.Exception(() => CreateManager(modelPath: string.Empty, loadTokenizer: false));
+
+        Assert.Null(exception);
+
+        var (manager, _) = CreateManager(modelPath: string.Empty, loadTokenizer: false);
+        Assert.False(manager.IsReady);
+    }
+
+    [Fact]
+    public async Task RegisterWakeWord_WhenManagerNotConfigured_ThrowsHelpfulError()
+    {
+        var (manager, _) = CreateManager(modelPath: string.Empty, loadTokenizer: false);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => manager.RegisterWakeWordAsync("Hey Jarvis"));
+
+        Assert.Contains("Wyoming:Models:WakeWord:ModelPath", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ReloadKeywords_WhenManagerNotConfigured_DoesNotThrow()
+    {
+        var (manager, _) = CreateManager(modelPath: string.Empty, loadTokenizer: false);
+
+        await manager.ReloadKeywordsAsync(CancellationToken.None);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_tempRoot))
@@ -156,18 +186,23 @@ public sealed class CustomWakeWordManagerTests : IDisposable
         }
     }
 
-    private (CustomWakeWordManager Manager, InMemoryWakeWordStore Store) CreateManager()
+    private (CustomWakeWordManager Manager, InMemoryWakeWordStore Store) CreateManager(
+        string? modelPath = null,
+        bool loadTokenizer = true)
     {
         var store = new InMemoryWakeWordStore();
         var tokenizer = new WakeWordTokenizer();
-        tokenizer.LoadVocabulary(_tokensFilePath);
+        if (loadTokenizer)
+        {
+            tokenizer.LoadVocabulary(_tokensFilePath);
+        }
 
         var manager = new CustomWakeWordManager(
             store,
             tokenizer,
             Options.Create(new WakeWordOptions
             {
-                ModelPath = _modelPath,
+                ModelPath = modelPath ?? _modelPath,
                 KeywordsFile = "keywords.txt",
             }),
             NullLogger<CustomWakeWordManager>.Instance);

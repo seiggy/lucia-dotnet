@@ -175,6 +175,20 @@ export async function fetchConfigSchema(): Promise<ConfigSectionSchema[]> {
   return res.json();
 }
 
+export interface WyomingStatus {
+  stt: { ready: boolean };
+  wakeWord: { ready: boolean };
+  diarization: { ready: boolean };
+  customWakeWords: { ready: boolean };
+  configured: boolean;
+}
+
+export async function fetchWyomingStatus(): Promise<WyomingStatus | null> {
+  const res = await fetch(`${BASE}/wyoming/status`);
+  if (!res.ok) return null;
+  return res.json();
+}
+
 export interface MusicAssistantTestResult {
   success: boolean;
   message: string;
@@ -1434,4 +1448,3 @@ export async function deleteWakeWord(id: string) {
   const res = await fetch(`${BASE}/wake-words/${id}`, { method: 'DELETE' })
   if (!res.ok) throw new Error(`Failed to delete wake word: ${res.statusText}`)
 }
-

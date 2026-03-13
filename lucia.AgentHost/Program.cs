@@ -310,6 +310,7 @@ app.MapPluginRepositoryApi();
 app.MapPluginStoreApi();
 app.MapInstalledPluginApi();
 app.MapWyomingModelEndpoints();
+app.MapWyomingStatusEndpoints();
 app.MapOnboardingEndpoints();
 app.MapSystemApi();
 app.MapDefaultEndpoints();

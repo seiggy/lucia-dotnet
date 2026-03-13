@@ -18,6 +18,8 @@ public sealed class CustomWakeWordManager : IWakeWordChangeNotifier
 
     public event Action? KeywordsChanged;
 
+    public bool IsReady => !string.IsNullOrEmpty(_keywordsFilePath) && _tokenizer.IsLoaded;
+
     public CustomWakeWordManager(
         IWakeWordStore store,
         WakeWordTokenizer tokenizer,
@@ -33,6 +35,15 @@ public sealed class CustomWakeWordManager : IWakeWordChangeNotifier
         _tokenizer = tokenizer;
         _options = options.Value;
         _logger = logger;
+
+        if (string.IsNullOrEmpty(_options.ModelPath))
+        {
+            _logger.LogWarning(
+                "Wyoming wake word model path not configured. Custom wake word features are disabled until configured.");
+            _keywordsFilePath = string.Empty;
+            return;
+        }
+
         _keywordsFilePath = ResolveKeywordsFilePath(_options);
 
         var tokensPath = Path.Combine(_options.ModelPath, "tokens.txt");
@@ -60,10 +71,10 @@ public sealed class CustomWakeWordManager : IWakeWordChangeNotifier
     {
         ValidatePhrase(phrase);
 
-        if (!_tokenizer.IsLoaded)
+        if (!IsReady)
         {
             throw new InvalidOperationException(
-                "Wake word tokenizer is not initialized. Ensure a KWS model with tokens.txt is installed.");
+                "Wake word manager is not configured. Set Wyoming:Models:WakeWord:ModelPath in configuration.");
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -102,6 +113,8 @@ public sealed class CustomWakeWordManager : IWakeWordChangeNotifier
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(wakeWordId);
         ArgumentNullException.ThrowIfNull(detections);
+
+        ThrowIfNotReady();
 
         if (detections.Count == 0)
         {
@@ -158,6 +171,13 @@ public sealed class CustomWakeWordManager : IWakeWordChangeNotifier
     /// </summary>
     public async Task ReloadKeywordsAsync(CancellationToken ct)
     {
+        if (!IsReady)
+        {
+            _logger.LogWarning(
+                "Wake word keywords reload skipped because the wake word manager is not configured.");
+            return;
+        }
+
         var allWords = await _store.GetAllAsync(ct).ConfigureAwait(false);
         var lines = allWords.Select(w => $"{w.Tokens} :{w.BoostScore:F2} #{w.Threshold:F2}");
         var content = string.Join("\n", lines);
@@ -182,18 +202,25 @@ public sealed class CustomWakeWordManager : IWakeWordChangeNotifier
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        if (string.IsNullOrWhiteSpace(options.ModelPath))
+        if (string.IsNullOrEmpty(options.ModelPath))
         {
-            throw new InvalidOperationException(
-                $"{WakeWordOptions.SectionName}:{nameof(WakeWordOptions.ModelPath)} must be configured.");
+            return string.Empty;
         }
 
-        var modelDirectory = Path.GetFullPath(options.ModelPath);
-        return string.IsNullOrWhiteSpace(options.KeywordsFile)
-            ? Path.Combine(modelDirectory, "keywords.txt")
+        return string.IsNullOrEmpty(options.KeywordsFile)
+            ? Path.Combine(options.ModelPath, "keywords.txt")
             : Path.IsPathRooted(options.KeywordsFile)
                 ? options.KeywordsFile
-                : Path.Combine(modelDirectory, options.KeywordsFile);
+                : Path.Combine(options.ModelPath, options.KeywordsFile);
+    }
+
+    private void ThrowIfNotReady()
+    {
+        if (!IsReady)
+        {
+            throw new InvalidOperationException(
+                "Wake word manager is not configured. Set Wyoming:Models:WakeWord:ModelPath in configuration.");
+        }
     }
 
     private static void ValidatePhrase(string phrase)
