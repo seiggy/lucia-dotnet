@@ -292,3 +292,7 @@ workspaces/
 *.tools*
 .tools/
 .tmp-tools/
+# Downloaded STT/TTS/KWS model files (large binaries)
+lucia.AgentHost/Models/stt/
+lucia.AgentHost/Models/tts/
+lucia.AgentHost/Models/kws/
