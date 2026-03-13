@@ -50,9 +50,18 @@ public static class WyomingModelApi
                 {
                     var downloadProgress = new Progress<ModelDownloadProgress>(update =>
                     {
-                        progress.Report((
-                            (int)Math.Round(update.PercentComplete),
-                            $"Downloaded {update.BytesDownloaded / 1024 / 1024}MB"));
+                        // Download phase = 0-80%, extraction/copy = 80-100%
+                        var scaledPercent = (int)Math.Round(update.PercentComplete * 0.8);
+                        var mbDownloaded = update.BytesDownloaded / 1024 / 1024;
+                        var mbTotal = update.TotalBytes / 1024 / 1024;
+                        progress.Report((scaledPercent, $"Downloading… {mbDownloaded}/{mbTotal} MB"));
+                    });
+
+                    progress.Report((0, "Starting download…"));
+
+                    var extractionProgress = new Progress<(int percent, string message)>(update =>
+                    {
+                        progress.Report((update.percent, update.message));
                     });
 
                     var result = await downloader
@@ -60,6 +69,7 @@ public static class WyomingModelApi
                             model,
                             modelOptions.Value.ModelBasePath,
                             downloadProgress,
+                            extractionProgress,
                             ct)
                         .ConfigureAwait(false);
 

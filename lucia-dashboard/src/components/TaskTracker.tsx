@@ -122,9 +122,20 @@ export default function TaskTracker() {
 
     connect()
 
+    // Poll every 5 seconds as a fallback for missed SSE updates
+    const pollInterval = window.setInterval(() => {
+      if (disposed) return
+      fetchBackgroundTasks()
+        .then(next => {
+          if (!disposed) setTasks(sortTasks(next))
+        })
+        .catch(() => { /* ignore poll failures */ })
+    }, 5_000)
+
     return () => {
       disposed = true
       clearReconnectTimer()
+      window.clearInterval(pollInterval)
       sourceRef.current?.close()
       sourceRef.current = null
 

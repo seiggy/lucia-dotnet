@@ -12,6 +12,7 @@ public sealed class ModelDownloader(IHttpClientFactory httpClientFactory, ILogge
         AsrModelDefinition model,
         string targetBasePath,
         IProgress<ModelDownloadProgress>? progress = null,
+        IProgress<(int percent, string message)>? extractionProgress = null,
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(model);
@@ -71,8 +72,10 @@ public sealed class ModelDownloader(IHttpClientFactory httpClientFactory, ILogge
                 }
             }
 
+            extractionProgress?.Report((80, "Extracting model archive…"));
             ExtractArchive(archivePath, extractionDirectory);
 
+            extractionProgress?.Report((90, "Installing model files…"));
             var extractedModelDirectory = ResolveExtractedModelDirectory(extractionDirectory, model.Id);
 
             if (Directory.Exists(targetDirectory))
