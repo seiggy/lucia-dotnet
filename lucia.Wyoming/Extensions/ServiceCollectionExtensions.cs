@@ -1,6 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using lucia.Wyoming.Audio;
+using lucia.Wyoming.CommandRouting;
+using lucia.Wyoming.Diarization;
 using lucia.Wyoming.Discovery;
 using lucia.Wyoming.Models;
 using lucia.Wyoming.Stt;
@@ -31,6 +33,12 @@ public static class ServiceCollectionExtensions
             builder.Configuration.GetSection(WakeWordOptions.SectionName));
         builder.Services.Configure<SttModelOptions>(
             builder.Configuration.GetSection(SttModelOptions.SectionName));
+        builder.Services.Configure<DiarizationOptions>(
+            builder.Configuration.GetSection(DiarizationOptions.SectionName));
+        builder.Services.Configure<VoiceProfileOptions>(
+            builder.Configuration.GetSection(VoiceProfileOptions.SectionName));
+        builder.Services.Configure<CommandRoutingOptions>(
+            builder.Configuration.GetSection(CommandRoutingOptions.SectionName));
 
         builder.Services.AddSingleton<ModelCatalogService>();
         builder.Services.AddSingleton<ModelManager>();
@@ -40,6 +48,25 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<ISttEngine, SherpaSttEngine>();
         builder.Services.AddSingleton<IVadEngine, SherpaVadEngine>();
         builder.Services.AddSingleton<IWakeWordDetector, SherpaWakeWordDetector>();
+
+        builder.Services.AddSingleton<IDiarizationEngine, SherpaDiarizationEngine>();
+        builder.Services.AddSingleton<ISpeakerProfileStore, InMemorySpeakerProfileStore>();
+        builder.Services.AddSingleton<SpeakerVerificationFilter>();
+        builder.Services.AddSingleton<AdaptiveProfileUpdater>();
+        builder.Services.AddSingleton<UnknownSpeakerTracker>();
+        builder.Services.AddHostedService<ProvisionalProfileCleanupService>();
+
+        builder.Services.AddSingleton<CommandPatternRegistry>();
+        builder.Services.AddSingleton<CommandPatternMatcher>();
+        builder.Services.AddSingleton<ICommandRouter, CommandPatternRouter>();
+        builder.Services.AddSingleton<SkillDispatcher>();
+
+        builder.Services.AddSingleton<AudioQualityAnalyzer>();
+        builder.Services.AddSingleton<VoiceOnboardingService>();
+
+        builder.Services.AddSingleton<WakeWordTokenizer>();
+        builder.Services.AddSingleton<IWakeWordStore, InMemoryWakeWordStore>();
+        builder.Services.AddSingleton<CustomWakeWordManager>();
 
         builder.Services.AddSingleton<WyomingServiceInfo>();
         builder.Services.AddHostedService<WyomingServer>();

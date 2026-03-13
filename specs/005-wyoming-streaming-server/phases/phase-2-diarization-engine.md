@@ -808,7 +808,7 @@ if (_options.AdaptiveProfiles && speaker.Similarity > 0.85f)
 **Implementation Details**:
 
 #### Architecture
-The onboarding UI is a standalone HTML/JS page served from AgentHost's static files, not part of the React dashboard bundle. This keeps it lightweight while still requiring a fully configured Lucia deployment and the normal dashboard/auth setup before onboarding begins.
+The onboarding UI is a new page within the `lucia-dashboard` React SPA, following the same patterns as existing pages (e.g., `SetupPage.tsx`). It uses the dashboard's existing auth, routing, and API infrastructure.
 
 ```
 User's Phone/Laptop Browser
@@ -1136,7 +1136,7 @@ The onboarding page is a single `wwwroot/onboarding.html` file using:
 - Error handling with retry for failed recordings
 - Animated transitions between steps
 
-The page is intentionally NOT part of the React dashboard bundle to ensure:
+The page is part of the `lucia-dashboard` React SPA to ensure:
 - Lucia onboarding stays available after the main deployment and dashboard/auth configuration are complete
 - No additional front-end build step is required
 - It can be opened from any browser that can reach the configured Lucia deployment

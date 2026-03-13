@@ -1,5 +1,7 @@
 using System.Net.Sockets;
 using lucia.Wyoming.Audio;
+using lucia.Wyoming.CommandRouting;
+using lucia.Wyoming.Diarization;
 using lucia.Wyoming.Stt;
 using lucia.Wyoming.Vad;
 using lucia.Wyoming.WakeWord;
@@ -21,6 +23,15 @@ public sealed class WyomingSession : IDisposable
     private IVadSession? _currentVadSession;
     private IWakeWordSession? _currentWakeWordSession;
     private SttResult? _pendingTranscript;
+    private readonly List<float> _utteranceAudioBuffer = [];
+    private int _utteranceSampleRate = 16_000;
+    private IDiarizationEngine? _diarizationEngine;
+    private ISpeakerProfileStore? _profileStore;
+    private SpeakerVerificationFilter? _speakerFilter;
+    private UnknownSpeakerTracker? _unknownTracker;
+    private AdaptiveProfileUpdater? _adaptiveUpdater;
+    private ICommandRouter? _commandRouter;
+    private SkillDispatcher? _skillDispatcher;
     private bool _disposed;
 
     public WyomingSession(
@@ -52,6 +63,7 @@ public sealed class WyomingSession : IDisposable
 
         using var scope = _serviceProvider.CreateScope();
         var services = scope.ServiceProvider;
+        ResolveOptionalServices(services);
         var stream = _client.GetStream();
         var parser = new WyomingEventParser(stream, _options);
         var writer = new WyomingEventWriter(stream);
@@ -174,6 +186,7 @@ public sealed class WyomingSession : IDisposable
         ArgumentNullException.ThrowIfNull(services);
 
         _pendingTranscript = null;
+        ResetUtteranceAudio();
         DisposeCurrentSttSession();
         DisposeCurrentVadSession();
 
@@ -358,18 +371,16 @@ public sealed class WyomingSession : IDisposable
         }
 
         var transcript = _pendingTranscript ?? new SttResult();
+        var utteranceAudio = _utteranceAudioBuffer.Count == 0
+            ? Array.Empty<float>()
+            : [.. _utteranceAudioBuffer];
         State = WyomingSessionState.Responding;
 
-        await writer.WriteEventAsync(
-                new TranscriptEvent
-                {
-                    Text = transcript.Text,
-                    Confidence = transcript.Confidence,
-                },
-                ct)
+        await ProcessTranscriptAsync(transcript.Text, transcript.Confidence, utteranceAudio, writer, ct)
             .ConfigureAwait(false);
 
         _pendingTranscript = null;
+        ResetUtteranceAudio();
         State = WyomingSessionState.Connected;
     }
 
@@ -530,6 +541,7 @@ public sealed class WyomingSession : IDisposable
 
         _pendingTranscript = null;
         _currentAudioFormat = null;
+        ResetUtteranceAudio();
     }
 
     private void DisposeCurrentSttSession()
@@ -586,8 +598,185 @@ public sealed class WyomingSession : IDisposable
         while (_currentVadSession.HasSpeechSegment)
         {
             var segment = _currentVadSession.GetNextSegment();
+            AppendUtteranceAudio(segment.Samples, segment.SampleRate);
             _currentSttSession.AcceptAudioChunk(segment.Samples, segment.SampleRate);
         }
+    }
+
+    private void ResolveOptionalServices(IServiceProvider services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        _diarizationEngine = services.GetService<IDiarizationEngine>();
+        _profileStore = services.GetService<ISpeakerProfileStore>();
+        _speakerFilter = services.GetService<SpeakerVerificationFilter>();
+        _unknownTracker = services.GetService<UnknownSpeakerTracker>();
+        _adaptiveUpdater = services.GetService<AdaptiveProfileUpdater>();
+        _commandRouter = services.GetService<ICommandRouter>();
+        _skillDispatcher = services.GetService<SkillDispatcher>();
+    }
+
+    private async Task ProcessTranscriptAsync(
+        string transcript,
+        float originalConfidence,
+        float[] utteranceAudio,
+        WyomingEventWriter writer,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
+        ArgumentNullException.ThrowIfNull(transcript);
+
+        if (string.IsNullOrWhiteSpace(transcript))
+        {
+            await writer.WriteEventAsync(
+                    new TranscriptEvent
+                    {
+                        Text = transcript,
+                        Confidence = originalConfidence,
+                    },
+                    ct)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        var speakerTask = IdentifySpeakerAsync(utteranceAudio, ct);
+        var routeTask = RouteCommandAsync(transcript, ct);
+
+        await Task.WhenAll(speakerTask, routeTask).ConfigureAwait(false);
+
+        var speaker = await speakerTask.ConfigureAwait(false);
+        if (_speakerFilter is not null && !_speakerFilter.ShouldProcessCommand(speaker))
+        {
+            _logger.LogDebug("Command filtered for Wyoming session {SessionId}", Id);
+            return;
+        }
+
+        var route = await routeTask.ConfigureAwait(false);
+        if (speaker is not null && route is not null && string.IsNullOrWhiteSpace(route.SpeakerId))
+        {
+            route = route with { SpeakerId = speaker.ProfileId };
+        }
+
+        var responseText = await DispatchTranscriptAsync(transcript, route, speaker, ct).ConfigureAwait(false);
+
+        await writer.WriteEventAsync(
+                new TranscriptEvent
+                {
+                    Text = responseText,
+                    Confidence = 1.0f,
+                },
+                ct)
+            .ConfigureAwait(false);
+    }
+
+    private async Task<SpeakerIdentification?> IdentifySpeakerAsync(float[] utteranceAudio, CancellationToken ct)
+    {
+        if (_diarizationEngine is not { IsReady: true } || _profileStore is null || utteranceAudio.Length == 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            var sampleRate = _utteranceSampleRate > 0 ? _utteranceSampleRate : 16_000;
+            var embedding = _diarizationEngine.ExtractEmbedding(utteranceAudio, sampleRate);
+            var profiles = await _profileStore.GetEnrolledProfilesAsync(ct).ConfigureAwait(false);
+            var speaker = _diarizationEngine.IdentifySpeaker(embedding, profiles);
+
+            if (speaker is not null)
+            {
+                if (_adaptiveUpdater is not null)
+                {
+                    await _adaptiveUpdater.TryUpdateAsync(speaker, embedding, ct).ConfigureAwait(false);
+                }
+
+                return speaker;
+            }
+
+            if (_unknownTracker is not null)
+            {
+                await _unknownTracker.TrackUnknownSpeakerAsync(embedding, ct).ConfigureAwait(false);
+            }
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Speaker verification failed for Wyoming session {SessionId}", Id);
+            return null;
+        }
+    }
+
+    private async Task<CommandRouteResult?> RouteCommandAsync(string transcript, CancellationToken ct)
+    {
+        if (_commandRouter is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await _commandRouter.RouteAsync(transcript, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Command routing failed for Wyoming session {SessionId}", Id);
+            return null;
+        }
+    }
+
+    private async Task<string> DispatchTranscriptAsync(
+        string transcript,
+        CommandRouteResult? route,
+        SpeakerIdentification? speaker,
+        CancellationToken ct)
+    {
+        if (_skillDispatcher is null)
+        {
+            return transcript;
+        }
+
+        try
+        {
+            if (route is { IsMatch: true })
+            {
+                var fastPathResult = await _skillDispatcher.DispatchFastPathAsync(route, ct).ConfigureAwait(false);
+                return fastPathResult.ResponseText;
+            }
+
+            var fallbackResult = await _skillDispatcher.FallbackToLlmAsync(transcript, route, speaker, ct)
+                .ConfigureAwait(false);
+            return fallbackResult.ResponseText;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Command dispatch failed for Wyoming session {SessionId}", Id);
+            return transcript;
+        }
+    }
+
+    private void AppendUtteranceAudio(ReadOnlySpan<float> samples, int sampleRate)
+    {
+        if (samples.Length == 0)
+        {
+            return;
+        }
+
+        if (sampleRate > 0)
+        {
+            _utteranceSampleRate = sampleRate;
+        }
+
+        foreach (var sample in samples)
+        {
+            _utteranceAudioBuffer.Add(sample);
+        }
+    }
+
+    private void ResetUtteranceAudio()
+    {
+        _utteranceAudioBuffer.Clear();
+        _utteranceSampleRate = 16_000;
     }
 
     private static float[] ConvertAudioChunkToMonoSamples(byte[] payload, AudioFormat audioFormat)

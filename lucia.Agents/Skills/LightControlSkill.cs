@@ -21,7 +21,7 @@ namespace lucia.Agents.Skills;
 /// <summary>
 /// Semantic Kernel plugin for Home Assistant light control with caching and similarity search
 /// </summary>
-public class LightControlSkill : IAgentSkill, IOptimizableSkill
+public class LightControlSkill : IAgentSkill, IOptimizableSkill, ICommandPatternProvider
 {
     private readonly IHomeAssistantClient _homeAssistantClient;
     private readonly ILogger<LightControlSkill> _logger;
@@ -56,6 +56,36 @@ public class LightControlSkill : IAgentSkill, IOptimizableSkill
             AIFunctionFactory.Create(ControlLightsAsync),
             ];
     }
+
+    public IReadOnlyList<CommandPatternDefinition> GetCommandPatterns() =>
+    [
+        new()
+        {
+            Id = "light-on-off",
+            SkillId = "LightControlSkill",
+            Action = "toggle",
+            Templates =
+            [
+                "turn {action:on|off} [the] {entity}",
+                "{action:on|off} [the] {entity}",
+                "[the] {entity} {action:on|off}",
+                "lights {action:on|off} [in] [the] {area}",
+                "turn [the] {area} lights {action:on|off}",
+            ],
+        },
+        new()
+        {
+            Id = "light-brightness",
+            SkillId = "LightControlSkill",
+            Action = "brightness",
+            Templates =
+            [
+                "{action:dim|brighten} [the] {entity} [to] {value} [percent]",
+                "set [the] {entity} [brightness] [to] {value} [percent]",
+            ],
+            MinConfidence = 0.85f,
+        },
+    ];
 
     // ── IOptimizableSkill ─────────────────────────────────────────
 

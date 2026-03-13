@@ -1,0 +1,83 @@
+using lucia.Agents.Abstractions;
+using lucia.Wyoming.CommandRouting;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+
+namespace lucia.Tests.Wyoming;
+
+public sealed class CommandPatternRouterTests
+{
+    private static CommandPatternRouter CreateRouter(
+        bool enabled = true,
+        float threshold = 0.6f,
+        params CommandPattern[] patterns)
+    {
+        var providers = new[] { new TestRouterPatternProvider(patterns) };
+        var registry = new CommandPatternRegistry(providers);
+        var matcher = new CommandPatternMatcher(registry);
+        var options = Options.Create(new CommandRoutingOptions
+        {
+            Enabled = enabled,
+            ConfidenceThreshold = threshold,
+        });
+        return new CommandPatternRouter(matcher, options, NullLogger<CommandPatternRouter>.Instance);
+    }
+
+    private static CommandPattern TestLightPattern => new()
+    {
+        Id = "test-light",
+        SkillId = "LightControlSkill",
+        Action = "toggle",
+        Templates = ["turn {action:on|off} [the] {entity}"],
+        MinConfidence = 0.6f,
+    };
+
+    [Fact]
+    public async Task Route_MatchingTranscript_ReturnsFastPath()
+    {
+        var router = CreateRouter(patterns: TestLightPattern);
+        var result = await router.RouteAsync("turn on the kitchen lights", default);
+        Assert.True(result.IsMatch);
+        Assert.Equal("LightControlSkill", result.MatchedPattern!.SkillId);
+    }
+
+    [Fact]
+    public async Task Route_NoMatch_ReturnsFallback()
+    {
+        var router = CreateRouter(patterns: TestLightPattern);
+        var result = await router.RouteAsync("what is the weather today", default);
+        Assert.False(result.IsMatch);
+    }
+
+    [Fact]
+    public async Task Route_Disabled_AlwaysReturnsFallback()
+    {
+        var router = CreateRouter(enabled: false, patterns: TestLightPattern);
+        var result = await router.RouteAsync("turn on the lights", default);
+        Assert.False(result.IsMatch);
+    }
+
+    [Fact]
+    public async Task Route_EmptyTranscript_ReturnsFallback()
+    {
+        var router = CreateRouter(patterns: TestLightPattern);
+        var result = await router.RouteAsync(string.Empty, default);
+        Assert.False(result.IsMatch);
+    }
+
+    private sealed class TestRouterPatternProvider(CommandPattern[] patterns) : ICommandPatternProvider
+    {
+        private readonly CommandPattern[] _patterns = patterns;
+
+        public IReadOnlyList<CommandPatternDefinition> GetCommandPatterns() =>
+            _patterns.Select(static p => new CommandPatternDefinition
+            {
+                Id = p.Id,
+                SkillId = p.SkillId,
+                Action = p.Action,
+                Templates = p.Templates.ToArray(),
+                MinConfidence = p.MinConfidence,
+                Priority = p.Priority,
+            }).ToList();
+    }
+}

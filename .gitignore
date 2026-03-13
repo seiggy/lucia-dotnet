@@ -289,3 +289,6 @@ lucia.AppHost/plugins/**/*.dll
 test-results/
 # Git worktree workspaces
 workspaces/
+*.tools*
+.tools/
+.tmp-tools/

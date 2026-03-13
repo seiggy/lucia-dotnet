@@ -1,5 +1,7 @@
 using System.Net.Sockets;
+using lucia.Wyoming.CommandRouting;
 using lucia.Wyoming.Audio;
+using lucia.Wyoming.Diarization;
 using lucia.Wyoming.Stt;
 using lucia.Wyoming.Vad;
 using lucia.Wyoming.WakeWord;
@@ -119,7 +121,7 @@ public sealed class WyomingSessionIntegrationTests
 
             var transcript = Assert.IsType<TranscriptEvent>(await parser.ReadEventAsync(cts.Token));
             Assert.Equal("turn on the lights", transcript.Text);
-            Assert.Equal(0.82f, transcript.Confidence);
+            Assert.Equal(1.0f, transcript.Confidence);
         }
         finally
         {
@@ -138,6 +140,204 @@ public sealed class WyomingSessionIntegrationTests
         Assert.Equal(1, sttSession.AcceptAudioChunkCount);
         Assert.Equal(1, vadSession.AcceptAudioChunkCount);
         Assert.Equal(1, vadSession.FlushCallCount);
+    }
+
+    [Fact]
+    public async Task RunAsync_TranscribeWithKnownSpeaker_UpdatesProfileAndRoutesTranscript()
+    {
+        var options = CreateOptions();
+        var detectionTimestamp = DateTimeOffset.FromUnixTimeMilliseconds(123456789L);
+        var wakeSession = new TestWakeWordSession(
+            new WakeWordResult
+            {
+                Keyword = "hey_lucia",
+                Confidence = 0.93f,
+                Timestamp = detectionTimestamp,
+            });
+        var wakeDetector = new TestWakeWordDetector(wakeSession);
+        var sttSession = new TestSttSession(
+            new SttResult
+            {
+                Text = "turn on the office lights",
+                Confidence = 0.88f,
+            });
+        var sttEngine = new TestSttEngine(sttSession);
+        var vadSegment = new VadSegment
+        {
+            Samples = [0.1f, 0.2f, 0.3f, 0.4f],
+            StartTime = TimeSpan.Zero,
+            EndTime = TimeSpan.FromMilliseconds(250),
+            SampleRate = 16_000,
+        };
+        var vadSession = new TestVadSession(vadSegment);
+        var vadEngine = new TestVadEngine(vadSession);
+        var embedding = Enumerable.Range(0, 128)
+            .Select(static i => (float)i / 128)
+            .ToArray();
+        var speaker = new SpeakerIdentification
+        {
+            ProfileId = "alice",
+            Name = "Alice",
+            Similarity = 0.95f,
+            IsAuthorized = true,
+        };
+        var diarizationEngine = new TestDiarizationEngine(speaker, embedding);
+        var profileStore = new InMemorySpeakerProfileStore();
+        var profile = new SpeakerProfile
+        {
+            Id = "alice",
+            Name = "Alice",
+            AverageEmbedding = embedding,
+            Embeddings = [embedding],
+        };
+        await profileStore.CreateAsync(profile, CancellationToken.None);
+
+        var router = new TestCommandRouter(CommandRouteResult.NoMatch(TimeSpan.Zero));
+        var voiceOptions = Options.Create(new VoiceProfileOptions());
+        var adaptiveUpdater = new AdaptiveProfileUpdater(
+            profileStore,
+            voiceOptions,
+            NullLogger<AdaptiveProfileUpdater>.Instance);
+
+        var (listener, client, serverClient, services, session, writer, parser) = await CreateConnectedSessionAsync(
+            options,
+            wakeDetector,
+            sttEngine,
+            vadEngine,
+            configureServices: serviceCollection =>
+            {
+                serviceCollection.AddSingleton<IDiarizationEngine>(diarizationEngine);
+                serviceCollection.AddSingleton<ISpeakerProfileStore>(profileStore);
+                serviceCollection.AddSingleton(adaptiveUpdater);
+                serviceCollection.AddSingleton<ICommandRouter>(router);
+            });
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var runTask = session.RunAsync(cts.Token);
+
+        try
+        {
+            await WriteWakeAndSpeechAsync(writer, cts.Token);
+
+            _ = Assert.IsType<DetectionEvent>(await parser.ReadEventAsync(cts.Token));
+
+            await writer.WriteEventAsync(new AudioStopEvent(), cts.Token);
+            await writer.WriteEventAsync(new TranscribeEvent { Name = "default", Language = "en" }, cts.Token);
+
+            var transcript = Assert.IsType<TranscriptEvent>(await parser.ReadEventAsync(cts.Token));
+            Assert.Equal("turn on the office lights", transcript.Text);
+            Assert.Equal(1.0f, transcript.Confidence);
+        }
+        finally
+        {
+            client.Close();
+            await runTask;
+            serverClient.Dispose();
+            client.Dispose();
+            listener.Stop();
+            await services.DisposeAsync();
+        }
+
+        Assert.Equal(1, diarizationEngine.ExtractEmbeddingCallCount);
+        Assert.Equal(1, diarizationEngine.IdentifySpeakerCallCount);
+        Assert.Equal(16_000, diarizationEngine.LastSampleRate);
+        Assert.Equal(vadSegment.Samples, diarizationEngine.LastAudioSamples);
+        Assert.Equal(1, router.RouteCallCount);
+        Assert.Equal("turn on the office lights", router.LastTranscript);
+
+        var updatedProfile = await profileStore.GetAsync("alice", CancellationToken.None);
+        Assert.NotNull(updatedProfile);
+        Assert.Equal(1, updatedProfile.InteractionCount);
+    }
+
+    [Fact]
+    public async Task RunAsync_UnknownSpeakerWithFilter_TracksSpeakerAndSuppressesTranscript()
+    {
+        var options = new WyomingOptions
+        {
+            ReadTimeoutSeconds = 1,
+        };
+        var wakeSession = new TestWakeWordSession(
+            new WakeWordResult
+            {
+                Keyword = "hey_lucia",
+                Confidence = 0.93f,
+                Timestamp = DateTimeOffset.UtcNow,
+            });
+        var wakeDetector = new TestWakeWordDetector(wakeSession);
+        var sttSession = new TestSttSession(
+            new SttResult
+            {
+                Text = "unlock the front door",
+                Confidence = 0.91f,
+            });
+        var sttEngine = new TestSttEngine(sttSession);
+        var vadEngine = new TestVadEngine(
+            new TestVadSession(
+                new VadSegment
+                {
+                    Samples = [0.15f, 0.05f, -0.05f, -0.15f],
+                    StartTime = TimeSpan.Zero,
+                    EndTime = TimeSpan.FromMilliseconds(250),
+                    SampleRate = 16_000,
+                }));
+        var diarizationEngine = new TestDiarizationEngine();
+        var profileStore = new InMemorySpeakerProfileStore();
+        var voiceOptions = Options.Create(
+            new VoiceProfileOptions
+            {
+                IgnoreUnknownVoices = true,
+            });
+        var router = new TestCommandRouter(CommandRouteResult.NoMatch(TimeSpan.Zero));
+        var unknownTracker = new UnknownSpeakerTracker(
+            profileStore,
+            voiceOptions,
+            NullLogger<UnknownSpeakerTracker>.Instance);
+        var speakerFilter = new SpeakerVerificationFilter(
+            voiceOptions,
+            NullLogger<SpeakerVerificationFilter>.Instance);
+
+        var (listener, client, serverClient, services, session, writer, parser) = await CreateConnectedSessionAsync(
+            options,
+            wakeDetector,
+            sttEngine,
+            vadEngine,
+            configureServices: serviceCollection =>
+            {
+                serviceCollection.AddSingleton<IDiarizationEngine>(diarizationEngine);
+                serviceCollection.AddSingleton<ISpeakerProfileStore>(profileStore);
+                serviceCollection.AddSingleton(unknownTracker);
+                serviceCollection.AddSingleton(speakerFilter);
+                serviceCollection.AddSingleton<ICommandRouter>(router);
+            });
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var runTask = session.RunAsync(cts.Token);
+
+        try
+        {
+            await WriteWakeAndSpeechAsync(writer, cts.Token);
+
+            _ = Assert.IsType<DetectionEvent>(await parser.ReadEventAsync(cts.Token));
+
+            await writer.WriteEventAsync(new AudioStopEvent(), cts.Token);
+            await writer.WriteEventAsync(new TranscribeEvent { Name = "default", Language = "en" }, cts.Token);
+
+            await Assert.ThrowsAsync<WyomingProtocolException>(() => parser.ReadEventAsync(CancellationToken.None));
+        }
+        finally
+        {
+            client.Close();
+            await runTask;
+            serverClient.Dispose();
+            client.Dispose();
+            listener.Stop();
+            await services.DisposeAsync();
+        }
+
+        Assert.Equal(1, diarizationEngine.ExtractEmbeddingCallCount);
+        Assert.Equal(1, router.RouteCallCount);
+
+        var provisionalProfiles = await profileStore.GetProvisionalProfilesAsync(CancellationToken.None);
+        Assert.Single(provisionalProfiles);
     }
 
     private static WyomingOptions CreateOptions()
@@ -159,7 +359,8 @@ public sealed class WyomingSessionIntegrationTests
         WyomingOptions options,
         IWakeWordDetector? wakeWordDetector = null,
         ISttEngine? sttEngine = null,
-        IVadEngine? vadEngine = null)
+        IVadEngine? vadEngine = null,
+        Action<ServiceCollection>? configureServices = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton<IOptions<WyomingOptions>>(Options.Create(options));
@@ -178,6 +379,8 @@ public sealed class WyomingSessionIntegrationTests
         {
             services.AddSingleton<IVadEngine>(vadEngine);
         }
+
+        configureServices?.Invoke(services);
 
         var serviceProvider = services.BuildServiceProvider();
         var listener = new TcpListener(System.Net.IPAddress.Loopback, 0);
@@ -200,5 +403,27 @@ public sealed class WyomingSessionIntegrationTests
             session,
             new WyomingEventWriter(stream),
             new WyomingEventParser(stream, options));
+    }
+
+    private static async Task WriteWakeAndSpeechAsync(WyomingEventWriter writer, CancellationToken ct)
+    {
+        await writer.WriteEventAsync(new DetectEvent { Names = ["hey_lucia"] }, ct);
+        await writer.WriteEventAsync(
+            new AudioStartEvent
+            {
+                Rate = 16_000,
+                Width = 2,
+                Channels = 1,
+            },
+            ct);
+        await writer.WriteEventAsync(
+            new AudioChunkEvent
+            {
+                Rate = 16_000,
+                Width = 2,
+                Channels = 1,
+                Payload = PcmConverter.Float32ToInt16([0.25f, -0.25f, 0.25f, -0.25f]),
+            },
+            ct);
     }
 }

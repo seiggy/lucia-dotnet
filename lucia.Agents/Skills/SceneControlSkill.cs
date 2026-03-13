@@ -17,7 +17,7 @@ namespace lucia.Agents.Skills;
 /// <summary>
 /// Skill for activating Home Assistant scenes (scene.turn_on).
 /// </summary>
-public sealed class SceneControlSkill : IAgentSkill, IOptimizableSkill
+public sealed class SceneControlSkill : IAgentSkill, IOptimizableSkill, ICommandPatternProvider
 {
     public IReadOnlyList<string> EntityDomains => _options.CurrentValue.EntityDomains;
 
@@ -53,6 +53,22 @@ public sealed class SceneControlSkill : IAgentSkill, IOptimizableSkill
             AIFunctionFactory.Create(ActivateSceneAsync)
         ];
     }
+
+    public IReadOnlyList<CommandPatternDefinition> GetCommandPatterns() =>
+    [
+        new()
+        {
+            Id = "scene-activate",
+            SkillId = "SceneControlSkill",
+            Action = "activate",
+            Templates =
+            [
+                "activate [the] {scene} [scene]",
+                "set [the] scene [to] {scene}",
+                "turn on {scene} [scene]",
+            ],
+        },
+    ];
 
     public Task InitializeAsync(CancellationToken cancellationToken = default)
     {

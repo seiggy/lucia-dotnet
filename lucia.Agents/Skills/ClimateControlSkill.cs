@@ -23,7 +23,7 @@ namespace lucia.Agents.Skills;
 /// <summary>
 /// Skill for controlling HVAC / climate entities in Home Assistant
 /// </summary>
-public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill
+public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, ICommandPatternProvider
 {
     private readonly IHomeAssistantClient _homeAssistantClient;
     private readonly IEmbeddingProviderResolver _embeddingResolver;
@@ -86,6 +86,32 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill
             AIFunctionFactory.Create(GetComfortAdjustment)
         ];
     }
+
+    public IReadOnlyList<CommandPatternDefinition> GetCommandPatterns() =>
+    [
+        new()
+        {
+            Id = "climate-set-temp",
+            SkillId = "ClimateControlSkill",
+            Action = "set_temperature",
+            Templates =
+            [
+                "set [the] {entity} [temperature] to {value} [degrees]",
+                "set [the] thermostat [in] [the] {area} to {value}",
+            ],
+        },
+        new()
+        {
+            Id = "climate-comfort",
+            SkillId = "ClimateControlSkill",
+            Action = "adjust",
+            Templates =
+            [
+                "make [it] {action:warmer|cooler|hotter|colder} [in] [the] {area}",
+            ],
+            MinConfidence = 0.85f,
+        },
+    ];
 
     // ── IOptimizableSkill ─────────────────────────────────────────
 
@@ -882,9 +908,9 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill
                     .ToList();
             }
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
-            // Swallow parse failures — return empty list
+            Trace.TraceWarning("Failed to parse climate attribute '{0}' as a string list: {1}", key, ex.Message);
         }
 
         return [];

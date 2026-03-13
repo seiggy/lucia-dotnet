@@ -1383,3 +1383,55 @@ export async function triggerRestart(): Promise<void> {
   const res = await fetch(`${BASE}/system/restart`, { method: 'POST' });
   if (!res.ok) throw new Error(`Failed to trigger restart`);
 }
+
+// ── Voice Onboarding ──────────────────────────────────────────────
+
+export async function startOnboarding(speakerName: string, wakeWordPhrase?: string) {
+  const res = await fetch(`${BASE}/onboarding/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ speakerName, wakeWordPhrase }),
+  })
+  if (!res.ok) throw new Error(`Failed to start onboarding: ${res.statusText}`)
+  return res.json()
+}
+
+export async function uploadVoiceSample(sessionId: string, audioBlob: Blob) {
+  const formData = new FormData()
+  formData.append('audio', audioBlob, 'sample.wav')
+  const res = await fetch(`${BASE}/onboarding/${sessionId}/sample`, {
+    method: 'POST',
+    body: formData,
+  })
+  if (!res.ok) throw new Error(`Failed to upload voice sample: ${res.statusText}`)
+  return res.json()
+}
+
+export async function getOnboardingStatus(sessionId: string) {
+  const res = await fetch(`${BASE}/onboarding/${sessionId}`)
+  if (!res.ok) throw new Error(`Failed to fetch onboarding status: ${res.statusText}`)
+  return res.json()
+}
+
+export async function listSpeakerProfiles() {
+  const res = await fetch(`${BASE}/speakers`)
+  if (!res.ok) throw new Error(`Failed to fetch speaker profiles: ${res.statusText}`)
+  return res.json()
+}
+
+export async function deleteSpeakerProfile(id: string) {
+  const res = await fetch(`${BASE}/speakers/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(`Failed to delete speaker profile: ${res.statusText}`)
+}
+
+export async function listWakeWords() {
+  const res = await fetch(`${BASE}/wake-words`)
+  if (!res.ok) throw new Error(`Failed to fetch wake words: ${res.statusText}`)
+  return res.json()
+}
+
+export async function deleteWakeWord(id: string) {
+  const res = await fetch(`${BASE}/wake-words/${id}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(`Failed to delete wake word: ${res.statusText}`)
+}
+
