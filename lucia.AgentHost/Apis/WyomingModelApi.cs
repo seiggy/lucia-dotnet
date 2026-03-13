@@ -44,25 +44,27 @@ public static class WyomingModelApi
                 return Results.NotFound($"Model '{modelId}' not found in catalog");
             }
 
-            var taskId = taskService.StartTask(
+            var taskId = taskService.StartStagedTask(
                 $"Downloading {model.Name}",
-                async (_, progress, ct) =>
+                ["Download", "Extract", "Install"],
+                async (_, stages, ct) =>
                 {
                     var downloadProgress = new Progress<ModelDownloadProgress>(update =>
                     {
-                        // Download phase = 0-80%, extraction/copy = 80-100%
-                        var scaledPercent = (int)Math.Round(update.PercentComplete * 0.8);
                         var mbDownloaded = update.BytesDownloaded / 1024 / 1024;
                         var mbTotal = update.TotalBytes / 1024 / 1024;
-                        progress.Report((scaledPercent, $"Downloading… {mbDownloaded}/{mbTotal} MB"));
+                        stages.Report(0, (int)Math.Round(update.PercentComplete), $"{mbDownloaded}/{mbTotal} MB");
                     });
-
-                    progress.Report((0, "Starting download…"));
 
                     var extractionProgress = new Progress<(int percent, string message)>(update =>
                     {
-                        progress.Report((update.percent, update.message));
+                        if (update.percent <= 85)
+                            stages.Report(1, update.percent == 80 ? 50 : 0, update.message);
+                        else
+                            stages.Report(2, update.percent >= 95 ? 50 : 0, update.message);
                     });
+
+                    stages.Report(0, 0, "Starting…");
 
                     var result = await downloader
                         .DownloadModelAsync(
@@ -77,6 +79,8 @@ public static class WyomingModelApi
                     {
                         throw new InvalidOperationException(result.Error ?? "Download failed");
                     }
+
+                    stages.Report(2, 100, "Complete");
                 });
 
             return Results.Accepted($"/api/tasks/background/{taskId}", new { taskId });

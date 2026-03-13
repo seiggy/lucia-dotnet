@@ -9,6 +9,7 @@ public sealed record BackgroundTaskInfo
     public string? ProgressMessage { get; init; }
     public string? Error { get; init; }
     public string? ResultData { get; init; }
+    public IReadOnlyList<BackgroundTaskStage> Stages { get; init; } = [];
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? CompletedAt { get; init; }
 }

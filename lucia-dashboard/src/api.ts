@@ -1468,6 +1468,13 @@ export interface InstalledModel extends AsrModel {
   isActive: boolean
 }
 
+export interface BackgroundTaskStage {
+  name: string
+  status: 'Queued' | 'Running' | 'Complete' | 'Failed' | 'Cancelled'
+  progressPercent: number
+  progressMessage?: string
+}
+
 export interface BackgroundTask {
   id: string
   description: string
@@ -1475,6 +1482,7 @@ export interface BackgroundTask {
   progressPercent: number
   progressMessage?: string
   error?: string
+  stages?: BackgroundTaskStage[]
   createdAt: string
   completedAt?: string
 }

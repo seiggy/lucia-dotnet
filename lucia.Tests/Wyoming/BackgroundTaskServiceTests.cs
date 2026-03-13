@@ -23,7 +23,6 @@ public sealed class BackgroundTaskServiceTests
 
         Assert.Equal(BackgroundTaskStatus.Complete, task.Status);
         Assert.Equal(100, task.ProgressPercent);
-        Assert.Equal("Almost done", task.ProgressMessage);
         Assert.Null(task.Error);
         Assert.NotNull(task.CompletedAt);
     }

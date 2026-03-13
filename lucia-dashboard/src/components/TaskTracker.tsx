@@ -262,17 +262,50 @@ export default function TaskTracker() {
               </div>
 
               {(isRunning || isQueued) && (
-                <div className="mt-3">
-                  <div className="h-1.5 overflow-hidden rounded-full bg-basalt">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-amber via-amber-glow to-cyan-400 transition-all duration-300"
-                      style={{ width: `${Math.max(0, Math.min(task.progressPercent, 100))}%` }}
-                    />
-                  </div>
-                  <div className="mt-1 flex items-center justify-between text-[10px] uppercase tracking-[0.16em] text-dust">
-                    <span>{isQueued ? 'Queued' : 'Working'}</span>
-                    <span>{task.progressPercent}%</span>
-                  </div>
+                <div className="mt-3 space-y-2">
+                  {task.stages && task.stages.length > 1 ? (
+                    task.stages.map((stage, idx) => {
+                      const stageRunning = stage.status === 'Running'
+                      const stageDone = stage.status === 'Complete'
+                      const stageQueued = stage.status === 'Queued'
+                      return (
+                        <div key={idx}>
+                          <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.16em]">
+                            <span className={stageDone ? 'text-emerald-300' : stageRunning ? 'text-amber' : 'text-dust'}>
+                              {stageDone && '✓ '}{stage.name}
+                            </span>
+                            <span className="text-dust">
+                              {stageQueued ? '—' : `${stage.progressPercent}%`}
+                            </span>
+                          </div>
+                          <div className="mt-0.5 h-1 overflow-hidden rounded-full bg-basalt">
+                            <div
+                              className={`h-full rounded-full transition-all duration-300 ${
+                                stageDone ? 'bg-emerald-400' : stageRunning ? 'bg-gradient-to-r from-amber via-amber-glow to-cyan-400' : 'bg-basalt'
+                              }`}
+                              style={{ width: `${stageDone ? 100 : Math.max(0, Math.min(stage.progressPercent, 100))}%` }}
+                            />
+                          </div>
+                          {stageRunning && stage.progressMessage && (
+                            <p className="mt-0.5 text-[10px] text-fog">{stage.progressMessage}</p>
+                          )}
+                        </div>
+                      )
+                    })
+                  ) : (
+                    <>
+                      <div className="h-1.5 overflow-hidden rounded-full bg-basalt">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-amber via-amber-glow to-cyan-400 transition-all duration-300"
+                          style={{ width: `${Math.max(0, Math.min(task.progressPercent, 100))}%` }}
+                        />
+                      </div>
+                      <div className="mt-1 flex items-center justify-between text-[10px] uppercase tracking-[0.16em] text-dust">
+                        <span>{isQueued ? 'Queued' : task.progressMessage || 'Working'}</span>
+                        <span>{task.progressPercent}%</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 

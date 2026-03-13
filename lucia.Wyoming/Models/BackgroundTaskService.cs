@@ -13,22 +13,53 @@ public sealed class BackgroundTaskService(ILogger<BackgroundTaskService> logger)
         string description,
         Func<string, IProgress<(int percent, string? message)>, CancellationToken, Task> work)
     {
+        return StartStagedTask(description, ["Working"], async (id, stages, ct) =>
+        {
+            var progress = new DirectProgress(update =>
+                stages.Report(0, update.percent, update.message));
+            await work(id, progress, ct).ConfigureAwait(false);
+        });
+    }
+
+    /// <summary>Synchronous progress reporter that avoids SynchronizationContext.Post delays.</summary>
+    private sealed class DirectProgress(Action<(int percent, string? message)> handler)
+        : IProgress<(int percent, string? message)>
+    {
+        public void Report((int percent, string? message) value) => handler(value);
+    }
+
+    /// <summary>
+    /// Start a multi-stage background task. Each stage has its own 0-100% progress.
+    /// </summary>
+    public string StartStagedTask(
+        string description,
+        string[] stageNames,
+        Func<string, StageProgress, CancellationToken, Task> work)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(description);
         ArgumentNullException.ThrowIfNull(work);
 
         var taskId = Guid.NewGuid().ToString("N")[..12];
+        var stages = stageNames.Select(name => new BackgroundTaskStage
+        {
+            Name = name,
+            Status = BackgroundTaskStatus.Queued,
+        }).ToList();
+
         var info = new BackgroundTaskInfo
         {
             Id = taskId,
             Description = description,
             Status = BackgroundTaskStatus.Queued,
+            Stages = stages,
             CreatedAt = DateTimeOffset.UtcNow,
         };
 
         _tasks[taskId] = info;
         PublishUpdate(info);
 
-        _ = RunTaskAsync(taskId, work);
+        var stageProgress = new StageProgress(taskId, stageNames.Length, this);
+        _ = RunStagedTaskAsync(taskId, stageProgress, work);
         return taskId;
     }
 
@@ -61,29 +92,26 @@ public sealed class BackgroundTaskService(ILogger<BackgroundTaskService> logger)
         }
     }
 
-    private async Task RunTaskAsync(
+    private async Task RunStagedTaskAsync(
         string taskId,
-        Func<string, IProgress<(int percent, string? message)>, CancellationToken, Task> work)
+        StageProgress stageProgress,
+        Func<string, StageProgress, CancellationToken, Task> work)
     {
         UpdateTask(taskId, task => task with { Status = BackgroundTaskStatus.Running });
 
-        var progress = new Progress<(int percent, string? message)>(update =>
-        {
-            UpdateTask(taskId, task => task with
-            {
-                ProgressPercent = update.percent,
-                ProgressMessage = update.message,
-            });
-        });
-
         try
         {
-            await work(taskId, progress, CancellationToken.None).ConfigureAwait(false);
+            await work(taskId, stageProgress, CancellationToken.None).ConfigureAwait(false);
 
             UpdateTask(taskId, task => task with
             {
                 Status = BackgroundTaskStatus.Complete,
                 ProgressPercent = 100,
+                Stages = task.Stages.Select(s => s with
+                {
+                    Status = BackgroundTaskStatus.Complete,
+                    ProgressPercent = 100,
+                }).ToList(),
                 CompletedAt = DateTimeOffset.UtcNow,
             });
         }
@@ -98,6 +126,34 @@ public sealed class BackgroundTaskService(ILogger<BackgroundTaskService> logger)
                 CompletedAt = DateTimeOffset.UtcNow,
             });
         }
+    }
+
+    internal void ReportStageProgress(string taskId, int stageIndex, int percent, string? message)
+    {
+        UpdateTask(taskId, task =>
+        {
+            var stages = task.Stages.ToList();
+            if (stageIndex >= stages.Count) return task;
+
+            stages[stageIndex] = stages[stageIndex] with
+            {
+                Status = percent >= 100 ? BackgroundTaskStatus.Complete : BackgroundTaskStatus.Running,
+                ProgressPercent = Math.Clamp(percent, 0, 100),
+                ProgressMessage = message,
+            };
+
+            // Overall progress: average of all stages
+            var overallPercent = (int)stages.Average(s => s.ProgressPercent);
+            var currentMessage = stages.LastOrDefault(s => s.Status == BackgroundTaskStatus.Running)?.ProgressMessage
+                              ?? stages.LastOrDefault(s => s.Status == BackgroundTaskStatus.Complete)?.ProgressMessage;
+
+            return task with
+            {
+                Stages = stages,
+                ProgressPercent = overallPercent,
+                ProgressMessage = currentMessage,
+            };
+        });
     }
 
     private void UpdateTask(string taskId, Func<BackgroundTaskInfo, BackgroundTaskInfo> transform)
