@@ -15,6 +15,7 @@ using lucia.Agents.Services;
 using lucia.MusicAgent;
 using lucia.TimerAgent;
 using lucia.TimerAgent.ScheduledTasks;
+using lucia.Wyoming.Extensions;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.HttpOverrides;
 using OpenTelemetry.Trace;
@@ -121,6 +122,9 @@ foreach (var plugin in luciaPlugins)
     plugin.ConfigureServices(builder);
     builder.Services.AddSingleton<ILuciaPlugin>(plugin);
 }
+
+// Wyoming voice protocol server (Phase 1)
+builder.AddWyomingServer();
 
 // Trace capture services
 builder.Services.Configure<TraceCaptureOptions>(
@@ -305,6 +309,7 @@ app.MapSkillOptimizerApi();
 app.MapPluginRepositoryApi();
 app.MapPluginStoreApi();
 app.MapInstalledPluginApi();
+app.MapWyomingModelEndpoints();
 app.MapSystemApi();
 app.MapDefaultEndpoints();
 

@@ -25,7 +25,12 @@
     <PackageVersion Include="A2A.AspNetCore" Version="$(A2AVersion)" />
     <PackageVersion Include="Cronos" Version="0.11.1" />
     <PackageVersion Include="GitHub.Copilot.SDK" Version="0.1.29" />
+    <PackageVersion Include="Makaretu.Dns.Multicast" Version="0.27.0" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.3" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.3" />
+    <PackageVersion Include="NAudio" Version="2.2.1" />
+    <PackageVersion Include="org.k2fsa.sherpa.onnx" Version="1.11.1" />
+    <PackageVersion Include="SharpCompress" Version="0.38.0" />
   </ItemGroup>
   <!-- ── .NET Aspire Hosting (AppHost orchestration) ──────────── -->
   <ItemGroup Label="Aspire Hosting">
@@ -66,13 +71,11 @@
     <PackageVersion Include="Microsoft.Extensions.AI.Evaluation.Reporting" Version="$(MicrosoftExtensionsAIVersion)" />
     <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="$(MicrosoftExtensionsAIVersion)" />
   </ItemGroup>
-  
   <!-- Microsoft.Extensions.Cachine -->
   <ItemGroup Label="Microsoft Extensions Caching">
     <PackageVersion Include="Microsoft.Extensions.Caching.Hybrid" Version="10.3.0" />
     <PackageVersion Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="10.0.3" />
   </ItemGroup>
-  
   <!-- ── Microsoft.Extensions (core framework) ────────────────── -->
   <ItemGroup Label="Microsoft Extensions">
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="$(MicrosoftExtensionsVersion)" />

@@ -28,5 +28,6 @@
     <ProjectReference Include="..\lucia.MusicAgent\lucia.MusicAgent.csproj" />
     <ProjectReference Include="..\lucia.ServiceDefaults\lucia.ServiceDefaults.csproj" />
     <ProjectReference Include="..\lucia.TimerAgent\lucia.TimerAgent.csproj" />
+    <ProjectReference Include="..\lucia.Wyoming\lucia.Wyoming.csproj" />
   </ItemGroup>
 </Project>

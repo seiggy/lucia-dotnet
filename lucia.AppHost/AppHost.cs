@@ -33,6 +33,7 @@ var registryApi = builder.AddProject<Projects.lucia_AgentHost>("lucia-agenthost"
     .WithReference(tasksDb)
     .WaitFor(mongodb)
     .WithHttpHealthCheck("/health")
+    .WithEndpoint(port: 10400, name: "wyoming-tcp", scheme: "tcp", isProxied: false)
     .WithUrlForEndpoint("https", url =>
     {
         url.DisplayText = "Scalar (HTTPS)";
