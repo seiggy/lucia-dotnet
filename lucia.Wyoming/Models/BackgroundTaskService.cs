@@ -24,6 +24,11 @@ public sealed class BackgroundTaskService(ILogger<BackgroundTaskService> logger)
 
     private readonly ConcurrentDictionary<string, BackgroundTaskInfo> _tasks = new();
     private readonly Channel<BackgroundTaskInfo> _updateChannel = Channel.CreateUnbounded<BackgroundTaskInfo>();
+    private volatile int _version;
+    private TaskCompletionSource _changeTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>Current version number, incremented on every state change.</summary>
+    public int Version => _version;
 
     public string StartTask(
         string description,
@@ -117,12 +122,19 @@ public sealed class BackgroundTaskService(ILogger<BackgroundTaskService> logger)
         using var activity = ActivitySource.StartActivity("background-task", ActivityKind.Internal);
         activity?.SetTag("task.id", taskId);
         activity?.SetTag("task.description", description);
+        activity?.SetTag("task.type", "background-task");
+
+        using var logScope = logger.BeginScope(new Dictionary<string, object>
+        {
+            ["TaskId"] = taskId,
+            ["TaskType"] = "background-task",
+        });
 
         TasksStarted.Add(1, new KeyValuePair<string, object?>("task.description", description));
         TasksActive.Add(1);
         var sw = Stopwatch.StartNew();
 
-        logger.LogInformation("Background task {TaskId} starting on thread pool: {Description}", taskId, description);
+        logger.LogInformation("[background-task] Task {TaskId} starting: {Description}", taskId, description);
         UpdateTask(taskId, task => task with { Status = BackgroundTaskStatus.Running });
 
         try
@@ -134,7 +146,7 @@ public sealed class BackgroundTaskService(ILogger<BackgroundTaskService> logger)
             TasksCompleted.Add(1, new KeyValuePair<string, object?>("task.description", description));
             TaskDuration.Record(sw.Elapsed.TotalMilliseconds, new KeyValuePair<string, object?>("task.description", description));
 
-            logger.LogInformation("Background task {TaskId} completed in {Duration}ms", taskId, sw.ElapsedMilliseconds);
+            logger.LogInformation("[background-task] Task {TaskId} completed in {Duration}ms", taskId, sw.ElapsedMilliseconds);
             UpdateTask(taskId, task => task with
             {
                 Status = BackgroundTaskStatus.Complete,
@@ -155,7 +167,7 @@ public sealed class BackgroundTaskService(ILogger<BackgroundTaskService> logger)
             TasksFailed.Add(1, new KeyValuePair<string, object?>("task.description", description));
             TaskDuration.Record(sw.Elapsed.TotalMilliseconds, new KeyValuePair<string, object?>("task.description", description));
 
-            logger.LogError(ex, "Background task {TaskId} failed after {Duration}ms", taskId, sw.ElapsedMilliseconds);
+            logger.LogError(ex, "[background-task] Task {TaskId} failed after {Duration}ms", taskId, sw.ElapsedMilliseconds);
             UpdateTask(taskId, task => task with
             {
                 Status = BackgroundTaskStatus.Failed,
@@ -232,5 +244,23 @@ public sealed class BackgroundTaskService(ILogger<BackgroundTaskService> logger)
     private void PublishUpdate(BackgroundTaskInfo info)
     {
         _updateChannel.Writer.TryWrite(info);
+        Interlocked.Increment(ref _version);
+
+        // Signal any SSE waiters that state changed
+        var old = Interlocked.Exchange(ref _changeTcs, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+        old.TrySetResult();
+    }
+
+    /// <summary>
+    /// Wait until the task state changes or the timeout/cancellation fires.
+    /// Returns immediately if version has changed since <paramref name="sinceVersion"/>.
+    /// </summary>
+    public async Task WaitForChangeAsync(int sinceVersion, CancellationToken ct)
+    {
+        if (_version != sinceVersion) return;
+
+        var tcs = _changeTcs;
+        using var reg = ct.Register(() => tcs.TrySetCanceled());
+        await tcs.Task.ConfigureAwait(false);
     }
 }
