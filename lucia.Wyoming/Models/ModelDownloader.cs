@@ -72,10 +72,13 @@ public sealed class ModelDownloader(IHttpClientFactory httpClientFactory, ILogge
                 }
             }
 
-            extractionProgress?.Report((80, "Extracting model archive…"));
-            ExtractArchive(archivePath, extractionDirectory);
+            extractionProgress?.Report((0, "Extracting model archive…"));
+            ExtractArchive(archivePath, extractionDirectory, percent =>
+            {
+                extractionProgress?.Report((percent, $"Extracting… {percent}%"));
+            });
 
-            extractionProgress?.Report((90, "Installing model files…"));
+            extractionProgress?.Report((100, "Installing model files…"));
             var extractedModelDirectory = ResolveExtractedModelDirectory(extractionDirectory, model.Id);
 
             if (Directory.Exists(targetDirectory))
@@ -130,10 +133,13 @@ public sealed class ModelDownloader(IHttpClientFactory httpClientFactory, ILogge
         };
     }
 
-    private static void ExtractArchive(string archivePath, string extractionDirectory)
+    private static void ExtractArchive(string archivePath, string extractionDirectory, Action<int>? onProgress = null)
     {
+        var archiveSize = new FileInfo(archivePath).Length;
         using var stream = File.OpenRead(archivePath);
         using var reader = ReaderFactory.Open(stream);
+
+        var lastReportedPercent = -1;
 
         while (reader.MoveToNextEntry())
         {
@@ -149,6 +155,17 @@ public sealed class ModelDownloader(IHttpClientFactory httpClientFactory, ILogge
                     ExtractFullPath = true,
                     Overwrite = true,
                 });
+
+            // Track progress by how far we've read through the archive stream
+            if (archiveSize > 0 && onProgress is not null)
+            {
+                var percent = (int)(stream.Position * 100 / archiveSize);
+                if (percent != lastReportedPercent)
+                {
+                    lastReportedPercent = percent;
+                    onProgress(percent);
+                }
+            }
         }
     }
 

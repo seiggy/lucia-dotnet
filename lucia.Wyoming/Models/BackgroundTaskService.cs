@@ -130,30 +130,49 @@ public sealed class BackgroundTaskService(ILogger<BackgroundTaskService> logger)
 
     internal void ReportStageProgress(string taskId, int stageIndex, int percent, string? message)
     {
-        UpdateTask(taskId, task =>
-        {
-            var stages = task.Stages.ToList();
-            if (stageIndex >= stages.Count) return task;
-
-            stages[stageIndex] = stages[stageIndex] with
+        _tasks.AddOrUpdate(
+            taskId,
+            _ => throw new InvalidOperationException($"Task {taskId} not found"),
+            (_, existing) =>
             {
-                Status = percent >= 100 ? BackgroundTaskStatus.Complete : BackgroundTaskStatus.Running,
-                ProgressPercent = Math.Clamp(percent, 0, 100),
-                ProgressMessage = message,
-            };
+                var stages = existing.Stages.ToList();
+                if (stageIndex >= stages.Count) return existing;
 
-            // Overall progress: average of all stages
-            var overallPercent = (int)stages.Average(s => s.ProgressPercent);
-            var currentMessage = stages.LastOrDefault(s => s.Status == BackgroundTaskStatus.Running)?.ProgressMessage
-                              ?? stages.LastOrDefault(s => s.Status == BackgroundTaskStatus.Complete)?.ProgressMessage;
+                var currentStage = stages[stageIndex];
+                var clampedPercent = Math.Clamp(percent, 0, 100);
 
-            return task with
-            {
-                Stages = stages,
-                ProgressPercent = overallPercent,
-                ProgressMessage = currentMessage,
-            };
-        });
+                // Skip update if nothing visible changed (same percent + same message)
+                if (currentStage.ProgressPercent == clampedPercent
+                    && currentStage.ProgressMessage == message)
+                {
+                    return existing;
+                }
+
+                var newStatus = clampedPercent >= 100
+                    ? BackgroundTaskStatus.Complete
+                    : BackgroundTaskStatus.Running;
+
+                stages[stageIndex] = currentStage with
+                {
+                    Status = newStatus,
+                    ProgressPercent = clampedPercent,
+                    ProgressMessage = message,
+                };
+
+                var overallPercent = (int)stages.Average(s => s.ProgressPercent);
+                var currentMessage = stages.LastOrDefault(s => s.Status == BackgroundTaskStatus.Running)?.ProgressMessage
+                                  ?? stages.LastOrDefault(s => s.Status == BackgroundTaskStatus.Complete)?.ProgressMessage;
+
+                var updated = existing with
+                {
+                    Stages = stages,
+                    ProgressPercent = overallPercent,
+                    ProgressMessage = currentMessage,
+                };
+
+                PublishUpdate(updated);
+                return updated;
+            });
     }
 
     private void UpdateTask(string taskId, Func<BackgroundTaskInfo, BackgroundTaskInfo> transform)

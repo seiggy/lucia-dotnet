@@ -49,19 +49,24 @@ public static class WyomingModelApi
                 ["Download", "Extract", "Install"],
                 async (_, stages, ct) =>
                 {
-                    var downloadProgress = new Progress<ModelDownloadProgress>(update =>
+                    var lastReportedPercent = -1;
+                    var downloadProgress = new DirectProgress<ModelDownloadProgress>(update =>
                     {
-                        var mbDownloaded = update.BytesDownloaded / 1024 / 1024;
-                        var mbTotal = update.TotalBytes / 1024 / 1024;
-                        stages.Report(0, (int)Math.Round(update.PercentComplete), $"{mbDownloaded}/{mbTotal} MB");
+                        var pct = (int)Math.Round(update.PercentComplete);
+                        if (pct == lastReportedPercent) return;
+                        lastReportedPercent = pct;
+                        var mbDownloaded = update.BytesDownloaded / (1024.0 * 1024.0);
+                        var mbTotal = update.TotalBytes / (1024.0 * 1024.0);
+                        stages.Report(0, pct, $"{mbDownloaded:F1}/{mbTotal:F0} MB");
                     });
 
-                    var extractionProgress = new Progress<(int percent, string message)>(update =>
+                    var extractionProgress = new DirectProgress<(int percent, string message)>(update =>
                     {
-                        if (update.percent <= 85)
-                            stages.Report(1, update.percent == 80 ? 50 : 0, update.message);
-                        else
-                            stages.Report(2, update.percent >= 95 ? 50 : 0, update.message);
+                        // percent 0-100 = extraction progress, 100 = "Installing model files…"
+                        if (update.message.StartsWith("Extracting"))
+                            stages.Report(1, update.percent, update.message);
+                        else if (update.message.StartsWith("Installing"))
+                            stages.Report(2, 0, update.message);
                     });
 
                     stages.Report(0, 0, "Starting…");
@@ -80,7 +85,8 @@ public static class WyomingModelApi
                         throw new InvalidOperationException(result.Error ?? "Download failed");
                     }
 
-                    stages.Report(2, 100, "Complete");
+                    stages.Report(1, 100, "Done");
+                    stages.Report(2, 100, "Done");
                 });
 
             return Results.Accepted($"/api/tasks/background/{taskId}", new { taskId });
@@ -117,5 +123,11 @@ public static class WyomingModelApi
                 return Results.BadRequest(ex.Message);
             }
         }).WithName("DeleteModel");
+    }
+
+    /// <summary>Synchronous progress reporter — avoids SynchronizationContext.Post delays.</summary>
+    private sealed class DirectProgress<T>(Action<T> handler) : IProgress<T>
+    {
+        public void Report(T value) => handler(value);
     }
 }
