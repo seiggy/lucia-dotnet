@@ -24,17 +24,26 @@ public sealed class SherpaWakeWordDetector : IWakeWordDetector
         _logger = logger;
         _changeNotifier = changeNotifier;
 
-        try
+        if (string.IsNullOrWhiteSpace(_options.ModelPath))
         {
-            var config = BuildConfig(_options);
-            _spotter = new KeywordSpotter(config);
-            IsReady = true;
-            _logger.LogInformation("Sherpa wake word detector initialized");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to initialize Sherpa wake word detector");
+            _logger.LogWarning(
+                "Wake word model path not configured. Wake word detection is disabled until a model is installed.");
             IsReady = false;
+        }
+        else
+        {
+            try
+            {
+                var config = BuildConfig(_options);
+                _spotter = new KeywordSpotter(config);
+                IsReady = true;
+                _logger.LogInformation("Sherpa wake word detector initialized");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to initialize Sherpa wake word detector");
+                IsReady = false;
+            }
         }
 
         if (_changeNotifier is not null)
@@ -86,6 +95,12 @@ public sealed class SherpaWakeWordDetector : IWakeWordDetector
 
     private void OnKeywordsChanged()
     {
+        if (string.IsNullOrWhiteSpace(_options.ModelPath))
+        {
+            _logger.LogDebug("Keywords changed but model path not configured, skipping rebuild");
+            return;
+        }
+
         _logger.LogInformation("Keywords changed, rebuilding keyword spotter");
 
         lock (_lock)
