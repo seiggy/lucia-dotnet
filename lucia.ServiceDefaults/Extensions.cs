@@ -72,7 +72,8 @@ public static class Extensions
                     .AddRuntimeInstrumentation()
                     .AddMeter("Lucia.TraceCapture")
                     .AddMeter("Lucia.Skills.LightControl")
-                    .AddMeter("Lucia.Skills.MusicPlayback");
+                    .AddMeter("Lucia.Skills.MusicPlayback")
+                    .AddMeter("lucia.Wyoming.BackgroundTasks");
             })
             .WithTracing(tracing =>
             {
@@ -96,6 +97,7 @@ public static class Extensions
                     .AddSource("Microsoft.Agents.AI.Workflows*")
                     .AddSource("Microsoft.Agents.AI.Runtime.InProcess")
                     .AddSource("Microsoft.Agents.AI.Runtime.Abstractions.InMemoryActorStateStorage")
+                    .AddSource("lucia.Wyoming.BackgroundTasks")
                     .AddAspNetCoreInstrumentation(tracing =>
                         // Exclude health check requests from tracing
                         tracing.Filter = context =>

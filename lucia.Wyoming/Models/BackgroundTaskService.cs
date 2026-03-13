@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 
@@ -6,6 +8,20 @@ namespace lucia.Wyoming.Models;
 
 public sealed class BackgroundTaskService(ILogger<BackgroundTaskService> logger)
 {
+    private static readonly ActivitySource ActivitySource = new("lucia.Wyoming.BackgroundTasks");
+    private static readonly Meter Meter = new("lucia.Wyoming.BackgroundTasks");
+
+    private static readonly Counter<long> TasksStarted = Meter.CreateCounter<long>(
+        "wyoming.tasks.started", "tasks", "Number of background tasks started");
+    private static readonly Counter<long> TasksCompleted = Meter.CreateCounter<long>(
+        "wyoming.tasks.completed", "tasks", "Number of background tasks completed successfully");
+    private static readonly Counter<long> TasksFailed = Meter.CreateCounter<long>(
+        "wyoming.tasks.failed", "tasks", "Number of background tasks that failed");
+    private static readonly Histogram<double> TaskDuration = Meter.CreateHistogram<double>(
+        "wyoming.tasks.duration_ms", "ms", "Duration of background tasks in milliseconds");
+    private static readonly UpDownCounter<int> TasksActive = Meter.CreateUpDownCounter<int>(
+        "wyoming.tasks.active", "tasks", "Number of currently running background tasks");
+
     private readonly ConcurrentDictionary<string, BackgroundTaskInfo> _tasks = new();
     private readonly Channel<BackgroundTaskInfo> _updateChannel = Channel.CreateUnbounded<BackgroundTaskInfo>();
 
@@ -59,7 +75,7 @@ public sealed class BackgroundTaskService(ILogger<BackgroundTaskService> logger)
         PublishUpdate(info);
 
         var stageProgress = new StageProgress(taskId, stageNames.Length, this);
-        _ = Task.Run(() => RunStagedTaskAsync(taskId, stageProgress, work));
+        _ = Task.Run(() => RunStagedTaskAsync(taskId, description, stageProgress, work));
         return taskId;
     }
 
@@ -94,17 +110,31 @@ public sealed class BackgroundTaskService(ILogger<BackgroundTaskService> logger)
 
     private async Task RunStagedTaskAsync(
         string taskId,
+        string description,
         StageProgress stageProgress,
         Func<string, StageProgress, CancellationToken, Task> work)
     {
-        logger.LogInformation("Background task {TaskId} starting on thread pool", taskId);
+        using var activity = ActivitySource.StartActivity("background-task", ActivityKind.Internal);
+        activity?.SetTag("task.id", taskId);
+        activity?.SetTag("task.description", description);
+
+        TasksStarted.Add(1, new KeyValuePair<string, object?>("task.description", description));
+        TasksActive.Add(1);
+        var sw = Stopwatch.StartNew();
+
+        logger.LogInformation("Background task {TaskId} starting on thread pool: {Description}", taskId, description);
         UpdateTask(taskId, task => task with { Status = BackgroundTaskStatus.Running });
 
         try
         {
             await work(taskId, stageProgress, CancellationToken.None).ConfigureAwait(false);
 
-            logger.LogInformation("Background task {TaskId} completed successfully", taskId);
+            sw.Stop();
+            activity?.SetTag("task.status", "complete");
+            TasksCompleted.Add(1, new KeyValuePair<string, object?>("task.description", description));
+            TaskDuration.Record(sw.Elapsed.TotalMilliseconds, new KeyValuePair<string, object?>("task.description", description));
+
+            logger.LogInformation("Background task {TaskId} completed in {Duration}ms", taskId, sw.ElapsedMilliseconds);
             UpdateTask(taskId, task => task with
             {
                 Status = BackgroundTaskStatus.Complete,
@@ -119,14 +149,23 @@ public sealed class BackgroundTaskService(ILogger<BackgroundTaskService> logger)
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Background task {TaskId} failed", taskId);
+            sw.Stop();
+            activity?.SetTag("task.status", "failed");
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            TasksFailed.Add(1, new KeyValuePair<string, object?>("task.description", description));
+            TaskDuration.Record(sw.Elapsed.TotalMilliseconds, new KeyValuePair<string, object?>("task.description", description));
 
+            logger.LogError(ex, "Background task {TaskId} failed after {Duration}ms", taskId, sw.ElapsedMilliseconds);
             UpdateTask(taskId, task => task with
             {
                 Status = BackgroundTaskStatus.Failed,
                 Error = ex.Message,
                 CompletedAt = DateTimeOffset.UtcNow,
             });
+        }
+        finally
+        {
+            TasksActive.Add(-1);
         }
     }
 
