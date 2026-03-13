@@ -35,12 +35,13 @@ public static class WyomingModelApi
             return Results.Ok(new { ActiveModel = manager.ActiveModelId });
         }).WithName("GetActiveModel");
 
-        group.MapPost("/{modelId}/download", (
+        group.MapPost("/{modelId}/download", async (
             string modelId,
             ModelCatalogService catalog,
             ModelDownloader downloader,
             IOptions<SttModelOptions> modelOptions,
-            BackgroundTaskService taskService) =>
+            IBackgroundTaskQueue taskQueue,
+            BackgroundTaskTracker tracker) =>
         {
             var model = catalog.GetModelById(modelId);
             if (model is null)
@@ -48,10 +49,16 @@ public static class WyomingModelApi
                 return Results.NotFound($"Model '{modelId}' not found in catalog");
             }
 
-            var taskId = taskService.StartStagedTask(
-                $"Downloading {model.Name}",
-                ["Download", "Extract", "Install"],
-                async (_, stages, ct) =>
+            var handle = tracker.CreateTask($"Downloading {model.Name}", ["Download", "Extract", "Install"]);
+            var basePath = modelOptions.Value.ModelBasePath;
+
+            await taskQueue.QueueBackgroundWorkItemAsync(async ct =>
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                handle.MarkRunning();
+                var stages = handle.CreateStageProgress(3);
+
+                try
                 {
                     var lastReportedPercent = -1;
                     var downloadProgress = new DirectProgress<ModelDownloadProgress>(update =>
@@ -66,7 +73,6 @@ public static class WyomingModelApi
 
                     var extractionProgress = new DirectProgress<(int percent, string message)>(update =>
                     {
-                        // percent 0-100 = extraction progress, 100 = "Installing model files…"
                         if (update.message.StartsWith("Extracting"))
                             stages.Report(1, update.percent, update.message);
                         else if (update.message.StartsWith("Installing"))
@@ -76,24 +82,23 @@ public static class WyomingModelApi
                     stages.Report(0, 0, "Starting…");
 
                     var result = await downloader
-                        .DownloadModelAsync(
-                            model,
-                            modelOptions.Value.ModelBasePath,
-                            downloadProgress,
-                            extractionProgress,
-                            ct)
+                        .DownloadModelAsync(model, basePath, downloadProgress, extractionProgress, ct)
                         .ConfigureAwait(false);
 
                     if (!result.Success)
-                    {
                         throw new InvalidOperationException(result.Error ?? "Download failed");
-                    }
 
                     stages.Report(1, 100, "Done");
                     stages.Report(2, 100, "Done");
-                });
+                    handle.MarkComplete(sw.Elapsed.TotalMilliseconds);
+                }
+                catch (Exception ex)
+                {
+                    handle.MarkFailed(ex.Message, sw.Elapsed.TotalMilliseconds);
+                }
+            }).ConfigureAwait(false);
 
-            return Results.Accepted($"/api/tasks/background/{taskId}", new { taskId });
+            return Results.Accepted($"/api/tasks/background/{handle.TaskId}", new { taskId = handle.TaskId });
         }).WithName("DownloadModel");
 
         group.MapPost("/{modelId}/activate", async (

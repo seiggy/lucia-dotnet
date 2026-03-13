@@ -49,7 +49,9 @@ public static class ServiceCollectionExtensions
         // discovery into ALL clients, causing external URLs (github.com) to hang on redirects.
         // Instead, ModelDownloader creates its own HttpClient directly.
         builder.Services.AddSingleton<ModelDownloader>();
-        builder.Services.AddSingleton<BackgroundTaskService>();
+        builder.Services.AddSingleton<IBackgroundTaskQueue>(_ => new BackgroundTaskQueue(capacity: 100));
+        builder.Services.AddSingleton<BackgroundTaskTracker>();
+        builder.Services.AddHostedService<BackgroundTaskProcessor>();
 
         builder.Services.AddSingleton<ISttEngine, SherpaSttEngine>();
         builder.Services.AddSingleton<IVadEngine, SherpaVadEngine>();

@@ -95,8 +95,7 @@ public sealed class WyomingServiceCollectionExtensionsTests
                 && descriptor.ImplementationType == typeof(CustomWakeWordManager));
         Assert.Contains(
             builder.Services,
-            descriptor => descriptor.ServiceType == typeof(BackgroundTaskService)
-                && descriptor.ImplementationType == typeof(BackgroundTaskService));
+            descriptor => descriptor.ServiceType == typeof(IBackgroundTaskQueue));
 
         using var serviceProvider = builder.Services.BuildServiceProvider();
         var diarizationOptions = serviceProvider.GetRequiredService<IOptions<DiarizationOptions>>().Value;

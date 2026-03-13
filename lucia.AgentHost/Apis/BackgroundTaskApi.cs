@@ -17,13 +17,13 @@ public static class BackgroundTaskApi
         var group = app.MapGroup("/api/tasks/background")
             .WithTags("Background Tasks");
 
-        group.MapGet("/", (BackgroundTaskService taskService) =>
-            Results.Ok(taskService.GetAllTasks()))
+        group.MapGet("/", (BackgroundTaskTracker tracker) =>
+            Results.Ok(tracker.GetAllTasks()))
             .RequireAuthorization();
 
-        group.MapGet("/{taskId}", (string taskId, BackgroundTaskService taskService) =>
+        group.MapGet("/{taskId}", (string taskId, BackgroundTaskTracker tracker) =>
         {
-            var task = taskService.GetTask(taskId);
+            var task = tracker.GetTask(taskId);
             return task is not null
                 ? Results.Ok(task)
                 : Results.NotFound();
@@ -31,15 +31,15 @@ public static class BackgroundTaskApi
 
         // SSE stream — no auth (EventSource cannot send headers, matches ActivityApi pattern)
         // Event-driven: wakes instantly when task state changes via WaitForChangeAsync.
-        group.MapGet("/stream", async (BackgroundTaskService taskService, HttpContext ctx, CancellationToken ct) =>
+        group.MapGet("/stream", async (BackgroundTaskTracker tracker, HttpContext ctx, CancellationToken ct) =>
         {
             ctx.Response.ContentType = "text/event-stream";
             ctx.Response.Headers.CacheControl = "no-cache";
             ctx.Response.Headers.Connection = "keep-alive";
 
             // Send initial snapshot
-            await WriteSseAsync(ctx.Response, "snapshot", taskService.GetAllTasks(), ct).ConfigureAwait(false);
-            var lastVersion = taskService.Version;
+            await WriteSseAsync(ctx.Response, "snapshot", tracker.GetAllTasks(), ct).ConfigureAwait(false);
+            var lastVersion = tracker.Version;
 
             while (!ct.IsCancellationRequested)
             {
@@ -51,18 +51,18 @@ public static class BackgroundTaskApi
 
                     try
                     {
-                        await taskService.WaitForChangeAsync(lastVersion, timeoutCts.Token).ConfigureAwait(false);
+                        await tracker.WaitForChangeAsync(lastVersion, timeoutCts.Token).ConfigureAwait(false);
                     }
                     catch (OperationCanceledException) when (!ct.IsCancellationRequested)
                     {
                         // Heartbeat timeout — send current state anyway to keep connection alive
                     }
 
-                    var currentVersion = taskService.Version;
+                    var currentVersion = tracker.Version;
                     if (currentVersion != lastVersion)
                     {
                         lastVersion = currentVersion;
-                        await WriteSseAsync(ctx.Response, "snapshot", taskService.GetAllTasks(), ct).ConfigureAwait(false);
+                        await WriteSseAsync(ctx.Response, "snapshot", tracker.GetAllTasks(), ct).ConfigureAwait(false);
                     }
                 }
                 catch (OperationCanceledException)
