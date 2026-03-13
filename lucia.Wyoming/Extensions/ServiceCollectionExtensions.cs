@@ -45,21 +45,9 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<ModelManager>();
         builder.Services.AddSingleton<IModelChangeNotifier>(sp => sp.GetRequiredService<ModelManager>());
         // Named HttpClient for model downloads — bypasses Aspire service discovery and resilience.
-        // UseSocketsHttpHandler replaces the default handler chain, which removes the service
-        // discovery delegating handler that was trying to resolve github.com as a local service.
-        builder.Services.AddHttpClient("WyomingModelDownload")
-            .ConfigureHttpClient(client =>
-            {
-                client.Timeout = TimeSpan.FromMinutes(30);
-            })
-            .UseSocketsHttpHandler((handler, _) =>
-            {
-                handler.AutomaticDecompression = System.Net.DecompressionMethods.All;
-                handler.AllowAutoRedirect = true;
-                handler.MaxAutomaticRedirections = 5;
-            })
-            .RemoveAllResilienceHandlers();
-
+        // We cannot use IHttpClientFactory because ConfigureHttpClientDefaults injects service
+        // discovery into ALL clients, causing external URLs (github.com) to hang on redirects.
+        // Instead, ModelDownloader creates its own HttpClient directly.
         builder.Services.AddSingleton<ModelDownloader>();
         builder.Services.AddSingleton<BackgroundTaskService>();
 

@@ -1,13 +1,26 @@
+using System.Net;
 using Microsoft.Extensions.Logging;
 using SharpCompress.Common;
 using SharpCompress.Readers;
 
 namespace lucia.Wyoming.Models;
 
-public sealed class ModelDownloader(IHttpClientFactory httpClientFactory, ILogger<ModelDownloader> logger)
+public sealed class ModelDownloader(ILogger<ModelDownloader> logger) : IDisposable
 {
     private const int BufferSize = 81_920;
-    private const string HttpClientName = "WyomingModelDownload";
+
+    // Create HttpClient directly — IHttpClientFactory injects Aspire's service discovery
+    // into all clients via ConfigureHttpClientDefaults, which hangs on external URLs like
+    // github.com when they redirect to release-assets.githubusercontent.com.
+    private readonly HttpClient _client = new(new SocketsHttpHandler
+    {
+        AutomaticDecompression = DecompressionMethods.All,
+        AllowAutoRedirect = true,
+        MaxAutomaticRedirections = 10,
+    })
+    {
+        Timeout = TimeSpan.FromMinutes(30),
+    };
 
     public async Task<ModelDownloadResult> DownloadModelAsync(
         AsrModelDefinition model,
@@ -39,9 +52,8 @@ public sealed class ModelDownloader(IHttpClientFactory httpClientFactory, ILogge
             Directory.CreateDirectory(extractionDirectory);
             Directory.CreateDirectory(targetBasePath);
 
-            var client = httpClientFactory.CreateClient(HttpClientName);
             logger.LogInformation("[background-task] Downloading model {ModelId} from {Url}", model.Id, model.DownloadUrl);
-            using var response = await client
+            using var response = await _client
                 .GetAsync(model.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, ct)
                 .ConfigureAwait(false);
 
@@ -217,7 +229,9 @@ public sealed class ModelDownloader(IHttpClientFactory httpClientFactory, ILogge
         }
     }
 
-    private static bool IsModelDirectoryReady(string modelDirectory) =>
+        private static bool IsModelDirectoryReady(string modelDirectory) =>
         Directory.Exists(modelDirectory)
         && Directory.EnumerateFiles(modelDirectory, "*.onnx", SearchOption.AllDirectories).Any();
+
+    public void Dispose() => _client.Dispose();
 }
