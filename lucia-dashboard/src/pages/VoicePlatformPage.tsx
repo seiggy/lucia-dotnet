@@ -343,7 +343,7 @@ export default function VoicePlatformPage() {
     }
 
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      audio: true,
     })
 
     const audioContext = new AudioContext()
@@ -388,7 +388,13 @@ export default function VoicePlatformPage() {
       setIsRecording(true)
       setStatusNote('Recording sample… speak naturally and stop when you finish the prompt.')
     } catch (error) {
-      setEnrollmentError(error instanceof Error ? error.message : 'Failed to access the microphone.')
+      setEnrollmentError(
+        error instanceof DOMException && error.name === 'NotFoundError'
+          ? 'No microphone found. Please connect a microphone and try again.'
+          : error instanceof DOMException && error.name === 'NotAllowedError'
+            ? 'Microphone access was denied. Please allow microphone access in your browser settings and try again.'
+            : error instanceof Error ? error.message : 'Failed to access the microphone.'
+      )
     }
   }, [ensureMicrophone])
 
