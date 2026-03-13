@@ -14,9 +14,13 @@ public static class WyomingModelApi
             .WithTags("Wyoming Models")
             .RequireAuthorization();
 
-        group.MapGet("/", (ModelCatalogService catalog) =>
+        group.MapGet("/", (ModelCatalogService catalog, bool? all) =>
         {
             var models = catalog.GetAvailableModels();
+            // By default, only return models compatible with the online/streaming recognizer.
+            // Pass ?all=true to include offline-only models.
+            if (all != true)
+                models = models.Where(m => m.IsOnlineCompatible).ToList();
             return Results.Ok(models);
         }).WithName("GetAvailableModels");
 
@@ -103,6 +107,10 @@ public static class WyomingModelApi
                 return Results.Ok(new { ActiveModel = modelId });
             }
             catch (ArgumentException ex)
+            {
+                return Results.BadRequest(ex.Message);
+            }
+            catch (InvalidOperationException ex)
             {
                 return Results.BadRequest(ex.Message);
             }

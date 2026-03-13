@@ -177,6 +177,17 @@ public sealed class SherpaSttEngine : ISttEngine
 
         if (ctcModelFile is not null)
         {
+            // NeMo CTC models are NOT compatible with the online/streaming Zipformer2Ctc decoder.
+            // They require OfflineRecognizer which is not currently supported.
+            var modelDir = Path.GetFileName(modelPath) ?? "";
+            if (modelDir.Contains("nemo", StringComparison.OrdinalIgnoreCase)
+                || modelDir.Contains("conformer-ctc", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"Model '{modelDir}' appears to be a NeMo CTC model which is not compatible with streaming recognition. " +
+                    "Only Zipformer CTC, Zipformer Transducer, and Paraformer models are supported for streaming STT.");
+            }
+
             config.ModelConfig.Zipformer2Ctc.Model = ctcModelFile;
             return config;
         }

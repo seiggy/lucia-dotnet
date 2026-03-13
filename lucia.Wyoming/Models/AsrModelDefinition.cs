@@ -12,4 +12,19 @@ public sealed record AsrModelDefinition
     public required string DownloadUrl { get; init; }
     public bool IsDefault { get; init; }
     public int MinMemoryMb { get; init; }
+
+    /// <summary>
+    /// Whether this model is compatible with sherpa-onnx OnlineRecognizer.
+    /// Only Zipformer Transducer, Zipformer CTC, Paraformer, and standard Conformer
+    /// streaming models work with the online recognizer. NeMo CTC, Whisper, SenseVoice,
+    /// and other offline-only architectures are excluded.
+    /// </summary>
+    public bool IsOnlineCompatible => Architecture switch
+    {
+        ModelArchitecture.ZipformerTransducer => IsStreaming,
+        ModelArchitecture.ZipformerCtc => IsStreaming,
+        ModelArchitecture.Paraformer => IsStreaming,
+        ModelArchitecture.Conformer => IsStreaming,
+        _ => false,
+    };
 }
