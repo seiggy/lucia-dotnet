@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using lucia.Wyoming.Audio;
 using lucia.Wyoming.Stt;
+using lucia.Wyoming.Vad;
 using lucia.Wyoming.WakeWord;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -13,22 +14,30 @@ public sealed class WyomingSession : IDisposable
     private readonly TcpClient _client;
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<WyomingSession> _logger;
+    private readonly WyomingOptions _options;
 
     private AudioFormat? _currentAudioFormat;
     private ISttSession? _currentSttSession;
+    private IVadSession? _currentVadSession;
     private IWakeWordSession? _currentWakeWordSession;
     private SttResult? _pendingTranscript;
     private bool _disposed;
 
-    public WyomingSession(TcpClient client, IServiceProvider serviceProvider, ILogger<WyomingSession> logger)
+    public WyomingSession(
+        TcpClient client,
+        IServiceProvider serviceProvider,
+        ILogger<WyomingSession> logger,
+        WyomingOptions options)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(serviceProvider);
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(options);
 
         _client = client;
         _serviceProvider = serviceProvider;
         _logger = logger;
+        _options = options;
         Id = Guid.NewGuid().ToString("N");
         State = WyomingSessionState.Connected;
     }
@@ -44,9 +53,14 @@ public sealed class WyomingSession : IDisposable
         using var scope = _serviceProvider.CreateScope();
         var services = scope.ServiceProvider;
         var stream = _client.GetStream();
-        var parser = new WyomingEventParser(stream);
+        var parser = new WyomingEventParser(stream, _options);
         var writer = new WyomingEventWriter(stream);
-        var infoService = new WyomingServiceInfo(services.GetRequiredService<IOptions<WyomingOptions>>());
+        var sttEngine = services.GetServices<ISttEngine>().FirstOrDefault();
+        var wakeWordDetector = services.GetServices<IWakeWordDetector>().FirstOrDefault();
+        var infoService = new WyomingServiceInfo(
+            services.GetRequiredService<IOptions<WyomingOptions>>(),
+            sttEngine,
+            wakeWordDetector);
 
         try
         {
@@ -67,7 +81,7 @@ public sealed class WyomingSession : IDisposable
                         break;
 
                     case DetectEvent detectEvent:
-                        HandleDetectEvent(detectEvent, services);
+                        await HandleDetectEventAsync(detectEvent, writer, services, ct).ConfigureAwait(false);
                         break;
 
                     case AudioStartEvent audioStartEvent:
@@ -79,11 +93,23 @@ public sealed class WyomingSession : IDisposable
                         break;
 
                     case AudioStopEvent:
-                        HandleAudioStopEvent();
+                        await HandleAudioStopEventAsync(writer, ct).ConfigureAwait(false);
                         break;
 
                     case TranscribeEvent transcribeEvent:
                         await HandleTranscribeEventAsync(transcribeEvent, writer, ct).ConfigureAwait(false);
+                        break;
+
+                    case SynthesizeEvent:
+                        _logger.LogWarning("TTS synthesis not yet implemented (Phase 3)");
+                        await writer.WriteEventAsync(
+                                new ErrorEvent
+                                {
+                                    Text = "Text-to-speech is not yet available",
+                                    Code = "tts_not_implemented",
+                                },
+                                ct)
+                            .ConfigureAwait(false);
                         break;
 
                     default:
@@ -137,16 +163,27 @@ public sealed class WyomingSession : IDisposable
         _client.Dispose();
     }
 
-    private void HandleDetectEvent(DetectEvent detectEvent, IServiceProvider services)
+    private async Task HandleDetectEventAsync(
+        DetectEvent detectEvent,
+        WyomingEventWriter writer,
+        IServiceProvider services,
+        CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(detectEvent);
+        ArgumentNullException.ThrowIfNull(writer);
         ArgumentNullException.ThrowIfNull(services);
 
         _pendingTranscript = null;
         DisposeCurrentSttSession();
+        DisposeCurrentVadSession();
 
         _currentWakeWordSession?.Dispose();
-        _currentWakeWordSession = CreateWakeWordSession(services);
+        _currentWakeWordSession = await CreateWakeWordSessionAsync(services, writer, ct).ConfigureAwait(false);
+        if (_currentWakeWordSession is null)
+        {
+            return;
+        }
+
         State = WyomingSessionState.WakeListening;
 
         _logger.LogInformation(
@@ -209,7 +246,7 @@ public sealed class WyomingSession : IDisposable
             case WyomingSessionState.WakeListening:
                 if (_currentWakeWordSession is null)
                 {
-                    _currentWakeWordSession = CreateWakeWordSession(services);
+                    _currentWakeWordSession = await CreateWakeWordSessionAsync(services, writer, ct).ConfigureAwait(false);
                 }
 
                 if (_currentWakeWordSession is null)
@@ -232,7 +269,19 @@ public sealed class WyomingSession : IDisposable
 
                 _pendingTranscript = null;
                 _currentWakeWordSession.Reset();
-                _currentSttSession = CreateSttSession(services);
+                _currentSttSession = await CreateSttSessionAsync(services, writer, ct).ConfigureAwait(false);
+                if (_currentSttSession is null)
+                {
+                    return;
+                }
+
+                _currentVadSession = await CreateVadSessionAsync(services, writer, ct).ConfigureAwait(false);
+                if (_currentVadSession is null)
+                {
+                    DisposeCurrentSttSession();
+                    return;
+                }
+
                 State = WyomingSessionState.Transcribing;
 
                 await writer.WriteEventAsync(
@@ -244,28 +293,46 @@ public sealed class WyomingSession : IDisposable
                         ct)
                     .ConfigureAwait(false);
 
-                _currentSttSession?.AcceptAudioChunk(samples, _currentAudioFormat.SampleRate);
+                ProcessSpeechSamples(samples);
                 break;
 
             case WyomingSessionState.Transcribing:
-                _currentSttSession ??= CreateSttSession(services);
-                _currentSttSession?.AcceptAudioChunk(samples, _currentAudioFormat.SampleRate);
+                _currentSttSession ??=
+                    await CreateSttSessionAsync(services, writer, ct).ConfigureAwait(false);
+                _currentVadSession ??=
+                    await CreateVadSessionAsync(services, writer, ct).ConfigureAwait(false);
+
+                if (_currentSttSession is null || _currentVadSession is null)
+                {
+                    DisposeCurrentSttSession();
+                    DisposeCurrentVadSession();
+                    return;
+                }
+
+                ProcessSpeechSamples(samples);
                 break;
         }
     }
 
-    private void HandleAudioStopEvent()
+    private async Task HandleAudioStopEventAsync(WyomingEventWriter writer, CancellationToken ct)
     {
         switch (State)
         {
             case WyomingSessionState.Transcribing when _currentSttSession is not null:
+                _currentVadSession?.Flush();
+                DrainVadSegmentsToStt();
                 _pendingTranscript = _currentSttSession.GetFinalResult();
                 DisposeCurrentSttSession();
+                DisposeCurrentVadSession();
                 State = WyomingSessionState.Processing;
                 _logger.LogDebug("Wyoming session {SessionId} finalized STT result", Id);
                 break;
 
             case WyomingSessionState.WakeListening:
+                _logger.LogDebug("Audio stream ended during wake word listening without detection");
+                await writer.WriteEventAsync(new NotDetectedEvent(), ct).ConfigureAwait(false);
+                _currentWakeWordSession?.Dispose();
+                _currentWakeWordSession = null;
                 State = WyomingSessionState.Connected;
                 break;
         }
@@ -283,8 +350,11 @@ public sealed class WyomingSession : IDisposable
 
         if (_pendingTranscript is null && _currentSttSession is not null)
         {
+            _currentVadSession?.Flush();
+            DrainVadSegmentsToStt();
             _pendingTranscript = _currentSttSession.GetFinalResult();
             DisposeCurrentSttSession();
+            DisposeCurrentVadSession();
         }
 
         var transcript = _pendingTranscript ?? new SttResult();
@@ -303,33 +373,157 @@ public sealed class WyomingSession : IDisposable
         State = WyomingSessionState.Connected;
     }
 
-    private ISttSession? CreateSttSession(IServiceProvider services)
+    private async Task<ISttSession?> CreateSttSessionAsync(
+        IServiceProvider services,
+        WyomingEventWriter writer,
+        CancellationToken ct)
     {
-        var engine = services.GetServices<ISttEngine>().FirstOrDefault();
+        var engines = services.GetServices<ISttEngine>().ToArray();
+        var engine = engines.FirstOrDefault(static item => IsSttEngineReady(item))
+            ?? engines.FirstOrDefault();
         if (engine is null)
         {
             _logger.LogWarning("No STT engine registered for Wyoming session {SessionId}", Id);
+            await ReportUnavailableAsync(
+                    writer,
+                    "Speech recognition is not available. STT model may not be installed.",
+                    "stt_unavailable",
+                    ct)
+                .ConfigureAwait(false);
             return null;
         }
 
-        return engine.CreateSession();
+        if (!IsSttEngineReady(engine))
+        {
+            _logger.LogWarning("STT engine not ready for Wyoming session {SessionId}", Id);
+            await ReportUnavailableAsync(
+                    writer,
+                    "Speech recognition is not available. STT model may not be installed.",
+                    "stt_unavailable",
+                    ct)
+                .ConfigureAwait(false);
+            return null;
+        }
+
+        try
+        {
+            return engine.CreateSession();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
+        {
+            _logger.LogWarning(ex, "STT engine failed to create session for Wyoming session {SessionId}", Id);
+            await ReportUnavailableAsync(
+                    writer,
+                    "Speech recognition is not available. STT model may not be installed.",
+                    "stt_unavailable",
+                    ct)
+                .ConfigureAwait(false);
+            return null;
+        }
     }
 
-    private IWakeWordSession? CreateWakeWordSession(IServiceProvider services)
+    private async Task<IVadSession?> CreateVadSessionAsync(
+        IServiceProvider services,
+        WyomingEventWriter writer,
+        CancellationToken ct)
     {
-        var detector = services.GetServices<IWakeWordDetector>().FirstOrDefault(static item => item.IsReady);
+        var engines = services.GetServices<IVadEngine>().ToArray();
+        var engine = engines.FirstOrDefault(static item => item.IsReady)
+            ?? engines.FirstOrDefault();
+        if (engine is null)
+        {
+            _logger.LogWarning("No VAD engine registered for Wyoming session {SessionId}", Id);
+            await ReportUnavailableAsync(
+                    writer,
+                    "Voice activity detection is not available. VAD model may not be installed.",
+                    "vad_unavailable",
+                    ct)
+                .ConfigureAwait(false);
+            return null;
+        }
+
+        if (!engine.IsReady)
+        {
+            _logger.LogWarning("VAD engine not ready for Wyoming session {SessionId}", Id);
+            await ReportUnavailableAsync(
+                    writer,
+                    "Voice activity detection is not available. VAD model may not be installed.",
+                    "vad_unavailable",
+                    ct)
+                .ConfigureAwait(false);
+            return null;
+        }
+
+        try
+        {
+            return engine.CreateSession();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
+        {
+            _logger.LogWarning(ex, "VAD engine failed to create session for Wyoming session {SessionId}", Id);
+            await ReportUnavailableAsync(
+                    writer,
+                    "Voice activity detection is not available. VAD model may not be installed.",
+                    "vad_unavailable",
+                    ct)
+                .ConfigureAwait(false);
+            return null;
+        }
+    }
+
+    private async Task<IWakeWordSession?> CreateWakeWordSessionAsync(
+        IServiceProvider services,
+        WyomingEventWriter writer,
+        CancellationToken ct)
+    {
+        var detectors = services.GetServices<IWakeWordDetector>().ToArray();
+        var detector = detectors.FirstOrDefault(static item => item.IsReady)
+            ?? detectors.FirstOrDefault();
         if (detector is null)
         {
             _logger.LogWarning("No ready wake word detector registered for Wyoming session {SessionId}", Id);
+            await ReportUnavailableAsync(
+                    writer,
+                    "Wake word detection is not available. Wake word model may not be installed.",
+                    "wake_word_unavailable",
+                    ct)
+                .ConfigureAwait(false);
             return null;
         }
 
-        return detector.CreateSession();
+        if (!detector.IsReady)
+        {
+            _logger.LogWarning("Wake word detector not ready for Wyoming session {SessionId}", Id);
+            await ReportUnavailableAsync(
+                    writer,
+                    "Wake word detection is not available. Wake word model may not be installed.",
+                    "wake_word_unavailable",
+                    ct)
+                .ConfigureAwait(false);
+            return null;
+        }
+
+        try
+        {
+            return detector.CreateSession();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
+        {
+            _logger.LogWarning(ex, "Wake word detector failed to create session for Wyoming session {SessionId}", Id);
+            await ReportUnavailableAsync(
+                    writer,
+                    "Wake word detection is not available. Wake word model may not be installed.",
+                    "wake_word_unavailable",
+                    ct)
+                .ConfigureAwait(false);
+            return null;
+        }
     }
 
     private void DisposeEngineSessions()
     {
         DisposeCurrentSttSession();
+        DisposeCurrentVadSession();
 
         _currentWakeWordSession?.Dispose();
         _currentWakeWordSession = null;
@@ -342,6 +536,58 @@ public sealed class WyomingSession : IDisposable
     {
         _currentSttSession?.Dispose();
         _currentSttSession = null;
+    }
+
+    private void DisposeCurrentVadSession()
+    {
+        _currentVadSession?.Dispose();
+        _currentVadSession = null;
+    }
+
+    private async Task ReportUnavailableAsync(
+        WyomingEventWriter writer,
+        string message,
+        string code,
+        CancellationToken ct)
+    {
+        await TryWriteErrorAsync(writer, message, code, ct).ConfigureAwait(false);
+        DisposeEngineSessions();
+        if (State != WyomingSessionState.Disconnected)
+        {
+            State = WyomingSessionState.Connected;
+        }
+    }
+
+    private static bool IsSttEngineReady(ISttEngine engine) =>
+        engine switch
+        {
+            SherpaSttEngine sherpaEngine => sherpaEngine.IsReady,
+            _ => true,
+        };
+
+    private void ProcessSpeechSamples(ReadOnlySpan<float> samples)
+    {
+        if (_currentSttSession is null || _currentVadSession is null)
+        {
+            return;
+        }
+
+        _currentVadSession.AcceptAudioChunk(samples);
+        DrainVadSegmentsToStt();
+    }
+
+    private void DrainVadSegmentsToStt()
+    {
+        if (_currentSttSession is null || _currentVadSession is null)
+        {
+            return;
+        }
+
+        while (_currentVadSession.HasSpeechSegment)
+        {
+            var segment = _currentVadSession.GetNextSegment();
+            _currentSttSession.AcceptAudioChunk(segment.Samples, segment.SampleRate);
+        }
     }
 
     private static float[] ConvertAudioChunkToMonoSamples(byte[] payload, AudioFormat audioFormat)

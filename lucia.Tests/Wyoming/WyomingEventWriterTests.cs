@@ -6,6 +6,8 @@ namespace lucia.Tests.Wyoming;
 
 public sealed class WyomingEventWriterTests
 {
+    private static readonly WyomingOptions DefaultOptions = new();
+
     [Fact]
     public async Task WritesTranscriptEventHeader()
     {
@@ -207,7 +209,7 @@ public sealed class WyomingEventWriterTests
         await Task.WhenAll(writeTasks);
 
         stream.Position = 0;
-        var parser = new WyomingEventParser(stream);
+        var parser = new WyomingEventParser(stream, DefaultOptions);
         var actualTexts = new List<string>();
 
         while (await parser.ReadEventAsync() is TranscriptEvent transcript)

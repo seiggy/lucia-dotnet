@@ -4,6 +4,8 @@ namespace lucia.Tests.Wyoming;
 
 public sealed class WyomingEventRoundTripTests
 {
+    private static readonly WyomingOptions DefaultOptions = new();
+
     [Fact]
     public async Task RoundTripsAudioStartEvent()
     {
@@ -62,6 +64,24 @@ public sealed class WyomingEventRoundTripTests
     }
 
     [Fact]
+    public async Task RoundTripsPartialTranscriptEvent()
+    {
+        var evt = new PartialTranscriptEvent
+        {
+            Text = "hello",
+            Confidence = 0.42f,
+            IsFinal = true,
+        };
+
+        var roundTripped = await RoundTripAsync(evt);
+
+        var transcript = Assert.IsType<PartialTranscriptEvent>(roundTripped);
+        Assert.Equal(evt.Text, transcript.Text);
+        Assert.Equal(evt.Confidence, transcript.Confidence);
+        Assert.Equal(evt.IsFinal, transcript.IsFinal);
+    }
+
+    [Fact]
     public async Task RoundTripsDetectionEvent()
     {
         var evt = new DetectionEvent
@@ -75,6 +95,92 @@ public sealed class WyomingEventRoundTripTests
         var detection = Assert.IsType<DetectionEvent>(roundTripped);
         Assert.Equal(evt.Name, detection.Name);
         Assert.Equal(evt.Timestamp, detection.Timestamp);
+    }
+
+    [Fact]
+    public async Task RoundTripsVoiceStartedEventWithTimestamp()
+    {
+        var evt = new VoiceStartedEvent { Timestamp = 123456789L };
+
+        var roundTripped = await RoundTripAsync(evt);
+
+        var voiceStarted = Assert.IsType<VoiceStartedEvent>(roundTripped);
+        Assert.Equal(evt.Timestamp, voiceStarted.Timestamp);
+    }
+
+    [Fact]
+    public async Task RoundTripsVoiceStartedEventWithoutTimestamp()
+    {
+        var evt = new VoiceStartedEvent();
+
+        var roundTripped = await RoundTripAsync(evt);
+
+        var voiceStarted = Assert.IsType<VoiceStartedEvent>(roundTripped);
+        Assert.Null(voiceStarted.Timestamp);
+    }
+
+    [Fact]
+    public async Task RoundTripsVoiceStoppedEvent()
+    {
+        var evt = new VoiceStoppedEvent { Timestamp = 222222222L };
+
+        var roundTripped = await RoundTripAsync(evt);
+
+        var voiceStopped = Assert.IsType<VoiceStoppedEvent>(roundTripped);
+        Assert.Equal(evt.Timestamp, voiceStopped.Timestamp);
+    }
+
+    [Fact]
+    public async Task RoundTripsNotDetectedEvent()
+    {
+        var roundTripped = await RoundTripAsync(new NotDetectedEvent());
+
+        Assert.IsType<NotDetectedEvent>(roundTripped);
+    }
+
+    [Fact]
+    public async Task RoundTripsSynthesizeEvent()
+    {
+        var evt = new SynthesizeEvent
+        {
+            Text = "hello from lucia",
+            Voice = "ryan",
+            Language = "en",
+        };
+
+        var roundTripped = await RoundTripAsync(evt);
+
+        var synthesize = Assert.IsType<SynthesizeEvent>(roundTripped);
+        Assert.Equal(evt.Text, synthesize.Text);
+        Assert.Equal(evt.Voice, synthesize.Voice);
+        Assert.Equal(evt.Language, synthesize.Language);
+    }
+
+    [Fact]
+    public async Task RoundTripsTranscribeEvent()
+    {
+        var evt = new TranscribeEvent
+        {
+            Name = "default",
+            Language = "en",
+        };
+
+        var roundTripped = await RoundTripAsync(evt);
+
+        var transcribe = Assert.IsType<TranscribeEvent>(roundTripped);
+        Assert.Equal(evt.Name, transcribe.Name);
+        Assert.Equal(evt.Language, transcribe.Language);
+    }
+
+    [Fact]
+    public async Task RoundTripsDetectEventWithNullNames()
+    {
+        var evt = new DetectEvent { Names = null };
+
+        var roundTripped = await RoundTripAsync(evt);
+
+        var detect = Assert.IsType<DetectEvent>(roundTripped);
+        Assert.Null(detect.Names);
     }
 
     [Fact]
@@ -101,7 +207,7 @@ public sealed class WyomingEventRoundTripTests
         await writer.WriteEventAsync(evt);
 
         stream.Position = 0;
-        var parser = new WyomingEventParser(stream);
+        var parser = new WyomingEventParser(stream, DefaultOptions);
 
         return Assert.IsAssignableFrom<WyomingEvent>(await parser.ReadEventAsync());
     }

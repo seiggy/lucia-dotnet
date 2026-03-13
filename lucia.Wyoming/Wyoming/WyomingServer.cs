@@ -114,7 +114,7 @@ public sealed class WyomingServer : IHostedService, IDisposable
     private WyomingSession CreateSession(TcpClient client)
     {
         var logger = _serviceProvider.GetRequiredService<ILogger<WyomingSession>>();
-        return new WyomingSession(client, _serviceProvider, logger);
+        return new WyomingSession(client, _serviceProvider, logger, _options);
     }
 
     private async Task RunSessionAsync(WyomingSession session, CancellationToken ct)

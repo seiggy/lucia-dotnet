@@ -7,16 +7,18 @@ public sealed class ModelManager(
     IOptionsMonitor<SttModelOptions> optionsMonitor,
     ModelCatalogService catalogService,
     ModelDownloader downloader,
-    ILogger<ModelManager> logger)
+    ILogger<ModelManager> logger) : IModelChangeNotifier
 {
     private string? _activeModelOverride;
+
+    public event Action<ActiveModelChangedEvent>? ActiveModelChanged;
 
     public string ActiveModelId => GetActiveModelId();
 
     public async Task<bool> ValidateActiveModelAsync(CancellationToken ct = default)
     {
         var activeModelId = GetActiveModelId();
-        var modelDirectory = GetModelDirectory(activeModelId);
+        var modelDirectory = GetSafeModelDirectory(activeModelId);
 
         if (IsUsableModelDirectory(modelDirectory))
         {
@@ -136,7 +138,7 @@ public sealed class ModelManager(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(modelId);
 
-        var modelDirectory = GetModelDirectory(modelId);
+        var modelDirectory = GetSafeModelDirectory(modelId);
         if (!IsUsableModelDirectory(modelDirectory))
         {
             var modelDefinition = catalogService.GetModelById(modelId);
@@ -167,9 +169,16 @@ public sealed class ModelManager(
         }
 
         _activeModelOverride = modelId;
+        ActiveModelChanged?.Invoke(new ActiveModelChangedEvent
+        {
+            ModelId = modelId,
+            ModelPath = modelDirectory,
+        });
+
         logger.LogInformation(
-            "Switched active Wyoming model to {ModelId} with detected architecture {Architecture}",
+            "Switched active Wyoming model to {ModelId} at {ModelDirectory} with detected architecture {Architecture}",
             modelId,
+            modelDirectory,
             architecture);
 
         return true;
@@ -180,7 +189,7 @@ public sealed class ModelManager(
         ct.ThrowIfCancellationRequested();
         ArgumentException.ThrowIfNullOrWhiteSpace(modelId);
 
-        var modelDirectory = GetModelDirectory(modelId);
+        var modelDirectory = GetSafeModelDirectory(modelId);
         if (!Directory.Exists(modelDirectory))
         {
             return Task.CompletedTask;
@@ -206,8 +215,35 @@ public sealed class ModelManager(
             ? optionsMonitor.CurrentValue.ActiveModel
             : _activeModelOverride;
 
-    private string GetModelDirectory(string modelId) =>
-        Path.Combine(optionsMonitor.CurrentValue.ModelBasePath, modelId);
+    private string GetSafeModelDirectory(string modelId)
+    {
+        if (string.IsNullOrWhiteSpace(modelId)
+            || modelId.Contains("..", StringComparison.Ordinal)
+            || modelId.Contains(Path.DirectorySeparatorChar)
+            || modelId.Contains(Path.AltDirectorySeparatorChar)
+            || modelId.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            throw new ArgumentException($"Invalid model ID: '{modelId}'", nameof(modelId));
+        }
+
+        var pathComparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        var basePath = Path.GetFullPath(optionsMonitor.CurrentValue.ModelBasePath);
+        var normalizedBasePath = basePath.EndsWith(Path.DirectorySeparatorChar)
+            ? basePath
+            : $"{basePath}{Path.DirectorySeparatorChar}";
+        var modelDir = Path.GetFullPath(Path.Combine(basePath, modelId));
+
+        if (!modelDir.StartsWith(normalizedBasePath, pathComparison))
+        {
+            throw new ArgumentException(
+                $"Model ID '{modelId}' resolves outside model directory",
+                nameof(modelId));
+        }
+
+        return modelDir;
+    }
 
     private static bool IsUsableModelDirectory(string modelDirectory) =>
         Directory.Exists(modelDirectory)

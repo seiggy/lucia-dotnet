@@ -1,27 +1,17 @@
 namespace lucia.Wyoming.Vad;
 
 /// <summary>
-/// Abstraction for voice activity detection.
+/// Factory for per-connection voice activity detection sessions.
 /// </summary>
 public interface IVadEngine : IDisposable
 {
     /// <summary>
-    /// Accepts an audio chunk for VAD analysis.
+    /// Gets a value indicating whether the engine is ready to create sessions.
     /// </summary>
-    void AcceptAudioChunk(ReadOnlySpan<float> samples);
+    bool IsReady { get; }
 
     /// <summary>
-    /// Gets a value indicating whether a speech segment is ready.
+    /// Creates a new voice activity detection session with isolated state.
     /// </summary>
-    bool HasSpeechSegment { get; }
-
-    /// <summary>
-    /// Gets the next available speech segment.
-    /// </summary>
-    VadSegment GetNextSegment();
-
-    /// <summary>
-    /// Resets the VAD state.
-    /// </summary>
-    void Reset();
+    IVadSession CreateSession();
 }

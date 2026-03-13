@@ -1,69 +1,130 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SherpaOnnx;
+using lucia.Wyoming.Models;
 
 namespace lucia.Wyoming.Stt;
 
 public sealed class SherpaSttEngine : ISttEngine
 {
     private readonly ILogger<SherpaSttEngine> _logger;
-    private readonly OnlineRecognizer? _recognizer;
+    private readonly IModelChangeNotifier _modelChangeNotifier;
+    private readonly object _lock = new();
+    private readonly List<OnlineRecognizer> _retiredRecognizers = [];
+    private readonly SttOptions _options;
+    private readonly int _sampleRate;
+    private OnlineRecognizer? _recognizer;
 
     public bool IsReady { get; private set; }
 
     public SherpaSttEngine(
         IOptions<SttOptions> options,
+        IModelChangeNotifier modelChangeNotifier,
         ILogger<SherpaSttEngine> logger)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(modelChangeNotifier);
         ArgumentNullException.ThrowIfNull(logger);
 
+        _options = options.Value;
+        _sampleRate = _options.SampleRate;
         _logger = logger;
+        _modelChangeNotifier = modelChangeNotifier;
 
-        try
-        {
-            var config = BuildConfig(options.Value);
-            _recognizer = new OnlineRecognizer(config);
-            IsReady = true;
-
-            _logger.LogInformation(
-                "Sherpa STT engine initialized with model path {ModelPath}",
-                options.Value.ModelPath);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to initialize Sherpa STT engine");
-            IsReady = false;
-        }
+        TryLoadModel(_options.ModelPath);
+        _modelChangeNotifier.ActiveModelChanged += OnActiveModelChanged;
     }
 
     public ISttSession CreateSession()
     {
-        ObjectDisposedException.ThrowIf(!IsReady || _recognizer is null, this);
+        OnlineRecognizer recognizer;
+        lock (_lock)
+        {
+            ObjectDisposedException.ThrowIf(!IsReady || _recognizer is null, this);
+            recognizer = _recognizer;
+        }
 
-        var stream = _recognizer.CreateStream();
-        return new SherpaSttSession(_recognizer, stream);
+        var stream = recognizer.CreateStream();
+        return new SherpaSttSession(recognizer, stream, _sampleRate);
     }
 
     public void Dispose()
     {
-        IsReady = false;
-        _recognizer?.Dispose();
+        _modelChangeNotifier.ActiveModelChanged -= OnActiveModelChanged;
+
+        lock (_lock)
+        {
+            IsReady = false;
+            _recognizer?.Dispose();
+            _recognizer = null;
+
+            foreach (var retiredRecognizer in _retiredRecognizers)
+            {
+                retiredRecognizer.Dispose();
+            }
+
+            _retiredRecognizers.Clear();
+        }
     }
 
-    private static OnlineRecognizerConfig BuildConfig(SttOptions options)
+    private void OnActiveModelChanged(ActiveModelChangedEvent evt)
     {
-        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(evt);
 
-        if (string.IsNullOrWhiteSpace(options.ModelPath))
+        _logger.LogInformation("Reloading STT engine with model {ModelId}", evt.ModelId);
+        TryLoadModel(evt.ModelPath);
+    }
+
+    private void TryLoadModel(string modelPath)
+    {
+        if (string.IsNullOrWhiteSpace(modelPath) || !Directory.Exists(modelPath))
         {
-            throw new InvalidOperationException("STT model path must be configured.");
+            _logger.LogWarning("STT model path not configured or missing: {ModelPath}", modelPath);
+            lock (_lock)
+            {
+                IsReady = false;
+            }
+
+            return;
         }
 
-        if (!Directory.Exists(options.ModelPath))
+        lock (_lock)
+        {
+            try
+            {
+                var config = BuildConfig(modelPath, _options);
+                var newRecognizer = new OnlineRecognizer(config);
+                var oldRecognizer = _recognizer;
+
+                _recognizer = newRecognizer;
+                IsReady = true;
+
+                if (oldRecognizer is not null)
+                {
+                    _retiredRecognizers.Add(oldRecognizer);
+                }
+
+                _logger.LogInformation(
+                    "Sherpa STT engine loaded model from {ModelPath}",
+                    modelPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to load STT model from {ModelPath}", modelPath);
+                IsReady = false;
+            }
+        }
+    }
+
+    private static OnlineRecognizerConfig BuildConfig(string modelPath, SttOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentException.ThrowIfNullOrWhiteSpace(modelPath);
+
+        if (!Directory.Exists(modelPath))
         {
             throw new DirectoryNotFoundException(
-                $"STT model directory '{options.ModelPath}' was not found.");
+                $"STT model directory '{modelPath}' was not found.");
         }
 
         var config = new OnlineRecognizerConfig
@@ -82,18 +143,18 @@ public sealed class SherpaSttEngine : ISttEngine
             ? "cpu"
             : options.Provider;
 
-        var tokensFile = FindFirst(options.ModelPath, "tokens.txt");
+        var tokensFile = FindFirst(modelPath, "tokens.txt");
         if (tokensFile is null)
         {
             throw new FileNotFoundException(
-                $"No tokens.txt file was found under '{options.ModelPath}'.");
+                $"No tokens.txt file was found under '{modelPath}'.");
         }
 
         config.ModelConfig.Tokens = tokensFile;
 
-        var encoderFile = FindFirstMatch(options.ModelPath, "*encoder*.onnx");
-        var decoderFile = FindFirstMatch(options.ModelPath, "*decoder*.onnx");
-        var joinerFile = FindFirstMatch(options.ModelPath, "*joiner*.onnx");
+        var encoderFile = FindFirstMatch(modelPath, "*encoder*.onnx");
+        var decoderFile = FindFirstMatch(modelPath, "*decoder*.onnx");
+        var joinerFile = FindFirstMatch(modelPath, "*joiner*.onnx");
 
         if (encoderFile is not null && decoderFile is not null && joinerFile is not null)
         {
@@ -110,9 +171,9 @@ public sealed class SherpaSttEngine : ISttEngine
             return config;
         }
 
-        var ctcModelFile = FindFirstMatch(options.ModelPath, "*ctc*.onnx")
-            ?? FindFirstMatch(options.ModelPath, "*model*.onnx")
-            ?? FindSingleOnnxFile(options.ModelPath);
+        var ctcModelFile = FindFirstMatch(modelPath, "*ctc*.onnx")
+            ?? FindFirstMatch(modelPath, "*model*.onnx")
+            ?? FindSingleOnnxFile(modelPath);
 
         if (ctcModelFile is not null)
         {
@@ -121,7 +182,7 @@ public sealed class SherpaSttEngine : ISttEngine
         }
 
         throw new InvalidOperationException(
-            $"Could not detect a supported sherpa-onnx streaming model under '{options.ModelPath}'.");
+            $"Could not detect a supported sherpa-onnx streaming model under '{modelPath}'.");
     }
 
     private static string? FindFirst(string root, string fileName) =>

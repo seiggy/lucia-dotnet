@@ -22,6 +22,18 @@ public sealed class WyomingOptions
     /// <summary>Maximum concurrent TTS syntheses (burst).</summary>
     public int MaxConcurrentTtsSyntheses { get; set; } = 2;
 
+    /// <summary>Maximum header line length in bytes (default 8KB).</summary>
+    public int MaxHeaderLineBytes { get; set; } = 8192;
+
+    /// <summary>Maximum extra data length in bytes (default 64KB).</summary>
+    public int MaxDataLength { get; set; } = 65536;
+
+    /// <summary>Maximum binary payload length in bytes (default 1MB — ~30s of 16kHz 16-bit mono audio).</summary>
+    public int MaxPayloadLength { get; set; } = 1_048_576;
+
+    /// <summary>Read timeout per event in seconds. Connections idle longer are closed. Default 60s.</summary>
+    public int ReadTimeoutSeconds { get; set; } = 60;
+
     /// <summary>Zeroconf service name.</summary>
     public string ServiceName { get; set; } = "lucia-wyoming";
 

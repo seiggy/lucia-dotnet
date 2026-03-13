@@ -58,4 +58,22 @@ public sealed class AudioResamplerTests
 
         Assert.InRange(Math.Abs(output.Length - expectedLength), 0, 1);
     }
+
+    [Fact]
+    public void Resample_DCSignal_PreservesValue()
+    {
+        var input = Enumerable.Repeat(0.5f, 48_000).ToArray();
+
+        var output = AudioResampler.Resample(input, 48_000, 16_000);
+
+        Assert.All(output, sample => Assert.True(Math.Abs(sample - 0.5f) < 0.01f));
+    }
+
+    [Fact]
+    public void Resample_SingleSample_ReturnsOneSample()
+    {
+        var output = AudioResampler.Resample(new float[] { 0.75f }, 16_000, 48_000);
+
+        Assert.Single(output);
+    }
 }

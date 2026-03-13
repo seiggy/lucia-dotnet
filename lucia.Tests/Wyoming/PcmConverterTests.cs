@@ -53,4 +53,22 @@ public sealed class PcmConverterTests
 
         Assert.Empty(result);
     }
+
+    [Fact]
+    public void Int16ToFloat32_OddByteCount_Throws()
+    {
+        Assert.Throws<ArgumentException>(() => PcmConverter.Int16ToFloat32(new byte[] { 0x01 }));
+    }
+
+    [Fact]
+    public void Float32ToInt16_ClampsOutOfRange()
+    {
+        var floats = new float[] { 1.5f, -1.5f };
+
+        var pcm = PcmConverter.Float32ToInt16(floats);
+        var restored = PcmConverter.Int16ToFloat32(pcm);
+
+        Assert.True(restored[0] >= 0.99f);
+        Assert.True(restored[1] <= -0.99f);
+    }
 }

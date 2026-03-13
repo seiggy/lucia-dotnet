@@ -6,15 +6,17 @@ namespace lucia.Wyoming.Vad;
 
 public sealed class SherpaVadEngine : IVadEngine
 {
-    private readonly VoiceActivityDetector? _vad;
     private readonly ILogger<SherpaVadEngine> _logger;
-    private readonly Queue<VadSegment> _segments = new();
+    private readonly VadModelConfig? _config;
     private readonly int _sampleRate;
 
     public SherpaVadEngine(
         IOptions<VadOptions> options,
         ILogger<SherpaVadEngine> logger)
     {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(logger);
+
         _logger = logger;
 
         var opts = options.Value;
@@ -22,21 +24,7 @@ public sealed class SherpaVadEngine : IVadEngine
 
         try
         {
-            var config = new SileroVadModelConfig
-            {
-                Model = opts.ModelPath,
-                Threshold = opts.Threshold,
-                MinSpeechDuration = opts.MinSpeechDuration,
-                MinSilenceDuration = opts.MinSilenceDuration,
-            };
-
-            var vadConfig = new VadModelConfig
-            {
-                SileroVad = config,
-                SampleRate = opts.SampleRate,
-            };
-
-            _vad = new VoiceActivityDetector(vadConfig, bufferSizeInSeconds: 30);
+            _config = BuildConfig(opts);
             IsReady = true;
 
             _logger.LogInformation(
@@ -52,52 +40,46 @@ public sealed class SherpaVadEngine : IVadEngine
 
     public bool IsReady { get; }
 
-    public bool HasSpeechSegment => _segments.Count > 0;
-
-    public void AcceptAudioChunk(ReadOnlySpan<float> samples)
+    public IVadSession CreateSession()
     {
-        if (_vad is null || samples.IsEmpty)
+        if (!IsReady || _config is null)
         {
-            return;
+            throw new InvalidOperationException("VAD engine is not ready.");
         }
 
-        _vad.AcceptWaveform(samples.ToArray());
-
-        while (!_vad.IsEmpty())
-        {
-            var segment = _vad.Front();
-            var start = TimeSpan.FromSeconds(segment.Start / (double)_sampleRate);
-            var end = TimeSpan.FromSeconds((segment.Start + segment.Samples.Length) / (double)_sampleRate);
-
-            _segments.Enqueue(new VadSegment
-            {
-                Samples = segment.Samples,
-                Start = start,
-                End = end,
-            });
-
-            _vad.Pop();
-        }
-    }
-
-    public VadSegment GetNextSegment()
-    {
-        if (_segments.Count == 0)
-        {
-            throw new InvalidOperationException("No speech segment available");
-        }
-
-        return _segments.Dequeue();
-    }
-
-    public void Reset()
-    {
-        _vad?.Reset();
-        _segments.Clear();
+        return new SherpaVadSession(_config.Value, _sampleRate);
     }
 
     public void Dispose()
     {
-        _vad?.Dispose();
+    }
+
+    private static VadModelConfig BuildConfig(VadOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        if (string.IsNullOrWhiteSpace(options.ModelPath))
+        {
+            throw new InvalidOperationException("VAD model path must be configured.");
+        }
+
+        if (!File.Exists(options.ModelPath))
+        {
+            throw new FileNotFoundException(
+                $"VAD model file '{options.ModelPath}' was not found.",
+                options.ModelPath);
+        }
+
+        return new VadModelConfig
+        {
+            SileroVad = new SileroVadModelConfig
+            {
+                Model = options.ModelPath,
+                Threshold = options.Threshold,
+                MinSpeechDuration = options.MinSpeechDuration,
+                MinSilenceDuration = options.MinSilenceDuration,
+            },
+            SampleRate = options.SampleRate,
+        };
     }
 }

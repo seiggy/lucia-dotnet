@@ -5,11 +5,12 @@ namespace lucia.Tests.Wyoming;
 
 public sealed class WyomingEventParserTests
 {
+    private static readonly WyomingOptions DefaultOptions = new();
+
     [Fact]
     public async Task ParsesDescribeEvent()
     {
-        var input = BuildMessage("{\"type\":\"describe\"}\n");
-        var parser = new WyomingEventParser(input);
+        var parser = CreateParser("{\"type\":\"describe\"}\n");
 
         var evt = await parser.ReadEventAsync();
 
@@ -21,8 +22,7 @@ public sealed class WyomingEventParserTests
     [Fact]
     public async Task ParsesAudioStartEvent()
     {
-        var input = BuildMessage("{\"type\":\"audio-start\",\"data\":{\"rate\":16000,\"width\":2,\"channels\":1}}\n");
-        var parser = new WyomingEventParser(input);
+        var parser = CreateParser("{\"type\":\"audio-start\",\"data\":{\"rate\":16000,\"width\":2,\"channels\":1}}\n");
 
         var evt = await parser.ReadEventAsync();
 
@@ -45,7 +45,7 @@ public sealed class WyomingEventParserTests
         headerBytes.CopyTo(combined, 0);
         payload.CopyTo(combined, headerBytes.Length);
 
-        var parser = new WyomingEventParser(new MemoryStream(combined));
+        var parser = new WyomingEventParser(new MemoryStream(combined), DefaultOptions);
 
         var evt = await parser.ReadEventAsync();
 
@@ -62,8 +62,7 @@ public sealed class WyomingEventParserTests
     [Fact]
     public async Task ParsesDetectEvent()
     {
-        var input = BuildMessage("{\"type\":\"detect\",\"data\":{\"names\":[\"hey_lucia\"]}}\n");
-        var parser = new WyomingEventParser(input);
+        var parser = CreateParser("{\"type\":\"detect\",\"data\":{\"names\":[\"hey_lucia\"]}}\n");
 
         var evt = await parser.ReadEventAsync();
 
@@ -75,8 +74,7 @@ public sealed class WyomingEventParserTests
     [Fact]
     public async Task ParsesSynthesizeEvent()
     {
-        var input = BuildMessage("{\"type\":\"synthesize\",\"data\":{\"text\":\"Hello world\",\"voice\":\"ryan\",\"language\":\"en\"}}\n");
-        var parser = new WyomingEventParser(input);
+        var parser = CreateParser("{\"type\":\"synthesize\",\"data\":{\"text\":\"Hello world\",\"voice\":\"ryan\",\"language\":\"en\"}}\n");
 
         var evt = await parser.ReadEventAsync();
 
@@ -89,7 +87,7 @@ public sealed class WyomingEventParserTests
     [Fact]
     public async Task ReturnsNullOnStreamClosed()
     {
-        var parser = new WyomingEventParser(new MemoryStream([]));
+        var parser = new WyomingEventParser(new MemoryStream([]), DefaultOptions);
 
         var evt = await parser.ReadEventAsync();
 
@@ -99,8 +97,7 @@ public sealed class WyomingEventParserTests
     [Fact]
     public async Task ThrowsOnUnknownEventType()
     {
-        var input = BuildMessage("{\"type\":\"bogus_event\"}\n");
-        var parser = new WyomingEventParser(input);
+        var parser = CreateParser("{\"type\":\"bogus_event\"}\n");
 
         await Assert.ThrowsAsync<WyomingProtocolException>(() => parser.ReadEventAsync());
     }
@@ -109,7 +106,7 @@ public sealed class WyomingEventParserTests
     public async Task ParsesMultipleEventsSequentially()
     {
         var messages = "{\"type\":\"describe\"}\n{\"type\":\"audio-stop\"}\n";
-        var parser = new WyomingEventParser(new MemoryStream(Encoding.UTF8.GetBytes(messages)));
+        var parser = new WyomingEventParser(new MemoryStream(Encoding.UTF8.GetBytes(messages)), DefaultOptions);
 
         var evt1 = await parser.ReadEventAsync();
         var evt2 = await parser.ReadEventAsync();
@@ -118,8 +115,72 @@ public sealed class WyomingEventParserTests
         Assert.IsType<AudioStopEvent>(evt2);
     }
 
-    private static MemoryStream BuildMessage(string headerLine)
+    [Fact]
+    public async Task ThrowsWhenDataLengthExceedsConfiguredMaximum()
     {
-        return new MemoryStream(Encoding.UTF8.GetBytes(headerLine));
+        var options = new WyomingOptions { MaxDataLength = 8 };
+        var parser = CreateParser("{\"type\":\"audio-start\",\"data_length\":9}\n{}", options);
+
+        var ex = await Assert.ThrowsAsync<WyomingProtocolException>(() => parser.ReadEventAsync());
+
+        Assert.Equal("data_length 9 exceeds maximum 8", ex.Message);
+    }
+
+    [Fact]
+    public async Task ThrowsWhenPayloadLengthExceedsConfiguredMaximum()
+    {
+        var options = new WyomingOptions { MaxPayloadLength = 8 };
+        var parser = CreateParser("{\"type\":\"audio-chunk\",\"payload_length\":9}\n", options);
+
+        var ex = await Assert.ThrowsAsync<WyomingProtocolException>(() => parser.ReadEventAsync());
+
+        Assert.Equal("payload_length 9 exceeds maximum 8", ex.Message);
+    }
+
+    [Fact]
+    public async Task RejectsOversizedPayloadLength()
+    {
+        var opts = new WyomingOptions { MaxPayloadLength = 1024 };
+        var header = "{\"type\":\"audio-chunk\",\"data\":{\"rate\":16000,\"width\":2,\"channels\":1},\"payload_length\":999999}\n";
+        var parser = CreateParser(header, opts);
+
+        await Assert.ThrowsAsync<WyomingProtocolException>(() => parser.ReadEventAsync());
+    }
+
+    [Fact]
+    public async Task RejectsOversizedDataLength()
+    {
+        var opts = new WyomingOptions { MaxDataLength = 100 };
+        var parser = CreateParser("{\"type\":\"describe\",\"data_length\":999999}\n", opts);
+
+        await Assert.ThrowsAsync<WyomingProtocolException>(() => parser.ReadEventAsync());
+    }
+
+    [Fact]
+    public async Task ParsesEmptyJsonHeaderGracefully()
+    {
+        var parser = CreateParser("{}\n");
+
+        await Assert.ThrowsAsync<WyomingProtocolException>(() => parser.ReadEventAsync());
+    }
+
+    [Fact]
+    public async Task ThrowsWhenReadTimeoutExceeded()
+    {
+        var options = new WyomingOptions { ReadTimeoutSeconds = 1 };
+        var parser = new WyomingEventParser(
+            new DelayedReadStream(Encoding.UTF8.GetBytes("{\"type\":\"describe\"}\n"), TimeSpan.FromSeconds(2)),
+            options);
+
+        var ex = await Assert.ThrowsAsync<WyomingProtocolException>(() => parser.ReadEventAsync());
+
+        Assert.Equal("Read timeout exceeded", ex.Message);
+    }
+
+    private static WyomingEventParser CreateParser(string input, WyomingOptions? options = null)
+    {
+        return new WyomingEventParser(
+            new MemoryStream(Encoding.UTF8.GetBytes(input)),
+            options ?? new WyomingOptions());
     }
 }

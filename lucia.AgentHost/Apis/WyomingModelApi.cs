@@ -56,8 +56,15 @@ public static class WyomingModelApi
             ModelManager manager,
             CancellationToken ct) =>
         {
-            await manager.SwitchActiveModelAsync(modelId, ct).ConfigureAwait(false);
-            return Results.Ok(new { ActiveModel = modelId });
+            try
+            {
+                await manager.SwitchActiveModelAsync(modelId, ct).ConfigureAwait(false);
+                return Results.Ok(new { ActiveModel = modelId });
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(ex.Message);
+            }
         }).WithName("ActivateModel");
 
         group.MapDelete("/{modelId}", async (
@@ -65,8 +72,15 @@ public static class WyomingModelApi
             ModelManager manager,
             CancellationToken ct) =>
         {
-            await manager.DeleteModelAsync(modelId, ct).ConfigureAwait(false);
-            return Results.NoContent();
+            try
+            {
+                await manager.DeleteModelAsync(modelId, ct).ConfigureAwait(false);
+                return Results.NoContent();
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(ex.Message);
+            }
         }).WithName("DeleteModel");
     }
 }

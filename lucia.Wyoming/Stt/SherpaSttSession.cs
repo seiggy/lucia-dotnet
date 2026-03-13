@@ -1,3 +1,4 @@
+using lucia.Wyoming.Audio;
 using SherpaOnnx;
 
 namespace lucia.Wyoming.Stt;
@@ -6,16 +7,19 @@ public sealed class SherpaSttSession : ISttSession
 {
     private readonly OnlineRecognizer _recognizer;
     private readonly OnlineStream _stream;
+    private readonly int _modelSampleRate;
     private bool _disposed;
     private bool _inputFinished;
 
-    public SherpaSttSession(OnlineRecognizer recognizer, OnlineStream stream)
+    public SherpaSttSession(OnlineRecognizer recognizer, OnlineStream stream, int modelSampleRate)
     {
         ArgumentNullException.ThrowIfNull(recognizer);
         ArgumentNullException.ThrowIfNull(stream);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(modelSampleRate);
 
         _recognizer = recognizer;
         _stream = stream;
+        _modelSampleRate = modelSampleRate;
     }
 
     public bool IsEndOfUtterance
@@ -30,10 +34,23 @@ public sealed class SherpaSttSession : ISttSession
     public void AcceptAudioChunk(ReadOnlySpan<float> samples, int sampleRate)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
 
         if (_inputFinished)
         {
             throw new InvalidOperationException("Cannot accept audio after finalization.");
+        }
+
+        if (samples.IsEmpty)
+        {
+            return;
+        }
+
+        if (sampleRate != _modelSampleRate)
+        {
+            var resampled = AudioResampler.Resample(samples, sampleRate, _modelSampleRate);
+            _stream.AcceptWaveform(_modelSampleRate, resampled);
+            return;
         }
 
         _stream.AcceptWaveform(sampleRate, samples.ToArray());

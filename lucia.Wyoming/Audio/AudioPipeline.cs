@@ -8,12 +8,12 @@ using lucia.Wyoming.Vad;
 /// </summary>
 public sealed class AudioPipeline
 {
-    private readonly IVadEngine _vad;
+    private readonly IVadEngine _vadEngine;
     private readonly ISttEngine _stt;
 
-    public AudioPipeline(IVadEngine vad, ISttEngine stt)
+    public AudioPipeline(IVadEngine vadEngine, ISttEngine stt)
     {
-        _vad = vad;
+        _vadEngine = vadEngine;
         _stt = stt;
     }
 

@@ -81,15 +81,35 @@ public sealed class WyomingEventWriter
                 ["width"] = e.Width,
                 ["channels"] = e.Channels,
             },
+            TranscribeEvent e => BuildTranscribeData(e),
             TranscriptEvent e => BuildTranscriptData(e),
             PartialTranscriptEvent e => BuildPartialTranscriptData(e),
+            DetectEvent e => BuildDetectData(e),
             DetectionEvent e => BuildDetectionData(e),
+            SynthesizeEvent e => BuildSynthesizeData(e),
             ErrorEvent e => BuildErrorData(e),
             InfoEvent e => BuildInfoData(e),
             VoiceStartedEvent e => BuildTimestampData(e.Timestamp),
             VoiceStoppedEvent e => BuildTimestampData(e.Timestamp),
             _ => null,
         };
+    }
+
+    private static Dictionary<string, object>? BuildTranscribeData(TranscribeEvent evt)
+    {
+        var data = new Dictionary<string, object>();
+
+        if (evt.Name is not null)
+        {
+            data["name"] = evt.Name;
+        }
+
+        if (evt.Language is not null)
+        {
+            data["language"] = evt.Language;
+        }
+
+        return data.Count > 0 ? data : null;
     }
 
     private static Dictionary<string, object> BuildTranscriptData(TranscriptEvent evt)
@@ -99,6 +119,13 @@ public sealed class WyomingEventWriter
             ["text"] = evt.Text,
             ["confidence"] = evt.Confidence,
         };
+    }
+
+    private static Dictionary<string, object>? BuildDetectData(DetectEvent evt)
+    {
+        return evt.Names is { Length: > 0 }
+            ? new Dictionary<string, object> { ["names"] = evt.Names }
+            : null;
     }
 
     private static Dictionary<string, object> BuildPartialTranscriptData(PartialTranscriptEvent evt)
@@ -121,6 +148,26 @@ public sealed class WyomingEventWriter
         if (evt.Timestamp.HasValue)
         {
             data["timestamp"] = evt.Timestamp.Value;
+        }
+
+        return data;
+    }
+
+    private static Dictionary<string, object> BuildSynthesizeData(SynthesizeEvent evt)
+    {
+        var data = new Dictionary<string, object>
+        {
+            ["text"] = evt.Text,
+        };
+
+        if (evt.Voice is not null)
+        {
+            data["voice"] = evt.Voice;
+        }
+
+        if (evt.Language is not null)
+        {
+            data["language"] = evt.Language;
         }
 
         return data;

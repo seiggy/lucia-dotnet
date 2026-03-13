@@ -10,18 +10,20 @@ namespace lucia.Wyoming.Wyoming;
 /// </summary>
 public sealed class WyomingEventParser
 {
-    private const int HeaderBufferSize = 8192;
-
     private readonly Stream _stream;
-    private readonly byte[] _readBuffer = new byte[HeaderBufferSize];
+    private readonly WyomingOptions _options;
+    private readonly byte[] _readBuffer;
     private int _bufferStart;
     private int _bufferEnd;
 
-    public WyomingEventParser(Stream stream)
+    public WyomingEventParser(Stream stream, WyomingOptions options)
     {
         ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(options);
 
         _stream = stream;
+        _options = options;
+        _readBuffer = new byte[_options.MaxHeaderLineBytes];
     }
 
     /// <summary>
@@ -30,42 +32,71 @@ public sealed class WyomingEventParser
     /// </summary>
     public async Task<WyomingEvent?> ReadEventAsync(CancellationToken ct = default)
     {
-        var headerLine = await ReadLineAsync(ct).ConfigureAwait(false);
-        if (headerLine is null)
-        {
-            return null;
-        }
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(_options.ReadTimeoutSeconds));
 
-        WyomingEventHeader? header;
         try
         {
-            header = JsonSerializer.Deserialize<WyomingEventHeader>(headerLine);
+            var headerLine = await ReadLineAsync(timeoutCts.Token).ConfigureAwait(false);
+            if (headerLine is null)
+            {
+                return null;
+            }
+
+            WyomingEventHeader? header;
+            try
+            {
+                header = JsonSerializer.Deserialize<WyomingEventHeader>(headerLine);
+            }
+            catch (JsonException)
+            {
+                throw new WyomingProtocolException("Failed to parse event header.");
+            }
+
+            if (header is null)
+            {
+                throw new WyomingProtocolException("Failed to parse event header.");
+            }
+
+            ValidateLengths(header, _options);
+
+            if (header.DataLength > 0)
+            {
+                var extraData = await ReadAndValidateExtraDataAsync(header.DataLength, timeoutCts.Token).ConfigureAwait(false);
+                if (extraData is not null)
+                {
+                    var mergedData = header.Data is null
+                        ? new Dictionary<string, object>()
+                        : new Dictionary<string, object>(header.Data);
+
+                    foreach (var kvp in extraData)
+                    {
+                        mergedData[kvp.Key] = kvp.Value;
+                    }
+
+                    header = new WyomingEventHeader
+                    {
+                        Type = header.Type,
+                        Data = mergedData,
+                        DataLength = header.DataLength,
+                        PayloadLength = header.PayloadLength,
+                    };
+                }
+            }
+
+            byte[]? payload = null;
+            if (header.PayloadLength > 0)
+            {
+                payload = GC.AllocateUninitializedArray<byte>(header.PayloadLength);
+                await ReadExactAsync(payload, timeoutCts.Token).ConfigureAwait(false);
+            }
+
+            return WyomingEventFactory.Create(header, payload);
         }
-        catch (JsonException)
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            throw new WyomingProtocolException("Failed to parse event header.");
+            throw new WyomingProtocolException("Read timeout exceeded");
         }
-
-        if (header is null)
-        {
-            throw new WyomingProtocolException("Failed to parse event header.");
-        }
-
-        ValidateLengths(header);
-
-        if (header.DataLength > 0)
-        {
-            await ReadAndValidateExtraDataAsync(header.DataLength, ct).ConfigureAwait(false);
-        }
-
-        byte[]? payload = null;
-        if (header.PayloadLength > 0)
-        {
-            payload = GC.AllocateUninitializedArray<byte>(header.PayloadLength);
-            await ReadExactAsync(payload, ct).ConfigureAwait(false);
-        }
-
-        return WyomingEventFactory.Create(header, payload);
     }
 
     private async Task<string?> ReadLineAsync(CancellationToken ct)
@@ -97,10 +128,10 @@ public sealed class WyomingEventParser
             }
 
             var bufferedCount = _bufferEnd - _bufferStart;
-            if (bufferedCount >= HeaderBufferSize)
+            if (bufferedCount >= _options.MaxHeaderLineBytes)
             {
                 throw new WyomingProtocolException(
-                    $"Header line exceeds maximum length of {HeaderBufferSize} bytes.");
+                    $"Header line exceeds maximum length of {_options.MaxHeaderLineBytes} bytes.");
             }
 
             CompactBuffer();
@@ -120,7 +151,7 @@ public sealed class WyomingEventParser
         }
     }
 
-    private async Task ReadAndValidateExtraDataAsync(int dataLength, CancellationToken ct)
+    private async Task<Dictionary<string, object>?> ReadAndValidateExtraDataAsync(int dataLength, CancellationToken ct)
     {
         var rented = ArrayPool<byte>.Shared.Rent(dataLength);
         try
@@ -129,7 +160,7 @@ public sealed class WyomingEventParser
 
             try
             {
-                using var _ = JsonDocument.Parse(rented.AsMemory(0, dataLength));
+                return JsonSerializer.Deserialize<Dictionary<string, object>>(rented.AsSpan(0, dataLength));
             }
             catch (JsonException)
             {
@@ -212,16 +243,28 @@ public sealed class WyomingEventParser
         }
     }
 
-    private static void ValidateLengths(WyomingEventHeader header)
+    private static void ValidateLengths(WyomingEventHeader header, WyomingOptions options)
     {
         if (header.DataLength < 0)
         {
             throw new WyomingProtocolException("Event header contains a negative data_length.");
         }
 
+        if (header.DataLength > options.MaxDataLength)
+        {
+            throw new WyomingProtocolException(
+                $"data_length {header.DataLength} exceeds maximum {options.MaxDataLength}");
+        }
+
         if (header.PayloadLength < 0)
         {
             throw new WyomingProtocolException("Event header contains a negative payload_length.");
+        }
+
+        if (header.PayloadLength > options.MaxPayloadLength)
+        {
+            throw new WyomingProtocolException(
+                $"payload_length {header.PayloadLength} exceeds maximum {options.MaxPayloadLength}");
         }
     }
 }
