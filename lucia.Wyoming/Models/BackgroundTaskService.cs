@@ -59,7 +59,7 @@ public sealed class BackgroundTaskService(ILogger<BackgroundTaskService> logger)
         PublishUpdate(info);
 
         var stageProgress = new StageProgress(taskId, stageNames.Length, this);
-        _ = RunStagedTaskAsync(taskId, stageProgress, work);
+        _ = Task.Run(() => RunStagedTaskAsync(taskId, stageProgress, work));
         return taskId;
     }
 
@@ -97,12 +97,14 @@ public sealed class BackgroundTaskService(ILogger<BackgroundTaskService> logger)
         StageProgress stageProgress,
         Func<string, StageProgress, CancellationToken, Task> work)
     {
+        logger.LogInformation("Background task {TaskId} starting on thread pool", taskId);
         UpdateTask(taskId, task => task with { Status = BackgroundTaskStatus.Running });
 
         try
         {
             await work(taskId, stageProgress, CancellationToken.None).ConfigureAwait(false);
 
+            logger.LogInformation("Background task {TaskId} completed successfully", taskId);
             UpdateTask(taskId, task => task with
             {
                 Status = BackgroundTaskStatus.Complete,
