@@ -66,7 +66,8 @@ public sealed class HybridSttEngine : ISttEngine, IDisposable
 
             return new HybridSttSession(
                 _recognizer, _options.SampleRate, _options.RefreshIntervalMs,
-                _options.MinAudioMs, _options.MaxContextSeconds, _logger);
+                _options.MinAudioMs, _options.MaxContextSeconds,
+                _options.ProgressiveThresholdSeconds, _logger);
         }
     }
 

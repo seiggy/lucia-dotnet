@@ -19,12 +19,14 @@ public sealed class HybridSttSession : ISttSession
     private readonly int _modelSampleRate;
     private readonly int _refreshIntervalSamples;
     private readonly int _minAudioSamples;
+    private readonly int _progressiveThresholdSamples;
     private readonly int _maxContextSamples;
     private readonly ILogger _logger;
 
     private readonly List<float> _audioBuffer = [];
     private readonly object _bufferLock = new();
     private int _samplesSinceLastRefresh;
+    private int _stableCount;
     private volatile string _latestTranscript = string.Empty;
     private volatile int _transcriptionCount;
     private Task? _pendingTranscription;
@@ -37,6 +39,7 @@ public sealed class HybridSttSession : ISttSession
         int refreshIntervalMs,
         int minAudioMs,
         double maxContextSeconds,
+        double progressiveThresholdSeconds,
         ILogger logger)
     {
         ArgumentNullException.ThrowIfNull(recognizer);
@@ -46,6 +49,7 @@ public sealed class HybridSttSession : ISttSession
         _modelSampleRate = modelSampleRate;
         _refreshIntervalSamples = refreshIntervalMs * modelSampleRate / 1000;
         _minAudioSamples = minAudioMs * modelSampleRate / 1000;
+        _progressiveThresholdSamples = (int)(progressiveThresholdSeconds * modelSampleRate);
         _maxContextSamples = maxContextSeconds > 0
             ? (int)(maxContextSeconds * modelSampleRate)
             : int.MaxValue;
@@ -79,21 +83,17 @@ public sealed class HybridSttSession : ISttSession
             }
         }
 
-        // Trigger background re-transcription if enough new audio accumulated.
-        // Only runs if audio is arriving at roughly real-time pace (not burst delivery).
-        // In burst mode (all audio arrives in milliseconds), skip progressive updates
-        // and let GetFinalResult() do a single efficient transcription.
+        // Progressive re-transcription only for long utterances (>5s).
+        // Short HA commands (1-5s) get a single transcription at GetFinalResult.
+        // Also stop progressive updates if the transcript has stabilized (same result 2x in a row).
         if (_samplesSinceLastRefresh >= _refreshIntervalSamples
+            && _stableCount < 2
             && (_pendingTranscription is null || _pendingTranscription.IsCompleted))
         {
             int bufferCount;
             lock (_bufferLock) { bufferCount = _audioBuffer.Count; }
 
-            // Heuristic: if buffer has grown by more than 2x the refresh interval
-            // since last check, audio is arriving in burst — skip progressive updates
-            var isBurst = _samplesSinceLastRefresh > _refreshIntervalSamples * 2;
-
-            if (bufferCount >= _minAudioSamples && !isBurst)
+            if (bufferCount >= _progressiveThresholdSamples)
             {
                 _samplesSinceLastRefresh = 0;
                 _pendingTranscription = Task.Run(RunTranscription);
@@ -159,6 +159,9 @@ public sealed class HybridSttSession : ISttSession
         var bufferMs = audio.Length * 1000 / _modelSampleRate;
         var changed = !string.Equals(_latestTranscript, text, StringComparison.Ordinal);
         _latestTranscript = text;
+
+        // Track stability — stop progressive updates if result hasn't changed
+        _stableCount = changed ? 0 : _stableCount + 1;
 
         _logger.LogDebug(
             "Hybrid STT #{Count}: {BufferMs}ms audio \u2192 \"{Text}\" in {InferenceMs}ms{Changed}",

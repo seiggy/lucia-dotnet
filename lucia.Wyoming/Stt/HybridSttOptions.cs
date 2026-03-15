@@ -24,6 +24,13 @@ public sealed class HybridSttOptions
     /// <summary>Minimum audio required before first transcription attempt (milliseconds).</summary>
     public int MinAudioMs { get; set; } = 300;
 
+    /// <summary>
+    /// Minimum audio buffer duration before progressive re-transcription kicks in (seconds).
+    /// For short commands (&lt;5s), only GetFinalResult runs a single transcription.
+    /// For longer audio, progressive updates start after this threshold.
+    /// </summary>
+    public double ProgressiveThresholdSeconds { get; set; } = 5.0;
+
     /// <summary>Number of inference threads.</summary>
     public int NumThreads { get; set; } = 4;
 
