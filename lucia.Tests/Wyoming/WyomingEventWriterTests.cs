@@ -25,7 +25,8 @@ public sealed class WyomingEventWriterTests
         using (header)
         {
             Assert.Equal("transcript", header.RootElement.GetProperty("type").GetString());
-            Assert.Equal(0, header.RootElement.GetProperty("payload_length").GetInt32());
+            // payload_length omitted when 0 (JsonIgnoreCondition.WhenWritingDefault)
+            Assert.False(header.RootElement.TryGetProperty("payload_length", out _));
             Assert.NotNull(data);
             using (data)
             {

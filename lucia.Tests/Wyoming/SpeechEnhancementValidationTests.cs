@@ -431,6 +431,7 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
                 RefreshIntervalMs = 400,
                 MinAudioMs = 300,
                 MaxContextSeconds = 30.0,
+                ProgressiveThresholdSeconds = 0.3,
             }),
             Options.Create(new SttModelOptions { ModelBasePath = sttDir }),
             notifier,

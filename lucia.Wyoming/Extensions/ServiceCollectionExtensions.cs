@@ -71,13 +71,28 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<ProfileMergeService>();
 
         // Use MongoDB-backed store when a MongoDB connection is available; fall back to in-memory.
+        // Wrap with Redis cache for fast enrolled profile lookups during diarization.
         var hasMongoDb = builder.Configuration.GetConnectionString("luciaconfig") is not null
             || builder.Configuration.GetConnectionString("luciatraces") is not null
             || builder.Configuration.GetConnectionString("mongodb") is not null;
+        var hasRedis = builder.Configuration.GetConnectionString("redis") is not null;
 
         if (hasMongoDb)
         {
-            builder.Services.AddSingleton<ISpeakerProfileStore, MongoSpeakerProfileStore>();
+            builder.Services.AddSingleton<MongoSpeakerProfileStore>();
+            if (hasRedis)
+            {
+                builder.Services.AddSingleton<ISpeakerProfileStore>(sp =>
+                    new CachedSpeakerProfileStore(
+                        sp.GetRequiredService<MongoSpeakerProfileStore>(),
+                        sp.GetRequiredService<StackExchange.Redis.IConnectionMultiplexer>(),
+                        sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<CachedSpeakerProfileStore>>()));
+            }
+            else
+            {
+                builder.Services.AddSingleton<ISpeakerProfileStore>(sp =>
+                    sp.GetRequiredService<MongoSpeakerProfileStore>());
+            }
             builder.Services.AddSingleton<ITranscriptStore, MongoTranscriptStore>();
         }
         else

@@ -33,6 +33,7 @@
     <PackageVersion Include="NAudio" Version="2.2.1" />
     <PackageVersion Include="org.k2fsa.sherpa.onnx" Version="1.12.29" />
     <PackageVersion Include="SharpCompress" Version="0.47.0" />
+    <PackageVersion Include="StackExchange.Redis" Version="2.12.1" />
   </ItemGroup>
   <!-- ── .NET Aspire Hosting (AppHost orchestration) ──────────── -->
   <ItemGroup Label="Aspire Hosting">
