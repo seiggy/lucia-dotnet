@@ -64,7 +64,7 @@ public sealed class PostSttPipelineTests
             await writer.WriteEventAsync(new TranscribeEvent { Name = "default", Language = "en" }, cts.Token);
 
             var transcript = Assert.IsType<TranscriptEvent>(await parser.ReadEventAsync(cts.Token));
-            Assert.Equal("Sorry, something went wrong processing your command.", transcript.Text);
+            Assert.Equal("<Alice />turn on the office lights", transcript.Text);
         }
         finally
         {
@@ -78,7 +78,6 @@ public sealed class PostSttPipelineTests
 
         Assert.Equal(1, diarizationEngine.ExtractEmbeddingCallCount);
         Assert.Equal(1, diarizationEngine.IdentifySpeakerCallCount);
-        Assert.Equal(1, router.RouteCallCount);
     }
 
     [Fact]
@@ -121,8 +120,8 @@ public sealed class PostSttPipelineTests
             var response = await parser.ReadEventAsync(cts.Token);
             var transcriptEvent = Assert.IsType<TranscriptEvent>(response);
 
-            // Unknown speaker with IgnoreUnknownVoices: transcript is suppressed
-            Assert.Empty(transcriptEvent.Text);
+            // Unknown speaker: transcript is returned with Unknown speaker tag
+            Assert.Equal("<Unknown1 />unlock the front door", transcriptEvent.Text);
         }
         finally
         {
@@ -134,7 +133,6 @@ public sealed class PostSttPipelineTests
             await services.DisposeAsync();
         }
 
-        Assert.Equal(1, router.RouteCallCount);
         Assert.Single(await profileStore.GetProvisionalProfilesAsync(CancellationToken.None));
     }
 
@@ -171,7 +169,7 @@ public sealed class PostSttPipelineTests
             await writer.WriteEventAsync(new TranscribeEvent { Name = "default", Language = "en" }, cts.Token);
 
             var transcript = Assert.IsType<TranscriptEvent>(await parser.ReadEventAsync(cts.Token));
-            Assert.Equal("set a timer for ten minutes", transcript.Text);
+            Assert.Equal("<Unknown1 />set a timer for ten minutes", transcript.Text);
         }
         finally
         {
@@ -182,8 +180,6 @@ public sealed class PostSttPipelineTests
             listener.Stop();
             await services.DisposeAsync();
         }
-
-        Assert.Equal(1, router.RouteCallCount);
     }
 
     [Fact]
@@ -222,7 +218,8 @@ public sealed class PostSttPipelineTests
             await writer.WriteEventAsync(new TranscribeEvent { Name = "default", Language = "en" }, cts.Token);
 
             var transcript = Assert.IsType<TranscriptEvent>(await parser.ReadEventAsync(cts.Token));
-            Assert.Equal("Sorry, something went wrong processing your command.", transcript.Text);
+            // Diarization failure: falls back to Unknown speaker tag
+            Assert.Equal("<Unknown1 />turn off the bedroom lights", transcript.Text);
         }
         finally
         {
@@ -233,8 +230,6 @@ public sealed class PostSttPipelineTests
             listener.Stop();
             await services.DisposeAsync();
         }
-
-        Assert.Equal(1, router.RouteCallCount);
     }
 
     private static WyomingOptions CreateOptions(int readTimeoutSeconds = 5)

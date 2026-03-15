@@ -59,9 +59,9 @@ public static class ServiceCollectionExtensions
         builder.Services.AddHostedService<BackgroundTaskProcessor>();
         builder.Services.AddHostedService<ModelStartupValidator>();
 
+        builder.Services.AddSingleton<ISttEngine, HybridSttEngine>();
         builder.Services.AddSingleton<ISttEngine, SherpaSttEngine>();
         builder.Services.AddSingleton<IGraniteEngine, GraniteOnnxEngine>();
-        builder.Services.AddSingleton<ISttEngine, HybridSttEngine>();
         builder.Services.AddSingleton<IVadEngine, SherpaVadEngine>();
         builder.Services.AddSingleton<IWakeWordDetector, SherpaWakeWordDetector>();
 

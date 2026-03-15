@@ -38,7 +38,6 @@ public sealed class WyomingSession : IDisposable
     private ITranscriptStore? _transcriptStore;
     private ModelManager? _modelManager;
     private ISpeechEnhancer? _speechEnhancer;
-    private IGraniteEngine? _graniteEngine;
     private ISpeechEnhancerSession? _currentEnhancerSession;
     private readonly SessionEventBus? _eventBus;
     private DateTimeOffset _lastAudioLevelEvent;
@@ -418,38 +417,11 @@ public sealed class WyomingSession : IDisposable
 
                 // Direct STT flow: HA expects a Transcript response immediately after
                 // AudioStop, without sending a separate Transcribe event.
+                // The hybrid STT session's GetFinalResult() already returns the
+                // best available offline-model result.
                 var utteranceAudio = _utteranceAudioBuffer.Count == 0
                     ? Array.Empty<float>()
                     : [.. _utteranceAudioBuffer];
-
-                // Run Granite offline engine on the full utterance for higher accuracy
-                if (_graniteEngine is { IsReady: true } && utteranceAudio.Length > 0)
-                {
-                    try
-                    {
-                        var graniteResult = await _graniteEngine.TranscribeAsync(
-                            utteranceAudio, _utteranceSampleRate, keywordBias: null, ct)
-                            .ConfigureAwait(false);
-
-                        if (!string.IsNullOrWhiteSpace(graniteResult.Text))
-                        {
-                            _logger.LogDebug(
-                                "Granite override: \"{StreamingText}\" → \"{GraniteText}\" ({InferenceMs}ms)",
-                                transcript.Text, graniteResult.Text,
-                                graniteResult.InferenceDuration.TotalMilliseconds);
-
-                            transcript = new SttResult
-                            {
-                                Text = graniteResult.Text,
-                                Confidence = graniteResult.Confidence,
-                            };
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Granite transcription failed, using streaming result");
-                    }
-                }
 
                 SetState(WyomingSessionState.Responding);
 
@@ -845,7 +817,6 @@ public sealed class WyomingSession : IDisposable
         _transcriptStore = services.GetService<ITranscriptStore>();
         _modelManager = services.GetService<ModelManager>();
         _speechEnhancer = services.GetService<ISpeechEnhancer>();
-        _graniteEngine = services.GetService<IGraniteEngine>();
     }
 
     private async Task ProcessTranscriptAsync(
@@ -861,60 +832,25 @@ public sealed class WyomingSession : IDisposable
         if (string.IsNullOrWhiteSpace(transcript))
         {
             await writer.WriteEventAsync(
-                    new TranscriptEvent
-                    {
-                        Text = transcript,
-                        Confidence = originalConfidence,
-                    },
+                    new TranscriptEvent { Text = transcript, Confidence = originalConfidence },
                     ct)
                 .ConfigureAwait(false);
             return;
         }
 
-        var speakerTask = IdentifySpeakerAsync(utteranceAudio, transcript, ct);
-        var routeTask = RouteCommandAsync(transcript, ct);
+        // Identify speaker (if diarization is available)
+        var speaker = await IdentifySpeakerAsync(utteranceAudio, transcript, ct)
+            .ConfigureAwait(false);
 
-        await Task.WhenAll(speakerTask, routeTask).ConfigureAwait(false);
+        // Format speaker-tagged transcript: <SpeakerId />transcript text
+        var speakerTag = FormatSpeakerTag(speaker);
+        var taggedTranscript = $"{speakerTag}{transcript}";
 
-        var speaker = await speakerTask.ConfigureAwait(false);
-        if (_speakerFilter is not null && !_speakerFilter.ShouldProcessCommand(speaker))
-        {
-            _logger.LogDebug("Command filtered for Wyoming session {SessionId}", Id);
+        _logger.LogDebug(
+            "Session {SessionId} transcript: {TaggedTranscript}",
+            Id, taggedTranscript);
 
-            _eventBus?.Publish(new SessionTranscriptEvent
-            {
-                SessionId = Id,
-                Text = $"[filtered] {transcript}",
-                Confidence = originalConfidence,
-                SpeakerId = speaker?.ProfileId,
-                SpeakerName = speaker?.Name,
-                IsFinal = true,
-            });
-
-            await writer.WriteEventAsync(
-                    new TranscriptEvent
-                    {
-                        Text = string.Empty,
-                        Confidence = 0f,
-                    },
-                    ct)
-                .ConfigureAwait(false);
-
-            await TrySaveTranscriptRecordAsync(
-                transcript, originalConfidence, utteranceAudio,
-                speaker, route: null, responseText: null,
-                commandFiltered: true, ct).ConfigureAwait(false);
-            return;
-        }
-
-        var route = await routeTask.ConfigureAwait(false);
-        if (speaker is not null && route is not null && string.IsNullOrWhiteSpace(route.SpeakerId))
-        {
-            route = route with { SpeakerId = speaker.ProfileId };
-        }
-
-        var responseText = await DispatchTranscriptAsync(transcript, route, speaker, ct).ConfigureAwait(false);
-
+        // Publish final transcript to dashboard
         _eventBus?.Publish(new SessionTranscriptEvent
         {
             SessionId = Id,
@@ -925,19 +861,37 @@ public sealed class WyomingSession : IDisposable
             IsFinal = true,
         });
 
+        // Return speaker-tagged transcript to Home Assistant via Wyoming protocol
         await writer.WriteEventAsync(
                 new TranscriptEvent
                 {
-                    Text = responseText,
-                    Confidence = 1.0f,
+                    Text = taggedTranscript,
+                    Confidence = originalConfidence,
                 },
                 ct)
             .ConfigureAwait(false);
 
         await TrySaveTranscriptRecordAsync(
             transcript, originalConfidence, utteranceAudio,
-            speaker, route, responseText,
+            speaker, route: null, responseText: taggedTranscript,
             commandFiltered: false, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Formats the speaker identification as an XML tag prefix.
+    /// Always includes a tag, defaulting to &lt;Unknown1 /&gt; when diarization is unavailable.
+    /// </summary>
+    private static string FormatSpeakerTag(SpeakerIdentification? speaker)
+    {
+        if (speaker is null || string.IsNullOrWhiteSpace(speaker.Name))
+            return "<Unknown1 />";
+
+        // Use the recognized speaker name, sanitized for XML-like tag
+        var name = speaker.Name.Replace(" ", "", StringComparison.Ordinal)
+            .Replace("<", "", StringComparison.Ordinal)
+            .Replace(">", "", StringComparison.Ordinal);
+
+        return $"<{name} />";
     }
 
     private async Task TrySaveTranscriptRecordAsync(

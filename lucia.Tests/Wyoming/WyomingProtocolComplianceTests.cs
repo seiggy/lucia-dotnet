@@ -88,7 +88,7 @@ public sealed class WyomingProtocolComplianceTests
             await writer.WriteEventAsync(new TranscribeEvent { Name = "default", Language = "en" }, cts.Token);
 
             var transcript = Assert.IsType<TranscriptEvent>(await parser.ReadEventAsync(cts.Token));
-            Assert.Equal("turn on the lights", transcript.Text);
+            Assert.Equal("<Unknown1 />turn on the lights", transcript.Text);
             Assert.True(transcript.Confidence > 0);
         }
         finally
