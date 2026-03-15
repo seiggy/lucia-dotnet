@@ -19,6 +19,7 @@ public sealed class HybridSttEngine : ISttEngine, IDisposable
     private readonly ILogger<HybridSttEngine> _logger;
     private readonly IModelChangeNotifier _modelChangeNotifier;
     private readonly HybridSttOptions _options;
+    private readonly SttModelOptions _sttModelOptions;
     private readonly object _lock = new();
     private readonly List<OfflineRecognizer> _retiredRecognizers = [];
     private OfflineRecognizer? _recognizer;
@@ -27,19 +28,31 @@ public sealed class HybridSttEngine : ISttEngine, IDisposable
 
     public HybridSttEngine(
         IOptions<HybridSttOptions> options,
+        IOptions<SttModelOptions> sttModelOptions,
         IModelChangeNotifier modelChangeNotifier,
         ILogger<HybridSttEngine> logger)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(sttModelOptions);
         ArgumentNullException.ThrowIfNull(modelChangeNotifier);
         ArgumentNullException.ThrowIfNull(logger);
 
         _options = options.Value;
+        _sttModelOptions = sttModelOptions.Value;
         _modelChangeNotifier = modelChangeNotifier;
         _logger = logger;
 
         if (_options.Enabled)
-            TryLoadModel(_options.ModelPath);
+        {
+            var modelPath = _options.ModelPath;
+
+            // Auto-discover: if no explicit path, scan the STT model base path
+            if (string.IsNullOrWhiteSpace(modelPath) || !Directory.Exists(modelPath))
+                modelPath = AutoDiscoverOfflineModel();
+
+            if (modelPath is not null)
+                TryLoadModel(modelPath);
+        }
 
         _modelChangeNotifier.ActiveModelChanged += OnActiveModelChanged;
     }
@@ -147,6 +160,58 @@ public sealed class HybridSttEngine : ISttEngine, IDisposable
         if (evt.EngineType != EngineType.OfflineStt) return;
         _logger.LogInformation("Reloading hybrid STT engine with model {ModelId}", evt.ModelId);
         TryLoadModel(evt.ModelPath);
+    }
+
+    /// <summary>
+    /// Scans the STT model base path for the best available offline model.
+    /// Prefers larger Parakeet TDT models, then any model with tokens.txt that isn't streaming-only.
+    /// </summary>
+    private string? AutoDiscoverOfflineModel()
+    {
+        var basePath = _sttModelOptions.ModelBasePath;
+        if (string.IsNullOrWhiteSpace(basePath) || !Directory.Exists(basePath))
+        {
+            _logger.LogDebug("STT model base path not configured for auto-discovery");
+            return null;
+        }
+
+        var candidates = Directory.EnumerateDirectories(basePath)
+            .Where(d => Directory.EnumerateFiles(d, "tokens.txt", SearchOption.AllDirectories).Any())
+            .Where(d =>
+            {
+                var name = Path.GetFileName(d) ?? "";
+                // Offline-capable: parakeet, nemo non-streaming, whisper, sense-voice
+                // Exclude streaming-only models (zipformer streaming, conformer streaming)
+                return name.Contains("parakeet", StringComparison.OrdinalIgnoreCase)
+                    || name.Contains("whisper", StringComparison.OrdinalIgnoreCase)
+                    || name.Contains("sense-voice", StringComparison.OrdinalIgnoreCase)
+                    || (name.Contains("nemo", StringComparison.OrdinalIgnoreCase)
+                        && !name.Contains("streaming", StringComparison.OrdinalIgnoreCase));
+            })
+            .ToList();
+
+        if (candidates.Count == 0)
+        {
+            _logger.LogInformation("No offline STT models found in {BasePath}", basePath);
+            return null;
+        }
+
+        // Prefer larger models (0.6b > 110m)
+        var best = candidates
+            .OrderByDescending(d =>
+            {
+                var name = Path.GetFileName(d) ?? "";
+                if (name.Contains("1.1b", StringComparison.OrdinalIgnoreCase)) return 5;
+                if (name.Contains("0.6b", StringComparison.OrdinalIgnoreCase)
+                    || name.Contains("0-6b", StringComparison.OrdinalIgnoreCase)) return 4;
+                if (name.Contains("parakeet", StringComparison.OrdinalIgnoreCase)) return 3;
+                if (name.Contains("whisper", StringComparison.OrdinalIgnoreCase)) return 2;
+                return 1;
+            })
+            .First();
+
+        _logger.LogInformation("Auto-discovered offline STT model: {Model}", Path.GetFileName(best));
+        return best;
     }
 
     private static string? FindFirst(string root, string fileName) =>

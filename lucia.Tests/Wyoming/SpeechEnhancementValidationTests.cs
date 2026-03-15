@@ -432,6 +432,7 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
                 MinAudioMs = 300,
                 MaxContextSeconds = 30.0,
             }),
+            Options.Create(new SttModelOptions { ModelBasePath = sttDir }),
             notifier,
             NullLogger<HybridSttEngine>.Instance);
 
