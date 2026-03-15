@@ -79,17 +79,21 @@ public sealed class HybridSttSession : ISttSession
             }
         }
 
-        // Progressive re-transcription only kicks in after 5s of audio.
-        // For typical HA commands (1-5s), a single transcription at GetFinalResult
-        // is faster and avoids blocking the audio ingestion path.
-        var progressiveThresholdSamples = 5 * _modelSampleRate;
+        // Trigger background re-transcription if enough new audio accumulated.
+        // Only runs if audio is arriving at roughly real-time pace (not burst delivery).
+        // In burst mode (all audio arrives in milliseconds), skip progressive updates
+        // and let GetFinalResult() do a single efficient transcription.
         if (_samplesSinceLastRefresh >= _refreshIntervalSamples
             && (_pendingTranscription is null || _pendingTranscription.IsCompleted))
         {
             int bufferCount;
             lock (_bufferLock) { bufferCount = _audioBuffer.Count; }
 
-            if (bufferCount >= progressiveThresholdSamples)
+            // Heuristic: if buffer has grown by more than 2x the refresh interval
+            // since last check, audio is arriving in burst — skip progressive updates
+            var isBurst = _samplesSinceLastRefresh > _refreshIntervalSamples * 2;
+
+            if (bufferCount >= _minAudioSamples && !isBurst)
             {
                 _samplesSinceLastRefresh = 0;
                 _pendingTranscription = Task.Run(RunTranscription);
