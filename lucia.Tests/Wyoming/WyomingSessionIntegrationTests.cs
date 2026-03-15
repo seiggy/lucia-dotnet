@@ -226,7 +226,6 @@ public sealed class WyomingSessionIntegrationTests(ITestOutputHelper output)
             _ = Assert.IsType<DetectionEvent>(await parser.ReadEventAsync(cts.Token));
 
             await writer.WriteEventAsync(new AudioStopEvent(), cts.Token);
-            await writer.WriteEventAsync(new TranscribeEvent { Name = "default", Language = "en" }, cts.Token);
 
             var transcript = Assert.IsType<TranscriptEvent>(await parser.ReadEventAsync(cts.Token));
             Assert.Equal("<Alice />turn on the office lights", transcript.Text);

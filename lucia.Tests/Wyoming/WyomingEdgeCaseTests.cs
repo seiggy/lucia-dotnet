@@ -62,6 +62,11 @@ public sealed class WyomingEdgeCaseTests
                 },
                 cts.Token);
             await writer.WriteEventAsync(new AudioStopEvent(), cts.Token);
+
+            // AudioStop with no audio sends an empty transcript
+            var transcriptResponse = await parser.ReadEventAsync(cts.Token);
+            Assert.IsType<TranscriptEvent>(transcriptResponse);
+
             await writer.WriteEventAsync(new DescribeEvent(), cts.Token);
 
             var response = await parser.ReadEventAsync(cts.Token);
@@ -193,27 +198,26 @@ public sealed class WyomingEdgeCaseTests
 
         try
         {
-            await writer.WriteEventAsync(new TranscribeEvent { Name = "default", Language = "en" }, cts.Token);
+            // Send AudioStart + AudioStop with no audio chunks.
+            // Without audio data the session never enters Transcribing state,
+            // so no transcript is expected. The session should stay alive and
+            // respond to subsequent events.
+            await writer.WriteEventAsync(
+                new AudioStartEvent
+                {
+                    Rate = 16_000,
+                    Width = 2,
+                    Channels = 1,
+                },
+                cts.Token);
+            await writer.WriteEventAsync(new AudioStopEvent(), cts.Token);
 
-            var response = await parser.ReadEventAsync(cts.Token);
+            // AudioStop with no audio sends an empty transcript
+            var transcriptResponse = await parser.ReadEventAsync(cts.Token);
+            var emptyTranscript = Assert.IsType<TranscriptEvent>(transcriptResponse);
+            Assert.Empty(emptyTranscript.Text);
 
-            switch (response)
-            {
-                case ErrorEvent error:
-                    Assert.False(string.IsNullOrWhiteSpace(error.Code));
-                    Assert.False(string.IsNullOrWhiteSpace(error.Text));
-                    break;
-
-                case TranscriptEvent transcript:
-                    Assert.Equal(string.Empty, transcript.Text);
-                    Assert.Equal(0f, transcript.Confidence);
-                    break;
-
-                default:
-                    throw new Xunit.Sdk.XunitException(
-                        $"Expected an error or transcript response, but received {response?.GetType().Name ?? "null"}.");
-            }
-
+            // Verify the session is still alive and responsive
             await writer.WriteEventAsync(new DescribeEvent(), cts.Token);
             Assert.IsType<InfoEvent>(await parser.ReadEventAsync(cts.Token));
         }

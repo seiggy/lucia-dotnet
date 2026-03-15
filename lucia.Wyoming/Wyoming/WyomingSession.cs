@@ -442,19 +442,44 @@ public sealed class WyomingSession : IDisposable
                 _currentWakeWordSession = null;
                 SetState(WyomingSessionState.Connected);
                 break;
+
+            case WyomingSessionState.Connected when _currentAudioFormat is not null:
+                // AudioStop received but no audio chunks arrived — send empty transcript
+                _logger.LogDebug("Audio stream ended without any audio data for session {SessionId}", Id);
+                await writer.WriteEventAsync(
+                    new TranscriptEvent { Text = string.Empty, Confidence = 0f }, ct)
+                    .ConfigureAwait(false);
+                SetState(WyomingSessionState.Connected);
+                break;
         }
 
         _currentAudioFormat = null;
     }
 
-    private async Task HandleTranscribeEventAsync(
+    private Task HandleTranscribeEventAsync(
         TranscribeEvent transcribeEvent,
         WyomingEventWriter writer,
         CancellationToken ct)
     {
-        ArgumentNullException.ThrowIfNull(transcribeEvent);
-        ArgumentNullException.ThrowIfNull(writer);
+        // Per Wyoming protocol, 'transcribe' sets language/model preferences
+        // for the upcoming audio stream. The actual transcript is sent after audio-stop.
+        // If a transcript is already pending (audio already finalized), send it now.
+        // Otherwise, just store the preferences and wait for audio.
+        if (State == WyomingSessionState.Processing || _pendingTranscript is not null)
+        {
+            return SendPendingTranscriptAsync(writer, ct);
+        }
 
+        // Store language preference for the current/upcoming session
+        _logger.LogDebug(
+            "Wyoming session {SessionId} received transcribe event (language={Language}, name={Name})",
+            Id, transcribeEvent.Language, transcribeEvent.Name);
+
+        return Task.CompletedTask;
+    }
+
+    private async Task SendPendingTranscriptAsync(WyomingEventWriter writer, CancellationToken ct)
+    {
         if (_pendingTranscript is null && _currentSttSession is not null)
         {
             _currentVadSession?.Flush();
@@ -812,11 +837,21 @@ public sealed class WyomingSession : IDisposable
             return;
         }
 
-        // Send transcript to HA first — diarization and storage happen after.
-        // The Wyoming protocol is request-response: HA expects transcript ASAP after audio-stop.
-        // Speaker tag defaults to Unknown; dashboard SSE gets updated with real speaker later.
-        var taggedTranscript = $"<Unknown1 />{transcript}";
+        // Identify speaker, then send tagged transcript to HA
+        var diarSw = System.Diagnostics.Stopwatch.StartNew();
+        var speaker = await IdentifySpeakerAsync(utteranceAudio, transcript, ct)
+            .ConfigureAwait(false);
+        diarSw.Stop();
+        _diarizationMs = diarSw.ElapsedMilliseconds;
 
+        var speakerTag = FormatSpeakerTag(speaker);
+        var taggedTranscript = $"{speakerTag}{transcript}";
+
+        _logger.LogDebug(
+            "Session {SessionId} transcript: {TaggedTranscript} (diarization: {DiarizationMs}ms)",
+            Id, taggedTranscript, _diarizationMs);
+
+        // Send transcript to HA via Wyoming protocol
         await writer.WriteEventAsync(
                 new TranscriptEvent
                 {
@@ -826,22 +861,7 @@ public sealed class WyomingSession : IDisposable
                 ct)
             .ConfigureAwait(false);
 
-        _logger.LogDebug("Session {SessionId} sent transcript: {Transcript}", Id, taggedTranscript);
-
-        // Diarization + storage run after the response is sent.
-        // These update the dashboard and transcript store but don't block HA.
-        var diarSw = System.Diagnostics.Stopwatch.StartNew();
-        var speaker = await IdentifySpeakerAsync(utteranceAudio, transcript, ct)
-            .ConfigureAwait(false);
-        diarSw.Stop();
-        _diarizationMs = diarSw.ElapsedMilliseconds;
-
-        if (speaker is not null && !string.IsNullOrWhiteSpace(speaker.Name))
-        {
-            var speakerTag = FormatSpeakerTag(speaker);
-            taggedTranscript = $"{speakerTag}{transcript}";
-        }
-
+        // Publish to dashboard
         _eventBus?.Publish(new SessionTranscriptEvent
         {
             SessionId = Id,
@@ -852,6 +872,7 @@ public sealed class WyomingSession : IDisposable
             IsFinal = true,
         });
 
+        // Storage is fire-and-forget — don't block the connection teardown
         _ = Task.Run(() => TrySaveTranscriptRecordAsync(
             transcript, originalConfidence, utteranceAudio,
             speaker, route: null, responseText: taggedTranscript,
@@ -984,37 +1005,44 @@ public sealed class WyomingSession : IDisposable
 
             if (_unknownTracker is not null)
             {
-                var trackingResult =
-                    await _unknownTracker.TrackUnknownSpeakerAsync(embedding, ct).ConfigureAwait(false);
-
-                if (trackingResult is not null)
+                // Defer unknown speaker tracking and clip saving to background
+                // — these involve MongoDB writes that shouldn't block the transcript
+                var embeddingCopy = embedding;
+                var audioCopy = utteranceAudio;
+                var sr = sampleRate;
+                var tx = transcript;
+                _ = Task.Run(async () =>
                 {
-                    _eventBus?.Publish(new SpeakerDetectedEvent
+                    try
                     {
-                        SessionId = Id,
-                        ProfileId = trackingResult.Value.Profile.Id,
-                        ProfileName = trackingResult.Value.Profile.Name,
-                        Similarity = 0f,
-                        IsProvisional = true,
-                    });
+                        var trackingResult = await _unknownTracker.TrackUnknownSpeakerAsync(
+                            embeddingCopy, CancellationToken.None).ConfigureAwait(false);
 
-                    if (_audioClipService is not null)
-                    {
-                        try
+                        if (trackingResult is not null)
                         {
-                            await _audioClipService.SaveClipAsync(
-                                trackingResult.Value.Profile.Id,
-                                utteranceAudio.AsMemory(),
-                                sampleRate,
-                                transcript,
-                                ct).ConfigureAwait(false);
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "Failed to save audio clip for provisional profile");
+                            _eventBus?.Publish(new SpeakerDetectedEvent
+                            {
+                                SessionId = Id,
+                                ProfileId = trackingResult.Value.Profile.Id,
+                                ProfileName = trackingResult.Value.Profile.Name,
+                                Similarity = 0f,
+                                IsProvisional = true,
+                            });
+
+                            if (_audioClipService is not null)
+                            {
+                                await _audioClipService.SaveClipAsync(
+                                    trackingResult.Value.Profile.Id,
+                                    audioCopy.AsMemory(), sr, tx,
+                                    CancellationToken.None).ConfigureAwait(false);
+                            }
                         }
                     }
-                }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Background unknown speaker tracking failed");
+                    }
+                }, CancellationToken.None);
             }
 
             return null;
