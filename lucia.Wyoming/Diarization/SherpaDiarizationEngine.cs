@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SherpaOnnx;
+using lucia.Wyoming.Models;
 
 namespace lucia.Wyoming.Diarization;
 
@@ -8,62 +9,42 @@ namespace lucia.Wyoming.Diarization;
 /// Speaker verification engine using sherpa-onnx speaker embedding extraction.
 /// Extracts embeddings from audio and compares against enrolled speaker profiles.
 /// </summary>
-public sealed class SherpaDiarizationEngine : IDiarizationEngine
+public sealed class SherpaDiarizationEngine : IDiarizationEngine, IDisposable
 {
-    private SpeakerEmbeddingExtractor? _extractor;
     private readonly ILogger<SherpaDiarizationEngine> _logger;
+    private readonly IModelChangeNotifier _modelChangeNotifier;
+    private readonly object _lock = new();
+    private SpeakerEmbeddingExtractor? _extractor;
 
-    public bool IsReady { get; }
+    public bool IsReady => _extractor is not null;
 
     public SherpaDiarizationEngine(
         IOptions<DiarizationOptions> options,
+        IModelChangeNotifier modelChangeNotifier,
         ILogger<SherpaDiarizationEngine> logger)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(modelChangeNotifier);
         ArgumentNullException.ThrowIfNull(logger);
 
         _logger = logger;
+        _modelChangeNotifier = modelChangeNotifier;
 
         var opts = options.Value;
-        if (!opts.Enabled || string.IsNullOrWhiteSpace(opts.EmbeddingModelPath))
+        if (opts.Enabled && !string.IsNullOrWhiteSpace(opts.EmbeddingModelPath))
         {
-            _logger.LogInformation("Speaker verification disabled or embedding model not configured");
-            IsReady = false;
-            return;
+            TryLoadModel(opts.EmbeddingModelPath);
+        }
+        else
+        {
+            _logger.LogInformation("Speaker verification waiting for model activation via event");
         }
 
-        try
-        {
-            var config = new SpeakerEmbeddingExtractorConfig
-            {
-                Model = opts.EmbeddingModelPath,
-                NumThreads = 2,
-                Provider = "cpu",
-            };
-
-            _extractor = new SpeakerEmbeddingExtractor(config);
-            IsReady = true;
-
-            _logger.LogInformation(
-                "Speaker verification engine initialized with model at {Path}",
-                opts.EmbeddingModelPath);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to initialize speaker verification engine");
-            IsReady = false;
-        }
+        _modelChangeNotifier.ActiveModelChanged += OnActiveModelChanged;
     }
 
     public SpeakerEmbedding ExtractEmbedding(ReadOnlySpan<float> audioSamples, int sampleRate)
     {
-        ObjectDisposedException.ThrowIf(_extractor is null, this);
-
-        if (!IsReady)
-        {
-            throw new InvalidOperationException("Speaker verification engine is not ready.");
-        }
-
         if (sampleRate <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(sampleRate), sampleRate, "Sample rate must be positive.");
@@ -74,17 +55,27 @@ public sealed class SherpaDiarizationEngine : IDiarizationEngine
             throw new ArgumentException("Audio samples cannot be empty.", nameof(audioSamples));
         }
 
-        using var stream = _extractor.CreateStream();
-        stream.AcceptWaveform(sampleRate, audioSamples.ToArray());
-        stream.InputFinished();
+        var samples = audioSamples.ToArray();
 
-        var embedding = _extractor.Compute(stream);
-
-        return new SpeakerEmbedding
+        lock (_lock)
         {
-            Vector = embedding,
-            Duration = TimeSpan.FromSeconds((double)audioSamples.Length / sampleRate),
-        };
+            if (_extractor is null)
+            {
+                throw new InvalidOperationException("Speaker verification engine is not ready.");
+            }
+
+            using var stream = _extractor.CreateStream();
+            stream.AcceptWaveform(sampleRate, samples);
+            stream.InputFinished();
+
+            var embedding = _extractor.Compute(stream);
+
+            return new SpeakerEmbedding
+            {
+                Vector = embedding,
+                Duration = TimeSpan.FromSeconds((double)samples.Length / sampleRate),
+            };
+        }
     }
 
     public SpeakerIdentification? IdentifySpeaker(
@@ -129,7 +120,71 @@ public sealed class SherpaDiarizationEngine : IDiarizationEngine
 
     public void Dispose()
     {
-        _extractor?.Dispose();
-        _extractor = null;
+        _modelChangeNotifier.ActiveModelChanged -= OnActiveModelChanged;
+
+        lock (_lock)
+        {
+            _extractor?.Dispose();
+            _extractor = null;
+        }
+    }
+
+    private void OnActiveModelChanged(ActiveModelChangedEvent evt)
+    {
+        if (evt.EngineType != EngineType.SpeakerEmbedding) return;
+
+        _logger.LogInformation("Reloading diarization engine with model {ModelId}", evt.ModelId);
+        TryLoadModel(evt.ModelPath);
+    }
+
+    private void TryLoadModel(string modelPath)
+    {
+        if (string.IsNullOrWhiteSpace(modelPath))
+        {
+            _logger.LogWarning("Diarization model path is empty");
+            return;
+        }
+
+        // The model path may be a directory (from ActiveModelChanged events)
+        // or a direct file path (from legacy EmbeddingModelPath config).
+        var onnxFile = FindOnnxModel(modelPath) ?? (File.Exists(modelPath) ? modelPath : null);
+        if (onnxFile is null)
+        {
+            _logger.LogWarning("No .onnx model found in {ModelPath}", modelPath);
+            return;
+        }
+
+        lock (_lock)
+        {
+            try
+            {
+                var config = new SpeakerEmbeddingExtractorConfig
+                {
+                    Model = onnxFile,
+                    NumThreads = 2,
+                    Provider = "cpu",
+                };
+
+                var newExtractor = new SpeakerEmbeddingExtractor(config);
+                var oldExtractor = _extractor;
+
+                _extractor = newExtractor;
+                oldExtractor?.Dispose();
+
+                _logger.LogInformation(
+                    "Speaker verification engine loaded model from {Path}",
+                    onnxFile);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to load speaker verification model from {Path}", onnxFile);
+            }
+        }
+    }
+
+    private static string? FindOnnxModel(string modelDirectory)
+    {
+        if (!Directory.Exists(modelDirectory)) return null;
+        return Directory.EnumerateFiles(modelDirectory, "*.onnx", SearchOption.AllDirectories).FirstOrDefault();
     }
 }

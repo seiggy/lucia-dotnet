@@ -8,6 +8,8 @@
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Options" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.Managed" />
+    <PackageReference Include="MongoDB.Driver" />
     <PackageReference Include="NAudio" />
     <PackageReference Include="org.k2fsa.sherpa.onnx" />
     <PackageReference Include="SharpCompress" />

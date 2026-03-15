@@ -91,7 +91,9 @@ public sealed class VoiceOnboardingServiceTests
 
         var profiles = await store.GetEnrolledProfilesAsync(CancellationToken.None);
         Assert.Single(profiles);
-        Assert.Null(await service.GetSessionAsync(session.Id, CancellationToken.None));
+        var completedSession = await service.GetSessionAsync(session.Id, CancellationToken.None);
+        Assert.NotNull(completedSession);
+        Assert.Equal(OnboardingStatus.Complete, completedSession.Status);
     }
 
     [Fact]

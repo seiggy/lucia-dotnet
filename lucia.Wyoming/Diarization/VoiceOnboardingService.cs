@@ -102,7 +102,6 @@ public sealed class VoiceOnboardingService
                 var profile = await FinalizeEnrollmentAsync(session, ct).ConfigureAwait(false);
                 session.Status = OnboardingStatus.Complete;
                 session.CompletedAt = DateTimeOffset.UtcNow;
-                RemoveSession(sessionId);
 
                 return OnboardingStepResult.Complete(
                     $"Voice profile created for {session.SpeakerName}. I'll recognize your voice from now on.",
@@ -167,13 +166,17 @@ public sealed class VoiceOnboardingService
 
     private void CleanupAbandonedSessions()
     {
-        var cutoff = DateTimeOffset.UtcNow.AddHours(-1);
-        var abandoned = _sessions
-            .Where(kvp => kvp.Value.StartedAt < cutoff && kvp.Value.Status != OnboardingStatus.Complete)
+        var abandonedCutoff = DateTimeOffset.UtcNow.AddHours(-1);
+        var completedCutoff = DateTimeOffset.UtcNow.AddMinutes(-5);
+
+        var stale = _sessions
+            .Where(kvp =>
+                (kvp.Value.Status != OnboardingStatus.Complete && kvp.Value.StartedAt < abandonedCutoff)
+                || (kvp.Value.Status == OnboardingStatus.Complete && kvp.Value.CompletedAt < completedCutoff))
             .Select(kvp => kvp.Key)
             .ToList();
 
-        foreach (var key in abandoned)
+        foreach (var key in stale)
         {
             RemoveSession(key);
         }

@@ -1,6 +1,6 @@
 namespace lucia.Wyoming.Diarization;
 
-public interface IDiarizationEngine : IDisposable
+public interface IDiarizationEngine
 {
     bool IsReady { get; }
 

@@ -5,7 +5,7 @@ using lucia.Wyoming.Models;
 
 namespace lucia.Wyoming.Stt;
 
-public sealed class SherpaSttEngine : ISttEngine
+public sealed class SherpaSttEngine : ISttEngine, IDisposable
 {
     private readonly ILogger<SherpaSttEngine> _logger;
     private readonly IModelChangeNotifier _modelChangeNotifier;
@@ -70,6 +70,11 @@ public sealed class SherpaSttEngine : ISttEngine
     private void OnActiveModelChanged(ActiveModelChangedEvent evt)
     {
         ArgumentNullException.ThrowIfNull(evt);
+
+        if (evt.EngineType != EngineType.Stt)
+        {
+            return;
+        }
 
         _logger.LogInformation("Reloading STT engine with model {ModelId}", evt.ModelId);
         TryLoadModel(evt.ModelPath);

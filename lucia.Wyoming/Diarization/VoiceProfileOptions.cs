@@ -15,4 +15,8 @@ public sealed class VoiceProfileOptions
     public int OnboardingSampleCount { get; set; } = 5;
     public int MinSampleDurationMs { get; set; } = 1500;
     public float MinSampleSnrDb { get; set; } = 10.0f;
+    public bool AutoCreateProvisionalProfiles { get; set; } = true;
+    public string AudioClipBasePath { get; set; } = "./data/voice-clips";
+    public int MaxClipsPerProfile { get; set; } = 3;
+    public int MaxAutoProfiles { get; set; } = 10;
 }

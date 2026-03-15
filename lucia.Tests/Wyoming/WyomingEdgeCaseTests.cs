@@ -342,7 +342,7 @@ public sealed class WyomingEdgeCaseTests
         }
 
         var serviceProvider = services.BuildServiceProvider();
-        var server = new WyomingServer(Options.Create(options), serviceProvider, NullLogger<WyomingServer>.Instance);
+        var server = new WyomingServer(Options.Create(options), serviceProvider, NullLogger<WyomingServer>.Instance, new SessionEventBus());
         await server.StartAsync(CancellationToken.None);
 
         return (server, serviceProvider, options);

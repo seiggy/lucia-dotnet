@@ -1,26 +1,53 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Check, Cpu, Download, Globe, Loader2, Mic, Radio, Trash2, User, Volume2 } from 'lucide-react'
-import type { AsrModel, WyomingStatus } from '../api'
+import { Activity, Check, ChevronDown, ChevronUp, Cpu, Download, Globe, Loader2, Mic, Radio, Sparkles, Trash2, User, Volume2 } from 'lucide-react'
+import type {
+  AsrModel,
+  AudioClipInfo,
+  AudioLevelEvent,
+  EngineType,
+  SessionConnectedEvent,
+  SessionStateChangedEvent,
+  SessionTranscriptEvent,
+  TranscriptRecord,
+  VoiceConfig,
+  WyomingModelDefinition,
+  WyomingStatus,
+} from '../api'
 import {
+  activateEngineModel,
   activateModel,
+  createSessionEventSource,
+  deleteClip,
+  deleteEngineModel,
   deleteModel,
   deleteSpeakerProfile,
   deleteWakeWord,
+  downloadEngineModel,
   downloadModel,
   fetchBackgroundTask,
   fetchActiveModel,
   fetchAvailableModels,
+  fetchEngineActiveModel,
+  fetchEngineInstalledModels,
+  fetchEngineModels,
   fetchInstalledModels,
+  fetchProfileClips,
+  fetchRecentTranscripts,
+  fetchVoiceConfig,
   fetchWyomingStatus,
+  getClipAudioUrl,
   getOnboardingStatus,
   listSpeakerProfiles,
   listWakeWords,
+  mergeProfiles,
+  reassignClip,
   startOnboarding,
+  updateVoiceConfig,
   uploadVoiceSample,
 } from '../api'
 
-type Tab = 'status' | 'models' | 'profiles' | 'wake-words'
+type Tab = 'status' | 'models' | 'profiles' | 'wake-words' | 'monitor'
 type Notice = { type: 'success' | 'error' | 'info'; message: string } | null
 
 type SpeakerProfileSummary = {
@@ -67,6 +94,7 @@ const tabs: { id: Tab; label: string; icon: typeof Mic }[] = [
   { id: 'models', label: 'Models', icon: Cpu },
   { id: 'profiles', label: 'Profiles', icon: User },
   { id: 'wake-words', label: 'Wake Words', icon: Volume2 },
+  { id: 'monitor', label: 'Monitor', icon: Activity },
 ]
 
 const architectureLabels: Record<string, string> = {
@@ -116,6 +144,13 @@ export default function VoicePlatformPage() {
   const [architectureFilter, setArchitectureFilter] = useState('all')
   const [streamingOnly, setStreamingOnly] = useState(false)
 
+  const [engineTab, setEngineTab] = useState<EngineType>('stt')
+  const [engineModels, setEngineModels] = useState<WyomingModelDefinition[]>([])
+  const [engineInstalledIds, setEngineInstalledIds] = useState<Set<string>>(new Set())
+  const [engineActiveModelId, setEngineActiveModelId] = useState('')
+  const [engineModelsLoading, setEngineModelsLoading] = useState(false)
+  const [totalInstalledCount, setTotalInstalledCount] = useState(0)
+
   const [profiles, setProfiles] = useState<SpeakerProfileSummary[]>([])
   const [wakeWords, setWakeWords] = useState<WakeWordSummary[]>([])
   const [directoryLoading, setDirectoryLoading] = useState(true)
@@ -135,6 +170,20 @@ export default function VoicePlatformPage() {
   const [wakeWordDraft, setWakeWordDraft] = useState('')
   const [wakeWordOwner, setWakeWordOwner] = useState('')
 
+  const [voiceConfig, setVoiceConfig] = useState<VoiceConfig | null>(null)
+  const [configSaving, setConfigSaving] = useState(false)
+
+  const [expandedProfileId, setExpandedProfileId] = useState<string | null>(null)
+  const [profileClips, setProfileClips] = useState<Map<string, AudioClipInfo[]>>(new Map())
+  const [mergingProfileId, setMergingProfileId] = useState<string | null>(null)
+  const [reassigningClipKey, setReassigningClipKey] = useState<string | null>(null)
+
+  // Monitor tab state
+  const [sessions, setSessions] = useState<Map<string, { remoteEndPoint: string; state: string; rmsLevel: number; voiceCount: number }>>(new Map())
+  const [transcriptLog, setTranscriptLog] = useState<Array<{ timestamp: string; sessionId: string; text: string; confidence: number; speakerName?: string; isFinal: boolean }>>([])
+  const [sseConnected, setSseConnected] = useState(false)
+  const [transcriptHistory, setTranscriptHistory] = useState<TranscriptRecord[]>([])
+
   const streamRef = useRef<MediaStream | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
@@ -145,6 +194,109 @@ export default function VoicePlatformPage() {
   const pcmChunksRef = useRef<Float32Array[]>([])
   const sampleRateRef = useRef(TARGET_SAMPLE_RATE)
   const modelDownloadPollRef = useRef<Record<string, number>>({})
+  const eventSourceRef = useRef<EventSource | null>(null)
+
+  // SSE connection for Monitor tab
+  useEffect(() => {
+    if (activeTab !== 'monitor') {
+      eventSourceRef.current?.close()
+      eventSourceRef.current = null
+      setSseConnected(false)
+      return
+    }
+
+    const es = createSessionEventSource()
+    eventSourceRef.current = es
+
+    es.addEventListener('connected', () => setSseConnected(true))
+
+    es.addEventListener('session_connected', (e) => {
+      const data: SessionConnectedEvent = JSON.parse((e as MessageEvent).data)
+      setSessions(prev => {
+        const next = new Map(prev)
+        next.set(data.sessionId, { remoteEndPoint: data.remoteEndPoint, state: 'Connected', rmsLevel: 0, voiceCount: 0 })
+        return next
+      })
+    })
+
+    es.addEventListener('session_disconnected', (e) => {
+      const data = JSON.parse((e as MessageEvent).data)
+      setSessions(prev => {
+        const next = new Map(prev)
+        next.delete(data.sessionId)
+        return next
+      })
+    })
+
+    es.addEventListener('state_changed', (e) => {
+      const data: SessionStateChangedEvent = JSON.parse((e as MessageEvent).data)
+      setSessions(prev => {
+        const next = new Map(prev)
+        const existing = next.get(data.sessionId)
+        if (existing) next.set(data.sessionId, { ...existing, state: data.state })
+        return next
+      })
+    })
+
+    es.addEventListener('transcript', (e) => {
+      const data: SessionTranscriptEvent = JSON.parse((e as MessageEvent).data)
+      setTranscriptLog(prev => {
+        if (!data.isFinal) {
+          // Partial: update the last entry for this session in-place, or add new
+          let lastIdx = -1
+          for (let i = prev.length - 1; i >= 0; i--) {
+            if (prev[i].sessionId === data.sessionId && !prev[i].isFinal) { lastIdx = i; break }
+          }
+          if (lastIdx >= 0) {
+            const updated = [...prev]
+            updated[lastIdx] = {
+              timestamp: data.timestamp,
+              sessionId: data.sessionId,
+              text: data.text,
+              confidence: data.confidence,
+              speakerName: data.speakerName,
+              isFinal: false,
+            }
+            return updated
+          }
+        }
+        // Final or first partial: append
+        return [...prev.slice(-99), {
+          timestamp: data.timestamp,
+          sessionId: data.sessionId,
+          text: data.text,
+          confidence: data.confidence,
+          speakerName: data.speakerName,
+          isFinal: data.isFinal,
+        }]
+      })
+    })
+
+    es.addEventListener('audio_level', (e) => {
+      const data: AudioLevelEvent = JSON.parse((e as MessageEvent).data)
+      setSessions(prev => {
+        const next = new Map(prev)
+        const existing = next.get(data.sessionId)
+        if (existing) next.set(data.sessionId, { ...existing, rmsLevel: data.rmsLevel, voiceCount: data.activeVoiceCount })
+        return next
+      })
+    })
+
+    es.onerror = () => setSseConnected(false)
+
+    return () => {
+      es.close()
+      eventSourceRef.current = null
+      setSseConnected(false)
+    }
+  }, [activeTab])
+
+  // Load transcript history when Monitor tab is active
+  useEffect(() => {
+    if (activeTab === 'monitor') {
+      fetchRecentTranscripts(50).then(setTranscriptHistory).catch(() => {})
+    }
+  }, [activeTab])
 
   const markModelBusy = useCallback((id: string, busy: boolean) => {
     setBusyModelIds(current => {
@@ -187,6 +339,39 @@ export default function VoicePlatformPage() {
     }
   }, [])
 
+  const loadEngineModels = useCallback(async (et: EngineType) => {
+    if (et === 'stt') return
+    setEngineModelsLoading(true)
+    try {
+      const [catalog, installed, active] = await Promise.all([
+        fetchEngineModels(et),
+        fetchEngineInstalledModels(et),
+        fetchEngineActiveModel(et),
+      ])
+      setEngineModels(catalog)
+      setEngineInstalledIds(new Set(installed.map(m => m.id)))
+      setEngineActiveModelId(active.activeModel)
+    } catch {
+      setNotice({ type: 'error', message: `Failed to load ${et} models.` })
+    } finally {
+      setEngineModelsLoading(false)
+    }
+  }, [])
+
+  const loadInstalledCount = useCallback(async () => {
+    try {
+      const [stt, vad, kws, speaker] = await Promise.all([
+        fetchInstalledModels(),
+        fetchEngineInstalledModels('vad'),
+        fetchEngineInstalledModels('kws'),
+        fetchEngineInstalledModels('speaker-embedding'),
+      ])
+      setTotalInstalledCount(stt.length + vad.length + kws.length + speaker.length)
+    } catch {
+      // silent – metric card will show stale count
+    }
+  }, [])
+
   const loadDirectories = useCallback(async () => {
     setDirectoryLoading(true)
     try {
@@ -203,6 +388,14 @@ export default function VoicePlatformPage() {
       })
     } finally {
       setDirectoryLoading(false)
+    }
+  }, [])
+
+  const loadVoiceConfig = useCallback(async () => {
+    try {
+      setVoiceConfig(await fetchVoiceConfig())
+    } catch {
+      // Config endpoint not available
     }
   }, [])
 
@@ -228,7 +421,7 @@ export default function VoicePlatformPage() {
         }
 
         clearModelDownloadPoll(modelId)
-        await Promise.all([loadModels(), loadStatus()])
+        await Promise.all([loadModels(), loadStatus(), loadInstalledCount()])
 
         if (task.status === 'Complete') {
           setNotice({ type: 'success', message: 'Model downloaded successfully.' })
@@ -247,7 +440,42 @@ export default function VoicePlatformPage() {
     }
 
     void poll()
-  }, [clearModelDownloadPoll, loadModels, loadStatus, markModelBusy])
+  }, [clearModelDownloadPoll, loadInstalledCount, loadModels, loadStatus, markModelBusy])
+
+  const watchEngineModelDownload = useCallback((modelId: string, taskId: string, et: EngineType) => {
+    clearModelDownloadPoll(modelId)
+
+    const poll = async () => {
+      try {
+        const task = await fetchBackgroundTask(taskId)
+        if (!task || task.status === 'Queued' || task.status === 'Running') {
+          modelDownloadPollRef.current[modelId] = window.setTimeout(() => {
+            void poll()
+          }, 2_000)
+          return
+        }
+
+        clearModelDownloadPoll(modelId)
+        await Promise.all([loadEngineModels(et), loadStatus(), loadInstalledCount()])
+
+        if (task.status === 'Complete') {
+          setNotice({ type: 'success', message: 'Model downloaded successfully.' })
+        } else if (task.status === 'Failed') {
+          setNotice({ type: 'error', message: task.error || 'Model download failed.' })
+        } else {
+          setNotice({ type: 'info', message: 'Model download was cancelled.' })
+        }
+
+        markModelBusy(modelId, false)
+      } catch {
+        modelDownloadPollRef.current[modelId] = window.setTimeout(() => {
+          void poll()
+        }, 4_000)
+      }
+    }
+
+    void poll()
+  }, [clearModelDownloadPoll, loadEngineModels, loadInstalledCount, loadStatus, markModelBusy])
 
   const teardownAudio = useCallback(() => {
     if (animationFrameRef.current !== null) cancelAnimationFrame(animationFrameRef.current)
@@ -273,7 +501,7 @@ export default function VoicePlatformPage() {
     let ignore = false
 
     async function hydrate() {
-      await Promise.all([loadStatus(), loadModels(), loadDirectories()])
+      await Promise.all([loadStatus(), loadModels(), loadDirectories(), loadInstalledCount(), loadVoiceConfig()])
       if (ignore) return
     }
 
@@ -284,7 +512,13 @@ export default function VoicePlatformPage() {
       modelDownloadPollRef.current = {}
       teardownAudio()
     }
-  }, [loadDirectories, loadModels, loadStatus, teardownAudio])
+  }, [loadDirectories, loadInstalledCount, loadModels, loadStatus, loadVoiceConfig, teardownAudio])
+
+  useEffect(() => {
+    if (engineTab !== 'stt') {
+      void loadEngineModels(engineTab)
+    }
+  }, [engineTab, loadEngineModels])
 
   const languageOptions = useMemo(
     () => ['all', ...new Set(models.flatMap(model => model.languages ?? []).filter(Boolean).sort((a, b) => String(a).localeCompare(String(b))))],
@@ -444,12 +678,65 @@ export default function VoicePlatformPage() {
     markModelBusy(modelId, true)
     try {
       await deleteModel(modelId)
-      await Promise.all([loadModels(), loadStatus()])
+      await Promise.all([loadModels(), loadStatus(), loadInstalledCount()])
       setNotice({ type: 'success', message: 'Model deleted.' })
     } catch (error) {
       setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Failed to delete model.' })
     } finally {
       markModelBusy(modelId, false)
+    }
+  }
+
+  async function handleEngineModelDownload(et: EngineType, modelId: string) {
+    markModelBusy(modelId, true)
+    try {
+      const { taskId } = await downloadEngineModel(et, modelId)
+      setNotice({ type: 'info', message: `${et} model download started.` })
+      watchEngineModelDownload(modelId, taskId, et)
+    } catch (error) {
+      clearModelDownloadPoll(modelId)
+      markModelBusy(modelId, false)
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : `Failed to start ${et} model download.` })
+    }
+  }
+
+  async function handleEngineModelActivate(et: EngineType, modelId: string) {
+    markModelBusy(modelId, true)
+    try {
+      await activateEngineModel(et, modelId)
+      await Promise.all([loadEngineModels(et), loadStatus()])
+      setNotice({ type: 'success', message: `Active ${et} model updated.` })
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : `Failed to activate ${et} model.` })
+    } finally {
+      markModelBusy(modelId, false)
+    }
+  }
+
+  async function handleEngineModelDelete(et: EngineType, modelId: string) {
+    if (!confirm('Delete this local model?')) return
+    markModelBusy(modelId, true)
+    try {
+      await deleteEngineModel(et, modelId)
+      await Promise.all([loadEngineModels(et), loadStatus(), loadInstalledCount()])
+      setNotice({ type: 'success', message: `${et} model deleted.` })
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : `Failed to delete ${et} model.` })
+    } finally {
+      markModelBusy(modelId, false)
+    }
+  }
+
+  async function handleSaveConfig() {
+    if (!voiceConfig) return
+    setConfigSaving(true)
+    try {
+      await updateVoiceConfig(voiceConfig)
+      setNotice({ type: 'success', message: 'Voice configuration saved.' })
+    } catch {
+      setNotice({ type: 'error', message: 'Failed to save voice configuration.' })
+    } finally {
+      setConfigSaving(false)
     }
   }
 
@@ -472,6 +759,65 @@ export default function VoicePlatformPage() {
       setNotice({ type: 'success', message: 'Wake word deleted.' })
     } catch (error) {
       setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Failed to delete wake word.' })
+    }
+  }
+
+  async function toggleProfileClips(profileId: string) {
+    if (expandedProfileId === profileId) {
+      setExpandedProfileId(null)
+      return
+    }
+    setExpandedProfileId(profileId)
+    if (!profileClips.has(profileId)) {
+      try {
+        const clips = await fetchProfileClips(profileId)
+        setProfileClips(prev => new Map(prev).set(profileId, clips))
+      } catch {
+        setNotice({ type: 'error', message: 'Failed to load audio clips.' })
+      }
+    }
+  }
+
+  async function handleDeleteClip(profileId: string, clipId: string) {
+    if (!confirm('Delete this audio clip?')) return
+    try {
+      await deleteClip(profileId, clipId)
+      const clips = await fetchProfileClips(profileId)
+      setProfileClips(prev => new Map(prev).set(profileId, clips))
+      setNotice({ type: 'success', message: 'Clip deleted.' })
+    } catch {
+      setNotice({ type: 'error', message: 'Failed to delete clip.' })
+    }
+  }
+
+  async function handleReassignClip(profileId: string, clipId: string, targetProfileId: string) {
+    if (!targetProfileId) return
+    try {
+      await reassignClip(profileId, clipId, targetProfileId)
+      setReassigningClipKey(null)
+      const clips = await fetchProfileClips(profileId)
+      setProfileClips(prev => new Map(prev).set(profileId, clips))
+      // Invalidate target cache so next expand re-fetches
+      setProfileClips(prev => { const next = new Map(prev); next.delete(targetProfileId); return next })
+      setNotice({ type: 'success', message: 'Clip reassigned.' })
+    } catch {
+      setNotice({ type: 'error', message: 'Failed to reassign clip.' })
+    }
+  }
+
+  async function handleMerge(sourceId: string, targetId: string) {
+    if (!targetId) return
+    const target = profiles.find(p => p.id === targetId)
+    if (!confirm(`Merge this profile into "${target?.name ?? targetId}"? This cannot be undone.`)) return
+    try {
+      await mergeProfiles(sourceId, targetId)
+      setMergingProfileId(null)
+      setExpandedProfileId(null)
+      setProfileClips(new Map())
+      await loadDirectories()
+      setNotice({ type: 'success', message: 'Profiles merged.' })
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Failed to merge profiles.' })
     }
   }
 
@@ -557,7 +903,7 @@ export default function VoicePlatformPage() {
             </div>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <MetricCard label="Installed models" value={String(installedIds.size)} />
+            <MetricCard label="Installed models" value={String(totalInstalledCount)} />
             <MetricCard label="Profiles" value={String(profiles.length)} />
           </div>
         </div>
@@ -591,9 +937,11 @@ export default function VoicePlatformPage() {
               {statusLoading ? <Loader2 className="h-5 w-5 animate-spin text-amber" /> : <StatusBadge ready={status?.configured ?? false} />}
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
-              <StatusTile icon={Mic} label="STT Engine" ready={status?.stt.ready} />
-              <StatusTile icon={Radio} label="Wake Word Detector" ready={status?.wakeWord.ready} />
-              <StatusTile icon={User} label="Speaker Verification" ready={status?.diarization.ready} />
+              <StatusTile icon={Mic} label="STT Engine" ready={status?.stt.ready} activeModel={status?.stt.activeModel} onConfigure={() => setActiveTab('models')} />
+              <StatusTile icon={Activity} label="VAD Engine" ready={status?.vad.ready} activeModel={status?.vad.activeModel} onConfigure={() => setActiveTab('models')} />
+              <StatusTile icon={Radio} label="Wake Word Detector" ready={status?.wakeWord.ready} activeModel={status?.wakeWord.activeModel} onConfigure={() => setActiveTab('models')} />
+              <StatusTile icon={User} label="Speaker Verification" ready={status?.diarization.ready} activeModel={status?.diarization.activeModel} onConfigure={() => setActiveTab('models')} />
+              <StatusTile icon={Sparkles} label="Speech Enhancement" ready={status?.speechEnhancement.ready} activeModel={status?.speechEnhancement.activeModel} onConfigure={() => setActiveTab('models')} />
               <StatusTile icon={Volume2} label="Custom Wake Words" ready={status?.customWakeWords.ready} />
             </div>
           </div>
@@ -610,6 +958,10 @@ export default function VoicePlatformPage() {
             <ul className="mt-4 space-y-3 text-sm text-fog">
               <StatusListItem done={installedIds.size > 0} text="Download at least one sherpa-onnx STT model" />
               <StatusListItem done={Boolean(activeModelId)} text="Activate the preferred model for live transcription" />
+              <StatusListItem done={status?.vad.ready ?? false} text="Configure a VAD engine for voice activity detection" />
+              <StatusListItem done={status?.wakeWord.ready ?? false} text="Set up a wake-word detector for hands-free activation" />
+              <StatusListItem done={status?.diarization.ready ?? false} text="Enable speaker verification for personalized responses" />
+              <StatusListItem done={status?.speechEnhancement.ready ?? false} text="Enable speech enhancement for cleaner audio" />
               <StatusListItem done={profiles.length > 0} text="Enroll a speaker profile for personalization" />
               <StatusListItem done={wakeWords.length > 0} text="Register or verify custom wake words if needed" />
             </ul>
@@ -619,40 +971,194 @@ export default function VoicePlatformPage() {
 
       {activeTab === 'models' && (
         <section className="space-y-4">
-          <div className="grid gap-3 rounded-[24px] border border-stone/60 bg-charcoal/70 p-5 lg:grid-cols-[1fr,1fr,auto] lg:items-end">
-            <label className="text-sm text-fog">
-              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.24em] text-dust">Language</span>
-              <select value={languageFilter} onChange={event => setLanguageFilter(event.target.value)} className={inputClass}>
-                {languageOptions.map(option => <option key={option} value={option}>{option === 'all' ? 'All languages' : option}</option>)}
-              </select>
-            </label>
-            <label className="text-sm text-fog">
-              <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.24em] text-dust">Architecture</span>
-              <select value={architectureFilter} onChange={event => setArchitectureFilter(event.target.value)} className={inputClass}>
-                {architectureOptions.map(option => <option key={option} value={option}>{option === 'all' ? 'All architectures' : archLabel(option)}</option>)}
-              </select>
-            </label>
-            <label className="flex items-center gap-3 rounded-xl border border-stone/50 bg-basalt px-4 py-3 text-sm text-fog">
-              <input type="checkbox" checked={streamingOnly} onChange={event => setStreamingOnly(event.target.checked)} className="h-4 w-4 accent-amber" />
-              Streaming only
-            </label>
+          <div className="flex gap-2 rounded-[24px] border border-stone/60 bg-charcoal/70 p-2">
+            {([
+              ['stt', 'Speech-to-Text'],
+              ['vad', 'Voice Activity Detection'],
+              ['kws', 'Wake Word'],
+              ['speaker-embedding', 'Speaker Verification'],
+              ['speech-enhancement', 'Speech Enhancement'],
+            ] as const).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setEngineTab(key)}
+                className={`rounded-[20px] px-4 py-2 text-sm font-medium transition-colors ${
+                  engineTab === key
+                    ? 'bg-amber/15 text-amber'
+                    : 'text-fog hover:bg-stone/40 hover:text-light'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
 
-          {modelsLoading ? <LoadingPanel label="Loading model catalog…" /> : (
-            <div className="space-y-6">
-              <ModelSection title="Installed models" subtitle="Installed models stay pinned to the top for quick activation and cleanup." models={filteredModels.installed} emptyMessage="No models installed yet." renderCard={model => (
-                <ModelCard key={model.id} model={model} busy={busyModelIds.has(model.id)} onDownload={() => handleModelDownload(model.id)} onActivate={() => handleModelActivate(model.id)} onDelete={() => handleModelDelete(model.id)} />
-              )} />
-              <ModelSection title="Available catalog" subtitle="Browse the Wyoming catalog and download only the models you actually need." models={filteredModels.catalog} emptyMessage="No models match the current filters." renderCard={model => (
-                <ModelCard key={model.id} model={model} busy={busyModelIds.has(model.id)} onDownload={() => handleModelDownload(model.id)} onActivate={() => handleModelActivate(model.id)} onDelete={() => handleModelDelete(model.id)} />
-              )} />
-            </div>
+          {engineTab === 'stt' && (
+            <>
+              <div className="grid gap-3 rounded-[24px] border border-stone/60 bg-charcoal/70 p-5 lg:grid-cols-[1fr,1fr,auto] lg:items-end">
+                <label className="text-sm text-fog">
+                  <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.24em] text-dust">Language</span>
+                  <select value={languageFilter} onChange={event => setLanguageFilter(event.target.value)} className={inputClass}>
+                    {languageOptions.map(option => <option key={option} value={option}>{option === 'all' ? 'All languages' : option}</option>)}
+                  </select>
+                </label>
+                <label className="text-sm text-fog">
+                  <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.24em] text-dust">Architecture</span>
+                  <select value={architectureFilter} onChange={event => setArchitectureFilter(event.target.value)} className={inputClass}>
+                    {architectureOptions.map(option => <option key={option} value={option}>{option === 'all' ? 'All architectures' : archLabel(option)}</option>)}
+                  </select>
+                </label>
+                <label className="flex items-center gap-3 rounded-xl border border-stone/50 bg-basalt px-4 py-3 text-sm text-fog">
+                  <input type="checkbox" checked={streamingOnly} onChange={event => setStreamingOnly(event.target.checked)} className="h-4 w-4 accent-amber" />
+                  Streaming only
+                </label>
+              </div>
+
+              {modelsLoading ? <LoadingPanel label="Loading model catalog…" /> : (
+                <div className="space-y-6">
+                  <ModelSection title="Installed models" subtitle="Installed models stay pinned to the top for quick activation and cleanup." models={filteredModels.installed} emptyMessage="No models installed yet." renderCard={model => (
+                    <ModelCard key={model.id} model={model} busy={busyModelIds.has(model.id)} onDownload={() => handleModelDownload(model.id)} onActivate={() => handleModelActivate(model.id)} onDelete={() => handleModelDelete(model.id)} />
+                  )} />
+                  <ModelSection title="Available catalog" subtitle="Browse the Wyoming catalog and download only the models you actually need." models={filteredModels.catalog} emptyMessage="No models match the current filters." renderCard={model => (
+                    <ModelCard key={model.id} model={model} busy={busyModelIds.has(model.id)} onDownload={() => handleModelDownload(model.id)} onActivate={() => handleModelActivate(model.id)} onDelete={() => handleModelDelete(model.id)} />
+                  )} />
+                </div>
+              )}
+            </>
+          )}
+
+          {engineTab !== 'stt' && (
+            <>
+              {engineModelsLoading ? <LoadingPanel label={`Loading ${engineTab} models…`} /> : (
+                <div className="space-y-6">
+                  <ModelSection
+                    title="Installed models"
+                    subtitle={`Installed ${engineTab} models ready for activation.`}
+                    models={engineModels.filter(m => engineInstalledIds.has(m.id)).map(m => mapEngineModel(m, true, engineActiveModelId === m.id))}
+                    emptyMessage="No models installed yet."
+                    renderCard={model => (
+                      <ModelCard key={model.id} model={model} busy={busyModelIds.has(model.id)} onDownload={() => handleEngineModelDownload(engineTab, model.id)} onActivate={() => handleEngineModelActivate(engineTab, model.id)} onDelete={() => handleEngineModelDelete(engineTab, model.id)} />
+                    )}
+                  />
+                  <ModelSection
+                    title="Available catalog"
+                    subtitle={`Browse available ${engineTab} models.`}
+                    models={engineModels.filter(m => !engineInstalledIds.has(m.id)).map(m => mapEngineModel(m, false, false))}
+                    emptyMessage="No additional models available."
+                    renderCard={model => (
+                      <ModelCard key={model.id} model={model} busy={busyModelIds.has(model.id)} onDownload={() => handleEngineModelDownload(engineTab, model.id)} onActivate={() => handleEngineModelActivate(engineTab, model.id)} onDelete={() => handleEngineModelDelete(engineTab, model.id)} />
+                    )}
+                  />
+                </div>
+              )}
+            </>
           )}
         </section>
       )}
 
       {activeTab === 'profiles' && (
         <section className="space-y-4">
+          {voiceConfig && (
+            <div className="rounded-[24px] border border-stone/60 bg-charcoal/70 p-5 sm:p-6">
+              <h2 className="font-display text-xl text-light">Voice Recognition Settings</h2>
+              <p className="mt-1 text-sm text-fog">Control how Lucia identifies and manages speakers.</p>
+
+              <div className="mt-5 grid gap-x-8 gap-y-5 sm:grid-cols-2">
+                <label className="flex items-center justify-between gap-3 text-sm text-light">
+                  <span>Enrolled voices only</span>
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-stone/50 accent-amber"
+                    checked={voiceConfig.ignoreUnknownVoices}
+                    onChange={event => setVoiceConfig({ ...voiceConfig, ignoreUnknownVoices: event.target.checked })}
+                  />
+                </label>
+
+                <label className="flex items-center justify-between gap-3 text-sm text-light">
+                  <span>Auto-profile new voices</span>
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-stone/50 accent-amber"
+                    checked={voiceConfig.autoCreateProvisionalProfiles}
+                    onChange={event => setVoiceConfig({ ...voiceConfig, autoCreateProvisionalProfiles: event.target.checked })}
+                  />
+                </label>
+
+                <label className="flex items-center justify-between gap-3 text-sm text-light">
+                  <span>Adaptive learning</span>
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-stone/50 accent-amber"
+                    checked={voiceConfig.adaptiveProfiles}
+                    onChange={event => setVoiceConfig({ ...voiceConfig, adaptiveProfiles: event.target.checked })}
+                  />
+                </label>
+
+                <label className="flex items-center justify-between gap-3 text-sm text-light">
+                  <span>Speech enhancement</span>
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-stone/50 accent-amber"
+                    checked={status?.speechEnhancement.ready ?? false}
+                    disabled
+                    title="Activate a speech enhancement model in the Models tab to enable"
+                  />
+                </label>
+
+                <label className="space-y-1 text-sm text-light">
+                  <span>Max auto-profiles</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    className={inputClass}
+                    value={voiceConfig.maxAutoProfiles}
+                    onChange={event => setVoiceConfig({ ...voiceConfig, maxAutoProfiles: Number(event.target.value) })}
+                  />
+                </label>
+
+                <label className="space-y-1 text-sm text-light">
+                  <div className="flex items-center justify-between">
+                    <span>Speaker match threshold</span>
+                    <span className="tabular-nums text-xs text-dust">{voiceConfig.speakerVerificationThreshold.toFixed(2)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0.5}
+                    max={0.95}
+                    step={0.05}
+                    className="w-full accent-amber"
+                    value={voiceConfig.speakerVerificationThreshold}
+                    onChange={event => setVoiceConfig({ ...voiceConfig, speakerVerificationThreshold: Number(event.target.value) })}
+                  />
+                </label>
+
+                <label className="space-y-1 text-sm text-light">
+                  <span>Keep unknown profiles for</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={365}
+                      className={inputClass}
+                      value={voiceConfig.provisionalRetentionDays}
+                      onChange={event => setVoiceConfig({ ...voiceConfig, provisionalRetentionDays: Number(event.target.value) })}
+                    />
+                    <span className="shrink-0 text-xs text-dust">days</span>
+                  </div>
+                </label>
+              </div>
+
+              <div className="mt-5 flex justify-end">
+                <button type="button" className={buttonPrimary} disabled={configSaving} onClick={() => void handleSaveConfig()}>
+                  {configSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                  Save settings
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-[24px] border border-stone/60 bg-charcoal/70 p-5 sm:p-6">
             <div>
               <h2 className="font-display text-2xl text-light">Speaker profiles</h2>
@@ -700,21 +1206,117 @@ export default function VoicePlatformPage() {
           )}
 
           {directoryLoading ? <LoadingPanel label="Loading speaker profiles…" /> : <DirectoryGrid>
-            {profiles.length === 0 ? <EmptyCard message="No speaker profiles enrolled yet." /> : profiles.map(profile => (
+            {profiles.length === 0 ? <EmptyCard message="No speaker profiles enrolled yet." /> : profiles.map(profile => {
+              const clips = profileClips.get(profile.id)
+              const isExpanded = expandedProfileId === profile.id
+              const clipCount = clips?.length
+              return (
               <div key={profile.id} className="rounded-[24px] border border-stone/60 bg-charcoal/70 p-5">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="font-display text-xl text-light">{profile.name}</h3>
                       {profile.isProvisional && <Badge tone="amber">Provisional</Badge>}
+                      {clipCount != null && clipCount > 0 && <span className="rounded-full bg-basalt px-2 py-0.5 text-xs tabular-nums text-dust">{clipCount} clip{clipCount !== 1 ? 's' : ''}</span>}
                     </div>
                     <p className="mt-2 text-sm text-fog">{profile.isAuthorized ? 'Authorized speaker' : 'Needs review'} · {profile.interactionCount} interactions</p>
                     <p className="mt-1 text-xs text-dust">Enrolled {formatDate(profile.enrolledAt)} · Last seen {formatDate(profile.lastSeenAt)}</p>
                   </div>
-                  <IconButton label="Delete speaker" onClick={() => void handleDeleteSpeaker(profile.id)}><Trash2 className="h-4 w-4" /></IconButton>
+                  <div className="flex items-center gap-1">
+                    <IconButton label={isExpanded ? 'Hide clips' : 'Show clips'} onClick={() => void toggleProfileClips(profile.id)}>
+                      {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    </IconButton>
+                    <IconButton label="Delete speaker" onClick={() => void handleDeleteSpeaker(profile.id)}><Trash2 className="h-4 w-4" /></IconButton>
+                  </div>
                 </div>
+
+                {/* Merge controls for provisional profiles */}
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {mergingProfileId === profile.id ? (
+                    <div className="flex items-center gap-2">
+                      <select
+                        className={inputClass + ' !w-auto'}
+                        onChange={event => void handleMerge(profile.id, event.target.value)}
+                        defaultValue=""
+                      >
+                        <option value="" disabled>Merge into…</option>
+                        {profiles.filter(p => p.id !== profile.id).map(p => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
+                      <button type="button" className="text-xs text-dust hover:text-light" onClick={() => setMergingProfileId(null)}>Cancel</button>
+                    </div>
+                  ) : (
+                    profile.isProvisional && (
+                      <button
+                        type="button"
+                        className="rounded-lg border border-stone/40 px-2.5 py-1 text-xs text-fog transition-colors hover:border-amber/30 hover:text-light"
+                        onClick={() => setMergingProfileId(profile.id)}
+                      >
+                        Merge into another profile
+                      </button>
+                    )
+                  )}
+                </div>
+
+                {/* Expandable clips section */}
+                {isExpanded && (
+                  <div className="mt-4 space-y-3 border-t border-stone/30 pt-4">
+                    {!clips ? (
+                      <p className="text-sm text-dust">Loading clips…</p>
+                    ) : clips.length === 0 ? (
+                      <p className="text-sm text-dust">No audio clips captured yet.</p>
+                    ) : clips.map(clip => {
+                      const clipKey = `${profile.id}:${clip.id}`
+                      return (
+                        <div key={clip.id} className="space-y-2 rounded-xl bg-basalt/50 p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 space-y-1">
+                              <p className="text-xs text-dust">
+                                {formatDate(clip.capturedAt)} · {clip.duration} · {clip.sampleRate} Hz · {(clip.fileSizeBytes / 1024).toFixed(1)} KB
+                              </p>
+                              {clip.transcript && <p className="truncate text-sm text-fog" title={clip.transcript}>{clip.transcript}</p>}
+                            </div>
+                            <div className="flex shrink-0 items-center gap-1">
+                              <IconButton label="Delete clip" onClick={() => void handleDeleteClip(profile.id, clip.id)}>
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </IconButton>
+                            </div>
+                          </div>
+                          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                          <audio controls preload="none" className="h-8 w-full" src={getClipAudioUrl(profile.id, clip.id)} />
+                          {/* Reassign control */}
+                          {reassigningClipKey === clipKey ? (
+                            <div className="flex items-center gap-2">
+                              <select
+                                className={inputClass + ' !w-auto text-xs'}
+                                onChange={event => void handleReassignClip(profile.id, clip.id, event.target.value)}
+                                defaultValue=""
+                              >
+                                <option value="" disabled>Move to…</option>
+                                {profiles.filter(p => p.id !== profile.id).map(p => (
+                                  <option key={p.id} value={p.id}>{p.name}</option>
+                                ))}
+                              </select>
+                              <button type="button" className="text-xs text-dust hover:text-light" onClick={() => setReassigningClipKey(null)}>Cancel</button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              className="text-xs text-dust hover:text-light"
+                              onClick={() => setReassigningClipKey(clipKey)}
+                            >
+                              Reassign clip
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
-            ))}
+              )
+            })}
           </DirectoryGrid>}
         </section>
       )}
@@ -762,8 +1364,102 @@ export default function VoicePlatformPage() {
           </DirectoryGrid>}
         </section>
       )}
+
+      {activeTab === 'monitor' && (
+        <section className="space-y-4">
+          {/* Connection indicator */}
+          <div className="flex items-center gap-2 text-sm">
+            <div className={`h-2 w-2 rounded-full ${sseConnected ? 'bg-sage animate-pulse' : 'bg-dust'}`} />
+            <span className="text-dust">{sseConnected ? 'Live' : 'Connecting...'}</span>
+            <span className="text-dust">· {sessions.size} device{sessions.size !== 1 ? 's' : ''}</span>
+          </div>
+
+          {/* Device cards */}
+          {sessions.size > 0 && (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {Array.from(sessions.entries()).map(([id, session]) => (
+                <div key={id} className="rounded-2xl border border-stone/60 bg-basalt/40 p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-light">{session.remoteEndPoint}</p>
+                      <p className="text-xs text-dust">{session.state}</p>
+                    </div>
+                    <div className="text-right text-xs text-dust">
+                      <p>Voices: {session.voiceCount}</p>
+                    </div>
+                  </div>
+                  {/* Audio level bar */}
+                  <div className="mt-2 h-1.5 rounded-full bg-charcoal">
+                    <div
+                      className="h-full rounded-full bg-sage transition-all duration-150"
+                      style={{ width: `${Math.min(100, session.rmsLevel * 500)}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Transcript feed */}
+          <div className="rounded-2xl border border-stone/60 bg-basalt/40 p-4">
+            <h3 className="mb-3 text-sm font-medium text-light">Live Transcript Feed</h3>
+            <div className="max-h-96 overflow-y-auto space-y-1 font-mono text-xs">
+              {transcriptLog.length === 0 ? (
+                <p className="text-dust">Waiting for transcripts...</p>
+              ) : (
+                transcriptLog.map((entry, i) => (
+                  <div key={i} className={`flex gap-2 ${entry.isFinal ? '' : 'italic opacity-60'}`}>
+                    <span className="shrink-0 text-dust">{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                    <span className="shrink-0 text-amber">[{entry.sessionId.slice(0, 8)}]</span>
+                    {entry.speakerName && <span className="shrink-0 text-sage">{entry.speakerName}:</span>}
+                    <span className={entry.isFinal ? 'text-light' : 'text-dust'}>{entry.text}</span>
+                    <span className="shrink-0 text-dust">({(entry.confidence * 100).toFixed(0)}%)</span>
+                    {!entry.isFinal && <span className="shrink-0 text-dust animate-pulse">…</span>}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Transcript History */}
+          <div className="rounded-2xl border border-stone/60 bg-basalt/40 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium text-light">Transcript History</h3>
+              <button type="button" onClick={() => fetchRecentTranscripts(50).then(setTranscriptHistory).catch(() => {})} className="text-xs text-dust hover:text-amber">
+                Refresh
+              </button>
+            </div>
+            <div className="max-h-96 overflow-y-auto space-y-1">
+              {transcriptHistory.length === 0 ? (
+                <p className="text-xs text-dust">No transcript history yet.</p>
+              ) : (
+                transcriptHistory.map(record => (
+                  <TranscriptHistoryEntry key={record.id} record={record} />
+                ))
+              )}
+            </div>
+          </div>
+        </section>
+      )}
     </div>
   )
+}
+
+function mapEngineModel(m: WyomingModelDefinition, isInstalled: boolean, isActive: boolean): AsrModel & { isInstalled: boolean; isActive: boolean } {
+  return {
+    id: m.id,
+    name: m.name,
+    architecture: m.engineType,
+    isStreaming: false,
+    languages: m.languages,
+    sizeBytes: m.sizeBytes,
+    description: m.description,
+    downloadUrl: m.downloadUrl,
+    isDefault: m.isDefault,
+    minMemoryMb: m.minMemoryMb,
+    isInstalled,
+    isActive,
+  }
 }
 
 function ModelSection({ title, subtitle, models, emptyMessage, renderCard }: { title: string; subtitle: string; models: Array<AsrModel & { isInstalled: boolean; isActive: boolean }>; emptyMessage: string; renderCard: (model: AsrModel & { isInstalled: boolean; isActive: boolean }) => ReactNode }) {
@@ -834,8 +1530,34 @@ function RecorderCard({ meterLevel, statusNote, isRecording, onStart, onStop, di
   )
 }
 
-function StatusTile({ icon: Icon, label, ready }: { icon: typeof Mic; label: string; ready?: boolean }) {
-  return <div className="rounded-2xl border border-stone/60 bg-basalt/40 p-4"><div className="flex items-center gap-3"><div className={`flex h-10 w-10 items-center justify-center rounded-2xl ${ready ? 'bg-sage/15 text-sage' : 'bg-amber/10 text-amber'}`}><Icon className="h-4 w-4" /></div><div><p className="text-sm text-light">{label}</p><p className="text-xs text-dust">{ready ? 'Ready' : 'Not configured'}</p></div></div></div>
+function StatusTile({ icon: Icon, label, ready, activeModel, onConfigure }: { icon: typeof Mic; label: string; ready?: boolean; activeModel?: string; onConfigure?: () => void }) {
+  const subtitle = ready && activeModel
+    ? activeModel
+    : !ready && activeModel
+      ? `${activeModel} (loading…)`
+      : 'Not configured'
+
+  return (
+    <div className="rounded-2xl border border-stone/60 bg-basalt/40 p-4">
+      <div className="flex items-center gap-3">
+        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${ready ? 'bg-sage/15 text-sage' : activeModel ? 'bg-amber/10 text-amber' : 'bg-stone/30 text-dust'}`}>
+          <Icon className="h-4 w-4" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm text-light">{label}</p>
+          {ready || activeModel ? (
+            <p className={`truncate text-xs ${ready ? 'text-sage/80' : 'text-amber/80'}`}>{subtitle}</p>
+          ) : onConfigure ? (
+            <button type="button" onClick={onConfigure} className="text-xs text-dust underline decoration-dust/40 transition-colors hover:text-amber hover:decoration-amber/40">
+              {subtitle} — configure →
+            </button>
+          ) : (
+            <p className="text-xs text-dust">{subtitle}</p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function StatusBadge({ ready }: { ready: boolean }) {
@@ -967,4 +1689,56 @@ function encodeWav(samples: Float32Array, sampleRate: number) {
   }
 
   return new Blob([buffer], { type: 'audio/wav' })
+}
+
+function TranscriptHistoryEntry({ record }: { record: TranscriptRecord }) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div className="border-b border-stone/30 pb-1">
+      <button type="button" onClick={() => setExpanded(!expanded)} className="w-full text-left flex gap-2 text-xs py-1 hover:bg-charcoal/50 rounded px-1">
+        <span className="shrink-0 text-dust">{new Date(record.timestamp).toLocaleTimeString()}</span>
+        {record.speakerName && <span className="shrink-0 text-sage">{record.speakerName}</span>}
+        <span className="truncate text-light">{record.text || '(empty)'}</span>
+        <span className="shrink-0 text-dust">({(record.confidence * 100).toFixed(0)}%)</span>
+      </button>
+      {expanded && (
+        <div className="ml-4 mt-1 mb-2 p-2 rounded-lg bg-charcoal/30 text-xs space-y-2">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-dust">
+            <span>Audio Duration</span><span className="text-light">{record.audioDurationMs.toFixed(0)}ms</span>
+            <span>Sample Rate</span><span className="text-light">{record.sampleRate}Hz</span>
+            <span>STT Model</span><span className="text-light truncate">{record.sttModelId}</span>
+            <span>VAD</span><span className="text-light">{record.vadActive ? (record.vadModelId ?? 'active') : 'inactive'}</span>
+            <span>Diarization</span><span className="text-light">{record.diarizationActive ? (record.diarizationModelId ?? 'active') : 'inactive'}</span>
+            {record.speakerId && <><span>Speaker</span><span className="text-light">{record.speakerName} ({((record.speakerSimilarity ?? 0) * 100).toFixed(0)}% match{record.isProvisionalSpeaker ? ', provisional' : ''})</span></>}
+            {record.routeResult && <><span>Route</span><span className="text-light">{record.routeResult}{record.matchedSkill ? ` → ${record.matchedSkill}` : ''}</span></>}
+            {record.commandFiltered && <><span>Filtered</span><span className="text-amber">Command suppressed</span></>}
+            {record.responseText && <><span>Response</span><span className="text-light truncate">{record.responseText}</span></>}
+          </div>
+          {record.stages.length > 0 && (
+            <div>
+              <p className="text-dust mb-1">Pipeline Stages</p>
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="text-dust">
+                    <th className="pr-4 font-normal">Stage</th>
+                    <th className="pr-4 font-normal">Duration</th>
+                    <th className="font-normal">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {record.stages.map((stage, i) => (
+                    <tr key={i}>
+                      <td className="pr-4 text-light">{stage.name}</td>
+                      <td className="pr-4 text-light">{stage.durationMs.toFixed(0)}ms</td>
+                      <td className={stage.success ? 'text-sage' : 'text-ember'}>{stage.success ? '✓' : stage.error ?? '✗'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }

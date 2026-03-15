@@ -23,6 +23,8 @@ using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Configuration.AddJsonFile("voiceconfig.json", optional: true, reloadOnChange: true);
+
 builder.AddServiceDefaults();
 builder.Services.AddAntiforgery();
 builder.AddRedisClient(connectionName: "redis");
@@ -312,7 +314,11 @@ app.MapInstalledPluginApi();
 app.MapBackgroundTaskEndpoints();
 app.MapWyomingModelEndpoints();
 app.MapWyomingStatusEndpoints();
+app.MapWyomingSessionEndpoints();
+app.MapTranscriptHistoryEndpoints();
+app.MapVoiceConfigEndpoints();
 app.MapOnboardingEndpoints();
+app.MapVoiceClipEndpoints();
 app.MapSystemApi();
 app.MapDefaultEndpoints();
 

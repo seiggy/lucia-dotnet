@@ -2,7 +2,9 @@ using System.Net.Sockets;
 using lucia.Wyoming.Audio;
 using lucia.Wyoming.CommandRouting;
 using lucia.Wyoming.Diarization;
+using lucia.Wyoming.Models;
 using lucia.Wyoming.Stt;
+using lucia.Wyoming.Telemetry;
 using lucia.Wyoming.Vad;
 using lucia.Wyoming.WakeWord;
 using Microsoft.Extensions.DependencyInjection;
@@ -30,15 +32,23 @@ public sealed class WyomingSession : IDisposable
     private SpeakerVerificationFilter? _speakerFilter;
     private UnknownSpeakerTracker? _unknownTracker;
     private AdaptiveProfileUpdater? _adaptiveUpdater;
+    private AudioClipService? _audioClipService;
     private ICommandRouter? _commandRouter;
     private SkillDispatcher? _skillDispatcher;
+    private ITranscriptStore? _transcriptStore;
+    private ModelManager? _modelManager;
+    private ISpeechEnhancer? _speechEnhancer;
+    private ISpeechEnhancerSession? _currentEnhancerSession;
+    private readonly SessionEventBus? _eventBus;
+    private DateTimeOffset _lastAudioLevelEvent;
     private bool _disposed;
 
     public WyomingSession(
         TcpClient client,
         IServiceProvider serviceProvider,
         ILogger<WyomingSession> logger,
-        WyomingOptions options)
+        WyomingOptions options,
+        SessionEventBus? eventBus = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(serviceProvider);
@@ -49,6 +59,7 @@ public sealed class WyomingSession : IDisposable
         _serviceProvider = serviceProvider;
         _logger = logger;
         _options = options;
+        _eventBus = eventBus;
         Id = Guid.NewGuid().ToString("N");
         State = WyomingSessionState.Connected;
     }
@@ -56,6 +67,33 @@ public sealed class WyomingSession : IDisposable
     public string Id { get; }
 
     public WyomingSessionState State { get; private set; }
+
+    private void SetState(WyomingSessionState newState)
+    {
+        State = newState;
+        _eventBus?.Publish(new SessionStateChangedEvent { SessionId = Id, State = newState });
+    }
+
+    private void TryPublishAudioLevel(ReadOnlySpan<float> samples, bool isSpeechActive)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if ((now - _lastAudioLevelEvent).TotalMilliseconds < 250) return;
+        _lastAudioLevelEvent = now;
+
+        var sumSquares = 0f;
+        foreach (var sample in samples)
+        {
+            sumSquares += sample * sample;
+        }
+
+        var rms = samples.Length > 0 ? MathF.Sqrt(sumSquares / samples.Length) : 0f;
+        _eventBus?.Publish(new AudioLevelEvent
+        {
+            SessionId = Id,
+            RmsLevel = rms,
+            ActiveVoiceCount = isSpeechActive ? 1 : 0,
+        });
+    }
 
     public async Task RunAsync(CancellationToken ct)
     {
@@ -82,7 +120,7 @@ public sealed class WyomingSession : IDisposable
                 if (evt is null)
                 {
                     _logger.LogDebug("Wyoming client disconnected for session {SessionId}", Id);
-                    State = WyomingSessionState.Disconnected;
+                    SetState(WyomingSessionState.Disconnected);
                     break;
                 }
 
@@ -135,12 +173,12 @@ public sealed class WyomingSession : IDisposable
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            State = WyomingSessionState.Disconnected;
+            SetState(WyomingSessionState.Disconnected);
             _logger.LogDebug("Wyoming session {SessionId} cancelled", Id);
         }
         catch (IOException ex)
         {
-            State = WyomingSessionState.Disconnected;
+            SetState(WyomingSessionState.Disconnected);
             _pendingTranscript = null;
             _logger.LogInformation(ex, "I/O ended Wyoming session {SessionId}", Id);
         }
@@ -157,7 +195,7 @@ public sealed class WyomingSession : IDisposable
         }
         finally
         {
-            State = WyomingSessionState.Disconnected;
+            SetState(WyomingSessionState.Disconnected);
             DisposeEngineSessions();
         }
     }
@@ -197,7 +235,7 @@ public sealed class WyomingSession : IDisposable
             return;
         }
 
-        State = WyomingSessionState.WakeListening;
+        SetState(WyomingSessionState.WakeListening);
 
         _logger.LogInformation(
             "Wyoming session {SessionId} entered wake listening state{Filter}",
@@ -256,6 +294,29 @@ public sealed class WyomingSession : IDisposable
 
         switch (State)
         {
+            case WyomingSessionState.Connected:
+                // Direct STT flow: HA sends audio without a Detect event (wake word
+                // handled on-device or by HA). Transition straight to Transcribing.
+                _pendingTranscript = null;
+                _lastPartialText = string.Empty;
+                ResetUtteranceAudio();
+                _currentSttSession = await CreateSttSessionAsync(services, writer, ct).ConfigureAwait(false);
+                if (_currentSttSession is null)
+                {
+                    return;
+                }
+
+                _currentVadSession = await CreateVadSessionAsync(services, writer, ct).ConfigureAwait(false);
+                if (_currentVadSession is null)
+                {
+                    _logger.LogWarning("VAD unavailable for session {SessionId} — processing STT without voice activity detection", Id);
+                }
+
+                TryCreateEnhancerSession();
+                SetState(WyomingSessionState.Transcribing);
+                ProcessSpeechSamples(samples);
+                break;
+
             case WyomingSessionState.WakeListening:
                 if (_currentWakeWordSession is null)
                 {
@@ -295,7 +356,8 @@ public sealed class WyomingSession : IDisposable
                     return;
                 }
 
-                State = WyomingSessionState.Transcribing;
+                TryCreateEnhancerSession();
+                SetState(WyomingSessionState.Transcribing);
 
                 await writer.WriteEventAsync(
                         new DetectionEvent
@@ -322,6 +384,7 @@ public sealed class WyomingSession : IDisposable
                     return;
                 }
 
+                TryCreateEnhancerSession();
                 ProcessSpeechSamples(samples);
                 break;
         }
@@ -333,12 +396,40 @@ public sealed class WyomingSession : IDisposable
         {
             case WyomingSessionState.Transcribing when _currentSttSession is not null:
                 _currentVadSession?.Flush();
-                DrainVadSegmentsToStt();
                 _pendingTranscript = _currentSttSession.GetFinalResult();
                 DisposeCurrentSttSession();
                 DisposeCurrentVadSession();
-                State = WyomingSessionState.Processing;
+                SetState(WyomingSessionState.Processing);
                 _logger.LogDebug("Wyoming session {SessionId} finalized STT result", Id);
+
+                // Publish raw transcript immediately for live monitoring
+                // (before routing/LLM which can take seconds)
+                var transcript = _pendingTranscript ?? new SttResult();
+                if (!string.IsNullOrWhiteSpace(transcript.Text))
+                {
+                    _eventBus?.Publish(new SessionTranscriptEvent
+                    {
+                        SessionId = Id,
+                        Text = transcript.Text,
+                        Confidence = transcript.Confidence,
+                        IsFinal = true,
+                    });
+                }
+
+                // Direct STT flow: HA expects a Transcript response immediately after
+                // AudioStop, without sending a separate Transcribe event.
+                var utteranceAudio = _utteranceAudioBuffer.Count == 0
+                    ? Array.Empty<float>()
+                    : [.. _utteranceAudioBuffer];
+
+                SetState(WyomingSessionState.Responding);
+
+                await ProcessTranscriptAsync(transcript.Text, transcript.Confidence, utteranceAudio, writer, ct)
+                    .ConfigureAwait(false);
+
+                _pendingTranscript = null;
+                ResetUtteranceAudio();
+                SetState(WyomingSessionState.Connected);
                 break;
 
             case WyomingSessionState.WakeListening:
@@ -346,7 +437,7 @@ public sealed class WyomingSession : IDisposable
                 await writer.WriteEventAsync(new NotDetectedEvent(), ct).ConfigureAwait(false);
                 _currentWakeWordSession?.Dispose();
                 _currentWakeWordSession = null;
-                State = WyomingSessionState.Connected;
+                SetState(WyomingSessionState.Connected);
                 break;
         }
 
@@ -364,7 +455,6 @@ public sealed class WyomingSession : IDisposable
         if (_pendingTranscript is null && _currentSttSession is not null)
         {
             _currentVadSession?.Flush();
-            DrainVadSegmentsToStt();
             _pendingTranscript = _currentSttSession.GetFinalResult();
             DisposeCurrentSttSession();
             DisposeCurrentVadSession();
@@ -374,14 +464,14 @@ public sealed class WyomingSession : IDisposable
         var utteranceAudio = _utteranceAudioBuffer.Count == 0
             ? Array.Empty<float>()
             : [.. _utteranceAudioBuffer];
-        State = WyomingSessionState.Responding;
+        SetState(WyomingSessionState.Responding);
 
         await ProcessTranscriptAsync(transcript.Text, transcript.Confidence, utteranceAudio, writer, ct)
             .ConfigureAwait(false);
 
         _pendingTranscript = null;
         ResetUtteranceAudio();
-        State = WyomingSessionState.Connected;
+        SetState(WyomingSessionState.Connected);
     }
 
     private async Task<ISttSession?> CreateSttSessionAsync(
@@ -469,15 +559,9 @@ public sealed class WyomingSession : IDisposable
         {
             return engine.CreateSession();
         }
-        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException)
+        catch (Exception ex)
         {
             _logger.LogWarning(ex, "VAD engine failed to create session for Wyoming session {SessionId}", Id);
-            await ReportUnavailableAsync(
-                    writer,
-                    "Voice activity detection is not available. VAD model may not be installed.",
-                    "vad_unavailable",
-                    ct)
-                .ConfigureAwait(false);
             return null;
         }
     }
@@ -536,6 +620,9 @@ public sealed class WyomingSession : IDisposable
         DisposeCurrentSttSession();
         DisposeCurrentVadSession();
 
+        _currentEnhancerSession?.Dispose();
+        _currentEnhancerSession = null;
+
         _currentWakeWordSession?.Dispose();
         _currentWakeWordSession = null;
 
@@ -556,6 +643,23 @@ public sealed class WyomingSession : IDisposable
         _currentVadSession = null;
     }
 
+    private void TryCreateEnhancerSession()
+    {
+        if (_currentEnhancerSession is not null || _speechEnhancer is not { IsReady: true })
+        {
+            return;
+        }
+
+        try
+        {
+            _currentEnhancerSession = _speechEnhancer.CreateSession();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to create speech enhancement session for {SessionId}", Id);
+        }
+    }
+
     private async Task ReportUnavailableAsync(
         WyomingEventWriter writer,
         string message,
@@ -566,7 +670,7 @@ public sealed class WyomingSession : IDisposable
         DisposeEngineSessions();
         if (State != WyomingSessionState.Disconnected)
         {
-            State = WyomingSessionState.Connected;
+            SetState(WyomingSessionState.Connected);
         }
     }
 
@@ -577,15 +681,109 @@ public sealed class WyomingSession : IDisposable
             _ => true,
         };
 
+    private string _lastPartialText = string.Empty;
+    private DateTimeOffset _lastPartialPublish;
+
     private void ProcessSpeechSamples(ReadOnlySpan<float> samples)
     {
-        if (_currentSttSession is null || _currentVadSession is null)
+        if (_currentSttSession is null)
         {
             return;
         }
 
-        _currentVadSession.AcceptAudioChunk(samples);
-        DrainVadSegmentsToStt();
+        // Per-frame streaming speech enhancement (GTCRN via ISpeechEnhancerSession).
+        // The enhancer buffers internally until a full STFT window is ready, so output
+        // may be empty for small input chunks. When buffering, feed raw audio to VAD
+        // for activity detection but skip STT to avoid misaligned partial data.
+        ReadOnlySpan<float> processedSamples = samples;
+        float[]? enhancedBuffer = null;
+        if (_currentEnhancerSession is not null)
+        {
+            try
+            {
+                enhancedBuffer = _currentEnhancerSession.Process(samples.ToArray());
+                if (enhancedBuffer.Length > 0)
+                {
+                    processedSamples = enhancedBuffer;
+                }
+                else
+                {
+                    // Enhancement is still buffering — feed raw audio to VAD only.
+                    // Also feed raw audio to STT so it doesn't miss data.
+                    AppendUtteranceAudio(samples, _utteranceSampleRate);
+                    _currentSttSession.AcceptAudioChunk(samples, _utteranceSampleRate);
+
+                    if (_currentVadSession is not null)
+                    {
+                        _currentVadSession.AcceptAudioChunk(samples);
+                        TryPublishAudioLevel(samples, _currentVadSession.HasSpeechSegment);
+                    }
+                    else
+                    {
+                        TryPublishAudioLevel(samples, isSpeechActive: true);
+                    }
+
+                    TryPublishPartialTranscript();
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Enhancement frame processing failed for session {SessionId}, using raw audio", Id);
+            }
+        }
+
+        AppendUtteranceAudio(processedSamples, _utteranceSampleRate);
+        _currentSttSession.AcceptAudioChunk(processedSamples, _utteranceSampleRate);
+
+        if (_currentVadSession is not null)
+        {
+            _currentVadSession.AcceptAudioChunk(processedSamples);
+            TryPublishAudioLevel(processedSamples, _currentVadSession.HasSpeechSegment);
+        }
+        else
+        {
+            TryPublishAudioLevel(processedSamples, isSpeechActive: true);
+        }
+
+        TryPublishPartialTranscript();
+    }
+
+    private void TryPublishPartialTranscript()
+    {
+        if (_currentSttSession is null || _eventBus is null)
+        {
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        if ((now - _lastPartialPublish).TotalMilliseconds < 300)
+        {
+            return;
+        }
+
+        _lastPartialPublish = now;
+
+        try
+        {
+            var partial = _currentSttSession.GetPartialResult();
+            if (string.IsNullOrWhiteSpace(partial.Text) || partial.Text == _lastPartialText)
+            {
+                return;
+            }
+
+            _lastPartialText = partial.Text;
+            _eventBus.Publish(new SessionTranscriptEvent
+            {
+                SessionId = Id,
+                Text = partial.Text,
+                Confidence = partial.Confidence,
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to get partial STT result for session {SessionId}", Id);
+        }
     }
 
     private void DrainVadSegmentsToStt()
@@ -612,8 +810,12 @@ public sealed class WyomingSession : IDisposable
         _speakerFilter = services.GetService<SpeakerVerificationFilter>();
         _unknownTracker = services.GetService<UnknownSpeakerTracker>();
         _adaptiveUpdater = services.GetService<AdaptiveProfileUpdater>();
+        _audioClipService = services.GetService<AudioClipService>();
         _commandRouter = services.GetService<ICommandRouter>();
         _skillDispatcher = services.GetService<SkillDispatcher>();
+        _transcriptStore = services.GetService<ITranscriptStore>();
+        _modelManager = services.GetService<ModelManager>();
+        _speechEnhancer = services.GetService<ISpeechEnhancer>();
     }
 
     private async Task ProcessTranscriptAsync(
@@ -639,7 +841,7 @@ public sealed class WyomingSession : IDisposable
             return;
         }
 
-        var speakerTask = IdentifySpeakerAsync(utteranceAudio, ct);
+        var speakerTask = IdentifySpeakerAsync(utteranceAudio, transcript, ct);
         var routeTask = RouteCommandAsync(transcript, ct);
 
         await Task.WhenAll(speakerTask, routeTask).ConfigureAwait(false);
@@ -648,6 +850,30 @@ public sealed class WyomingSession : IDisposable
         if (_speakerFilter is not null && !_speakerFilter.ShouldProcessCommand(speaker))
         {
             _logger.LogDebug("Command filtered for Wyoming session {SessionId}", Id);
+
+            _eventBus?.Publish(new SessionTranscriptEvent
+            {
+                SessionId = Id,
+                Text = $"[filtered] {transcript}",
+                Confidence = originalConfidence,
+                SpeakerId = speaker?.ProfileId,
+                SpeakerName = speaker?.Name,
+                IsFinal = true,
+            });
+
+            await writer.WriteEventAsync(
+                    new TranscriptEvent
+                    {
+                        Text = string.Empty,
+                        Confidence = 0f,
+                    },
+                    ct)
+                .ConfigureAwait(false);
+
+            await TrySaveTranscriptRecordAsync(
+                transcript, originalConfidence, utteranceAudio,
+                speaker, route: null, responseText: null,
+                commandFiltered: true, ct).ConfigureAwait(false);
             return;
         }
 
@@ -659,6 +885,16 @@ public sealed class WyomingSession : IDisposable
 
         var responseText = await DispatchTranscriptAsync(transcript, route, speaker, ct).ConfigureAwait(false);
 
+        _eventBus?.Publish(new SessionTranscriptEvent
+        {
+            SessionId = Id,
+            Text = transcript,
+            Confidence = originalConfidence,
+            SpeakerId = speaker?.ProfileId,
+            SpeakerName = speaker?.Name,
+            IsFinal = true,
+        });
+
         await writer.WriteEventAsync(
                 new TranscriptEvent
                 {
@@ -667,9 +903,87 @@ public sealed class WyomingSession : IDisposable
                 },
                 ct)
             .ConfigureAwait(false);
+
+        await TrySaveTranscriptRecordAsync(
+            transcript, originalConfidence, utteranceAudio,
+            speaker, route, responseText,
+            commandFiltered: false, ct).ConfigureAwait(false);
     }
 
-    private async Task<SpeakerIdentification?> IdentifySpeakerAsync(float[] utteranceAudio, CancellationToken ct)
+    private async Task TrySaveTranscriptRecordAsync(
+        string transcript,
+        float originalConfidence,
+        float[] utteranceAudio,
+        SpeakerIdentification? speaker,
+        CommandRouteResult? route,
+        string? responseText,
+        bool commandFiltered,
+        CancellationToken ct)
+    {
+        if (_transcriptStore is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var stages = new List<PipelineStageTiming>
+            {
+                new() { Name = "stt", DurationMs = 0 },
+            };
+
+            if (_diarizationEngine?.IsReady == true)
+            {
+                stages.Add(new PipelineStageTiming { Name = "diarization", DurationMs = 0 });
+            }
+
+            if (_speechEnhancer?.IsReady == true)
+            {
+                stages.Add(new PipelineStageTiming { Name = "enhancement", DurationMs = 0 });
+            }
+
+            var record = new TranscriptRecord
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                SessionId = Id,
+                Timestamp = DateTimeOffset.UtcNow,
+                Text = transcript,
+                Confidence = originalConfidence,
+                AudioDurationMs = utteranceAudio.Length > 0
+                    ? utteranceAudio.Length * 1000.0 / _utteranceSampleRate
+                    : 0,
+                SampleRate = _utteranceSampleRate,
+                SampleCount = utteranceAudio.Length,
+                SttModelId = _modelManager?.GetActiveModelId(EngineType.Stt) ?? "unknown",
+                VadModelId = _modelManager?.GetActiveModelId(EngineType.Vad),
+                VadActive = _modelManager?.GetActiveModelId(EngineType.Vad) is not null,
+                DiarizationModelId = _modelManager?.GetActiveModelId(EngineType.SpeakerEmbedding),
+                DiarizationActive = _diarizationEngine?.IsReady == true,
+                SpeakerId = speaker?.ProfileId,
+                SpeakerName = speaker?.Name,
+                SpeakerSimilarity = speaker?.Similarity,
+                IsProvisionalSpeaker = speaker is not null ? !speaker.IsAuthorized : null,
+                NewProfileCreated = false,
+                RouteResult = route is not null ? (route.IsMatch ? "match" : "no_match") : null,
+                MatchedSkill = route?.MatchedPattern?.SkillId,
+                RouteConfidence = route?.Confidence,
+                CommandFiltered = commandFiltered,
+                Stages = stages.ToArray(),
+                ResponseText = responseText,
+            };
+
+            await _transcriptStore.SaveAsync(record, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to save transcript record for session {SessionId}", Id);
+        }
+    }
+
+    private async Task<SpeakerIdentification?> IdentifySpeakerAsync(
+        float[] utteranceAudio,
+        string? transcript,
+        CancellationToken ct)
     {
         if (_diarizationEngine is not { IsReady: true } || _profileStore is null || utteranceAudio.Length == 0)
         {
@@ -690,12 +1004,51 @@ public sealed class WyomingSession : IDisposable
                     await _adaptiveUpdater.TryUpdateAsync(speaker, embedding, ct).ConfigureAwait(false);
                 }
 
+                _eventBus?.Publish(new SpeakerDetectedEvent
+                {
+                    SessionId = Id,
+                    ProfileId = speaker.ProfileId,
+                    ProfileName = speaker.Name,
+                    Similarity = speaker.Similarity,
+                    IsProvisional = false,
+                });
+
                 return speaker;
             }
 
             if (_unknownTracker is not null)
             {
-                await _unknownTracker.TrackUnknownSpeakerAsync(embedding, ct).ConfigureAwait(false);
+                var trackingResult =
+                    await _unknownTracker.TrackUnknownSpeakerAsync(embedding, ct).ConfigureAwait(false);
+
+                if (trackingResult is not null)
+                {
+                    _eventBus?.Publish(new SpeakerDetectedEvent
+                    {
+                        SessionId = Id,
+                        ProfileId = trackingResult.Value.Profile.Id,
+                        ProfileName = trackingResult.Value.Profile.Name,
+                        Similarity = 0f,
+                        IsProvisional = true,
+                    });
+
+                    if (_audioClipService is not null)
+                    {
+                        try
+                        {
+                            await _audioClipService.SaveClipAsync(
+                                trackingResult.Value.Profile.Id,
+                                utteranceAudio.AsMemory(),
+                                sampleRate,
+                                transcript,
+                                ct).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to save audio clip for provisional profile");
+                        }
+                    }
+                }
             }
 
             return null;
@@ -840,7 +1193,7 @@ public sealed class WyomingSession : IDisposable
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException)
         {
-            State = WyomingSessionState.Disconnected;
+            SetState(WyomingSessionState.Disconnected);
             _client.Dispose();
             _logger.LogDebug(ex, "Failed to send Wyoming error event for session {SessionId}", Id);
         }

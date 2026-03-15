@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using lucia.Agents.Abstractions;
@@ -9,7 +10,9 @@ using lucia.Wyoming.Models;
 using lucia.Wyoming.Stt;
 using lucia.Wyoming.Vad;
 using lucia.Wyoming.WakeWord;
+using lucia.Wyoming.Telemetry;
 using lucia.Wyoming.Wyoming;
+using MongoDB.Driver;
 
 namespace lucia.Wyoming.Extensions;
 
@@ -36,6 +39,8 @@ public static class ServiceCollectionExtensions
             builder.Configuration.GetSection(SttModelOptions.SectionName));
         builder.Services.Configure<DiarizationOptions>(
             builder.Configuration.GetSection(DiarizationOptions.SectionName));
+        builder.Services.Configure<SpeechEnhancementOptions>(
+            builder.Configuration.GetSection(SpeechEnhancementOptions.SectionName));
         builder.Services.Configure<VoiceProfileOptions>(
             builder.Configuration.GetSection(VoiceProfileOptions.SectionName));
         builder.Services.Configure<CommandRoutingOptions>(
@@ -44,20 +49,37 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<ModelCatalogService>();
         builder.Services.AddSingleton<ModelManager>();
         builder.Services.AddSingleton<IModelChangeNotifier>(sp => sp.GetRequiredService<ModelManager>());
-        // Named HttpClient for model downloads — bypasses Aspire service discovery and resilience.
-        // We cannot use IHttpClientFactory because ConfigureHttpClientDefaults injects service
-        // discovery into ALL clients, causing external URLs (github.com) to hang on redirects.
         builder.Services.AddSingleton<ModelDownloader>();
         builder.Services.AddSingleton<IBackgroundTaskQueue>(_ => new BackgroundTaskQueue(capacity: 100));
         builder.Services.AddSingleton<BackgroundTaskTracker>();
         builder.Services.AddHostedService<BackgroundTaskProcessor>();
+        builder.Services.AddHostedService<ModelStartupValidator>();
 
         builder.Services.AddSingleton<ISttEngine, SherpaSttEngine>();
         builder.Services.AddSingleton<IVadEngine, SherpaVadEngine>();
         builder.Services.AddSingleton<IWakeWordDetector, SherpaWakeWordDetector>();
 
         builder.Services.AddSingleton<IDiarizationEngine, SherpaDiarizationEngine>();
-        builder.Services.AddSingleton<ISpeakerProfileStore, InMemorySpeakerProfileStore>();
+        builder.Services.AddSingleton<ISpeechEnhancer, GtcrnSpeechEnhancer>();
+        builder.Services.AddSingleton<AudioClipService>();
+        builder.Services.AddSingleton<ProfileMergeService>();
+
+        // Use MongoDB-backed store when a MongoDB connection is available; fall back to in-memory.
+        var hasMongoDb = builder.Configuration.GetConnectionString("luciaconfig") is not null
+            || builder.Configuration.GetConnectionString("luciatraces") is not null
+            || builder.Configuration.GetConnectionString("mongodb") is not null;
+
+        if (hasMongoDb)
+        {
+            builder.Services.AddSingleton<ISpeakerProfileStore, MongoSpeakerProfileStore>();
+            builder.Services.AddSingleton<ITranscriptStore, MongoTranscriptStore>();
+        }
+        else
+        {
+            builder.Services.AddSingleton<ISpeakerProfileStore, InMemorySpeakerProfileStore>();
+            builder.Services.AddSingleton<ITranscriptStore, InMemoryTranscriptStore>();
+        }
+
         builder.Services.AddSingleton<SpeakerVerificationFilter>();
         builder.Services.AddSingleton<AdaptiveProfileUpdater>();
         builder.Services.AddSingleton<UnknownSpeakerTracker>();
@@ -84,6 +106,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<CustomWakeWordManager>();
         builder.Services.AddSingleton<IWakeWordChangeNotifier>(sp => sp.GetRequiredService<CustomWakeWordManager>());
 
+        builder.Services.AddSingleton<SessionEventBus>();
         builder.Services.AddSingleton<WyomingServiceInfo>();
         builder.Services.AddHostedService<WyomingServer>();
         builder.Services.AddHostedService<ZeroconfAdvertiser>();

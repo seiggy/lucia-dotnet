@@ -13,6 +13,7 @@ public sealed class WyomingServer : IHostedService, IDisposable
     private readonly WyomingOptions _options;
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<WyomingServer> _logger;
+    private readonly SessionEventBus _eventBus;
     private readonly ConcurrentDictionary<string, WyomingSession> _sessions = new();
     private readonly SemaphoreSlim _sttConcurrency;
     private readonly SemaphoreSlim _ttsConcurrency;
@@ -22,15 +23,18 @@ public sealed class WyomingServer : IHostedService, IDisposable
     public WyomingServer(
         IOptions<WyomingOptions> options,
         IServiceProvider serviceProvider,
-        ILogger<WyomingServer> logger)
+        ILogger<WyomingServer> logger,
+        SessionEventBus eventBus)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(serviceProvider);
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(eventBus);
 
         _options = options.Value;
         _serviceProvider = serviceProvider;
         _logger = logger;
+        _eventBus = eventBus;
         _sttConcurrency = new SemaphoreSlim(_options.MaxConcurrentSttSessions);
         _ttsConcurrency = new SemaphoreSlim(_options.MaxConcurrentTtsSyntheses);
     }
@@ -84,6 +88,12 @@ public sealed class WyomingServer : IHostedService, IDisposable
                 var session = CreateSession(client);
                 _sessions.TryAdd(session.Id, session);
 
+                _eventBus.Publish(new SessionConnectedEvent
+                {
+                    SessionId = session.Id,
+                    RemoteEndPoint = client.Client.RemoteEndPoint?.ToString() ?? "unknown",
+                });
+
                 _logger.LogInformation(
                     "New Wyoming session {SessionId} from {RemoteEndPoint}",
                     session.Id,
@@ -114,7 +124,7 @@ public sealed class WyomingServer : IHostedService, IDisposable
     private WyomingSession CreateSession(TcpClient client)
     {
         var logger = _serviceProvider.GetRequiredService<ILogger<WyomingSession>>();
-        return new WyomingSession(client, _serviceProvider, logger, _options);
+        return new WyomingSession(client, _serviceProvider, logger, _options, _eventBus);
     }
 
     private async Task RunSessionAsync(WyomingSession session, CancellationToken ct)
@@ -131,6 +141,7 @@ public sealed class WyomingServer : IHostedService, IDisposable
         finally
         {
             _sessions.TryRemove(session.Id, out _);
+            _eventBus.Publish(new SessionDisconnectedEvent { SessionId = session.Id });
             session.Dispose();
             _logger.LogInformation("Wyoming session {SessionId} ended", session.Id);
         }

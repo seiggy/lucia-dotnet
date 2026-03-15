@@ -116,9 +116,13 @@ public sealed class PostSttPipelineTests
             _ = Assert.IsType<DetectionEvent>(await parser.ReadEventAsync(cts.Token));
 
             await writer.WriteEventAsync(new AudioStopEvent(), cts.Token);
-            await writer.WriteEventAsync(new TranscribeEvent { Name = "default", Language = "en" }, cts.Token);
 
-            await Assert.ThrowsAsync<WyomingProtocolException>(() => parser.ReadEventAsync(CancellationToken.None));
+            // AudioStop now triggers the full STT pipeline; read the transcript response
+            var response = await parser.ReadEventAsync(cts.Token);
+            var transcriptEvent = Assert.IsType<TranscriptEvent>(response);
+
+            // Unknown speaker with IgnoreUnknownVoices: transcript is suppressed
+            Assert.Empty(transcriptEvent.Text);
         }
         finally
         {

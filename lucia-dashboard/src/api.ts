@@ -175,10 +175,19 @@ export async function fetchConfigSchema(): Promise<ConfigSectionSchema[]> {
   return res.json();
 }
 
+export type EngineType = 'stt' | 'vad' | 'kws' | 'speaker-embedding' | 'speech-enhancement';
+
+export interface WyomingEngineStatus {
+  ready: boolean;
+  activeModel?: string;
+}
+
 export interface WyomingStatus {
-  stt: { ready: boolean };
-  wakeWord: { ready: boolean };
-  diarization: { ready: boolean };
+  stt: WyomingEngineStatus;
+  vad: WyomingEngineStatus;
+  wakeWord: WyomingEngineStatus;
+  diarization: WyomingEngineStatus;
+  speechEnhancement: WyomingEngineStatus;
   customWakeWords: { ready: boolean };
   configured: boolean;
 }
@@ -1468,6 +1477,19 @@ export interface InstalledModel extends AsrModel {
   isActive: boolean
 }
 
+export interface WyomingModelDefinition {
+  id: string
+  name: string
+  engineType: string
+  description: string
+  languages: string[]
+  sizeBytes: number
+  downloadUrl: string
+  isDefault: boolean
+  minMemoryMb: number
+  isArchive: boolean
+}
+
 export interface BackgroundTaskStage {
   name: string
   status: 'Queued' | 'Running' | 'Complete' | 'Failed' | 'Cancelled'
@@ -1539,4 +1561,218 @@ export async function deleteModel(modelId: string): Promise<void> {
   await fetch(`${BASE}/wyoming/models/${encodeURIComponent(modelId)}`, {
     method: 'DELETE',
   })
+}
+
+// ── Multi-Engine Model Management API ──────────────────────────
+
+export async function fetchEngineModels(engineType: EngineType): Promise<WyomingModelDefinition[]> {
+  const res = await fetch(`${BASE}/wyoming/engines/${engineType}/models`)
+  if (!res.ok) throw new Error(`Failed to fetch ${engineType} models: ${res.statusText}`)
+  return res.json()
+}
+
+export async function fetchEngineInstalledModels(engineType: EngineType): Promise<WyomingModelDefinition[]> {
+  const res = await fetch(`${BASE}/wyoming/engines/${engineType}/models/installed`)
+  if (!res.ok) return []
+  return res.json()
+}
+
+export async function fetchEngineActiveModel(engineType: EngineType): Promise<{ activeModel: string }> {
+  const res = await fetch(`${BASE}/wyoming/engines/${engineType}/models/active`)
+  if (!res.ok) return { activeModel: '' }
+  return res.json()
+}
+
+export async function downloadEngineModel(engineType: EngineType, modelId: string): Promise<ModelDownloadResult> {
+  const res = await fetch(`${BASE}/wyoming/engines/${engineType}/models/${encodeURIComponent(modelId)}/download`, {
+    method: 'POST',
+  })
+  if (!res.ok) throw new Error(`Failed to start ${engineType} model download: ${res.statusText}`)
+  return res.json()
+}
+
+export async function activateEngineModel(engineType: EngineType, modelId: string): Promise<void> {
+  const res = await fetch(`${BASE}/wyoming/engines/${engineType}/models/${encodeURIComponent(modelId)}/activate`, {
+    method: 'POST',
+  })
+  if (!res.ok) throw new Error(`Failed to activate ${engineType} model: ${res.statusText}`)
+}
+
+export async function deleteEngineModel(engineType: EngineType, modelId: string): Promise<void> {
+  const res = await fetch(`${BASE}/wyoming/engines/${engineType}/models/${encodeURIComponent(modelId)}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) throw new Error(`Failed to delete ${engineType} model: ${res.statusText}`)
+}
+
+// ── Voice Configuration API ──────────────────────────
+
+export interface VoiceConfig {
+  ignoreUnknownVoices: boolean
+  autoCreateProvisionalProfiles: boolean
+  maxAutoProfiles: number
+  speakerVerificationThreshold: number
+  provisionalMatchThreshold: number
+  adaptiveProfiles: boolean
+  provisionalRetentionDays: number
+  suggestEnrollmentAfter: number
+  diarizationEnabled: boolean
+}
+
+export async function fetchVoiceConfig(): Promise<VoiceConfig> {
+  const res = await fetch(`${BASE}/wyoming/voice-config`)
+  if (!res.ok) throw new Error('Failed to fetch voice config')
+  return res.json()
+}
+
+export async function updateVoiceConfig(config: Partial<VoiceConfig>): Promise<void> {
+  const res = await fetch(`${BASE}/wyoming/voice-config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  })
+  if (!res.ok) throw new Error('Failed to update voice config')
+}
+
+// ── Audio Clip API ──────────────────────────
+
+export interface AudioClipInfo {
+  id: string
+  profileId: string
+  capturedAt: string
+  duration: string
+  sampleRate: number
+  transcript?: string
+  fileSizeBytes: number
+}
+
+export async function fetchProfileClips(profileId: string): Promise<AudioClipInfo[]> {
+  const res = await fetch(`${BASE}/speakers/${encodeURIComponent(profileId)}/clips`)
+  if (!res.ok) return []
+  return res.json()
+}
+
+export function getClipAudioUrl(profileId: string, clipId: string): string {
+  return `${BASE}/speakers/${encodeURIComponent(profileId)}/clips/${encodeURIComponent(clipId)}`
+}
+
+export async function deleteClip(profileId: string, clipId: string): Promise<void> {
+  await fetch(`${BASE}/speakers/${encodeURIComponent(profileId)}/clips/${encodeURIComponent(clipId)}`, { method: 'DELETE' })
+}
+
+export async function reassignClip(profileId: string, clipId: string, targetProfileId: string): Promise<void> {
+  await fetch(`${BASE}/speakers/${encodeURIComponent(profileId)}/clips/${encodeURIComponent(clipId)}/reassign`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ targetProfileId }),
+  })
+}
+
+// ── Profile Merge API ──────────────────────────
+
+export async function mergeProfiles(sourceProfileId: string, targetProfileId: string): Promise<void> {
+  const res = await fetch(`${BASE}/speakers/merge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sourceProfileId, targetProfileId }),
+  })
+  if (!res.ok) throw new Error('Failed to merge profiles')
+}
+
+// ── Session Monitoring API ──────────────────────────
+
+export async function fetchWyomingSessions(): Promise<{ activeSessions: number }> {
+  const res = await fetch(`${BASE}/wyoming/sessions`)
+  if (!res.ok) return { activeSessions: 0 }
+  return res.json()
+}
+
+export function createSessionEventSource(): EventSource {
+  return new EventSource(`${BASE}/wyoming/sessions/live`)
+}
+
+export interface SessionTranscriptEvent {
+  sessionId: string
+  timestamp: string
+  text: string
+  confidence: number
+  speakerId?: string
+  speakerName?: string
+  isFinal: boolean
+}
+
+export interface SessionConnectedEvent {
+  sessionId: string
+  timestamp: string
+  remoteEndPoint: string
+}
+
+export interface AudioLevelEvent {
+  sessionId: string
+  timestamp: string
+  rmsLevel: number
+  activeVoiceCount: number
+}
+
+export interface SpeakerDetectedEvent {
+  sessionId: string
+  timestamp: string
+  profileId: string
+  profileName: string
+  similarity: number
+  isProvisional: boolean
+}
+
+export interface SessionStateChangedEvent {
+  sessionId: string
+  timestamp: string
+  state: string
+}
+
+// ── Transcript History API ──────────────────────────
+
+export interface PipelineStageTiming {
+  name: string
+  durationMs: number
+  success: boolean
+  error?: string
+}
+
+export interface TranscriptRecord {
+  id: string
+  sessionId: string
+  timestamp: string
+  text: string
+  confidence: number
+  audioDurationMs: number
+  sampleRate: number
+  sampleCount: number
+  sttModelId: string
+  vadModelId?: string
+  vadActive: boolean
+  diarizationModelId?: string
+  diarizationActive: boolean
+  speakerId?: string
+  speakerName?: string
+  speakerSimilarity?: number
+  isProvisionalSpeaker?: boolean
+  newProfileCreated: boolean
+  routeResult?: string
+  matchedSkill?: string
+  routeConfidence?: number
+  commandFiltered: boolean
+  stages: PipelineStageTiming[]
+  responseText?: string
+}
+
+export async function fetchRecentTranscripts(limit = 20): Promise<TranscriptRecord[]> {
+  const res = await fetch(`${BASE}/wyoming/transcripts/recent?limit=${limit}`)
+  if (!res.ok) return []
+  return res.json()
+}
+
+export async function fetchTranscript(id: string): Promise<TranscriptRecord | null> {
+  const res = await fetch(`${BASE}/wyoming/transcripts/${encodeURIComponent(id)}`)
+  if (!res.ok) return null
+  return res.json()
 }

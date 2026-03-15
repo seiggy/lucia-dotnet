@@ -1,3 +1,4 @@
+using lucia.AgentHost.Models;
 using lucia.Wyoming.Diarization;
 using lucia.Wyoming.WakeWord;
 
@@ -99,7 +100,7 @@ public static class OnboardingApi
             ISpeakerProfileStore store,
             CancellationToken ct) =>
         {
-            var profiles = await store.GetEnrolledProfilesAsync(ct).ConfigureAwait(false);
+            var profiles = await store.GetAllAsync(ct).ConfigureAwait(false);
             return Results.Ok(profiles.Select(p => new
             {
                 p.Id,
@@ -120,6 +121,34 @@ public static class OnboardingApi
         {
             await store.DeleteAsync(id, ct).ConfigureAwait(false);
             return Results.NoContent();
+        }).WithTags("Voice Onboarding")
+            .RequireAuthorization();
+
+        app.MapPost("/api/speakers/merge", async (
+            MergeProfilesRequest request,
+            ProfileMergeService mergeService,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                var merged = await mergeService.MergeAsync(request.SourceProfileId, request.TargetProfileId, ct)
+                    .ConfigureAwait(false);
+                return Results.Ok(new
+                {
+                    merged.Id,
+                    merged.Name,
+                    merged.InteractionCount,
+                    EmbeddingCount = merged.Embeddings?.Length ?? 0,
+                });
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return Results.NotFound(ex.Message);
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.BadRequest(ex.Message);
+            }
         }).WithTags("Voice Onboarding")
             .RequireAuthorization();
 

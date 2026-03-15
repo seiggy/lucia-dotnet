@@ -4,6 +4,10 @@ public sealed class WakeWordOptions
 {
     public const string SectionName = "Wyoming:Models:WakeWord";
 
+    public string ActiveModel { get; set; } = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01";
+    public string ModelBasePath { get; set; } = "./models/kws";
+    public bool AutoDownloadDefault { get; set; } = true;
+
     public string ModelPath { get; set; } = "";
     public string[] DefaultKeywords { get; set; } = ["hey lucia"];
     public string KeywordsFile { get; set; } = "";

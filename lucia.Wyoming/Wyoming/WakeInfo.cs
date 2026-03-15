@@ -11,4 +11,8 @@ public sealed record WakeInfo
     public string[] Languages { get; init; } = [];
 
     public bool Installed { get; init; }
+
+    public Attribution Attribution { get; init; } = new();
+
+    public WakeModelInfo[] Models { get; init; } = [];
 }

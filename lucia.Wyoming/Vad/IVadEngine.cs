@@ -3,7 +3,7 @@ namespace lucia.Wyoming.Vad;
 /// <summary>
 /// Factory for per-connection voice activity detection sessions.
 /// </summary>
-public interface IVadEngine : IDisposable
+public interface IVadEngine
 {
     /// <summary>
     /// Gets a value indicating whether the engine is ready to create sessions.

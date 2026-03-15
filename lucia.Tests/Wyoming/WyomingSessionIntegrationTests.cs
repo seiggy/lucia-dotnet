@@ -240,7 +240,7 @@ public sealed class WyomingSessionIntegrationTests
         Assert.Equal(1, diarizationEngine.ExtractEmbeddingCallCount);
         Assert.Equal(1, diarizationEngine.IdentifySpeakerCallCount);
         Assert.Equal(16_000, diarizationEngine.LastSampleRate);
-        Assert.Equal(vadSegment.Samples, diarizationEngine.LastAudioSamples);
+        Assert.Equal(new[] { 0.25f, -0.25f, 0.25f, -0.25f }, diarizationEngine.LastAudioSamples);
         Assert.Equal(1, router.RouteCallCount);
         Assert.Equal("turn on the office lights", router.LastTranscript);
 
@@ -319,9 +319,13 @@ public sealed class WyomingSessionIntegrationTests
             _ = Assert.IsType<DetectionEvent>(await parser.ReadEventAsync(cts.Token));
 
             await writer.WriteEventAsync(new AudioStopEvent(), cts.Token);
-            await writer.WriteEventAsync(new TranscribeEvent { Name = "default", Language = "en" }, cts.Token);
 
-            await Assert.ThrowsAsync<WyomingProtocolException>(() => parser.ReadEventAsync(CancellationToken.None));
+            // AudioStop now triggers the full STT pipeline; read the transcript response
+            var response = await parser.ReadEventAsync(cts.Token);
+            var transcriptEvent = Assert.IsType<TranscriptEvent>(response);
+
+            // Unknown speaker with IgnoreUnknownVoices=true: transcript is suppressed
+            Assert.Empty(transcriptEvent.Text);
         }
         finally
         {

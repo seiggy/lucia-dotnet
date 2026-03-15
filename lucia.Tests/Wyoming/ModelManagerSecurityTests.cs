@@ -1,4 +1,8 @@
+using lucia.Wyoming.Audio;
+using lucia.Wyoming.Diarization;
 using lucia.Wyoming.Models;
+using lucia.Wyoming.Vad;
+using lucia.Wyoming.WakeWord;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -67,10 +71,23 @@ public sealed class ModelManagerSecurityTests : IDisposable
             AutoDownloadDefault = false,
         });
 
-        var catalog = new ModelCatalogService(options);
+        var catalog = new ModelCatalogService(
+            options,
+            new OptionsMonitorStub<VadOptions>(new VadOptions()),
+            new OptionsMonitorStub<WakeWordOptions>(new WakeWordOptions()),
+            new OptionsMonitorStub<DiarizationOptions>(new DiarizationOptions()),
+            new OptionsMonitorStub<SpeechEnhancementOptions>(new SpeechEnhancementOptions()));
         var downloader = new ModelDownloader(new SimpleHttpClientFactory(), NullLogger<ModelDownloader>.Instance);
 
-        return new ModelManager(options, catalog, downloader, NullLogger<ModelManager>.Instance);
+        return new ModelManager(
+            options,
+            new OptionsMonitorStub<VadOptions>(new VadOptions()),
+            new OptionsMonitorStub<WakeWordOptions>(new WakeWordOptions()),
+            new OptionsMonitorStub<DiarizationOptions>(new DiarizationOptions()),
+            new OptionsMonitorStub<SpeechEnhancementOptions>(new SpeechEnhancementOptions()),
+            catalog,
+            downloader,
+            NullLogger<ModelManager>.Instance);
     }
 
     private sealed class OptionsMonitorStub<T>(T currentValue) : IOptionsMonitor<T>

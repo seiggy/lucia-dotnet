@@ -1,80 +1,146 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SherpaOnnx;
+using lucia.Wyoming.Models;
 
 namespace lucia.Wyoming.Vad;
 
-public sealed class SherpaVadEngine : IVadEngine
+public sealed class SherpaVadEngine : IVadEngine, IDisposable
 {
     private readonly ILogger<SherpaVadEngine> _logger;
-    private readonly VadModelConfig? _config;
+    private readonly IModelChangeNotifier _modelChangeNotifier;
+    private readonly object _lock = new();
+    private readonly VadOptions _options;
     private readonly int _sampleRate;
+    private VadModelConfig? _config;
 
     public SherpaVadEngine(
         IOptions<VadOptions> options,
+        IModelChangeNotifier modelChangeNotifier,
         ILogger<SherpaVadEngine> logger)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(modelChangeNotifier);
         ArgumentNullException.ThrowIfNull(logger);
 
+        _options = options.Value;
+        _sampleRate = _options.SampleRate;
         _logger = logger;
+        _modelChangeNotifier = modelChangeNotifier;
 
-        var opts = options.Value;
-        _sampleRate = opts.SampleRate;
-
-        try
-        {
-            _config = BuildConfig(opts);
-            IsReady = true;
-
-            _logger.LogInformation(
-                "Sherpa VAD engine initialized with model at {Path}",
-                opts.ModelPath);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to initialize Sherpa VAD engine");
-            IsReady = false;
-        }
+        TryLoadModel(_options.ModelPath);
+        _modelChangeNotifier.ActiveModelChanged += OnActiveModelChanged;
     }
 
-    public bool IsReady { get; }
+    public bool IsReady { get; private set; }
 
     public IVadSession CreateSession()
     {
-        if (!IsReady || _config is null)
+        VadModelConfig config;
+        lock (_lock)
         {
-            throw new InvalidOperationException("VAD engine is not ready.");
+            if (!IsReady || _config is null)
+            {
+                throw new InvalidOperationException("VAD engine is not ready.");
+            }
+
+            config = _config.Value;
         }
 
-        return new SherpaVadSession(_config.Value, _sampleRate);
+        return new SherpaVadSession(config, _sampleRate);
     }
 
     public void Dispose()
     {
+        _modelChangeNotifier.ActiveModelChanged -= OnActiveModelChanged;
+
+        lock (_lock)
+        {
+            IsReady = false;
+            _config = null;
+        }
     }
 
-    private static VadModelConfig BuildConfig(VadOptions options)
+    private void OnActiveModelChanged(ActiveModelChangedEvent evt)
     {
-        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(evt);
 
-        if (string.IsNullOrWhiteSpace(options.ModelPath))
+        if (evt.EngineType != EngineType.Vad) return;
+
+        _logger.LogInformation("Reloading VAD engine with model {ModelId}", evt.ModelId);
+        TryLoadModel(evt.ModelPath);
+    }
+
+    private void TryLoadModel(string modelPath)
+    {
+        var onnxPath = ResolveModelFile(modelPath);
+        if (string.IsNullOrWhiteSpace(onnxPath))
         {
-            throw new InvalidOperationException("VAD model path must be configured.");
+            _logger.LogWarning("VAD model path not configured or missing: {ModelPath}", modelPath);
+            lock (_lock)
+            {
+                IsReady = false;
+            }
+
+            return;
         }
 
-        if (!File.Exists(options.ModelPath))
+        lock (_lock)
+        {
+            try
+            {
+                _config = BuildConfig(onnxPath, _options);
+                IsReady = true;
+
+                _logger.LogInformation(
+                    "Sherpa VAD engine loaded model from {ModelPath}",
+                    onnxPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to load VAD model from {ModelPath}", onnxPath);
+                IsReady = false;
+            }
+        }
+    }
+
+    private static string? ResolveModelFile(string modelPath)
+    {
+        if (string.IsNullOrWhiteSpace(modelPath))
+        {
+            return null;
+        }
+
+        if (File.Exists(modelPath))
+        {
+            return modelPath;
+        }
+
+        if (Directory.Exists(modelPath))
+        {
+            return Directory.EnumerateFiles(modelPath, "*.onnx", SearchOption.AllDirectories).FirstOrDefault();
+        }
+
+        return null;
+    }
+
+    private static VadModelConfig BuildConfig(string modelPath, VadOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentException.ThrowIfNullOrWhiteSpace(modelPath);
+
+        if (!File.Exists(modelPath))
         {
             throw new FileNotFoundException(
-                $"VAD model file '{options.ModelPath}' was not found.",
-                options.ModelPath);
+                $"VAD model file '{modelPath}' was not found.",
+                modelPath);
         }
 
         return new VadModelConfig
         {
             SileroVad = new SileroVadModelConfig
             {
-                Model = options.ModelPath,
+                Model = modelPath,
                 Threshold = options.Threshold,
                 MinSpeechDuration = options.MinSpeechDuration,
                 MinSilenceDuration = options.MinSilenceDuration,

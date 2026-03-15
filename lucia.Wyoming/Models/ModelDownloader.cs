@@ -9,7 +9,7 @@ public sealed class ModelDownloader(IHttpClientFactory httpClientFactory, ILogge
     private const int BufferSize = 81_920;
 
     public async Task<ModelDownloadResult> DownloadModelAsync(
-        AsrModelDefinition model,
+        WyomingModelDefinition model,
         string targetBasePath,
         IProgress<ModelDownloadProgress>? progress = null,
         IProgress<(int percent, string message)>? extractionProgress = null,
@@ -29,7 +29,8 @@ public sealed class ModelDownloader(IHttpClientFactory httpClientFactory, ILogge
             "lucia-wyoming-models",
             Guid.NewGuid().ToString("N"));
 
-        var archivePath = Path.Combine(stagingRoot, $"{model.Id}.tar.bz2");
+        var downloadFileName = GetDownloadFileName(model.DownloadUrl, model.Id);
+        var downloadPath = Path.Combine(stagingRoot, downloadFileName);
         var extractionDirectory = Path.Combine(stagingRoot, "extract");
 
         try
@@ -47,7 +48,7 @@ public sealed class ModelDownloader(IHttpClientFactory httpClientFactory, ILogge
 
             var totalBytes = response.Content.Headers.ContentLength ?? model.SizeBytes;
             await using (var contentStream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false))
-            await using (var archiveStream = File.Create(archivePath))
+            await using (var archiveStream = File.Create(downloadPath))
             {
                 var buffer = new byte[BufferSize];
                 long downloadedBytes = 0;
@@ -72,21 +73,31 @@ public sealed class ModelDownloader(IHttpClientFactory httpClientFactory, ILogge
                 }
             }
 
-            extractionProgress?.Report((0, "Extracting model archive…"));
-            ExtractArchive(archivePath, extractionDirectory, percent =>
-            {
-                extractionProgress?.Report((percent, $"Extracting… {percent}%"));
-            });
-
-            extractionProgress?.Report((100, "Installing model files…"));
-            var extractedModelDirectory = ResolveExtractedModelDirectory(extractionDirectory, model.Id);
-
             if (Directory.Exists(targetDirectory))
             {
                 Directory.Delete(targetDirectory, recursive: true);
             }
 
-            CopyDirectory(extractedModelDirectory, targetDirectory);
+            if (IsArchiveFile(downloadPath))
+            {
+                extractionProgress?.Report((0, "Extracting model archive…"));
+                var archiveProgress = new Progress<ProgressReport>(report =>
+                {
+                    extractionProgress?.Report((Convert.ToInt32(report.PercentComplete), "Extracting..."));
+                });
+                ExtractArchive(downloadPath, extractionDirectory, archiveProgress);
+
+                extractionProgress?.Report((100, "Installing model files…"));
+                var extractedModelDirectory = ResolveExtractedModelDirectory(extractionDirectory, model.Id);
+                CopyDirectory(extractedModelDirectory, targetDirectory);
+            }
+            else
+            {
+                extractionProgress?.Report((100, "Installing model file…"));
+                Directory.CreateDirectory(targetDirectory);
+                var destFile = Path.Combine(targetDirectory, Path.GetFileName(downloadPath));
+                File.Copy(downloadPath, destFile, overwrite: true);
+            }
 
             progress?.Report(
                 new ModelDownloadProgress
@@ -133,12 +144,19 @@ public sealed class ModelDownloader(IHttpClientFactory httpClientFactory, ILogge
         };
     }
 
-    private static void ExtractArchive(string archivePath, string extractionDirectory, Action<int>? onProgress = null)
+    private static void ExtractArchive(string archivePath, string extractionDirectory, IProgress<ProgressReport>? onProgress = null)
     {
-        var archiveSize = new FileInfo(archivePath).Length;
+        // SharpCompress uses Constants.RewindableBufferSize for the ring buffer during
+        // format detection. The default (81920) is too small for bz2-compressed tar archives
+        // where ~800KB of decompressed data must be inspected to confirm the inner tar format.
+        // ReaderOptions.WithRewindableBufferSize doesn't flow through to the stream constructor,
+        // so we set the static default directly.
+        Constants.RewindableBufferSize = 1_048_576;
+
+        var options = ReaderOptions.ForFilePath
+            .WithProgress(onProgress);
         using var stream = File.OpenRead(archivePath);
-        using var reader = ReaderFactory.Open(stream);
-        var lastPercent = -1;
+        using var reader = ReaderFactory.OpenReader(stream, options);
 
         while (reader.MoveToNextEntry())
         {
@@ -154,12 +172,6 @@ public sealed class ModelDownloader(IHttpClientFactory httpClientFactory, ILogge
                     ExtractFullPath = true,
                     Overwrite = true,
                 });
-
-            if (archiveSize > 0 && onProgress is not null)
-            {
-                var pct = (int)(stream.Position * 100 / archiveSize);
-                if (pct != lastPercent) { lastPercent = pct; onProgress(pct); }
-            }
         }
     }
 
@@ -206,6 +218,19 @@ public sealed class ModelDownloader(IHttpClientFactory httpClientFactory, ILogge
             File.Copy(filePath, destinationFile, overwrite: true);
         }
     }
+
+    private static string GetDownloadFileName(string url, string modelId)
+    {
+        var uri = new Uri(url);
+        var fileName = Path.GetFileName(uri.LocalPath);
+        return string.IsNullOrWhiteSpace(fileName) ? $"{modelId}.tar.bz2" : fileName;
+    }
+
+    private static bool IsArchiveFile(string filePath) =>
+        filePath.EndsWith(".tar.bz2", StringComparison.OrdinalIgnoreCase)
+        || filePath.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase)
+        || filePath.EndsWith(".tgz", StringComparison.OrdinalIgnoreCase)
+        || filePath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsModelDirectoryReady(string modelDirectory) =>
         Directory.Exists(modelDirectory)

@@ -220,10 +220,21 @@ public static class Extensions
         }
     }
 
+    private const long MaxBodyCaptureBytes = 256 * 1024; // 256 KB
+
     private static void TrySetBodyTag(Activity activity, string tagName, HttpContent content)
     {
         try
         {
+            // Skip body capture for large or streaming responses (e.g. model downloads).
+            // LoadIntoBufferAsync on an unbuffered network stream would synchronously
+            // download the entire response body, blocking the thread indefinitely.
+            var contentLength = content.Headers.ContentLength;
+            if (contentLength is null or > MaxBodyCaptureBytes)
+            {
+                return;
+            }
+
             // Buffer the content first so downstream code can still read it.
             // LoadIntoBufferAsync is a no-op if already buffered.
             content.LoadIntoBufferAsync().ConfigureAwait(false).GetAwaiter().GetResult();

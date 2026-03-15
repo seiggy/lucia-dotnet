@@ -3,7 +3,7 @@ namespace lucia.Wyoming.Stt;
 /// <summary>
 /// Abstraction for creating speech-to-text sessions.
 /// </summary>
-public interface ISttEngine : IDisposable
+public interface ISttEngine
 {
     /// <summary>Whether the engine is loaded and ready.</summary>
     bool IsReady { get; }

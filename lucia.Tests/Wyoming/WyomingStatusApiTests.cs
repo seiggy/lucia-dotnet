@@ -1,10 +1,16 @@
 using System.Text.Json;
+using FakeItEasy;
 using lucia.AgentHost.Apis;
+using lucia.Wyoming.Audio;
 using lucia.Wyoming.Diarization;
+using lucia.Wyoming.Models;
 using lucia.Wyoming.Stt;
+using lucia.Wyoming.Vad;
 using lucia.Wyoming.WakeWord;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace lucia.Tests.Wyoming;
 
@@ -15,9 +21,12 @@ public sealed class WyomingStatusApiTests
     {
         var result = WyomingStatusApi.GetWyomingStatus(
             new TestSttEngine(new TestSttSession(new SttResult())),
+            null,
             new TestWakeWordDetector(new TestWakeWordSession(null)),
             new TestDiarizationEngine(),
-            CreateReadyManager());
+            null,
+            CreateReadyManager(),
+            CreateModelManager());
 
         var payload = await ExecuteResultAsync(result);
 
@@ -33,9 +42,12 @@ public sealed class WyomingStatusApiTests
     {
         var result = WyomingStatusApi.GetWyomingStatus(
             new UnreadySttEngine(),
+            null,
             new UnreadyWakeWordDetector(),
             new UnreadyDiarizationEngine(),
-            CreateUnreadyManager());
+            null,
+            CreateUnreadyManager(),
+            CreateModelManager());
 
         var payload = await ExecuteResultAsync(result);
 
@@ -44,6 +56,22 @@ public sealed class WyomingStatusApiTests
         Assert.False(payload.GetProperty("diarization").GetProperty("ready").GetBoolean());
         Assert.False(payload.GetProperty("customWakeWords").GetProperty("ready").GetBoolean());
         Assert.False(payload.GetProperty("configured").GetBoolean());
+    }
+
+    private static ModelManager CreateModelManager()
+    {
+        var sttMonitor = new OptionsMonitorStub<SttModelOptions>(new SttModelOptions());
+        var vadMonitor = new OptionsMonitorStub<VadOptions>(new VadOptions());
+        var wakeMonitor = new OptionsMonitorStub<WakeWordOptions>(new WakeWordOptions());
+        var diarizationMonitor = new OptionsMonitorStub<DiarizationOptions>(new DiarizationOptions());
+        var enhancementMonitor = new OptionsMonitorStub<SpeechEnhancementOptions>(new SpeechEnhancementOptions());
+        var catalog = new ModelCatalogService(sttMonitor, vadMonitor, wakeMonitor, diarizationMonitor, enhancementMonitor);
+        var downloader = new ModelDownloader(
+            A.Fake<IHttpClientFactory>(), NullLogger<ModelDownloader>.Instance);
+
+        return new ModelManager(
+            sttMonitor, vadMonitor, wakeMonitor, diarizationMonitor, enhancementMonitor,
+            catalog, downloader, NullLogger<ModelManager>.Instance);
     }
 
     private static CustomWakeWordManager CreateReadyManager()
@@ -55,24 +83,24 @@ public sealed class WyomingStatusApiTests
         return new CustomWakeWordManager(
             new InMemoryWakeWordStore(),
             new WakeWordTokenizer(),
-            Microsoft.Extensions.Options.Options.Create(new WakeWordOptions
+            Options.Create(new WakeWordOptions
             {
                 ModelPath = modelPath,
                 KeywordsFile = "keywords.txt",
             }),
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<CustomWakeWordManager>.Instance);
+            NullLogger<CustomWakeWordManager>.Instance);
     }
 
     private static CustomWakeWordManager CreateUnreadyManager() =>
         new(
             new InMemoryWakeWordStore(),
             new WakeWordTokenizer(),
-            Microsoft.Extensions.Options.Options.Create(new WakeWordOptions
+            Options.Create(new WakeWordOptions
             {
                 ModelPath = string.Empty,
                 KeywordsFile = "keywords.txt",
             }),
-            Microsoft.Extensions.Logging.Abstractions.NullLogger<CustomWakeWordManager>.Instance);
+            NullLogger<CustomWakeWordManager>.Instance);
 
     private static async Task<JsonElement> ExecuteResultAsync(IResult result)
     {
@@ -125,5 +153,14 @@ public sealed class WyomingStatusApiTests
         public void Dispose()
         {
         }
+    }
+
+    private sealed class OptionsMonitorStub<T>(T currentValue) : IOptionsMonitor<T>
+    {
+        public T CurrentValue => currentValue;
+
+        public T Get(string? name) => currentValue;
+
+        public IDisposable? OnChange(Action<T, string?> listener) => null;
     }
 }

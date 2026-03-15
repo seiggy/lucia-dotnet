@@ -102,7 +102,7 @@ public sealed class WyomingProtocolComplianceTests
         Assert.Equal(1, sttEngine.CreateSessionCount);
         Assert.Equal(1, vadEngine.CreateSessionCount);
         Assert.Equal(1, wakeSession.AcceptAudioChunkCount);
-        Assert.Equal(1, sttSession.AcceptAudioChunkCount);
+        Assert.Equal(2, sttSession.AcceptAudioChunkCount);
         Assert.Equal(2, vadSession.AcceptAudioChunkCount);
         Assert.Equal(1, vadSession.FlushCallCount);
     }
@@ -201,7 +201,8 @@ public sealed class WyomingProtocolComplianceTests
         var server = new WyomingServer(
             Options.Create(options),
             serviceProvider,
-            serviceProvider.GetRequiredService<ILogger<WyomingServer>>());
+            serviceProvider.GetRequiredService<ILogger<WyomingServer>>(),
+            new SessionEventBus());
 
         await server.StartAsync(CancellationToken.None);
         await Task.Delay(100);

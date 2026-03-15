@@ -15,7 +15,9 @@ public sealed class SpeakerVerificationComponentTests
 
         var embedding = engine.ExtractEmbedding(CreateAudioSamples(), 16_000);
 
-        var (profile, shouldSuggestEnrollment) = await tracker.TrackUnknownSpeakerAsync(embedding, CancellationToken.None);
+        var result = await tracker.TrackUnknownSpeakerAsync(embedding, CancellationToken.None);
+        Assert.NotNull(result);
+        var (profile, shouldSuggestEnrollment) = result.Value;
 
         Assert.True(profile.IsProvisional);
         Assert.False(profile.IsAuthorized);
@@ -36,10 +38,14 @@ public sealed class SpeakerVerificationComponentTests
         var engine = new TestDiarizationEngine(embeddingVector: CreateEmbeddingVector(0.4f, 0.001f));
 
         var firstEmbedding = engine.ExtractEmbedding(CreateAudioSamples(), 16_000);
-        var firstResult = await tracker.TrackUnknownSpeakerAsync(firstEmbedding, CancellationToken.None);
+        var firstNullable = await tracker.TrackUnknownSpeakerAsync(firstEmbedding, CancellationToken.None);
+        Assert.NotNull(firstNullable);
+        var firstResult = firstNullable.Value;
 
         var secondEmbedding = engine.ExtractEmbedding(CreateAudioSamples(phase: 0.1f), 16_000);
-        var secondResult = await tracker.TrackUnknownSpeakerAsync(secondEmbedding, CancellationToken.None);
+        var secondNullable = await tracker.TrackUnknownSpeakerAsync(secondEmbedding, CancellationToken.None);
+        Assert.NotNull(secondNullable);
+        var secondResult = secondNullable.Value;
 
         Assert.Equal(firstResult.Profile.Id, secondResult.Profile.Id);
         Assert.Equal(2, secondResult.Profile.InteractionCount);
@@ -60,7 +66,9 @@ public sealed class SpeakerVerificationComponentTests
         await tracker.TrackUnknownSpeakerAsync(firstEmbedding, CancellationToken.None);
 
         var secondEmbedding = engine.ExtractEmbedding(CreateAudioSamples(phase: 0.2f), 16_000);
-        var secondResult = await tracker.TrackUnknownSpeakerAsync(secondEmbedding, CancellationToken.None);
+        var secondNullable = await tracker.TrackUnknownSpeakerAsync(secondEmbedding, CancellationToken.None);
+        Assert.NotNull(secondNullable);
+        var secondResult = secondNullable.Value;
 
         Assert.True(secondResult.ShouldSuggestEnrollment);
         Assert.Equal(2, secondResult.Profile.InteractionCount);

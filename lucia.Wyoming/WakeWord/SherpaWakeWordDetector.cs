@@ -1,55 +1,47 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SherpaOnnx;
+using lucia.Wyoming.Models;
 
 namespace lucia.Wyoming.WakeWord;
 
-public sealed class SherpaWakeWordDetector : IWakeWordDetector
+public sealed class SherpaWakeWordDetector : IWakeWordDetector, IDisposable
 {
     private readonly object _lock = new();
     private readonly List<KeywordSpotter> _retiredSpotters = [];
-    private KeywordSpotter? _spotter;
     private readonly WakeWordOptions _options;
     private readonly ILogger<SherpaWakeWordDetector> _logger;
     private readonly IWakeWordChangeNotifier? _changeNotifier;
+    private readonly IModelChangeNotifier _modelChangeNotifier;
+    private KeywordSpotter? _spotter;
+    private string _modelPath;
 
     public bool IsReady { get; private set; }
 
     public SherpaWakeWordDetector(
         IOptions<WakeWordOptions> options,
+        IModelChangeNotifier modelChangeNotifier,
         IWakeWordChangeNotifier? changeNotifier,
         ILogger<SherpaWakeWordDetector> logger)
     {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(modelChangeNotifier);
+        ArgumentNullException.ThrowIfNull(logger);
+
         _options = options.Value;
         _logger = logger;
         _changeNotifier = changeNotifier;
+        _modelChangeNotifier = modelChangeNotifier;
+        _modelPath = _options.ModelPath ?? string.Empty;
 
-        if (string.IsNullOrWhiteSpace(_options.ModelPath))
-        {
-            _logger.LogWarning(
-                "Wake word model path not configured. Wake word detection is disabled until a model is installed.");
-            IsReady = false;
-        }
-        else
-        {
-            try
-            {
-                var config = BuildConfig(_options);
-                _spotter = new KeywordSpotter(config);
-                IsReady = true;
-                _logger.LogInformation("Sherpa wake word detector initialized");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to initialize Sherpa wake word detector");
-                IsReady = false;
-            }
-        }
+        TryLoadModel(_modelPath);
 
         if (_changeNotifier is not null)
         {
             _changeNotifier.KeywordsChanged += OnKeywordsChanged;
         }
+
+        _modelChangeNotifier.ActiveModelChanged += OnActiveModelChanged;
     }
 
     public IWakeWordSession CreateSession()
@@ -73,6 +65,8 @@ public sealed class SherpaWakeWordDetector : IWakeWordDetector
 
     public void Dispose()
     {
+        _modelChangeNotifier.ActiveModelChanged -= OnActiveModelChanged;
+
         if (_changeNotifier is not null)
         {
             _changeNotifier.KeywordsChanged -= OnKeywordsChanged;
@@ -93,9 +87,59 @@ public sealed class SherpaWakeWordDetector : IWakeWordDetector
         }
     }
 
+    private void OnActiveModelChanged(ActiveModelChangedEvent evt)
+    {
+        if (evt.EngineType != EngineType.WakeWord) return;
+
+        _logger.LogInformation("Reloading wake word detector with model {ModelId}", evt.ModelId);
+        TryLoadModel(evt.ModelPath);
+    }
+
+    private void TryLoadModel(string modelPath)
+    {
+        if (string.IsNullOrWhiteSpace(modelPath))
+        {
+            _logger.LogWarning(
+                "Wake word model path not configured. Wake word detection is disabled until a model is installed.");
+            lock (_lock)
+            {
+                IsReady = false;
+            }
+
+            return;
+        }
+
+        lock (_lock)
+        {
+            try
+            {
+                var config = BuildConfig(modelPath, _options);
+                var newSpotter = new KeywordSpotter(config);
+                var oldSpotter = _spotter;
+
+                _spotter = newSpotter;
+                _modelPath = modelPath;
+                IsReady = true;
+
+                if (oldSpotter is not null)
+                {
+                    _retiredSpotters.Add(oldSpotter);
+                }
+
+                _logger.LogInformation(
+                    "Sherpa wake word detector loaded model from {ModelPath}", modelPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to load wake word model from {ModelPath}", modelPath);
+                IsReady = false;
+            }
+        }
+    }
+
     private void OnKeywordsChanged()
     {
-        if (string.IsNullOrWhiteSpace(_options.ModelPath))
+        if (string.IsNullOrWhiteSpace(_modelPath))
         {
             _logger.LogDebug("Keywords changed but model path not configured, skipping rebuild");
             return;
@@ -107,7 +151,7 @@ public sealed class SherpaWakeWordDetector : IWakeWordDetector
         {
             try
             {
-                var config = BuildConfig(_options);
+                var config = BuildConfig(_modelPath, _options);
                 var newSpotter = new KeywordSpotter(config);
                 var oldSpotter = _spotter;
 
@@ -128,17 +172,12 @@ public sealed class SherpaWakeWordDetector : IWakeWordDetector
         }
     }
 
-    private static KeywordSpotterConfig BuildConfig(WakeWordOptions options)
+    private static KeywordSpotterConfig BuildConfig(string modelPath, WakeWordOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentException.ThrowIfNullOrWhiteSpace(modelPath);
 
-        if (string.IsNullOrWhiteSpace(options.ModelPath))
-        {
-            throw new InvalidOperationException(
-                $"{WakeWordOptions.SectionName}:{nameof(WakeWordOptions.ModelPath)} must be configured.");
-        }
-
-        var modelDirectory = Path.GetFullPath(options.ModelPath);
+        var modelDirectory = Path.GetFullPath(modelPath);
         if (!Directory.Exists(modelDirectory))
         {
             throw new DirectoryNotFoundException($"Wake word model directory was not found: {modelDirectory}");

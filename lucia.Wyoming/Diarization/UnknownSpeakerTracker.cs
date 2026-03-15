@@ -30,19 +30,28 @@ public sealed class UnknownSpeakerTracker
 
     /// <summary>
     /// Track an unrecognized speaker. Creates or updates a provisional profile.
-    /// Returns the provisional profile and whether enrollment should be suggested.
+    /// Returns the provisional profile and whether enrollment should be suggested,
+    /// or <c>null</c> when provisional tracking is disabled or the auto-profile cap is reached.
     /// </summary>
-    public async Task<(SpeakerProfile Profile, bool ShouldSuggestEnrollment)> TrackUnknownSpeakerAsync(
+    public async Task<(SpeakerProfile Profile, bool ShouldSuggestEnrollment)?> TrackUnknownSpeakerAsync(
         SpeakerEmbedding embedding,
         CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(embedding);
+
+        if (!_options.AutoCreateProvisionalProfiles)
+        {
+            _logger.LogDebug("Provisional profile creation is disabled — skipping unknown speaker tracking");
+            return null;
+        }
 
         await _trackLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             var provisionals = await _profileStore.GetProvisionalProfilesAsync(ct).ConfigureAwait(false);
 
+            // Always attempt to match against existing provisional profiles,
+            // even when the cap is reached — returning speakers should still be tracked.
             foreach (var profile in provisionals)
             {
                 if (profile.AverageEmbedding.Length == 0)
@@ -96,6 +105,16 @@ public sealed class UnknownSpeakerTracker
                 }
 
                 return (updatedProfile, shouldSuggestEnrollment);
+            }
+
+            // No existing profile matched — check the cap before creating a new one.
+            if (provisionals.Count >= _options.MaxAutoProfiles)
+            {
+                _logger.LogDebug(
+                    "Auto-profile cap reached ({Count}/{Max}) — not creating provisional profile for new speaker",
+                    provisionals.Count,
+                    _options.MaxAutoProfiles);
+                return null;
             }
 
             var createdAt = DateTimeOffset.UtcNow;

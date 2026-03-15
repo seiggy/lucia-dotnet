@@ -1,8 +1,17 @@
+using lucia.Wyoming.Audio;
+using lucia.Wyoming.Diarization;
+using lucia.Wyoming.Vad;
+using lucia.Wyoming.WakeWord;
 using Microsoft.Extensions.Options;
 
 namespace lucia.Wyoming.Models;
 
-public sealed class ModelCatalogService(IOptionsMonitor<SttModelOptions> optionsMonitor)
+public sealed class ModelCatalogService(
+    IOptionsMonitor<SttModelOptions> sttOptions,
+    IOptionsMonitor<VadOptions> vadOptions,
+    IOptionsMonitor<WakeWordOptions> wakeWordOptions,
+    IOptionsMonitor<DiarizationOptions> diarizationOptions,
+    IOptionsMonitor<SpeechEnhancementOptions> enhancementOptions)
 {
     private static readonly IReadOnlyList<AsrModelDefinition> BuiltInCatalog =
     [
@@ -162,6 +171,126 @@ public sealed class ModelCatalogService(IOptionsMonitor<SttModelOptions> options
             minMemoryMb: 1536),
     ];
 
+    private static readonly IReadOnlyList<WyomingModelDefinition> VadCatalog =
+    [
+        new()
+        {
+            Id = "silero_vad_v5",
+            Name = "Silero VAD v5",
+            EngineType = EngineType.Vad,
+            Description = "High-performance voice activity detection model supporting 16kHz and 8kHz audio.",
+            Languages = ["mul"],
+            SizeBytes = 2_300_000,
+            DownloadUrl = "https://huggingface.co/csukuangfj/vad/resolve/main/silero_vad_v5.onnx",
+            IsDefault = true,
+            MinMemoryMb = 32,
+            IsArchive = false,
+        },
+    ];
+
+    private static readonly IReadOnlyList<WyomingModelDefinition> WakeWordCatalog =
+    [
+        new()
+        {
+            Id = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01",
+            Name = "Zipformer KWS English 3.3M",
+            EngineType = EngineType.WakeWord,
+            Description = "English open-vocabulary keyword spotting model for custom wake words.",
+            Languages = ["en"],
+            SizeBytes = 10_000_000,
+            DownloadUrl = "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2",
+            IsDefault = true,
+            MinMemoryMb = 64,
+            IsArchive = true,
+        },
+        new()
+        {
+            Id = "sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01",
+            Name = "Zipformer KWS Chinese 3.3M",
+            EngineType = EngineType.WakeWord,
+            Description = "Chinese open-vocabulary keyword spotting model for custom wake words.",
+            Languages = ["zh"],
+            SizeBytes = 10_000_000,
+            DownloadUrl = "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01.tar.bz2",
+            IsDefault = false,
+            MinMemoryMb = 64,
+            IsArchive = true,
+        },
+    ];
+
+    private static readonly IReadOnlyList<WyomingModelDefinition> SpeakerEmbeddingCatalog =
+    [
+        new()
+        {
+            Id = "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k",
+            Name = "3D-Speaker ERes2Net",
+            EngineType = EngineType.SpeakerEmbedding,
+            Description = "Speaker embedding extraction model for voice enrollment and verification.",
+            Languages = ["mul"],
+            SizeBytes = 25_000_000,
+            DownloadUrl = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx",
+            IsDefault = true,
+            MinMemoryMb = 64,
+            IsArchive = false,
+        },
+        new()
+        {
+            Id = "wespeaker_en_voxceleb_CAM++",
+            Name = "WeSpeaker CAM++ English",
+            EngineType = EngineType.SpeakerEmbedding,
+            Description = "English speaker embedding model trained on VoxCeleb dataset.",
+            Languages = ["en"],
+            SizeBytes = 28_000_000,
+            DownloadUrl = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/wespeaker_en_voxceleb_CAM++.onnx",
+            IsDefault = false,
+            MinMemoryMb = 64,
+            IsArchive = false,
+        },
+        new()
+        {
+            Id = "nemo_en_speakerverification_speakernet",
+            Name = "NeMo SpeakerNet English",
+            EngineType = EngineType.SpeakerEmbedding,
+            Description = "NeMo speaker verification model for English voice profiles.",
+            Languages = ["en"],
+            SizeBytes = 22_000_000,
+            DownloadUrl = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/nemo_en_speakerverification_speakernet.onnx",
+            IsDefault = false,
+            MinMemoryMb = 64,
+            IsArchive = false,
+        },
+    ];
+
+    private static readonly IReadOnlyList<WyomingModelDefinition> SpeechEnhancementCatalog =
+    [
+        new()
+        {
+            Id = "gtcrn_simple",
+            Name = "GTCRN Simple (Streaming)",
+            EngineType = EngineType.SpeechEnhancement,
+            Description = "Ultra-lightweight streaming speech enhancement. Per-frame denoising with 16ms latency.",
+            Languages = ["mul"],
+            SizeBytes = 535_000,
+            DownloadUrl = "https://raw.githubusercontent.com/Xiaobin-Rong/gtcrn/main/stream/onnx_models/gtcrn_simple.onnx",
+            IsDefault = true,
+            MinMemoryMb = 16,
+            IsArchive = false,
+        },
+        new()
+        {
+            Id = "gtcrn",
+            Name = "GTCRN Full (Streaming)",
+            EngineType = EngineType.SpeechEnhancement,
+            Description = "Higher quality streaming speech enhancement for noisy environments.",
+            Languages = ["mul"],
+            SizeBytes = 352_000,
+            DownloadUrl = "https://raw.githubusercontent.com/Xiaobin-Rong/gtcrn/main/stream/onnx_models/gtcrn.onnx",
+            IsDefault = false,
+            MinMemoryMb = 16,
+            IsArchive = false,
+        },
+    ];
+
     public IReadOnlyList<AsrModelDefinition> GetAvailableModels(ModelFilter? filter = null)
     {
         IEnumerable<AsrModelDefinition> models = BuiltInCatalog;
@@ -209,12 +338,52 @@ public sealed class ModelCatalogService(IOptionsMonitor<SttModelOptions> options
     public AsrModelDefinition? GetModelById(string id) =>
         BuiltInCatalog.FirstOrDefault(model => string.Equals(model.Id, id, StringComparison.Ordinal));
 
-    private bool IsModelInstalled(string modelId)
+    public IReadOnlyList<WyomingModelDefinition> GetAvailableModels(EngineType engineType) =>
+        GetCatalogForEngine(engineType);
+
+    public IReadOnlyList<WyomingModelDefinition> GetInstalledModels(EngineType engineType) =>
+        GetCatalogForEngine(engineType)
+            .Where(model => IsModelInstalled(engineType, model.Id))
+            .OrderByDescending(static model => model.IsDefault)
+            .ThenBy(static model => model.Name, StringComparer.Ordinal)
+            .ToArray();
+
+    public WyomingModelDefinition? GetModelById(EngineType engineType, string id) =>
+        GetCatalogForEngine(engineType)
+            .FirstOrDefault(model => string.Equals(model.Id, id, StringComparison.Ordinal));
+
+    private bool IsModelInstalled(string modelId) =>
+        IsModelInstalled(EngineType.Stt, modelId);
+
+    private IReadOnlyList<WyomingModelDefinition> GetCatalogForEngine(EngineType engineType) =>
+        engineType switch
+        {
+            EngineType.Stt => BuiltInCatalog,
+            EngineType.Vad => VadCatalog,
+            EngineType.WakeWord => WakeWordCatalog,
+            EngineType.SpeakerEmbedding => SpeakerEmbeddingCatalog,
+            EngineType.SpeechEnhancement => SpeechEnhancementCatalog,
+            _ => [],
+        };
+
+    private bool IsModelInstalled(EngineType engineType, string modelId)
     {
-        var modelPath = Path.Combine(optionsMonitor.CurrentValue.ModelBasePath, modelId);
+        var basePath = GetModelBasePath(engineType);
+        var modelPath = Path.Combine(basePath, modelId);
         return Directory.Exists(modelPath)
             && Directory.EnumerateFiles(modelPath, "*.onnx", SearchOption.AllDirectories).Any();
     }
+
+    private string GetModelBasePath(EngineType engineType) =>
+        engineType switch
+        {
+            EngineType.Stt => sttOptions.CurrentValue.ModelBasePath,
+            EngineType.Vad => vadOptions.CurrentValue.ModelBasePath,
+            EngineType.WakeWord => wakeWordOptions.CurrentValue.ModelBasePath,
+            EngineType.SpeakerEmbedding => diarizationOptions.CurrentValue.ModelBasePath,
+            EngineType.SpeechEnhancement => enhancementOptions.CurrentValue.ModelBasePath,
+            _ => throw new ArgumentOutOfRangeException(nameof(engineType)),
+        };
 
     private static AsrModelDefinition CreateDefinition(
         string id,
@@ -230,6 +399,7 @@ public sealed class ModelCatalogService(IOptionsMonitor<SttModelOptions> options
         {
             Id = id,
             Name = name,
+            EngineType = EngineType.Stt,
             Architecture = architecture,
             IsStreaming = isStreaming,
             Languages = languages,

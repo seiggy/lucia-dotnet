@@ -50,10 +50,13 @@ public sealed class SherpaSttSession : ISttSession
         {
             var resampled = AudioResampler.Resample(samples, sampleRate, _modelSampleRate);
             _stream.AcceptWaveform(_modelSampleRate, resampled);
-            return;
+        }
+        else
+        {
+            _stream.AcceptWaveform(sampleRate, samples.ToArray());
         }
 
-        _stream.AcceptWaveform(sampleRate, samples.ToArray());
+        DecodeAvailable();
     }
 
     public SttResult GetPartialResult()

@@ -31,6 +31,7 @@ public sealed class WyomingEngineReadinessTests
     {
         var exception = Record.Exception(() => new SherpaWakeWordDetector(
             Options.Create(new WakeWordOptions { ModelPath = string.Empty }),
+            new TestModelChangeNotifier(),
             changeNotifier: null,
             NullLogger<SherpaWakeWordDetector>.Instance));
 
@@ -38,6 +39,7 @@ public sealed class WyomingEngineReadinessTests
 
         using var detector = new SherpaWakeWordDetector(
             Options.Create(new WakeWordOptions { ModelPath = string.Empty }),
+            new TestModelChangeNotifier(),
             changeNotifier: null,
             NullLogger<SherpaWakeWordDetector>.Instance);
         Assert.False(detector.IsReady);
@@ -48,12 +50,14 @@ public sealed class WyomingEngineReadinessTests
     {
         var exception = Record.Exception(() => new SherpaDiarizationEngine(
             Options.Create(new DiarizationOptions { Enabled = true, EmbeddingModelPath = string.Empty }),
+            new TestModelChangeNotifier(),
             NullLogger<SherpaDiarizationEngine>.Instance));
 
         Assert.Null(exception);
 
         using var engine = new SherpaDiarizationEngine(
             Options.Create(new DiarizationOptions { Enabled = true, EmbeddingModelPath = string.Empty }),
+            new TestModelChangeNotifier(),
             NullLogger<SherpaDiarizationEngine>.Instance);
         Assert.False(engine.IsReady);
     }

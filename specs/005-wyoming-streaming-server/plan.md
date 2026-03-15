@@ -11,11 +11,14 @@ Build a new `lucia.Wyoming` class library that implements the Wyoming voice prot
 
 This architecture is simpler for users to deploy and operate: one process, one container, and one config file. Phase 1 bridges audio turns into Lucia's existing text-based runtime, while Phase 2 retools the orchestrator contract for metadata-rich voice-native invocation.
 
-The implementation is divided into four phases:
+The implementation is divided into phases:
 1. **Phase 1**: Wyoming protocol TCP server + device pairing + sherpa-onnx streaming STT + wake word detection
 2. **Phase 2**: Speaker verification engine with command pattern matching and metadata-rich LLM fallback routing
-3. **Phase 3**: Local TTS synthesis via Qwen3-TTS and Chatterbox Turbo over Wyoming using direct ONNX Runtime
-4. **Phase 4**: Full end-to-end pipeline integration, multi-satellite support, and performance optimization
+3. **Phase 2b**: Advanced voice profiling (auto-profile audio clips, profile merging), diarization configuration UI, and real-time session monitoring dashboard
+4. **Phase 2c**: GTCRN streaming speech enhancement — real-time noise removal before STT/VAD/diarization
+5. **Phase 2d**: Granite 4.0 1B Speech engine with keyword biasing — high-accuracy STT with HA entity-aware vocabulary
+6. **Phase 3**: Local TTS synthesis via Qwen3-TTS and Chatterbox Turbo over Wyoming using direct ONNX Runtime
+7. **Phase 4**: Full end-to-end pipeline integration, multi-satellite support, and performance optimization
 
 ## Technical Context
 
