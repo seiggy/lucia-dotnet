@@ -1,18 +1,23 @@
+using System.Net;
 using System.Net.Sockets;
 using lucia.Wyoming.CommandRouting;
 using lucia.Wyoming.Audio;
 using lucia.Wyoming.Diarization;
+using lucia.Wyoming.Models;
 using lucia.Wyoming.Stt;
 using lucia.Wyoming.Vad;
 using lucia.Wyoming.WakeWord;
 using lucia.Wyoming.Wyoming;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Microsoft.ML.OnnxRuntime;
+using Xunit.Abstractions;
 
 namespace lucia.Tests.Wyoming;
 
-public sealed class WyomingSessionIntegrationTests
+public sealed class WyomingSessionIntegrationTests(ITestOutputHelper output)
 {
     [Fact]
     public async Task RunAsync_DescribeEvent_ReturnsInfoEvent()
@@ -496,5 +501,293 @@ public sealed class WyomingSessionIntegrationTests
                 Payload = PcmConverter.Float32ToInt16([0.25f, -0.25f, 0.25f, -0.25f]),
             },
             ct);
+    }
+
+    /// <summary>
+    /// Full end-to-end Wyoming protocol test using real ONNX models.
+    /// Connects as a Wyoming client, streams the actual WAV sample as protocol audio
+    /// chunks, and verifies the transcript response — exactly as Home Assistant would.
+    /// </summary>
+    [SkippableFact]
+    [Trait("Category", "Integration")]
+    public async Task FullPipeline_WyomingClient_RealModels_ProducesTranscript()
+    {
+        var sttDir = ResolveFromRepoRoot(SttModelDir);
+        var gtcrnPath = ResolveFromRepoRoot(GtcrnModelPath);
+        var wavPath = ResolveFromRepoRoot(SampleWavPath);
+        var expectedTextPath = Path.ChangeExtension(wavPath, ".txt");
+
+        Skip.If(!File.Exists(wavPath), $"WAV not found at {wavPath}");
+
+        var offlineModelDir = FindBestOfflineModelDir(sttDir);
+        Skip.If(offlineModelDir is null, "No offline STT model available");
+
+        var expectedLine = File.Exists(expectedTextPath)
+            ? (await File.ReadAllTextAsync(expectedTextPath)).Trim() : null;
+        var expectedText = expectedLine?.Contains(':') == true
+            ? expectedLine[(expectedLine.IndexOf(':') + 1)..].Trim()
+            : expectedLine ?? "";
+
+        var (rawSamples, sampleRate) = ReadWav(wavPath);
+
+        // Build real services — same as AddWyomingServer but targeted
+        var options = new WyomingOptions { ReadTimeoutSeconds = 30 };
+        var services = new ServiceCollection();
+        services.AddSingleton<IOptions<WyomingOptions>>(Options.Create(options));
+        services.AddSingleton(Options.Create(new lucia.Wyoming.Models.SttModelOptions
+        {
+            ModelBasePath = ResolveFromRepoRoot(SttModelDir),
+            SampleRate = sampleRate,
+        }));
+        services.AddSingleton(Options.Create(new HybridSttOptions
+        {
+            ModelPath = offlineModelDir!,
+            SampleRate = sampleRate,
+            NumThreads = 4,
+            RefreshIntervalMs = 400,
+            MinAudioMs = 300,
+        }));
+        services.AddSingleton(Options.Create(new lucia.Wyoming.Audio.SpeechEnhancementOptions
+        {
+            Enabled = File.Exists(gtcrnPath),
+            ModelBasePath = Path.GetDirectoryName(Path.GetDirectoryName(gtcrnPath)) ?? "",
+        }));
+        var vadModelDir = ResolveFromRepoRoot("lucia.AgentHost/models/vad");
+        var hasVad = Directory.Exists(vadModelDir)
+            && Directory.EnumerateFiles(vadModelDir, "*.onnx", SearchOption.AllDirectories).Any();
+
+        services.AddSingleton(Options.Create(new lucia.Wyoming.Vad.VadOptions
+        {
+            ModelBasePath = vadModelDir,
+            ActiveModel = "silero_vad_v5",
+            ModelPath = hasVad
+                ? Directory.EnumerateFiles(vadModelDir, "*.onnx", SearchOption.AllDirectories).First()
+                : "",
+        }));
+        services.AddSingleton(Options.Create(new lucia.Wyoming.WakeWord.WakeWordOptions()));
+        services.AddSingleton(Options.Create(new lucia.Wyoming.Diarization.DiarizationOptions()));
+        services.AddSingleton(Options.Create(new GraniteOptions()));
+        services.AddSingleton(Options.Create(new OfflineSttOptions()));
+
+        services.AddSingleton<IModelChangeNotifier>(new InlineModelChangeNotifier());
+
+        // Register real engines
+        services.AddSingleton<ISttEngine>(sp => new HybridSttEngine(
+            sp.GetRequiredService<IOptions<HybridSttOptions>>(),
+            sp.GetRequiredService<IOptions<lucia.Wyoming.Models.SttModelOptions>>(),
+            sp.GetRequiredService<lucia.Wyoming.Models.IModelChangeNotifier>(),
+            NullLogger<HybridSttEngine>.Instance));
+
+        services.AddSingleton<lucia.Wyoming.Vad.IVadEngine>(sp =>
+            new lucia.Wyoming.Vad.SherpaVadEngine(
+                sp.GetRequiredService<IOptions<lucia.Wyoming.Vad.VadOptions>>(),
+                sp.GetRequiredService<IModelChangeNotifier>(),
+                NullLogger<lucia.Wyoming.Vad.SherpaVadEngine>.Instance));
+
+        // Register GTCRN enhancement if model available
+        if (File.Exists(gtcrnPath))
+        {
+            services.AddSingleton<lucia.Wyoming.Audio.ISpeechEnhancer>(sp =>
+                new lucia.Wyoming.Audio.GtcrnSpeechEnhancer(
+                    sp.GetRequiredService<IOptions<lucia.Wyoming.Audio.SpeechEnhancementOptions>>(),
+                    sp.GetRequiredService<lucia.Wyoming.Models.IModelChangeNotifier>(),
+                    NullLogger<lucia.Wyoming.Audio.GtcrnSpeechEnhancer>.Instance));
+        }
+
+        var serviceProvider = services.BuildServiceProvider();
+
+        // Verify engines loaded
+        var engine = serviceProvider.GetService<ISttEngine>();
+        Skip.If(engine is null || !engine.IsReady, "Hybrid STT engine not ready");
+        var vadEngine = serviceProvider.GetService<lucia.Wyoming.Vad.IVadEngine>();
+        Skip.If(vadEngine is null || !vadEngine.IsReady, "VAD engine not ready");
+
+        // Create TCP connection (Wyoming protocol transport)
+        var listener = new TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        var endpoint = (System.Net.IPEndPoint)listener.LocalEndpoint;
+        var acceptTask = listener.AcceptTcpClientAsync();
+        var client = new TcpClient();
+        await client.ConnectAsync(endpoint.Address, endpoint.Port);
+        var serverClient = await acceptTask;
+
+        var session = new WyomingSession(
+            serverClient, serviceProvider,
+            NullLogger<WyomingSession>.Instance, options);
+
+        var stream = client.GetStream();
+        var writer = new WyomingEventWriter(stream);
+        var parser = new WyomingEventParser(stream, options);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var runTask = session.RunAsync(cts.Token);
+
+        try
+        {
+            // 1. Send AudioStart (direct STT mode — no wake word)
+            await writer.WriteEventAsync(
+                new AudioStartEvent { Rate = sampleRate, Width = 2, Channels = 1 },
+                cts.Token);
+
+            // 2. Stream the WAV as 10ms audio chunks (160 samples × 2 bytes = 320 bytes)
+            const int chunkSamples = 160;
+            for (var offset = 0; offset < rawSamples.Length; offset += chunkSamples)
+            {
+                var remaining = Math.Min(chunkSamples, rawSamples.Length - offset);
+                var chunk = rawSamples.AsSpan(offset, remaining);
+                var pcmPayload = PcmConverter.Float32ToInt16(chunk.ToArray());
+
+                await writer.WriteEventAsync(
+                    new AudioChunkEvent
+                    {
+                        Rate = sampleRate,
+                        Width = 2,
+                        Channels = 1,
+                        Payload = pcmPayload,
+                    },
+                    cts.Token);
+            }
+
+            // 3. Send AudioStop — triggers finalization
+            await writer.WriteEventAsync(new AudioStopEvent(), cts.Token);
+
+            // 4. Read the transcript response
+            var response = await parser.ReadEventAsync(cts.Token);
+            if (response is ErrorEvent errorEvt)
+            {
+                output.WriteLine($"ERROR from session: [{errorEvt.Code}] {errorEvt.Text}");
+                Assert.Fail($"Session returned error: [{errorEvt.Code}] {errorEvt.Text}");
+            }
+            var transcript = Assert.IsType<TranscriptEvent>(response);
+
+            output.WriteLine($"Wyoming transcript: \"{transcript.Text}\"");
+            output.WriteLine($"Confidence: {transcript.Confidence}");
+
+            // Strip speaker tag for WER comparison
+            var transcriptText = transcript.Text;
+            var tagEnd = transcriptText.IndexOf("/>", StringComparison.Ordinal);
+            if (tagEnd >= 0)
+                transcriptText = transcriptText[(tagEnd + 2)..].Trim();
+
+            var wer = ComputeWordErrorRate(expectedText, transcriptText);
+            output.WriteLine($"WER: {wer:P1}");
+            output.WriteLine($"Expected: \"{expectedText}\"");
+
+            Assert.False(string.IsNullOrWhiteSpace(transcript.Text),
+                "Wyoming session returned empty transcript");
+
+            Assert.True(transcript.Text.StartsWith("<", StringComparison.Ordinal),
+                $"Transcript should have speaker tag prefix, got: \"{transcript.Text}\"");
+
+            Assert.True(wer <= 0.10,
+                $"Wyoming pipeline WER {wer:P1} exceeds 10%. " +
+                $"Expected: \"{expectedText}\", Got: \"{transcriptText}\"");
+        }
+        finally
+        {
+            client.Close();
+            try { await runTask; }
+            catch (ObjectDisposedException) { /* Expected — client closed the connection */ }
+            catch (IOException) { /* Expected — connection reset */ }
+            serverClient.Dispose();
+            client.Dispose();
+            listener.Stop();
+            await serviceProvider.DisposeAsync();
+        }
+    }
+
+    private static string ResolveFromRepoRoot(string relativePath)
+    {
+        var dir = AppContext.BaseDirectory;
+        while (dir is not null && !File.Exists(Path.Combine(dir, "lucia-dotnet.slnx")))
+            dir = Path.GetDirectoryName(dir);
+        return dir is not null ? Path.Combine(dir, relativePath) : relativePath;
+    }
+
+    private static (float[] Samples, int SampleRate) ReadWav(string path)
+    {
+        using var stream = File.OpenRead(path);
+        using var reader = new BinaryReader(stream);
+
+        reader.ReadChars(4); // RIFF
+        reader.ReadInt32();
+        reader.ReadChars(4); // WAVE
+
+        int sampleRate = 0;
+        while (stream.Position < stream.Length)
+        {
+            var chunkId = new string(reader.ReadChars(4));
+            var chunkSize = reader.ReadInt32();
+            if (chunkId == "fmt ")
+            {
+                reader.ReadInt16(); // format
+                reader.ReadInt16(); // channels
+                sampleRate = reader.ReadInt32();
+                reader.ReadBytes(chunkSize - 8);
+            }
+            else if (chunkId == "data")
+            {
+                var totalSamples = chunkSize / 2;
+                var samples = new float[totalSamples];
+                for (var i = 0; i < totalSamples; i++)
+                    samples[i] = reader.ReadInt16() / 32768f;
+                return (samples, sampleRate);
+            }
+            else
+            {
+                reader.ReadBytes(chunkSize);
+            }
+        }
+
+        throw new InvalidDataException("No data chunk");
+    }
+
+    private static string? FindBestOfflineModelDir(string sttDir)
+    {
+        if (!Directory.Exists(sttDir)) return null;
+        return Directory.EnumerateDirectories(sttDir)
+            .Where(d => Directory.EnumerateFiles(d, "tokens.txt", SearchOption.AllDirectories).Any())
+            .Where(d => (Path.GetFileName(d) ?? "").Contains("parakeet", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(d => (Path.GetFileName(d) ?? "").Contains("0.6b", StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+            .FirstOrDefault();
+    }
+
+    private static double ComputeWordErrorRate(string reference, string hypothesis)
+    {
+        var refWords = reference.ToUpperInvariant()
+            .Replace("'S", "S", StringComparison.Ordinal)
+            .Replace(",", "", StringComparison.Ordinal)
+            .Replace(".", "", StringComparison.Ordinal)
+            .Replace("ZACH", "ZACK", StringComparison.Ordinal)
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var hypWords = hypothesis.ToUpperInvariant()
+            .Replace("'S", "S", StringComparison.Ordinal)
+            .Replace(",", "", StringComparison.Ordinal)
+            .Replace(".", "", StringComparison.Ordinal)
+            .Replace("ZACH", "ZACK", StringComparison.Ordinal)
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+        if (refWords.Length == 0) return hypWords.Length == 0 ? 0.0 : 1.0;
+        var d = new int[refWords.Length + 1, hypWords.Length + 1];
+        for (var i = 0; i <= refWords.Length; i++) d[i, 0] = i;
+        for (var j = 0; j <= hypWords.Length; j++) d[0, j] = j;
+        for (var i = 1; i <= refWords.Length; i++)
+            for (var j = 1; j <= hypWords.Length; j++)
+            {
+                var cost = string.Equals(refWords[i - 1], hypWords[j - 1], StringComparison.OrdinalIgnoreCase) ? 0 : 1;
+                d[i, j] = Math.Min(Math.Min(d[i - 1, j] + 1, d[i, j - 1] + 1), d[i - 1, j - 1] + cost);
+            }
+        return (double)d[refWords.Length, hypWords.Length] / refWords.Length;
+    }
+
+    private const string SttModelDir = "lucia.AgentHost/models/stt";
+    private const string GtcrnModelPath = "lucia.AgentHost/models/speech-enhancement/gtcrn_simple/gtcrn_simple.onnx";
+    private const string SampleWavPath = "samples/unfiltered_sample.wav";
+
+    private sealed class InlineModelChangeNotifier : IModelChangeNotifier
+    {
+#pragma warning disable CS0067
+        public event Action<ActiveModelChangedEvent>? ActiveModelChanged;
+#pragma warning restore CS0067
     }
 }
