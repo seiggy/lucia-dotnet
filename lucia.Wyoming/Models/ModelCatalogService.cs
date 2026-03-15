@@ -302,9 +302,35 @@ public sealed class ModelCatalogService(
             Languages = ["en", "fr", "de", "es", "pt", "ja"],
             SizeBytes = 2_000_000_000,
             DownloadUrl = "https://huggingface.co/onnx-community/granite-4.0-1b-speech-ONNX/resolve/main/onnx/encoder_model.onnx",
-            IsDefault = true,
+            IsDefault = false,
             MinMemoryMb = 2048,
             IsArchive = false,
+        },
+        new()
+        {
+            Id = "sherpa-onnx-nemo-parakeet_tdt_ctc_110m-en-36000-int8",
+            Name = "Parakeet TDT+CTC 110M Int8",
+            EngineType = EngineType.OfflineStt,
+            Description = "Lightweight NeMo Parakeet TDT+CTC model — fast CPU inference for English.",
+            Languages = ["en"],
+            SizeBytes = 100_000_000,
+            DownloadUrl = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet_tdt_ctc_110m-en-36000-int8.tar.bz2",
+            IsDefault = false,
+            MinMemoryMb = 256,
+            IsArchive = true,
+        },
+        new()
+        {
+            Id = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8",
+            Name = "Parakeet TDT 0.6B v2 Int8",
+            EngineType = EngineType.OfflineStt,
+            Description = "NVIDIA NeMo Parakeet TDT 0.6B — high accuracy offline English transducer with duration-aware decoding.",
+            Languages = ["en"],
+            SizeBytes = 460_000_000,
+            DownloadUrl = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2",
+            IsDefault = true,
+            MinMemoryMb = 768,
+            IsArchive = true,
         },
     ];
 

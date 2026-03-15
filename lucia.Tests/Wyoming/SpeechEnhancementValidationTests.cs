@@ -197,7 +197,38 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
         await WavWriter.WriteAsync(enhancedWavPath, enhancedSamples, sampleRate);
         _output.WriteLine($"Enhanced WAV written to: {enhancedWavPath}");
 
-        // ── Try Granite offline engine (preferred for accuracy) ──
+        // ── Try offline engines in preference order ──
+
+        // 1. Sherpa offline (Parakeet TDT, NeMo CTC) — fast native inference
+        var offlineModelDir = FindBestOfflineModelDir(sttDir);
+        if (offlineModelDir is not null)
+        {
+            _output.WriteLine($"Using offline model: {Path.GetFileName(offlineModelDir)}");
+            var (offlineText, offlineDuration) = RunOfflineStt(enhancedSamples, sampleRate, offlineModelDir);
+            var offlineWer = ComputeWordErrorRate(expectedText, offlineText);
+            _output.WriteLine($"Offline transcript: \"{offlineText}\"");
+            _output.WriteLine($"Offline WER: {offlineWer:P1} ({offlineWer * 100:F1}%)");
+            _output.WriteLine($"Offline inference: {offlineDuration.TotalMilliseconds:F0}ms");
+
+            // Also log Sherpa streaming for comparison
+            var sttModelPath = FindSherpaModelDir(sttDir);
+            if (sttModelPath is not null)
+            {
+                var streamingWer = ComputeWordErrorRate(expectedText,
+                    RunStt(enhancedSamples, sampleRate, sttModelPath, "streaming-compare"));
+                _output.WriteLine($"Sherpa streaming WER: {streamingWer:P1}");
+            }
+
+            Assert.False(string.IsNullOrWhiteSpace(offlineText),
+                "Offline STT produced empty transcript from enhanced audio");
+
+            Assert.True(offlineWer <= 0.10,
+                $"Offline transcript WER {offlineWer:P1} exceeds 10% threshold. " +
+                $"Expected: \"{expectedText}\", Got: \"{offlineText}\"");
+            return;
+        }
+
+        // 2. Granite LLM decoder (slower, keyword biasing)
         var hasGranite = Directory.Exists(graniteDir)
             && Directory.EnumerateFiles(graniteDir, "*.onnx", SearchOption.AllDirectories).Any()
             && File.Exists(Path.Combine(graniteDir, "tokenizer.json"));
@@ -408,6 +439,140 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
         }
     }
 
+    [SkippableFact]
+    [Trait("Category", "Integration")]
+    public async Task Benchmark_OfflineEngines_WerComparison()
+    {
+        var modelPath = ResolveFromRepoRoot(GtcrnModelPath);
+        var wavPath = ResolveFromRepoRoot(SampleWavPath);
+        var expectedTextPath = Path.ChangeExtension(wavPath, ".txt");
+        var sttDir = ResolveFromRepoRoot(SttModelDir);
+        var graniteDir = ResolveFromRepoRoot(GraniteModelDir);
+
+        Skip.If(!File.Exists(wavPath), $"Sample WAV not found at {wavPath}");
+        Skip.If(!Directory.Exists(sttDir), $"STT model directory not found at {sttDir}");
+
+        var expectedLine = File.Exists(expectedTextPath)
+            ? (await File.ReadAllTextAsync(expectedTextPath)).Trim()
+            : null;
+        var expectedText = expectedLine?.Contains(':') == true
+            ? expectedLine[(expectedLine.IndexOf(':') + 1)..].Trim()
+            : expectedLine ?? "";
+
+        var (inputSamples, sampleRate) = ReadWav(wavPath);
+
+        // Enhance if available
+        float[] enhancedSamples;
+        if (File.Exists(modelPath))
+        {
+            using var onnxSession = CreateOnnxSession(modelPath);
+            using var enhancerSession = new GtcrnStreamingSession(onnxSession);
+            enhancedSamples = FeedInChunks(enhancerSession, inputSamples, ChunkSize);
+        }
+        else
+        {
+            enhancedSamples = inputSamples;
+        }
+
+        _output.WriteLine($"Expected: \"{expectedText}\"");
+        var header = $"{"Engine",-55} {"WER",8} {"Time",8} {"Transcript"}";
+        var separator = new string('-', 130);
+        WriteBenchmarkLine(header);
+        WriteBenchmarkLine(separator);
+
+        // 1. Streaming Sherpa baseline
+        var sherpaModel = FindSherpaModelDir(sttDir);
+        if (sherpaModel is not null)
+        {
+            var transcript = RunStt(enhancedSamples, sampleRate, sherpaModel, "sherpa-streaming");
+            var wer = ComputeWordErrorRate(expectedText, transcript);
+            WriteBenchmarkLine($"{"Sherpa Streaming Zipformer",-55} {wer,8:P1} {"n/a",8} \"{transcript}\"");
+        }
+
+        // 2. All sherpa-onnx offline models (Parakeet, NeMo, etc.)
+        var offlineModelDirs = Directory.EnumerateDirectories(sttDir)
+            .Where(d => Directory.EnumerateFiles(d, "tokens.txt", SearchOption.AllDirectories).Any())
+            .Where(d =>
+            {
+                var name = Path.GetFileName(d) ?? "";
+                // Skip streaming-only models (they use OnlineRecognizer)
+                return !name.Contains("streaming", StringComparison.OrdinalIgnoreCase)
+                    || name.Contains("parakeet", StringComparison.OrdinalIgnoreCase);
+            })
+            .OrderBy(d => d)
+            .ToList();
+
+        foreach (var modelDir in offlineModelDirs)
+        {
+            var modelName = Path.GetFileName(modelDir);
+            try
+            {
+                var (text, duration) = RunOfflineStt(enhancedSamples, sampleRate, modelDir);
+                var wer = ComputeWordErrorRate(expectedText, text);
+                WriteBenchmarkLine($"{modelName,-55} {wer,8:P1} {duration.TotalMilliseconds,7:F0}ms \"{text}\"");
+            }
+            catch (Exception ex)
+            {
+                WriteBenchmarkLine($"{modelName,-55} {"FAIL",8} {"---",8} {ex.Message[..Math.Min(60, ex.Message.Length)]}");
+            }
+        }
+
+        // 3. Granite (if available)
+        var hasGranite = Directory.Exists(graniteDir)
+            && Directory.EnumerateFiles(graniteDir, "*.onnx", SearchOption.AllDirectories).Any()
+            && File.Exists(Path.Combine(graniteDir, "tokenizer.json"));
+
+        if (hasGranite)
+        {
+            try
+            {
+                var keywordBias = new List<KeywordBias>
+                {
+                    new("zack", 5.0f), new("zack's", 5.0f),
+                    new("zach", 4.0f), new("zach's", 4.0f),
+                    new("dianna", 5.0f),
+                    new("bedroom", 0.4f), new("bathroom", 0.4f),
+                    new("kitchen", 0.4f), new("office", 0.4f),
+                    new("thermostat", 0.4f), new("sensor", 0.4f),
+                };
+
+                var (text, duration) = await RunGraniteSttAsync(
+                    enhancedSamples, sampleRate, graniteDir, keywordBias);
+                var wer = ComputeWordErrorRate(expectedText, text);
+                WriteBenchmarkLine($"{"Granite 4.0 1B Speech (keyword bias)",-55} {wer,8:P1} {duration.TotalMilliseconds,7:F0}ms \"{text}\"");
+            }
+            catch (Exception ex)
+            {
+                WriteBenchmarkLine($"{"Granite 4.0 1B Speech",-55} {"FAIL",8} {"---",8} {ex.Message[..Math.Min(60, ex.Message.Length)]}");
+            }
+        }
+
+        WriteBenchmarkLine(new string('-', 130));
+        WriteBenchmarkLine("Lower WER = better accuracy. Lower time = faster inference.");
+    }
+
+    private (string text, TimeSpan duration) RunOfflineStt(
+        float[] samples, int sampleRate, string modelDir)
+    {
+        var notifier = new TestModelChangeNotifier();
+        using var engine = new SherpaOfflineSttEngine(
+            Options.Create(new OfflineSttOptions
+            {
+                ModelPath = modelDir,
+                SampleRate = sampleRate,
+                NumThreads = 4,
+                Provider = "cpu",
+            }),
+            notifier,
+            NullLogger<SherpaOfflineSttEngine>.Instance);
+
+        if (!engine.IsReady)
+            return ("(engine not ready)", TimeSpan.Zero);
+
+        var result = engine.TranscribeAsync(samples, sampleRate).GetAwaiter().GetResult();
+        return (result.Text, result.InferenceDuration);
+    }
+
     private async Task<(string text, TimeSpan duration)> RunGraniteSttAsync(
         float[] samples, int sampleRate, string graniteModelDir,
         IReadOnlyList<KeywordBias>? keywordBias = null)
@@ -446,6 +611,42 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
                 && Directory.EnumerateFiles(d, "tokens.txt", SearchOption.AllDirectories).Any())
             ?? Directory.EnumerateDirectories(sttDir)
                 .FirstOrDefault(d => Directory.EnumerateFiles(d, "tokens.txt", SearchOption.AllDirectories).Any());
+    }
+
+    /// <summary>
+    /// Finds the best available offline model, preferring larger Parakeet TDT models.
+    /// </summary>
+    private static string? FindBestOfflineModelDir(string sttDir)
+    {
+        if (!Directory.Exists(sttDir)) return null;
+
+        var candidates = Directory.EnumerateDirectories(sttDir)
+            .Where(d => Directory.EnumerateFiles(d, "tokens.txt", SearchOption.AllDirectories).Any())
+            .Where(d =>
+            {
+                var name = Path.GetFileName(d) ?? "";
+                // Offline models: parakeet, nemo non-streaming, whisper, sense-voice
+                return name.Contains("parakeet", StringComparison.OrdinalIgnoreCase)
+                    || (name.Contains("nemo", StringComparison.OrdinalIgnoreCase)
+                        && !name.Contains("streaming", StringComparison.OrdinalIgnoreCase))
+                    || name.Contains("whisper", StringComparison.OrdinalIgnoreCase)
+                    || name.Contains("sense-voice", StringComparison.OrdinalIgnoreCase);
+            })
+            .ToList();
+
+        // Prefer larger Parakeet TDT models (0.6b > 110m)
+        return candidates
+            .OrderByDescending(d =>
+            {
+                var name = Path.GetFileName(d) ?? "";
+                if (name.Contains("0.6b", StringComparison.OrdinalIgnoreCase)
+                    || name.Contains("0-6b", StringComparison.OrdinalIgnoreCase)) return 3;
+                if (name.Contains("1.1b", StringComparison.OrdinalIgnoreCase)
+                    || name.Contains("1-1b", StringComparison.OrdinalIgnoreCase)) return 4;
+                if (name.Contains("parakeet", StringComparison.OrdinalIgnoreCase)) return 2;
+                return 1;
+            })
+            .FirstOrDefault();
     }
 
     private string RunStt(float[] samples, int sampleRate, string sttModelPath, string label)
@@ -646,6 +847,12 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
         }
 
         throw new InvalidDataException("WAV file has no data chunk");
+    }
+
+    private void WriteBenchmarkLine(string line)
+    {
+        _output.WriteLine(line);
+        Console.Error.WriteLine(line);
     }
 
     private sealed class TestModelChangeNotifier : IModelChangeNotifier
