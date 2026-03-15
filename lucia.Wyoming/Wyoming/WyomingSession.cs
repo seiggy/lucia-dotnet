@@ -41,6 +41,9 @@ public sealed class WyomingSession : IDisposable
     private ISpeechEnhancerSession? _currentEnhancerSession;
     private readonly SessionEventBus? _eventBus;
     private DateTimeOffset _lastAudioLevelEvent;
+    private long _enhancementTotalMs;
+    private long _sttFinalizationMs;
+    private long _diarizationMs;
     private bool _disposed;
 
     public WyomingSession(
@@ -396,7 +399,10 @@ public sealed class WyomingSession : IDisposable
         {
             case WyomingSessionState.Transcribing when _currentSttSession is not null:
                 _currentVadSession?.Flush();
+                var sttSw = System.Diagnostics.Stopwatch.StartNew();
                 _pendingTranscript = _currentSttSession.GetFinalResult();
+                sttSw.Stop();
+                _sttFinalizationMs = sttSw.ElapsedMilliseconds;
                 DisposeCurrentSttSession();
                 DisposeCurrentVadSession();
                 SetState(WyomingSessionState.Processing);
@@ -702,7 +708,10 @@ public sealed class WyomingSession : IDisposable
         {
             try
             {
+                var enhSw = System.Diagnostics.Stopwatch.StartNew();
                 enhancedBuffer = _currentEnhancerSession.Process(samples.ToArray());
+                enhSw.Stop();
+                _enhancementTotalMs += enhSw.ElapsedMilliseconds;
                 if (enhancedBuffer.Length > 0)
                 {
                     processedSamples = enhancedBuffer;
@@ -836,8 +845,11 @@ public sealed class WyomingSession : IDisposable
         }
 
         // Identify speaker (if diarization is available)
+        var diarSw = System.Diagnostics.Stopwatch.StartNew();
         var speaker = await IdentifySpeakerAsync(utteranceAudio, transcript, ct)
             .ConfigureAwait(false);
+        diarSw.Stop();
+        _diarizationMs = diarSw.ElapsedMilliseconds;
 
         // Format speaker-tagged transcript: <SpeakerId />transcript text
         var speakerTag = FormatSpeakerTag(speaker);
@@ -910,17 +922,17 @@ public sealed class WyomingSession : IDisposable
         {
             var stages = new List<PipelineStageTiming>
             {
-                new() { Name = "stt", DurationMs = 0 },
+                new() { Name = "stt", DurationMs = _sttFinalizationMs },
             };
 
             if (_diarizationEngine?.IsReady == true)
             {
-                stages.Add(new PipelineStageTiming { Name = "diarization", DurationMs = 0 });
+                stages.Add(new PipelineStageTiming { Name = "diarization", DurationMs = _diarizationMs });
             }
 
             if (_speechEnhancer?.IsReady == true)
             {
-                stages.Add(new PipelineStageTiming { Name = "enhancement", DurationMs = 0 });
+                stages.Add(new PipelineStageTiming { Name = "enhancement", DurationMs = _enhancementTotalMs });
             }
 
             var record = new TranscriptRecord
@@ -1120,6 +1132,9 @@ public sealed class WyomingSession : IDisposable
     {
         _utteranceAudioBuffer.Clear();
         _utteranceSampleRate = 16_000;
+        _enhancementTotalMs = 0;
+        _sttFinalizationMs = 0;
+        _diarizationMs = 0;
     }
 
     private static float[] ConvertAudioChunkToMonoSamples(byte[] payload, AudioFormat audioFormat)
