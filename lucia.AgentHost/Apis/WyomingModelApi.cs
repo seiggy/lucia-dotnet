@@ -30,8 +30,10 @@ public static class WyomingModelApi
 
         group.MapGet("/installed", (ModelCatalogService catalog) =>
         {
-            var models = catalog.GetInstalledModels();
-            return Results.Ok(models);
+            // Combine streaming + offline installed models
+            var streaming = catalog.GetInstalledModels();
+            var offline = catalog.GetInstalledModels(EngineType.OfflineStt);
+            return Results.Ok(streaming.Cast<object>().Concat(offline).ToList());
         }).WithName("GetInstalledModels");
 
         group.MapGet("/active", (ModelManager manager, IEnumerable<lucia.Wyoming.Stt.ISttEngine> sttEngines) =>
