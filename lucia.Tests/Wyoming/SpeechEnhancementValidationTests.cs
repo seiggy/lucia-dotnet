@@ -477,6 +477,129 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
             $"Hybrid final WER {finalWer:P1} exceeds 10%. Got: \"{final.Text}\"");
     }
 
+    /// <summary>
+    /// End-to-end pipeline test that replicates the exact live WyomingSession flow:
+    /// WAV → small chunks (10ms, simulating Wyoming protocol) → GTCRN enhancement →
+    /// raw audio to hybrid STT → progressive partials → final transcript.
+    /// This catches issues like mixed raw/enhanced buffers, GTCRN lag, and chunk-size
+    /// sensitivity that only manifest with real streaming input.
+    /// </summary>
+    [SkippableFact]
+    [Trait("Category", "Integration")]
+    public void FullPipeline_SimulatedWyomingSession_ProducesAccurateTranscript()
+    {
+        var gtcrnPath = ResolveFromRepoRoot(GtcrnModelPath);
+        var wavPath = ResolveFromRepoRoot(SampleWavPath);
+        var expectedTextPath = Path.ChangeExtension(wavPath, ".txt");
+        var sttDir = ResolveFromRepoRoot(SttModelDir);
+
+        Skip.If(!File.Exists(wavPath), $"WAV not found at {wavPath}");
+
+        var offlineModelDir = FindBestOfflineModelDir(sttDir);
+        Skip.If(offlineModelDir is null, "No offline STT model available");
+
+        var expectedLine = File.Exists(expectedTextPath)
+            ? File.ReadAllText(expectedTextPath).Trim() : null;
+        var expectedText = expectedLine?.Contains(':') == true
+            ? expectedLine[(expectedLine.IndexOf(':') + 1)..].Trim()
+            : expectedLine ?? "";
+
+        var (inputSamples, sampleRate) = ReadWav(wavPath);
+
+        var hasGtcrn = File.Exists(gtcrnPath);
+        InferenceSession? gtcrnOnnx = hasGtcrn ? CreateOnnxSession(gtcrnPath) : null;
+        GtcrnStreamingSession? enhancerSession = gtcrnOnnx is not null
+            ? new GtcrnStreamingSession(gtcrnOnnx) : null;
+
+        var notifier = new TestModelChangeNotifier();
+        using var hybridEngine = new HybridSttEngine(
+            Options.Create(new HybridSttOptions
+            {
+                ModelPath = offlineModelDir!,
+                SampleRate = sampleRate,
+                NumThreads = 4,
+                RefreshIntervalMs = 400,
+                MinAudioMs = 300,
+            }),
+            Options.Create(new SttModelOptions { ModelBasePath = sttDir }),
+            notifier,
+            NullLogger<HybridSttEngine>.Instance);
+
+        Skip.If(!hybridEngine.IsReady, "Hybrid engine failed to load");
+
+        using var sttSession = hybridEngine.CreateSession();
+
+        // Simulate Wyoming protocol: 10ms chunks (160 samples at 16kHz)
+        // This is the exact chunk size HA sends over the wire
+        const int wyomingChunkSamples = 160;
+        var partials = new List<(int ms, string text)>();
+        long enhancementTotalMs = 0;
+
+        WriteBenchmarkLine($"Pipeline: WAV({inputSamples.Length} samples) → " +
+            $"{(hasGtcrn ? "GTCRN → " : "")}Hybrid STT ({Path.GetFileName(offlineModelDir)})");
+        WriteBenchmarkLine($"Chunk size: {wyomingChunkSamples} samples ({wyomingChunkSamples * 1000 / sampleRate}ms)");
+
+        for (var offset = 0; offset < inputSamples.Length; offset += wyomingChunkSamples)
+        {
+            var remaining = Math.Min(wyomingChunkSamples, inputSamples.Length - offset);
+            var chunk = inputSamples.AsSpan(offset, remaining);
+
+            // GTCRN enhancement (same as WyomingSession.ProcessSpeechSamples)
+            if (enhancerSession is not null)
+            {
+                var enhSw = System.Diagnostics.Stopwatch.StartNew();
+                var enhanced = enhancerSession.Process(chunk.ToArray());
+                enhSw.Stop();
+                enhancementTotalMs += enhSw.ElapsedMilliseconds;
+                // Enhanced audio goes to utterance buffer (for diarization)
+                // Raw audio goes to STT (Parakeet handles noise well)
+            }
+
+            // Raw audio to STT — matches the live pipeline
+            sttSession.AcceptAudioChunk(chunk, sampleRate);
+
+            // Check for partial updates
+            var partial = sttSession.GetPartialResult().Text;
+            if (!string.IsNullOrEmpty(partial)
+                && (partials.Count == 0 || partials[^1].text != partial))
+            {
+                var elapsedMs = (offset + remaining) * 1000 / sampleRate;
+                partials.Add((elapsedMs, partial));
+            }
+        }
+
+        // Finalize
+        var sttSw = System.Diagnostics.Stopwatch.StartNew();
+        var final = sttSession.GetFinalResult();
+        sttSw.Stop();
+
+        enhancerSession?.Dispose();
+        gtcrnOnnx?.Dispose();
+
+        // Report
+        foreach (var (ms, text) in partials)
+            WriteBenchmarkLine($"  [{ms,5}ms] \"{text}\"");
+        WriteBenchmarkLine($"  [final ] \"{final.Text}\"");
+
+        var finalWer = ComputeWordErrorRate(expectedText, final.Text);
+        WriteBenchmarkLine($"Pipeline timing:");
+        WriteBenchmarkLine($"  Enhancement: {enhancementTotalMs}ms total");
+        WriteBenchmarkLine($"  STT final:   {sttSw.ElapsedMilliseconds}ms");
+        WriteBenchmarkLine($"  WER:         {finalWer:P1}");
+        WriteBenchmarkLine($"  Partials:    {partials.Count}");
+
+        // Assertions
+        Assert.False(string.IsNullOrWhiteSpace(final.Text),
+            "Full pipeline produced empty transcript");
+
+        Assert.True(partials.Count >= 2,
+            $"Expected at least 2 progressive partials, got {partials.Count}");
+
+        Assert.True(finalWer <= 0.10,
+            $"Full pipeline WER {finalWer:P1} exceeds 10%. " +
+            $"Expected: \"{expectedText}\", Got: \"{final.Text}\"");
+    }
+
     [SkippableFact]
     [Trait("Category", "Integration")]
     public async Task Benchmark_AllModels_WerComparison()

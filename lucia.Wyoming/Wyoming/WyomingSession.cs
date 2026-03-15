@@ -699,9 +699,9 @@ public sealed class WyomingSession : IDisposable
         }
 
         // Per-frame streaming speech enhancement (GTCRN via ISpeechEnhancerSession).
-        // The enhancer buffers internally until a full STFT window is ready, so output
-        // may be empty for small input chunks. When buffering, feed raw audio to VAD
-        // for activity detection but skip STT to avoid misaligned partial data.
+        // Enhancement feeds improved audio to the utterance buffer for diarization/storage.
+        // The hybrid STT session receives RAW audio — Parakeet is robust to noise and
+        // GTCRN's overlap-add lag can cause buffer discontinuities that confuse re-transcription.
         ReadOnlySpan<float> processedSamples = samples;
         float[]? enhancedBuffer = null;
         if (_currentEnhancerSession is not null)
@@ -714,24 +714,8 @@ public sealed class WyomingSession : IDisposable
                 _enhancementTotalMs += enhSw.ElapsedMilliseconds;
                 if (enhancedBuffer.Length > 0)
                 {
-                    processedSamples = enhancedBuffer;
-                }
-                else
-                {
-                    // Enhancement is still buffering — feed raw audio to VAD only.
-                    // Do NOT feed to STT: the hybrid session's internal buffer should
-                    // contain only enhanced audio to avoid mixed-quality re-transcription.
-                    if (_currentVadSession is not null)
-                    {
-                        _currentVadSession.AcceptAudioChunk(samples);
-                        TryPublishAudioLevel(samples, _currentVadSession.HasSpeechSegment);
-                    }
-                    else
-                    {
-                        TryPublishAudioLevel(samples, isSpeechActive: true);
-                    }
-
-                    return;
+                    // Store enhanced audio for diarization/speaker verification
+                    AppendUtteranceAudio(enhancedBuffer, _utteranceSampleRate);
                 }
             }
             catch (Exception ex)
@@ -739,14 +723,19 @@ public sealed class WyomingSession : IDisposable
                 _logger.LogDebug(ex, "Enhancement frame processing failed for session {SessionId}, using raw audio", Id);
             }
         }
+        else
+        {
+            AppendUtteranceAudio(samples, _utteranceSampleRate);
+        }
 
-        AppendUtteranceAudio(processedSamples, _utteranceSampleRate);
-        _currentSttSession.AcceptAudioChunk(processedSamples, _utteranceSampleRate);
+        // Always feed raw audio to STT — the hybrid engine re-transcribes the full
+        // buffer each cycle, and raw audio is more consistent than GTCRN-enhanced chunks.
+        _currentSttSession.AcceptAudioChunk(samples, _utteranceSampleRate);
 
         if (_currentVadSession is not null)
         {
-            _currentVadSession.AcceptAudioChunk(processedSamples);
-            TryPublishAudioLevel(processedSamples, _currentVadSession.HasSpeechSegment);
+            _currentVadSession.AcceptAudioChunk(samples);
+            TryPublishAudioLevel(samples, _currentVadSession.HasSpeechSegment);
         }
         else
         {
