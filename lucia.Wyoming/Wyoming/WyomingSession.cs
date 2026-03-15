@@ -353,11 +353,7 @@ public sealed class WyomingSession : IDisposable
                 }
 
                 _currentVadSession = await CreateVadSessionAsync(services, writer, ct).ConfigureAwait(false);
-                if (_currentVadSession is null)
-                {
-                    DisposeCurrentSttSession();
-                    return;
-                }
+                // VAD is optional — continue without it
 
                 TryCreateEnhancerSession();
                 SetState(WyomingSessionState.Transcribing);
@@ -380,7 +376,7 @@ public sealed class WyomingSession : IDisposable
                 _currentVadSession ??=
                     await CreateVadSessionAsync(services, writer, ct).ConfigureAwait(false);
 
-                if (_currentSttSession is null || _currentVadSession is null)
+                if (_currentSttSession is null)
                 {
                     DisposeCurrentSttSession();
                     DisposeCurrentVadSession();
@@ -538,27 +534,10 @@ public sealed class WyomingSession : IDisposable
         var engines = services.GetServices<IVadEngine>().ToArray();
         var engine = engines.FirstOrDefault(static item => item.IsReady)
             ?? engines.FirstOrDefault();
-        if (engine is null)
+        if (engine is null || !engine.IsReady)
         {
-            _logger.LogWarning("No VAD engine registered for Wyoming session {SessionId}", Id);
-            await ReportUnavailableAsync(
-                    writer,
-                    "Voice activity detection is not available. VAD model may not be installed.",
-                    "vad_unavailable",
-                    ct)
-                .ConfigureAwait(false);
-            return null;
-        }
-
-        if (!engine.IsReady)
-        {
-            _logger.LogWarning("VAD engine not ready for Wyoming session {SessionId}", Id);
-            await ReportUnavailableAsync(
-                    writer,
-                    "Voice activity detection is not available. VAD model may not be installed.",
-                    "vad_unavailable",
-                    ct)
-                .ConfigureAwait(false);
+            // VAD is optional — STT works without it, just no speech segmentation
+            _logger.LogDebug("VAD engine not available for session {SessionId}", Id);
             return null;
         }
 
