@@ -43,6 +43,8 @@ public static class ServiceCollectionExtensions
             builder.Configuration.GetSection(SpeechEnhancementOptions.SectionName));
         builder.Services.Configure<GraniteOptions>(
             builder.Configuration.GetSection(GraniteOptions.SectionName));
+        builder.Services.Configure<HybridSttOptions>(
+            builder.Configuration.GetSection(HybridSttOptions.SectionName));
         builder.Services.Configure<VoiceProfileOptions>(
             builder.Configuration.GetSection(VoiceProfileOptions.SectionName));
         builder.Services.Configure<CommandRoutingOptions>(
@@ -59,6 +61,7 @@ public static class ServiceCollectionExtensions
 
         builder.Services.AddSingleton<ISttEngine, SherpaSttEngine>();
         builder.Services.AddSingleton<IGraniteEngine, GraniteOnnxEngine>();
+        builder.Services.AddSingleton<ISttEngine, HybridSttEngine>();
         builder.Services.AddSingleton<IVadEngine, SherpaVadEngine>();
         builder.Services.AddSingleton<IWakeWordDetector, SherpaWakeWordDetector>();
 

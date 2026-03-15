@@ -384,6 +384,100 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
 
     [SkippableFact]
     [Trait("Category", "Integration")]
+    public void HybridStt_ProducesProgressiveRefinements()
+    {
+        var modelPath = ResolveFromRepoRoot(GtcrnModelPath);
+        var wavPath = ResolveFromRepoRoot(SampleWavPath);
+        var expectedTextPath = Path.ChangeExtension(wavPath, ".txt");
+        var sttDir = ResolveFromRepoRoot(SttModelDir);
+
+        Skip.If(!File.Exists(wavPath), $"Sample WAV not found at {wavPath}");
+
+        var offlineModelDir = FindBestOfflineModelDir(sttDir);
+        Skip.If(offlineModelDir is null, "No offline STT model available");
+
+        var expectedLine = File.Exists(expectedTextPath)
+            ? File.ReadAllText(expectedTextPath).Trim()
+            : null;
+        var expectedText = expectedLine?.Contains(':') == true
+            ? expectedLine[(expectedLine.IndexOf(':') + 1)..].Trim()
+            : expectedLine ?? "";
+
+        var (inputSamples, sampleRate) = ReadWav(wavPath);
+
+        // Optionally enhance
+        float[] samples;
+        if (File.Exists(modelPath))
+        {
+            using var onnxSession = CreateOnnxSession(modelPath);
+            using var enhancerSession = new GtcrnStreamingSession(onnxSession);
+            samples = FeedInChunks(enhancerSession, inputSamples, ChunkSize);
+        }
+        else
+        {
+            samples = inputSamples;
+        }
+
+        _output.WriteLine($"Using hybrid model: {Path.GetFileName(offlineModelDir)}");
+        _output.WriteLine($"Audio: {samples.Length} samples ({samples.Length * 1000 / sampleRate}ms)");
+
+        var notifier = new TestModelChangeNotifier();
+        using var engine = new HybridSttEngine(
+            Options.Create(new HybridSttOptions
+            {
+                ModelPath = offlineModelDir!,
+                SampleRate = sampleRate,
+                NumThreads = 4,
+                RefreshIntervalMs = 400,
+                MinAudioMs = 300,
+                MaxContextSeconds = 30.0,
+            }),
+            notifier,
+            NullLogger<HybridSttEngine>.Instance);
+
+        Skip.If(!engine.IsReady, "Hybrid engine failed to load");
+
+        using var session = engine.CreateSession();
+
+        // Feed audio in 100ms chunks (simulating real-time streaming)
+        var chunkSamples = sampleRate / 10; // 100ms
+        var partials = new List<string>();
+
+        for (var offset = 0; offset < samples.Length; offset += chunkSamples)
+        {
+            var remaining = Math.Min(chunkSamples, samples.Length - offset);
+            session.AcceptAudioChunk(samples.AsSpan(offset, remaining), sampleRate);
+
+            var partial = session.GetPartialResult().Text;
+            if (!string.IsNullOrEmpty(partial) && (partials.Count == 0 || partials[^1] != partial))
+            {
+                partials.Add(partial);
+                var elapsedMs = (offset + remaining) * 1000 / sampleRate;
+                WriteBenchmarkLine($"  [{elapsedMs,5}ms] \"{partial}\"");
+            }
+        }
+
+        var final = session.GetFinalResult();
+        WriteBenchmarkLine($"  [final ] \"{final.Text}\"");
+
+        var finalWer = ComputeWordErrorRate(expectedText, final.Text);
+        WriteBenchmarkLine($"Final WER: {finalWer:P1} | Partials: {partials.Count}");
+
+        // Assertions
+        Assert.False(string.IsNullOrWhiteSpace(final.Text),
+            "Hybrid STT produced empty final transcript");
+
+        // Should produce at least 2 progressive partials (initial + refinement)
+        Assert.True(partials.Count >= 2,
+            $"Expected at least 2 progressive partials, got {partials.Count}");
+
+        // Final accuracy should match offline engine quality (≤10% WER)
+        Assert.True(finalWer <= 0.10,
+            $"Hybrid final WER {finalWer:P1} exceeds 10%. Got: \"{final.Text}\"");
+    }
+
+    [SkippableFact]
+    [Trait("Category", "Integration")]
     public async Task Benchmark_AllModels_WerComparison()
     {
         var modelPath = ResolveFromRepoRoot(GtcrnModelPath);
