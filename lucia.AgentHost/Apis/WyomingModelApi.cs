@@ -14,14 +14,18 @@ public static class WyomingModelApi
             .WithTags("Wyoming Models")
             .RequireAuthorization();
 
-        group.MapGet("/", (ModelCatalogService catalog, bool? all) =>
+        group.MapGet("/", (ModelCatalogService catalog, ModelManager manager, bool? all) =>
         {
-            var models = catalog.GetAvailableModels();
-            // By default, only return models compatible with the online/streaming recognizer.
-            // Pass ?all=true to include offline-only models.
+            // Combine streaming STT models with offline STT models
+            var streamingModels = catalog.GetAvailableModels();
+            var offlineModels = catalog.GetAvailableModels(EngineType.OfflineStt);
+            IEnumerable<object> combined = streamingModels.Cast<object>().Concat(offlineModels);
+
             if (all != true)
-                models = models.Where(m => m.IsOnlineCompatible).ToList();
-            return Results.Ok(models);
+                combined = streamingModels.Where(m => m.IsOnlineCompatible).Cast<object>()
+                    .Concat(offlineModels);
+
+            return Results.Ok(combined.ToList());
         }).WithName("GetAvailableModels");
 
         group.MapGet("/installed", (ModelCatalogService catalog) =>
@@ -30,9 +34,15 @@ public static class WyomingModelApi
             return Results.Ok(models);
         }).WithName("GetInstalledModels");
 
-        group.MapGet("/active", (ModelManager manager) =>
+        group.MapGet("/active", (ModelManager manager, IEnumerable<lucia.Wyoming.Stt.ISttEngine> sttEngines) =>
         {
-            return Results.Ok(new { ActiveModel = manager.ActiveModelId });
+            // Report the active model for whichever engine type is actually running
+            var engines = sttEngines.ToArray();
+            var activeEngine = engines.FirstOrDefault(static e => e.IsReady) ?? engines.FirstOrDefault();
+            var activeModelId = activeEngine is lucia.Wyoming.Stt.HybridSttEngine
+                ? manager.GetActiveModelId(EngineType.OfflineStt)
+                : manager.ActiveModelId;
+            return Results.Ok(new { ActiveModel = activeModelId });
         }).WithName("GetActiveModel");
 
         group.MapPost("/{modelId}/download", async (
@@ -266,9 +276,11 @@ public static class WyomingModelApi
         engineType.ToLowerInvariant() switch
         {
             "stt" => EngineType.Stt,
+            "offline-stt" or "offlinestt" => EngineType.OfflineStt,
             "vad" => EngineType.Vad,
             "kws" or "wakeword" => EngineType.WakeWord,
             "speaker-embedding" or "diarization" => EngineType.SpeakerEmbedding,
+            "speech-enhancement" => EngineType.SpeechEnhancement,
             _ => null,
         };
 
