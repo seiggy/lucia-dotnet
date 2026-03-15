@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Sockets;
 using lucia.Wyoming.Audio;
 using lucia.Wyoming.CommandRouting;
@@ -15,6 +16,7 @@ namespace lucia.Wyoming.Wyoming;
 
 public sealed class WyomingSession : IDisposable
 {
+    private static readonly ActivitySource WyomingActivitySource = new("lucia.Wyoming.Session", "1.0.0");
     private readonly TcpClient _client;
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<WyomingSession> _logger;
@@ -44,6 +46,7 @@ public sealed class WyomingSession : IDisposable
     private long _enhancementTotalMs;
     private long _sttFinalizationMs;
     private long _diarizationMs;
+    private long _audioStreamStartedAt;
     private bool _disposed;
 
     public WyomingSession(
@@ -101,6 +104,8 @@ public sealed class WyomingSession : IDisposable
     public async Task RunAsync(CancellationToken ct)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        using var sessionActivity = WyomingActivitySource.StartActivity("wyoming.session");
+        sessionActivity?.SetTag("session.id", Id);
 
         using var scope = _serviceProvider.CreateScope();
         var services = scope.ServiceProvider;
@@ -114,6 +119,9 @@ public sealed class WyomingSession : IDisposable
             services.GetRequiredService<IOptions<WyomingOptions>>(),
             sttEngine,
             wakeWordDetector);
+
+        _logger.LogInformation("Session {SessionId} started", Id);
+        var sessionSw = System.Diagnostics.Stopwatch.StartNew();
 
         try
         {
@@ -130,7 +138,10 @@ public sealed class WyomingSession : IDisposable
                 switch (evt)
                 {
                     case DescribeEvent:
-                        await writer.WriteEventAsync(infoService.BuildInfoEvent(), ct).ConfigureAwait(false);
+                        using (WyomingActivitySource.StartActivity("wyoming.describe"))
+                        {
+                            await writer.WriteEventAsync(infoService.BuildInfoEvent(), ct).ConfigureAwait(false);
+                        }
                         break;
 
                     case DetectEvent detectEvent:
@@ -138,6 +149,10 @@ public sealed class WyomingSession : IDisposable
                         break;
 
                     case AudioStartEvent audioStartEvent:
+                        _audioStreamStartedAt = sessionSw.ElapsedMilliseconds;
+                        _logger.LogInformation(
+                            "Session {SessionId} audio stream started at {ElapsedMs}ms",
+                            Id, _audioStreamStartedAt);
                         HandleAudioStartEvent(audioStartEvent);
                         break;
 
@@ -146,10 +161,20 @@ public sealed class WyomingSession : IDisposable
                         break;
 
                     case AudioStopEvent:
+                        _logger.LogInformation(
+                            "Session {SessionId} audio-stop received at {ElapsedMs}ms ({AudioMs}ms since stream start)",
+                            Id, sessionSw.ElapsedMilliseconds,
+                            sessionSw.ElapsedMilliseconds - _audioStreamStartedAt);
                         await HandleAudioStopEventAsync(writer, ct).ConfigureAwait(false);
+                        _logger.LogInformation(
+                            "Session {SessionId} audio-stop processing complete at {ElapsedMs}ms",
+                            Id, sessionSw.ElapsedMilliseconds);
                         break;
 
                     case TranscribeEvent transcribeEvent:
+                        _logger.LogInformation(
+                            "Session {SessionId} transcribe event at {ElapsedMs}ms",
+                            Id, sessionSw.ElapsedMilliseconds);
                         await HandleTranscribeEventAsync(transcribeEvent, writer, ct).ConfigureAwait(false);
                         break;
 
@@ -394,45 +419,60 @@ public sealed class WyomingSession : IDisposable
         switch (State)
         {
             case WyomingSessionState.Transcribing when _currentSttSession is not null:
-                _currentVadSession?.Flush();
-                var sttSw = System.Diagnostics.Stopwatch.StartNew();
-                _pendingTranscript = _currentSttSession.GetFinalResult();
-                sttSw.Stop();
-                _sttFinalizationMs = sttSw.ElapsedMilliseconds;
-                DisposeCurrentSttSession();
-                DisposeCurrentVadSession();
-                SetState(WyomingSessionState.Processing);
-                _logger.LogDebug("Wyoming session {SessionId} finalized STT result", Id);
-
-                // Publish streaming transcript immediately for live monitoring
-                var transcript = _pendingTranscript ?? new SttResult();
-                if (!string.IsNullOrWhiteSpace(transcript.Text))
+                using (var audioStopActivity = WyomingActivitySource.StartActivity("wyoming.audio_stop"))
                 {
-                    _eventBus?.Publish(new SessionTranscriptEvent
+                    audioStopActivity?.SetTag("session.id", Id);
+
+                    _currentVadSession?.Flush();
+
+                    SttResult sttResult;
+                    using (var sttActivity = WyomingActivitySource.StartActivity("wyoming.stt.finalize"))
                     {
-                        SessionId = Id,
-                        Text = transcript.Text,
-                        Confidence = transcript.Confidence,
-                        IsFinal = true,
-                    });
+                        var sttSw = System.Diagnostics.Stopwatch.StartNew();
+                        sttResult = _currentSttSession.GetFinalResult();
+                        sttSw.Stop();
+                        _sttFinalizationMs = sttSw.ElapsedMilliseconds;
+                        sttActivity?.SetTag("stt.duration_ms", sttSw.ElapsedMilliseconds);
+                        sttActivity?.SetTag("stt.text", sttResult.Text);
+                        _logger.LogInformation(
+                            "Session {SessionId} STT finalized in {SttMs}ms → \"{Text}\"",
+                            Id, sttSw.ElapsedMilliseconds, sttResult.Text);
+                    }
+
+                    _pendingTranscript = sttResult;
+                    DisposeCurrentSttSession();
+                    DisposeCurrentVadSession();
+                    SetState(WyomingSessionState.Processing);
+
+                    var transcript = _pendingTranscript ?? new SttResult();
+                    if (!string.IsNullOrWhiteSpace(transcript.Text))
+                    {
+                        _eventBus?.Publish(new SessionTranscriptEvent
+                        {
+                            SessionId = Id,
+                            Text = transcript.Text,
+                            Confidence = transcript.Confidence,
+                            IsFinal = true,
+                        });
+                    }
+
+                    var utteranceAudio = _utteranceAudioBuffer.Count == 0
+                        ? Array.Empty<float>()
+                        : [.. _utteranceAudioBuffer];
+
+                    SetState(WyomingSessionState.Responding);
+
+                    using (WyomingActivitySource.StartActivity("wyoming.process_transcript"))
+                    {
+                        await ProcessTranscriptAsync(
+                                transcript.Text, transcript.Confidence, utteranceAudio, writer, ct)
+                            .ConfigureAwait(false);
+                    }
+
+                    _pendingTranscript = null;
+                    ResetUtteranceAudio();
+                    SetState(WyomingSessionState.Connected);
                 }
-
-                // Direct STT flow: HA expects a Transcript response immediately after
-                // AudioStop, without sending a separate Transcribe event.
-                // The hybrid STT session's GetFinalResult() already returns the
-                // best available offline-model result.
-                var utteranceAudio = _utteranceAudioBuffer.Count == 0
-                    ? Array.Empty<float>()
-                    : [.. _utteranceAudioBuffer];
-
-                SetState(WyomingSessionState.Responding);
-
-                await ProcessTranscriptAsync(transcript.Text, transcript.Confidence, utteranceAudio, writer, ct)
-                    .ConfigureAwait(false);
-
-                _pendingTranscript = null;
-                ResetUtteranceAudio();
-                SetState(WyomingSessionState.Connected);
                 break;
 
             case WyomingSessionState.WakeListening:
@@ -837,29 +877,44 @@ public sealed class WyomingSession : IDisposable
             return;
         }
 
-        // Identify speaker, then send tagged transcript to HA
-        var diarSw = System.Diagnostics.Stopwatch.StartNew();
-        var speaker = await IdentifySpeakerAsync(utteranceAudio, transcript, ct)
-            .ConfigureAwait(false);
-        diarSw.Stop();
-        _diarizationMs = diarSw.ElapsedMilliseconds;
+        // Identify speaker
+        SpeakerIdentification? speaker;
+        using (var diarActivity = WyomingActivitySource.StartActivity("wyoming.diarization"))
+        {
+            var diarSw = System.Diagnostics.Stopwatch.StartNew();
+            speaker = await IdentifySpeakerAsync(utteranceAudio, transcript, ct)
+                .ConfigureAwait(false);
+            diarSw.Stop();
+            _diarizationMs = diarSw.ElapsedMilliseconds;
+            diarActivity?.SetTag("diarization.duration_ms", diarSw.ElapsedMilliseconds);
+            diarActivity?.SetTag("diarization.speaker", speaker?.Name ?? "unknown");
+            _logger.LogInformation(
+                "Session {SessionId} diarization completed in {DiarizationMs}ms → {Speaker}",
+                Id, diarSw.ElapsedMilliseconds, speaker?.Name ?? "unknown");
+        }
 
         var speakerTag = FormatSpeakerTag(speaker);
         var taggedTranscript = $"{speakerTag}{transcript}";
 
-        _logger.LogDebug(
-            "Session {SessionId} transcript: {TaggedTranscript} (diarization: {DiarizationMs}ms)",
-            Id, taggedTranscript, _diarizationMs);
-
         // Send transcript to HA via Wyoming protocol
-        await writer.WriteEventAsync(
-                new TranscriptEvent
-                {
-                    Text = taggedTranscript,
-                    Confidence = originalConfidence,
-                },
-                ct)
-            .ConfigureAwait(false);
+        using (var writeActivity = WyomingActivitySource.StartActivity("wyoming.send_transcript"))
+        {
+            var writeSw = System.Diagnostics.Stopwatch.StartNew();
+            await writer.WriteEventAsync(
+                    new TranscriptEvent
+                    {
+                        Text = taggedTranscript,
+                        Confidence = originalConfidence,
+                    },
+                    ct)
+                .ConfigureAwait(false);
+            writeSw.Stop();
+            writeActivity?.SetTag("transcript.text", taggedTranscript);
+            writeActivity?.SetTag("transcript.write_ms", writeSw.ElapsedMilliseconds);
+            _logger.LogInformation(
+                "Session {SessionId} sent transcript in {WriteMs}ms: {Transcript}",
+                Id, writeSw.ElapsedMilliseconds, taggedTranscript);
+        }
 
         // Publish to dashboard
         _eventBus?.Publish(new SessionTranscriptEvent
