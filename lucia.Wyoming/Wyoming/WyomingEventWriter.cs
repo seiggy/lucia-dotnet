@@ -48,6 +48,7 @@ public sealed class WyomingEventWriter
             var header = new WyomingEventHeader
             {
                 Type = evt.Type,
+                Version = evt is InfoEvent info ? info.Version : null,
                 DataLength = dataBytes?.Length ?? 0,
                 PayloadLength = evt.Payload?.Length ?? 0,
             };
