@@ -41,6 +41,8 @@ public static class ServiceCollectionExtensions
             builder.Configuration.GetSection(DiarizationOptions.SectionName));
         builder.Services.Configure<SpeechEnhancementOptions>(
             builder.Configuration.GetSection(SpeechEnhancementOptions.SectionName));
+        builder.Services.Configure<GraniteOptions>(
+            builder.Configuration.GetSection(GraniteOptions.SectionName));
         builder.Services.Configure<VoiceProfileOptions>(
             builder.Configuration.GetSection(VoiceProfileOptions.SectionName));
         builder.Services.Configure<CommandRoutingOptions>(
@@ -56,6 +58,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddHostedService<ModelStartupValidator>();
 
         builder.Services.AddSingleton<ISttEngine, SherpaSttEngine>();
+        builder.Services.AddSingleton<IGraniteEngine, GraniteOnnxEngine>();
         builder.Services.AddSingleton<IVadEngine, SherpaVadEngine>();
         builder.Services.AddSingleton<IWakeWordDetector, SherpaWakeWordDetector>();
 

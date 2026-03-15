@@ -10,4 +10,5 @@ public enum EngineType
     WakeWord,
     SpeakerEmbedding,
     SpeechEnhancement,
+    OfflineStt,
 }

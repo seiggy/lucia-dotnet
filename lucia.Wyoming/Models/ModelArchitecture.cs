@@ -15,6 +15,7 @@ public enum ModelArchitecture
     NemoCanary,
     Whisper,
     SenseVoice,
+    GraniteSpeech,
     Lstm,
     Telespeech,
     Unknown,

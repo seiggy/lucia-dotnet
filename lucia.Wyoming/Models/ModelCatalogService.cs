@@ -291,6 +291,23 @@ public sealed class ModelCatalogService(
         },
     ];
 
+    private static readonly IReadOnlyList<WyomingModelDefinition> OfflineSttCatalog =
+    [
+        new()
+        {
+            Id = "granite-4.0-1b-speech",
+            Name = "Granite 4.0 1B Speech",
+            EngineType = EngineType.OfflineStt,
+            Description = "IBM Granite 4.0 1B Speech — #1 OpenASR leaderboard, with keyword biasing for home automation.",
+            Languages = ["en", "fr", "de", "es", "pt", "ja"],
+            SizeBytes = 2_000_000_000,
+            DownloadUrl = "https://huggingface.co/onnx-community/granite-4.0-1b-speech-ONNX/resolve/main/onnx/encoder_model.onnx",
+            IsDefault = true,
+            MinMemoryMb = 2048,
+            IsArchive = false,
+        },
+    ];
+
     public IReadOnlyList<AsrModelDefinition> GetAvailableModels(ModelFilter? filter = null)
     {
         IEnumerable<AsrModelDefinition> models = BuiltInCatalog;
@@ -363,6 +380,7 @@ public sealed class ModelCatalogService(
             EngineType.WakeWord => WakeWordCatalog,
             EngineType.SpeakerEmbedding => SpeakerEmbeddingCatalog,
             EngineType.SpeechEnhancement => SpeechEnhancementCatalog,
+            EngineType.OfflineStt => OfflineSttCatalog,
             _ => [],
         };
 
@@ -378,6 +396,7 @@ public sealed class ModelCatalogService(
         engineType switch
         {
             EngineType.Stt => sttOptions.CurrentValue.ModelBasePath,
+            EngineType.OfflineStt => sttOptions.CurrentValue.ModelBasePath,
             EngineType.Vad => vadOptions.CurrentValue.ModelBasePath,
             EngineType.WakeWord => wakeWordOptions.CurrentValue.ModelBasePath,
             EngineType.SpeakerEmbedding => diarizationOptions.CurrentValue.ModelBasePath,

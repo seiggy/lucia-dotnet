@@ -38,6 +38,7 @@ public sealed class WyomingSession : IDisposable
     private ITranscriptStore? _transcriptStore;
     private ModelManager? _modelManager;
     private ISpeechEnhancer? _speechEnhancer;
+    private IGraniteEngine? _graniteEngine;
     private ISpeechEnhancerSession? _currentEnhancerSession;
     private readonly SessionEventBus? _eventBus;
     private DateTimeOffset _lastAudioLevelEvent;
@@ -402,8 +403,7 @@ public sealed class WyomingSession : IDisposable
                 SetState(WyomingSessionState.Processing);
                 _logger.LogDebug("Wyoming session {SessionId} finalized STT result", Id);
 
-                // Publish raw transcript immediately for live monitoring
-                // (before routing/LLM which can take seconds)
+                // Publish streaming transcript immediately for live monitoring
                 var transcript = _pendingTranscript ?? new SttResult();
                 if (!string.IsNullOrWhiteSpace(transcript.Text))
                 {
@@ -421,6 +421,35 @@ public sealed class WyomingSession : IDisposable
                 var utteranceAudio = _utteranceAudioBuffer.Count == 0
                     ? Array.Empty<float>()
                     : [.. _utteranceAudioBuffer];
+
+                // Run Granite offline engine on the full utterance for higher accuracy
+                if (_graniteEngine is { IsReady: true } && utteranceAudio.Length > 0)
+                {
+                    try
+                    {
+                        var graniteResult = await _graniteEngine.TranscribeAsync(
+                            utteranceAudio, _utteranceSampleRate, keywordBias: null, ct)
+                            .ConfigureAwait(false);
+
+                        if (!string.IsNullOrWhiteSpace(graniteResult.Text))
+                        {
+                            _logger.LogDebug(
+                                "Granite override: \"{StreamingText}\" → \"{GraniteText}\" ({InferenceMs}ms)",
+                                transcript.Text, graniteResult.Text,
+                                graniteResult.InferenceDuration.TotalMilliseconds);
+
+                            transcript = new SttResult
+                            {
+                                Text = graniteResult.Text,
+                                Confidence = graniteResult.Confidence,
+                            };
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Granite transcription failed, using streaming result");
+                    }
+                }
 
                 SetState(WyomingSessionState.Responding);
 
@@ -816,6 +845,7 @@ public sealed class WyomingSession : IDisposable
         _transcriptStore = services.GetService<ITranscriptStore>();
         _modelManager = services.GetService<ModelManager>();
         _speechEnhancer = services.GetService<ISpeechEnhancer>();
+        _graniteEngine = services.GetService<IGraniteEngine>();
     }
 
     private async Task ProcessTranscriptAsync(
