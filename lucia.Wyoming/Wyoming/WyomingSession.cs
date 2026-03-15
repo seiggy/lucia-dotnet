@@ -710,10 +710,8 @@ public sealed class WyomingSession : IDisposable
                 else
                 {
                     // Enhancement is still buffering — feed raw audio to VAD only.
-                    // Also feed raw audio to STT so it doesn't miss data.
-                    AppendUtteranceAudio(samples, _utteranceSampleRate);
-                    _currentSttSession.AcceptAudioChunk(samples, _utteranceSampleRate);
-
+                    // Do NOT feed to STT: the hybrid session's internal buffer should
+                    // contain only enhanced audio to avoid mixed-quality re-transcription.
                     if (_currentVadSession is not null)
                     {
                         _currentVadSession.AcceptAudioChunk(samples);
@@ -724,7 +722,6 @@ public sealed class WyomingSession : IDisposable
                         TryPublishAudioLevel(samples, isSpeechActive: true);
                     }
 
-                    TryPublishPartialTranscript();
                     return;
                 }
             }
@@ -938,7 +935,8 @@ public sealed class WyomingSession : IDisposable
                     : 0,
                 SampleRate = _utteranceSampleRate,
                 SampleCount = utteranceAudio.Length,
-                SttModelId = _modelManager?.GetActiveModelId(EngineType.Stt) ?? "unknown",
+                SttModelId = _modelManager?.GetActiveModelId(EngineType.OfflineStt)
+                    ?? _modelManager?.GetActiveModelId(EngineType.Stt) ?? "unknown",
                 VadModelId = _modelManager?.GetActiveModelId(EngineType.Vad),
                 VadActive = _modelManager?.GetActiveModelId(EngineType.Vad) is not null,
                 DiarizationModelId = _modelManager?.GetActiveModelId(EngineType.SpeakerEmbedding),
