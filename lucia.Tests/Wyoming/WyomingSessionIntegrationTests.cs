@@ -624,13 +624,18 @@ public sealed class WyomingSessionIntegrationTests(ITestOutputHelper output)
 
         try
         {
+            var pipelineSw = System.Diagnostics.Stopwatch.StartNew();
+
             // 1. Send AudioStart (direct STT mode — no wake word)
             await writer.WriteEventAsync(
                 new AudioStartEvent { Rate = sampleRate, Width = 2, Channels = 1 },
                 cts.Token);
 
-            // 2. Stream the WAV as 10ms audio chunks (160 samples × 2 bytes = 320 bytes)
+            // 2. Stream the WAV as 10ms audio chunks, throttled to real-time
+            //    so the hybrid engine can run progressive re-transcriptions during streaming
             const int chunkSamples = 160;
+            var chunkDurationMs = chunkSamples * 1000 / sampleRate; // 10ms
+            var streamingSw = System.Diagnostics.Stopwatch.StartNew();
             for (var offset = 0; offset < rawSamples.Length; offset += chunkSamples)
             {
                 var remaining = Math.Min(chunkSamples, rawSamples.Length - offset);
@@ -646,13 +651,22 @@ public sealed class WyomingSessionIntegrationTests(ITestOutputHelper output)
                         Payload = pcmPayload,
                     },
                     cts.Token);
+
+                // Throttle to real-time: wait ~10ms per chunk so hybrid re-transcription
+                // happens during streaming, not all at finalization
+                await Task.Delay(chunkDurationMs, cts.Token);
             }
+            streamingSw.Stop();
 
             // 3. Send AudioStop — triggers finalization
+            var finalizeSw = System.Diagnostics.Stopwatch.StartNew();
             await writer.WriteEventAsync(new AudioStopEvent(), cts.Token);
 
             // 4. Read the transcript response
             var response = await parser.ReadEventAsync(cts.Token);
+            finalizeSw.Stop();
+            pipelineSw.Stop();
+
             if (response is ErrorEvent errorEvt)
             {
                 output.WriteLine($"ERROR from session: [{errorEvt.Code}] {errorEvt.Text}");
@@ -662,6 +676,16 @@ public sealed class WyomingSessionIntegrationTests(ITestOutputHelper output)
 
             output.WriteLine($"Wyoming transcript: \"{transcript.Text}\"");
             output.WriteLine($"Confidence: {transcript.Confidence}");
+
+            var audioDurationMs = rawSamples.Length * 1000 / sampleRate;
+            output.WriteLine("");
+            output.WriteLine("═══ End-to-End Wyoming Pipeline Benchmark ═══");
+            output.WriteLine($"  Audio duration:     {audioDurationMs}ms");
+            output.WriteLine($"  Stream chunks:      {streamingSw.ElapsedMilliseconds}ms (sending {rawSamples.Length / chunkSamples} chunks over TCP)");
+            output.WriteLine($"  Finalize + respond: {finalizeSw.ElapsedMilliseconds}ms (AudioStop → TranscriptEvent)");
+            output.WriteLine($"  Total pipeline:     {pipelineSw.ElapsedMilliseconds}ms (AudioStart → TranscriptEvent)");
+            output.WriteLine($"  Overhead:           {pipelineSw.ElapsedMilliseconds - audioDurationMs}ms above real-time");
+            output.WriteLine($"  Realtime factor:    {pipelineSw.ElapsedMilliseconds / (double)audioDurationMs:F2}x");
 
             // Strip speaker tag for WER comparison
             var transcriptText = transcript.Text;
