@@ -16,7 +16,7 @@ public static class WyomingStatusApi
     }
 
     public static IResult GetWyomingStatus(
-        ISttEngine? sttEngine,
+        IEnumerable<ISttEngine> sttEngines,
         IVadEngine? vadEngine,
         IWakeWordDetector? wakeWordDetector,
         IDiarizationEngine? diarizationEngine,
@@ -24,12 +24,28 @@ public static class WyomingStatusApi
         CustomWakeWordManager? wakeWordManager,
         ModelManager manager)
     {
+        // Find the first ready engine — matches what WyomingSession.CreateSttSessionAsync does
+        var engines = sttEngines.ToArray();
+        var activeEngine = engines.FirstOrDefault(static e => e.IsReady) ?? engines.FirstOrDefault();
+        var engineType = activeEngine switch
+        {
+            HybridSttEngine => "Hybrid (Offline Re-transcription)",
+            SherpaSttEngine => "Sherpa Streaming",
+            _ => activeEngine?.GetType().Name ?? "None",
+        };
+
+        // Resolve the active model ID: prefer OfflineStt if hybrid is active
+        var activeModelId = activeEngine is HybridSttEngine
+            ? manager.GetActiveModelId(EngineType.OfflineStt)
+            : manager.GetActiveModelId(EngineType.Stt);
+
         return Results.Ok(new
         {
             Stt = new
             {
-                Ready = sttEngine?.IsReady ?? false,
-                ActiveModel = manager.GetActiveModelId(EngineType.Stt),
+                Ready = activeEngine?.IsReady ?? false,
+                ActiveModel = activeModelId,
+                Engine = engineType,
             },
             Vad = new
             {
@@ -52,7 +68,7 @@ public static class WyomingStatusApi
                 ActiveModel = manager.GetActiveModelId(EngineType.SpeechEnhancement),
             },
             CustomWakeWords = new { Ready = wakeWordManager?.IsReady ?? false },
-            Configured = (sttEngine?.IsReady ?? false) || (wakeWordDetector?.IsReady ?? false),
+            Configured = (activeEngine?.IsReady ?? false) || (wakeWordDetector?.IsReady ?? false),
         });
     }
 }

@@ -1,5 +1,6 @@
 using lucia.Wyoming.Audio;
 using lucia.Wyoming.Diarization;
+using lucia.Wyoming.Stt;
 using lucia.Wyoming.Vad;
 using lucia.Wyoming.WakeWord;
 using Microsoft.Extensions.Logging;
@@ -13,6 +14,7 @@ public sealed class ModelManager(
     IOptionsMonitor<WakeWordOptions> wakeWordOptionsMonitor,
     IOptionsMonitor<DiarizationOptions> diarizationOptionsMonitor,
     IOptionsMonitor<SpeechEnhancementOptions> enhancementOptionsMonitor,
+    IOptionsMonitor<HybridSttOptions> hybridSttOptionsMonitor,
     ModelCatalogService catalogService,
     ModelDownloader downloader,
     ILogger<ModelManager> logger) : IModelChangeNotifier
@@ -239,6 +241,7 @@ public sealed class ModelManager(
         engineType switch
         {
             EngineType.Stt => sttOptionsMonitor.CurrentValue.ActiveModel,
+            EngineType.OfflineStt => ResolveOfflineSttActiveModel(),
             EngineType.Vad => vadOptionsMonitor.CurrentValue.ActiveModel,
             EngineType.WakeWord => wakeWordOptionsMonitor.CurrentValue.ActiveModel,
             EngineType.SpeakerEmbedding => diarizationOptionsMonitor.CurrentValue.ActiveModel,
@@ -246,10 +249,31 @@ public sealed class ModelManager(
             _ => throw new ArgumentOutOfRangeException(nameof(engineType)),
         };
 
+    private string ResolveOfflineSttActiveModel()
+    {
+        var hybridPath = hybridSttOptionsMonitor.CurrentValue.ModelPath;
+        if (!string.IsNullOrWhiteSpace(hybridPath) && Directory.Exists(hybridPath))
+            return Path.GetFileName(hybridPath);
+
+        // Fall back: scan the STT model base path for the best offline model
+        var basePath = sttOptionsMonitor.CurrentValue.ModelBasePath;
+        if (!Directory.Exists(basePath)) return "(not configured)";
+
+        var bestOffline = Directory.EnumerateDirectories(basePath)
+            .Where(d => Directory.EnumerateFiles(d, "tokens.txt", SearchOption.AllDirectories).Any())
+            .Where(d => (Path.GetFileName(d) ?? "").Contains("parakeet", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(d => new DirectoryInfo(d).EnumerateFiles("*.onnx", SearchOption.AllDirectories)
+                .Sum(static f => f.Length))
+            .FirstOrDefault();
+
+        return bestOffline is not null ? Path.GetFileName(bestOffline) : "(not configured)";
+    }
+
     public string GetModelBasePath(EngineType engineType) =>
         engineType switch
         {
             EngineType.Stt => sttOptionsMonitor.CurrentValue.ModelBasePath,
+            EngineType.OfflineStt => sttOptionsMonitor.CurrentValue.ModelBasePath,
             EngineType.Vad => vadOptionsMonitor.CurrentValue.ModelBasePath,
             EngineType.WakeWord => wakeWordOptionsMonitor.CurrentValue.ModelBasePath,
             EngineType.SpeakerEmbedding => diarizationOptionsMonitor.CurrentValue.ModelBasePath,

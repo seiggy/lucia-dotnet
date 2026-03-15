@@ -2,6 +2,7 @@ using FakeItEasy;
 using lucia.Wyoming.Audio;
 using lucia.Wyoming.Diarization;
 using lucia.Wyoming.Models;
+using lucia.Wyoming.Stt;
 using lucia.Wyoming.Vad;
 using lucia.Wyoming.WakeWord;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -177,6 +178,7 @@ public sealed class ModelManagerMultiEngineTests : IDisposable
             wakeMonitor,
             diarizationMonitor,
             enhancementMonitor,
+            new OptionsMonitorStub<HybridSttOptions>(new HybridSttOptions()),
             catalog,
             downloader,
             NullLogger<ModelManager>.Instance);

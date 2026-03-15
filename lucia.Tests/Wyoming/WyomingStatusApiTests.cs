@@ -20,7 +20,7 @@ public sealed class WyomingStatusApiTests
     public async Task GetWyomingStatus_ReturnsReadinessForAllServices()
     {
         var result = WyomingStatusApi.GetWyomingStatus(
-            new TestSttEngine(new TestSttSession(new SttResult())),
+            new ISttEngine[] { new TestSttEngine(new TestSttSession(new SttResult())) },
             null,
             new TestWakeWordDetector(new TestWakeWordSession(null)),
             new TestDiarizationEngine(),
@@ -41,7 +41,7 @@ public sealed class WyomingStatusApiTests
     public async Task GetWyomingStatus_ReturnsFalseWhenServicesAreNotConfigured()
     {
         var result = WyomingStatusApi.GetWyomingStatus(
-            new UnreadySttEngine(),
+            new ISttEngine[] { new UnreadySttEngine() },
             null,
             new UnreadyWakeWordDetector(),
             new UnreadyDiarizationEngine(),
@@ -71,6 +71,7 @@ public sealed class WyomingStatusApiTests
 
         return new ModelManager(
             sttMonitor, vadMonitor, wakeMonitor, diarizationMonitor, enhancementMonitor,
+            new OptionsMonitorStub<HybridSttOptions>(new HybridSttOptions()),
             catalog, downloader, NullLogger<ModelManager>.Instance);
     }
 
