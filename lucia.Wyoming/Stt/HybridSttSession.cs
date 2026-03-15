@@ -10,8 +10,8 @@ namespace lucia.Wyoming.Stt;
 /// the full buffer through an offline model on a periodic cadence, producing
 /// progressively refined partial transcripts in near-real-time.
 ///
-/// For a typical 2-3 second home automation command with Parakeet TDT 0.6B (~68ms
-/// per full-buffer inference), this yields 5-7 progressive updates during the utterance.
+/// Re-transcription runs on a background thread to avoid blocking the audio
+/// ingestion path. Only GetFinalResult() blocks until the last transcription completes.
 /// </summary>
 public sealed class HybridSttSession : ISttSession
 {
@@ -23,9 +23,11 @@ public sealed class HybridSttSession : ISttSession
     private readonly ILogger _logger;
 
     private readonly List<float> _audioBuffer = [];
+    private readonly object _bufferLock = new();
     private int _samplesSinceLastRefresh;
-    private string _latestTranscript = string.Empty;
-    private int _transcriptionCount;
+    private volatile string _latestTranscript = string.Empty;
+    private volatile int _transcriptionCount;
+    private Task? _pendingTranscription;
     private bool _disposed;
     private bool _inputFinished;
 
@@ -59,33 +61,37 @@ public sealed class HybridSttSession : ISttSession
             throw new InvalidOperationException("Cannot accept audio after finalization.");
         if (samples.IsEmpty) return;
 
-        // Resample if needed
         float[] resampled;
         if (sampleRate != _modelSampleRate)
-        {
             resampled = AudioResampler.Resample(samples, sampleRate, _modelSampleRate);
-        }
         else
-        {
             resampled = samples.ToArray();
+
+        lock (_bufferLock)
+        {
+            _audioBuffer.AddRange(resampled);
+            _samplesSinceLastRefresh += resampled.Length;
+
+            if (_audioBuffer.Count > _maxContextSamples)
+            {
+                var excess = _audioBuffer.Count - _maxContextSamples;
+                _audioBuffer.RemoveRange(0, excess);
+            }
         }
 
-        _audioBuffer.AddRange(resampled);
-        _samplesSinceLastRefresh += resampled.Length;
-
-        // Enforce max context window: trim old audio if buffer exceeds limit
-        if (_audioBuffer.Count > _maxContextSamples)
+        // Trigger background re-transcription if enough new audio accumulated
+        // and no transcription is already running
+        if (_samplesSinceLastRefresh >= _refreshIntervalSamples
+            && (_pendingTranscription is null || _pendingTranscription.IsCompleted))
         {
-            var excess = _audioBuffer.Count - _maxContextSamples;
-            _audioBuffer.RemoveRange(0, excess);
-        }
+            int bufferCount;
+            lock (_bufferLock) { bufferCount = _audioBuffer.Count; }
 
-        // Trigger re-transcription based on audio time, not wall-clock time
-        if (_audioBuffer.Count >= _minAudioSamples
-            && _samplesSinceLastRefresh >= _refreshIntervalSamples)
-        {
-            RunTranscription();
-            _samplesSinceLastRefresh = 0;
+            if (bufferCount >= _minAudioSamples)
+            {
+                _samplesSinceLastRefresh = 0;
+                _pendingTranscription = Task.Run(RunTranscription);
+            }
         }
     }
 
@@ -104,8 +110,13 @@ public sealed class HybridSttSession : ISttSession
         ObjectDisposedException.ThrowIf(_disposed, this);
         _inputFinished = true;
 
+        // Wait for any pending background transcription to finish
+        _pendingTranscription?.GetAwaiter().GetResult();
+
         // Run one final transcription on the complete buffer
-        if (_audioBuffer.Count > 0)
+        int bufferCount;
+        lock (_bufferLock) { bufferCount = _audioBuffer.Count; }
+        if (bufferCount > 0)
             RunTranscription();
 
         return new SttResult
@@ -119,14 +130,18 @@ public sealed class HybridSttSession : ISttSession
     {
         if (_disposed) return;
         _disposed = true;
-        // OfflineRecognizer is shared — don't dispose it here
     }
 
     private void RunTranscription()
     {
         var sw = Stopwatch.StartNew();
 
-        var audio = _audioBuffer.ToArray();
+        float[] audio;
+        lock (_bufferLock)
+        {
+            audio = _audioBuffer.ToArray();
+        }
+
         using var stream = _recognizer.CreateStream();
         stream.AcceptWaveform(_modelSampleRate, audio);
         _recognizer.Decode(stream);

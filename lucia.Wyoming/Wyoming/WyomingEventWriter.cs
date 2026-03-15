@@ -13,7 +13,7 @@ public sealed class WyomingEventWriter
     private readonly Stream _stream;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    private static readonly JsonSerializerOptions DataJsonOptions = new()
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
@@ -28,6 +28,8 @@ public sealed class WyomingEventWriter
 
     /// <summary>
     /// Write a Wyoming event to the stream.
+    /// Wyoming protocol: header line (JSON with type + lengths) followed by
+    /// optional data bytes and optional payload bytes.
     /// </summary>
     public async Task WriteEventAsync(WyomingEvent evt, CancellationToken ct = default)
     {
@@ -36,11 +38,29 @@ public sealed class WyomingEventWriter
         await _writeLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var header = BuildHeader(evt);
+            var data = BuildEventData(evt);
+            byte[]? dataBytes = null;
+            if (data is not null)
+            {
+                dataBytes = JsonSerializer.SerializeToUtf8Bytes(data, DataJsonOptions);
+            }
+
+            var header = new WyomingEventHeader
+            {
+                Type = evt.Type,
+                DataLength = dataBytes?.Length ?? 0,
+                PayloadLength = evt.Payload?.Length ?? 0,
+            };
+
             var headerJson = JsonSerializer.Serialize(header, JsonOptions);
             var headerBytes = Encoding.UTF8.GetBytes($"{headerJson}\n");
 
             await _stream.WriteAsync(headerBytes, ct).ConfigureAwait(false);
+
+            if (dataBytes is { Length: > 0 })
+            {
+                await _stream.WriteAsync(dataBytes, ct).ConfigureAwait(false);
+            }
 
             if (evt.Payload is { Length: > 0 } payload)
             {
@@ -53,16 +73,6 @@ public sealed class WyomingEventWriter
         {
             _writeLock.Release();
         }
-    }
-
-    private static WyomingEventHeader BuildHeader(WyomingEvent evt)
-    {
-        return new WyomingEventHeader
-        {
-            Type = evt.Type,
-            Data = BuildEventData(evt),
-            PayloadLength = evt.Payload?.Length ?? 0,
-        };
     }
 
     private static Dictionary<string, object>? BuildEventData(WyomingEvent evt)
