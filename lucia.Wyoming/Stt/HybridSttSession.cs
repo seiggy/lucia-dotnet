@@ -116,8 +116,14 @@ public sealed class HybridSttSession : ISttSession
         ObjectDisposedException.ThrowIf(_disposed, this);
         _inputFinished = true;
 
-        // Wait for any pending background transcription to finish
-        _pendingTranscription?.GetAwaiter().GetResult();
+        // Wait for any pending background transcription — use SpinWait to avoid
+        // thread pool starvation from blocking .GetAwaiter().GetResult()
+        if (_pendingTranscription is not null && !_pendingTranscription.IsCompleted)
+        {
+            var spin = new SpinWait();
+            while (!_pendingTranscription.IsCompleted)
+                spin.SpinOnce();
+        }
 
         // Run one final transcription on the complete buffer
         int bufferCount;
