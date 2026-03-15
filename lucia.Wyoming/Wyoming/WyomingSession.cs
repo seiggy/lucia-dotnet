@@ -812,22 +812,36 @@ public sealed class WyomingSession : IDisposable
             return;
         }
 
-        // Identify speaker (if diarization is available)
+        // Send transcript to HA first — diarization and storage happen after.
+        // The Wyoming protocol is request-response: HA expects transcript ASAP after audio-stop.
+        // Speaker tag defaults to Unknown; dashboard SSE gets updated with real speaker later.
+        var taggedTranscript = $"<Unknown1 />{transcript}";
+
+        await writer.WriteEventAsync(
+                new TranscriptEvent
+                {
+                    Text = taggedTranscript,
+                    Confidence = originalConfidence,
+                },
+                ct)
+            .ConfigureAwait(false);
+
+        _logger.LogDebug("Session {SessionId} sent transcript: {Transcript}", Id, taggedTranscript);
+
+        // Diarization + storage run after the response is sent.
+        // These update the dashboard and transcript store but don't block HA.
         var diarSw = System.Diagnostics.Stopwatch.StartNew();
         var speaker = await IdentifySpeakerAsync(utteranceAudio, transcript, ct)
             .ConfigureAwait(false);
         diarSw.Stop();
         _diarizationMs = diarSw.ElapsedMilliseconds;
 
-        // Format speaker-tagged transcript: <SpeakerId />transcript text
-        var speakerTag = FormatSpeakerTag(speaker);
-        var taggedTranscript = $"{speakerTag}{transcript}";
+        if (speaker is not null && !string.IsNullOrWhiteSpace(speaker.Name))
+        {
+            var speakerTag = FormatSpeakerTag(speaker);
+            taggedTranscript = $"{speakerTag}{transcript}";
+        }
 
-        _logger.LogDebug(
-            "Session {SessionId} transcript: {TaggedTranscript}",
-            Id, taggedTranscript);
-
-        // Publish final transcript to dashboard
         _eventBus?.Publish(new SessionTranscriptEvent
         {
             SessionId = Id,
@@ -838,20 +852,10 @@ public sealed class WyomingSession : IDisposable
             IsFinal = true,
         });
 
-        // Return speaker-tagged transcript to Home Assistant via Wyoming protocol
-        await writer.WriteEventAsync(
-                new TranscriptEvent
-                {
-                    Text = taggedTranscript,
-                    Confidence = originalConfidence,
-                },
-                ct)
-            .ConfigureAwait(false);
-
-        await TrySaveTranscriptRecordAsync(
+        _ = Task.Run(() => TrySaveTranscriptRecordAsync(
             transcript, originalConfidence, utteranceAudio,
             speaker, route: null, responseText: taggedTranscript,
-            commandFiltered: false, ct).ConfigureAwait(false);
+            commandFiltered: false, CancellationToken.None), CancellationToken.None);
     }
 
     /// <summary>

@@ -52,7 +52,7 @@ public sealed class WyomingEventWriter
                 PayloadLength = evt.Payload?.Length ?? 0,
             };
 
-            var headerJson = JsonSerializer.Serialize(header, JsonOptions);
+            var headerJson = JsonSerializer.Serialize(header, DataJsonOptions);
             var headerBytes = Encoding.UTF8.GetBytes($"{headerJson}\n");
 
             await _stream.WriteAsync(headerBytes, ct).ConfigureAwait(false);
