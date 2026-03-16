@@ -26,6 +26,14 @@ var internalToken = builder.AddParameter("internal-api-token",
 var registryApi = builder.AddProject<Projects.lucia_AgentHost>("lucia-agenthost")
     .WithEnvironment("Deployment__Mode", "standalone")
     .WithEnvironment("InternalAuth__Token", internalToken)
+    // IDEs inject hot-reload hooks (DOTNET_STARTUP_HOOKS, DOTNET_MODIFIABLE_ASSEMBLIES)
+    // that disable tiered JIT, causing 30-50x slowdowns. Clear all of them on the
+    // AgentHost so it gets full JIT optimization. Debugging (breakpoints, stepping,
+    // variable inspection) still works — only hot-reload is disabled.
+    .WithEnvironment("DOTNET_MODIFIABLE_ASSEMBLIES", "")
+    .WithEnvironment("COMPLUS_FORCEENC", "0")
+    .WithEnvironment("DOTNET_STARTUP_HOOKS", "")
+    .WithEnvironment("DOTNET_WATCH_HOTRELOAD_NAMEDPIPE_NAME", "")
     // Reduce OTEL export frequency — Aspire defaults (1s) add measurable per-request overhead
     .WithEnvironment("OTEL_BSP_SCHEDULE_DELAY", "5000")
     .WithEnvironment("OTEL_BLRP_SCHEDULE_DELAY", "5000")
