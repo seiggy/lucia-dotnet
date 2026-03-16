@@ -54,20 +54,27 @@ public static class ActivityApi
         ctx.Response.Headers.CacheControl = "no-cache";
         ctx.Response.Headers.Connection = "keep-alive";
 
-        // Send an immediate ack so the browser triggers EventSource.onopen
-        var ack = JsonSerializer.Serialize(new LiveEvent
+        try
         {
-            Type = LiveEvent.Types.Connected,
-            State = LiveEvent.States.Idle,
-        }, JsonOptions);
-        await ctx.Response.WriteAsync($"data: {ack}\n\n", ct).ConfigureAwait(false);
-        await ctx.Response.Body.FlushAsync(ct).ConfigureAwait(false);
-
-        await foreach (var evt in channel.ReadAllAsync(ct).ConfigureAwait(false))
-        {
-            var json = JsonSerializer.Serialize(evt, JsonOptions);
-            await ctx.Response.WriteAsync($"data: {json}\n\n", ct).ConfigureAwait(false);
+            // Send an immediate ack so the browser triggers EventSource.onopen
+            var ack = JsonSerializer.Serialize(new LiveEvent
+            {
+                Type = LiveEvent.Types.Connected,
+                State = LiveEvent.States.Idle,
+            }, JsonOptions);
+            await ctx.Response.WriteAsync($"data: {ack}\n\n", ct).ConfigureAwait(false);
             await ctx.Response.Body.FlushAsync(ct).ConfigureAwait(false);
+
+            await foreach (var evt in channel.ReadAllAsync(ct).ConfigureAwait(false))
+            {
+                var json = JsonSerializer.Serialize(evt, JsonOptions);
+                await ctx.Response.WriteAsync($"data: {json}\n\n", ct).ConfigureAwait(false);
+                await ctx.Response.Body.FlushAsync(ct).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Client disconnected — normal SSE lifecycle, not an error
         }
     }
 

@@ -43,25 +43,32 @@ public static class WyomingSessionApi
         context.Response.Headers.CacheControl = "no-cache";
         context.Response.Headers.Connection = "keep-alive";
 
-        await context.Response.WriteAsync("event: connected\ndata: {}\n\n", ct).ConfigureAwait(false);
-        await context.Response.Body.FlushAsync(ct).ConfigureAwait(false);
-
-        await foreach (var evt in eventBus.SubscribeAsync(ct).ConfigureAwait(false))
+        try
         {
-            var eventType = evt switch
-            {
-                SessionConnectedEvent => "session_connected",
-                SessionDisconnectedEvent => "session_disconnected",
-                SessionStateChangedEvent => "state_changed",
-                SessionTranscriptEvent => "transcript",
-                SpeakerDetectedEvent => "speaker_detected",
-                AudioLevelEvent => "audio_level",
-                _ => "unknown",
-            };
-
-            var json = JsonSerializer.Serialize(evt, evt.GetType(), JsonOptions);
-            await context.Response.WriteAsync($"event: {eventType}\ndata: {json}\n\n", ct).ConfigureAwait(false);
+            await context.Response.WriteAsync("event: connected\ndata: {}\n\n", ct).ConfigureAwait(false);
             await context.Response.Body.FlushAsync(ct).ConfigureAwait(false);
+
+            await foreach (var evt in eventBus.SubscribeAsync(ct).ConfigureAwait(false))
+            {
+                var eventType = evt switch
+                {
+                    SessionConnectedEvent => "session_connected",
+                    SessionDisconnectedEvent => "session_disconnected",
+                    SessionStateChangedEvent => "state_changed",
+                    SessionTranscriptEvent => "transcript",
+                    SpeakerDetectedEvent => "speaker_detected",
+                    AudioLevelEvent => "audio_level",
+                    _ => "unknown",
+                };
+
+                var json = JsonSerializer.Serialize(evt, evt.GetType(), JsonOptions);
+                await context.Response.WriteAsync($"event: {eventType}\ndata: {json}\n\n", ct).ConfigureAwait(false);
+                await context.Response.Body.FlushAsync(ct).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Client disconnected — normal SSE lifecycle
         }
     }
 }
