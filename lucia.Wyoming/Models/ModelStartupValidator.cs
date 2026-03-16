@@ -55,7 +55,7 @@ public sealed class ModelStartupValidator(
 
                 using var session = engine.CreateSession();
                 session.AcceptAudioChunk(dummyAudio, 16000);
-                _ = session.GetFinalResult();
+                _ = await session.GetFinalResultAsync().ConfigureAwait(false);
 
                 sw.Stop();
                 logger.LogInformation(

@@ -129,17 +129,22 @@ public sealed class WyomingServer : IHostedService, IDisposable
 
     private async Task RunSessionAsync(WyomingSession session, CancellationToken ct)
     {
+        await _sttConcurrency.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             await session.RunAsync(ct).ConfigureAwait(false);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Server shutting down — not an error
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Wyoming session {SessionId} terminated with error", session.Id);
-            session.Dispose();
         }
         finally
         {
+            _sttConcurrency.Release();
             _sessions.TryRemove(session.Id, out _);
             _eventBus.Publish(new SessionDisconnectedEvent { SessionId = session.Id });
             session.Dispose();

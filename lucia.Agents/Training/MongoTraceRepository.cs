@@ -12,9 +12,14 @@ public sealed class MongoTraceRepository : ITraceRepository
 {
     private readonly IMongoCollection<ConversationTrace> _traces;
     private readonly IMongoCollection<DatasetExportRecord> _exports;
+    private readonly AgentsTelemetrySource _telemetrySource;
 
-    public MongoTraceRepository(IMongoClient mongoClient, IOptions<TraceCaptureOptions> options)
+    public MongoTraceRepository(
+        IMongoClient mongoClient,
+        AgentsTelemetrySource telemetrySource,
+        IOptions<TraceCaptureOptions> options)
     {
+        _telemetrySource = telemetrySource;
         var db = mongoClient.GetDatabase(options.Value.DatabaseName);
         _traces = db.GetCollection<ConversationTrace>(options.Value.TracesCollectionName);
         _exports = db.GetCollection<DatasetExportRecord>(options.Value.ExportsCollectionName);
@@ -55,10 +60,12 @@ public sealed class MongoTraceRepository : ITraceRepository
 
     public async Task<PagedResult<ConversationTrace>> ListTracesAsync(TraceFilterCriteria filter, CancellationToken ct = default)
     {
+        using var activity = _telemetrySource.ActivitySource.StartActivity();
         var mongoFilter = BuildTraceFilter(filter);
         var sort = Builders<ConversationTrace>.Sort.Descending(t => t.Timestamp);
-
-        var totalCount = await _traces.CountDocumentsAsync(mongoFilter, cancellationToken: ct).ConfigureAwait(false);
+        
+        var totalCount =
+            await _traces.CountDocumentsAsync(mongoFilter, cancellationToken: ct).ConfigureAwait(false);
         var skip = (filter.Page - 1) * filter.PageSize;
 
         var items = await _traces.Find(mongoFilter)
@@ -197,11 +204,11 @@ public sealed class MongoTraceRepository : ITraceRepository
 
         return new TraceStats
         {
-            TotalTraces = (int)totalTask.Result,
-            UnlabeledCount = (int)unlabeledTask.Result,
-            PositiveCount = (int)positiveTask.Result,
-            NegativeCount = (int)negativeTask.Result,
-            ErroredCount = (int)erroredTask.Result,
+            TotalTraces = (int)await totalTask.ConfigureAwait(false),
+            UnlabeledCount = (int)await unlabeledTask.ConfigureAwait(false),
+            PositiveCount = (int)await positiveTask.ConfigureAwait(false),
+            NegativeCount = (int)await negativeTask.ConfigureAwait(false),
+            ErroredCount = (int)await erroredTask.ConfigureAwait(false),
             ByAgent = byAgent,
             ErrorsByAgent = errorsByAgent,
         };

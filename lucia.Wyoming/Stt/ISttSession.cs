@@ -18,7 +18,7 @@ public interface ISttSession : IDisposable
     /// <summary>
     /// Gets the final transcription result.
     /// </summary>
-    SttResult GetFinalResult();
+    Task<SttResult> GetFinalResultAsync();
 
     /// <summary>
     /// Gets a value indicating whether the current utterance has ended.

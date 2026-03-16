@@ -215,7 +215,7 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
             if (sttModelPath is not null)
             {
                 var streamingWer = ComputeWordErrorRate(expectedText,
-                    RunStt(enhancedSamples, sampleRate, sttModelPath, "streaming-compare"));
+                    await RunSttAsync(enhancedSamples, sampleRate, sttModelPath, "streaming-compare"));
                 _output.WriteLine($"Sherpa streaming WER: {streamingWer:P1}");
             }
 
@@ -276,8 +276,8 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
             var sttModelPath = FindSherpaModelDir(sttDir);
             if (sttModelPath is not null)
             {
-                var rawTranscript = RunStt(inputSamples, sampleRate, sttModelPath, "raw");
-                var enhancedTranscript = RunStt(enhancedSamples, sampleRate, sttModelPath, "enhanced");
+                var rawTranscript = await RunSttAsync(inputSamples, sampleRate, sttModelPath, "raw");
+                var enhancedTranscript = await RunSttAsync(enhancedSamples, sampleRate, sttModelPath, "enhanced");
                 var rawWer = ComputeWordErrorRate(expectedText, rawTranscript);
                 var enhancedWer = ComputeWordErrorRate(expectedText, enhancedTranscript);
                 _output.WriteLine($"Sherpa raw WER: {rawWer:P1}, enhanced WER: {enhancedWer:P1}");
@@ -301,8 +301,8 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
             _output.WriteLine($"Granite model not found at {graniteDir}, falling back to Sherpa");
             _output.WriteLine($"Using STT model: {sttModelPath}");
 
-            var rawTranscript = RunStt(inputSamples, sampleRate, sttModelPath!, "raw");
-            var enhancedTranscript = RunStt(enhancedSamples, sampleRate, sttModelPath!, "enhanced");
+            var rawTranscript = await RunSttAsync(inputSamples, sampleRate, sttModelPath!, "raw");
+            var enhancedTranscript = await RunSttAsync(enhancedSamples, sampleRate, sttModelPath!, "enhanced");
             var rawWer = ComputeWordErrorRate(expectedText, rawTranscript);
             var enhancedWer = ComputeWordErrorRate(expectedText, enhancedTranscript);
 
@@ -384,7 +384,7 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
 
     [SkippableFact]
     [Trait("Category", "Integration")]
-    public void HybridStt_ProducesProgressiveRefinements()
+    public async Task HybridStt_ProducesProgressiveRefinements()
     {
         var modelPath = ResolveFromRepoRoot(GtcrnModelPath);
         var wavPath = ResolveFromRepoRoot(SampleWavPath);
@@ -463,7 +463,7 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
             }
         }
 
-        var final = session.GetFinalResult();
+        var final = await session.GetFinalResultAsync();
         WriteBenchmarkLine($"  [final ] \"{final.Text}\"");
 
         var finalWer = ComputeWordErrorRate(expectedText, final.Text);
@@ -491,7 +491,7 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
     /// </summary>
     [SkippableFact]
     [Trait("Category", "Integration")]
-    public void FullPipeline_SimulatedWyomingSession_ProducesAccurateTranscript()
+    public async Task FullPipeline_SimulatedWyomingSession_ProducesAccurateTranscript()
     {
         var gtcrnPath = ResolveFromRepoRoot(GtcrnModelPath);
         var wavPath = ResolveFromRepoRoot(SampleWavPath);
@@ -575,7 +575,7 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
 
         // Finalize
         var sttSw = System.Diagnostics.Stopwatch.StartNew();
-        var final = sttSession.GetFinalResult();
+        var final = await sttSession.GetFinalResultAsync();
         sttSw.Stop();
 
         enhancerSession?.Dispose();
@@ -648,8 +648,8 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
             var modelName = Path.GetFileName(modelDir);
             try
             {
-                var rawTranscript = RunStt(inputSamples, sampleRate, modelDir, $"{modelName}-raw");
-                var enhancedTranscript = RunStt(enhancedSamples, sampleRate, modelDir, $"{modelName}-enh");
+                var rawTranscript = await RunSttAsync(inputSamples, sampleRate, modelDir, $"{modelName}-raw");
+                var enhancedTranscript = await RunSttAsync(enhancedSamples, sampleRate, modelDir, $"{modelName}-enh");
                 var rawWer = ComputeWordErrorRate(expectedText, rawTranscript);
                 var enhancedWer = ComputeWordErrorRate(expectedText, enhancedTranscript);
 
@@ -707,7 +707,7 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
         var sherpaModel = FindSherpaModelDir(sttDir);
         if (sherpaModel is not null)
         {
-            var transcript = RunStt(enhancedSamples, sampleRate, sherpaModel, "sherpa-streaming");
+            var transcript = await RunSttAsync(enhancedSamples, sampleRate, sherpaModel, "sherpa-streaming");
             var wer = ComputeWordErrorRate(expectedText, transcript);
             WriteBenchmarkLine($"{"Sherpa Streaming Zipformer",-55} {wer,8:P1} {"n/a",8} \"{transcript}\"");
         }
@@ -872,7 +872,7 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
             .FirstOrDefault();
     }
 
-    private string RunStt(float[] samples, int sampleRate, string sttModelPath, string label)
+    private async Task<string> RunSttAsync(float[] samples, int sampleRate, string sttModelPath, string label)
     {
         var notifier = new TestModelChangeNotifier();
         using var sttEngine = new SherpaSttEngine(
@@ -900,7 +900,7 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
             session.AcceptAudioChunk(samples.AsSpan(offset, remaining), sampleRate);
         }
 
-        return session.GetFinalResult().Text;
+        return (await session.GetFinalResultAsync()).Text;
     }
 
     /// <summary>

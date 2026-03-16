@@ -429,7 +429,7 @@ public sealed class WyomingSession : IDisposable
                     using (var sttActivity = WyomingActivitySource.StartActivity("wyoming.stt.finalize"))
                     {
                         var sttSw = System.Diagnostics.Stopwatch.StartNew();
-                        sttResult = _currentSttSession.GetFinalResult();
+                        sttResult = await _currentSttSession.GetFinalResultAsync().ConfigureAwait(false);
                         sttSw.Stop();
                         _sttFinalizationMs = sttSw.ElapsedMilliseconds;
                         sttActivity?.SetTag("stt.duration_ms", sttSw.ElapsedMilliseconds);
@@ -523,7 +523,7 @@ public sealed class WyomingSession : IDisposable
         if (_pendingTranscript is null && _currentSttSession is not null)
         {
             _currentVadSession?.Flush();
-            _pendingTranscript = _currentSttSession.GetFinalResult();
+            _pendingTranscript = await _currentSttSession.GetFinalResultAsync().ConfigureAwait(false);
             DisposeCurrentSttSession();
             DisposeCurrentVadSession();
         }

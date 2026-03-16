@@ -18,9 +18,9 @@ internal sealed class TestSttSession(SttResult finalResult) : ISttSession
         return new SttResult();
     }
 
-    public SttResult GetFinalResult()
+    public Task<SttResult> GetFinalResultAsync()
     {
-        return finalResult;
+        return Task.FromResult(finalResult);
     }
 
     public void Dispose()

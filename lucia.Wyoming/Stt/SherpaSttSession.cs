@@ -72,7 +72,7 @@ public sealed class SherpaSttSession : ISttSession
         };
     }
 
-    public SttResult GetFinalResult()
+    public Task<SttResult> GetFinalResultAsync()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -84,11 +84,11 @@ public sealed class SherpaSttSession : ISttSession
 
         DecodeAvailable();
 
-        return new SttResult
+        return Task.FromResult(new SttResult
         {
             Text = _recognizer.GetResult(_stream).Text.Trim(),
             Confidence = 1.0f,
-        };
+        });
     }
 
     public void Dispose()

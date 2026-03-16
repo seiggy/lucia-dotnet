@@ -70,27 +70,31 @@ public static class Extensions
                 metrics.AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
                     .AddRuntimeInstrumentation()
-                    .AddMeter("Lucia.TraceCapture")
-                    .AddMeter("Lucia.Skills.LightControl")
-                    .AddMeter("Lucia.Skills.MusicPlayback")
-                    .AddMeter("lucia.Wyoming.BackgroundTasks");
+                    .AddMeter("lucia.TraceCapture")
+                    .AddMeter("lucia.Skills.LightControl")
+                    .AddMeter("lucia.Skills.MusicPlayback")
+                    .AddMeter("lucia.Wyoming.BackgroundTasks")
+                    .AddMeter("Microsoft.Agents.AI");
             })
             .WithTracing(tracing =>
             {
                 tracing.AddSource(builder.Environment.ApplicationName)
-                    .AddSource("Lucia.Orchestration")
-                    .AddSource("Lucia.TraceCapture")
-                    .AddSource("Lucia.RouterCache")
-                    .AddSource("Lucia.ChatCache")
-                    .AddSource("Lucia.Services.PromptCache")
-                    .AddSource("Lucia.AgentInvoker")
-                    .AddSource("Lucia.AgentDispatch")
-                    .AddSource("Lucia.Agents.General")
-                    .AddSource("Lucia.Agents.Music")
-                    .AddSource("Lucia.Skills.LightControl")
-                    .AddSource("Lucia.Skills.MusicPlayback")
-                    .AddSource("Lucia.Services.EntityLocation")
+                    .AddSource("lucia")
+                    .AddSource("lucia.Agents")
+                    .AddSource("lucia.Orchestration")
+                    .AddSource("lucia.TraceCapture")
+                    .AddSource("lucia.RouterCache")
+                    .AddSource("lucia.ChatCache")
+                    .AddSource("lucia.Services.PromptCache")
+                    .AddSource("lucia.AgentInvoker")
+                    .AddSource("lucia.AgentDispatch")
+                    .AddSource("lucia.Agents.General")
+                    .AddSource("lucia.Agents.Music")
+                    .AddSource("lucia.Skills.LightControl")
+                    .AddSource("lucia.Skills.MusicPlayback")
+                    .AddSource("lucia.Services.EntityLocation")
                     .AddSource("Microsoft.Extensions.AI")
+                    .AddSource("Microsoft.Extensions.Agents*")
                     .AddSource("Microsoft.Agents.AI*")
                     .AddSource("A2A*")
                     .AddSource("Microsoft.Agents.AI.Hosting*")
@@ -98,6 +102,8 @@ public static class Extensions
                     .AddSource("Microsoft.Agents.AI.Runtime.InProcess")
                     .AddSource("Microsoft.Agents.AI.Runtime.Abstractions.InMemoryActorStateStorage")
                     .AddSource("lucia.Wyoming.BackgroundTasks")
+                    .AddSource("MongoDB.Driver.Core.Extensions.DiagnosticSources")
+                    .AddRedisInstrumentation()
                     .AddAspNetCoreInstrumentation(tracing =>
                         // Exclude health check requests from tracing
                         tracing.Filter = context =>
@@ -235,21 +241,20 @@ public static class Extensions
                 return;
             }
 
-            // Buffer the content first so downstream code can still read it.
-            // LoadIntoBufferAsync is a no-op if already buffered.
-            content.LoadIntoBufferAsync().ConfigureAwait(false).GetAwaiter().GetResult();
-
-            // Do NOT dispose the stream — it is owned by HttpContent and will be
-            // read again by downstream code (e.g. GetFromJsonAsync).
+            // Only capture body if content is already buffered — never block a thread pool
+            // thread waiting for network I/O. HttpContent from completed responses is
+            // typically already buffered by the time enrichment runs.
             var stream = content.ReadAsStream();
+            if (!stream.CanSeek)
+            {
+                return;
+            }
+
             using var reader = new StreamReader(stream, leaveOpen: true);
             var payload = reader.ReadToEnd();
 
             // Reset the stream position so downstream callers can re-read
-            if (stream.CanSeek)
-            {
-                stream.Position = 0;
-            }
+            stream.Position = 0;
 
             if (!string.IsNullOrWhiteSpace(payload))
             {

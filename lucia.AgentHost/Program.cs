@@ -1,3 +1,4 @@
+using lucia.AgentHost;
 using lucia.AgentHost.Apis;
 using lucia.AgentHost.Auth;
 using lucia.AgentHost.Extensions;
@@ -70,6 +71,7 @@ var isStandalone = deploymentMode.Equals("standalone", StringComparison.OrdinalI
 var musicPlugin = new MusicAgentPlugin();
 musicPlugin.ConfigureAgentHost(builder);
 builder.Services.AddSingleton<IAgentPlugin>(musicPlugin);
+builder.Services.AddSingleton<AgentHostTelemetrySource>();
 
 if (isStandalone)
 {
@@ -160,7 +162,11 @@ builder.Services.AddHostedService<ConfigSeeder>();
 
 // API key authentication
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection(AuthOptions.SectionName));
-builder.Services.AddSingleton<IApiKeyService, MongoApiKeyService>();
+builder.Services.AddSingleton<MongoApiKeyService>();
+builder.Services.AddSingleton<IApiKeyService>(sp =>
+    new CachedApiKeyService(
+        sp.GetRequiredService<MongoApiKeyService>(),
+        sp.GetRequiredService<ILogger<CachedApiKeyService>>()));
 builder.Services.AddSingleton<ISessionService, HmacSessionService>();
 builder.Services.AddSingleton<ConfigStoreWriter>();
 

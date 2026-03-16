@@ -111,18 +111,15 @@ public sealed class HybridSttSession : ISttSession
         };
     }
 
-    public SttResult GetFinalResult()
+    public async Task<SttResult> GetFinalResultAsync()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         _inputFinished = true;
 
-        // Wait for any pending background transcription — use SpinWait to avoid
-        // thread pool starvation from blocking .GetAwaiter().GetResult()
+        // Await any pending background transcription instead of spinning
         if (_pendingTranscription is not null && !_pendingTranscription.IsCompleted)
         {
-            var spin = new SpinWait();
-            while (!_pendingTranscription.IsCompleted)
-                spin.SpinOnce();
+            await _pendingTranscription.ConfigureAwait(false);
         }
 
         // Run one final transcription on the complete buffer
