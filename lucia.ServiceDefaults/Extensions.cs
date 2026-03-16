@@ -233,28 +233,37 @@ public static class Extensions
         try
         {
             // Skip body capture for large or streaming responses (e.g. model downloads).
-            // LoadIntoBufferAsync on an unbuffered network stream would synchronously
-            // download the entire response body, blocking the thread indefinitely.
             var contentLength = content.Headers.ContentLength;
             if (contentLength is null or > MaxBodyCaptureBytes)
             {
                 return;
             }
 
-            // Only capture body if content is already buffered — never block a thread pool
-            // thread waiting for network I/O. HttpContent from completed responses is
-            // typically already buffered by the time enrichment runs.
-            var stream = content.ReadAsStream();
+            // ReadAsStream() on unbuffered HttpConnectionResponseContent consumes the
+            // network stream, making it unreadable by downstream code. Catch that case
+            // and skip body capture — this is best-effort telemetry, not critical.
+            Stream stream;
+            try
+            {
+                stream = content.ReadAsStream();
+            }
+            catch (InvalidOperationException)
+            {
+                // Stream already consumed by a prior reader — nothing to capture
+                return;
+            }
+
             if (!stream.CanSeek)
             {
                 return;
             }
 
+            var position = stream.Position;
             using var reader = new StreamReader(stream, leaveOpen: true);
             var payload = reader.ReadToEnd();
 
             // Reset the stream position so downstream callers can re-read
-            stream.Position = 0;
+            stream.Position = position;
 
             if (!string.IsNullOrWhiteSpace(payload))
             {
