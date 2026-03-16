@@ -6,6 +6,10 @@
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
     <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
+    <!-- Use Workstation GC for dev — Server GC spawns 32 GC threads on this machine,
+         stealing CPU from Docker, Rider, ONNX models, etc. Production Dockerfiles
+         should override with ServerGarbageCollection=true. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="A2A" />
