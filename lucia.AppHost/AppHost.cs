@@ -1,4 +1,24 @@
+using System.Runtime.InteropServices;
+using Microsoft.Extensions.Hosting;
+
 var builder = DistributedApplication.CreateBuilder(args);
+
+// JetBrains Toolbox launches Rider at nice 9 on Linux, and all child processes
+// inherit that priority. Renice to 0 so the Aspire host and its children get
+// normal CPU scheduling during development.
+if (builder.Environment.IsDevelopment() && RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+{
+    try
+    {
+        var pid = Environment.ProcessId;
+        using var proc = System.Diagnostics.Process.Start("renice", $"-n 0 -p {pid}");
+        proc?.WaitForExit(1000);
+    }
+    catch
+    {
+        // Best-effort — works without sudo on own processes
+    }
+}
 
 var redis = builder.AddRedis("redis")
     .WithDataVolume()
