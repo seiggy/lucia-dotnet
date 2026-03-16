@@ -62,7 +62,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
 
         // Wrap with telemetry and logging
         return new ChatClientBuilder(inner)
-            .UseOpenTelemetry()
+            .UseOpenTelemetry(sourceName: "lucia", configure: cfg => cfg.EnableSensitiveData = true)
             .UseLogging()
             .Build(_serviceProvider);
     }
@@ -129,7 +129,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         return client.GetChatClient(provider.ModelName)
             .AsIChatClient()
             .AsBuilder()
-            .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+            .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
                 cfg.EnableSensitiveData = true)
             .Build();
     }
@@ -144,7 +144,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         return client.GetChatClient(provider.ModelName)
             .AsIChatClient()
             .AsBuilder()
-            .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+            .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
                 cfg.EnableSensitiveData = true)
             .Build();
     }
@@ -170,11 +170,11 @@ public sealed class ModelProviderResolver : IModelProviderResolver
 
         if (provider.Auth is { UseDefaultCredentials: true })
         {
-            var credential = new DefaultAzureCredential();
+            var credential = new AzureCliCredential();
             var client = new Azure.AI.OpenAI.AzureOpenAIClient(endpoint, credential);
             return client.GetChatClient(provider.ModelName).AsIChatClient()
                 .AsBuilder()
-                .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+                .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
                     cfg.EnableSensitiveData = true)
                 .Build();
         }
@@ -185,7 +185,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
             var client = new Azure.AI.OpenAI.AzureOpenAIClient(endpoint, credential);
             return client.GetChatClient(provider.ModelName).AsIChatClient()
                 .AsBuilder()
-                .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+                .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
                     cfg.EnableSensitiveData = true)
                 .Build();
         }
@@ -202,11 +202,11 @@ public sealed class ModelProviderResolver : IModelProviderResolver
 
         if (provider.Auth is { UseDefaultCredentials: true })
         {
-            var credential = new DefaultAzureCredential();
+            var credential = new AzureCliCredential();
             var client = new ChatCompletionsClient(endpoint, credential, new AzureAIInferenceClientOptions());
             return client.AsIChatClient(provider.ModelName)
                 .AsBuilder()
-                .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+                .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
                     cfg.EnableSensitiveData = true)
                 .Build();
         }
@@ -217,7 +217,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
             var client = new ChatCompletionsClient(endpoint, credential, new AzureAIInferenceClientOptions());
             return client.AsIChatClient(provider.ModelName)
                 .AsBuilder()
-                .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+                .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
                     cfg.EnableSensitiveData = true)
                 .Build();
         }
@@ -248,7 +248,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         var client = new AnthropicClient(new Anthropic.Core.ClientOptions { ApiKey = apiKey });
         return client.AsIChatClient(provider.ModelName)
             .AsBuilder()
-            .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+            .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
                 cfg.EnableSensitiveData = true)
             .Build();
     }
@@ -268,7 +268,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         var client = new OpenAIClient(credential, options);
         return client.GetChatClient(provider.ModelName).AsIChatClient()
             .AsBuilder()
-            .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+            .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
                 cfg.EnableSensitiveData = true)
             .Build();
     }
@@ -321,7 +321,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         var client = new OpenAIClient(credential, options);
         return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator()
             .AsBuilder()
-            .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+            .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
                 cfg.EnableSensitiveData = true)
             .Build();
     }
@@ -335,7 +335,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         var client = new OpenAIClient(credential, options);
         return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator()
             .AsBuilder()
-            .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+            .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
                 cfg.EnableSensitiveData = true)
             .Build();
     }
@@ -350,11 +350,11 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         if (provider.Auth is { UseDefaultCredentials: true })
         {
             // DefaultAzureCredential requires AzureOpenAIClient for token-based auth
-            var credential = new DefaultAzureCredential();
+            var credential = new AzureCliCredential();
             var client = new Azure.AI.OpenAI.AzureOpenAIClient(endpoint, credential);
             return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator()
                 .AsBuilder()
-                .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+                .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
                     cfg.EnableSensitiveData = true)
                 .Build();
         }
@@ -365,7 +365,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
             var client = new Azure.AI.OpenAI.AzureOpenAIClient(endpoint, credential);
             return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator()
                 .AsBuilder()
-                .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+                .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
                     cfg.EnableSensitiveData = true)
                 .Build();
         }
@@ -382,11 +382,11 @@ public sealed class ModelProviderResolver : IModelProviderResolver
 
         if (provider.Auth is { UseDefaultCredentials: true })
         {
-            var credential = new DefaultAzureCredential();
+            var credential = new AzureCliCredential();
             var client = new EmbeddingsClient(endpoint, credential, new AzureAIInferenceClientOptions());
             return client.AsIEmbeddingGenerator(provider.ModelName)
                 .AsBuilder()
-                .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+                .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
                     cfg.EnableSensitiveData = true)
                 .Build();
         }
@@ -397,7 +397,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
             var client = new EmbeddingsClient(endpoint, credential, new AzureAIInferenceClientOptions());
             return client.AsIEmbeddingGenerator(provider.ModelName)
                 .AsBuilder()
-                .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+                .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
                     cfg.EnableSensitiveData = true)
                 .Build();
         }
@@ -430,7 +430,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         var client = new OpenAIClient(credential, options);
         return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator()
             .AsBuilder()
-            .UseOpenTelemetry(sourceName: provider.Name, configure: (cfg) =>
+            .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
                 cfg.EnableSensitiveData = true)
             .Build();
     }

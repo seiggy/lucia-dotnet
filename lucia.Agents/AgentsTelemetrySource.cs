@@ -1,9 +1,26 @@
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Reflection;
 
 namespace lucia.Agents;
 
-public sealed class AgentsTelemetry : IDisposable
+public sealed class AgentsTelemetrySource : IDisposable
 {
-    public static ActivitySource ActivitySource { get; } = new ActivitySource("lucia.Agents", Assembly.GetEntryAssembly()?.GetName().Version?.ToString());
+    private const string ActivitySourceName = "lucia.Agents";
+    
+    public AgentsTelemetrySource()
+    {
+        var version = typeof(AgentsTelemetrySource).Assembly.GetName().Version?.ToString();
+        ActivitySource = new ActivitySource(ActivitySourceName, version);
+        Meter = new Meter(ActivitySourceName, version);
+    }
+    
+    public ActivitySource ActivitySource { get; }
+    public Meter Meter { get; }
+
+    public void Dispose()
+    {
+        ActivitySource.Dispose();
+        Meter.Dispose();
+    }
 }

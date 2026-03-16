@@ -24,6 +24,7 @@ using Microsoft.Extensions.Options;
 using OllamaSharp;
 using OpenAI;
 using A2A;
+using lucia.Agents;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Integration;
 using lucia.Agents.Models.HomeAssistant;
@@ -72,6 +73,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
     private readonly IEmbeddingSimilarityService _similarity = new EmbeddingSimilarityService();
     private readonly IChatClientResolver _mockChatClientResolver = A.Fake<IChatClientResolver>();
     private readonly IAgentDefinitionRepository _mockDefinitionRepo = A.Fake<IAgentDefinitionRepository>();
+    private AgentsTelemetrySource _telemetrySource = new AgentsTelemetrySource();
     private IHybridEntityMatcher _entityMatcher = null!;
     private TracingChatClientFactory _tracingFactory = null!;
 
@@ -452,6 +454,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
             chatClient,
             mockRegistry,
             _loggerFactory.CreateLogger<RouterExecutor>(),
+            _telemetrySource,
             options);
     }
 
@@ -516,6 +519,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
             CreatePersonalityOptionsMonitor(),
             TimeProvider.System,
             A.Fake<IHttpClientFactory>(),
+            _telemetrySource,
             observer,
             agentProvider);
 
@@ -524,6 +528,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
             sessionManager,
             workflowFactory,
             Options.Create(new ResultAggregatorOptions()),
+            _telemetrySource,
             _loggerFactory.CreateLogger<LuciaEngine>(),
             observer);
     }

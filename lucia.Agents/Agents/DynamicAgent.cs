@@ -18,8 +18,6 @@ namespace lucia.Agents.Agents;
 /// </summary>
 public sealed class DynamicAgent : ILuciaAgent
 {
-    private static readonly ActivitySource ActivitySource = new("Lucia.Agents.Dynamic", "1.0.0");
-
     private readonly string _agentId;
     private readonly IAgentDefinitionRepository _repository;
     private readonly IMcpToolRegistry _toolRegistry;
@@ -29,11 +27,12 @@ public sealed class DynamicAgent : ILuciaAgent
     private readonly TracingChatClientFactory _tracingFactory;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<DynamicAgent> _logger;
+    private readonly AgentsTelemetrySource _telemetrySource;
 
     private AgentCard _agentCard;
     private AgentDefinition? _lastDefinition;
     private volatile AIAgent _cachedAgent;
-
+    
     public DynamicAgent(
         string agentId,
         AgentDefinition initialDefinition,
@@ -43,8 +42,10 @@ public sealed class DynamicAgent : ILuciaAgent
         IModelProviderResolver providerResolver,
         IModelProviderRepository providerRepository,
         TracingChatClientFactory tracingFactory,
+        AgentsTelemetrySource telemetrySource,
         ILoggerFactory loggerFactory)
     {
+        _telemetrySource = telemetrySource;
         _agentId = agentId;
         _repository = repository;
         _toolRegistry = toolRegistry;
@@ -87,7 +88,7 @@ public sealed class DynamicAgent : ILuciaAgent
     /// </summary>
     public async Task RebuildAsync(CancellationToken cancellationToken = default)
     {
-        using var activity = ActivitySource.StartActivity();
+        using var activity = _telemetrySource.ActivitySource.StartActivity();
         activity?.SetTag("agent.id", _agentId);
 
         var definition = await _repository.GetAgentDefinitionAsync(_agentId, cancellationToken)

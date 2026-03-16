@@ -37,9 +37,8 @@ public sealed class WorkflowFactory
     private readonly IAgentProvider? _agentProvider;
     private readonly IPromptCacheService? _promptCache;
     private readonly IDynamicAgentProvider? _dynamicAgentProvider;
+    private readonly AgentsTelemetrySource _telemetrySource;
     
-    private static readonly ActivitySource ActivitySource = new("Lucia.Agents.Orchestration.WorkflowFactory", "1.0.0");
-
     public WorkflowFactory(
         IChatClientResolver clientResolver,
         IAgentDefinitionRepository definitionRepository,
@@ -52,11 +51,13 @@ public sealed class WorkflowFactory
         IOptionsMonitor<PersonalityPromptOptions> personalityOptionsMonitor,
         TimeProvider timeProvider,
         IHttpClientFactory httpClientFactory,
+        AgentsTelemetrySource telemetrySource,
         IOrchestratorObserver? observer = null,
         IAgentProvider? agentProvider = null,
         IPromptCacheService? promptCache = null,
         IDynamicAgentProvider? dynamicAgentProvider = null)
     {
+        _telemetrySource = telemetrySource;
         _clientResolver = clientResolver ?? throw new ArgumentNullException(nameof(clientResolver));
         _definitionRepository = definitionRepository ?? throw new ArgumentNullException(nameof(definitionRepository));
         _agentRegistry = agentRegistry ?? throw new ArgumentNullException(nameof(agentRegistry));
@@ -81,7 +82,7 @@ public sealed class WorkflowFactory
     /// </summary>
     public async Task<IReadOnlyList<AIAgent>> ResolveAgentsAsync(CancellationToken cancellationToken)
     {
-        var activity = ActivitySource.StartActivity();
+        var activity = _telemetrySource.ActivitySource.StartActivity();
         if (_agentProvider is not null)
             return _agentProvider.GetAgentsAsync(cancellationToken);
 
@@ -167,7 +168,7 @@ public sealed class WorkflowFactory
             if (agent is not null)
             {
                 // Local agent: invoke in-process via AIHostAgent with session persistence
-                invoker = new LocalAgentInvoker(key, agent, sessionStore, invokerLogger, _invokerOptions, _timeProvider);
+                invoker = new LocalAgentInvoker(key, agent, sessionStore, invokerLogger, _telemetrySource, _invokerOptions, _timeProvider);
             }
             else if (card is not null && Uri.TryCreate(card.Url, UriKind.Absolute, out var cardUri)
                      && (cardUri.Scheme == Uri.UriSchemeHttp || cardUri.Scheme == Uri.UriSchemeHttps))
@@ -231,7 +232,7 @@ public sealed class WorkflowFactory
         var routerLogger = _loggerFactory.CreateLogger<RouterExecutor>();
         var dispatchLogger = _loggerFactory.CreateLogger<AgentDispatchExecutor>();
         var aggregatorLogger = _loggerFactory.CreateLogger<ResultAggregatorExecutor>();
-        var router = new RouterExecutor(chatClient, _agentRegistry, routerLogger, _routerOptions, _promptCache);
+        var router = new RouterExecutor(chatClient, _agentRegistry, routerLogger, _telemetrySource, _routerOptions, _promptCache);
         var dispatch = new AgentDispatchExecutor(invokers, dispatchLogger, _routerOptions, chatClient, _observer);
         var aggregator = new ResultAggregatorExecutor(aggregatorLogger, _aggregatorOptions, personalityChatClient, personalityInstructions);
 

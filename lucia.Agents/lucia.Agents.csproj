@@ -37,8 +37,8 @@
       <ExcludeAssets>all</ExcludeAssets>
     </PackageReference>
     <PackageReference Include="Aspire.StackExchange.Redis" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" VersionOverride="10.0.3" />
-    <PackageReference Include="Microsoft.Extensions.Options" VersionOverride="10.0.1" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\lucia.ServiceDefaults\lucia.ServiceDefaults.csproj" />

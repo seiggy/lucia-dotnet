@@ -109,55 +109,7 @@ public static class Extensions
                         tracing.Filter = context =>
                             !context.Request.Path.StartsWithSegments(HealthEndpointPath)
                             && !context.Request.Path.StartsWithSegments(AlivenessEndpointPath)
-                    )
-                    // Uncomment the following line to enable gRPC instrumentation (requires the OpenTelemetry.Instrumentation.GrpcNetClient package)
-                    //.AddGrpcClientInstrumentation()
-                    .AddHttpClientInstrumentation(options =>
-                    {
-                        // Filter out Azure IMDS credential probe requests (noisy locally)
-                        options.FilterHttpRequestMessage = request =>
-                            request.RequestUri?.Host != "169.254.169.254";
-
-                        options.EnrichWithHttpRequestMessage = (activity, request) =>
-                        {
-                            if (!IsRecorded(activity))
-                            {
-                                return;
-                            }
-
-                            AddHeaders(activity, "http.request.header.", request.Headers);
-
-                            if (request.Content is null)
-                            {
-                                return;
-                            }
-
-                            AddHeaders(activity, "http.request.content_header.", request.Content.Headers);
-                            TrySetBodyTag(activity, "http.request.body", request.Content);
-                        };
-
-                        options.EnrichWithHttpResponseMessage = (activity, response) =>
-                        {
-                            if (!IsRecorded(activity))
-                            {
-                                return;
-                            }
-
-                            AddHeaders(activity, "http.response.header.", response.Headers);
-
-                            // Skip body capture for WebSocket upgrade responses — their
-                            // content stream is a duplex network stream that must remain
-                            // writeable for the WebSocket to function.
-                            if (response.Content is null
-                                || response.StatusCode == System.Net.HttpStatusCode.SwitchingProtocols)
-                            {
-                                return;
-                            }
-
-                            AddHeaders(activity, "http.response.content_header.", response.Content.Headers);
-                            TrySetBodyTag(activity, "http.response.body", response.Content);
-                        };
-                    });
+                    );
             });
 
         builder.AddOpenTelemetryExporters();

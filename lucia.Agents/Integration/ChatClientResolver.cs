@@ -22,6 +22,7 @@ public sealed class ChatClientResolver : IChatClientResolver
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<ChatClientResolver> _logger;
     private readonly Dictionary<string, IChatClient> _cache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly AgentsTelemetrySource _telemetrySource;
     private readonly object _lock = new();
 
     public ChatClientResolver(
@@ -29,8 +30,10 @@ public sealed class ChatClientResolver : IChatClientResolver
         IModelProviderResolver resolver,
         ILogger<ChatClientResolver> logger,
         ILoggerFactory loggerFactory,
+        AgentsTelemetrySource telemetrySource,
         IPromptCacheService? promptCache = null)
     {
+        _telemetrySource = telemetrySource;
         _repository = repository;
         _resolver = resolver;
         _logger = logger;
@@ -100,6 +103,7 @@ public sealed class ChatClientResolver : IChatClientResolver
                 client = new PromptCachingChatClient(
                     client,
                     _promptCache,
+                    _telemetrySource,
                     _loggerFactory.CreateLogger<PromptCachingChatClient>());
             }
 

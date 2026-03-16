@@ -10,6 +10,12 @@
         ".specify/scripts/bash/": true,
         ".specify/scripts/powershell/": true
     },
-    "FSharp.suggestGitignore": false
+    "FSharp.suggestGitignore": false,
+    "files.exclude": {
+        "**/*.rpyc": true,
+        "**/*.rpa": true,
+        "**/*.rpymc": true,
+        "**/cache/": true
+    }
 }
 
