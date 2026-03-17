@@ -76,6 +76,12 @@
 
 ## 🐛 Bug Fixes
 
+- **CUDA GPU acceleration not activating** — `Microsoft.ML.OnnxRuntime` NuGet package was CPU-only. Replaced with `Microsoft.ML.OnnxRuntime.Gpu.Linux` 1.23.2 and aligned managed/native versions (was mismatched 1.23.2/1.22.0), enabling automatic `CUDAExecutionProvider` detection on hosts with NVIDIA GPUs. Docker voice image verified working with RTX 4090 + CUDA 12.8 + cuDNN 9.20.
+- **Wyoming describe response missing STT** — `WyomingServiceInfo` injected a single `ISttEngine?` via DI, which resolved to the last registered engine (SherpaSttEngine). If that engine wasn't ready, STT was omitted from the `info` response even when HybridSttEngine was ready. Now injects `IEnumerable<ISttEngine>` and reports STT available if any engine is ready.
+- **Parakeet model download "not found"** — `ModelCatalogService.GetModelById(string)` only searched `EngineType.Stt`, but Parakeet TDT is registered as `EngineType.OfflineStt`. Now searches all engine types. Also fixed the download endpoint to resolve the model base path per engine type instead of hardcoding the STT path.
+- **Activating Parakeet crashes server** — `ModelManager.SwitchActiveModelAsync(string)` hardcoded `EngineType.Stt`, causing the streaming `OnlineRecognizer` to load an offline transducer model (native crash: `'window_size' does not exist in the metadata`). Now resolves engine type from the catalog, routing offline models to HybridSttEngine correctly.
+- **Cannot switch back to streaming STT after activating offline model** — Both engines remained ready with no user preference tracking, so `FirstOrDefault(e => e.IsReady)` always picked HybridSttEngine (registered first). Added `ModelManager.PreferredSttEngineType` that tracks the user's last activation choice. Status endpoint, session engine selection, and active model API all respect the preference.
+- **HuggingFace API key not persisting in dashboard** — `ConfigurationPage.entriesToValues` stripped only the first colon segment from stored keys (e.g., `Wyoming:HuggingFace:ApiToken` → `HuggingFace:ApiToken`). For nested config sections, this didn't match the schema property name `ApiToken`. Fixed to strip the full section prefix.
 - **Speaker identification always returning unknown** — Speech enhancement was altering audio used for embedding extraction, causing ~0.39 cosine similarity against enrollment profiles. Now uses raw (unenhanced) audio for speaker verification.
 - **Verification threshold changes from GUI ignored** — `SpeakerVerificationThreshold` config was never passed to `IdentifySpeaker()`. Now read via `IOptionsMonitor.CurrentValue` at identification time.
 - **Embedding dimension mismatches silently failed** — After model changes, `CosineSimilarity` threw for mismatched dimensions, caught by outer try/catch returning null. Now gracefully skips with a warning log.
@@ -114,7 +120,7 @@
 - **New infrastructure dependencies** — MongoDB (`luciaconfig` database) is used for speaker profiles and voice config persistence. Redis is optional but recommended for profile caching.
 - **Model downloads required** — On first launch, navigate to the Voice Platform → Models tab to download and activate at least one STT model and supporting models (VAD, Wake Word, Speaker Embedding).
 - **Wyoming integration** — Add the Lucia Wyoming satellite in Home Assistant under Settings → Devices & Services → Add Integration → Wyoming. The server advertises via Zeroconf automatically.
-- **GPU acceleration** — Install the appropriate ONNX Runtime GPU package (`Microsoft.ML.OnnxRuntime.Gpu` for CUDA, etc.) to enable auto-detected GPU acceleration. No configuration changes needed — the detector will find and use it automatically.
+- **GPU acceleration** — The project now ships with `Microsoft.ML.OnnxRuntime.Gpu.Linux` for automatic CUDA support. For local development, install CUDA Toolkit 12.x and cuDNN 9.x. The `OnnxProviderDetector` will find and use CUDA automatically — no configuration required. The Docker voice image (`Dockerfile.voice`) includes all GPU dependencies out of the box.
 - **Existing voice config** — If you previously had a `voiceconfig.json`, those settings will need to be re-entered through the dashboard Voice Platform config panel (they now persist to MongoDB).
 
 ---
