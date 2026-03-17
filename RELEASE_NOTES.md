@@ -1,13 +1,13 @@
 # Release Notes - 1.2.0
 
 **Release Date:** March 2026  
-**Code Name:** "Spectra"
+**Code Name:** "Pulsar"
 
 ---
 
 ## 🎙️ Overview
 
-"Spectra" introduces the **Wyoming Voice Platform** — a full local speech pipeline that turns Lucia into a Wyoming protocol-compatible voice satellite for Home Assistant. This release delivers streaming speech-to-text, speaker verification, wake word detection, speech enhancement, a multi-engine model management system, and a new dashboard Voice Platform page for configuring everything from one surface.
+"Pulsar" introduces the **Wyoming Voice Platform** — a full local speech pipeline that turns Lucia into a Wyoming protocol-compatible voice satellite for Home Assistant. This release delivers streaming speech-to-text, speaker verification, wake word detection, speech enhancement, a multi-engine model management system, and a new dashboard Voice Platform page for configuring everything from one surface. In addition, we introduce user-facing personalization to Lucia's orchestration layer. The headline feature lets users define a personality prompt that rewrites all agent responses through an LLM before delivery — giving Lucia a configurable voice, tone, and communication style without modifying the agents themselves.
 
 ## 🚀 Highlights
 
@@ -17,6 +17,9 @@
 - **ONNX Auto-Detection** — Automatic GPU/accelerator selection (CUDA, ROCm, OpenVINO, DirectML, CoreML) across all six inference engines — no manual configuration required.
 - **GTCRN Speech Enhancement** — Real-time streaming noise reduction for cleaner audio in noisy environments.
 - **Voice Platform Dashboard** — New unified control room for model management, speaker profiles, wake words, engine status, and real-time session monitoring.
+- **Personality Prompt** — Configurable system prompt that rewrites the fan-in aggregated response through an LLM, giving Lucia a customizable personality (pirate speak, formal assistant, casual friend — you name it).
+- **Separate Model Support** — Personality rewriting can use a different (cheaper/faster) model than the orchestrator, selectable from a dropdown of configured chat-type providers.
+- **Zero-Cost Opt-In** — When no personality is configured, the pipeline is unchanged — no LLM call, no added latency.
 
 ## ✨ Features
 
@@ -73,6 +76,26 @@
 - **Wake Words tab** — Register custom wake phrases with optional speaker enrollment, manage and delete entries
 - **Monitor tab** — Real-time session monitoring via SSE with audio level meters, transcript log, and connection status
 - **Config panel** — Voice verification threshold, provisional profile settings, adaptive profiles, and retention controls — persisted to MongoDB via ConfigStoreWriter
+
+### 🎭 Personality Prompt (PR #80)
+Users can now define a personality prompt on the `/configuration` page under the new Personality Prompt section. When set, the `ResultAggregatorExecutor` passes the composed multi-agent response through an LLM with the personality instructions as the system prompt, rewriting the output to match the desired tone.
+
+- `PersonalityPromptOptions` — New config model with `Instructions` (the personality system prompt) and `ModelConnectionName` (optional separate LLM for rewriting)
+- `WorkflowFactory` — Accepts `IOptionsMonitor<PersonalityPromptOptions>` for live config reload without restart. Conditionally resolves a separate `IChatClient` when `ModelConnectionName` is set, or falls back to the orchestrator's default model.
+- `ResultAggregatorExecutor` — After composing the raw message from agent responses, calls the personality LLM with `system=instructions` + `user=composed message`. Graceful fallback to raw message on LLM failure or empty response.
+- **Resilient resolution** — A misconfigured `ModelConnectionName` logs a warning and disables personality for that request instead of failing the entire orchestration pipeline.
+- **Cancellation-safe** — `OperationCanceledException` propagates correctly through the personality rewrite path.
+
+### 🖥️ Dashboard
+- **Model provider dropdown** — The `ModelConnectionName` field renders as a searchable dropdown populated from configured chat-type model providers, matching the pattern used in Agent Definitions.
+- **Textarea field type** — New `textarea` field type in the configuration page for multi-line prompt editing with vertical resize support.
+- **Auto-discovery** — The Personality Prompt section appears automatically in the configuration sidebar via schema API.
+
+### 🧺 Project Laundry
+- **SDK Pinned** — Pinned .NET 10 to the latest appropriate minimal SDK
+- **Removed outdated docs** — Removed a lot of outdated docs and old AI assistance templates and prompts.
+- **Package Updates** — Updated all central projects to the latest versions from .NET 10.0.4 security patch
+
 
 ## 🐛 Bug Fixes
 
