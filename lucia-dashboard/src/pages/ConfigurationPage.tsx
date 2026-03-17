@@ -615,9 +615,12 @@ export default function ConfigurationPage() {
       const sensitive = new Set<string>()
       if (entries.length > 0) {
         const vals: Record<string, string | null> = {}
+        const sectionPrefix = sectionSchema ? `${sectionSchema.section}:` : ''
         for (const e of entries) {
-          // Strip section prefix (e.g. "MusicAssistant:IntegrationId" → "IntegrationId")
-          const shortKey = e.key.includes(':') ? e.key.split(':').slice(1).join(':') : e.key
+          // Strip section prefix (e.g. "Wyoming:HuggingFace:ApiToken" → "ApiToken")
+          const shortKey = sectionPrefix && e.key.startsWith(sectionPrefix)
+            ? e.key.slice(sectionPrefix.length)
+            : e.key
           vals[shortKey] = e.value
           if (e.isSensitive) sensitive.add(shortKey)
         }

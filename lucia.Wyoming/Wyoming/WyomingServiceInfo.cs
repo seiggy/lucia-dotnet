@@ -6,17 +6,17 @@ namespace lucia.Wyoming.Wyoming;
 
 public sealed class WyomingServiceInfo
 {
-    private readonly ISttEngine? _sttEngine;
+    private readonly IEnumerable<ISttEngine> _sttEngines;
     private readonly IWakeWordDetector? _wakeWordDetector;
 
     public WyomingServiceInfo(
         IOptions<WyomingOptions> options,
-        ISttEngine? sttEngine = null,
+        IEnumerable<ISttEngine> sttEngines,
         IWakeWordDetector? wakeWordDetector = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         _ = options.Value;
-        _sttEngine = sttEngine;
+        _sttEngines = sttEngines;
         _wakeWordDetector = wakeWordDetector;
     }
 
@@ -30,7 +30,7 @@ public sealed class WyomingServiceInfo
 
         return new InfoEvent
         {
-            Asr = IsSttReady(_sttEngine)
+            Asr = _sttEngines.Any(static e => e.IsReady)
                 ? [new AsrInfo
                 {
                     Name = "sherpa-onnx",
@@ -79,17 +79,5 @@ public sealed class WyomingServiceInfo
                 : [],
             Version = "1.0.0",
         };
-    }
-
-    private static bool IsSttReady(ISttEngine? sttEngine)
-    {
-        if (sttEngine is null)
-        {
-            return false;
-        }
-
-        var isReadyProperty = sttEngine.GetType().GetProperty("IsReady");
-        return isReadyProperty?.PropertyType == typeof(bool)
-            && isReadyProperty.GetValue(sttEngine) is true;
     }
 }

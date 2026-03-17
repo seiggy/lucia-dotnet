@@ -26,6 +26,13 @@ public sealed class ModelManager(
     public event Action<ActiveModelChangedEvent>? ActiveModelChanged;
 
     /// <summary>
+    /// Tracks which STT engine type the user last activated (Stt for streaming, OfflineStt for hybrid/offline).
+    /// Used by status and session to determine which engine to prefer when multiple are ready.
+    /// </summary>
+    public EngineType PreferredSttEngineType { get; private set; } =
+        hybridSttOptionsMonitor.CurrentValue.Enabled ? EngineType.OfflineStt : EngineType.Stt;
+
+    /// <summary>
     /// Gets the active STT model ID. Convenience wrapper for <see cref="GetActiveModelId(EngineType)"/>.
     /// </summary>
     public string ActiveModelId => GetActiveModelId(EngineType.Stt);
@@ -156,10 +163,15 @@ public sealed class ModelManager(
     }
 
     /// <summary>
-    /// Switches the active STT model. Convenience wrapper for <see cref="SwitchActiveModelAsync(EngineType, string, CancellationToken)"/>.
+    /// Switches the active model, auto-detecting the engine type from the catalog.
+    /// Falls back to <see cref="EngineType.Stt"/> if the model is not found in any catalog.
     /// </summary>
-    public Task<bool> SwitchActiveModelAsync(string modelId, CancellationToken ct = default) =>
-        SwitchActiveModelAsync(EngineType.Stt, modelId, ct);
+    public Task<bool> SwitchActiveModelAsync(string modelId, CancellationToken ct = default)
+    {
+        var model = catalogService.GetModelById(modelId);
+        var engineType = model?.EngineType ?? EngineType.Stt;
+        return SwitchActiveModelAsync(engineType, modelId, ct);
+    }
 
     public async Task<bool> SwitchActiveModelAsync(EngineType engineType, string modelId, CancellationToken ct = default)
     {
@@ -187,6 +199,13 @@ public sealed class ModelManager(
         }
 
         _activeModelOverrides[engineType] = modelId;
+
+        // Track which STT engine type the user prefers
+        if (engineType is EngineType.Stt or EngineType.OfflineStt)
+        {
+            PreferredSttEngineType = engineType;
+        }
+
         ActiveModelChanged?.Invoke(new ActiveModelChangedEvent
         {
             EngineType = engineType,

@@ -38,12 +38,10 @@ public static class WyomingModelApi
 
         group.MapGet("/active", (ModelManager manager, IEnumerable<lucia.Wyoming.Stt.ISttEngine> sttEngines) =>
         {
-            // Report the active model for whichever engine type is actually running
-            var engines = sttEngines.ToArray();
-            var activeEngine = engines.FirstOrDefault(static e => e.IsReady) ?? engines.FirstOrDefault();
-            var activeModelId = activeEngine is lucia.Wyoming.Stt.HybridSttEngine
+            // Report the active model for the user's preferred engine type
+            var activeModelId = manager.PreferredSttEngineType == EngineType.OfflineStt
                 ? manager.GetActiveModelId(EngineType.OfflineStt)
-                : manager.ActiveModelId;
+                : manager.GetActiveModelId(EngineType.Stt);
             return Results.Ok(new { ActiveModel = activeModelId });
         }).WithName("GetActiveModel");
 
@@ -62,7 +60,7 @@ public static class WyomingModelApi
             string modelId,
             ModelCatalogService catalog,
             ModelDownloader downloader,
-            IOptions<SttModelOptions> modelOptions,
+            ModelManager manager,
             IBackgroundTaskQueue taskQueue,
             BackgroundTaskTracker tracker) =>
         {
@@ -73,7 +71,7 @@ public static class WyomingModelApi
             }
 
             var handle = tracker.CreateTask($"Downloading {model.Name}", ["Download", "Extract", "Install"]);
-            var basePath = modelOptions.Value.ModelBasePath;
+            var basePath = manager.GetModelBasePath(model.EngineType);
 
             await taskQueue.QueueBackgroundWorkItemAsync(async ct =>
             {

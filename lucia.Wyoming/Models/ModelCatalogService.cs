@@ -86,8 +86,20 @@ public sealed class ModelCatalogService(
             .ToArray();
     }
 
-    public AsrModelDefinition? GetModelById(string id) =>
-        GetModelById(EngineType.Stt, id) as AsrModelDefinition;
+    public WyomingModelDefinition? GetModelById(string id)
+    {
+        // Search all engine types to find the model
+        foreach (var engineType in Enum.GetValues<EngineType>())
+        {
+            var model = GetModelById(engineType, id);
+            if (model is not null)
+            {
+                return model;
+            }
+        }
+
+        return null;
+    }
 
     public IReadOnlyList<WyomingModelDefinition> GetAvailableModels(EngineType engineType) =>
         GetAvailableModelsSync(engineType);
