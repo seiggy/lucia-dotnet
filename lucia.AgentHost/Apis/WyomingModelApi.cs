@@ -47,6 +47,17 @@ public static class WyomingModelApi
             return Results.Ok(new { ActiveModel = activeModelId });
         }).WithName("GetActiveModel");
 
+        group.MapGet("/huggingface", async (
+            ModelCatalogService catalog,
+            string? engineType,
+            CancellationToken ct) =>
+        {
+            var et = ParseEngineType(engineType ?? "offline-stt") ?? EngineType.OfflineStt;
+            var models = await catalog.GetAvailableModelsAsync(et, ct).ConfigureAwait(false);
+            var hfModels = models.Where(m => m.Source == ModelSource.HuggingFace).ToList();
+            return Results.Ok(hfModels);
+        }).WithName("GetHuggingFaceModels");
+
         group.MapPost("/{modelId}/download", async (
             string modelId,
             ModelCatalogService catalog,
@@ -272,6 +283,70 @@ public static class WyomingModelApi
             }
             catch (ArgumentException ex) { return Results.BadRequest(ex.Message); }
         }).WithName("DeleteModelByEngine");
+
+        engineGroup.MapGet("/{modelId}/updates", async (
+            string engineType,
+            string modelId,
+            ModelManager manager,
+            CancellationToken ct) =>
+        {
+            var et = ParseEngineType(engineType);
+            if (et is null) return Results.BadRequest($"Unknown engine type: {engineType}");
+            var updateAvailable = await manager.CheckForUpdateAsync(et.Value, modelId, ct).ConfigureAwait(false);
+            return Results.Ok(new { updateAvailable });
+        }).WithName("CheckModelUpdate");
+
+        engineGroup.MapPost("/{modelId}/update", async (
+            string engineType,
+            string modelId,
+            ModelManager manager,
+            IBackgroundTaskQueue taskQueue,
+            BackgroundTaskTracker tracker) =>
+        {
+            var et = ParseEngineType(engineType);
+            if (et is null) return Results.BadRequest($"Unknown engine type: {engineType}");
+
+            var handle = tracker.CreateTask($"Updating model {modelId}", ["Download"]);
+
+            await taskQueue.QueueBackgroundWorkItemAsync(async ct =>
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                handle.MarkRunning();
+                var stages = handle.CreateStageProgress(1);
+
+                try
+                {
+                    var lastReportedPercent = -1;
+                    var progress = new DirectProgress<ModelDownloadProgress>(update =>
+                    {
+                        var pct = (int)Math.Round(update.PercentComplete);
+                        if (pct == lastReportedPercent) return;
+                        lastReportedPercent = pct;
+                        var mbDownloaded = update.BytesDownloaded / (1024.0 * 1024.0);
+                        var mbTotal = update.TotalBytes / (1024.0 * 1024.0);
+                        stages.Report(0, pct, $"{mbDownloaded:F1}/{mbTotal:F0} MB");
+                    });
+
+                    stages.Report(0, 0, "Starting\u2026");
+
+                    var result = await manager
+                        .UpdateModelAsync(et.Value, modelId, progress, ct)
+                        .ConfigureAwait(false);
+
+                    if (!result.Success)
+                        throw new InvalidOperationException(result.Error ?? "Update failed");
+
+                    stages.Report(0, 100, "Done");
+                    handle.MarkComplete(sw.Elapsed.TotalMilliseconds);
+                }
+                catch (Exception ex)
+                {
+                    handle.MarkFailed(ex.Message, sw.Elapsed.TotalMilliseconds);
+                }
+            }).ConfigureAwait(false);
+
+            return Results.Accepted($"/api/tasks/background/{handle.TaskId}", new { taskId = handle.TaskId });
+        }).WithName("UpdateModelByEngine");
     }
 
     private static EngineType? ParseEngineType(string engineType) =>

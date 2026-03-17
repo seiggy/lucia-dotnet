@@ -68,14 +68,23 @@ public sealed class WyomingStatusApiTests
         var wakeMonitor = new OptionsMonitorStub<WakeWordOptions>(new WakeWordOptions());
         var diarizationMonitor = new OptionsMonitorStub<DiarizationOptions>(new DiarizationOptions());
         var enhancementMonitor = new OptionsMonitorStub<SpeechEnhancementOptions>(new SpeechEnhancementOptions());
-        var catalog = new ModelCatalogService(sttMonitor, vadMonitor, wakeMonitor, diarizationMonitor, enhancementMonitor);
+        var provider = new SherpaOnnxCatalogProvider(sttMonitor, vadMonitor, wakeMonitor, diarizationMonitor, enhancementMonitor);
+        var catalog = new ModelCatalogService(
+            new IModelCatalogProvider[] { provider },
+            sttMonitor, vadMonitor, wakeMonitor, diarizationMonitor, enhancementMonitor,
+            NullLogger<ModelCatalogService>.Instance);
+        var hfDownloader = new HuggingFaceModelDownloader(
+            new OptionsMonitorStub<HuggingFaceOptions>(new HuggingFaceOptions()),
+            NullLogger<HuggingFaceModelDownloader>.Instance);
         var downloader = new ModelDownloader(
-            A.Fake<IHttpClientFactory>(), NullLogger<ModelDownloader>.Instance);
+            A.Fake<IHttpClientFactory>(), hfDownloader, NullLogger<ModelDownloader>.Instance);
 
         return new ModelManager(
             sttMonitor, vadMonitor, wakeMonitor, diarizationMonitor, enhancementMonitor,
             new OptionsMonitorStub<HybridSttOptions>(new HybridSttOptions()),
-            catalog, downloader, NullLogger<ModelManager>.Instance);
+            catalog, downloader, hfDownloader,
+            new HuggingFaceClient(A.Fake<IHttpClientFactory>(), new OptionsMonitorStub<HuggingFaceOptions>(new HuggingFaceOptions()), NullLogger<HuggingFaceClient>.Instance),
+            NullLogger<ModelManager>.Instance);
     }
 
     private static CustomWakeWordManager CreateReadyManager()

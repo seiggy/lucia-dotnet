@@ -72,23 +72,35 @@ public sealed class ModelManagerSecurityTests : IDisposable
             AutoDownloadDefault = false,
         });
 
+        var vadMonitor = new OptionsMonitorStub<VadOptions>(new VadOptions());
+        var wakeMonitor = new OptionsMonitorStub<WakeWordOptions>(new WakeWordOptions());
+        var diarizationMonitor = new OptionsMonitorStub<DiarizationOptions>(new DiarizationOptions());
+        var enhancementMonitor = new OptionsMonitorStub<SpeechEnhancementOptions>(new SpeechEnhancementOptions());
+
+        var provider = new SherpaOnnxCatalogProvider(options, vadMonitor, wakeMonitor, diarizationMonitor, enhancementMonitor);
         var catalog = new ModelCatalogService(
-            options,
-            new OptionsMonitorStub<VadOptions>(new VadOptions()),
-            new OptionsMonitorStub<WakeWordOptions>(new WakeWordOptions()),
-            new OptionsMonitorStub<DiarizationOptions>(new DiarizationOptions()),
-            new OptionsMonitorStub<SpeechEnhancementOptions>(new SpeechEnhancementOptions()));
-        var downloader = new ModelDownloader(new SimpleHttpClientFactory(), NullLogger<ModelDownloader>.Instance);
+            new IModelCatalogProvider[] { provider },
+            options, vadMonitor, wakeMonitor, diarizationMonitor, enhancementMonitor,
+            NullLogger<ModelCatalogService>.Instance);
+        var hfDownloader = new HuggingFaceModelDownloader(
+            new OptionsMonitorStub<HuggingFaceOptions>(new HuggingFaceOptions()),
+            NullLogger<HuggingFaceModelDownloader>.Instance);
+        var downloader = new ModelDownloader(new SimpleHttpClientFactory(), hfDownloader, NullLogger<ModelDownloader>.Instance);
+
+        var hfOptions = new OptionsMonitorStub<HuggingFaceOptions>(new HuggingFaceOptions());
+        var hfClient = new HuggingFaceClient(new SimpleHttpClientFactory(), hfOptions, NullLogger<HuggingFaceClient>.Instance);
 
         return new ModelManager(
             options,
-            new OptionsMonitorStub<VadOptions>(new VadOptions()),
-            new OptionsMonitorStub<WakeWordOptions>(new WakeWordOptions()),
-            new OptionsMonitorStub<DiarizationOptions>(new DiarizationOptions()),
-            new OptionsMonitorStub<SpeechEnhancementOptions>(new SpeechEnhancementOptions()),
+            vadMonitor,
+            wakeMonitor,
+            diarizationMonitor,
+            enhancementMonitor,
             new OptionsMonitorStub<HybridSttOptions>(new HybridSttOptions()),
             catalog,
             downloader,
+            hfDownloader,
+            hfClient,
             NullLogger<ModelManager>.Instance);
     }
 

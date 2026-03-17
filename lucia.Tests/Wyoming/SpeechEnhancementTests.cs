@@ -2,6 +2,7 @@ using lucia.Tests.TestDoubles;
 using lucia.Wyoming.Audio;
 using lucia.Wyoming.Diarization;
 using lucia.Wyoming.Models;
+using lucia.Wyoming.Stt;
 using lucia.Wyoming.Vad;
 using lucia.Wyoming.WakeWord;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -84,12 +85,17 @@ public sealed class SpeechEnhancementTests
     [Fact]
     public void SpeechEnhancementCatalog_HasExpectedModels()
     {
+        var sttMonitor = new OptionsMonitorStub<SttModelOptions>(new SttModelOptions());
+        var vadMonitor = new OptionsMonitorStub<VadOptions>(new VadOptions());
+        var wakeMonitor = new OptionsMonitorStub<WakeWordOptions>(new WakeWordOptions());
+        var diarizationMonitor = new OptionsMonitorStub<DiarizationOptions>(new DiarizationOptions());
+        var enhancementMonitor = new OptionsMonitorStub<SpeechEnhancementOptions>(new SpeechEnhancementOptions());
+
+        var provider = new SherpaOnnxCatalogProvider(sttMonitor, vadMonitor, wakeMonitor, diarizationMonitor, enhancementMonitor);
         var catalog = new ModelCatalogService(
-            new OptionsMonitorStub<SttModelOptions>(new SttModelOptions()),
-            new OptionsMonitorStub<VadOptions>(new VadOptions()),
-            new OptionsMonitorStub<WakeWordOptions>(new WakeWordOptions()),
-            new OptionsMonitorStub<DiarizationOptions>(new DiarizationOptions()),
-            new OptionsMonitorStub<SpeechEnhancementOptions>(new SpeechEnhancementOptions()));
+            new IModelCatalogProvider[] { provider },
+            sttMonitor, vadMonitor, wakeMonitor, diarizationMonitor, enhancementMonitor,
+            NullLogger<ModelCatalogService>.Instance);
 
         var models = catalog.GetAvailableModels(EngineType.SpeechEnhancement);
 

@@ -3,6 +3,7 @@ using lucia.Wyoming.Diarization;
 using lucia.Wyoming.Models;
 using lucia.Wyoming.Vad;
 using lucia.Wyoming.WakeWord;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace lucia.Tests.Wyoming;
@@ -127,13 +128,25 @@ public sealed class ModelCatalogServiceTests
             $"Wake word model '{model.Id}' should be an archive"));
     }
 
-    private static ModelCatalogService CreateCatalog() =>
-        new(
-            new OptionsMonitorStub<SttModelOptions>(new SttModelOptions()),
-            new OptionsMonitorStub<VadOptions>(new VadOptions()),
-            new OptionsMonitorStub<WakeWordOptions>(new WakeWordOptions()),
-            new OptionsMonitorStub<DiarizationOptions>(new DiarizationOptions()),
-            new OptionsMonitorStub<SpeechEnhancementOptions>(new SpeechEnhancementOptions()));
+    private static ModelCatalogService CreateCatalog()
+    {
+        var sttMonitor = new OptionsMonitorStub<SttModelOptions>(new SttModelOptions());
+        var vadMonitor = new OptionsMonitorStub<VadOptions>(new VadOptions());
+        var wakeMonitor = new OptionsMonitorStub<WakeWordOptions>(new WakeWordOptions());
+        var diarizationMonitor = new OptionsMonitorStub<DiarizationOptions>(new DiarizationOptions());
+        var enhancementMonitor = new OptionsMonitorStub<SpeechEnhancementOptions>(new SpeechEnhancementOptions());
+
+        var provider = new SherpaOnnxCatalogProvider(sttMonitor, vadMonitor, wakeMonitor, diarizationMonitor, enhancementMonitor);
+
+        return new ModelCatalogService(
+            new IModelCatalogProvider[] { provider },
+            sttMonitor,
+            vadMonitor,
+            wakeMonitor,
+            diarizationMonitor,
+            enhancementMonitor,
+            NullLogger<ModelCatalogService>.Instance);
+    }
 
     private sealed class OptionsMonitorStub<T>(T currentValue) : IOptionsMonitor<T>
     {

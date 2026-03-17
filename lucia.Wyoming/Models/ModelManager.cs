@@ -17,6 +17,8 @@ public sealed class ModelManager(
     IOptionsMonitor<HybridSttOptions> hybridSttOptionsMonitor,
     ModelCatalogService catalogService,
     ModelDownloader downloader,
+    HuggingFaceModelDownloader hfDownloader,
+    HuggingFaceClient hfClient,
     ILogger<ModelManager> logger) : IModelChangeNotifier
 {
     private readonly Dictionary<EngineType, string> _activeModelOverrides = [];
@@ -235,6 +237,57 @@ public sealed class ModelManager(
             modelDirectory);
 
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Checks if a HuggingFace-sourced model has an update available by comparing
+    /// the remote lastModified timestamp against local file timestamps.
+    /// </summary>
+    public async Task<bool> CheckForUpdateAsync(
+        EngineType engineType,
+        string modelId,
+        CancellationToken ct = default)
+    {
+        var model = catalogService.GetModelById(engineType, modelId);
+        if (model is null || model.Source != ModelSource.HuggingFace || string.IsNullOrWhiteSpace(model.RepoId))
+        {
+            return false;
+        }
+
+        var modelBasePath = GetModelBasePath(engineType);
+        var localPath = Path.Combine(modelBasePath, modelId);
+
+        // Get the latest remote timestamp from the HF API
+        var remoteInfo = await hfClient.GetModelInfoAsync(model.RepoId, ct);
+        var remoteLastModified = remoteInfo?.LastModified ?? model.LastModified;
+
+        return await hfDownloader.CheckForUpdateAsync(model.RepoId, localPath, remoteLastModified, ct);
+    }
+
+    /// <summary>
+    /// Updates a HuggingFace-sourced model by re-running the HF CLI download.
+    /// </summary>
+    public async Task<ModelDownloadResult> UpdateModelAsync(
+        EngineType engineType,
+        string modelId,
+        IProgress<ModelDownloadProgress>? progress = null,
+        CancellationToken ct = default)
+    {
+        var model = catalogService.GetModelById(engineType, modelId);
+        if (model is null || model.Source != ModelSource.HuggingFace || string.IsNullOrWhiteSpace(model.RepoId))
+        {
+            return ModelDownloadResult.Failure(modelId, "Model is not a HuggingFace model or not found in catalog");
+        }
+
+        var modelBasePath = GetModelBasePath(engineType);
+        var result = await hfDownloader.DownloadModelAsync(model.RepoId, modelBasePath, progress, ct);
+
+        if (result.Success)
+        {
+            logger.LogInformation("Updated HuggingFace model {ModelId} at {Path}", modelId, result.LocalPath);
+        }
+
+        return result;
     }
 
     private string GetConfiguredActiveModel(EngineType engineType) =>
