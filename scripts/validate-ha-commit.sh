@@ -61,3 +61,21 @@ if grep -Eq '^lucia-dashboard/' <<< "$STAGED_FILES"; then
     exit 1
   fi
 fi
+
+# ── C# build check ──────────────────────────────────────────────
+if grep -Eq '\.(cs|csproj|slnx|props|targets)$' <<< "$STAGED_FILES"; then
+  if [ "${LUCIA_SKIP_DOTNET_BUILD:-}" != "" ]; then
+    echo "[pre-commit] Skipping dotnet build — LUCIA_SKIP_DOTNET_BUILD is set."
+  elif ! command -v dotnet >/dev/null 2>&1; then
+    echo "[pre-commit] dotnet not found; skipping C# build check."
+  else
+    echo "[pre-commit] Building C# solution..."
+    if ! dotnet build "$REPO_ROOT/lucia-dotnet.slnx" --no-restore -v quiet -nologo 2>&1; then
+      echo ""
+      echo "[pre-commit] ERROR: C# build failed. Fix compilation errors before committing."
+      echo "[pre-commit] To bypass: set LUCIA_SKIP_DOTNET_BUILD=1"
+      exit 1
+    fi
+    echo "[dotnet build] OK"
+  fi
+fi

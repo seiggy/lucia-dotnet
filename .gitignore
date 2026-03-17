@@ -298,3 +298,6 @@ lucia.AgentHost/Models/tts/
 lucia.AgentHost/Models/kws/
 lucia.AgentHost/data/
 lucia.AgentHost/models/
+
+# Git Worktrees
+.worktrees/
