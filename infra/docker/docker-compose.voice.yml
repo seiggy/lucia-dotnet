@@ -1,0 +1,243 @@
+# Lucia Agent Host (Voice) - Docker Compose Configuration
+#
+# Voice-enabled variant with pre-loaded Wyoming STT/VAD/KWS models and
+# NVIDIA CUDA GPU acceleration for ONNX Runtime inference.
+#
+# This compose file mirrors docker-compose.yml but builds the voice Dockerfile
+# and adds GPU resource reservations for the lucia service.
+#
+# Services:
+#   - lucia: Agent Host API with Wyoming voice platform (GPU-accelerated)
+#   - lucia-redis: Task persistence and session state
+#   - lucia-mongo: Trace capture and configuration storage
+#
+# Usage:
+#   # Start all services (requires NVIDIA Container Toolkit)
+#   docker-compose -f docker-compose.voice.yml up -d
+#
+#   # View logs
+#   docker-compose -f docker-compose.voice.yml logs -f lucia
+#
+#   # Stop services
+#   docker-compose -f docker-compose.voice.yml down
+#
+#   # Remove volumes (deletes persisted data)
+#   docker-compose -f docker-compose.voice.yml down -v
+
+services:
+
+  # ========================================================================
+  # Redis Service - Task Persistence and Session State
+  # ========================================================================
+  lucia-redis:
+    image: redis:8.2-alpine
+    
+    container_name: lucia-redis
+    
+    networks:
+      - lucia-network
+    
+    ports:
+      - "127.0.0.1:6379:6379"
+    
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --loglevel notice
+    
+    volumes:
+      - lucia-redis-data:/data
+    
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "PING"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    
+    restart: unless-stopped
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "lucia-redis"
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    read_only: true
+    tmpfs:
+      - /tmp
+
+
+  # ========================================================================
+  # MongoDB Service - Trace Capture and Configuration Storage
+  # ========================================================================
+  lucia-mongo:
+    image: mongo:8.0
+    
+    container_name: lucia-mongo
+    
+    networks:
+      - lucia-network
+    
+    ports:
+      - "127.0.0.1:27017:27017"
+    
+    volumes:
+      - lucia-mongo-data:/data/db
+    
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.runCommand('ping').ok"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    
+    restart: unless-stopped
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "lucia-mongo"
+    
+    security_opt:
+      - no-new-privileges:true
+
+
+  # ========================================================================
+  # Lucia Agent Host (Voice) - GPU-Accelerated Voice Platform
+  # ========================================================================
+  lucia:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.voice
+      args:
+        BUILD_CONFIGURATION: Release
+        BUILD_TARGET_FRAMEWORK: net10.0
+      cache_from:
+        - lucia:voice
+
+    image: lucia:voice
+
+    container_name: lucia
+
+    depends_on:
+      lucia-redis:
+        condition: service_healthy
+      lucia-mongo:
+        condition: service_healthy
+    
+    networks:
+      - lucia-network
+    
+    ports:
+      - "7233:8080"
+    
+    environment:
+      # ASP.NET Core configuration
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      
+      # MongoDB connection strings (infrastructure — not user-configurable)
+      - ConnectionStrings__luciatraces=mongodb://lucia-mongo:27017/luciatraces
+      - ConnectionStrings__luciaconfig=mongodb://lucia-mongo:27017/luciaconfig
+      - ConnectionStrings__luciatasks=mongodb://lucia-mongo:27017/luciatasks
+      
+      # Redis connection string
+      - ConnectionStrings__redis=lucia-redis:6379
+      
+      # .NET Runtime
+      - DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
+      - DOTNET_RUNNING_IN_CONTAINER=true
+      - COMPlus_EnableDiagnostics=0
+
+      # Wyoming voice platform (models are pre-loaded in the image)
+      - Wyoming__Models__HybridStt__Enabled=true
+    
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    # NVIDIA Container Toolkit runtime for GPU-accelerated ONNX inference
+    runtime: nvidia
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '2'
+          memory: 2G
+    
+    restart: unless-stopped
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+        tag: "lucia"
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    # Voice image needs writable /tmp for ONNX Runtime temp files
+    tmpfs:
+      - /tmp
+      - /app/bin
+    
+    cap_drop:
+      - NET_RAW
+      - SYS_PTRACE
+      - SYS_ADMIN
+
+
+# ============================================================================
+# Networks
+# ============================================================================
+networks:
+  lucia-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
+
+
+# ============================================================================
+# Volumes
+# ============================================================================
+volumes:
+  lucia-redis-data:
+    driver: local
+  
+  lucia-mongo-data:
+    driver: local
