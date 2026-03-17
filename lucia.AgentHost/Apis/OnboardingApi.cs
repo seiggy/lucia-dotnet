@@ -124,6 +124,40 @@ public static class OnboardingApi
         }).WithTags("Voice Onboarding")
             .RequireAuthorization();
 
+        app.MapPut("/api/speakers/{id}", async (
+            string id,
+            UpdateSpeakerProfileRequest request,
+            ISpeakerProfileStore store,
+            CancellationToken ct) =>
+        {
+            var existing = await store.GetAsync(id, ct).ConfigureAwait(false);
+            if (existing is null)
+            {
+                return Results.NotFound($"Speaker profile '{id}' not found.");
+            }
+
+            var updated = existing with
+            {
+                Name = request.Name ?? existing.Name,
+                IsAuthorized = request.IsAuthorized ?? existing.IsAuthorized,
+                IsProvisional = request.IsProvisional ?? existing.IsProvisional,
+                UpdatedAt = DateTimeOffset.UtcNow,
+            };
+
+            await store.UpdateAsync(updated, ct).ConfigureAwait(false);
+            return Results.Ok(new
+            {
+                updated.Id,
+                updated.Name,
+                updated.IsProvisional,
+                updated.IsAuthorized,
+                updated.InteractionCount,
+                updated.EnrolledAt,
+                updated.LastSeenAt,
+            });
+        }).WithTags("Voice Onboarding")
+            .RequireAuthorization();
+
         app.MapPost("/api/speakers/merge", async (
             MergeProfilesRequest request,
             ProfileMergeService mergeService,

@@ -1,3 +1,4 @@
+using lucia.Tests.TestDoubles;
 using lucia.Wyoming.Audio;
 using lucia.Wyoming.Diarization;
 using lucia.Wyoming.Models;
@@ -16,6 +17,7 @@ public sealed class SpeechEnhancementTests
         using var enhancer = new GtcrnSpeechEnhancer(
             Options.Create(new SpeechEnhancementOptions { Enabled = true, ModelBasePath = string.Empty }),
             new TestModelChangeNotifier(),
+            TestOnnxProvider.Instance,
             NullLogger<GtcrnSpeechEnhancer>.Instance);
 
         Assert.False(enhancer.IsReady);
@@ -27,6 +29,7 @@ public sealed class SpeechEnhancementTests
         using var enhancer = new GtcrnSpeechEnhancer(
             Options.Create(new SpeechEnhancementOptions { Enabled = true, ModelBasePath = string.Empty }),
             new TestModelChangeNotifier(),
+            TestOnnxProvider.Instance,
             NullLogger<GtcrnSpeechEnhancer>.Instance);
 
         Assert.Throws<InvalidOperationException>(() => enhancer.CreateSession());
@@ -39,6 +42,7 @@ public sealed class SpeechEnhancementTests
         using var enhancer = new GtcrnSpeechEnhancer(
             Options.Create(new SpeechEnhancementOptions { Enabled = true, ModelBasePath = string.Empty }),
             notifier,
+            TestOnnxProvider.Instance,
             NullLogger<GtcrnSpeechEnhancer>.Instance);
 
         Assert.False(enhancer.IsReady);
@@ -60,6 +64,7 @@ public sealed class SpeechEnhancementTests
         using var enhancer = new GtcrnSpeechEnhancer(
             Options.Create(new SpeechEnhancementOptions { Enabled = true, ModelBasePath = string.Empty }),
             notifier,
+            TestOnnxProvider.Instance,
             NullLogger<GtcrnSpeechEnhancer>.Instance);
 
         Assert.False(enhancer.IsReady);

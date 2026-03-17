@@ -1,3 +1,4 @@
+using lucia.Tests.TestDoubles;
 using lucia.Wyoming.Diarization;
 using lucia.Wyoming.Models;
 using lucia.Wyoming.Stt;
@@ -15,6 +16,7 @@ public sealed class WyomingEngineReadinessTests
         var exception = Record.Exception(() => new SherpaSttEngine(
             Options.Create(new SttOptions { ModelPath = string.Empty }),
             new TestModelChangeNotifier(),
+            TestOnnxProvider.Instance,
             NullLogger<SherpaSttEngine>.Instance));
 
         Assert.Null(exception);
@@ -22,6 +24,7 @@ public sealed class WyomingEngineReadinessTests
         using var engine = new SherpaSttEngine(
             Options.Create(new SttOptions { ModelPath = string.Empty }),
             new TestModelChangeNotifier(),
+            TestOnnxProvider.Instance,
             NullLogger<SherpaSttEngine>.Instance);
         Assert.False(engine.IsReady);
     }
@@ -51,6 +54,7 @@ public sealed class WyomingEngineReadinessTests
         var exception = Record.Exception(() => new SherpaDiarizationEngine(
             Options.Create(new DiarizationOptions { Enabled = true, EmbeddingModelPath = string.Empty }),
             new TestModelChangeNotifier(),
+            TestOnnxProvider.Instance,
             NullLogger<SherpaDiarizationEngine>.Instance));
 
         Assert.Null(exception);
@@ -58,6 +62,7 @@ public sealed class WyomingEngineReadinessTests
         using var engine = new SherpaDiarizationEngine(
             Options.Create(new DiarizationOptions { Enabled = true, EmbeddingModelPath = string.Empty }),
             new TestModelChangeNotifier(),
+            TestOnnxProvider.Instance,
             NullLogger<SherpaDiarizationEngine>.Instance);
         Assert.False(engine.IsReady);
     }

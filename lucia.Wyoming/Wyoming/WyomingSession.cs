@@ -28,9 +28,11 @@ public sealed class WyomingSession : IDisposable
     private IWakeWordSession? _currentWakeWordSession;
     private SttResult? _pendingTranscript;
     private readonly List<float> _utteranceAudioBuffer = [];
+    private readonly List<float> _rawUtteranceAudioBuffer = [];
     private int _utteranceSampleRate = 16_000;
     private IDiarizationEngine? _diarizationEngine;
     private ISpeakerProfileStore? _profileStore;
+    private IOptionsMonitor<VoiceProfileOptions>? _voiceProfileOptions;
     private SpeakerVerificationFilter? _speakerFilter;
     private UnknownSpeakerTracker? _unknownTracker;
     private AdaptiveProfileUpdater? _adaptiveUpdater;
@@ -758,7 +760,7 @@ public sealed class WyomingSession : IDisposable
                 _enhancementTotalMs += enhSw.ElapsedMilliseconds;
                 if (enhancedBuffer.Length > 0)
                 {
-                    // Store enhanced audio for diarization/speaker verification
+                    // Store enhanced audio for clip storage
                     AppendUtteranceAudio(enhancedBuffer, _utteranceSampleRate);
                 }
             }
@@ -766,6 +768,11 @@ public sealed class WyomingSession : IDisposable
             {
                 _logger.LogDebug(ex, "Enhancement frame processing failed for session {SessionId}, using raw audio", Id);
             }
+
+            // Always accumulate raw audio for speaker verification — speech
+            // enhancement alters spectral characteristics the embedding model
+            // relies on, but enrollment uses raw audio.
+            AppendRawUtteranceAudio(samples, _utteranceSampleRate);
         }
         else
         {
@@ -847,6 +854,7 @@ public sealed class WyomingSession : IDisposable
 
         _diarizationEngine = services.GetService<IDiarizationEngine>();
         _profileStore = services.GetService<ISpeakerProfileStore>();
+        _voiceProfileOptions = services.GetService<IOptionsMonitor<VoiceProfileOptions>>();
         _speakerFilter = services.GetService<SpeakerVerificationFilter>();
         _unknownTracker = services.GetService<UnknownSpeakerTracker>();
         _adaptiveUpdater = services.GetService<AdaptiveProfileUpdater>();
@@ -1035,9 +1043,24 @@ public sealed class WyomingSession : IDisposable
         try
         {
             var sampleRate = _utteranceSampleRate > 0 ? _utteranceSampleRate : 16_000;
-            var embedding = _diarizationEngine.ExtractEmbedding(utteranceAudio, sampleRate);
+            var threshold = _voiceProfileOptions?.CurrentValue.SpeakerVerificationThreshold ?? 0.7f;
+
+            // Use raw (unenhanced) audio for speaker verification when available.
+            // Speech enhancement alters spectral characteristics that the embedding
+            // model relies on, causing low similarity between enhanced live audio
+            // and raw enrollment audio.
+            var verificationAudio = _rawUtteranceAudioBuffer.Count > 0
+                ? _rawUtteranceAudioBuffer.ToArray()
+                : utteranceAudio;
+
+            var embedding = _diarizationEngine.ExtractEmbedding(verificationAudio, sampleRate);
             var profiles = await _profileStore.GetEnrolledProfilesAsync(ct).ConfigureAwait(false);
-            var speaker = _diarizationEngine.IdentifySpeaker(embedding, profiles);
+
+            _logger.LogDebug(
+                "Session {SessionId} speaker verification: {ProfileCount} enrolled profiles, threshold={Threshold:F2}, embedding dim={EmbeddingDim}, audio samples={SampleCount} (raw={IsRaw})",
+                Id, profiles.Count, threshold, embedding.Vector.Length, verificationAudio.Length, _rawUtteranceAudioBuffer.Count > 0);
+
+            var speaker = _diarizationEngine.IdentifySpeaker(embedding, profiles, threshold);
 
             if (speaker is not null)
             {
@@ -1183,9 +1206,28 @@ public sealed class WyomingSession : IDisposable
         }
     }
 
+    private void AppendRawUtteranceAudio(ReadOnlySpan<float> samples, int sampleRate)
+    {
+        if (samples.Length == 0)
+        {
+            return;
+        }
+
+        if (sampleRate > 0)
+        {
+            _utteranceSampleRate = sampleRate;
+        }
+
+        foreach (var sample in samples)
+        {
+            _rawUtteranceAudioBuffer.Add(sample);
+        }
+    }
+
     private void ResetUtteranceAudio()
     {
         _utteranceAudioBuffer.Clear();
+        _rawUtteranceAudioBuffer.Clear();
         _utteranceSampleRate = 16_000;
         _enhancementTotalMs = 0;
         _sttFinalizationMs = 0;

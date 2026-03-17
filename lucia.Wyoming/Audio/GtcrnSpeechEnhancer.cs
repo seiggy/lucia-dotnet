@@ -12,6 +12,7 @@ namespace lucia.Wyoming.Audio;
 public sealed class GtcrnSpeechEnhancer : ISpeechEnhancer, IDisposable
 {
     private readonly IModelChangeNotifier _modelChangeNotifier;
+    private readonly OnnxProviderDetector _providerDetector;
     private readonly SpeechEnhancementOptions _options;
     private readonly ILogger<GtcrnSpeechEnhancer> _logger;
     private readonly object _lock = new();
@@ -22,14 +23,17 @@ public sealed class GtcrnSpeechEnhancer : ISpeechEnhancer, IDisposable
     public GtcrnSpeechEnhancer(
         IOptions<SpeechEnhancementOptions> options,
         IModelChangeNotifier modelChangeNotifier,
+        OnnxProviderDetector providerDetector,
         ILogger<GtcrnSpeechEnhancer> logger)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(modelChangeNotifier);
+        ArgumentNullException.ThrowIfNull(providerDetector);
         ArgumentNullException.ThrowIfNull(logger);
 
         _options = options.Value;
         _modelChangeNotifier = modelChangeNotifier;
+        _providerDetector = providerDetector;
         _logger = logger;
 
         if (_options.Enabled)
@@ -87,6 +91,7 @@ public sealed class GtcrnSpeechEnhancer : ISpeechEnhancer, IDisposable
                 sessionOptions.InterOpNumThreads = 1;
                 sessionOptions.IntraOpNumThreads = 2;
                 sessionOptions.LogSeverityLevel = OrtLoggingLevel.ORT_LOGGING_LEVEL_ERROR;
+                _providerDetector.ConfigureSessionOptions(sessionOptions, _logger);
 
                 var oldSession = _onnxSession;
                 _onnxSession = new InferenceSession(onnxFile, sessionOptions);

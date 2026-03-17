@@ -1,4 +1,6 @@
+using lucia.Tests.TestDoubles;
 using lucia.Wyoming.Diarization;
+using lucia.Wyoming.Models;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -344,6 +346,111 @@ public sealed class SpeakerVerificationComponentTests
     {
         return new AudioQualityAnalyzer(
             Options.Create(new VoiceProfileOptions { MinSampleDurationMs = minSampleDurationMs }));
+    }
+
+    [Fact]
+    public void SherpaDiarization_DimensionMismatch_SkipsProfileGracefully()
+    {
+        var engine = CreateSherpaDiarizationEngineForIdentification();
+
+        var embedding = new SpeakerEmbedding { Vector = CreateEmbeddingVector(0.5f, 0.001f) }; // 128-dim
+        var mismatchedProfile = new SpeakerProfile
+        {
+            Id = "mismatched",
+            Name = "Mismatched",
+            AverageEmbedding = new float[64], // Different dimension
+        };
+
+        var result = engine.IdentifySpeaker(embedding, [mismatchedProfile]);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void SherpaDiarization_DimensionMismatch_StillMatchesValidProfiles()
+    {
+        var engine = CreateSherpaDiarizationEngineForIdentification();
+
+        var embedding = new SpeakerEmbedding { Vector = CreateEmbeddingVector(0.5f, 0.001f) }; // 128-dim
+        var mismatchedProfile = new SpeakerProfile
+        {
+            Id = "mismatched",
+            Name = "Mismatched",
+            AverageEmbedding = new float[64],
+        };
+        var matchingProfile = new SpeakerProfile
+        {
+            Id = "alice",
+            Name = "Alice",
+            AverageEmbedding = CreateEmbeddingVector(0.5f, 0.001f), // Same embedding = similarity 1.0
+        };
+
+        var result = engine.IdentifySpeaker(embedding, [mismatchedProfile, matchingProfile]);
+
+        Assert.NotNull(result);
+        Assert.Equal("alice", result.ProfileId);
+    }
+
+    [Fact]
+    public void SherpaDiarization_RespectsCustomThreshold()
+    {
+        var engine = CreateSherpaDiarizationEngineForIdentification();
+
+        var embedding = new SpeakerEmbedding { Vector = CreateEmbeddingVector(0.5f, 0.003f) };
+        var profile = new SpeakerProfile
+        {
+            Id = "alice",
+            Name = "Alice",
+            AverageEmbedding = CreateEmbeddingVector(0.5f, 0.001f),
+        };
+
+        // With very high threshold, should not match
+        var strictResult = engine.IdentifySpeaker(embedding, [profile], threshold: 0.999f);
+        Assert.Null(strictResult);
+
+        // With very low threshold, should match
+        var lenientResult = engine.IdentifySpeaker(embedding, [profile], threshold: 0.1f);
+        Assert.NotNull(lenientResult);
+        Assert.Equal("alice", lenientResult.ProfileId);
+    }
+
+    [Fact]
+    public async Task UnknownTracker_DimensionMismatch_CreatesNewProfile()
+    {
+        var store = new InMemorySpeakerProfileStore();
+
+        // Create a provisional profile with 64-dim embedding
+        await store.CreateAsync(new SpeakerProfile
+        {
+            Id = "unknown-old",
+            Name = "Unknown Speaker 1",
+            IsProvisional = true,
+            IsAuthorized = false,
+            AverageEmbedding = new float[64],
+            Embeddings = [new float[64]],
+            InteractionCount = 1,
+        }, CancellationToken.None);
+
+        var tracker = CreateUnknownSpeakerTracker(store, provisionalMatchThreshold: 0.5f);
+
+        // New embedding with 128-dim (different from the stored 64-dim)
+        var embedding = new SpeakerEmbedding { Vector = CreateEmbeddingVector(0.5f, 0.001f) };
+        var result = await tracker.TrackUnknownSpeakerAsync(embedding, CancellationToken.None);
+
+        Assert.NotNull(result);
+        // Should create a NEW profile since the existing one has mismatched dimensions
+        Assert.NotEqual("unknown-old", result.Value.Profile.Id);
+        Assert.True(result.Value.Profile.IsProvisional);
+    }
+
+    private static SherpaDiarizationEngine CreateSherpaDiarizationEngineForIdentification()
+    {
+        // Create engine without loading a real model — IdentifySpeaker doesn't need the extractor
+        return new SherpaDiarizationEngine(
+            Options.Create(new DiarizationOptions { Enabled = false }),
+            new NullModelChangeNotifier(),
+            TestOnnxProvider.Instance,
+            NullLogger<SherpaDiarizationEngine>.Instance);
     }
 
     private static float[] CreateEmbeddingVector(float startValue, float increment)

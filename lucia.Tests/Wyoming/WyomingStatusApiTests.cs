@@ -1,6 +1,7 @@
 using System.Text.Json;
 using FakeItEasy;
 using lucia.AgentHost.Apis;
+using lucia.Tests.TestDoubles;
 using lucia.Wyoming.Audio;
 using lucia.Wyoming.Diarization;
 using lucia.Wyoming.Models;
@@ -26,6 +27,7 @@ public sealed class WyomingStatusApiTests
             new TestDiarizationEngine(),
             null,
             CreateReadyManager(),
+            TestOnnxProvider.Instance,
             CreateModelManager());
 
         var payload = await ExecuteResultAsync(result);
@@ -47,6 +49,7 @@ public sealed class WyomingStatusApiTests
             new UnreadyDiarizationEngine(),
             null,
             CreateUnreadyManager(),
+            TestOnnxProvider.Instance,
             CreateModelManager());
 
         var payload = await ExecuteResultAsync(result);

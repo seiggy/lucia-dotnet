@@ -13,6 +13,7 @@ public sealed class SherpaDiarizationEngine : IDiarizationEngine, IDisposable
 {
     private readonly ILogger<SherpaDiarizationEngine> _logger;
     private readonly IModelChangeNotifier _modelChangeNotifier;
+    private readonly OnnxProviderDetector _providerDetector;
     private readonly object _lock = new();
     private SpeakerEmbeddingExtractor? _extractor;
 
@@ -21,14 +22,17 @@ public sealed class SherpaDiarizationEngine : IDiarizationEngine, IDisposable
     public SherpaDiarizationEngine(
         IOptions<DiarizationOptions> options,
         IModelChangeNotifier modelChangeNotifier,
+        OnnxProviderDetector providerDetector,
         ILogger<SherpaDiarizationEngine> logger)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(modelChangeNotifier);
+        ArgumentNullException.ThrowIfNull(providerDetector);
         ArgumentNullException.ThrowIfNull(logger);
 
         _logger = logger;
         _modelChangeNotifier = modelChangeNotifier;
+        _providerDetector = providerDetector;
 
         var opts = options.Value;
         if (opts.Enabled && !string.IsNullOrWhiteSpace(opts.EmbeddingModelPath))
@@ -92,6 +96,17 @@ public sealed class SherpaDiarizationEngine : IDiarizationEngine, IDisposable
         {
             if (profile.AverageEmbedding.Length == 0)
             {
+                _logger.LogDebug(
+                    "Skipping profile {ProfileId} ({Name}) — empty embedding",
+                    profile.Id, profile.Name);
+                continue;
+            }
+
+            if (profile.AverageEmbedding.Length != embedding.Vector.Length)
+            {
+                _logger.LogWarning(
+                    "Skipping profile {ProfileId} ({Name}) — embedding dimension mismatch (profile={ProfileDim}, current={CurrentDim}). Re-enroll this profile to fix.",
+                    profile.Id, profile.Name, profile.AverageEmbedding.Length, embedding.Vector.Length);
                 continue;
             }
 
@@ -101,6 +116,11 @@ public sealed class SherpaDiarizationEngine : IDiarizationEngine, IDisposable
             };
 
             var similarity = embedding.CosineSimilarity(profileEmbedding);
+
+            _logger.LogDebug(
+                "Profile {ProfileId} ({Name}) similarity={Similarity:F3} (threshold={Threshold:F2})",
+                profile.Id, profile.Name, similarity, threshold);
+
             if (similarity < threshold || (best is not null && similarity <= best.Similarity))
             {
                 continue;
@@ -162,7 +182,7 @@ public sealed class SherpaDiarizationEngine : IDiarizationEngine, IDisposable
                 {
                     Model = onnxFile,
                     NumThreads = 2,
-                    Provider = "cpu",
+                    Provider = _providerDetector.BestSherpaProvider,
                 };
 
                 var newExtractor = new SpeakerEmbeddingExtractor(config);

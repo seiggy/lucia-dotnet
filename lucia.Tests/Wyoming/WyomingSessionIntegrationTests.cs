@@ -575,6 +575,7 @@ public sealed class WyomingSessionIntegrationTests(ITestOutputHelper output)
             sp.GetRequiredService<IOptions<HybridSttOptions>>(),
             sp.GetRequiredService<IOptions<lucia.Wyoming.Models.SttModelOptions>>(),
             sp.GetRequiredService<lucia.Wyoming.Models.IModelChangeNotifier>(),
+            lucia.Tests.TestDoubles.TestOnnxProvider.Instance,
             NullLogger<HybridSttEngine>.Instance));
 
         services.AddSingleton<lucia.Wyoming.Vad.IVadEngine>(sp =>
@@ -590,6 +591,7 @@ public sealed class WyomingSessionIntegrationTests(ITestOutputHelper output)
                 new lucia.Wyoming.Audio.GtcrnSpeechEnhancer(
                     sp.GetRequiredService<IOptions<lucia.Wyoming.Audio.SpeechEnhancementOptions>>(),
                     sp.GetRequiredService<lucia.Wyoming.Models.IModelChangeNotifier>(),
+                    lucia.Tests.TestDoubles.TestOnnxProvider.Instance,
                     NullLogger<lucia.Wyoming.Audio.GtcrnSpeechEnhancer>.Instance));
         }
 

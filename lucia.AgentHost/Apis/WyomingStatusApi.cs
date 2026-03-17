@@ -22,6 +22,7 @@ public static class WyomingStatusApi
         IDiarizationEngine? diarizationEngine,
         ISpeechEnhancer? speechEnhancer,
         CustomWakeWordManager? wakeWordManager,
+        OnnxProviderDetector providerDetector,
         ModelManager manager)
     {
         // Find the first ready engine — matches what WyomingSession.CreateSttSessionAsync does
@@ -68,6 +69,13 @@ public static class WyomingStatusApi
                 ActiveModel = manager.GetActiveModelId(EngineType.SpeechEnhancement),
             },
             CustomWakeWords = new { Ready = wakeWordManager?.IsReady ?? false },
+            OnnxProvider = new
+            {
+                Selected = providerDetector.BestProvider,
+                SherpaProvider = providerDetector.BestSherpaProvider,
+                providerDetector.IsAccelerated,
+                Available = providerDetector.AvailableProviders,
+            },
             Configured = (activeEngine?.IsReady ?? false) || (wakeWordDetector?.IsReady ?? false),
         });
     }

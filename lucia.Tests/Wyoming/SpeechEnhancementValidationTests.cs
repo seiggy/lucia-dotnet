@@ -1,3 +1,4 @@
+using lucia.Tests.TestDoubles;
 using lucia.Wyoming.Audio;
 using lucia.Wyoming.Models;
 using lucia.Wyoming.Stt;
@@ -435,6 +436,7 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
             }),
             Options.Create(new SttModelOptions { ModelBasePath = sttDir }),
             notifier,
+            TestOnnxProvider.Instance,
             NullLogger<HybridSttEngine>.Instance);
 
         Skip.If(!engine.IsReady, "Hybrid engine failed to load");
@@ -528,6 +530,7 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
             }),
             Options.Create(new SttModelOptions { ModelBasePath = sttDir }),
             notifier,
+            TestOnnxProvider.Instance,
             NullLogger<HybridSttEngine>.Instance);
 
         Skip.If(!hybridEngine.IsReady, "Hybrid engine failed to load");
@@ -787,6 +790,7 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
                 Provider = "cpu",
             }),
             notifier,
+            TestOnnxProvider.Instance,
             NullLogger<SherpaOfflineSttEngine>.Instance);
 
         if (!engine.IsReady)
@@ -813,6 +817,7 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
                 Provider = "cpu",
             }),
             notifier,
+            TestOnnxProvider.Instance,
             loggerFactory.CreateLogger<GraniteOnnxEngine>());
 
         if (!engine.IsReady)
@@ -884,6 +889,7 @@ public sealed class SpeechEnhancementValidationTests : IDisposable
                 Provider = "cpu",
             }),
             notifier,
+            TestOnnxProvider.Instance,
             NullLogger<SherpaSttEngine>.Instance);
 
         if (!sttEngine.IsReady)

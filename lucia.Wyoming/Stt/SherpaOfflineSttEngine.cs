@@ -16,6 +16,7 @@ public sealed class SherpaOfflineSttEngine : IGraniteEngine, IDisposable
 {
     private readonly ILogger<SherpaOfflineSttEngine> _logger;
     private readonly IModelChangeNotifier _modelChangeNotifier;
+    private readonly OnnxProviderDetector _providerDetector;
     private readonly OfflineSttOptions _options;
     private readonly object _lock = new();
     private readonly List<OfflineRecognizer> _retiredRecognizers = [];
@@ -26,14 +27,17 @@ public sealed class SherpaOfflineSttEngine : IGraniteEngine, IDisposable
     public SherpaOfflineSttEngine(
         IOptions<OfflineSttOptions> options,
         IModelChangeNotifier modelChangeNotifier,
+        OnnxProviderDetector providerDetector,
         ILogger<SherpaOfflineSttEngine> logger)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(modelChangeNotifier);
+        ArgumentNullException.ThrowIfNull(providerDetector);
         ArgumentNullException.ThrowIfNull(logger);
 
         _options = options.Value;
         _modelChangeNotifier = modelChangeNotifier;
+        _providerDetector = providerDetector;
         _logger = logger;
 
         if (_options.Enabled)
@@ -142,7 +146,7 @@ public sealed class SherpaOfflineSttEngine : IGraniteEngine, IDisposable
         config.FeatConfig.FeatureDim = 80;
         config.ModelConfig.NumThreads = _options.NumThreads;
         config.ModelConfig.Provider = string.IsNullOrWhiteSpace(_options.Provider)
-            ? "cpu" : _options.Provider;
+            ? _providerDetector.BestSherpaProvider : _options.Provider;
 
         var tokensFile = FindFirst(modelPath, "tokens.txt");
         if (tokensFile is null)

@@ -1,3 +1,4 @@
+using lucia.Tests.TestDoubles;
 using lucia.Wyoming.Diarization;
 using lucia.Wyoming.Models;
 using lucia.Wyoming.Stt;
@@ -37,6 +38,7 @@ public sealed class EngineHotReloadTests
         using var engine = new SherpaDiarizationEngine(
             Options.Create(new DiarizationOptions { Enabled = true, EmbeddingModelPath = string.Empty }),
             notifier,
+            TestOnnxProvider.Instance,
             NullLogger<SherpaDiarizationEngine>.Instance);
 
         Assert.False(engine.IsReady);
@@ -80,6 +82,7 @@ public sealed class EngineHotReloadTests
         using var engine = new SherpaDiarizationEngine(
             Options.Create(new DiarizationOptions { Enabled = true, EmbeddingModelPath = string.Empty }),
             notifier,
+            TestOnnxProvider.Instance,
             NullLogger<SherpaDiarizationEngine>.Instance);
 
         Assert.False(engine.IsReady);
@@ -102,6 +105,7 @@ public sealed class EngineHotReloadTests
         using var engine = new SherpaSttEngine(
             Options.Create(new SttOptions { ModelPath = string.Empty }),
             notifier,
+            TestOnnxProvider.Instance,
             NullLogger<SherpaSttEngine>.Instance);
 
         Assert.False(engine.IsReady);
@@ -125,6 +129,7 @@ public sealed class EngineHotReloadTests
         using var sttEngine = new SherpaSttEngine(
             Options.Create(new SttOptions { ModelPath = string.Empty }),
             notifier,
+            TestOnnxProvider.Instance,
             NullLogger<SherpaSttEngine>.Instance);
 
         using var vadEngine = new SherpaVadEngine(
@@ -135,6 +140,7 @@ public sealed class EngineHotReloadTests
         using var diarizationEngine = new SherpaDiarizationEngine(
             Options.Create(new DiarizationOptions { Enabled = true, EmbeddingModelPath = string.Empty }),
             notifier,
+            TestOnnxProvider.Instance,
             NullLogger<SherpaDiarizationEngine>.Instance);
 
         Assert.False(sttEngine.IsReady);

@@ -17,6 +17,7 @@ public sealed class GraniteOnnxEngine : IGraniteEngine, IDisposable
 {
     private readonly ILogger<GraniteOnnxEngine> _logger;
     private readonly IModelChangeNotifier _modelChangeNotifier;
+    private readonly OnnxProviderDetector _providerDetector;
     private readonly GraniteOptions _options;
     private readonly object _lock = new();
 
@@ -39,14 +40,17 @@ public sealed class GraniteOnnxEngine : IGraniteEngine, IDisposable
     public GraniteOnnxEngine(
         IOptions<GraniteOptions> options,
         IModelChangeNotifier modelChangeNotifier,
+        OnnxProviderDetector providerDetector,
         ILogger<GraniteOnnxEngine> logger)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(modelChangeNotifier);
+        ArgumentNullException.ThrowIfNull(providerDetector);
         ArgumentNullException.ThrowIfNull(logger);
 
         _options = options.Value;
         _modelChangeNotifier = modelChangeNotifier;
+        _providerDetector = providerDetector;
         _logger = logger;
 
         if (_options.Enabled)
@@ -632,12 +636,17 @@ public sealed class GraniteOnnxEngine : IGraniteEngine, IDisposable
         }
     }
 
-    private SessionOptions CreateSessionOptions() => new()
+    private SessionOptions CreateSessionOptions()
     {
-        InterOpNumThreads = 1,
-        IntraOpNumThreads = _options.NumThreads,
-        LogSeverityLevel = OrtLoggingLevel.ORT_LOGGING_LEVEL_ERROR,
-    };
+        var options = new SessionOptions
+        {
+            InterOpNumThreads = 1,
+            IntraOpNumThreads = _options.NumThreads,
+            LogSeverityLevel = OrtLoggingLevel.ORT_LOGGING_LEVEL_ERROR,
+        };
+        _providerDetector.ConfigureSessionOptions(options, _logger);
+        return options;
+    }
 
     private void OnActiveModelChanged(ActiveModelChangedEvent evt)
     {

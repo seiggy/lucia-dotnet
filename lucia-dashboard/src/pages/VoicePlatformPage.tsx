@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { Activity, Check, ChevronDown, ChevronUp, Cpu, Download, Globe, Loader2, Mic, Radio, Sparkles, Trash2, User, Volume2 } from 'lucide-react'
+import { Activity, Check, ChevronDown, ChevronUp, Cpu, Download, Globe, Loader2, Mic, Pencil, Radio, Sparkles, Trash2, User, Volume2 } from 'lucide-react'
 import type {
   AsrModel,
   AudioClipInfo,
@@ -43,6 +43,7 @@ import {
   mergeProfiles,
   reassignClip,
   startOnboarding,
+  updateSpeakerProfile,
   updateVoiceConfig,
   uploadVoiceSample,
 } from '../api'
@@ -177,6 +178,8 @@ export default function VoicePlatformPage() {
   const [profileClips, setProfileClips] = useState<Map<string, AudioClipInfo[]>>(new Map())
   const [mergingProfileId, setMergingProfileId] = useState<string | null>(null)
   const [reassigningClipKey, setReassigningClipKey] = useState<string | null>(null)
+  const [editingProfileId, setEditingProfileId] = useState<string | null>(null)
+  const [editingProfileName, setEditingProfileName] = useState('')
 
   // Monitor tab state
   const [sessions, setSessions] = useState<Map<string, { remoteEndPoint: string; state: string; rmsLevel: number; voiceCount: number }>>(new Map())
@@ -751,6 +754,34 @@ export default function VoicePlatformPage() {
     }
   }
 
+  function startEditingProfile(profile: SpeakerProfileSummary) {
+    setEditingProfileId(profile.id)
+    setEditingProfileName(profile.name)
+  }
+
+  async function handleSaveProfileEdit(id: string) {
+    const trimmed = editingProfileName.trim()
+    if (!trimmed) return
+    try {
+      await updateSpeakerProfile(id, { name: trimmed })
+      setEditingProfileId(null)
+      await loadDirectories()
+      setNotice({ type: 'success', message: 'Profile updated.' })
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Failed to update profile.' })
+    }
+  }
+
+  async function handlePromoteProfile(id: string, currentName: string) {
+    try {
+      await updateSpeakerProfile(id, { isProvisional: false, isAuthorized: true, name: currentName })
+      await loadDirectories()
+      setNotice({ type: 'success', message: `${currentName} promoted to enrolled speaker.` })
+    } catch (error) {
+      setNotice({ type: 'error', message: error instanceof Error ? error.message : 'Failed to promote profile.' })
+    }
+  }
+
   async function handleDeleteWakeWord(id: string) {
     if (!confirm('Delete this wake word?')) return
     try {
@@ -944,6 +975,21 @@ export default function VoicePlatformPage() {
               <StatusTile icon={Sparkles} label="Speech Enhancement" ready={status?.speechEnhancement.ready} activeModel={status?.speechEnhancement.activeModel} onConfigure={() => setActiveTab('models')} />
               <StatusTile icon={Volume2} label="Custom Wake Words" ready={status?.customWakeWords.ready} />
             </div>
+            {status?.onnxProvider && (
+              <div className="mt-4 flex items-center gap-3 rounded-2xl border border-stone/40 bg-basalt/30 px-4 py-3">
+                <Cpu className="h-4 w-4 shrink-0 text-dust" />
+                <div className="min-w-0">
+                  <p className="text-sm text-light">
+                    Inference: <span className={status.onnxProvider.isAccelerated ? 'text-teal' : 'text-fog'}>{formatProviderName(status.onnxProvider.selected)}</span>
+                    {status.onnxProvider.selected !== status.onnxProvider.sherpaProvider && (
+                      <span className="text-fog"> · sherpa: {status.onnxProvider.sherpaProvider}</span>
+                    )}
+                  </p>
+                  <p className="truncate text-xs text-dust">Available: {status.onnxProvider.available.map(formatProviderName).join(', ')}</p>
+                </div>
+                {status.onnxProvider.isAccelerated && <Badge tone="teal">GPU</Badge>}
+              </div>
+            )}
           </div>
           <div className="rounded-[24px] border border-stone/60 bg-basalt/50 p-5 sm:p-6">
             <div className="flex items-center gap-2 text-amber">
@@ -1213,16 +1259,33 @@ export default function VoicePlatformPage() {
               return (
               <div key={profile.id} className="rounded-[24px] border border-stone/60 bg-charcoal/70 p-5">
                 <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-display text-xl text-light">{profile.name}</h3>
-                      {profile.isProvisional && <Badge tone="amber">Provisional</Badge>}
-                      {clipCount != null && clipCount > 0 && <span className="rounded-full bg-basalt px-2 py-0.5 text-xs tabular-nums text-dust">{clipCount} clip{clipCount !== 1 ? 's' : ''}</span>}
-                    </div>
+                  <div className="min-w-0 flex-1">
+                    {editingProfileId === profile.id ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          className={inputClass + ' !w-auto flex-1'}
+                          value={editingProfileName}
+                          onChange={event => setEditingProfileName(event.target.value)}
+                          onKeyDown={event => { if (event.key === 'Enter') void handleSaveProfileEdit(profile.id); if (event.key === 'Escape') setEditingProfileId(null) }}
+                          autoFocus
+                        />
+                        <button type="button" className="rounded-lg bg-teal/20 px-2.5 py-1 text-xs text-teal hover:bg-teal/30" onClick={() => void handleSaveProfileEdit(profile.id)}>Save</button>
+                        <button type="button" className="text-xs text-dust hover:text-light" onClick={() => setEditingProfileId(null)}>Cancel</button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-display text-xl text-light">{profile.name}</h3>
+                        {profile.isProvisional && <Badge tone="amber">Provisional</Badge>}
+                        {clipCount != null && clipCount > 0 && <span className="rounded-full bg-basalt px-2 py-0.5 text-xs tabular-nums text-dust">{clipCount} clip{clipCount !== 1 ? 's' : ''}</span>}
+                      </div>
+                    )}
                     <p className="mt-2 text-sm text-fog">{profile.isAuthorized ? 'Authorized speaker' : 'Needs review'} · {profile.interactionCount} interactions</p>
                     <p className="mt-1 text-xs text-dust">Enrolled {formatDate(profile.enrolledAt)} · Last seen {formatDate(profile.lastSeenAt)}</p>
                   </div>
                   <div className="flex items-center gap-1">
+                    <IconButton label="Rename speaker" onClick={() => startEditingProfile(profile)}>
+                      <Pencil className="h-4 w-4" />
+                    </IconButton>
                     <IconButton label={isExpanded ? 'Hide clips' : 'Show clips'} onClick={() => void toggleProfileClips(profile.id)}>
                       {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                     </IconButton>
@@ -1230,8 +1293,17 @@ export default function VoicePlatformPage() {
                   </div>
                 </div>
 
-                {/* Merge controls for provisional profiles */}
+                {/* Promote / Merge controls for provisional profiles */}
                 <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {profile.isProvisional && (
+                    <button
+                      type="button"
+                      className="rounded-lg border border-teal/30 px-2.5 py-1 text-xs text-teal transition-colors hover:bg-teal/10"
+                      onClick={() => void handlePromoteProfile(profile.id, profile.name)}
+                    >
+                      Promote to enrolled
+                    </button>
+                  )}
                   {mergingProfileId === profile.id ? (
                     <div className="flex items-center gap-2">
                       <select
@@ -1576,12 +1648,13 @@ function NoticeBanner({ notice, onDismiss }: { notice: Exclude<Notice, null>; on
   return <div className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-sm ${notice.type === 'error' ? 'border-rose/30 bg-rose/10 text-rose' : notice.type === 'success' ? 'border-sage/30 bg-sage/10 text-sage' : 'border-sky-500/30 bg-sky-500/10 text-sky-300'}`}><span>{notice.message}</span><button type="button" onClick={onDismiss} className="text-xs uppercase tracking-[0.2em]">Dismiss</button></div>
 }
 
-function Badge({ tone, children }: { tone: 'sage' | 'amber' | 'sky' | 'rose'; children: ReactNode }) {
+function Badge({ tone, children }: { tone: 'sage' | 'amber' | 'sky' | 'rose' | 'teal'; children: ReactNode }) {
   const styles = {
     sage: 'bg-sage/15 text-sage',
     amber: 'bg-amber/10 text-amber',
     sky: 'bg-sky-500/15 text-sky-300',
     rose: 'bg-rose/15 text-rose',
+    teal: 'bg-teal/15 text-teal',
   }
   return <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${styles[tone]}`}>{children}</span>
 }
@@ -1604,6 +1677,18 @@ function LoadingPanel({ label }: { label: string }) {
 
 function EmptyCard({ message }: { message: string }) {
   return <div className="rounded-[24px] border border-dashed border-stone/60 bg-charcoal/40 px-6 py-10 text-center text-sm text-dust">{message}</div>
+}
+
+function formatProviderName(name: string) {
+  const map: Record<string, string> = {
+    CUDAExecutionProvider: 'CUDA',
+    ROCMExecutionProvider: 'ROCm',
+    OpenVINOExecutionProvider: 'OpenVINO',
+    DmlExecutionProvider: 'DirectML',
+    CoreMLExecutionProvider: 'CoreML',
+    CPUExecutionProvider: 'CPU',
+  }
+  return map[name] ?? name
 }
 
 function formatBytes(size: number) {

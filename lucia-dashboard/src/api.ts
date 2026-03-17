@@ -189,6 +189,7 @@ export interface WyomingStatus {
   diarization: WyomingEngineStatus;
   speechEnhancement: WyomingEngineStatus;
   customWakeWords: { ready: boolean };
+  onnxProvider: { selected: string; sherpaProvider: string; isAccelerated: boolean; available: string[] };
   configured: boolean;
 }
 
@@ -1445,6 +1446,16 @@ export async function listSpeakerProfiles() {
 export async function deleteSpeakerProfile(id: string) {
   const res = await fetch(`${BASE}/speakers/${id}`, { method: 'DELETE' })
   if (!res.ok) throw new Error(`Failed to delete speaker profile: ${res.statusText}`)
+}
+
+export async function updateSpeakerProfile(id: string, updates: { name?: string; isAuthorized?: boolean; isProvisional?: boolean }) {
+  const res = await fetch(`${BASE}/speakers/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  })
+  if (!res.ok) throw new Error(`Failed to update speaker profile: ${res.statusText}`)
+  return res.json()
 }
 
 export async function listWakeWords() {

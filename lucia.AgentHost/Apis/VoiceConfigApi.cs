@@ -1,3 +1,4 @@
+using lucia.Agents.Auth;
 using lucia.AgentHost.Models;
 using lucia.Wyoming.Diarization;
 using Microsoft.Extensions.Options;
@@ -34,35 +35,26 @@ public static class VoiceConfigApi
 
         group.MapPut("/", async (
             VoiceConfigUpdateRequest request,
-            IOptionsMonitor<VoiceProfileOptions> profileOptions,
-            IOptionsMonitor<DiarizationOptions> diarizationOptions,
-            IWebHostEnvironment env) =>
+            ConfigStoreWriter configStore) =>
         {
-            var profile = profileOptions.CurrentValue;
+            const string prefix = VoiceProfileOptions.SectionName;
 
             if (request.IgnoreUnknownVoices.HasValue)
-                profile.IgnoreUnknownVoices = request.IgnoreUnknownVoices.Value;
+                await configStore.SetAsync($"{prefix}:IgnoreUnknownVoices", request.IgnoreUnknownVoices.Value.ToString(), "voice-config-ui").ConfigureAwait(false);
             if (request.AutoCreateProvisionalProfiles.HasValue)
-                profile.AutoCreateProvisionalProfiles = request.AutoCreateProvisionalProfiles.Value;
+                await configStore.SetAsync($"{prefix}:AutoCreateProvisionalProfiles", request.AutoCreateProvisionalProfiles.Value.ToString(), "voice-config-ui").ConfigureAwait(false);
             if (request.MaxAutoProfiles.HasValue)
-                profile.MaxAutoProfiles = request.MaxAutoProfiles.Value;
+                await configStore.SetAsync($"{prefix}:MaxAutoProfiles", request.MaxAutoProfiles.Value.ToString(), "voice-config-ui").ConfigureAwait(false);
             if (request.SpeakerVerificationThreshold.HasValue)
-                profile.SpeakerVerificationThreshold = request.SpeakerVerificationThreshold.Value;
+                await configStore.SetAsync($"{prefix}:SpeakerVerificationThreshold", request.SpeakerVerificationThreshold.Value.ToString("F2"), "voice-config-ui").ConfigureAwait(false);
             if (request.ProvisionalMatchThreshold.HasValue)
-                profile.ProvisionalMatchThreshold = request.ProvisionalMatchThreshold.Value;
+                await configStore.SetAsync($"{prefix}:ProvisionalMatchThreshold", request.ProvisionalMatchThreshold.Value.ToString("F2"), "voice-config-ui").ConfigureAwait(false);
             if (request.AdaptiveProfiles.HasValue)
-                profile.AdaptiveProfiles = request.AdaptiveProfiles.Value;
+                await configStore.SetAsync($"{prefix}:AdaptiveProfiles", request.AdaptiveProfiles.Value.ToString(), "voice-config-ui").ConfigureAwait(false);
             if (request.ProvisionalRetentionDays.HasValue)
-                profile.ProvisionalRetentionDays = request.ProvisionalRetentionDays.Value;
+                await configStore.SetAsync($"{prefix}:ProvisionalRetentionDays", request.ProvisionalRetentionDays.Value.ToString(), "voice-config-ui").ConfigureAwait(false);
             if (request.SuggestEnrollmentAfter.HasValue)
-                profile.SuggestEnrollmentAfter = request.SuggestEnrollmentAfter.Value;
-
-            // Persist to voiceconfig.json for survival across restarts
-            var configPath = Path.Combine(env.ContentRootPath, "voiceconfig.json");
-            var json = System.Text.Json.JsonSerializer.Serialize(
-                new { Wyoming = new { VoiceProfiles = profile } },
-                new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-            await File.WriteAllTextAsync(configPath, json).ConfigureAwait(false);
+                await configStore.SetAsync($"{prefix}:SuggestEnrollmentAfter", request.SuggestEnrollmentAfter.Value.ToString(), "voice-config-ui").ConfigureAwait(false);
 
             return Results.Ok(new { Saved = true });
         }).WithName("UpdateVoiceConfig");

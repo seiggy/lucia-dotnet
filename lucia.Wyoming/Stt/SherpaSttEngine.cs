@@ -9,6 +9,7 @@ public sealed class SherpaSttEngine : ISttEngine, IDisposable
 {
     private readonly ILogger<SherpaSttEngine> _logger;
     private readonly IModelChangeNotifier _modelChangeNotifier;
+    private readonly OnnxProviderDetector _providerDetector;
     private readonly object _lock = new();
     private readonly List<OnlineRecognizer> _retiredRecognizers = [];
     private readonly SttOptions _options;
@@ -20,13 +21,16 @@ public sealed class SherpaSttEngine : ISttEngine, IDisposable
     public SherpaSttEngine(
         IOptions<SttOptions> options,
         IModelChangeNotifier modelChangeNotifier,
+        OnnxProviderDetector providerDetector,
         ILogger<SherpaSttEngine> logger)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(modelChangeNotifier);
+        ArgumentNullException.ThrowIfNull(providerDetector);
         ArgumentNullException.ThrowIfNull(logger);
 
         _options = options.Value;
+        _providerDetector = providerDetector;
         _sampleRate = _options.SampleRate;
         _logger = logger;
         _modelChangeNotifier = modelChangeNotifier;
@@ -121,7 +125,7 @@ public sealed class SherpaSttEngine : ISttEngine, IDisposable
         }
     }
 
-    private static OnlineRecognizerConfig BuildConfig(string modelPath, SttOptions options)
+    private OnlineRecognizerConfig BuildConfig(string modelPath, SttOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentException.ThrowIfNullOrWhiteSpace(modelPath);
@@ -145,7 +149,7 @@ public sealed class SherpaSttEngine : ISttEngine, IDisposable
         config.FeatConfig.FeatureDim = 80;
         config.ModelConfig.NumThreads = options.NumThreads;
         config.ModelConfig.Provider = string.IsNullOrWhiteSpace(options.Provider)
-            ? "cpu"
+            ? _providerDetector.BestSherpaProvider
             : options.Provider;
 
         var tokensFile = FindFirst(modelPath, "tokens.txt");

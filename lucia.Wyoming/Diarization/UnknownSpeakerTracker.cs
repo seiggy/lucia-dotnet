@@ -59,6 +59,14 @@ public sealed class UnknownSpeakerTracker
                     continue;
                 }
 
+                if (profile.AverageEmbedding.Length != embedding.Vector.Length)
+                {
+                    _logger.LogDebug(
+                        "Skipping provisional profile {ProfileId} — embedding dimension mismatch (profile={ProfileDim}, current={CurrentDim})",
+                        profile.Id, profile.AverageEmbedding.Length, embedding.Vector.Length);
+                    continue;
+                }
+
                 var profileEmbedding = new SpeakerEmbedding { Vector = profile.AverageEmbedding };
                 var similarity = embedding.CosineSimilarity(profileEmbedding);
 

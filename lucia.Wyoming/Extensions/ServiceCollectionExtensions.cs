@@ -54,6 +54,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<ModelManager>();
         builder.Services.AddSingleton<IModelChangeNotifier>(sp => sp.GetRequiredService<ModelManager>());
         builder.Services.AddSingleton<ModelDownloader>();
+        builder.Services.AddSingleton<OnnxProviderDetector>();
         builder.Services.AddSingleton<IBackgroundTaskQueue>(_ => new BackgroundTaskQueue(capacity: 100));
         builder.Services.AddSingleton<BackgroundTaskTracker>();
         builder.Services.AddHostedService<BackgroundTaskProcessor>();

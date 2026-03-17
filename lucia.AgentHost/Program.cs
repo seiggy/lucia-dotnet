@@ -24,8 +24,6 @@ using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Configuration.AddJsonFile("voiceconfig.json", optional: true, reloadOnChange: true);
-
 builder.AddServiceDefaults();
 builder.Services.AddAntiforgery();
 builder.AddRedisClient(connectionName: "redis");

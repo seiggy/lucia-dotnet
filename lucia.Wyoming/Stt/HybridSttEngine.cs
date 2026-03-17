@@ -20,6 +20,7 @@ public sealed class HybridSttEngine : ISttEngine, IDisposable
     private readonly IModelChangeNotifier _modelChangeNotifier;
     private readonly HybridSttOptions _options;
     private readonly SttModelOptions _sttModelOptions;
+    private readonly OnnxProviderDetector _providerDetector;
     private readonly object _lock = new();
     private readonly List<OfflineRecognizer> _retiredRecognizers = [];
     private OfflineRecognizer? _recognizer;
@@ -30,17 +31,22 @@ public sealed class HybridSttEngine : ISttEngine, IDisposable
         IOptions<HybridSttOptions> options,
         IOptions<SttModelOptions> sttModelOptions,
         IModelChangeNotifier modelChangeNotifier,
+        OnnxProviderDetector providerDetector,
         ILogger<HybridSttEngine> logger)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(sttModelOptions);
         ArgumentNullException.ThrowIfNull(modelChangeNotifier);
+        ArgumentNullException.ThrowIfNull(providerDetector);
         ArgumentNullException.ThrowIfNull(logger);
 
         _options = options.Value;
         _sttModelOptions = sttModelOptions.Value;
         _modelChangeNotifier = modelChangeNotifier;
+        _providerDetector = providerDetector;
         _logger = logger;
+
+        if (_options.Enabled)
 
         if (_options.Enabled)
         {
@@ -126,7 +132,7 @@ public sealed class HybridSttEngine : ISttEngine, IDisposable
         config.FeatConfig.FeatureDim = 80;
         config.ModelConfig.NumThreads = _options.NumThreads;
         config.ModelConfig.Provider = string.IsNullOrWhiteSpace(_options.Provider)
-            ? "cpu" : _options.Provider;
+            ? _providerDetector.BestSherpaProvider : _options.Provider;
 
         var tokensFile = FindFirst(modelPath, "tokens.txt");
         if (tokensFile is null)
