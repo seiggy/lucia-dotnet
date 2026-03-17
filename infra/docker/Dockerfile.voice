@@ -154,7 +154,7 @@ WORKDIR /app
 RUN useradd -m -u 1100 appuser
 
 # Expose ports
-EXPOSE 8080 8081
+EXPOSE 8080 8081 10400
 
 # ============================================================================
 # Stage 0d: Download GPU-enabled sherpa-onnx native libraries

@@ -157,6 +157,7 @@ services:
     
     ports:
       - "7233:8080"
+      - "10400:10400"
     
     environment:
       # ASP.NET Core configuration
@@ -188,15 +189,6 @@ services:
     
     # NVIDIA Container Toolkit runtime for GPU-accelerated ONNX inference
     runtime: nvidia
-    
-    deploy:
-      resources:
-        limits:
-          cpus: '4'
-          memory: 4G
-        reservations:
-          cpus: '2'
-          memory: 2G
     
     restart: unless-stopped
     
