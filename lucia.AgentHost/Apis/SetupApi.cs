@@ -165,6 +165,7 @@ public static class SetupApi
         ConfigStoreWriter configStore,
         IHttpClientFactory httpClientFactory,
         IEntityLocationService entityLocationService,
+        ILogger<ConfigStoreWriter> logger,
         HttpContext httpContext)
     {
         var connected = false;
@@ -209,9 +210,10 @@ public static class SetupApi
                     locationName = json.TryGetProperty("location_name", out var l) ? l.GetString() : null;
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Config fetch is best-effort
+                // Config fetch is best-effort — log for diagnostics
+                logger.LogDebug(ex, "Failed to fetch HA config for version/location info");
             }
 
             connected = true;
@@ -251,9 +253,10 @@ public static class SetupApi
                     {
                         await entityLocationService.InvalidateAndReloadAsync().ConfigureAwait(false);
                     }
-                    catch
+                    catch (Exception ex)
                     {
                         // Best-effort — the cache will self-heal on next access if this fails
+                        logger.LogDebug(ex, "Failed to pre-populate entity location cache after HA connection test");
                     }
                 });
             }

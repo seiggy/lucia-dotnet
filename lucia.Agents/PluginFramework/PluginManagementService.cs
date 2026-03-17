@@ -18,7 +18,7 @@ public sealed class PluginManagementService
     private readonly Dictionary<string, IPluginRepositorySource> _sources;
     private readonly ILogger<PluginManagementService> _logger;
     private readonly string _pluginDirectory;
-    private readonly ConcurrentDictionary<string, SemaphoreSlim> _updateLocks = new();
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _updateLocks = new(StringComparer.OrdinalIgnoreCase);
 
     public PluginManagementService(
         IPluginManagementRepository repository,
@@ -346,6 +346,14 @@ public sealed class PluginManagementService
         finally
         {
             semaphore.Release();
+
+            // Remove the semaphore from the dictionary to prevent unbounded growth.
+            // A brief window exists where a new caller could create a fresh semaphore,
+            // but the operation itself is idempotent so this is safe.
+            if (_updateLocks.TryRemove(pluginId, out var removed))
+            {
+                removed.Dispose();
+            }
         }
     }
 

@@ -20,12 +20,24 @@ public static class ConfigurationApi
             .WithTags("Configuration")
             .RequireAuthorization();
 
-        group.MapGet("/sections", ListSectionsAsync);
-        group.MapGet("/sections/{section}", GetSectionAsync);
-        group.MapPut("/sections/{section}", UpdateSectionAsync);
-        group.MapPost("/reset", ResetConfigAsync);
-        group.MapGet("/schema", GetSchemaAsync);
-        group.MapPost("/test/music-assistant", TestMusicAssistantAsync);
+        group.MapGet("/sections", ListSectionsAsync)
+            .WithSummary("List configuration sections")
+            .WithDescription("Returns all configuration sections with key counts and last update timestamps. Skill config sections are excluded (managed via Agent Definitions).");
+        group.MapGet("/sections/{section}", GetSectionAsync)
+            .WithSummary("Get configuration entries for a section")
+            .WithDescription("Returns key-value pairs for the specified section. Sensitive values are masked unless showSecrets=true.");
+        group.MapPut("/sections/{section}", UpdateSectionAsync)
+            .WithSummary("Update configuration entries for a section")
+            .WithDescription("Writes values to the MongoDB config collection. Changes hot-reload via the polling loop.");
+        group.MapPost("/reset", ResetConfigAsync)
+            .WithSummary("Reset configuration to defaults")
+            .WithDescription("Re-seeds configuration from appsettings.json, overwriting any MongoDB-stored values.");
+        group.MapGet("/schema", GetSchemaAsync)
+            .WithSummary("Get configuration schema")
+            .WithDescription("Returns JSON schema for all configurable sections including property types and default values.");
+        group.MapPost("/test/music-assistant", TestMusicAssistantAsync)
+            .WithSummary("Test Music Assistant integration")
+            .WithDescription("Sends a test request to the configured Music Assistant instance to verify connectivity.");
 
         return endpoints;
     }

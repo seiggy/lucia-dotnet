@@ -278,9 +278,9 @@ public static class SkillOptimizerApi
                 }
             }
         }
-        catch
+        catch (System.Text.Json.JsonException)
         {
-            // Not valid JSON — ignore
+            // Not valid JSON — ignore gracefully
         }
 
         return results;

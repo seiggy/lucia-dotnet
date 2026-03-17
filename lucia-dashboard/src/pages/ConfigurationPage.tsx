@@ -8,125 +8,16 @@ import {
   fetchModelProviders,
 } from '../api'
 import CustomSelect from '../components/CustomSelect'
+import ToastContainer from '../components/ToastContainer'
+import ConfirmDialog from '../components/ConfirmDialog'
+import { useToast } from '../hooks/useToast'
 import type {
   ConfigSectionSchema,
   ConfigEntryDto,
   ConfigPropertySchema,
 } from '../api'
 import type { ModelProvider } from '../types'
-
-/* ------------------------------------------------------------------ */
-/*  Toast                                                              */
-/* ------------------------------------------------------------------ */
-
-interface Toast {
-  id: number
-  message: string
-  type: 'success' | 'error'
-}
-
-let toastId = 0
-
-function ToastContainer({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: number) => void }) {
-  return (
-    <div className="fixed top-4 right-4 z-50 flex flex-col gap-2">
-      {toasts.map((t) => (
-        <div
-          key={t.id}
-          className={`flex items-center gap-3 rounded-xl px-4 py-3 shadow-lg text-sm font-medium transition-all duration-300 ${
-            t.type === 'success'
-              ? 'bg-sage/20 text-light'
-              : 'bg-ember/20 text-light'
-          }`}
-        >
-          <span>{t.type === 'success' ? '✓' : '✕'}</span>
-          <span className="flex-1">{t.message}</span>
-          <button
-            onClick={() => onDismiss(t.id)}
-            className="ml-2 opacity-70 hover:opacity-100"
-          >
-            ×
-          </button>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/*  Confirmation Dialog                                                */
-/* ------------------------------------------------------------------ */
-
-function ConfirmDialog({
-  open,
-  title,
-  message,
-  onConfirm,
-  onCancel,
-}: {
-  open: boolean
-  title: string
-  message: string
-  onConfirm: () => void
-  onCancel: () => void
-}) {
-  if (!open) return null
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="w-full max-w-md rounded-xl bg-charcoal p-6 shadow-2xl border border-stone">
-        <h3 className="text-lg font-semibold text-light">{title}</h3>
-        <p className="mt-2 text-sm text-dust">{message}</p>
-        <div className="mt-6 flex justify-end gap-3">
-          <button
-            onClick={onCancel}
-            className="rounded-xl bg-basalt px-4 py-2 text-sm font-medium text-fog hover:bg-stone transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            className="rounded-xl bg-ember/20 px-4 py-2 text-sm font-medium text-light hover:bg-red-500 transition-colors"
-          >
-            Reset All
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/*  Toggle Switch                                                      */
-/* ------------------------------------------------------------------ */
-
-function ToggleSwitch({
-  checked,
-  onChange,
-  disabled,
-}: {
-  checked: boolean
-  onChange: (val: boolean) => void
-  disabled?: boolean
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 input-focus focus:ring-2 focus:ring-amber focus:ring-offset-2 focus:ring-offset-void ${
-        checked ? 'bg-amber-glow' : 'bg-stone'
-      } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-    >
-      <span
-        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ${
-          checked ? 'translate-x-5' : 'translate-x-0'
-        }`}
-      />
-    </button>
-  )
-}
+import ToggleSwitch from '../components/ToggleSwitch'
 
 /* ------------------------------------------------------------------ */
 /*  Connection Strings Editor                                          */
@@ -678,7 +569,7 @@ export default function ConfigurationPage() {
   const [showSecrets, setShowSecrets] = useState(false)
 
   // Toast notifications
-  const [toasts, setToasts] = useState<Toast[]>([])
+  const { toasts, addToast: showToast, dismissToast } = useToast()
 
   // Reset confirmation dialog
   const [resetDialogOpen, setResetDialogOpen] = useState(false)
@@ -689,18 +580,6 @@ export default function ConfigurationPage() {
     if (formKeys.length !== origKeys.length) return true
     return formKeys.some((k) => formValues[k] !== originalValues[k])
   }, [formValues, originalValues])
-
-  const showToast = useCallback((message: string, type: 'success' | 'error') => {
-    const id = ++toastId
-    setToasts((prev) => [...prev, { id, message, type }])
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id))
-    }, 3000)
-  }, [])
-
-  const dismissToast = useCallback((id: number) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id))
-  }, [])
 
   // Load schemas on mount
   useEffect(() => {
@@ -918,6 +797,7 @@ export default function ConfigurationPage() {
         open={resetDialogOpen}
         title="Reset All Configuration"
         message="This will reset every configuration value back to its default. This action cannot be undone. Are you sure?"
+        confirmLabel="Reset All"
         onConfirm={handleReset}
         onCancel={() => setResetDialogOpen(false)}
       />

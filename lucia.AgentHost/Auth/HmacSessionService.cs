@@ -17,6 +17,7 @@ public sealed class HmacSessionService : ISessionService
     private readonly AuthOptions _options;
     private readonly ILogger<HmacSessionService> _logger;
     private byte[]? _signingKey;
+    private readonly object _keyLock = new();
 
     public HmacSessionService(
         IConfiguration configuration,
@@ -100,22 +101,33 @@ public sealed class HmacSessionService : ISessionService
 
     private byte[] GetOrCreateSigningKey()
     {
-        if (_signingKey is not null)
+        var key = _signingKey;
+        if (key is not null)
         {
-            return _signingKey;
+            return key;
         }
 
-        var storedKey = _configuration["Auth:SessionSigningKey"];
-        if (!string.IsNullOrWhiteSpace(storedKey))
+        lock (_keyLock)
         {
-            _signingKey = Convert.FromBase64String(storedKey);
+            // Double-check after acquiring lock
+            key = _signingKey;
+            if (key is not null)
+            {
+                return key;
+            }
+
+            var storedKey = _configuration["Auth:SessionSigningKey"];
+            if (!string.IsNullOrWhiteSpace(storedKey))
+            {
+                _signingKey = Convert.FromBase64String(storedKey);
+                return _signingKey;
+            }
+
+            // Auto-generate and store (ConfigSeeder or first-run will persist this)
+            _signingKey = RandomNumberGenerator.GetBytes(64);
+            _logger.LogInformation("Generated new session signing key — it will be persisted to config store during setup");
             return _signingKey;
         }
-
-        // Auto-generate and store (ConfigSeeder or first-run will persist this)
-        _signingKey = RandomNumberGenerator.GetBytes(64);
-        _logger.LogInformation("Generated new session signing key — it will be persisted to config store during setup");
-        return _signingKey;
     }
 
     private static string ComputeSignature(string payload, byte[] key)

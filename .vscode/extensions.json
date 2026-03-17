@@ -1,8 +1,6 @@
 {
     "recommendations": [
-        "github.copilot",
         "github.copilot-chat",
-        "ms-vscode.vscode-websearchforcopilot",
-        "ms-vscode.copilot-mermaid-diagram"
+        "ms-vscode.vscode-websearchforcopilot"
     ]
 }

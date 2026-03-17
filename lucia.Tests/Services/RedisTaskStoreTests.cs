@@ -342,10 +342,13 @@ public class RedisTaskStoreTests
         var config1 = new TaskPushNotificationConfig { TaskId = taskId };
         var config2 = new TaskPushNotificationConfig { TaskId = taskId };
         
-        A.CallTo(() => _database.StringGetAsync(keys[0], A<CommandFlags>._))
-            .Returns(new RedisValue(JsonSerializer.Serialize(config1)));
-        A.CallTo(() => _database.StringGetAsync(keys[1], A<CommandFlags>._))
-            .Returns(new RedisValue(JsonSerializer.Serialize(config2)));
+        // The implementation uses batch MGET (StringGetAsync(RedisKey[])) instead of individual GETs
+        A.CallTo(() => _database.StringGetAsync(A<RedisKey[]>._, A<CommandFlags>._))
+            .Returns(new RedisValue[]
+            {
+                new RedisValue(JsonSerializer.Serialize(config1)),
+                new RedisValue(JsonSerializer.Serialize(config2))
+            });
 
         // Act
         var result = (await _store.GetPushNotificationsAsync(taskId)).ToList();

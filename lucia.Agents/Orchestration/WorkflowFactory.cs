@@ -96,6 +96,13 @@ public sealed class WorkflowFactory
             {
                 await luciaAgent.RefreshConfigAsync(cancellationToken).ConfigureAwait(false);
                 var aiAgent = luciaAgent.GetAIAgent();
+                if (aiAgent is null)
+                {
+                    _logger.LogWarning(
+                        "ILuciaAgent {Type} returned null from GetAIAgent() — skipping (not yet initialized?)",
+                        luciaAgent.GetType().Name);
+                    continue;
+                }
                 resolved.Add(aiAgent);
                 _logger.LogDebug("Resolved local AIAgent: {AgentName}", aiAgent.Name ?? aiAgent.Id);
             }
@@ -118,6 +125,13 @@ public sealed class WorkflowFactory
             try
             {
                 var aiAgent = dynamicAgent.GetAIAgent();
+                if (aiAgent is null)
+                {
+                    _logger.LogWarning(
+                        "Dynamic agent '{AgentId}' returned null from GetAIAgent() — skipping",
+                        dynamicAgent.GetAgentCard().Name);
+                    continue;
+                }
                 resolved.Add(aiAgent);
                 _logger.LogDebug("Resolved dynamic AIAgent: {AgentName}", aiAgent.Name ?? aiAgent.Id);
             }

@@ -114,8 +114,17 @@ public sealed class HybridEntityMatcher(
         if (scored.Count > 1 && options.ScoreDropoffRatio > 0)
         {
             var topScore = scored[0].HybridScore;
-            var minRelativeScore = topScore * options.ScoreDropoffRatio;
+            var minRelativeScore = topScore * Math.Clamp(options.ScoreDropoffRatio, 0.0, 1.0);
             scored.RemoveAll(x => x.HybridScore < minRelativeScore);
+        }
+
+        // Guard against empty list after drop-off filtering (e.g. misconfigured ratio)
+        if (scored.Count == 0)
+        {
+            logger.LogDebug(
+                "All matches removed by score drop-off filter for term '{SearchTerm}'",
+                searchTerm);
+            return [];
         }
 
         logger.LogDebug(

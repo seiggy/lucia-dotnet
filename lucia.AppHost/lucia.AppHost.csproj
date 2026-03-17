@@ -13,10 +13,10 @@
     <PackageReference Include="Aspire.Hosting.Redis" />
     <PackageReference Include="CommunityToolkit.Aspire.Hosting.JavaScript.Extensions" />
     <PackageReference Include="Scalar.Aspire" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" VersionOverride="10.0.3" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" VersionOverride="10.0.1" />
-    <PackageReference Include="Microsoft.Extensions.Http" VersionOverride="10.0.1" />
-    <PackageReference Include="Microsoft.Extensions.Options" VersionOverride="10.0.1" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Microsoft.Extensions.Http" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\lucia.A2AHost\lucia.A2AHost.csproj" />

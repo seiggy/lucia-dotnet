@@ -174,8 +174,8 @@ public sealed class RedisTaskStore : ITaskStore
         activity?.SetTag("taskId", pushNotificationConfig.TaskId);
 
         var db = _redis.GetDatabase();
-        // Use task ID as the notification ID since TaskPushNotificationConfig doesn't have separate Id
-        var key = $"lucia:task:{pushNotificationConfig.TaskId}:notification:default";
+        var notificationId = "default";
+        var key = GetNotificationKey(pushNotificationConfig.TaskId, notificationId);
         var json = JsonSerializer.Serialize(pushNotificationConfig, _jsonOptions);
 
         // Set with 24-hour TTL matching task TTL
@@ -193,22 +193,25 @@ public sealed class RedisTaskStore : ITaskStore
         var server = _redis.GetServer(_redis.GetEndPoints().First());
         var pattern = $"lucia:task:{taskId}:notification:*";
         
-        var keys = server.Keys(pattern: pattern).ToList();
+        var keys = server.Keys(pattern: pattern).ToArray();
         
-        if (!keys.Any())
+        if (keys.Length == 0)
         {
             activity?.SetTag("count", 0);
-            return Enumerable.Empty<TaskPushNotificationConfig>();
+            return [];
         }
 
-        var configs = new List<TaskPushNotificationConfig>();
-        foreach (var key in keys)
+        // Batch fetch all notification keys in a single MGET instead of N individual GETs
+        var redisKeys = keys.Select(k => (RedisKey)k).ToArray();
+        var values = await db.StringGetAsync(redisKeys).WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        var configs = new List<TaskPushNotificationConfig>(values.Length);
+        foreach (var json in values)
         {
-            var json = await db.StringGetAsync(key).WaitAsync(cancellationToken).ConfigureAwait(false);
             if (!json.IsNullOrEmpty)
             {
                 var config = JsonSerializer.Deserialize<TaskPushNotificationConfig>(json!.ToString(), _jsonOptions);
-                if (config != null)
+                if (config is not null)
                 {
                     configs.Add(config);
                 }

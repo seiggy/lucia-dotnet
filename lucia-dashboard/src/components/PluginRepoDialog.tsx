@@ -6,19 +6,34 @@ import { fetchPluginRepos, addPluginRepo, deletePluginRepo, syncPluginRepo } fro
 interface Props {
   open: boolean
   onClose: () => void
+  onNotify?: (message: string, type: 'success' | 'error') => void
 }
 
-export default function PluginRepoDialog({ open, onClose }: Props) {
+export default function PluginRepoDialog({ open, onClose, onNotify }: Props) {
   const [repos, setRepos] = useState<PluginRepository[]>([])
   const [url, setUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [syncing, setSyncing] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const notify = (message: string, type: 'success' | 'error') => {
+    if (onNotify) {
+      onNotify(message, type)
+    }
+    if (type === 'error') {
+      setError(message)
+    }
+  }
 
   const load = async () => {
     try {
       setRepos(await fetchPluginRepos())
-    } catch {
-      /* ignore */
+      setError(null)
+    } catch (err) {
+      notify(
+        `Failed to load repositories: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        'error',
+      )
     }
   }
 
@@ -34,9 +49,13 @@ export default function PluginRepoDialog({ open, onClose }: Props) {
     try {
       await addPluginRepo({ url: url.trim() })
       setUrl('')
+      notify('Repository added', 'success')
       await load()
-    } catch {
-      /* ignore */
+    } catch (err) {
+      notify(
+        `Failed to add repository: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        'error',
+      )
     } finally {
       setLoading(false)
     }
@@ -45,9 +64,13 @@ export default function PluginRepoDialog({ open, onClose }: Props) {
   const handleDelete = async (id: string) => {
     try {
       await deletePluginRepo(id)
+      notify('Repository removed', 'success')
       await load()
-    } catch {
-      /* ignore */
+    } catch (err) {
+      notify(
+        `Failed to remove repository: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        'error',
+      )
     }
   }
 
@@ -55,9 +78,13 @@ export default function PluginRepoDialog({ open, onClose }: Props) {
     setSyncing(id)
     try {
       await syncPluginRepo(id)
+      notify('Repository synced', 'success')
       await load()
-    } catch {
-      /* ignore */
+    } catch (err) {
+      notify(
+        `Failed to sync repository: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        'error',
+      )
     } finally {
       setSyncing(null)
     }
@@ -68,10 +95,16 @@ export default function PluginRepoDialog({ open, onClose }: Props) {
       <div className="w-full max-w-lg rounded-xl border border-stone/40 bg-obsidian p-6 shadow-2xl">
         <div className="flex items-center justify-between">
           <h3 className="text-base font-semibold text-light">Plugin Repositories</h3>
-          <button onClick={onClose} className="text-fog hover:text-light">
+          <button onClick={onClose} className="text-fog hover:text-light" aria-label="Close">
             <X className="h-5 w-5" />
           </button>
         </div>
+
+        {error && (
+          <div className="mt-3 rounded-lg border border-rose/30 bg-rose/10 px-3 py-2 text-sm text-rose">
+            {error}
+          </div>
+        )}
 
         <div className="mt-4 flex gap-2">
           <input
