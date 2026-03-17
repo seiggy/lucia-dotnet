@@ -3,6 +3,7 @@ using FakeItEasy;
 using lucia.Agents.Services;
 using StackExchange.Redis;
 using System.Text.Json;
+using lucia.Agents;
 using lucia.Agents.Integration;
 
 namespace lucia.Tests.Services;
@@ -12,13 +13,15 @@ public class RedisTaskStoreTests
     private readonly IConnectionMultiplexer _redis;
     private readonly IDatabase _database;
     private readonly RedisTaskStore _store;
+    private AgentsTelemetrySource? _telemetrySource;
 
     public RedisTaskStoreTests()
     {
         _redis = A.Fake<IConnectionMultiplexer>();
         _database = A.Fake<IDatabase>();
         A.CallTo(() => _redis.GetDatabase(A<int>._, A<object>._)).Returns(_database);
-        _store = new RedisTaskStore(_redis);
+        _telemetrySource = new AgentsTelemetrySource();
+        _store = new RedisTaskStore(_redis, _telemetrySource);
     }
 
     [Fact]
@@ -250,7 +253,7 @@ public class RedisTaskStoreTests
     public void Constructor_ThrowsArgumentNullException_WhenRedisIsNull()
     {
         // Act & Assert
-        Assert.Throws<ArgumentNullException>(() => new RedisTaskStore(null!));
+        Assert.Throws<ArgumentNullException>(() => new RedisTaskStore(null!, null!));
     }
 
     [Fact]

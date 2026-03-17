@@ -32,4 +32,7 @@
   <Folder Name="/Tests/">
     <Project Path="lucia.Tests/lucia.Tests.csproj" />
   </Folder>
+  <Folder Name="/Voice/">
+    <Project Path="lucia.Wyoming/lucia.Wyoming.csproj" />
+  </Folder>
 </Solution>

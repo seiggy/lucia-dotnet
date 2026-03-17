@@ -1,3 +1,4 @@
+using lucia.AgentHost;
 using lucia.AgentHost.Apis;
 using lucia.AgentHost.Auth;
 using lucia.AgentHost.Extensions;
@@ -15,6 +16,7 @@ using lucia.Agents.Services;
 using lucia.MusicAgent;
 using lucia.TimerAgent;
 using lucia.TimerAgent.ScheduledTasks;
+using lucia.Wyoming.Extensions;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.HttpOverrides;
 using OpenTelemetry.Trace;
@@ -67,6 +69,7 @@ var isStandalone = deploymentMode.Equals("standalone", StringComparison.OrdinalI
 var musicPlugin = new MusicAgentPlugin();
 musicPlugin.ConfigureAgentHost(builder);
 builder.Services.AddSingleton<IAgentPlugin>(musicPlugin);
+builder.Services.AddSingleton<AgentHostTelemetrySource>();
 
 if (isStandalone)
 {
@@ -122,6 +125,9 @@ foreach (var plugin in luciaPlugins)
     builder.Services.AddSingleton<ILuciaPlugin>(plugin);
 }
 
+// Wyoming voice protocol server (Phase 1)
+builder.AddWyomingServer();
+
 // Trace capture services
 builder.Services.Configure<TraceCaptureOptions>(
     builder.Configuration.GetSection(TraceCaptureOptions.SectionName));
@@ -154,7 +160,11 @@ builder.Services.AddHostedService<ConfigSeeder>();
 
 // API key authentication
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection(AuthOptions.SectionName));
-builder.Services.AddSingleton<IApiKeyService, MongoApiKeyService>();
+builder.Services.AddSingleton<MongoApiKeyService>();
+builder.Services.AddSingleton<IApiKeyService>(sp =>
+    new CachedApiKeyService(
+        sp.GetRequiredService<MongoApiKeyService>(),
+        sp.GetRequiredService<ILogger<CachedApiKeyService>>()));
 builder.Services.AddSingleton<ISessionService, HmacSessionService>();
 builder.Services.AddSingleton<ConfigStoreWriter>();
 
@@ -305,6 +315,14 @@ app.MapSkillOptimizerApi();
 app.MapPluginRepositoryApi();
 app.MapPluginStoreApi();
 app.MapInstalledPluginApi();
+app.MapBackgroundTaskEndpoints();
+app.MapWyomingModelEndpoints();
+app.MapWyomingStatusEndpoints();
+app.MapWyomingSessionEndpoints();
+app.MapTranscriptHistoryEndpoints();
+app.MapVoiceConfigEndpoints();
+app.MapOnboardingEndpoints();
+app.MapVoiceClipEndpoints();
 app.MapSystemApi();
 app.MapDefaultEndpoints();
 

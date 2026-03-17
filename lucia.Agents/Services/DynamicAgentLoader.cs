@@ -23,6 +23,7 @@ public sealed class DynamicAgentLoader : BackgroundService
     private readonly IModelProviderRepository _providerRepository;
     private readonly TracingChatClientFactory _tracingFactory;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly AgentsTelemetrySource _telemetrySource;
     private readonly ILogger<DynamicAgentLoader> _logger;
 
     public DynamicAgentLoader(
@@ -34,8 +35,10 @@ public sealed class DynamicAgentLoader : BackgroundService
         IModelProviderResolver providerResolver,
         IModelProviderRepository providerRepository,
         TracingChatClientFactory tracingFactory,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        AgentsTelemetrySource telemetrySource)
     {
+        _telemetrySource = telemetrySource;
         _repository = repository;
         _toolRegistry = toolRegistry;
         _agentRegistry = agentRegistry;
@@ -113,6 +116,7 @@ public sealed class DynamicAgentLoader : BackgroundService
                     _providerResolver,
                     _providerRepository,
                     _tracingFactory,
+                    _telemetrySource,
                     _loggerFactory);
 
                 await agent.InitializeAsync(ct).ConfigureAwait(false);

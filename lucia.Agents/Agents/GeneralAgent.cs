@@ -12,8 +12,7 @@ namespace lucia.Agents.Agents;
 public sealed class GeneralAgent : ILuciaAgent
 {
     private const string AgentId = "general-assistant";
-    private static readonly ActivitySource ActivitySource = new("Lucia.Agents.General", "1.0.0");
-
+    
     private readonly AgentCard _agent;
     private readonly IChatClientResolver _clientResolver;
     private readonly IAgentDefinitionRepository _definitionRepository;
@@ -122,7 +121,6 @@ public sealed class GeneralAgent : ILuciaAgent
     /// </summary>
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
-        using var activity = ActivitySource.StartActivity();
         _logger.LogInformation("Initializing General Knowledge Agent...");
 
         if (_webSearchSkill is not null)
@@ -130,8 +128,6 @@ public sealed class GeneralAgent : ILuciaAgent
 
         await ApplyDefinitionAsync(cancellationToken).ConfigureAwait(false);
 
-        activity?.SetTag("agent.id", AgentId);
-        activity?.SetStatus(ActivityStatusCode.Ok);
         _logger.LogInformation("General Knowledge initialized successfully");
         _lastConfigUpdate = DateTime.Now;
     }

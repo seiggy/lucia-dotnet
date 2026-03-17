@@ -23,8 +23,7 @@ namespace lucia.Agents.Orchestration;
 public sealed class RouterExecutor : Executor
 {
     public const string ExecutorId = "RouterExecutor";
-
-    private static readonly ActivitySource ActivitySource = new("Lucia.RouterCache", "1.0.0");
+    private readonly AgentsTelemetrySource _telemetrySource;
 
     /// <summary>
     /// Shared serializer options for parsing structured router responses.
@@ -48,10 +47,12 @@ public sealed class RouterExecutor : Executor
         IChatClient chatClient,
         IAgentRegistry agentRegistry,
         ILogger<RouterExecutor> logger,
+        AgentsTelemetrySource telemetrySource,
         IOptions<RouterExecutorOptions> options,
         IPromptCacheService? promptCache = null)
         : base(ExecutorId)
     {
+        _telemetrySource = telemetrySource;
         _chatClient = chatClient ?? throw new ArgumentNullException(nameof(chatClient));
         _agentRegistry = agentRegistry ?? throw new ArgumentNullException(nameof(agentRegistry));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -72,7 +73,7 @@ public sealed class RouterExecutor : Executor
     public async ValueTask<AgentChoiceResult> HandleAsync(ChatMessage message, IWorkflowContext context, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(message);
-        using var activity = ActivitySource.StartActivity();
+        using var activity = _telemetrySource.ActivitySource.StartActivity();
 
         var availableAgents = await FetchAgentsAsync(cancellationToken).ConfigureAwait(false);
         if (availableAgents.Count == 0)

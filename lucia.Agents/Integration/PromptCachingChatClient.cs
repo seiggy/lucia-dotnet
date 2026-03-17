@@ -18,10 +18,9 @@ namespace lucia.Agents.Integration;
 /// </summary>
 public sealed class PromptCachingChatClient : DelegatingChatClient
 {
-    private static readonly ActivitySource ActivitySource = new("Lucia.ChatCache", "1.0.0");
-
     private readonly IPromptCacheService _cacheService;
     private readonly ILogger<PromptCachingChatClient> _logger;
+    private readonly AgentsTelemetrySource _telemetrySource;
 
     // Strips volatile HA context fields so identical intents produce the same cache key
     private static readonly Regex VolatileHaFieldsPattern = new(
@@ -31,9 +30,11 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
     public PromptCachingChatClient(
         IChatClient innerClient,
         IPromptCacheService cacheService,
+        AgentsTelemetrySource telemetrySource,
         ILogger<PromptCachingChatClient> logger)
         : base(innerClient)
     {
+        _telemetrySource = telemetrySource;
         _cacheService = cacheService;
         _logger = logger;
     }
@@ -43,7 +44,7 @@ public sealed class PromptCachingChatClient : DelegatingChatClient
         ChatOptions? options = null,
         CancellationToken cancellationToken = default)
     {
-        using var activity = ActivitySource.StartActivity("ChatCache.GetResponse");
+        using var activity = _telemetrySource.ActivitySource.StartActivity();
         var messageList = messages as IList<ChatMessage> ?? messages.ToList();
 
         // Tag with message count and round type so traces show which step in

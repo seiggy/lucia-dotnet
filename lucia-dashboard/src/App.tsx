@@ -4,7 +4,7 @@ import { AuthProvider, useAuth } from './auth/AuthContext'
 import {
   Activity, Download, Settings, Bot, Database, Server,
   Layers, Boxes, ListTodo, Menu, X, LogOut, Sparkles, BarChart3, MapPin,
-  AlarmClock, Radio, ShoppingCart, SlidersHorizontal, Puzzle
+  AlarmClock, Radio, ShoppingCart, SlidersHorizontal, Puzzle, Mic
 } from 'lucide-react'
 import LoginPage from './pages/LoginPage'
 import SetupPage from './pages/SetupPage'
@@ -26,6 +26,8 @@ import ListsPage from './pages/ListsPage'
 import SkillOptimizerPage from './pages/SkillOptimizerPage'
 import PluginsPage from './pages/PluginsPage'
 import MatcherDebugPage from './pages/MatcherDebugPage'
+import VoicePlatformPage from './pages/VoicePlatformPage'
+import TaskTracker from './components/TaskTracker'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Activity', icon: BarChart3, end: true },
@@ -43,6 +45,7 @@ const NAV_ITEMS = [
   { to: '/exports', label: 'Exports', icon: Download },
   { to: '/skill-optimizer', label: 'Skill Optimizer', icon: SlidersHorizontal },
   { to: '/plugins', label: 'Plugins', icon: Puzzle },
+  { to: '/voice-platform', label: 'Voice Platform', icon: Mic },
   { to: '/matcher-debug', label: 'Matcher Debug', icon: Sparkles },
   { to: '/configuration', label: 'Configuration', icon: Settings },
 ]
@@ -201,9 +204,13 @@ function AppRoutes() {
             <Route path="/mcp-servers" element={<McpServersPage />} />
             <Route path="/agent-definitions" element={<AgentDefinitionsPage />} />
             <Route path="/model-providers" element={<ModelProvidersPage />} />
+            <Route path="/voice-platform" element={<VoicePlatformPage />} />
+            <Route path="/voice-onboarding" element={<Navigate to="/voice-platform" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
+
+        <TaskTracker />
       </div>
     </div>
   )

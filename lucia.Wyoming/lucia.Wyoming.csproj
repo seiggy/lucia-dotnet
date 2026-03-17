@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <NoWarn>$(NoWarn);NU1510;EXTEXP0001</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.Managed" />
+    <PackageReference Include="MongoDB.Driver" />
+    <PackageReference Include="NAudio" />
+    <PackageReference Include="org.k2fsa.sherpa.onnx" />
+    <PackageReference Include="SharpCompress" />
+    <PackageReference Include="Makaretu.Dns.Multicast" />
+    <PackageReference Include="StackExchange.Redis" />
+    <PackageReference Include="System.Text.Json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\lucia.Agents\lucia.Agents.csproj" />
+    <ProjectReference Include="..\lucia.ServiceDefaults\lucia.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+</Project>

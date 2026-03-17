@@ -70,86 +70,46 @@ public static class Extensions
                 metrics.AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
                     .AddRuntimeInstrumentation()
-                    .AddMeter("Lucia.TraceCapture")
-                    .AddMeter("Lucia.Skills.LightControl")
-                    .AddMeter("Lucia.Skills.MusicPlayback");
+                    .AddMeter("lucia.TraceCapture")
+                    .AddMeter("lucia.Skills.LightControl")
+                    .AddMeter("lucia.Skills.MusicPlayback")
+                    .AddMeter("lucia.Wyoming.BackgroundTasks")
+                    .AddMeter("Microsoft.Agents.AI");
             })
             .WithTracing(tracing =>
             {
                 tracing.AddSource(builder.Environment.ApplicationName)
-                    .AddSource("Lucia.Orchestration")
-                    .AddSource("Lucia.TraceCapture")
-                    .AddSource("Lucia.RouterCache")
-                    .AddSource("Lucia.ChatCache")
-                    .AddSource("Lucia.Services.PromptCache")
-                    .AddSource("Lucia.AgentInvoker")
-                    .AddSource("Lucia.AgentDispatch")
-                    .AddSource("Lucia.Agents.General")
-                    .AddSource("Lucia.Agents.Music")
-                    .AddSource("Lucia.Skills.LightControl")
-                    .AddSource("Lucia.Skills.MusicPlayback")
-                    .AddSource("Lucia.Services.EntityLocation")
+                    .AddSource("lucia")
+                    .AddSource("lucia.Agents")
+                    .AddSource("lucia.Orchestration")
+                    .AddSource("lucia.TraceCapture")
+                    .AddSource("lucia.RouterCache")
+                    .AddSource("lucia.ChatCache")
+                    .AddSource("lucia.Services.PromptCache")
+                    .AddSource("lucia.AgentInvoker")
+                    .AddSource("lucia.AgentDispatch")
+                    .AddSource("lucia.Agents.General")
+                    .AddSource("lucia.Agents.Music")
+                    .AddSource("lucia.Skills.LightControl")
+                    .AddSource("lucia.Skills.MusicPlayback")
+                    .AddSource("lucia.Services.EntityLocation")
                     .AddSource("Microsoft.Extensions.AI")
+                    .AddSource("Microsoft.Extensions.Agents*")
                     .AddSource("Microsoft.Agents.AI*")
                     .AddSource("A2A*")
                     .AddSource("Microsoft.Agents.AI.Hosting*")
                     .AddSource("Microsoft.Agents.AI.Workflows*")
                     .AddSource("Microsoft.Agents.AI.Runtime.InProcess")
                     .AddSource("Microsoft.Agents.AI.Runtime.Abstractions.InMemoryActorStateStorage")
+                    .AddSource("lucia.Wyoming.BackgroundTasks")
+                    .AddSource("MongoDB.Driver.Core.Extensions.DiagnosticSources")
+                    .AddRedisInstrumentation()
                     .AddAspNetCoreInstrumentation(tracing =>
                         // Exclude health check requests from tracing
                         tracing.Filter = context =>
                             !context.Request.Path.StartsWithSegments(HealthEndpointPath)
                             && !context.Request.Path.StartsWithSegments(AlivenessEndpointPath)
-                    )
-                    // Uncomment the following line to enable gRPC instrumentation (requires the OpenTelemetry.Instrumentation.GrpcNetClient package)
-                    //.AddGrpcClientInstrumentation()
-                    .AddHttpClientInstrumentation(options =>
-                    {
-                        // Filter out Azure IMDS credential probe requests (noisy locally)
-                        options.FilterHttpRequestMessage = request =>
-                            request.RequestUri?.Host != "169.254.169.254";
-
-                        options.EnrichWithHttpRequestMessage = (activity, request) =>
-                        {
-                            if (!IsRecorded(activity))
-                            {
-                                return;
-                            }
-
-                            AddHeaders(activity, "http.request.header.", request.Headers);
-
-                            if (request.Content is null)
-                            {
-                                return;
-                            }
-
-                            AddHeaders(activity, "http.request.content_header.", request.Content.Headers);
-                            TrySetBodyTag(activity, "http.request.body", request.Content);
-                        };
-
-                        options.EnrichWithHttpResponseMessage = (activity, response) =>
-                        {
-                            if (!IsRecorded(activity))
-                            {
-                                return;
-                            }
-
-                            AddHeaders(activity, "http.response.header.", response.Headers);
-
-                            // Skip body capture for WebSocket upgrade responses — their
-                            // content stream is a duplex network stream that must remain
-                            // writeable for the WebSocket to function.
-                            if (response.Content is null
-                                || response.StatusCode == System.Net.HttpStatusCode.SwitchingProtocols)
-                            {
-                                return;
-                            }
-
-                            AddHeaders(activity, "http.response.content_header.", response.Content.Headers);
-                            TrySetBodyTag(activity, "http.response.body", response.Content);
-                        };
-                    });
+                    );
             });
 
         builder.AddOpenTelemetryExporters();
@@ -218,25 +178,44 @@ public static class Extensions
         }
     }
 
+    private const long MaxBodyCaptureBytes = 256 * 1024; // 256 KB
+
     private static void TrySetBodyTag(Activity activity, string tagName, HttpContent content)
     {
         try
         {
-            // Buffer the content first so downstream code can still read it.
-            // LoadIntoBufferAsync is a no-op if already buffered.
-            content.LoadIntoBufferAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+            // Skip body capture for large or streaming responses (e.g. model downloads).
+            var contentLength = content.Headers.ContentLength;
+            if (contentLength is null or > MaxBodyCaptureBytes)
+            {
+                return;
+            }
 
-            // Do NOT dispose the stream — it is owned by HttpContent and will be
-            // read again by downstream code (e.g. GetFromJsonAsync).
-            var stream = content.ReadAsStream();
+            // ReadAsStream() on unbuffered HttpConnectionResponseContent consumes the
+            // network stream, making it unreadable by downstream code. Catch that case
+            // and skip body capture — this is best-effort telemetry, not critical.
+            Stream stream;
+            try
+            {
+                stream = content.ReadAsStream();
+            }
+            catch (InvalidOperationException)
+            {
+                // Stream already consumed by a prior reader — nothing to capture
+                return;
+            }
+
+            if (!stream.CanSeek)
+            {
+                return;
+            }
+
+            var position = stream.Position;
             using var reader = new StreamReader(stream, leaveOpen: true);
             var payload = reader.ReadToEnd();
 
             // Reset the stream position so downstream callers can re-read
-            if (stream.CanSeek)
-            {
-                stream.Position = 0;
-            }
+            stream.Position = position;
 
             if (!string.IsNullOrWhiteSpace(payload))
             {

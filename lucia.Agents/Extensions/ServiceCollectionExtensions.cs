@@ -62,6 +62,9 @@ public static class ServiceCollectionExtensions
 
         // Register core services
         builder.Services.AddSingleton<IAgentRegistry, LocalAgentRegistry>();
+        
+        // Register Telemetry Source
+        builder.Services.AddSingleton<AgentsTelemetrySource>();
 
         // Register Redis using Aspire client integration
         builder.AddRedisClient(connectionName: "redis");

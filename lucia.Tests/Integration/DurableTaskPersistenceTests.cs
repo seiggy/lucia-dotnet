@@ -1,4 +1,5 @@
 using A2A;
+using lucia.Agents;
 using lucia.Agents.Integration;
 using StackExchange.Redis;
 using Testcontainers.Redis;
@@ -17,6 +18,7 @@ public sealed class DurableTaskPersistenceTests : IAsyncLifetime
     private IDatabase? _redisDb;
     private ITaskManager? _taskManager;
     private ITaskStore? _taskStore;
+    private AgentsTelemetrySource? _telemetrySource;
 
     public async Task InitializeAsync()
     {
@@ -30,9 +32,10 @@ public sealed class DurableTaskPersistenceTests : IAsyncLifetime
         var connectionString = _redisContainer.GetConnectionString();
         _redis = await ConnectionMultiplexer.ConnectAsync(connectionString);
         _redisDb = _redis.GetDatabase();
-
+        _telemetrySource = new AgentsTelemetrySource();
+        
         // Create real TaskStore and A2A's TaskManager for integration testing
-        _taskStore = new RedisTaskStore(_redis);
+        _taskStore = new RedisTaskStore(_redis, _telemetrySource);
         var httpClient = new HttpClient();
         _taskManager = new TaskManager(httpClient, _taskStore);
     }

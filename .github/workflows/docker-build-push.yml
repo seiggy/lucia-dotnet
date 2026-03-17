@@ -40,18 +40,27 @@ jobs:
             dockerfile: ./infra/docker/Dockerfile
             title: Lucia Agent Host
             description: AI-powered Home Assistant agent orchestration
+            tag_suffix: ""
+          - image: seiggy/lucia-agenthost
+            dockerfile: ./infra/docker/Dockerfile.voice
+            title: Lucia Agent Host (Voice)
+            description: AI-powered Home Assistant agent with pre-loaded Wyoming voice models
+            tag_suffix: "-voice"
           - image: seiggy/lucia-a2ahost
             dockerfile: ./infra/docker/Dockerfile.a2ahost
             title: Lucia A2A Host (base)
             description: Base A2A agent host runtime (no plugins)
+            tag_suffix: ""
           - image: seiggy/lucia-music-agent
             dockerfile: ./infra/docker/Dockerfile.music-agent
             title: Lucia Music Agent
             description: A2A music playback agent plugin
+            tag_suffix: ""
           - image: seiggy/lucia-timer-agent
             dockerfile: ./infra/docker/Dockerfile.timer-agent
             title: Lucia Timer Agent
             description: A2A timer and announcement agent plugin
+            tag_suffix: ""
 
     steps:
       - name: Checkout repository
@@ -102,13 +111,14 @@ jobs:
         with:
           images: ${{ matrix.image }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ github.ref_type == 'tag' && steps.preview.outputs.is_preview != 'true' }}
-            type=raw,value=latest,enable=${{ github.event_name != 'pull_request' && steps.preview.outputs.is_preview != 'true' && (github.ref_type == 'tag' || github.ref == 'refs/heads/main') }}
-            type=ref,event=branch
-            type=ref,event=pr
-            type=sha,prefix=sha-
-            type=raw,value=${{ steps.preview.outputs.version_tag }},enable=${{ github.event_name == 'workflow_dispatch' && steps.preview.outputs.is_preview == 'true' && steps.preview.outputs.version_tag != '' }}
+            type=semver,pattern={{version}},suffix=${{ matrix.tag_suffix }}
+            type=semver,pattern={{major}}.{{minor}},suffix=${{ matrix.tag_suffix }},enable=${{ github.ref_type == 'tag' && steps.preview.outputs.is_preview != 'true' }}
+            type=raw,value=latest,enable=${{ matrix.tag_suffix == '' && github.event_name != 'pull_request' && steps.preview.outputs.is_preview != 'true' && (github.ref_type == 'tag' || github.ref == 'refs/heads/main') }}
+            type=raw,value=voice,enable=${{ matrix.tag_suffix == '-voice' && github.event_name != 'pull_request' && steps.preview.outputs.is_preview != 'true' && (github.ref_type == 'tag' || github.ref == 'refs/heads/main') }}
+            type=ref,event=branch,suffix=${{ matrix.tag_suffix }}
+            type=ref,event=pr,suffix=${{ matrix.tag_suffix }}
+            type=sha,prefix=sha-,suffix=${{ matrix.tag_suffix }}
+            type=raw,value=${{ steps.preview.outputs.version_tag }}${{ matrix.tag_suffix }},enable=${{ github.event_name == 'workflow_dispatch' && steps.preview.outputs.is_preview == 'true' && steps.preview.outputs.version_tag != '' }}
           labels: |
             org.opencontainers.image.title=${{ matrix.title }}
             org.opencontainers.image.description=${{ matrix.description }}
@@ -213,6 +223,7 @@ jobs:
             | Image | Status |
             |-------|--------|
             | \`seiggy/lucia-agenthost\` | ✅ Built |
+            | \`seiggy/lucia-agenthost:voice\` | ✅ Built |
             | \`seiggy/lucia-a2ahost\` | ✅ Built |
             | \`seiggy/lucia-music-agent\` | ✅ Built |
             | \`seiggy/lucia-timer-agent\` | ✅ Built |

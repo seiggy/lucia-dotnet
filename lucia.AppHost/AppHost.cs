@@ -24,8 +24,20 @@ var internalToken = builder.AddParameter("internal-api-token",
     new GenerateParameterDefault { MinLength = 32, Special = false }, secret: true, persist: true);
 
 var registryApi = builder.AddProject<Projects.lucia_AgentHost>("lucia-agenthost")
-    .WithEnvironment("Deployment__Mode", "mesh")
+    .WithEnvironment("Deployment__Mode", "standalone")
     .WithEnvironment("InternalAuth__Token", internalToken)
+    // IDEs inject hot-reload hooks (DOTNET_STARTUP_HOOKS, DOTNET_MODIFIABLE_ASSEMBLIES)
+    // that disable tiered JIT, causing 30-50x slowdowns. Clear all of them on the
+    // AgentHost so it gets full JIT optimization. Debugging (breakpoints, stepping,
+    // variable inspection) still works — only hot-reload is disabled.
+    .WithEnvironment("DOTNET_MODIFIABLE_ASSEMBLIES", "")
+    .WithEnvironment("COMPLUS_FORCEENC", "0")
+    .WithEnvironment("DOTNET_STARTUP_HOOKS", "")
+    .WithEnvironment("DOTNET_WATCH_HOTRELOAD_NAMEDPIPE_NAME", "")
+    // Reduce OTEL export frequency — Aspire defaults (1s) add measurable per-request overhead
+    .WithEnvironment("OTEL_BSP_SCHEDULE_DELAY", "5000")
+    .WithEnvironment("OTEL_BLRP_SCHEDULE_DELAY", "5000")
+    .WithEnvironment("OTEL_METRIC_EXPORT_INTERVAL", "5000")
     .WithReference(redis)
     .WaitFor(redis)
     .WithReference(tracesDb)
@@ -33,6 +45,7 @@ var registryApi = builder.AddProject<Projects.lucia_AgentHost>("lucia-agenthost"
     .WithReference(tasksDb)
     .WaitFor(mongodb)
     .WithHttpHealthCheck("/health")
+    .WithEndpoint(port: 10400, name: "wyoming-tcp", scheme: "tcp", isProxied: false)
     .WithUrlForEndpoint("https", url =>
     {
         url.DisplayText = "Scalar (HTTPS)";
@@ -42,28 +55,28 @@ var registryApi = builder.AddProject<Projects.lucia_AgentHost>("lucia-agenthost"
 
 var currentDirectory = Environment.CurrentDirectory;
 var sep = Path.DirectorySeparatorChar.ToString();
-
-var timerAgent = builder.AddProject<Projects.lucia_A2AHost>("timer-agent")
-    .WithEnvironment("PluginDirectory", $"{currentDirectory}{sep}plugins{sep}timer-agent")
-    .WithEnvironment("InternalAuth__Token", internalToken)
-    .WithReference(redis)
-    .WaitFor(redis)
-    .WithReference(registryApi)
-    .WaitFor(registryApi)
-    .WithReference(tracesDb)
-    .WithReference(configDb)
-    .WithReference(tasksDb)
-    .WaitFor(mongodb)
-    .WithHttpHealthCheck("/health")
-    .WithExternalHttpEndpoints();
+//
+// var timerAgent = builder.AddProject<Projects.lucia_A2AHost>("timer-agent")
+//     .WithEnvironment("PluginDirectory", $"{currentDirectory}{sep}plugins{sep}timer-agent")
+//     .WithEnvironment("InternalAuth__Token", internalToken)
+//     .WithReference(redis)
+//     .WaitFor(redis)
+//     .WithReference(registryApi)
+//     .WaitFor(registryApi)
+//     .WithReference(tracesDb)
+//     .WithReference(configDb)
+//     .WithReference(tasksDb)
+//     .WaitFor(mongodb)
+//     .WithHttpHealthCheck("/health")
+//     .WithExternalHttpEndpoints();
 // Aspire service discovery uses the resource name as hostname — no port needed
-timerAgent.WithEnvironment("services__selfUrl", "http://timer-agent/timers");
+//timerAgent.WithEnvironment("services__selfUrl", "http://timer-agent/timers");
 
 // AgentHost needs service discovery for A2A agents so it can fetch their agent
 // cards during registration. WithReference only adds endpoint resolution — it
 // does NOT create a startup dependency (that's WaitFor), so no circular dependency.
-registryApi
-    .WithReference(timerAgent);
+// registryApi
+//     .WithReference(timerAgent);
 
 builder.AddViteApp("lucia-dashboard", "../lucia-dashboard")
     .WithReference(registryApi)

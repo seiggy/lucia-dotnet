@@ -1,3 +1,125 @@
+# Release Notes - 1.2.0
+
+**Release Date:** March 2026  
+**Code Name:** "Spectra"
+
+---
+
+## 🎙️ Overview
+
+"Spectra" introduces the **Wyoming Voice Platform** — a full local speech pipeline that turns Lucia into a Wyoming protocol-compatible voice satellite for Home Assistant. This release delivers streaming speech-to-text, speaker verification, wake word detection, speech enhancement, a multi-engine model management system, and a new dashboard Voice Platform page for configuring everything from one surface.
+
+## 🚀 Highlights
+
+- **Wyoming Protocol Server** — Native TCP server implementing the Home Assistant Wyoming satellite protocol for real-time voice processing.
+- **Multi-Engine STT Pipeline** — Hybrid streaming STT with progressive re-transcription, Sherpa streaming, Sherpa offline (Parakeet TDT/CTC), and IBM Granite 4.0 1B Speech ONNX engines.
+- **Speaker Verification & Profiling** — Cosine-similarity speaker identification with enrolled profiles, provisional auto-discovery, adaptive profile updates, and guided voice enrollment onboarding.
+- **ONNX Auto-Detection** — Automatic GPU/accelerator selection (CUDA, ROCm, OpenVINO, DirectML, CoreML) across all six inference engines — no manual configuration required.
+- **GTCRN Speech Enhancement** — Real-time streaming noise reduction for cleaner audio in noisy environments.
+- **Voice Platform Dashboard** — New unified control room for model management, speaker profiles, wake words, engine status, and real-time session monitoring.
+
+## ✨ Features
+
+### Wyoming Protocol Server
+- Full Wyoming satellite protocol implementation (audio-start, audio-chunk, audio-stop, transcribe, transcript, detect, not-detected)
+- Persistent TCP connections with per-session state management
+- Zeroconf/mDNS service advertisement for automatic Home Assistant discovery
+- VAD-driven voice activity detection with configurable speech/silence thresholds
+- Wake word detection with custom phrase support and per-speaker calibration
+
+### Multi-Engine Speech-to-Text
+- **HybridSttEngine** — Streams audio through a lightweight online model, then re-transcribes the full utterance with a high-accuracy offline model for best-of-both-worlds latency and accuracy
+- **SherpaSttEngine** — Pure streaming CTC/transducer inference for ultra-low-latency transcription
+- **SherpaOfflineSttEngine** — Offline NeMo Parakeet TDT+CTC support for high-quality batch transcription
+- **GraniteOnnxEngine** — IBM Granite 4.0 1B Speech ONNX with 3-model pipeline (audio encoder, embed tokens, auto-regressive decoder with 40-layer KV cache)
+- Progressive re-transcription with burst detection and stability-based early stopping
+- Per-engine model catalog with download, install, activate, and delete lifecycle
+
+### Speaker Verification & Voice Profiles
+- Sherpa-onnx speaker embedding extraction with cosine similarity matching
+- Enrolled speaker profiles with configurable verification threshold
+- Provisional auto-discovery profiles for unknown speakers with interaction tracking
+- Adaptive profile updates (exponential moving average) for high-confidence matches
+- Guided onboarding flow with audio quality validation (SNR, duration checks)
+- Profile merge, rename, and provisional-to-enrolled promotion via API and dashboard
+- Audio clip capture, playback, reassignment, and per-profile management
+- Redis-cached enrolled profiles for sub-millisecond lookup latency
+- MongoDB-backed persistent storage with in-memory fallback
+
+### ONNX Provider Auto-Detection
+- `OnnxProviderDetector` singleton probes `OrtEnv.Instance().GetAvailableProviders()` at startup
+- Automatic selection priority: CUDA → ROCm → OpenVINO → DirectML → CoreML → CPU
+- Applied to all six engines: SherpaDiarization, HybridSTT, SherpaStt, SherpaOfflineSTT, GraniteOnnx, GtcrnSpeechEnhancer
+- Detected provider exposed in `/api/wyoming/status` and displayed on the dashboard status card with GPU badge
+- Graceful fallback — if an accelerated provider fails to initialize, falls through to CPU
+
+### Speech Enhancement
+- GTCRN (Gated Temporal Convolutional Recurrent Network) streaming noise reduction
+- Per-session enhancement with isolated overlap-add state
+- Raw audio preserved separately for speaker verification to avoid spectral mismatch with enrollment data
+
+### Model Management System
+- Centralized model catalog with architecture-aware compatibility filtering
+- Background download with real-time progress tracking via SSE
+- Multi-stage progress bars (download → extract → validate)
+- Hot-reload model activation via `ActiveModelChanged` events — no restart required
+- Per-engine model views (STT, VAD, Wake Word, Speaker Embedding, Speech Enhancement)
+- Startup model validation with dummy inference warmup
+
+### Voice Platform Dashboard
+- **Status tab** — Engine readiness tiles, active model indicators, ONNX provider detection display, and guided next-steps checklist
+- **Models tab** — Browse, download, activate, and delete models per engine type with real-time download progress
+- **Profiles tab** — View enrolled and provisional speaker profiles, inline rename, promote to enrolled, merge profiles, manage audio clips with playback
+- **Wake Words tab** — Register custom wake phrases with optional speaker enrollment, manage and delete entries
+- **Monitor tab** — Real-time session monitoring via SSE with audio level meters, transcript log, and connection status
+- **Config panel** — Voice verification threshold, provisional profile settings, adaptive profiles, and retention controls — persisted to MongoDB via ConfigStoreWriter
+
+## 🐛 Bug Fixes
+
+- **Speaker identification always returning unknown** — Speech enhancement was altering audio used for embedding extraction, causing ~0.39 cosine similarity against enrollment profiles. Now uses raw (unenhanced) audio for speaker verification.
+- **Verification threshold changes from GUI ignored** — `SpeakerVerificationThreshold` config was never passed to `IdentifySpeaker()`. Now read via `IOptionsMonitor.CurrentValue` at identification time.
+- **Embedding dimension mismatches silently failed** — After model changes, `CosineSimilarity` threw for mismatched dimensions, caught by outer try/catch returning null. Now gracefully skips with a warning log.
+- **Voice config written to local JSON file** — `VoiceConfigApi` was writing to `voiceconfig.json` instead of the platform's MongoDB `ConfigStoreWriter`. Migrated to match established pattern.
+- **Thread pool deadlock in STT finalization** — `GetFinalResult` blocked the thread pool. Converted to async with proper continuation.
+- **Aspire resilience timeout killing model downloads** — 3-minute default timeout was insufficient for large model downloads. Bypassed Aspire service discovery for external URLs.
+- **Progressive re-transcription mixing raw and enhanced audio** — STT now always receives raw audio; enhanced audio used only for clip storage.
+- **WAV protocol wire format corrections** — Proper transcribe/transcript event ordering per Wyoming protocol spec.
+
+## ⚡ Performance
+
+- Hybrid STT achieves ~90ms finalization latency at 0% WER on benchmark audio
+- Redis-cached speaker profiles reduce diarization lookup from ~500ms to ~1ms
+- Short command fast-path skips progressive re-transcription overhead
+- ONNX model warmup on startup eliminates cold-start inference latency
+- CUDA 12.8 + cuDNN 9 GPU Dockerfile for accelerated voice inference
+- Workstation GC mode and thread pool tuning for development responsiveness
+- OTEL export frequency reduced from 1s to 5s to lower telemetry overhead
+
+## 📊 Test Coverage
+
+| Area | Tests |
+|------|-------|
+| Wyoming session integration | 50+ |
+| Speaker verification components | 17 |
+| Speech enhancement validation | 20+ |
+| Engine hot-reload | 10+ |
+| Engine readiness | 10+ |
+| Wyoming status API | 2 |
+| Command pattern matching | 30+ |
+| Profile store (InMemory) | 10+ |
+| **Total Wyoming Tests** | **230** |
+
+## 🔄 Upgrade Notes
+
+- **New infrastructure dependencies** — MongoDB (`luciaconfig` database) is used for speaker profiles and voice config persistence. Redis is optional but recommended for profile caching.
+- **Model downloads required** — On first launch, navigate to the Voice Platform → Models tab to download and activate at least one STT model and supporting models (VAD, Wake Word, Speaker Embedding).
+- **Wyoming integration** — Add the Lucia Wyoming satellite in Home Assistant under Settings → Devices & Services → Add Integration → Wyoming. The server advertises via Zeroconf automatically.
+- **GPU acceleration** — Install the appropriate ONNX Runtime GPU package (`Microsoft.ML.OnnxRuntime.Gpu` for CUDA, etc.) to enable auto-detected GPU acceleration. No configuration changes needed — the detector will find and use it automatically.
+- **Existing voice config** — If you previously had a `voiceconfig.json`, those settings will need to be re-entered through the dashboard Voice Platform config panel (they now persist to MongoDB).
+
+---
+---
+
 # Release Notes - 1.1.1
 
 **Release Date:** March 7, 2026  

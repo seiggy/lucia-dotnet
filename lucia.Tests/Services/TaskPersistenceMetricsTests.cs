@@ -1,4 +1,5 @@
 using A2A;
+using lucia.Agents;
 using lucia.Agents.Integration;
 using lucia.Agents.Services;
 using StackExchange.Redis;
@@ -15,6 +16,7 @@ public sealed class TaskPersistenceMetricsTests : IAsyncLifetime
     private RedisContainer? _redisContainer;
     private IConnectionMultiplexer? _redis;
     private ITaskStore? _taskStore;
+    private AgentsTelemetrySource? _telemetrySource;
 
     public async Task InitializeAsync()
     {
@@ -27,9 +29,9 @@ public sealed class TaskPersistenceMetricsTests : IAsyncLifetime
         // Connect to the containerized Redis instance
         var connectionString = _redisContainer.GetConnectionString();
         _redis = await ConnectionMultiplexer.ConnectAsync(connectionString);
-
+        _telemetrySource = new AgentsTelemetrySource();
         // Create TaskStore for testing
-        _taskStore = new RedisTaskStore(_redis);
+        _taskStore = new RedisTaskStore(_redis, _telemetrySource);
     }
 
     public async Task DisposeAsync()

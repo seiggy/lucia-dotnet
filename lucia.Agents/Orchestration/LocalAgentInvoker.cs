@@ -16,12 +16,11 @@ namespace lucia.Agents.Orchestration;
 /// </summary>
 public sealed class LocalAgentInvoker : IAgentInvoker
 {
-    private static readonly ActivitySource ActivitySource = new("Lucia.AgentInvoker", "1.0.0");
-
     private readonly AIHostAgent _hostAgent;
     private readonly ILogger _logger;
     private readonly AgentInvokerOptions _options;
     private readonly TimeProvider _timeProvider;
+    private readonly AgentsTelemetrySource _telemetrySource;
 
     public string AgentId { get; }
 
@@ -30,9 +29,11 @@ public sealed class LocalAgentInvoker : IAgentInvoker
         AIAgent agent,
         AgentSessionStore sessionStore,
         ILogger logger,
+        AgentsTelemetrySource telemetrySource,
         IOptions<AgentInvokerOptions> options,
         TimeProvider? timeProvider = null)
     {
+        _telemetrySource = telemetrySource;
         AgentId = agentId;
         ArgumentNullException.ThrowIfNull(agent);
         _hostAgent = new AIHostAgent(agent, sessionStore ?? new NoopAgentSessionStore());
@@ -47,7 +48,7 @@ public sealed class LocalAgentInvoker : IAgentInvoker
     {
         var startTimestamp = _timeProvider.GetTimestamp();
         using var linkedCts = CreateTimeoutCts(cancellationToken);
-        using var activity = ActivitySource.StartActivity("AgentInvoker.Invoke");
+        using var activity = _telemetrySource.ActivitySource.StartActivity("AgentInvoker.Invoke");
         activity?.SetTag("agent.id", AgentId);
 
         try
@@ -66,7 +67,7 @@ public sealed class LocalAgentInvoker : IAgentInvoker
             }
 
             AgentSession session;
-            using (var sessionLoadActivity = ActivitySource.StartActivity("AgentInvoker.LoadSession"))
+            using (var sessionLoadActivity = _telemetrySource.ActivitySource.StartActivity("AgentInvoker.LoadSession"))
             {
                 sessionLoadActivity?.SetTag("agent.id", AgentId);
                 sessionLoadActivity?.SetTag("session.context_id", contextId);
@@ -86,7 +87,7 @@ public sealed class LocalAgentInvoker : IAgentInvoker
             };
 
             AgentResponse response;
-            using (var runActivity = ActivitySource.StartActivity("AgentInvoker.RunAgent"))
+            using (var runActivity = _telemetrySource.ActivitySource.StartActivity("AgentInvoker.RunAgent"))
             {
                 runActivity?.SetTag("agent.id", AgentId);
                 response = await _hostAgent.RunAsync(
@@ -96,7 +97,7 @@ public sealed class LocalAgentInvoker : IAgentInvoker
                     .ConfigureAwait(false);
             }
 
-            using (var saveActivity = ActivitySource.StartActivity("AgentInvoker.SaveSession"))
+            using (var saveActivity = _telemetrySource.ActivitySource.StartActivity("AgentInvoker.SaveSession"))
             {
                 saveActivity?.SetTag("agent.id", AgentId);
                 saveActivity?.SetTag("session.context_id", contextId);

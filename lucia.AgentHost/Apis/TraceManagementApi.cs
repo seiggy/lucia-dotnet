@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using lucia.AgentHost.Extensions;
 using lucia.AgentHost.Models;
 using lucia.Agents.Training;
@@ -35,6 +36,7 @@ public static class TraceManagementApi
 
     private static async Task<Ok<PagedResult<ConversationTrace>>> ListTracesAsync(
         [FromServices] ITraceRepository repository,
+        [FromServices] AgentHostTelemetrySource telemetrySource,
         [FromQuery] DateTime? fromDate,
         [FromQuery] DateTime? toDate,
         [FromQuery] string? agent,
@@ -45,20 +47,23 @@ public static class TraceManagementApi
         [FromQuery] int? pageSize,
         CancellationToken ct)
     {
-        var filter = new TraceFilterCriteria
+        using var activity = telemetrySource.ActivitySource.StartActivity();
         {
-            FromDate = fromDate,
-            ToDate = toDate,
-            AgentFilter = agent,
-            ModelFilter = model,
-            LabelFilter = label,
-            SearchText = search,
-            Page = page ?? 1,
-            PageSize = pageSize ?? 25
-        };
+            var filter = new TraceFilterCriteria
+            {
+                FromDate = fromDate,
+                ToDate = toDate,
+                AgentFilter = agent,
+                ModelFilter = model,
+                LabelFilter = label,
+                SearchText = search,
+                Page = page ?? 1,
+                PageSize = pageSize ?? 25
+            };
 
-        var result = await repository.ListTracesAsync(filter, ct).ConfigureAwait(false);
-        return TypedResults.Ok(result);
+            var result = await repository.ListTracesAsync(filter, ct).ConfigureAwait(false);
+            return TypedResults.Ok(result);
+        }
     }
 
     private static async Task<Ok<TraceStats>> GetStatsAsync(

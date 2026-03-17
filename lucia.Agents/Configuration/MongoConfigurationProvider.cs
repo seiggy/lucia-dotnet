@@ -16,6 +16,7 @@ public sealed class MongoConfigurationProvider : ConfigurationProvider, IDisposa
     private readonly Lazy<MongoClient> _client;
     private Timer? _pollTimer;
     private DateTime _lastLoadTime = DateTime.MinValue;
+    private volatile bool _isPolling;
 
     public MongoConfigurationProvider(string connectionString, string databaseName, TimeSpan? pollInterval = null)
     {
@@ -53,8 +54,12 @@ public sealed class MongoConfigurationProvider : ConfigurationProvider, IDisposa
         _pollTimer ??= new Timer(PollForChanges, null, _pollInterval, _pollInterval);
     }
 
-    private void PollForChanges(object? state)
+    private async void PollForChanges(object? state)
     {
+        // Prevent overlapping polls if a previous one is still running
+        if (_isPolling) return;
+        _isPolling = true;
+
         try
         {
             var database = _client.Value.GetDatabase(_databaseName);
@@ -62,11 +67,23 @@ public sealed class MongoConfigurationProvider : ConfigurationProvider, IDisposa
 
             // Check if any documents have been updated since last load
             var filter = Builders<ConfigEntry>.Filter.Gt(e => e.UpdatedAt, _lastLoadTime);
-            var hasChanges = collection.Find(filter).Any();
+            var hasChanges = await collection.Find(filter).AnyAsync().ConfigureAwait(false);
 
             if (hasChanges)
             {
-                Load();
+                var entries = await collection
+                    .Find(FilterDefinition<ConfigEntry>.Empty)
+                    .ToListAsync()
+                    .ConfigureAwait(false);
+
+                var data = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+                foreach (var entry in entries)
+                {
+                    data[entry.Key] = entry.Value;
+                }
+
+                Data = data;
+                _lastLoadTime = DateTime.UtcNow;
                 OnReload();
             }
         }
@@ -74,6 +91,10 @@ public sealed class MongoConfigurationProvider : ConfigurationProvider, IDisposa
         {
             // Log but don't throw — config stays at last known good state
             Console.Error.WriteLine($"[lucia] MongoConfigurationProvider: Poll failed — {ex.Message}");
+        }
+        finally
+        {
+            _isPolling = false;
         }
     }
 

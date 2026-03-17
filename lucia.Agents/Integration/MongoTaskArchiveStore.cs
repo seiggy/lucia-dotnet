@@ -111,10 +111,10 @@ public sealed class MongoTaskArchiveStore : ITaskArchiveStore
 
         return new TaskStats
         {
-            TotalTasks = (int)totalTask.Result,
-            CompletedCount = (int)completedTask.Result,
-            FailedCount = (int)failedTask.Result,
-            CanceledCount = (int)canceledTask.Result,
+            TotalTasks = (int)await totalTask.ConfigureAwait(false),
+            CompletedCount = (int)await completedTask.ConfigureAwait(false),
+            FailedCount = (int)await failedTask.ConfigureAwait(false),
+            CanceledCount = (int)await canceledTask.ConfigureAwait(false),
             ByAgent = byAgent,
         };
     }

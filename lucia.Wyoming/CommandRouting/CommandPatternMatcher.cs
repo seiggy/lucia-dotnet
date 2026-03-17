@@ -1,0 +1,557 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
+
+namespace lucia.Wyoming.CommandRouting;
+
+public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
+{
+    private readonly ConcurrentDictionary<string, Segment[]> _templateCache = new(StringComparer.Ordinal);
+
+    public CommandRouteResult Match(string transcript)
+    {
+        var startedAt = Stopwatch.GetTimestamp();
+
+        if (string.IsNullOrWhiteSpace(transcript))
+        {
+            return CommandRouteResult.NoMatch(Stopwatch.GetElapsedTime(startedAt));
+        }
+
+        var normalizedTranscript = TranscriptNormalizer.Normalize(transcript);
+        var tokens = TranscriptNormalizer.Tokenize(normalizedTranscript);
+        if (tokens.Length is 0)
+        {
+            return CommandRouteResult.NoMatch(Stopwatch.GetElapsedTime(startedAt));
+        }
+
+        CommandPattern? matchedPattern = null;
+        Dictionary<string, string>? capturedValues = null;
+        var bestConfidence = 0f;
+        var bestSpecificity = 0;
+        var bestPriority = int.MinValue;
+
+        foreach (var pattern in registry.GetAllPatterns())
+        {
+            foreach (var template in pattern.Templates)
+            {
+                var (matched, captures, confidence) = TryMatchTemplate(template, tokens);
+                if (!matched || confidence < pattern.MinConfidence)
+                {
+                    continue;
+                }
+
+                var specificity = GetTemplateSpecificity(template);
+                if (!IsBetterMatch(confidence, specificity, pattern.Priority, bestConfidence, bestSpecificity, bestPriority))
+                {
+                    continue;
+                }
+
+                matchedPattern = pattern;
+                capturedValues = captures;
+                bestConfidence = confidence;
+                bestSpecificity = specificity;
+                bestPriority = pattern.Priority;
+            }
+        }
+
+        var duration = Stopwatch.GetElapsedTime(startedAt);
+        if (matchedPattern is null)
+        {
+            return CommandRouteResult.NoMatch(duration);
+        }
+
+        return new CommandRouteResult
+        {
+            IsMatch = true,
+            Confidence = bestConfidence,
+            MatchedPattern = matchedPattern,
+            CapturedValues = capturedValues,
+            MatchDuration = duration,
+        };
+    }
+
+    public (bool matched, Dictionary<string, string> captures, float confidence) TryMatchTemplate(
+        string template,
+        IReadOnlyList<string> transcriptTokens)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(template);
+        ArgumentNullException.ThrowIfNull(transcriptTokens);
+
+        var segments = _templateCache.GetOrAdd(template, ParseTemplate);
+        var match = MatchSegments(
+            segments,
+            transcriptTokens,
+            segmentIndex: 0,
+            tokenIndex: 0,
+            captures: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+            constrainedCaptureMatches: 0);
+
+        if (!match.Matched)
+        {
+            return (false, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase), 0f);
+        }
+
+        return (true, match.Captures, CalculateConfidence(transcriptTokens.Count - match.TokenIndex, match.ConstrainedCaptureMatches));
+    }
+
+    private static bool IsBetterMatch(
+        float candidateConfidence,
+        int candidateSpecificity,
+        int candidatePriority,
+        float bestConfidence,
+        int bestSpecificity,
+        int bestPriority)
+    {
+        if (candidateConfidence > bestConfidence)
+        {
+            return true;
+        }
+
+        if (candidateConfidence < bestConfidence)
+        {
+            return false;
+        }
+
+        if (candidatePriority > bestPriority)
+        {
+            return true;
+        }
+
+        if (candidatePriority < bestPriority)
+        {
+            return false;
+        }
+
+        return candidateSpecificity > bestSpecificity;
+    }
+
+    private static int GetTemplateSpecificity(string template) => ParseTemplate(template)
+        .Count(static segment => segment.Kind is SegmentKind.Literal or SegmentKind.ConstrainedCapture);
+
+    private static Segment[] ParseTemplate(string template)
+    {
+        var parts = SplitTemplate(template);
+        var segments = new List<Segment>(parts.Count);
+
+        foreach (var part in parts)
+        {
+            if (part.Length < 2)
+            {
+                continue;
+            }
+
+            if (part[0] is '{' && part[^1] is '}')
+            {
+                var inner = part[1..^1];
+                var separatorIndex = inner.IndexOf(':');
+                if (separatorIndex < 0)
+                {
+                    segments.Add(new Segment(
+                        Kind: SegmentKind.Capture,
+                        Name: inner,
+                        Tokens: [],
+                        Alternatives: []));
+                    continue;
+                }
+
+                var name = inner[..separatorIndex];
+                var alternatives = ParseAlternatives(inner[(separatorIndex + 1)..]);
+                segments.Add(new Segment(
+                    Kind: SegmentKind.ConstrainedCapture,
+                    Name: name,
+                    Tokens: [],
+                    Alternatives: alternatives));
+                continue;
+            }
+
+            if (part[0] is '[' && part[^1] is ']')
+            {
+                var inner = part[1..^1];
+                var alternatives = ParseAlternatives(inner);
+                if (alternatives.Length is 1)
+                {
+                    segments.Add(new Segment(
+                        Kind: SegmentKind.OptionalLiteral,
+                        Name: null,
+                        Tokens: alternatives[0],
+                        Alternatives: []));
+                    continue;
+                }
+
+                segments.Add(new Segment(
+                    Kind: SegmentKind.OptionalAlternatives,
+                    Name: null,
+                    Tokens: [],
+                    Alternatives: alternatives));
+                continue;
+            }
+
+            segments.Add(new Segment(
+                Kind: SegmentKind.Literal,
+                Name: null,
+                Tokens: NormalizeTokens(part),
+                Alternatives: []));
+        }
+
+        return [.. segments];
+    }
+
+    private static List<string> SplitTemplate(string template)
+    {
+        var parts = new List<string>();
+        var current = new System.Text.StringBuilder();
+        var braceDepth = 0;
+        var bracketDepth = 0;
+
+        foreach (var character in template)
+        {
+            switch (character)
+            {
+                case '{':
+                    braceDepth++;
+                    current.Append(character);
+                    break;
+                case '}':
+                    braceDepth--;
+                    current.Append(character);
+                    break;
+                case '[':
+                    bracketDepth++;
+                    current.Append(character);
+                    break;
+                case ']':
+                    bracketDepth--;
+                    current.Append(character);
+                    break;
+                default:
+                    if (char.IsWhiteSpace(character) && braceDepth is 0 && bracketDepth is 0)
+                    {
+                        if (current.Length > 0)
+                        {
+                            parts.Add(current.ToString());
+                            current.Clear();
+                        }
+
+                        break;
+                    }
+
+                    current.Append(character);
+                    break;
+            }
+        }
+
+        if (current.Length > 0)
+        {
+            parts.Add(current.ToString());
+        }
+
+        return parts;
+    }
+
+    private static string[][] ParseAlternatives(string value) => value
+        .Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Select(NormalizeTokens)
+        .Where(static tokens => tokens.Length > 0)
+        .ToArray();
+
+    private static string[] NormalizeTokens(string value) => TranscriptNormalizer.Tokenize(TranscriptNormalizer.Normalize(value));
+
+    private MatchState MatchSegments(
+        IReadOnlyList<Segment> segments,
+        IReadOnlyList<string> transcriptTokens,
+        int segmentIndex,
+        int tokenIndex,
+        Dictionary<string, string> captures,
+        int constrainedCaptureMatches)
+    {
+        if (segmentIndex >= segments.Count)
+        {
+            return new MatchState(
+                Matched: true,
+                TokenIndex: tokenIndex,
+                Captures: captures,
+                ConstrainedCaptureMatches: constrainedCaptureMatches);
+        }
+
+        var segment = segments[segmentIndex];
+        return segment.Kind switch
+        {
+            SegmentKind.Literal => MatchLiteral(segment, segments, transcriptTokens, segmentIndex, tokenIndex, captures, constrainedCaptureMatches),
+            SegmentKind.OptionalLiteral => ChooseBetterMatch(
+                MatchSegments(segments, transcriptTokens, segmentIndex + 1, tokenIndex, CloneCaptures(captures), constrainedCaptureMatches),
+                MatchOptionalLiteral(segment, segments, transcriptTokens, segmentIndex, tokenIndex, captures, constrainedCaptureMatches),
+                transcriptTokens.Count),
+            SegmentKind.OptionalAlternatives => MatchOptionalAlternatives(segment, segments, transcriptTokens, segmentIndex, tokenIndex, captures, constrainedCaptureMatches),
+            SegmentKind.Capture => MatchCapture(segment, segments, transcriptTokens, segmentIndex, tokenIndex, captures, constrainedCaptureMatches),
+            SegmentKind.ConstrainedCapture => MatchConstrainedCapture(segment, segments, transcriptTokens, segmentIndex, tokenIndex, captures, constrainedCaptureMatches),
+            _ => default,
+        };
+    }
+
+    private MatchState MatchLiteral(
+        Segment segment,
+        IReadOnlyList<Segment> segments,
+        IReadOnlyList<string> transcriptTokens,
+        int segmentIndex,
+        int tokenIndex,
+        Dictionary<string, string> captures,
+        int constrainedCaptureMatches)
+    {
+        if (!MatchesTokens(transcriptTokens, tokenIndex, segment.Tokens))
+        {
+            return default;
+        }
+
+        return MatchSegments(
+            segments,
+            transcriptTokens,
+            segmentIndex + 1,
+            tokenIndex + segment.Tokens.Length,
+            CloneCaptures(captures),
+            constrainedCaptureMatches);
+    }
+
+    private MatchState MatchOptionalLiteral(
+        Segment segment,
+        IReadOnlyList<Segment> segments,
+        IReadOnlyList<string> transcriptTokens,
+        int segmentIndex,
+        int tokenIndex,
+        Dictionary<string, string> captures,
+        int constrainedCaptureMatches)
+    {
+        if (!MatchesTokens(transcriptTokens, tokenIndex, segment.Tokens))
+        {
+            return default;
+        }
+
+        return MatchSegments(
+            segments,
+            transcriptTokens,
+            segmentIndex + 1,
+            tokenIndex + segment.Tokens.Length,
+            CloneCaptures(captures),
+            constrainedCaptureMatches);
+    }
+
+    private MatchState MatchOptionalAlternatives(
+        Segment segment,
+        IReadOnlyList<Segment> segments,
+        IReadOnlyList<string> transcriptTokens,
+        int segmentIndex,
+        int tokenIndex,
+        Dictionary<string, string> captures,
+        int constrainedCaptureMatches)
+    {
+        var bestMatch = MatchSegments(
+            segments,
+            transcriptTokens,
+            segmentIndex + 1,
+            tokenIndex,
+            CloneCaptures(captures),
+            constrainedCaptureMatches);
+
+        foreach (var alternative in segment.Alternatives)
+        {
+            if (!MatchesTokens(transcriptTokens, tokenIndex, alternative))
+            {
+                continue;
+            }
+
+            var candidate = MatchSegments(
+                segments,
+                transcriptTokens,
+                segmentIndex + 1,
+                tokenIndex + alternative.Length,
+                CloneCaptures(captures),
+                constrainedCaptureMatches);
+
+            bestMatch = ChooseBetterMatch(bestMatch, candidate, transcriptTokens.Count);
+        }
+
+        return bestMatch;
+    }
+
+    private MatchState MatchConstrainedCapture(
+        Segment segment,
+        IReadOnlyList<Segment> segments,
+        IReadOnlyList<string> transcriptTokens,
+        int segmentIndex,
+        int tokenIndex,
+        Dictionary<string, string> captures,
+        int constrainedCaptureMatches)
+    {
+        var bestMatch = default(MatchState);
+
+        foreach (var alternative in segment.Alternatives.OrderByDescending(static option => option.Length))
+        {
+            if (!MatchesTokens(transcriptTokens, tokenIndex, alternative))
+            {
+                continue;
+            }
+
+            var nextCaptures = CloneCaptures(captures);
+            nextCaptures[segment.Name!] = string.Join(' ', alternative);
+
+            var candidate = MatchSegments(
+                segments,
+                transcriptTokens,
+                segmentIndex + 1,
+                tokenIndex + alternative.Length,
+                nextCaptures,
+                constrainedCaptureMatches + 1);
+
+            bestMatch = ChooseBetterMatch(bestMatch, candidate, transcriptTokens.Count);
+        }
+
+        return bestMatch;
+    }
+
+    private MatchState MatchCapture(
+        Segment segment,
+        IReadOnlyList<Segment> segments,
+        IReadOnlyList<string> transcriptTokens,
+        int segmentIndex,
+        int tokenIndex,
+        Dictionary<string, string> captures,
+        int constrainedCaptureMatches)
+    {
+        var minimumRemainingTokens = GetMinimumRequiredTokens(segments, segmentIndex + 1);
+        var maximumExclusive = transcriptTokens.Count - minimumRemainingTokens;
+        if (maximumExclusive <= tokenIndex)
+        {
+            return default;
+        }
+
+        var bestMatch = default(MatchState);
+        for (var captureEnd = tokenIndex + 1; captureEnd <= maximumExclusive; captureEnd++)
+        {
+            var nextCaptures = CloneCaptures(captures);
+            nextCaptures[segment.Name!] = string.Join(' ', transcriptTokens.Skip(tokenIndex).Take(captureEnd - tokenIndex));
+
+            var candidate = MatchSegments(
+                segments,
+                transcriptTokens,
+                segmentIndex + 1,
+                captureEnd,
+                nextCaptures,
+                constrainedCaptureMatches);
+
+            bestMatch = ChooseBetterMatch(bestMatch, candidate, transcriptTokens.Count);
+        }
+
+        return bestMatch;
+    }
+
+    private static int GetMinimumRequiredTokens(IReadOnlyList<Segment> segments, int startIndex)
+    {
+        var total = 0;
+
+        for (var index = startIndex; index < segments.Count; index++)
+        {
+            total += segments[index].Kind switch
+            {
+                SegmentKind.OptionalLiteral or SegmentKind.OptionalAlternatives => 0,
+                SegmentKind.Capture => 1,
+                SegmentKind.ConstrainedCapture => segments[index].Alternatives.Min(static option => option.Length),
+                _ => segments[index].Tokens.Length,
+            };
+        }
+
+        return total;
+    }
+
+    private static bool MatchesTokens(IReadOnlyList<string> transcriptTokens, int tokenIndex, IReadOnlyList<string> expectedTokens)
+    {
+        if (expectedTokens.Count is 0 || tokenIndex + expectedTokens.Count > transcriptTokens.Count)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < expectedTokens.Count; index++)
+        {
+            if (!string.Equals(transcriptTokens[tokenIndex + index], expectedTokens[index], StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static MatchState ChooseBetterMatch(MatchState current, MatchState candidate, int totalTokens)
+    {
+        if (!candidate.Matched)
+        {
+            return current;
+        }
+
+        if (!current.Matched)
+        {
+            return candidate;
+        }
+
+        var currentConfidence = CalculateConfidence(totalTokens - current.TokenIndex, current.ConstrainedCaptureMatches);
+        var candidateConfidence = CalculateConfidence(totalTokens - candidate.TokenIndex, candidate.ConstrainedCaptureMatches);
+
+        if (candidateConfidence > currentConfidence)
+        {
+            return candidate;
+        }
+
+        if (candidateConfidence < currentConfidence)
+        {
+            return current;
+        }
+
+        if (candidate.TokenIndex > current.TokenIndex)
+        {
+            return candidate;
+        }
+
+        if (candidate.TokenIndex < current.TokenIndex)
+        {
+            return current;
+        }
+
+        return candidate.Captures.Count >= current.Captures.Count ? candidate : current;
+    }
+
+    private static float CalculateConfidence(int leftoverTokens, int constrainedCaptureMatches)
+    {
+        var confidence = 0.5f;
+        if (constrainedCaptureMatches > 0)
+        {
+            confidence += 0.3f;
+        }
+
+        confidence += leftoverTokens is 0
+            ? 0.1f
+            : -0.05f * leftoverTokens;
+
+        return Math.Clamp(confidence, 0f, 1f);
+    }
+
+    private static Dictionary<string, string> CloneCaptures(Dictionary<string, string> captures) =>
+        new(captures, StringComparer.OrdinalIgnoreCase);
+
+    private enum SegmentKind
+    {
+        Literal,
+        OptionalLiteral,
+        OptionalAlternatives,
+        Capture,
+        ConstrainedCapture,
+    }
+
+    private readonly record struct Segment(
+        SegmentKind Kind,
+        string? Name,
+        string[] Tokens,
+        string[][] Alternatives);
+
+    private readonly record struct MatchState(
+        bool Matched,
+        int TokenIndex,
+        Dictionary<string, string> Captures,
+        int ConstrainedCaptureMatches);
+}

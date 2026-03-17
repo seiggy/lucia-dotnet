@@ -372,9 +372,9 @@ public sealed class EntityLocationService : IEntityLocationService
 
             await Task.WhenAll(floorTask, areaTask, entityTask).ConfigureAwait(false);
 
-            floorMatches = floorTask.Result;
-            areaMatches = areaTask.Result;
-            entityMatches = entityTask.Result;
+            floorMatches = await floorTask.ConfigureAwait(false);
+            areaMatches = await areaTask.ConfigureAwait(false);
+            entityMatches = await entityTask.ConfigureAwait(false);
         }
 
         // Compare best embedding similarity across levels to decide resolution path
@@ -929,24 +929,30 @@ public sealed class EntityLocationService : IEntityLocationService
             await Task.WhenAll(floorsJson, areasJson, entitiesJson, loadedAtStr, versionVal)
                 .ConfigureAwait(false);
 
-            if (floorsJson.Result.IsNullOrEmpty || areasJson.Result.IsNullOrEmpty || entitiesJson.Result.IsNullOrEmpty)
+            var floorsResult = await floorsJson.ConfigureAwait(false);
+            var areasResult = await areasJson.ConfigureAwait(false);
+            var entitiesResult = await entitiesJson.ConfigureAwait(false);
+            var loadedAtResult = await loadedAtStr.ConfigureAwait(false);
+            var versionResult = await versionVal.ConfigureAwait(false);
+
+            if (floorsResult.IsNullOrEmpty || areasResult.IsNullOrEmpty || entitiesResult.IsNullOrEmpty)
                 return false;
 
-            var floors = JsonSerializer.Deserialize<FloorInfo[]>((string)floorsJson.Result!)
+            var floors = JsonSerializer.Deserialize<FloorInfo[]>((string)floorsResult!)
                 ?.ToImmutableArray() ?? ImmutableArray<FloorInfo>.Empty;
-            var areas = JsonSerializer.Deserialize<AreaInfo[]>((string)areasJson.Result!)
+            var areas = JsonSerializer.Deserialize<AreaInfo[]>((string)areasResult!)
                 ?.ToImmutableArray() ?? ImmutableArray<AreaInfo>.Empty;
-            var entities = JsonSerializer.Deserialize<HomeAssistantEntity[]>((string)entitiesJson.Result!)
+            var entities = JsonSerializer.Deserialize<HomeAssistantEntity[]>((string)entitiesResult!)
                 ?.ToImmutableArray() ?? ImmutableArray<HomeAssistantEntity>.Empty;
 
             SwapData(floors, areas, entities);
 
-            if (!loadedAtStr.Result.IsNullOrEmpty && DateTimeOffset.TryParse((string)loadedAtStr.Result!, out var loadedAt))
+            if (!loadedAtResult.IsNullOrEmpty && DateTimeOffset.TryParse((string)loadedAtResult!, out var loadedAt))
             {
                 Volatile.Write(ref _lastLoadedAtTicks, loadedAt.UtcTicks);
             }
 
-            if (versionVal.Result.TryParse(out long ver))
+            if (versionResult.TryParse(out long ver))
             {
                 Volatile.Write(ref _knownVersion, ver);
             }

@@ -15,16 +15,18 @@ public sealed class RedisTaskStore : ITaskStore
     
     private readonly IConnectionMultiplexer _redis;
     private readonly JsonSerializerOptions _jsonOptions;
-    private static readonly ActivitySource ActivitySource = new("lucia.Agents.RedisTaskStore");
-    private static readonly Meter Meter = new("lucia.Agents.RedisTaskStore", "1.0.0");
+    private readonly AgentsTelemetrySource _telemetrySource;
     
     private readonly Histogram<double> _taskSaveDurationMs;
     private readonly Histogram<double> _taskLoadDurationMs;
     private readonly Counter<long> _taskCacheHits;
     private readonly Counter<long> _taskCacheMisses;
 
-    public RedisTaskStore(IConnectionMultiplexer redis)
+    public RedisTaskStore(
+        IConnectionMultiplexer redis,
+        AgentsTelemetrySource telemetrySource)
     {
+        _telemetrySource = telemetrySource;
         _redis = redis ?? throw new ArgumentNullException(nameof(redis));
         _jsonOptions = new JsonSerializerOptions
         {
@@ -33,28 +35,28 @@ public sealed class RedisTaskStore : ITaskStore
         };
 
         // Initialize metrics
-        _taskSaveDurationMs = Meter.CreateHistogram<double>(
+        _taskSaveDurationMs = _telemetrySource.Meter.CreateHistogram<double>(
             "task_save_duration_ms",
             unit: "ms",
             description: "Duration in milliseconds to save a task to Redis");
 
-        _taskLoadDurationMs = Meter.CreateHistogram<double>(
+        _taskLoadDurationMs = _telemetrySource.Meter.CreateHistogram<double>(
             "task_load_duration_ms",
             unit: "ms",
             description: "Duration in milliseconds to load a task from Redis");
 
-        _taskCacheHits = Meter.CreateCounter<long>(
+        _taskCacheHits = _telemetrySource.Meter.CreateCounter<long>(
             "task_cache_hits",
             description: "Number of successful task loads from cache");
 
-        _taskCacheMisses = Meter.CreateCounter<long>(
+        _taskCacheMisses = _telemetrySource.Meter.CreateCounter<long>(
             "task_cache_misses",
             description: "Number of task cache misses (not found in Redis)");
     }
 
     public async Task<AgentTask?> GetTaskAsync(string taskId, CancellationToken cancellationToken = default)
     {
-        using var activity = ActivitySource.StartActivity("GetTask");
+        using var activity = _telemetrySource.ActivitySource.StartActivity();
         activity?.SetTag("taskId", taskId);
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
@@ -84,7 +86,7 @@ public sealed class RedisTaskStore : ITaskStore
         string notificationConfigId, 
         CancellationToken cancellationToken = default)
     {
-        using var activity = ActivitySource.StartActivity("GetPushNotification");
+        using var activity = _telemetrySource.ActivitySource.StartActivity();
         activity?.SetTag("taskId", taskId);
         activity?.SetTag("notificationConfigId", notificationConfigId);
 
@@ -108,7 +110,7 @@ public sealed class RedisTaskStore : ITaskStore
         AgentMessage? message = null, 
         CancellationToken cancellationToken = default)
     {
-        using var activity = ActivitySource.StartActivity("UpdateStatus");
+        using var activity = _telemetrySource.ActivitySource.StartActivity();
         activity?.SetTag("taskId", taskId);
         activity?.SetTag("status", status.ToString());
 
@@ -142,7 +144,7 @@ public sealed class RedisTaskStore : ITaskStore
 
     public async Task SetTaskAsync(AgentTask task, CancellationToken cancellationToken = default)
     {
-        using var activity = ActivitySource.StartActivity("SetTask");
+        using var activity = _telemetrySource.ActivitySource.StartActivity();
         activity?.SetTag("taskId", task.Id);
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
@@ -168,7 +170,7 @@ public sealed class RedisTaskStore : ITaskStore
         TaskPushNotificationConfig pushNotificationConfig, 
         CancellationToken cancellationToken = default)
     {
-        using var activity = ActivitySource.StartActivity("SetPushNotificationConfig");
+        using var activity = _telemetrySource.ActivitySource.StartActivity();
         activity?.SetTag("taskId", pushNotificationConfig.TaskId);
 
         var db = _redis.GetDatabase();
@@ -184,7 +186,7 @@ public sealed class RedisTaskStore : ITaskStore
         string taskId, 
         CancellationToken cancellationToken = default)
     {
-        using var activity = ActivitySource.StartActivity("GetPushNotifications");
+        using var activity = _telemetrySource.ActivitySource.StartActivity();
         activity?.SetTag("taskId", taskId);
 
         var db = _redis.GetDatabase();

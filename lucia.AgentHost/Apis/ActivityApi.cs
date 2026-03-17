@@ -54,20 +54,27 @@ public static class ActivityApi
         ctx.Response.Headers.CacheControl = "no-cache";
         ctx.Response.Headers.Connection = "keep-alive";
 
-        // Send an immediate ack so the browser triggers EventSource.onopen
-        var ack = JsonSerializer.Serialize(new LiveEvent
+        try
         {
-            Type = LiveEvent.Types.Connected,
-            State = LiveEvent.States.Idle,
-        }, JsonOptions);
-        await ctx.Response.WriteAsync($"data: {ack}\n\n", ct).ConfigureAwait(false);
-        await ctx.Response.Body.FlushAsync(ct).ConfigureAwait(false);
-
-        await foreach (var evt in channel.ReadAllAsync(ct).ConfigureAwait(false))
-        {
-            var json = JsonSerializer.Serialize(evt, JsonOptions);
-            await ctx.Response.WriteAsync($"data: {json}\n\n", ct).ConfigureAwait(false);
+            // Send an immediate ack so the browser triggers EventSource.onopen
+            var ack = JsonSerializer.Serialize(new LiveEvent
+            {
+                Type = LiveEvent.Types.Connected,
+                State = LiveEvent.States.Idle,
+            }, JsonOptions);
+            await ctx.Response.WriteAsync($"data: {ack}\n\n", ct).ConfigureAwait(false);
             await ctx.Response.Body.FlushAsync(ct).ConfigureAwait(false);
+
+            await foreach (var evt in channel.ReadAllAsync(ct).ConfigureAwait(false))
+            {
+                var json = JsonSerializer.Serialize(evt, JsonOptions);
+                await ctx.Response.WriteAsync($"data: {json}\n\n", ct).ConfigureAwait(false);
+                await ctx.Response.Body.FlushAsync(ct).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Client disconnected — normal SSE lifecycle, not an error
         }
     }
 
@@ -128,17 +135,21 @@ public static class ActivityApi
         [FromServices] IPromptCacheService cacheService,
         CancellationToken ct)
     {
-        var traceStats = await traceRepo.GetStatsAsync(ct).ConfigureAwait(false);
-        var taskStats = await taskArchive.GetTaskStatsAsync(ct).ConfigureAwait(false);
-        var cacheStats = await cacheService.GetStatsAsync(ct).ConfigureAwait(false);
-        var chatCacheStats = await cacheService.GetChatCacheStatsAsync(ct).ConfigureAwait(false);
+        // All four calls hit independent data sources — run in parallel
+        var traceStatsTask = traceRepo.GetStatsAsync(ct);
+        var taskStatsTask = taskArchive.GetTaskStatsAsync(ct);
+        var cacheStatsTask = cacheService.GetStatsAsync(ct);
+        var chatCacheStatsTask = cacheService.GetChatCacheStatsAsync(ct);
+
+        await Task.WhenAll(traceStatsTask, taskStatsTask, cacheStatsTask, chatCacheStatsTask)
+            .ConfigureAwait(false);
 
         return TypedResults.Ok(new ActivitySummary
         {
-            Traces = traceStats,
-            Tasks = taskStats,
-            Cache = cacheStats,
-            ChatCache = chatCacheStats,
+            Traces = await traceStatsTask.ConfigureAwait(false),
+            Tasks = await taskStatsTask.ConfigureAwait(false),
+            Cache = await cacheStatsTask.ConfigureAwait(false),
+            ChatCache = await chatCacheStatsTask.ConfigureAwait(false),
         });
     }
 

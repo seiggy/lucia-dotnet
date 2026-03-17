@@ -23,16 +23,18 @@ public class LuciaEngine
     private readonly IOptions<ResultAggregatorOptions> _aggregatorOptions;
     private readonly ILogger<LuciaEngine> _logger;
     private readonly IOrchestratorObserver? _observer;
-    private static readonly ActivitySource ActivitySource = new("Lucia.Agents.Orchestration.LuciaEngine", "1.0.0");
+    private readonly AgentsTelemetrySource _telemetrySource;
 
     public LuciaEngine(
         IAgentRegistry agentRegistry,
         SessionManager sessionManager,
         WorkflowFactory workflowFactory,
         IOptions<ResultAggregatorOptions> aggregatorOptions,
+        AgentsTelemetrySource telemetrySource,
         ILogger<LuciaEngine> logger,
         IOrchestratorObserver? observer = null)
     {
+        _telemetrySource = telemetrySource;
         _agentRegistry = agentRegistry ?? throw new ArgumentNullException(nameof(agentRegistry));
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
         _workflowFactory = workflowFactory ?? throw new ArgumentNullException(nameof(workflowFactory));
@@ -55,7 +57,7 @@ public class LuciaEngine
         string? sessionId = null,
         CancellationToken cancellationToken = default)
     {
-        var activity = ActivitySource.StartActivity();
+        var activity = _telemetrySource.ActivitySource.StartActivity();
         activity?.AddBaggage(nameof(userRequest), userRequest);
         _logger.LogInformation("Processing user request: {Request} (TaskId: {TaskId}, SessionId: {SessionId})",
             userRequest, taskId ?? "new", sessionId ?? "new");
@@ -74,8 +76,8 @@ public class LuciaEngine
             var agentTaskTask = _sessionManager.LoadOrCreateTaskAsync(taskId, sessionId, cancellationToken);
             await Task.WhenAll(sessionTask, agentTaskTask).ConfigureAwait(false);
 
-            var sessionData = sessionTask.Result;
-            var agentTask = agentTaskTask.Result;
+            var sessionData = await sessionTask.ConfigureAwait(false);
+            var agentTask = await agentTaskTask.ConfigureAwait(false);
             activity?.AddEvent(new ActivityEvent("SessionRehydrateEnd"));
             
             // Add user message to task history
@@ -105,7 +107,7 @@ public class LuciaEngine
             await Task.WhenAll(updateWorkingTask, agentCardsTask).ConfigureAwait(false);
             activity?.AddEvent(new ActivityEvent("RetrieveAgentsCompleted"));
 
-            var availableAgentCards = agentCardsTask.Result;
+            var availableAgentCards = await agentCardsTask.ConfigureAwait(false);
 
             if (availableAgentCards.Count == 0)
             {
