@@ -168,7 +168,7 @@ RUN apk add --no-cache curl unzip
 # These replace the CPU-only libs from the NuGet package
 RUN mkdir -p /gpu-libs && \
     curl -fSL --retry 3 --retry-delay 5 \
-      "https://github.com/csukuangfj/onnxruntime-libs/releases/download/v1.23.2/onnxruntime-linux-x64-gpu-cuda12-glibc2_28-Release-1.23.2.zip" \
+      "https://github.com/csukuangfj/onnxruntime-libs/releases/download/v1.23.2/onnxruntime-linux-x64-gpu-1.23.2-patched.zip" \
       -o /tmp/ort-gpu.zip && \
     unzip -j /tmp/ort-gpu.zip "*/lib/libonnxruntime*.so*" -d /gpu-libs/ 2>/dev/null || \
     unzip -j /tmp/ort-gpu.zip "*/libonnxruntime*.so*" -d /gpu-libs/ 2>/dev/null || \
@@ -199,6 +199,7 @@ COPY ["lucia.HomeAssistant/lucia.HomeAssistant.csproj", "lucia.HomeAssistant/"]
 COPY ["lucia.MusicAgent/lucia.MusicAgent.csproj", "lucia.MusicAgent/"]
 COPY ["lucia.ServiceDefaults/lucia.ServiceDefaults.csproj", "lucia.ServiceDefaults/"]
 COPY ["lucia.TimerAgent/lucia.TimerAgent.csproj", "lucia.TimerAgent/"]
+COPY ["lucia.Wyoming/lucia.Wyoming.csproj", "lucia.Wyoming/"]
 
 # Restore dependencies (skip Copilot CLI download — handled in copilot-cli stage)
 # This layer is cached unless .csproj files change

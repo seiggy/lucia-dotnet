@@ -46,21 +46,6 @@ jobs:
             title: Lucia Agent Host (Voice)
             description: AI-powered Home Assistant agent with pre-loaded Wyoming voice models
             tag_suffix: "-voice"
-          - image: seiggy/lucia-a2ahost
-            dockerfile: ./infra/docker/Dockerfile.a2ahost
-            title: Lucia A2A Host (base)
-            description: Base A2A agent host runtime (no plugins)
-            tag_suffix: ""
-          - image: seiggy/lucia-music-agent
-            dockerfile: ./infra/docker/Dockerfile.music-agent
-            title: Lucia Music Agent
-            description: A2A music playback agent plugin
-            tag_suffix: ""
-          - image: seiggy/lucia-timer-agent
-            dockerfile: ./infra/docker/Dockerfile.timer-agent
-            title: Lucia Timer Agent
-            description: A2A timer and announcement agent plugin
-            tag_suffix: ""
 
     steps:
       - name: Checkout repository
@@ -224,9 +209,6 @@ jobs:
             |-------|--------|
             | \`seiggy/lucia-agenthost\` | ✅ Built |
             | \`seiggy/lucia-agenthost:voice\` | ✅ Built |
-            | \`seiggy/lucia-a2ahost\` | ✅ Built |
-            | \`seiggy/lucia-music-agent\` | ✅ Built |
-            | \`seiggy/lucia-timer-agent\` | ✅ Built |
 
             **Platforms:** \`linux/amd64\`, \`linux/arm64\`
 
