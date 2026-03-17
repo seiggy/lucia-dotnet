@@ -1214,9 +1214,9 @@ Hardened multi-service Docker Compose deployment (`infra/docker/`):
 
 See our [Roadmap](https://github.com/seiggy/lucia-dotnet/blob/master/.docs/product/roadmap.md) for upcoming features:
 
-- **Climate Agent** — HVAC and temperature control
+- ~~**Climate Agent** — HVAC and temperature control~~ *(shipped in Solstice)*
 - **Security Agent** — Alarms, locks, and camera integration
-- **Scene Agent** — Scene management and automation
+- ~~**Scene Agent** — Scene management and automation~~ *(shipped in Solstice)*
 - **WebSocket Streaming** — Real-time Home Assistant event monitoring
 - **Local LLM Fine-Tuning** — Use captured training data with local models for privacy-first deployment
 - **Training UI Enhancements** — Batch labeling, inter-annotator agreement, and quality dashboards

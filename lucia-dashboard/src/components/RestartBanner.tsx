@@ -2,7 +2,11 @@ import { useEffect, useState } from 'react'
 import { AlertTriangle, RotateCcw } from 'lucide-react'
 import { fetchRestartRequired, triggerRestart } from '../api'
 
-export default function RestartBanner() {
+interface RestartBannerProps {
+  onNotify?: (message: string, type: 'success' | 'error') => void
+}
+
+export default function RestartBanner({ onNotify }: RestartBannerProps) {
   const [needed, setNeeded] = useState(false)
   const [restarting, setRestarting] = useState(false)
 
@@ -12,7 +16,7 @@ export default function RestartBanner() {
         const { restartRequired } = await fetchRestartRequired()
         setNeeded(restartRequired)
       } catch {
-        /* ignore */
+        // Polling failure is non-critical — we'll retry on the next interval
       }
     }
     poll()
@@ -26,8 +30,12 @@ export default function RestartBanner() {
     setRestarting(true)
     try {
       await triggerRestart()
-    } catch {
+    } catch (err) {
       setRestarting(false)
+      onNotify?.(
+        `Restart failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        'error',
+      )
     }
   }
 

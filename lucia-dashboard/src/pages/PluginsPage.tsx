@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import {
   Puzzle,
   Store,
@@ -24,14 +24,10 @@ import {
 import RestartBanner from '../components/RestartBanner'
 import PluginRepoDialog from '../components/PluginRepoDialog'
 import PluginConfigTab from '../components/PluginConfigTab'
+import ToastContainer from '../components/ToastContainer'
+import { useToast } from '../hooks/useToast'
 
 type Tab = 'installed' | 'store' | 'config'
-
-interface Toast {
-  id: number
-  message: string
-  type: 'success' | 'error'
-}
 
 export default function PluginsPage() {
   const [tab, setTab] = useState<Tab>('installed')
@@ -42,14 +38,7 @@ export default function PluginsPage() {
   const [loadingInstalled, setLoadingInstalled] = useState(true)
   const [loadingStore, setLoadingStore] = useState(false)
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set())
-  const [toasts, setToasts] = useState<Toast[]>([])
-  const toastIdRef = useRef(0)
-
-  const addToast = useCallback((message: string, type: 'success' | 'error') => {
-    const id = ++toastIdRef.current
-    setToasts(prev => [...prev, { id, message, type }])
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000)
-  }, [])
+  const { toasts, addToast, dismissToast } = useToast()
 
   const markBusy = (id: string, busy: boolean) =>
     setBusyIds(prev => {
@@ -168,7 +157,7 @@ export default function PluginsPage() {
         </button>
       </div>
 
-      <RestartBanner />
+      <RestartBanner onNotify={addToast} />
 
       {/* Tabs */}
       <div className="flex gap-1 rounded-lg border border-stone/40 bg-obsidian p-1">
@@ -344,21 +333,10 @@ export default function PluginsPage() {
       {/* Configuration Tab */}
       {tab === 'config' && <PluginConfigTab />}
 
-      <PluginRepoDialog open={repoDialogOpen} onClose={() => setRepoDialogOpen(false)} />
+      <PluginRepoDialog open={repoDialogOpen} onClose={() => setRepoDialogOpen(false)} onNotify={addToast} />
 
       {/* Toasts */}
-      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
-        {toasts.map(t => (
-          <div
-            key={t.id}
-            className={`rounded-lg px-4 py-3 text-sm shadow-lg ${
-              t.type === 'success' ? 'bg-sage/20 text-light' : 'bg-rose/20 text-light'
-            }`}
-          >
-            {t.message}
-          </div>
-        ))}
-      </div>
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   )
 }

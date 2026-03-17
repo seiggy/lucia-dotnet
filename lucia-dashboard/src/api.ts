@@ -1,3 +1,12 @@
+/**
+ * Typed API client for the Lucia AgentHost REST API.
+ *
+ * All functions target `/api/*` endpoints and are consumed by TanStack Query
+ * hooks in page components. Errors are thrown as `Error` instances with
+ * descriptive messages for the UI to display.
+ *
+ * @module api
+ */
 import type {
   ConversationTrace,
   PagedResult,
@@ -25,6 +34,7 @@ import type {
 
 const BASE = '/api';
 
+/** Fetch paginated conversation traces with optional query string filters. */
 export async function fetchTraces(
   params: Record<string, string>,
 ): Promise<PagedResult<ConversationTrace>> {
@@ -40,6 +50,7 @@ export async function fetchTrace(id: string): Promise<ConversationTrace> {
   return res.json();
 }
 
+/** Summary of a trace related to a given trace (e.g., fan companion requests). */
 export interface RelatedTraceSummary {
   id: string;
   timestamp: string;
@@ -373,25 +384,60 @@ export async function regenerateApiKey(id: string): Promise<GenerateKeyResponse 
   return res.json();
 }
 
-export async function fetchPromptCacheEntries() {
+// ── Prompt Cache (routing-level) ──
+
+export interface PromptCacheEntry {
+  cacheKey: string
+  normalizedPrompt: string
+  agentId: string
+  confidence: number
+  reasoning: string | null
+  hitCount: number
+  createdAt: string
+  lastHitAt: string | null
+}
+
+export interface ChatCacheEntry {
+  cacheKey: string
+  normalizedPrompt: string
+  responseText: string | null
+  functionCalls: { callId: string; name: string; argumentsJson: string | null }[] | null
+  modelId: string | null
+  hitCount: number
+  createdAt: string
+  lastHitAt: string
+}
+
+export interface CacheStats {
+  totalEntries: number
+  hitRate: number
+  totalHits: number
+  totalMisses: number
+}
+
+export interface CacheEvictResult {
+  evicted: boolean
+}
+
+export async function fetchPromptCacheEntries(): Promise<PromptCacheEntry[]> {
   const res = await fetch(`${BASE}/prompt-cache`);
   if (!res.ok) throw new Error(`Failed to fetch cache entries: ${res.statusText}`);
   return res.json();
 }
 
-export async function fetchPromptCacheStats() {
+export async function fetchPromptCacheStats(): Promise<CacheStats> {
   const res = await fetch(`${BASE}/prompt-cache/stats`);
   if (!res.ok) throw new Error(`Failed to fetch cache stats: ${res.statusText}`);
   return res.json();
 }
 
-export async function evictPromptCacheEntry(cacheKey: string) {
+export async function evictPromptCacheEntry(cacheKey: string): Promise<CacheEvictResult> {
   const res = await fetch(`${BASE}/prompt-cache/entry/${encodeURIComponent(cacheKey)}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`Failed to evict cache entry: ${res.statusText}`);
   return res.json();
 }
 
-export async function evictAllPromptCache() {
+export async function evictAllPromptCache(): Promise<CacheEvictResult> {
   const res = await fetch(`${BASE}/prompt-cache`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`Failed to clear cache: ${res.statusText}`);
   return res.json();
@@ -399,25 +445,25 @@ export async function evictAllPromptCache() {
 
 // ── Chat Cache (agent-level) ──
 
-export async function fetchChatCacheEntries() {
+export async function fetchChatCacheEntries(): Promise<ChatCacheEntry[]> {
   const res = await fetch(`${BASE}/chat-cache`);
   if (!res.ok) throw new Error(`Failed to fetch chat cache entries: ${res.statusText}`);
   return res.json();
 }
 
-export async function fetchChatCacheStats() {
+export async function fetchChatCacheStats(): Promise<CacheStats> {
   const res = await fetch(`${BASE}/chat-cache/stats`);
   if (!res.ok) throw new Error(`Failed to fetch chat cache stats: ${res.statusText}`);
   return res.json();
 }
 
-export async function evictChatCacheEntry(cacheKey: string) {
+export async function evictChatCacheEntry(cacheKey: string): Promise<CacheEvictResult> {
   const res = await fetch(`${BASE}/chat-cache/entry/${encodeURIComponent(cacheKey)}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`Failed to evict chat cache entry: ${res.statusText}`);
   return res.json();
 }
 
-export async function evictAllChatCache() {
+export async function evictAllChatCache(): Promise<CacheEvictResult> {
   const res = await fetch(`${BASE}/chat-cache`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`Failed to clear chat cache: ${res.statusText}`);
   return res.json();
@@ -894,7 +940,49 @@ export interface EntityLocationEmbeddingProgress {
   lastLoadedAt: string | null
 }
 
-export async function fetchEntityLocationSummary() {
+export interface EntityLocationSummary {
+  floorCount: number
+  areaCount: number
+  entityCount: number
+  floorEmbeddingsGenerated?: number
+  areaEmbeddingsGenerated?: number
+  entityEmbeddingsGenerated?: number
+  entityEmbeddingsMissing?: number
+  embeddingGenerationInProgress?: boolean
+  lastLoadedAt: string | null
+}
+
+export interface FloorInfo {
+  floorId: string
+  name: string
+  aliases: string[]
+  level: number | null
+  icon: string | null
+}
+
+export interface AreaInfo {
+  areaId: string
+  name: string
+  floorId: string | null
+  aliases: string[]
+  entityIds?: string[]
+  entityCount?: number
+  icon: string | null
+  labels: string[]
+}
+
+export interface EntityLocationInfo {
+  entityId: string
+  friendlyName: string
+  domain: string
+  aliases: string[]
+  areaId: string | null
+  platform: string | null
+  embeddingGenerated?: boolean
+  includeForAgent: string[] | null
+}
+
+export async function fetchEntityLocationSummary(): Promise<EntityLocationSummary> {
   const res = await fetch(`${BASE}/entity-location`);
   if (!res.ok) throw new Error(`Failed to fetch location summary: ${res.statusText}`);
   return res.json();
@@ -906,19 +994,19 @@ export async function fetchAvailableDomains(): Promise<string[]> {
   return res.json();
 }
 
-export async function fetchEntityLocationFloors() {
+export async function fetchEntityLocationFloors(): Promise<FloorInfo[]> {
   const res = await fetch(`${BASE}/entity-location/floors`);
   if (!res.ok) throw new Error(`Failed to fetch floors: ${res.statusText}`);
   return res.json();
 }
 
-export async function fetchEntityLocationAreas() {
+export async function fetchEntityLocationAreas(): Promise<AreaInfo[]> {
   const res = await fetch(`${BASE}/entity-location/areas`);
   if (!res.ok) throw new Error(`Failed to fetch areas: ${res.statusText}`);
   return res.json();
 }
 
-export async function fetchEntityLocationEntities(domain?: string, agent?: string) {
+export async function fetchEntityLocationEntities(domain?: string, agent?: string): Promise<EntityLocationInfo[]> {
   const params = new URLSearchParams();
   if (domain) params.set('domain', domain);
   if (agent) params.set('agent', agent);
@@ -928,7 +1016,16 @@ export async function fetchEntityLocationEntities(domain?: string, agent?: strin
   return res.json();
 }
 
-export async function searchEntityLocation(term: string, domain?: string, agent?: string) {
+/**
+ * Search results may come as `EntityLocationInfo[]` directly or wrapped in
+ * `{ entities: EntityLocationInfo[] }`. Consumers should handle both shapes.
+ */
+export async function searchEntityLocation(
+  term: string,
+  domain?: string,
+  agent?: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<any> {
   const params = new URLSearchParams();
   if (domain) params.set('domain', domain);
   if (agent) params.set('agent', agent);
@@ -938,10 +1035,10 @@ export async function searchEntityLocation(term: string, domain?: string, agent?
   return res.json();
 }
 
-export async function invalidateEntityLocationCache() {
+export async function invalidateEntityLocationCache(): Promise<void> {
   const res = await fetch(`${BASE}/entity-location/invalidate`, { method: 'POST' });
   if (!res.ok) throw new Error(`Failed to invalidate location cache: ${res.statusText}`);
-  return res.json();
+  await res.json();
 }
 
 export async function fetchEntityLocationEmbeddingProgress(): Promise<EntityLocationEmbeddingProgress> {

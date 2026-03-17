@@ -1,3 +1,14 @@
+/**
+ * Real-time agent mesh graph visualization using React Flow.
+ *
+ * Displays orchestrator, agent, and tool nodes connected by edges.
+ * Node colours change based on the agent's current processing state
+ * (idle, processing, calling tools, generating response, error).
+ *
+ * Receives topology from `/api/activity/mesh` and state updates
+ * from the SSE {@link useActivityStream} hook in the parent page.
+ */
+
 import { useMemo, useCallback, useEffect } from 'react'
 import {
   ReactFlow,
@@ -27,6 +38,7 @@ const STATE_COLORS: Record<string, { bg: string; border: string; text: string }>
 
 const IDLE_STYLE = STATE_COLORS['Idle']
 
+/** Current processing state of an agent node in the mesh graph. */
 export interface NodeState {
   state: string
   active: boolean
