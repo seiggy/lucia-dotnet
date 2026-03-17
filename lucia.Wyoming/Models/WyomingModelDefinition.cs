@@ -20,4 +20,19 @@ public record WyomingModelDefinition
     /// Whether the download URL points to an archive (tar.bz2, tar.gz, zip) or a single file (.onnx).
     /// </summary>
     public bool IsArchive { get; init; } = true;
+
+    /// <summary>
+    /// The origin of this model definition — curated sherpa-onnx or Hugging Face Hub.
+    /// </summary>
+    public ModelSource Source { get; init; } = ModelSource.SherpaOnnx;
+
+    /// <summary>
+    /// Hugging Face repository ID (e.g. "onnx-community/whisper-tiny"). Only set for HF-sourced models.
+    /// </summary>
+    public string? RepoId { get; init; }
+
+    /// <summary>
+    /// Last modification timestamp from the Hugging Face Hub. Used for update detection.
+    /// </summary>
+    public DateTimeOffset? LastModified { get; init; }
 }

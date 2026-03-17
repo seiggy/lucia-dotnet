@@ -4,7 +4,10 @@ using SharpCompress.Readers;
 
 namespace lucia.Wyoming.Models;
 
-public sealed class ModelDownloader(IHttpClientFactory httpClientFactory, ILogger<ModelDownloader> logger)
+public sealed class ModelDownloader(
+    IHttpClientFactory httpClientFactory,
+    HuggingFaceModelDownloader hfDownloader,
+    ILogger<ModelDownloader> logger)
 {
     private const int BufferSize = 81_920;
 
@@ -17,6 +20,12 @@ public sealed class ModelDownloader(IHttpClientFactory httpClientFactory, ILogge
     {
         ArgumentNullException.ThrowIfNull(model);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetBasePath);
+
+        // Dispatch HuggingFace models to the HF CLI downloader
+        if (model.Source == ModelSource.HuggingFace && !string.IsNullOrWhiteSpace(model.RepoId))
+        {
+            return await hfDownloader.DownloadModelAsync(model.RepoId, targetBasePath, progress, ct);
+        }
 
         var targetDirectory = Path.Combine(targetBasePath, model.Id);
         if (IsModelDirectoryReady(targetDirectory))

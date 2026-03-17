@@ -1,5 +1,6 @@
 using lucia.Wyoming.Models;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using SharpCompress.Common;
 
 namespace lucia.Tests.Wyoming;
@@ -274,7 +275,10 @@ public sealed class ModelDownloaderTests : IDisposable
     private static ModelDownloader CreateDownloader(FakeHttpMessageHandler handler)
     {
         var factory = new StubHttpClientFactory(handler);
-        return new ModelDownloader(factory, NullLogger<ModelDownloader>.Instance);
+        var hfDownloader = new HuggingFaceModelDownloader(
+            new OptionsMonitorStub<HuggingFaceOptions>(new HuggingFaceOptions()),
+            NullLogger<HuggingFaceModelDownloader>.Instance);
+        return new ModelDownloader(factory, hfDownloader, NullLogger<ModelDownloader>.Instance);
     }
 
     private static WyomingModelDefinition CreateModelDefinition(string id, string downloadUrl) =>
@@ -292,5 +296,12 @@ public sealed class ModelDownloaderTests : IDisposable
     private sealed class StubHttpClientFactory(HttpMessageHandler handler) : IHttpClientFactory
     {
         public HttpClient CreateClient(string name) => new(handler);
+    }
+
+    private sealed class OptionsMonitorStub<T>(T currentValue) : IOptionsMonitor<T>
+    {
+        public T CurrentValue => currentValue;
+        public T Get(string? name) => currentValue;
+        public IDisposable? OnChange(Action<T, string?> listener) => null;
     }
 }

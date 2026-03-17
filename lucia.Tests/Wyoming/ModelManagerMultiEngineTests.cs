@@ -169,8 +169,15 @@ public sealed class ModelManagerMultiEngineTests : IDisposable
         var diarizationMonitor = new OptionsMonitorStub<DiarizationOptions>(diarizationOpts);
         var enhancementMonitor = new OptionsMonitorStub<SpeechEnhancementOptions>(new SpeechEnhancementOptions());
 
-        var catalog = new ModelCatalogService(sttMonitor, vadMonitor, wakeMonitor, diarizationMonitor, enhancementMonitor);
-        var downloader = new ModelDownloader(A.Fake<IHttpClientFactory>(), NullLogger<ModelDownloader>.Instance);
+        var provider = new SherpaOnnxCatalogProvider(sttMonitor, vadMonitor, wakeMonitor, diarizationMonitor, enhancementMonitor);
+        var catalog = new ModelCatalogService(
+            new IModelCatalogProvider[] { provider },
+            sttMonitor, vadMonitor, wakeMonitor, diarizationMonitor, enhancementMonitor,
+            NullLogger<ModelCatalogService>.Instance);
+        var hfDownloader = new HuggingFaceModelDownloader(
+            new OptionsMonitorStub<HuggingFaceOptions>(new HuggingFaceOptions()),
+            NullLogger<HuggingFaceModelDownloader>.Instance);
+        var downloader = new ModelDownloader(A.Fake<IHttpClientFactory>(), hfDownloader, NullLogger<ModelDownloader>.Instance);
 
         return new ModelManager(
             sttMonitor,
@@ -181,6 +188,8 @@ public sealed class ModelManagerMultiEngineTests : IDisposable
             new OptionsMonitorStub<HybridSttOptions>(new HybridSttOptions()),
             catalog,
             downloader,
+            hfDownloader,
+            new HuggingFaceClient(A.Fake<IHttpClientFactory>(), new OptionsMonitorStub<HuggingFaceOptions>(new HuggingFaceOptions()), NullLogger<HuggingFaceClient>.Instance),
             NullLogger<ModelManager>.Instance);
     }
 

@@ -45,6 +45,13 @@ You can **only** choose agents from this catalog. The `agentId` you return **mus
    - Reference the specific domain, location, or capability that informed the decision.
    - If clarification is needed, end `reasoning` with the clarifying question `?` as the last sentence.
 
+7) **Entity & Name Preservation**
+  - ALWAYS preserve entity names, device names, room names, and location identifiers
+    exactly as the user stated them — do NOT translate, paraphrase, or normalize them
+    into any other language.
+  - The user's original wording is the ground truth for all entity references.
+  - This applies to all agentInstructions entries
+
 # Output Contract (JSON only)
 Return **only** a single JSON object that conforms to the JSON Schema below. No prose, no markdown, no extra keys.
 

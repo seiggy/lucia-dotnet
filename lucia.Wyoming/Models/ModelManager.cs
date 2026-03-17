@@ -17,11 +17,20 @@ public sealed class ModelManager(
     IOptionsMonitor<HybridSttOptions> hybridSttOptionsMonitor,
     ModelCatalogService catalogService,
     ModelDownloader downloader,
+    HuggingFaceModelDownloader hfDownloader,
+    HuggingFaceClient hfClient,
     ILogger<ModelManager> logger) : IModelChangeNotifier
 {
     private readonly Dictionary<EngineType, string> _activeModelOverrides = [];
 
     public event Action<ActiveModelChangedEvent>? ActiveModelChanged;
+
+    /// <summary>
+    /// Tracks which STT engine type the user last activated (Stt for streaming, OfflineStt for hybrid/offline).
+    /// Used by status and session to determine which engine to prefer when multiple are ready.
+    /// </summary>
+    public EngineType PreferredSttEngineType { get; private set; } =
+        hybridSttOptionsMonitor.CurrentValue.Enabled ? EngineType.OfflineStt : EngineType.Stt;
 
     /// <summary>
     /// Gets the active STT model ID. Convenience wrapper for <see cref="GetActiveModelId(EngineType)"/>.
@@ -154,10 +163,15 @@ public sealed class ModelManager(
     }
 
     /// <summary>
-    /// Switches the active STT model. Convenience wrapper for <see cref="SwitchActiveModelAsync(EngineType, string, CancellationToken)"/>.
+    /// Switches the active model, auto-detecting the engine type from the catalog.
+    /// Falls back to <see cref="EngineType.Stt"/> if the model is not found in any catalog.
     /// </summary>
-    public Task<bool> SwitchActiveModelAsync(string modelId, CancellationToken ct = default) =>
-        SwitchActiveModelAsync(EngineType.Stt, modelId, ct);
+    public Task<bool> SwitchActiveModelAsync(string modelId, CancellationToken ct = default)
+    {
+        var model = catalogService.GetModelById(modelId);
+        var engineType = model?.EngineType ?? EngineType.Stt;
+        return SwitchActiveModelAsync(engineType, modelId, ct);
+    }
 
     public async Task<bool> SwitchActiveModelAsync(EngineType engineType, string modelId, CancellationToken ct = default)
     {
@@ -185,6 +199,13 @@ public sealed class ModelManager(
         }
 
         _activeModelOverrides[engineType] = modelId;
+
+        // Track which STT engine type the user prefers
+        if (engineType is EngineType.Stt or EngineType.OfflineStt)
+        {
+            PreferredSttEngineType = engineType;
+        }
+
         ActiveModelChanged?.Invoke(new ActiveModelChangedEvent
         {
             EngineType = engineType,
@@ -235,6 +256,57 @@ public sealed class ModelManager(
             modelDirectory);
 
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Checks if a HuggingFace-sourced model has an update available by comparing
+    /// the remote lastModified timestamp against local file timestamps.
+    /// </summary>
+    public async Task<bool> CheckForUpdateAsync(
+        EngineType engineType,
+        string modelId,
+        CancellationToken ct = default)
+    {
+        var model = catalogService.GetModelById(engineType, modelId);
+        if (model is null || model.Source != ModelSource.HuggingFace || string.IsNullOrWhiteSpace(model.RepoId))
+        {
+            return false;
+        }
+
+        var modelBasePath = GetModelBasePath(engineType);
+        var localPath = Path.Combine(modelBasePath, modelId);
+
+        // Get the latest remote timestamp from the HF API
+        var remoteInfo = await hfClient.GetModelInfoAsync(model.RepoId, ct);
+        var remoteLastModified = remoteInfo?.LastModified ?? model.LastModified;
+
+        return await hfDownloader.CheckForUpdateAsync(model.RepoId, localPath, remoteLastModified, ct);
+    }
+
+    /// <summary>
+    /// Updates a HuggingFace-sourced model by re-running the HF CLI download.
+    /// </summary>
+    public async Task<ModelDownloadResult> UpdateModelAsync(
+        EngineType engineType,
+        string modelId,
+        IProgress<ModelDownloadProgress>? progress = null,
+        CancellationToken ct = default)
+    {
+        var model = catalogService.GetModelById(engineType, modelId);
+        if (model is null || model.Source != ModelSource.HuggingFace || string.IsNullOrWhiteSpace(model.RepoId))
+        {
+            return ModelDownloadResult.Failure(modelId, "Model is not a HuggingFace model or not found in catalog");
+        }
+
+        var modelBasePath = GetModelBasePath(engineType);
+        var result = await hfDownloader.DownloadModelAsync(model.RepoId, modelBasePath, progress, ct);
+
+        if (result.Success)
+        {
+            logger.LogInformation("Updated HuggingFace model {ModelId} at {Path}", modelId, result.LocalPath);
+        }
+
+        return result;
     }
 
     private string GetConfiguredActiveModel(EngineType engineType) =>

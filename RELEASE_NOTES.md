@@ -1,13 +1,13 @@
 # Release Notes - 1.2.0
 
 **Release Date:** March 2026  
-**Code Name:** "Spectra"
+**Code Name:** "Pulsar"
 
 ---
 
 ## 🎙️ Overview
 
-"Spectra" introduces the **Wyoming Voice Platform** — a full local speech pipeline that turns Lucia into a Wyoming protocol-compatible voice satellite for Home Assistant. This release delivers streaming speech-to-text, speaker verification, wake word detection, speech enhancement, a multi-engine model management system, and a new dashboard Voice Platform page for configuring everything from one surface.
+"Pulsar" introduces the **Wyoming Voice Platform** — a full local speech pipeline that turns Lucia into a Wyoming protocol-compatible voice satellite for Home Assistant. This release delivers streaming speech-to-text, speaker verification, wake word detection, speech enhancement, a multi-engine model management system, and a new dashboard Voice Platform page for configuring everything from one surface. In addition, we introduce user-facing personalization to Lucia's orchestration layer. The headline feature lets users define a personality prompt that rewrites all agent responses through an LLM before delivery — giving Lucia a configurable voice, tone, and communication style without modifying the agents themselves.
 
 ## 🚀 Highlights
 
@@ -17,6 +17,9 @@
 - **ONNX Auto-Detection** — Automatic GPU/accelerator selection (CUDA, ROCm, OpenVINO, DirectML, CoreML) across all six inference engines — no manual configuration required.
 - **GTCRN Speech Enhancement** — Real-time streaming noise reduction for cleaner audio in noisy environments.
 - **Voice Platform Dashboard** — New unified control room for model management, speaker profiles, wake words, engine status, and real-time session monitoring.
+- **Personality Prompt** — Configurable system prompt that rewrites the fan-in aggregated response through an LLM, giving Lucia a customizable personality (pirate speak, formal assistant, casual friend — you name it).
+- **Separate Model Support** — Personality rewriting can use a different (cheaper/faster) model than the orchestrator, selectable from a dropdown of configured chat-type providers.
+- **Zero-Cost Opt-In** — When no personality is configured, the pipeline is unchanged — no LLM call, no added latency.
 
 ## ✨ Features
 
@@ -74,8 +77,34 @@
 - **Monitor tab** — Real-time session monitoring via SSE with audio level meters, transcript log, and connection status
 - **Config panel** — Voice verification threshold, provisional profile settings, adaptive profiles, and retention controls — persisted to MongoDB via ConfigStoreWriter
 
+### 🎭 Personality Prompt (PR #80)
+Users can now define a personality prompt on the `/configuration` page under the new Personality Prompt section. When set, the `ResultAggregatorExecutor` passes the composed multi-agent response through an LLM with the personality instructions as the system prompt, rewriting the output to match the desired tone.
+
+- `PersonalityPromptOptions` — New config model with `Instructions` (the personality system prompt) and `ModelConnectionName` (optional separate LLM for rewriting)
+- `WorkflowFactory` — Accepts `IOptionsMonitor<PersonalityPromptOptions>` for live config reload without restart. Conditionally resolves a separate `IChatClient` when `ModelConnectionName` is set, or falls back to the orchestrator's default model.
+- `ResultAggregatorExecutor` — After composing the raw message from agent responses, calls the personality LLM with `system=instructions` + `user=composed message`. Graceful fallback to raw message on LLM failure or empty response.
+- **Resilient resolution** — A misconfigured `ModelConnectionName` logs a warning and disables personality for that request instead of failing the entire orchestration pipeline.
+- **Cancellation-safe** — `OperationCanceledException` propagates correctly through the personality rewrite path.
+
+### 🖥️ Dashboard
+- **Model provider dropdown** — The `ModelConnectionName` field renders as a searchable dropdown populated from configured chat-type model providers, matching the pattern used in Agent Definitions.
+- **Textarea field type** — New `textarea` field type in the configuration page for multi-line prompt editing with vertical resize support.
+- **Auto-discovery** — The Personality Prompt section appears automatically in the configuration sidebar via schema API.
+
+### 🧺 Project Laundry
+- **SDK Pinned** — Pinned .NET 10 to the latest appropriate minimal SDK
+- **Removed outdated docs** — Removed a lot of outdated docs and old AI assistance templates and prompts.
+- **Package Updates** — Updated all central projects to the latest versions from .NET 10.0.4 security patch
+
+
 ## 🐛 Bug Fixes
 
+- **CUDA GPU acceleration not activating** — `Microsoft.ML.OnnxRuntime` NuGet package was CPU-only. Replaced with `Microsoft.ML.OnnxRuntime.Gpu.Linux` 1.23.2 and aligned managed/native versions (was mismatched 1.23.2/1.22.0), enabling automatic `CUDAExecutionProvider` detection on hosts with NVIDIA GPUs. Docker voice image verified working with RTX 4090 + CUDA 12.8 + cuDNN 9.20.
+- **Wyoming describe response missing STT** — `WyomingServiceInfo` injected a single `ISttEngine?` via DI, which resolved to the last registered engine (SherpaSttEngine). If that engine wasn't ready, STT was omitted from the `info` response even when HybridSttEngine was ready. Now injects `IEnumerable<ISttEngine>` and reports STT available if any engine is ready.
+- **Parakeet model download "not found"** — `ModelCatalogService.GetModelById(string)` only searched `EngineType.Stt`, but Parakeet TDT is registered as `EngineType.OfflineStt`. Now searches all engine types. Also fixed the download endpoint to resolve the model base path per engine type instead of hardcoding the STT path.
+- **Activating Parakeet crashes server** — `ModelManager.SwitchActiveModelAsync(string)` hardcoded `EngineType.Stt`, causing the streaming `OnlineRecognizer` to load an offline transducer model (native crash: `'window_size' does not exist in the metadata`). Now resolves engine type from the catalog, routing offline models to HybridSttEngine correctly.
+- **Cannot switch back to streaming STT after activating offline model** — Both engines remained ready with no user preference tracking, so `FirstOrDefault(e => e.IsReady)` always picked HybridSttEngine (registered first). Added `ModelManager.PreferredSttEngineType` that tracks the user's last activation choice. Status endpoint, session engine selection, and active model API all respect the preference.
+- **HuggingFace API key not persisting in dashboard** — `ConfigurationPage.entriesToValues` stripped only the first colon segment from stored keys (e.g., `Wyoming:HuggingFace:ApiToken` → `HuggingFace:ApiToken`). For nested config sections, this didn't match the schema property name `ApiToken`. Fixed to strip the full section prefix.
 - **Speaker identification always returning unknown** — Speech enhancement was altering audio used for embedding extraction, causing ~0.39 cosine similarity against enrollment profiles. Now uses raw (unenhanced) audio for speaker verification.
 - **Verification threshold changes from GUI ignored** — `SpeakerVerificationThreshold` config was never passed to `IdentifySpeaker()`. Now read via `IOptionsMonitor.CurrentValue` at identification time.
 - **Embedding dimension mismatches silently failed** — After model changes, `CosineSimilarity` threw for mismatched dimensions, caught by outer try/catch returning null. Now gracefully skips with a warning log.
@@ -114,7 +143,7 @@
 - **New infrastructure dependencies** — MongoDB (`luciaconfig` database) is used for speaker profiles and voice config persistence. Redis is optional but recommended for profile caching.
 - **Model downloads required** — On first launch, navigate to the Voice Platform → Models tab to download and activate at least one STT model and supporting models (VAD, Wake Word, Speaker Embedding).
 - **Wyoming integration** — Add the Lucia Wyoming satellite in Home Assistant under Settings → Devices & Services → Add Integration → Wyoming. The server advertises via Zeroconf automatically.
-- **GPU acceleration** — Install the appropriate ONNX Runtime GPU package (`Microsoft.ML.OnnxRuntime.Gpu` for CUDA, etc.) to enable auto-detected GPU acceleration. No configuration changes needed — the detector will find and use it automatically.
+- **GPU acceleration** — The project now ships with `Microsoft.ML.OnnxRuntime.Gpu.Linux` for automatic CUDA support. For local development, install CUDA Toolkit 12.x and cuDNN 9.x. The `OnnxProviderDetector` will find and use CUDA automatically — no configuration required. The Docker voice image (`Dockerfile.voice`) includes all GPU dependencies out of the box.
 - **Existing voice config** — If you previously had a `voiceconfig.json`, those settings will need to be re-entered through the dashboard Voice Platform config panel (they now persist to MongoDB).
 
 ---

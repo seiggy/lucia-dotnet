@@ -25,9 +25,16 @@ public static class WyomingStatusApi
         OnnxProviderDetector providerDetector,
         ModelManager manager)
     {
-        // Find the first ready engine — matches what WyomingSession.CreateSttSessionAsync does
+        // Pick the engine matching the user's preferred STT engine type
         var engines = sttEngines.ToArray();
-        var activeEngine = engines.FirstOrDefault(static e => e.IsReady) ?? engines.FirstOrDefault();
+        var preferStreaming = manager.PreferredSttEngineType == EngineType.Stt;
+        var activeEngine = preferStreaming
+            ? (engines.OfType<SherpaSttEngine>().FirstOrDefault(static e => e.IsReady) as ISttEngine
+                ?? engines.FirstOrDefault(static e => e.IsReady))
+            : (engines.OfType<HybridSttEngine>().FirstOrDefault(static e => e.IsReady) as ISttEngine
+                ?? engines.FirstOrDefault(static e => e.IsReady));
+        activeEngine ??= engines.FirstOrDefault();
+
         var engineType = activeEngine switch
         {
             HybridSttEngine => "Hybrid (Offline Re-transcription)",
@@ -35,7 +42,7 @@ public static class WyomingStatusApi
             _ => activeEngine?.GetType().Name ?? "None",
         };
 
-        // Resolve the active model ID: prefer OfflineStt if hybrid is active
+        // Resolve the active model ID based on the selected engine
         var activeModelId = activeEngine is HybridSttEngine
             ? manager.GetActiveModelId(EngineType.OfflineStt)
             : manager.GetActiveModelId(EngineType.Stt);

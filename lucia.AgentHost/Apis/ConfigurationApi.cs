@@ -440,6 +440,18 @@ public static class ConfigurationApi
                 new("ollama-phi3-mini", "string", "Ollama Phi-3 mini connection", ""),
                 new("ollama-llama3-2-3b", "string", "Ollama LLaMA 3.2 3B connection", "")
             ]
+        },
+        new()
+        {
+            Section = "Wyoming:HuggingFace",
+            Description = "Hugging Face Hub integration for downloading ONNX models from the onnx-community organization",
+            Properties =
+            [
+                new("ApiToken", "string",
+                    "Hugging Face API token (User Access Token). " +
+                    "When set, enables browsing and downloading ONNX speech models from Hugging Face. " +
+                    "Generate a token at https://huggingface.co/settings/tokens", "", true)
+            ]
         }
     ];
 

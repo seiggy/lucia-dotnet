@@ -50,6 +50,15 @@ public static class ServiceCollectionExtensions
         builder.Services.Configure<CommandRoutingOptions>(
             builder.Configuration.GetSection(CommandRoutingOptions.SectionName));
 
+        builder.Services.Configure<HuggingFaceOptions>(
+            builder.Configuration.GetSection(HuggingFaceOptions.SectionName));
+
+        builder.Services.AddSingleton<IModelCatalogProvider, SherpaOnnxCatalogProvider>();
+        builder.Services.AddSingleton<HuggingFaceClient>();
+        builder.Services.AddSingleton<HuggingFaceCatalogProvider>();
+        builder.Services.AddSingleton<IModelCatalogProvider>(sp => sp.GetRequiredService<HuggingFaceCatalogProvider>());
+        builder.Services.AddSingleton<HuggingFaceModelDownloader>();
+
         builder.Services.AddSingleton<ModelCatalogService>();
         builder.Services.AddSingleton<ModelManager>();
         builder.Services.AddSingleton<IModelChangeNotifier>(sp => sp.GetRequiredService<ModelManager>());

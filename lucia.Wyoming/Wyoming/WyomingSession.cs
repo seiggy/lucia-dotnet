@@ -115,11 +115,11 @@ public sealed class WyomingSession : IDisposable
         var stream = _client.GetStream();
         var parser = new WyomingEventParser(stream, _options);
         var writer = new WyomingEventWriter(stream);
-        var sttEngine = services.GetServices<ISttEngine>().FirstOrDefault();
+        var sttEngines = services.GetServices<ISttEngine>();
         var wakeWordDetector = services.GetServices<IWakeWordDetector>().FirstOrDefault();
         var infoService = new WyomingServiceInfo(
             services.GetRequiredService<IOptions<WyomingOptions>>(),
-            sttEngine,
+            sttEngines,
             wakeWordDetector);
 
         _logger.LogInformation("Session {SessionId} started", Id);
@@ -550,8 +550,17 @@ public sealed class WyomingSession : IDisposable
         CancellationToken ct)
     {
         var engines = services.GetServices<ISttEngine>().ToArray();
-        var engine = engines.FirstOrDefault(static item => IsSttEngineReady(item))
-            ?? engines.FirstOrDefault();
+        var manager = services.GetService<ModelManager>();
+        var preferStreaming = manager?.PreferredSttEngineType == EngineType.Stt;
+
+        // Prefer the engine type the user last activated
+        var engine = preferStreaming
+            ? (engines.OfType<SherpaSttEngine>().FirstOrDefault(static e => IsSttEngineReady(e)) as ISttEngine
+                ?? engines.FirstOrDefault(static e => IsSttEngineReady(e)))
+            : (engines.OfType<HybridSttEngine>().FirstOrDefault(static e => IsSttEngineReady(e)) as ISttEngine
+                ?? engines.FirstOrDefault(static e => IsSttEngineReady(e)));
+        engine ??= engines.FirstOrDefault();
+
         if (engine is null)
         {
             _logger.LogWarning("No STT engine registered for Wyoming session {SessionId}", Id);
