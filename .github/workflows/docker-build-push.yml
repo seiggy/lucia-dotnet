@@ -63,7 +63,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -75,7 +75,7 @@ jobs:
           echo "Asset image tag: sha-$HASH"
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -83,19 +83,19 @@ jobs:
 
       - name: Log in to Docker Hub
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: docker.io
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
         with:
           platforms: linux/amd64,linux/arm64
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
         with:
           driver-opts: |
             image=moby/buildkit:latest
@@ -120,7 +120,7 @@ jobs:
 
       - name: Extract Docker metadata
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ matrix.image }}
           tags: |
@@ -140,7 +140,7 @@ jobs:
 
       - name: Build and push Docker image
         id: build-push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -162,7 +162,7 @@ jobs:
 
       - name: Generate artifact attestation
         if: github.event_name != 'pull_request'
-        uses: actions/attest-build-provenance@v3
+        uses: actions/attest-build-provenance@v4
         continue-on-error: true
         with:
           subject-name: docker.io/${{ matrix.image }}
@@ -183,7 +183,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Compute asset.lock hash
         id: asset-hash
@@ -192,17 +192,17 @@ jobs:
           echo "hash=$HASH" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Build image for testing
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ./infra/docker/Dockerfile
@@ -247,7 +247,7 @@ jobs:
           docker rm -f lucia-test || true
 
       - name: Comment PR with image info
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const output = `#### Docker Build Results 🐳
@@ -282,14 +282,14 @@ jobs:
 
     steps:
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.35.0
         with:
           image-ref: seiggy/lucia-agenthost:latest
           format: 'sarif'
           output: 'trivy-results.sarif'
 
       - name: Upload Trivy results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: 'trivy-results.sarif'
