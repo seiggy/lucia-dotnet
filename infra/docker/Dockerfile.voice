@@ -41,7 +41,7 @@
 # See Dockerfile.assets and asset.lock for what's included.
 # ============================================================================
 ARG ASSET_IMAGE=ghcr.io/seiggy/lucia-dotnet/build-assets:latest
-ARG TARGETARCH
+ARG TARGETARCH=amd64
 ARG TARGETOS
 FROM ${ASSET_IMAGE} AS assets
 
@@ -90,7 +90,7 @@ EXPOSE 8080 8081 10400
 # Stage 2: Build Stage
 # ============================================================================
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
-ARG TARGETARCH
+ARG TARGETARCH=amd64
 ARG TARGETOS
 
 # Set build configuration (can be overridden via --build-arg)
@@ -150,6 +150,7 @@ FROM build AS publish
 # Build configuration (matches build stage)
 ARG BUILD_CONFIGURATION=Release
 ARG BUILD_TARGET_FRAMEWORK=net10.0
+ARG TARGETARCH=amd64
 
 # Publish to /app/publish directory
 # We tried running this with no-build, but it seems to cause issues with missing files. Will fix later.
