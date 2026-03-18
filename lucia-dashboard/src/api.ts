@@ -1955,3 +1955,19 @@ export async function resetResponseTemplates(): Promise<void> {
   const res = await fetch(`${BASE}/response-templates/reset`, { method: 'POST' })
   if (!res.ok) throw new Error(`Failed to reset response templates: ${res.statusText}`)
 }
+
+// ── Command Patterns API ──────────────────────────────────────
+
+export interface CommandPattern {
+  skillId: string
+  action: string
+  patternId: string
+  tokens: string[]
+  exampleTemplates: string[]
+}
+
+export async function fetchCommandPatterns(): Promise<CommandPattern[]> {
+  const res = await fetch(`${BASE}/conversation/patterns`)
+  if (!res.ok) throw new Error(`Failed to fetch patterns: ${res.statusText}`)
+  return res.json()
+}

@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   fetchResponseTemplates,
+  fetchCommandPatterns,
   createResponseTemplate,
   updateResponseTemplate,
   deleteResponseTemplate,
@@ -9,6 +10,7 @@ import {
 } from '../api'
 import type {
   ResponseTemplate,
+  CommandPattern,
   CreateResponseTemplateRequest,
 } from '../api'
 import ToastContainer from '../components/ToastContainer'
@@ -37,6 +39,7 @@ function renderPreview(template: string): string {
   return template
     .replace(/\{entityName\}/gi, 'Living Room Light')
     .replace(/\{entity_name\}/gi, 'Living Room Light')
+    .replace(/\{entity\}/gi, 'Living Room Light')
     .replace(/\{area\}/gi, 'Living Room')
     .replace(/\{action\}/gi, 'turned on')
     .replace(/\{state\}/gi, 'on')
@@ -57,6 +60,78 @@ function groupBySkill(templates: ResponseTemplate[]): GroupedTemplates {
     groups[key].push(t)
   }
   return groups
+}
+
+/** Build a lookup from "skillId::action" to the matching pattern. */
+function buildPatternLookup(
+  patterns: CommandPattern[] | undefined,
+): Map<string, CommandPattern> {
+  const map = new Map<string, CommandPattern>()
+  if (!patterns) return map
+  for (const p of patterns) {
+    map.set(`${p.skillId}::${p.action}`, p)
+  }
+  return map
+}
+
+/** Insert a `{token}` at the cursor position of an input and return the new value + cursor pos. */
+function insertTokenAtCursor(
+  inputEl: HTMLInputElement | null,
+  currentValue: string,
+  token: string,
+): { value: string; cursorPos: number } {
+  const start = inputEl?.selectionStart ?? currentValue.length
+  const end = inputEl?.selectionEnd ?? currentValue.length
+  const insert = `{${token}}`
+  const value = currentValue.substring(0, start) + insert + currentValue.substring(end)
+  return { value, cursorPos: start + insert.length }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Token Buttons                                                      */
+/* ------------------------------------------------------------------ */
+
+function TokenButtons({
+  tokens,
+  onInsert,
+}: {
+  tokens: string[]
+  onInsert: (token: string) => void
+}) {
+  if (tokens.length === 0) return null
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 mt-1">
+      <span className="text-[10px] text-dust">Insert:</span>
+      {tokens.map((token) => (
+        <button
+          key={token}
+          type="button"
+          onClick={() => onInsert(token)}
+          className="rounded-full bg-amber-glow/10 px-2 py-0.5 text-[10px] text-amber hover:bg-amber-glow/20 cursor-pointer transition-colors"
+        >
+          {`{${token}}`}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Example Templates Info                                             */
+/* ------------------------------------------------------------------ */
+
+function ExampleTemplatesInfo({ examples }: { examples: string[] }) {
+  if (examples.length === 0) return null
+  return (
+    <p className="text-[10px] text-dust font-mono mt-1 leading-relaxed">
+      Matched by: {examples.map((e, i) => (
+        <span key={i}>
+          {i > 0 && ', '}
+          &ldquo;{e}&rdquo;
+        </span>
+      ))}
+    </p>
+  )
 }
 
 /* ------------------------------------------------------------------ */
@@ -94,22 +169,26 @@ function PreviewModal({ templates, onClose }: { templates: string[]; onClose: ()
 }
 
 /* ------------------------------------------------------------------ */
-/*  Single Template Card                                               */
+/*  Single Template Card (with token buttons for editing)              */
 /* ------------------------------------------------------------------ */
 
 function TemplateCard({
   template,
+  tokens,
   onSave,
   onDelete,
   saving,
 }: {
   template: ResponseTemplate
+  tokens: string[]
   onSave: (id: string, templates: string[]) => void
   onDelete: (id: string) => void
   saving: boolean
 }) {
   const [localTemplates, setLocalTemplates] = useState(template.templates)
   const [showPreview, setShowPreview] = useState(false)
+  const [activeInputIdx, setActiveInputIdx] = useState<number>(0)
+  const inputRefs = useRef<Map<number, HTMLInputElement>>(new Map())
   const isDirty = JSON.stringify(localTemplates) !== JSON.stringify(template.templates)
 
   function handleTemplateChange(index: number, value: string) {
@@ -123,6 +202,24 @@ function TemplateCard({
   function removeTemplateLine(index: number) {
     setLocalTemplates((prev) => prev.filter((_, i) => i !== index))
   }
+
+  const handleTokenInsert = useCallback(
+    (token: string) => {
+      const inputEl = inputRefs.current.get(activeInputIdx) ?? null
+      const currentValue = localTemplates[activeInputIdx] ?? ''
+      const { value, cursorPos } = insertTokenAtCursor(inputEl, currentValue, token)
+      setLocalTemplates((prev) => prev.map((t, i) => (i === activeInputIdx ? value : t)))
+      // Restore cursor position after React re-render
+      requestAnimationFrame(() => {
+        const el = inputRefs.current.get(activeInputIdx)
+        if (el) {
+          el.setSelectionRange(cursorPos, cursorPos)
+          el.focus()
+        }
+      })
+    },
+    [activeInputIdx, localTemplates],
+  )
 
   return (
     <div className="rounded-xl border border-stone bg-charcoal p-4">
@@ -162,11 +259,16 @@ function TemplateCard({
         {localTemplates.map((t, i) => (
           <div key={i} className="flex items-center gap-2">
             <input
+              ref={(el) => {
+                if (el) inputRefs.current.set(i, el)
+                else inputRefs.current.delete(i)
+              }}
               type="text"
               value={t}
+              onFocus={() => setActiveInputIdx(i)}
               onChange={(e) => handleTemplateChange(i, e.target.value)}
               className="flex-1 rounded-lg border border-stone bg-basalt px-3 py-2 text-sm text-light placeholder-dust/60 input-focus"
-              placeholder="Template text with {entityName} placeholders…"
+              placeholder="Template text with {entity} placeholders\u2026"
             />
             {localTemplates.length > 1 && (
               <button
@@ -180,6 +282,8 @@ function TemplateCard({
           </div>
         ))}
       </div>
+
+      <TokenButtons tokens={tokens} onInsert={handleTokenInsert} />
 
       <button
         onClick={addTemplateLine}
@@ -202,17 +306,37 @@ function TemplateCard({
 function SkillGroup({
   skillId,
   templates,
+  patternLookup,
   onSave,
   onDelete,
   saving,
 }: {
   skillId: string
   templates: ResponseTemplate[]
+  patternLookup: Map<string, CommandPattern>
   onSave: (id: string, templates: string[]) => void
   onDelete: (id: string) => void
   saving: boolean
 }) {
   const [expanded, setExpanded] = useState(true)
+
+  // Collect all unique example templates for this skill group
+  const skillExamples = useMemo(() => {
+    const seen = new Set<string>()
+    const examples: string[] = []
+    for (const t of templates) {
+      const p = patternLookup.get(`${t.skillId}::${t.action}`)
+      if (p) {
+        for (const ex of p.exampleTemplates) {
+          if (!seen.has(ex)) {
+            seen.add(ex)
+            examples.push(ex)
+          }
+        }
+      }
+    }
+    return examples
+  }, [templates, patternLookup])
 
   return (
     <div className="rounded-xl border border-stone/40 bg-obsidian/50">
@@ -235,15 +359,22 @@ function SkillGroup({
 
       {expanded && (
         <div className="space-y-3 px-5 pb-5">
-          {templates.map((t) => (
-            <TemplateCard
-              key={t.id}
-              template={t}
-              onSave={onSave}
-              onDelete={onDelete}
-              saving={saving}
-            />
-          ))}
+          {skillExamples.length > 0 && (
+            <ExampleTemplatesInfo examples={skillExamples} />
+          )}
+          {templates.map((t) => {
+            const pattern = patternLookup.get(`${t.skillId}::${t.action}`)
+            return (
+              <TemplateCard
+                key={t.id}
+                template={t}
+                tokens={pattern?.tokens ?? []}
+                onSave={onSave}
+                onDelete={onDelete}
+                saving={saving}
+              />
+            )
+          })}
         </div>
       )}
     </div>
@@ -255,15 +386,44 @@ function SkillGroup({
 /* ------------------------------------------------------------------ */
 
 function AddTemplateForm({
+  patterns,
   onSubmit,
   submitting,
 }: {
+  patterns: CommandPattern[] | undefined
   onSubmit: (req: CreateResponseTemplateRequest) => void
   submitting: boolean
 }) {
   const [skillId, setSkillId] = useState('')
   const [action, setAction] = useState('')
   const [templates, setTemplates] = useState([''])
+  const [activeInputIdx, setActiveInputIdx] = useState<number>(0)
+  const inputRefs = useRef<Map<number, HTMLInputElement>>(new Map())
+
+  // Derive unique skill IDs and available actions from patterns
+  const uniqueSkillIds = useMemo(() => {
+    if (!patterns) return []
+    const set = new Set(patterns.map((p) => p.skillId))
+    return Array.from(set).sort()
+  }, [patterns])
+
+  const availableActions = useMemo(() => {
+    if (!patterns || !skillId) return []
+    const set = new Set(
+      patterns.filter((p) => p.skillId === skillId).map((p) => p.action),
+    )
+    return Array.from(set).sort()
+  }, [patterns, skillId])
+
+  const selectedPattern = useMemo(() => {
+    if (!patterns || !skillId || !action) return undefined
+    return patterns.find((p) => p.skillId === skillId && p.action === action)
+  }, [patterns, skillId, action])
+
+  function handleSkillChange(newSkillId: string) {
+    setSkillId(newSkillId)
+    setAction('')
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -290,8 +450,29 @@ function AddTemplateForm({
     setTemplates((prev) => prev.filter((_, i) => i !== index))
   }
 
+  const handleTokenInsert = useCallback(
+    (token: string) => {
+      const inputEl = inputRefs.current.get(activeInputIdx) ?? null
+      const currentValue = templates[activeInputIdx] ?? ''
+      const { value, cursorPos } = insertTokenAtCursor(inputEl, currentValue, token)
+      setTemplates((prev) => prev.map((t, i) => (i === activeInputIdx ? value : t)))
+      requestAnimationFrame(() => {
+        const el = inputRefs.current.get(activeInputIdx)
+        if (el) {
+          el.setSelectionRange(cursorPos, cursorPos)
+          el.focus()
+        }
+      })
+    },
+    [activeInputIdx, templates],
+  )
+
+  const selectStyle =
+    'rounded border border-stone bg-basalt px-2 py-1.5 text-sm text-light'
   const inputStyle =
     'rounded-xl border border-stone bg-basalt px-3 py-2 text-sm text-light placeholder-dust/60 input-focus'
+
+  const hasPatterns = patterns && patterns.length > 0
 
   return (
     <form onSubmit={handleSubmit} className="glass-panel rounded-xl p-5 space-y-4">
@@ -304,29 +485,67 @@ function AddTemplateForm({
           <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-dust">
             Skill ID
           </label>
-          <input
-            type="text"
-            value={skillId}
-            onChange={(e) => setSkillId(e.target.value)}
-            className={`w-full ${inputStyle}`}
-            placeholder="e.g. LightControlSkill"
-            required
-          />
+          {hasPatterns ? (
+            <select
+              value={skillId}
+              onChange={(e) => handleSkillChange(e.target.value)}
+              className={`w-full ${selectStyle}`}
+              required
+            >
+              <option value="">Select a skill\u2026</option>
+              {uniqueSkillIds.map((id) => (
+                <option key={id} value={id}>
+                  {skillDisplayName(id)} ({id})
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="text"
+              value={skillId}
+              onChange={(e) => setSkillId(e.target.value)}
+              className={`w-full ${inputStyle}`}
+              placeholder="e.g. LightControlSkill"
+              required
+            />
+          )}
         </div>
         <div>
           <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-dust">
             Action
           </label>
-          <input
-            type="text"
-            value={action}
-            onChange={(e) => setAction(e.target.value)}
-            className={`w-full ${inputStyle}`}
-            placeholder="e.g. TurnOn"
-            required
-          />
+          {hasPatterns ? (
+            <select
+              value={action}
+              onChange={(e) => setAction(e.target.value)}
+              className={`w-full ${selectStyle}`}
+              disabled={!skillId}
+              required
+            >
+              <option value="">
+                {skillId ? 'Select an action\u2026' : 'Select a skill first'}
+              </option>
+              {availableActions.map((a) => (
+                <option key={a} value={a}>{a}</option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="text"
+              value={action}
+              onChange={(e) => setAction(e.target.value)}
+              className={`w-full ${inputStyle}`}
+              placeholder="e.g. toggle"
+              required
+            />
+          )}
         </div>
       </div>
+
+      {/* Show matched example patterns when a pattern is selected */}
+      {selectedPattern && selectedPattern.exampleTemplates.length > 0 && (
+        <ExampleTemplatesInfo examples={selectedPattern.exampleTemplates} />
+      )}
 
       <div>
         <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-dust">
@@ -336,11 +555,16 @@ function AddTemplateForm({
           {templates.map((t, i) => (
             <div key={i} className="flex items-center gap-2">
               <input
+                ref={(el) => {
+                  if (el) inputRefs.current.set(i, el)
+                  else inputRefs.current.delete(i)
+                }}
                 type="text"
                 value={t}
+                onFocus={() => setActiveInputIdx(i)}
                 onChange={(e) => handleTemplateChange(i, e.target.value)}
                 className={`flex-1 ${inputStyle}`}
-                placeholder="{entityName} has been {action}"
+                placeholder="{entity} has been {action}"
               />
               {templates.length > 1 && (
                 <button
@@ -355,6 +579,12 @@ function AddTemplateForm({
             </div>
           ))}
         </div>
+
+        {/* Token insertion buttons from selected pattern */}
+        {selectedPattern && (
+          <TokenButtons tokens={selectedPattern.tokens} onInsert={handleTokenInsert} />
+        )}
+
         <button
           type="button"
           onClick={addLine}
@@ -369,7 +599,7 @@ function AddTemplateForm({
         disabled={submitting || !skillId.trim() || !action.trim()}
         className="rounded-xl bg-amber/20 px-4 py-2 text-sm font-medium text-amber hover:bg-amber/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
       >
-        {submitting ? 'Creating…' : 'Create Template'}
+        {submitting ? 'Creating\u2026' : 'Create Template'}
       </button>
     </form>
   )
@@ -389,6 +619,11 @@ export default function ResponseTemplatesPage() {
   const { data: templates, isLoading } = useQuery({
     queryKey: ['response-templates'],
     queryFn: fetchResponseTemplates,
+  })
+
+  const { data: patterns } = useQuery({
+    queryKey: ['command-patterns'],
+    queryFn: fetchCommandPatterns,
   })
 
   // ── Mutations ────────────────────────────────────────────────
@@ -447,6 +682,7 @@ export default function ResponseTemplatesPage() {
   // ── Derived state ────────────────────────────────────────────
   const grouped = templates ? groupBySkill(templates) : {}
   const skillIds = Object.keys(grouped).sort()
+  const patternLookup = useMemo(() => buildPatternLookup(patterns), [patterns])
 
   return (
     <div className="space-y-6">
@@ -467,7 +703,11 @@ export default function ResponseTemplatesPage() {
       </div>
 
       {/* Add Template Form */}
-      <AddTemplateForm onSubmit={(req) => createMutation.mutate(req)} submitting={createMutation.isPending} />
+      <AddTemplateForm
+        patterns={patterns}
+        onSubmit={(req) => createMutation.mutate(req)}
+        submitting={createMutation.isPending}
+      />
 
       {/* Template Groups */}
       {isLoading ? (
@@ -493,6 +733,7 @@ export default function ResponseTemplatesPage() {
               key={skillId}
               skillId={skillId}
               templates={grouped[skillId]}
+              patternLookup={patternLookup}
               onSave={handleSave}
               onDelete={handleDeleteRequest}
               saving={updateMutation.isPending}

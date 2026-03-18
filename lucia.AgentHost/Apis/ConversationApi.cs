@@ -1,8 +1,10 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 using lucia.AgentHost.Conversation;
 using lucia.AgentHost.Conversation.Models;
 using lucia.Agents.Orchestration;
+using lucia.Wyoming.CommandRouting;
 
 using Microsoft.AspNetCore.Mvc;
 
@@ -28,6 +30,7 @@ public static class ConversationApi
             .WithTags("Conversation");
 
         group.MapPost("/", HandleConversationAsync).RequireAuthorization();
+        group.MapGet("/patterns", GetCommandPatternsAsync).RequireAuthorization();
 
         return endpoints;
     }
@@ -62,6 +65,33 @@ public static class ConversationApi
                     httpContext, result, serviceProvider, ct).ConfigureAwait(false);
                 break;
         }
+    }
+
+    private static IResult GetCommandPatternsAsync(
+        [FromServices] CommandPatternRegistry registry)
+    {
+        var patterns = registry.GetAllPatterns()
+            .Select(p => new
+            {
+                p.SkillId,
+                p.Action,
+                PatternId = p.Id,
+                Tokens = ExtractTokens(p.Templates),
+                ExampleTemplates = p.Templates,
+            })
+            .ToList();
+
+        return Results.Ok(patterns);
+    }
+
+    private static string[] ExtractTokens(IReadOnlyList<string> templates)
+    {
+        return templates
+            .SelectMany(t => Regex.Matches(t, @"\{(\w+)(?::[^}]*)?\}"))
+            .Select(m => m.Groups[1].Value)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(t => t, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
 
     private static async Task StreamLlmResponseAsync(
