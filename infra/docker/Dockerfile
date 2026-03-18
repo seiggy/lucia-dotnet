@@ -2,7 +2,7 @@
 # Purpose: Create optimized production image for lucia.AgentHost service
 # 
 # Stages:
-#   - copilot-cli: Download Copilot CLI binary (optional, resilient)
+#   - assets: Pre-built OCI image with binary downloads (Copilot CLI, etc.)
 #   - node-build: Build the React SPA dashboard with Node.js
 #   - base: ASP.NET 10.0 runtime base image with non-root user
 #   - build: Build the application with .NET SDK
@@ -10,35 +10,16 @@
 #   - final: Production image with health checks and security hardening
 #
 # Build args:
-#   INCLUDE_COPILOT_CLI - Include Copilot CLI binary (default: true)
-#   COPILOT_CLI_VERSION - Copilot CLI version to download (default: 0.0.411)
+#   ASSET_IMAGE - Pre-built asset image ref (default: ghcr.io/seiggy/lucia-dotnet/build-assets:latest)
 #   BUILD_CONFIGURATION - Debug or Release (default: Release)
 #   BUILD_TARGET_FRAMEWORK - Target framework version (default: net10.0)
 
 # ============================================================================
-# Stage 0a: Download Copilot CLI binary (resilient, downloaded once)
+# Stage 0a: Pre-built binary assets (Copilot CLI, models, etc.)
+# See Dockerfile.assets and asset.lock for what's included.
 # ============================================================================
-FROM alpine:3.21 AS copilot-cli
-
-ARG INCLUDE_COPILOT_CLI=true
-ARG COPILOT_CLI_VERSION=0.0.411
-ARG TARGETARCH
-
-RUN if [ "$INCLUDE_COPILOT_CLI" = "true" ]; then \
-      apk add --no-cache curl && \
-      PLATFORM=$(case "$TARGETARCH" in amd64) echo "linux-x64";; arm64) echo "linux-arm64";; *) echo "linux-x64";; esac) && \
-      RID=$(case "$TARGETARCH" in amd64) echo "linux-x64";; arm64) echo "linux-arm64";; *) echo "linux-x64";; esac) && \
-      mkdir -p /copilot-out/runtimes/${RID}/native && \
-      echo "Downloading Copilot CLI ${COPILOT_CLI_VERSION} for ${PLATFORM}..." && \
-      curl -fSL --retry 5 --retry-delay 10 --retry-max-time 300 \
-        "https://registry.npmjs.org/@github/copilot-${PLATFORM}/-/copilot-${PLATFORM}-${COPILOT_CLI_VERSION}.tgz" \
-        -o /tmp/copilot.tgz && \
-      tar -xzf /tmp/copilot.tgz --strip-components=1 -C /copilot-out/runtimes/${RID}/native && \
-      chmod +x /copilot-out/runtimes/${RID}/native/copilot && \
-      rm /tmp/copilot.tgz; \
-    else \
-      mkdir -p /copilot-out; \
-    fi
+ARG ASSET_IMAGE=ghcr.io/seiggy/lucia-dotnet/build-assets:latest
+FROM ${ASSET_IMAGE} AS assets
 
 # ============================================================================
 # Stage 0b: Node.js Build Stage (React SPA Dashboard)
@@ -161,8 +142,8 @@ ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false \
 # Copy published application from publish stage
 COPY --from=publish --chown=appuser:appuser /app/publish .
 
-# Copy Copilot CLI binary (if INCLUDE_COPILOT_CLI=true)
-COPY --from=copilot-cli --chown=appuser:appuser /copilot-out/ ./
+# Copy Copilot CLI binary from pre-built asset image
+COPY --from=assets --chown=appuser:appuser /assets/copilot/ ./
 
 # Copy built SPA dashboard into wwwroot for static file serving
 COPY --from=node-build --chown=appuser:appuser /app/dist ./wwwroot/
@@ -186,17 +167,16 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 ENTRYPOINT ["dotnet", "lucia.AgentHost.dll"]
 
 # Build arguments documentation:
+# ASSET_IMAGE - Pre-built asset image with binary downloads (default: ghcr.io/seiggy/lucia-dotnet/build-assets:latest)
 # BUILD_CONFIGURATION - "Debug" or "Release" (default: Release)
 # BUILD_TARGET_FRAMEWORK - Target framework version (default: net10.0)
-# INCLUDE_COPILOT_CLI - Include Copilot CLI binary (default: true, set false for smaller image)
-# COPILOT_CLI_VERSION - Copilot CLI version (default: 0.0.411)
 #
 # Usage examples:
-#   # Standard production build
+#   # Standard production build (uses pre-built assets from ghcr.io)
 #   docker build -t lucia:latest -f infra/docker/Dockerfile .
 #
-#   # Build without Copilot CLI (smaller image)
-#   docker build --build-arg INCLUDE_COPILOT_CLI=false -t lucia:latest -f infra/docker/Dockerfile .
+#   # Build with custom asset image
+#   docker build --build-arg ASSET_IMAGE=ghcr.io/seiggy/lucia-dotnet/build-assets:sha-abc123 -t lucia:latest -f infra/docker/Dockerfile .
 #
 #   # Debug build for troubleshooting
 #   docker build --build-arg BUILD_CONFIGURATION=Debug -t lucia:debug -f infra/docker/Dockerfile .

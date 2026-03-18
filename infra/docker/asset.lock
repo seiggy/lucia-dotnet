@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Pinned binary assets for lucia Docker builds. Rebuild the asset image when this file changes.",
+  "version": "1",
+  "assets": {
+    "copilot-cli": {
+      "version": "0.0.411",
+      "platforms": {
+        "linux-x64": {
+          "url": "https://registry.npmjs.org/@github/copilot-linux-x64/-/copilot-linux-x64-0.0.411.tgz",
+          "format": "tgz",
+          "strip_components": 1
+        },
+        "linux-arm64": {
+          "url": "https://registry.npmjs.org/@github/copilot-linux-arm64/-/copilot-linux-arm64-0.0.411.tgz",
+          "format": "tgz",
+          "strip_components": 1
+        }
+      },
+      "output_dir": "/assets/copilot"
+    },
+    "stt-streaming-zipformer": {
+      "version": "2023-06-26",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-en-2023-06-26.tar.bz2",
+      "format": "tar.bz2",
+      "output_dir": "/assets/models/stt",
+      "size_approx": "80MB"
+    },
+    "stt-parakeet-tdt": {
+      "version": "0.6b-v2-int8",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2",
+      "format": "tar.bz2",
+      "output_dir": "/assets/models/stt",
+      "size_approx": "460MB"
+    },
+    "vad-silero-v5": {
+      "version": "v5",
+      "url": "https://huggingface.co/csukuangfj/vad/resolve/main/silero_vad_v5.onnx",
+      "format": "raw",
+      "output_dir": "/assets/models/vad/silero_vad_v5",
+      "output_filename": "silero_vad_v5.onnx",
+      "size_approx": "2.3MB"
+    },
+    "kws-gigaspeech": {
+      "version": "2024-01-01",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2",
+      "format": "tar.bz2",
+      "output_dir": "/assets/models/kws",
+      "size_approx": "10MB"
+    },
+    "speaker-embedding-3dspeaker": {
+      "version": "16k",
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx",
+      "format": "raw",
+      "output_dir": "/assets/models/speaker-embedding/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k",
+      "output_filename": "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx",
+      "size_approx": "25MB"
+    },
+    "speech-enhancement-gtcrn": {
+      "version": "simple",
+      "url": "https://raw.githubusercontent.com/Xiaobin-Rong/gtcrn/main/stream/onnx_models/gtcrn_simple.onnx",
+      "format": "raw",
+      "output_dir": "/assets/models/speech-enhancement/gtcrn_simple",
+      "output_filename": "gtcrn_simple.onnx",
+      "size_approx": "535KB"
+    },
+    "onnxruntime-gpu": {
+      "version": "1.23.2",
+      "url": "https://github.com/csukuangfj/onnxruntime-libs/releases/download/v1.23.2/onnxruntime-linux-x64-gpu-1.23.2-patched.zip",
+      "format": "zip",
+      "output_dir": "/assets/gpu-libs",
+      "platforms": ["linux-x64"],
+      "size_approx": "large",
+      "note": "GPU-only; x64 only — no arm64 GPU build available"
+    }
+  }
+}
