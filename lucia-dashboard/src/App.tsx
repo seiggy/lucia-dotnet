@@ -4,7 +4,8 @@ import { AuthProvider, useAuth } from './auth/AuthContext'
 import {
   Activity, Download, Settings, Bot, Database, Server,
   Layers, Boxes, ListTodo, Menu, X, LogOut, Sparkles, BarChart3, MapPin,
-  AlarmClock, Radio, ShoppingCart, SlidersHorizontal, Puzzle, Mic, MessageSquareText
+  AlarmClock, Radio, ShoppingCart, SlidersHorizontal, Puzzle, Mic, MessageSquareText,
+  MessageCircle,
 } from 'lucide-react'
 import LoginPage from './pages/LoginPage'
 import SetupPage from './pages/SetupPage'
@@ -28,12 +29,14 @@ import ResponseTemplatesPage from './pages/ResponseTemplatesPage'
 import PluginsPage from './pages/PluginsPage'
 import MatcherDebugPage from './pages/MatcherDebugPage'
 import VoicePlatformPage from './pages/VoicePlatformPage'
+import ConversationPage from './pages/ConversationPage'
 import TaskTracker from './components/TaskTracker'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Activity', icon: BarChart3, end: true },
   { to: '/traces', label: 'Traces', icon: Activity },
   { to: '/agent-dashboard', label: 'Agents', icon: Bot },
+  { to: '/conversation', label: 'Conversation', icon: MessageCircle },
   { to: '/agent-definitions', label: 'Definitions', icon: Layers },
   { to: '/model-providers', label: 'Providers', icon: Boxes },
   { to: '/mcp-servers', label: 'MCP Servers', icon: Server },
@@ -198,6 +201,7 @@ function AppRoutes() {
             <Route path="/matcher-debug" element={<MatcherDebugPage />} />
             <Route path="/configuration" element={<ConfigurationPage />} />
             <Route path="/agent-dashboard" element={<AgentsPage />} />
+            <Route path="/conversation" element={<ConversationPage />} />
             <Route path="/prompt-cache" element={<PromptCachePage />} />
             <Route path="/entity-location" element={<EntityLocationPage />} />
             <Route path="/alarms" element={<AlarmsPage />} />
