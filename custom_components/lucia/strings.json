@@ -3,14 +3,16 @@
     "step": {
       "user": {
         "title": "Set up Lucia Agent",
-        "description": "Connect to your Lucia A2A agent",
+        "description": "Connect to your Lucia agent",
         "data": {
           "repository": "Agent Repository URL",
-          "api_key": "[%key:common::config_flow::data::api_key%]"
+          "api_key": "[%key:common::config_flow::data::api_key%]",
+          "verify_ssl": "Verify SSL Certificate"
         },
         "data_description": {
           "repository": "The base URL of your Lucia agent (e.g., http://localhost:5000)",
-          "api_key": "The API key to authenticate with your agent"
+          "api_key": "The API key to authenticate with your agent (optional)",
+          "verify_ssl": "Enable SSL certificate verification (disable for self-signed certs)"
         }
       }
     },
@@ -27,91 +29,22 @@
     "step": {
       "init": {
         "data": {
-          "prompt": "Instructions",
-          "chat_model": "[%key:common::generic::model%]",
-          "max_tokens": "Maximum tokens to return in response",
-          "temperature": "Temperature",
-          "top_p": "Top P",
-          "llm_hass_api": "[%key:common::config_flow::data::llm_hass_api%]",
-          "recommended": "Recommended model settings",
-          "reasoning_effort": "Reasoning effort",
-          "web_search": "Enable web search",
-          "search_context_size": "Search context size",
-          "user_location": "Include home location"
+          "prompt_override": "Prompt Override"
         },
         "data_description": {
-          "prompt": "Instruct how the LLM should respond. This can be a template.",
-          "reasoning_effort": "How many reasoning tokens the model should generate before creating a response to the prompt (for certain reasoning models)",
-          "web_search": "Allow the model to search the web for the latest information before generating a response",
-          "search_context_size": "High level guidance for the amount of context window space to use for the search",
-          "user_location": "Refine search results based on geography"
+          "prompt_override": "Optional: override the default system prompt sent with each request. Supports Jinja2 templates."
         }
-      }
-    },
-    "error": {
-      "model_not_supported": "This model is not supported, please select a different model",
-      "web_search_not_supported": "Web search is not supported by this model"
-    }
-  },
-  "selector": {
-    "reasoning_effort": {
-      "options": {
-        "low": "[%key:common::state::low%]",
-        "medium": "[%key:common::state::medium%]",
-        "high": "[%key:common::state::high%]"
-      }
-    },
-    "search_context_size": {
-      "options": {
-        "low": "[%key:common::state::low%]",
-        "medium": "[%key:common::state::medium%]",
-        "high": "[%key:common::state::high%]"
       }
     }
   },
   "services": {
-    "generate_image": {
-      "name": "Generate image",
-      "description": "Turns a prompt into an image",
+    "send_message": {
+      "name": "Send Message",
+      "description": "Send a message to the Lucia agent.",
       "fields": {
-        "config_entry": {
-          "name": "Config entry",
-          "description": "The config entry to use for this action"
-        },
-        "prompt": {
-          "name": "Prompt",
-          "description": "The text to turn into an image",
-          "example": "A photo of a dog"
-        },
-        "size": {
-          "name": "Size",
-          "description": "The size of the image to generate"
-        },
-        "quality": {
-          "name": "Quality",
-          "description": "The quality of the image that will be generated"
-        },
-        "style": {
-          "name": "Style",
-          "description": "The style of the generated image"
-        }
-      }
-    },
-    "generate_content": {
-      "name": "Generate content",
-      "description": "Sends a conversational query to ChatGPT including any attached image or PDF files",
-      "fields": {
-        "config_entry": {
-          "name": "Config entry",
-          "description": "The config entry to use for this action"
-        },
-        "prompt": {
-          "name": "Prompt",
-          "description": "The prompt to send"
-        },
-        "filenames": {
-          "name": "Files",
-          "description": "List of files to upload"
+        "message": {
+          "name": "Message",
+          "description": "The message to send to the agent."
         }
       }
     }
