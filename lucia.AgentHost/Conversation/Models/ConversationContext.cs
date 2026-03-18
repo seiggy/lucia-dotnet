@@ -27,6 +27,13 @@ public sealed record ConversationContext
     [JsonPropertyName("userId")]
     public string? UserId { get; init; }
 
+    /// <summary>
+    /// Speaker name identified by the Wyoming voice platform's speaker verification.
+    /// Populated server-side by stripping the <c>&lt;Name /&gt;</c> tag from the transcript.
+    /// </summary>
+    [JsonPropertyName("speakerId")]
+    public string? SpeakerId { get; init; }
+
     [JsonPropertyName("location")]
     public string? Location { get; init; }
 }

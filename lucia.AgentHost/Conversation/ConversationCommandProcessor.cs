@@ -55,21 +55,28 @@ public sealed partial class ConversationCommandProcessor
 
         LogProcessingStart(request.Text, request.Context.DeviceArea);
 
+        // Strip optional speaker identification tag from voice platform
+        var (speakerId, cleanText) = SpeakerTagParser.Parse(request.Text);
+        var context = speakerId is not null
+            ? request.Context with { SpeakerId = speakerId }
+            : request.Context;
+        var cleanRequest = request with { Text = cleanText, Context = context };
+
         // Ensure a stable conversationId for multi-turn continuity
-        var conversationId = request.Context.ConversationId
+        var conversationId = context.ConversationId
             ?? Guid.NewGuid().ToString("N");
 
-        // Step 1: Try command pattern matching
-        var routeResult = await _commandRouter.RouteAsync(request.Text, ct).ConfigureAwait(false);
+        // Step 1: Try command pattern matching (on clean text, without speaker tag)
+        var routeResult = await _commandRouter.RouteAsync(cleanText, ct).ConfigureAwait(false);
 
         if (routeResult.IsMatch && routeResult.MatchedPattern is not null)
         {
-            return await HandleCommandMatchAsync(request, routeResult, conversationId, activity, sw, ct)
+            return await HandleCommandMatchAsync(cleanRequest, routeResult, conversationId, activity, sw, ct)
                 .ConfigureAwait(false);
         }
 
-        // Step 2: No match — fall back to LLM
-        return await HandleLlmFallbackAsync(request, conversationId, activity, sw, ct)
+        // Step 2: No match — fall back to LLM (with clean text + speaker in context)
+        return await HandleLlmFallbackAsync(cleanRequest, conversationId, activity, sw, ct)
             .ConfigureAwait(false);
     }
 
@@ -86,6 +93,8 @@ public sealed partial class ConversationCommandProcessor
         activity?.SetTag("conversation.skill_id", pattern.SkillId);
         activity?.SetTag("conversation.action", pattern.Action);
         activity?.SetTag("conversation.confidence", routeResult.Confidence);
+        if (request.Context.SpeakerId is not null)
+            activity?.SetTag("conversation.speaker_id", request.Context.SpeakerId);
 
         LogCommandMatch(pattern.SkillId, pattern.Action, routeResult.Confidence);
 
