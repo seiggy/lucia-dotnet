@@ -123,6 +123,22 @@ Eval tests read from `lucia.Tests/appsettings.json`:
 
 Override with environment variables: `EvalConfiguration__AzureOpenAI__ApiKey=sk-...`
 
+## Conversation Pipeline Tests
+
+Tests for the `/api/conversation` fast-path command parser.
+
+| Test File | Coverage |
+|-----------|----------|
+| `ConversationCommandProcessorTests.cs` | Main pipeline routing (command vs LLM) |
+| `DirectSkillExecutorTests.cs` | Direct skill execution for each skill/action |
+| `ResponseTemplateRendererTests.cs` | Template interpolation and fallback |
+| `ContextReconstructorTests.cs` | Prompt reconstruction for LLM fallback |
+
+```bash
+# Run conversation tests
+dotnet test lucia.Tests/lucia.Tests.csproj --filter "FullyQualifiedName~Conversation" -v minimal
+```
+
 ## End-to-End Tests (Playwright)
 
 E2E tests exercise the full stack (dashboard → API → agents) through browser automation using [Playwright](https://playwright.dev/).
