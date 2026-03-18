@@ -409,7 +409,7 @@ export default function ConversationPage() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="Send a test message\u2026"
+            placeholder="Send a test message..."
             disabled={sending}
             className="flex-1 rounded-xl border border-stone bg-basalt px-3 py-2.5 text-sm text-light placeholder-dust/60 input-focus focus:ring-1 focus:ring-amber disabled:opacity-50"
           />
