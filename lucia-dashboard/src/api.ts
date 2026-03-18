@@ -1884,3 +1884,90 @@ export async function fetchTranscript(id: string): Promise<TranscriptRecord | nu
   if (!res.ok) return null
   return res.json()
 }
+
+// ── Response Templates API ─────────────────────────────────────
+
+export interface ResponseTemplate {
+  id: string
+  skillId: string
+  action: string
+  templates: string[]
+  isDefault: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateResponseTemplateRequest {
+  skillId: string
+  action: string
+  templates: string[]
+}
+
+export interface UpdateResponseTemplateRequest {
+  templates?: string[]
+}
+
+export async function fetchResponseTemplates(): Promise<ResponseTemplate[]> {
+  const res = await fetch(`${BASE}/response-templates`)
+  if (!res.ok) throw new Error(`Failed to fetch response templates: ${res.statusText}`)
+  return res.json()
+}
+
+export async function fetchResponseTemplate(id: string): Promise<ResponseTemplate> {
+  const res = await fetch(`${BASE}/response-templates/${encodeURIComponent(id)}`)
+  if (!res.ok) throw new Error(`Response template not found`)
+  return res.json()
+}
+
+export async function createResponseTemplate(
+  template: CreateResponseTemplateRequest,
+): Promise<ResponseTemplate> {
+  const res = await fetch(`${BASE}/response-templates`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(template),
+  })
+  if (!res.ok) throw new Error(`Failed to create response template: ${res.statusText}`)
+  return res.json()
+}
+
+export async function updateResponseTemplate(
+  id: string,
+  template: UpdateResponseTemplateRequest,
+): Promise<ResponseTemplate> {
+  const res = await fetch(`${BASE}/response-templates/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(template),
+  })
+  if (!res.ok) throw new Error(`Failed to update response template: ${res.statusText}`)
+  return res.json()
+}
+
+export async function deleteResponseTemplate(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/response-templates/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) throw new Error(`Failed to delete response template: ${res.statusText}`)
+}
+
+export async function resetResponseTemplates(): Promise<void> {
+  const res = await fetch(`${BASE}/response-templates/reset`, { method: 'POST' })
+  if (!res.ok) throw new Error(`Failed to reset response templates: ${res.statusText}`)
+}
+
+// ── Command Patterns API ──────────────────────────────────────
+
+export interface CommandPattern {
+  skillId: string
+  action: string
+  patternId: string
+  tokens: string[]
+  exampleTemplates: string[]
+}
+
+export async function fetchCommandPatterns(): Promise<CommandPattern[]> {
+  const res = await fetch(`${BASE}/conversation/patterns`)
+  if (!res.ok) throw new Error(`Failed to fetch patterns: ${res.statusText}`)
+  return res.json()
+}

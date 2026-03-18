@@ -3,6 +3,20 @@
 > Historical context: Entries below are kept as originally written. Any "coming soon" or "next steps" language in older notes reflects that point in time, not necessarily current capability. For current behavior and setup, use `custom_components/lucia/README.md`.
 
 
+## 1.2.0-preview.1
+
+### Breaking Changes
+- Migrated from A2A JSON-RPC to REST `/api/conversation` endpoint
+- Removed agent catalog selection (no longer needed)
+- Simplified configuration: host URL + API key only
+
+### New Features
+- Structured context object sent with each request (device, area, user, timestamp)
+- Fast-path command parsing handled server-side
+- SSE streaming support for LLM fallback responses
+- Optional prompt override in configuration options
+
+
 # Release Notes - 2026.02.27
 
 **Release Date:** February 27, 2026

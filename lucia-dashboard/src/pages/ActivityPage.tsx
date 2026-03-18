@@ -41,6 +41,9 @@ function SummaryCards({ summary, loading }: { summary: ActivitySummary | null; l
     { label: 'Agent Cache Hit Rate', value: `${(summary.chatCache.hitRate * 100).toFixed(1)}%`, color: 'text-amber' },
     { label: 'Combined Cache Hit Rate', value: `${(combinedHitRate * 100).toFixed(1)}%`, color: 'text-amber' },
     { label: 'Tasks Completed', value: summary.tasks.completedCount, color: 'text-sage' },
+    { label: '\u{1F3CE}\uFE0F Command Parsed', value: summary.conversation.commandParsed, color: 'text-sage' },
+    { label: '\u{1F916} LLM Fallback', value: summary.conversation.llmFallback, color: 'text-amber' },
+    { label: 'Parser Rate', value: `${(summary.conversation.commandRate * 100).toFixed(1)}%`, color: summary.conversation.commandRate >= 0.5 ? 'text-sage' : 'text-amber' },
   ] : []
 
   return (

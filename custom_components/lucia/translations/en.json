@@ -6,11 +6,13 @@
         "description": "Enter the connection details for your Lucia agent.",
         "data": {
           "repository": "Agent Repository URL",
-          "api_key": "API Key"
+          "api_key": "API Key",
+          "verify_ssl": "Verify SSL Certificate"
         },
         "data_description": {
           "repository": "The URL of your Lucia agent (e.g., http://localhost:5000)",
-          "api_key": "The API key for authenticating with your Lucia agent"
+          "api_key": "The API key for authenticating with your Lucia agent (optional)",
+          "verify_ssl": "Enable SSL certificate verification (disable for self-signed certs)"
         }
       }
     },
@@ -28,12 +30,10 @@
         "title": "Configure Lucia Agent",
         "description": "Configure how Lucia processes conversations.",
         "data": {
-          "prompt": "System Prompt Template",
-          "max_tokens": "Maximum Response Tokens"
+          "prompt_override": "Prompt Override"
         },
         "data_description": {
-          "prompt": "Template for the system prompt. Available variables: {{ha_name}}, {{user_name}}, {{language}}",
-          "max_tokens": "Maximum number of tokens in the response (10-4000)"
+          "prompt_override": "Optional: override the default system prompt sent with each request. Supports Jinja2 templates."
         }
       }
     }
@@ -51,10 +51,6 @@
         "message": {
           "name": "Message",
           "description": "The message to send to the agent."
-        },
-        "agent_id": {
-          "name": "Agent ID",
-          "description": "The ID of the specific agent to send the message to."
         }
       }
     }

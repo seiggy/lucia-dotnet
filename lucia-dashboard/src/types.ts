@@ -360,6 +360,7 @@ export interface ActivitySummary {
   tasks: { totalTasks: number; completedCount: number; failedCount: number }
   cache: { totalEntries: number; totalHits: number; totalMisses: number; hitRate: number }
   chatCache: { totalEntries: number; totalHits: number; totalMisses: number; hitRate: number }
+  conversation: { commandParsed: number; llmFallback: number; errors: number; total: number; commandRate: number }
 }
 
 export interface AgentActivityStatsMap {

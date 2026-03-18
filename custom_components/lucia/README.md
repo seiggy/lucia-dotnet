@@ -41,15 +41,16 @@ dotnet run --project lucia.AppHost
 
 When adding the integration, you'll need to provide:
 
-- **Agent Repository URL**: The base URL exposing Lucia's `/agents` catalog (for example, the URL shown for `lucia-agenthost` in the Aspire dashboard)
-- **API Key**: The API key for authenticating with your Lucia agent
+- **Agent Repository URL**: The base URL exposing Lucia's endpoints (for example, the URL shown for `lucia-agenthost` in the Aspire dashboard)
+- **API Key**: The API key for authenticating with your Lucia instance
+
+The integration auto-discovers available agents from the repository—no manual agent selection is required. Common commands (lights, climate, scenes) are handled by the fast-path command parser at `/api/conversation` and never hit an LLM.
 
 ### Options
 
 After setup, you can configure:
 
 - **System Prompt Template**: Customize the system prompt using Home Assistant template syntax
-- **Maximum Response Tokens**: Control the maximum length of agent responses (10-4000 tokens)
 
 ## Usage
 
@@ -102,6 +103,21 @@ data:
   message: "Turn on the living room lights"
   agent_id: "lucia"
 ```
+
+### Conversation API
+
+Starting with v1.2.0, Lucia exposes a `/api/conversation` endpoint that provides a fast-path command parser for common Home Assistant actions. Pattern-matched commands (lights, climate, scenes) execute directly against HA without invoking an LLM. Unrecognized requests fall through to LLM orchestration with SSE streaming.
+
+See [`docs/conversation-api.md`](../../docs/conversation-api.md) for the full API reference.
+
+## Migrating from 1.1.x
+
+If you are upgrading from v1.1.x:
+
+1. **Agent selection removed** — The integration no longer presents an agent selection step during setup. The orchestrator is used automatically. If you previously configured a specific agent, remove and re-add the integration.
+2. **`CONF_AGENT_ID` deprecated** — The `agent_id` config key is still read for backwards compatibility but is no longer written. You can safely ignore it.
+3. **Max response tokens removed** — Token limits are now managed server-side. The options flow no longer exposes this setting.
+4. **New `/api/conversation` endpoint** — Common commands now bypass the LLM entirely. No configuration change is needed; the integration uses this endpoint automatically when available.
 
 ## Supported Languages
 

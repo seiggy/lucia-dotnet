@@ -1,6 +1,9 @@
 using lucia.AgentHost;
 using lucia.AgentHost.Apis;
 using lucia.AgentHost.Auth;
+using lucia.AgentHost.Conversation;
+using lucia.AgentHost.Conversation.Execution;
+using lucia.AgentHost.Conversation.Templates;
 using lucia.AgentHost.Extensions;
 using lucia.AgentHost.PluginFramework;
 using lucia.AgentHost.Services;
@@ -143,6 +146,14 @@ builder.Services.AddSingleton<IOrchestratorObserver>(sp =>
         sp.GetRequiredService<LiveActivityObserver>(),
     ]));
 builder.Services.AddHostedService<TraceRetentionService>();
+
+// Conversation fast-path command processing
+builder.Services.AddSingleton<IResponseTemplateRepository, MongoResponseTemplateRepository>();
+builder.Services.AddSingleton<ResponseTemplateRenderer>();
+builder.Services.AddSingleton<IDirectSkillExecutor, DirectSkillExecutor>();
+builder.Services.AddSingleton<ContextReconstructor>();
+builder.Services.AddSingleton<ConversationTelemetry>();
+builder.Services.AddSingleton<ConversationCommandProcessor>();
 
 // Register span collector as an OTEL processor so captured Lucia.* spans
 // can be attached to conversation traces for the waterfall timeline.
@@ -309,6 +320,8 @@ app.MapAgentDefinitionApi();
 app.MapModelProviderApi();
 app.MapActivityApi();
 app.MapAlarmClockApi();
+app.MapResponseTemplateApi();
+app.MapConversationApi();
 app.MapListsApi();
 app.MapPresenceApi();
 app.MapSkillOptimizerApi();

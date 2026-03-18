@@ -15,20 +15,11 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_API_KEY
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.selector import (
-    NumberSelector,
-    NumberSelectorConfig,
-    NumberSelectorMode,
-    SelectSelector,
-    SelectSelectorConfig,
-    SelectSelectorMode,
-    SelectOptionDict,
     TemplateSelector,
 )
 
 from .const import (
-    CONF_AGENT_NAME,
-    CONF_MAX_TOKENS,
-    CONF_PROMPT,
+    CONF_PROMPT_OVERRIDE,
     CONF_REPOSITORY,
     CONF_VERIFY_SSL,
     DOMAIN,
@@ -44,17 +35,15 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
     }
 )
 
-async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
-    """Validate the connection by fetching the agent catalog from /agents.
 
-    Uses httpx directly (no a2a-sdk) to avoid blocking and async issues.
+async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
+    """Validate the connection by probing the conversation endpoint.
+
+    Uses httpx directly to avoid blocking and async issues.
     """
     import httpx
 
     repository = data[CONF_REPOSITORY].rstrip("/")
-    if repository.endswith("/agents"):
-        repository = repository[: -len("/agents")]
-    catalog_url = f"{repository}/agents"
     headers = {}
     if data.get(CONF_API_KEY):
         headers["X-Api-Key"] = data[CONF_API_KEY]
@@ -65,34 +54,31 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
         headers=headers,
         verify=verify_ssl,
         follow_redirects=True,
-        timeout=30.0,
+        timeout=15.0,
     ) as client:
+        # Probe the conversation endpoint with OPTIONS or a lightweight GET
+        probe_url = f"{repository}/api/conversation"
         try:
-            response = await client.get(catalog_url)
+            response = await client.options(probe_url)
         except httpx.ConnectError as err:
-            _LOGGER.error("Cannot connect to %s: %s", catalog_url, err)
-            raise ValueError("Cannot connect to repository. Check URL and network.") from err
+            _LOGGER.error("Cannot connect to %s: %s", probe_url, err)
+            raise ValueError("Cannot connect to Lucia. Check URL and network.") from err
         except Exception as err:
-            _LOGGER.error("Failed to fetch catalog from %s: %s", catalog_url, err)
-            raise ValueError("Invalid repository or API key") from err
+            _LOGGER.error("Failed to reach %s: %s", probe_url, err)
+            raise ValueError("Cannot reach Lucia server.") from err
 
         if response.status_code == 401:
             raise ValueError("Authentication failed (401). Check your API key.")
 
-        response.raise_for_status()
+        # Any 2xx/4xx (except 401) means the server is reachable — good enough
+        _LOGGER.info(
+            "Lucia probe at %s returned HTTP %s — server reachable",
+            probe_url,
+            response.status_code,
+        )
 
-        raw = response.json()
-        agents = raw if isinstance(raw, list) else raw.get("agents") or raw.get("catalog") or raw.get("value")
-        if not isinstance(agents, list) or len(agents) == 0:
-            raise ValueError(
-                "No agents in catalog. Ensure Lucia has finished starting and has agents registered."
-            )
+    return {"title": "Lucia Home Agent"}
 
-        first = agents[0]
-        return {
-            "title": first.get("name", "Lucia Agent"),
-            "agent_id": first.get("name", "lucia"),
-        }
 
 class LuciaConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Lucia."""
@@ -109,7 +95,6 @@ class LuciaConfigFlow(ConfigFlow, domain=DOMAIN):
             try:
                 info = await validate_input(self.hass, user_input)
 
-                # Set unique ID based on repository URL to prevent duplicates
                 await self.async_set_unique_id(user_input[CONF_REPOSITORY])
                 self._abort_if_unique_id_configured()
 
@@ -119,7 +104,6 @@ class LuciaConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_REPOSITORY: user_input[CONF_REPOSITORY],
                         CONF_API_KEY: user_input[CONF_API_KEY],
                         CONF_VERIFY_SSL: user_input.get(CONF_VERIFY_SSL, False),
-                        "agent_id": info["agent_id"],
                     },
                 )
             except ValueError:
@@ -156,62 +140,16 @@ class LuciaOptionsFlow(OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        # Get the agent catalog from hass.data
-        entry_data = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id, {})
-        catalog = entry_data.get("catalog", [])
-
-        # Build agent selection options
-        agent_options: list[SelectOptionDict] = []
-        for agent in catalog:
-            agent_name = agent.get("name", "unknown")
-            agent_description = agent.get("description", "")
-            # Create display label with name and description
-            label = f"{agent_name}"
-            if agent_description:
-                label = f"{agent_name} - {agent_description}"
-            agent_options.append(SelectOptionDict(
-                value=agent_name,
-                label=label
-            ))
-
-        # If no agents found in catalog, show error
-        if not agent_options:
-            _LOGGER.warning("No agents available in catalog for options flow")
-            agent_options = [SelectOptionDict(value="none", label="No agents available")]
-
         options = self.config_entry.options or {}
-
-        # Get current agent name, default to first agent in catalog
-        current_agent = options.get(CONF_AGENT_NAME)
-        if not current_agent and catalog:
-            current_agent = catalog[0].get("name", "")
 
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema({
-                vol.Optional(
-                    CONF_AGENT_NAME,
-                    default=current_agent,
-                ): SelectSelector(
-                    SelectSelectorConfig(
-                        options=agent_options,
-                        mode=SelectSelectorMode.DROPDOWN,
-                    )
-                ),
-                vol.Optional(
-                    CONF_PROMPT,
-                    default=options.get(CONF_PROMPT, ""),
-                ): TemplateSelector(),
-                vol.Optional(
-                    CONF_MAX_TOKENS,
-                    default=options.get(CONF_MAX_TOKENS, 150),
-                ): NumberSelector(
-                    NumberSelectorConfig(
-                        min=10,
-                        max=4000,
-                        step=10,
-                        mode=NumberSelectorMode.BOX,
-                    )
-                ),
-            }),
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_PROMPT_OVERRIDE,
+                        default=options.get(CONF_PROMPT_OVERRIDE, ""),
+                    ): TemplateSelector(),
+                }
+            ),
         )
