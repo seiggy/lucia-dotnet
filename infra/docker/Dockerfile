@@ -61,6 +61,8 @@ EXPOSE 8080 8081
 # Stage 2: Build Stage
 # ============================================================================
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+ARG TARGETARCH
+ARG TARGETOS
 
 # Set build configuration (can be overridden via --build-arg)
 ARG BUILD_CONFIGURATION=Release

@@ -212,7 +212,7 @@ jobs:
           file: ./infra/docker/Dockerfile
           load: true
           tags: lucia-agenthost:test
-          cache-from: type=gha, scope=lucia-agenthost
+          cache-from: type=gha,scope=lucia-agenthost
           build-args: |
             ASSET_IMAGE=${{ env.ASSET_IMAGE }}:sha-${{ steps.asset-hash.outputs.hash }}
 
