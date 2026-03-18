@@ -54,10 +54,14 @@ jobs:
             dockerfile: ./infra/docker/Dockerfile
             title: Lucia Agent Host
             description: AI-powered Home Assistant agent orchestration
+            platforms: linux/amd64,linux/arm64
+            cache_scope: lucia-agenthost
             tag_suffix: ""
           - image: seiggy/lucia-agenthost
             dockerfile: ./infra/docker/Dockerfile.voice
             title: Lucia Agent Host (Voice)
+            platforms: linux/amd64
+            cache_scope: lucia-agenthost-voice
             description: AI-powered Home Assistant agent with pre-loaded Wyoming voice models
             tag_suffix: "-voice"
 
@@ -92,7 +96,7 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
         with:
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platforms }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -144,16 +148,16 @@ jobs:
         with:
           context: .
           file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platforms }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: |
-            type=gha,scope=${{ matrix.image }}
-            type=registry,ref=${{ matrix.image }}:buildcache
+            type=gha,scope=${{ matrix.cache_scope }}
+            type=registry,ref=${{ matrix.image }}:${{matrix.cache_scope}}-buildcache
           cache-to: |
-            type=gha,scope=${{ matrix.image }},mode=max
-            type=registry,ref=${{ matrix.image }}:buildcache,mode=max
+            type=gha,scope=${{ matrix.cache_scope }},mode=max
+            type=registry,ref=${{ matrix.image }}:${{matrix.cache_scope}}-buildcache,mode=max
           build-args: |
             ASSET_IMAGE=${{ env.ASSET_IMAGE }}:sha-${{ steps.asset-hash.outputs.hash }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
@@ -208,7 +212,7 @@ jobs:
           file: ./infra/docker/Dockerfile
           load: true
           tags: lucia-agenthost:test
-          cache-from: type=gha
+          cache-from: type=gha, scope=lucia-agenthost
           build-args: |
             ASSET_IMAGE=${{ env.ASSET_IMAGE }}:sha-${{ steps.asset-hash.outputs.hash }}
 
@@ -284,7 +288,7 @@ jobs:
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@v0.35.0
         with:
-          image-ref: seiggy/lucia-agenthost:latest
+          image-ref: seiggy/lucia-agenthost:voice
           format: 'sarif'
           output: 'trivy-results.sarif'
 

@@ -19,6 +19,8 @@
 # See Dockerfile.assets and asset.lock for what's included.
 # ============================================================================
 ARG ASSET_IMAGE=ghcr.io/seiggy/lucia-dotnet/build-assets:latest
+ARG TARGETARCH
+ARG TARGETOS
 FROM ${ASSET_IMAGE} AS assets
 
 # ============================================================================
@@ -82,10 +84,15 @@ COPY ["lucia.Wyoming/lucia.Wyoming.csproj", "lucia.Wyoming/"]
 
 # Restore dependencies (skip Copilot CLI download — handled in copilot-cli stage)
 # This layer is cached unless .csproj files change
-RUN dotnet restore "./lucia.AgentHost/lucia.AgentHost.csproj" \
-    --runtime linux-x64 \
-    /p:PublishReadyToRun=true \
-    /p:CopilotSkipCliDownload=true
+
+RUN RID=$(case "$TARGETARCH" in\
+      amd64) echo "linux-x64" ;; \
+      arm64) echo "linux-arm64" ;; \
+    esac) && \
+    dotnet restore "./lucia.AgentHost/lucia.AgentHost.csproj" \
+      --runtime $RID \
+      /p:PublishReadyToRun=true \
+      /p:CopilotSkipCliDownload=true
 
 # Copy entire source tree
 COPY . .
@@ -93,10 +100,14 @@ COPY . .
 # Navigate to project directory and build
 WORKDIR "/src"
 
-RUN dotnet build "./lucia.AgentHost/lucia.AgentHost.csproj" \
+RUN RID=$(case "$TARGETARCH" in\
+      amd64) echo "linux-x64" ;; \
+      arm64) echo "linux-arm64" ;; \
+    esac) && \
+    dotnet build "./lucia.AgentHost/lucia.AgentHost.csproj" \
     -c $BUILD_CONFIGURATION \
     -o /app/build \
-    --runtime linux-x64 \
+    --runtime $RID \
     --framework $BUILD_TARGET_FRAMEWORK \
     --no-restore \
     /p:CopilotSkipCliDownload=true
@@ -112,12 +123,16 @@ ARG BUILD_TARGET_FRAMEWORK=net10.0
 
 # Publish to /app/publish directory
 # We tried running this with no-build, but it seems to cause issues with missing files. Will fix later.
-RUN dotnet publish "./lucia.AgentHost/lucia.AgentHost.csproj" \
+RUN RID=$(case "$TARGETARCH" in\
+      amd64) echo "linux-x64" ;; \
+      arm64) echo "linux-arm64" ;; \
+    esac) && \
+    dotnet publish "./lucia.AgentHost/lucia.AgentHost.csproj" \
     -c $BUILD_CONFIGURATION \
     -o /app/publish \
     --no-restore \
     --framework $BUILD_TARGET_FRAMEWORK \
-    --runtime linux-x64 \
+    --runtime $RID \
     /p:UseAppHost=false \
     /p:PublishTrimmed=false \
     /p:PublishReadyToRun=true \
