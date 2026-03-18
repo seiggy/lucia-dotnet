@@ -54,6 +54,10 @@ public sealed class ContextReconstructor
             .Replace("{deviceArea}", context.DeviceArea ?? "unknown")
             .Replace("{deviceType}", context.DeviceType ?? "voice_assistant");
 
-        return $"{prompt}\n\nUser: {request.Text}";
+        var speakerLine = context.SpeakerId is not null
+            ? $"\n[Speaker: {context.SpeakerId}]"
+            : string.Empty;
+
+        return $"{prompt}{speakerLine}\n\nUser: {request.Text}";
     }
 }
