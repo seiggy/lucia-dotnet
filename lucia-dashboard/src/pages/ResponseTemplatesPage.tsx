@@ -268,7 +268,7 @@ function TemplateCard({
               onFocus={() => setActiveInputIdx(i)}
               onChange={(e) => handleTemplateChange(i, e.target.value)}
               className="flex-1 rounded-lg border border-stone bg-basalt px-3 py-2 text-sm text-light placeholder-dust/60 input-focus"
-              placeholder="Template text with {entity} placeholders\u2026"
+              placeholder="Template text with {entity} placeholders..."
             />
             {localTemplates.length > 1 && (
               <button
@@ -492,7 +492,7 @@ function AddTemplateForm({
               className={`w-full ${selectStyle}`}
               required
             >
-              <option value="">Select a skill\u2026</option>
+              <option value="">Select a skill...</option>
               {uniqueSkillIds.map((id) => (
                 <option key={id} value={id}>
                   {skillDisplayName(id)} ({id})
@@ -523,7 +523,7 @@ function AddTemplateForm({
               required
             >
               <option value="">
-                {skillId ? 'Select an action\u2026' : 'Select a skill first'}
+                {skillId ? 'Select an action...' : 'Select a skill first'}
               </option>
               {availableActions.map((a) => (
                 <option key={a} value={a}>{a}</option>
@@ -599,7 +599,7 @@ function AddTemplateForm({
         disabled={submitting || !skillId.trim() || !action.trim()}
         className="rounded-xl bg-amber/20 px-4 py-2 text-sm font-medium text-amber hover:bg-amber/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
       >
-        {submitting ? 'Creating\u2026' : 'Create Template'}
+        {submitting ? 'Creating...' : 'Create Template'}
       </button>
     </form>
   )
