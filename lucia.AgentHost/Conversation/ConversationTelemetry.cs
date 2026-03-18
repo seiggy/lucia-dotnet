@@ -6,6 +6,7 @@ namespace lucia.AgentHost.Conversation;
 /// <summary>
 /// Telemetry instrumentation for the /api/conversation endpoint.
 /// Tracks command parser vs LLM fallback routing and execution performance.
+/// Exposes in-memory counters for the activity summary API.
 /// </summary>
 public sealed class ConversationTelemetry
 {
@@ -15,6 +16,10 @@ public sealed class ConversationTelemetry
     private readonly Histogram<double> _commandParsedDuration;
     private readonly Histogram<double> _llmFallbackDuration;
     private readonly ActivitySource _activitySource;
+
+    private long _commandParsedTotal;
+    private long _llmFallbackTotal;
+    private long _commandErrorTotal;
 
     public ConversationTelemetry(AgentHostTelemetrySource telemetrySource)
     {
@@ -52,12 +57,14 @@ public sealed class ConversationTelemetry
             new KeyValuePair<string, object?>("skillId", skillId),
             new KeyValuePair<string, object?>("action", action));
         _commandParsedDuration.Record(durationMs);
+        Interlocked.Increment(ref _commandParsedTotal);
     }
 
     public void RecordLlmFallback(double durationMs)
     {
         _llmFallbackCounter.Add(1);
         _llmFallbackDuration.Record(durationMs);
+        Interlocked.Increment(ref _llmFallbackTotal);
     }
 
     public void RecordCommandError(string skillId, string action)
@@ -65,5 +72,26 @@ public sealed class ConversationTelemetry
         _commandErrorCounter.Add(1,
             new KeyValuePair<string, object?>("skillId", skillId),
             new KeyValuePair<string, object?>("action", action));
+        Interlocked.Increment(ref _commandErrorTotal);
+    }
+
+    /// <summary>
+    /// Returns a snapshot of conversation routing stats for the activity summary.
+    /// </summary>
+    public ConversationStats GetStats()
+    {
+        var parsed = Interlocked.Read(ref _commandParsedTotal);
+        var llm = Interlocked.Read(ref _llmFallbackTotal);
+        var errors = Interlocked.Read(ref _commandErrorTotal);
+        var total = parsed + llm;
+
+        return new ConversationStats
+        {
+            CommandParsed = parsed,
+            LlmFallback = llm,
+            Errors = errors,
+            Total = total,
+            CommandRate = total > 0 ? (double)parsed / total : 0,
+        };
     }
 }

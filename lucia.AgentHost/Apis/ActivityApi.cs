@@ -1,4 +1,5 @@
 using System.Text.Json;
+using lucia.AgentHost.Conversation;
 using lucia.AgentHost.Models;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Orchestration;
@@ -133,6 +134,7 @@ public static class ActivityApi
         [FromServices] ITraceRepository traceRepo,
         [FromServices] ITaskArchiveStore taskArchive,
         [FromServices] IPromptCacheService cacheService,
+        [FromServices] ConversationTelemetry conversationTelemetry,
         CancellationToken ct)
     {
         // All four calls hit independent data sources — run in parallel
@@ -150,6 +152,7 @@ public static class ActivityApi
             Tasks = await taskStatsTask.ConfigureAwait(false),
             Cache = await cacheStatsTask.ConfigureAwait(false),
             ChatCache = await chatCacheStatsTask.ConfigureAwait(false),
+            Conversation = conversationTelemetry.GetStats(),
         });
     }
 
