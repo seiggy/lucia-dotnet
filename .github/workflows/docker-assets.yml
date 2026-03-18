@@ -6,7 +6,7 @@ name: Build Assets Image
 
 on:
   push:
-    branches: [main]
+    branches: [master]
     paths:
       - 'infra/docker/asset.lock'
       - 'infra/docker/Dockerfile.assets'

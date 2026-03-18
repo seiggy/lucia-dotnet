@@ -3,17 +3,17 @@ name: Build and Push Docker Image
 on:
   push:
     branches:
-      - main
+      - master
     tags:
       - 'v[0-9]*.[0-9]*.[0-9]*'  # Semantic versioning (vX.Y.Z and vX.Y.Z-preview.N)
   pull_request:
     branches:
-      - main
+      - master
   # Wait for the asset image to be built before starting, when asset.lock changes
   workflow_run:
     workflows: ["Build Assets Image"]
     types: [completed]
-    branches: [main]
+    branches: [master]
   workflow_dispatch:
     inputs:
       preview:
@@ -126,8 +126,8 @@ jobs:
           tags: |
             type=semver,pattern={{version}},suffix=${{ matrix.tag_suffix }}
             type=semver,pattern={{major}}.{{minor}},suffix=${{ matrix.tag_suffix }},enable=${{ github.ref_type == 'tag' && steps.preview.outputs.is_preview != 'true' }}
-            type=raw,value=latest,enable=${{ matrix.tag_suffix == '' && github.event_name != 'pull_request' && steps.preview.outputs.is_preview != 'true' && (github.ref_type == 'tag' || github.ref == 'refs/heads/main') }}
-            type=raw,value=voice,enable=${{ matrix.tag_suffix == '-voice' && github.event_name != 'pull_request' && steps.preview.outputs.is_preview != 'true' && (github.ref_type == 'tag' || github.ref == 'refs/heads/main') }}
+            type=raw,value=latest,enable=${{ matrix.tag_suffix == '' && github.event_name != 'pull_request' && steps.preview.outputs.is_preview != 'true' && (github.ref_type == 'tag' || github.ref == 'refs/heads/master') }}
+            type=raw,value=voice,enable=${{ matrix.tag_suffix == '-voice' && github.event_name != 'pull_request' && steps.preview.outputs.is_preview != 'true' && (github.ref_type == 'tag' || github.ref == 'refs/heads/master') }}
             type=ref,event=branch,suffix=${{ matrix.tag_suffix }}
             type=ref,event=pr,suffix=${{ matrix.tag_suffix }}
             type=sha,prefix=sha-,suffix=${{ matrix.tag_suffix }}
