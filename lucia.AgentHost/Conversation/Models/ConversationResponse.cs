@@ -29,6 +29,13 @@ public sealed record ConversationResponse
     [JsonPropertyName("conversationId")]
     public string? ConversationId { get; init; }
 
+    /// <summary>
+    /// When true, the response is a clarifying question and the conversation
+    /// should remain open for the user's follow-up.
+    /// </summary>
+    [JsonPropertyName("needsInput")]
+    public bool NeedsInput { get; init; }
+
     public static ConversationResponse FromCommand(
         string text,
         CommandDetail command,
@@ -42,10 +49,12 @@ public sealed record ConversationResponse
 
     public static ConversationResponse FromLlm(
         string text,
-        string? conversationId) => new()
+        string? conversationId,
+        bool needsInput = false) => new()
     {
         Type = "llm",
         Text = text,
         ConversationId = conversationId,
+        NeedsInput = needsInput,
     };
 }

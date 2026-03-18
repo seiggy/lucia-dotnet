@@ -1,6 +1,7 @@
 using lucia.AgentHost.Conversation.Templates;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
+using MongoDB.Driver;
 
 namespace lucia.AgentHost.Apis;
 
@@ -47,7 +48,7 @@ public static class ResponseTemplateApi
             : TypedResults.NotFound();
     }
 
-    private static async Task<Results<Created<ResponseTemplate>, BadRequest<string>>> CreateAsync(
+    private static async Task<Results<Created<ResponseTemplate>, BadRequest<string>, Conflict<string>>> CreateAsync(
         [FromBody] CreateResponseTemplateRequest request,
         [FromServices] IResponseTemplateRepository repo,
         CancellationToken ct)
@@ -69,8 +70,15 @@ public static class ResponseTemplateApi
             IsDefault = false
         };
 
-        var created = await repo.CreateAsync(template, ct).ConfigureAwait(false);
-        return TypedResults.Created($"/api/response-templates/{created.Id}", created);
+        try
+        {
+            var created = await repo.CreateAsync(template, ct).ConfigureAwait(false);
+            return TypedResults.Created($"/api/response-templates/{created.Id}", created);
+        }
+        catch (MongoWriteException ex) when (ex.WriteError?.Category == ServerErrorCategory.DuplicateKey)
+        {
+            return TypedResults.Conflict($"A template for {request.SkillId}/{request.Action} already exists");
+        }
     }
 
     private static async Task<Results<Ok<ResponseTemplate>, NotFound, BadRequest<string>>> UpdateAsync(

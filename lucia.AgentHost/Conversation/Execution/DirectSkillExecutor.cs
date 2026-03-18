@@ -1,5 +1,3 @@
-namespace lucia.AgentHost.Conversation.Execution;
-
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.RegularExpressions;
@@ -10,6 +8,8 @@ using lucia.Wyoming.CommandRouting;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+
+namespace lucia.AgentHost.Conversation.Execution;
 
 /// <summary>
 /// Executes matched command routes by calling skill methods directly, bypassing LLM processing.

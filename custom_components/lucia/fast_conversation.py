@@ -112,7 +112,7 @@ def _parse_json_response(response: httpx.Response) -> ConversationResult:
     resp_type = data.get("type", "command")
     conv_id = data.get("conversationId")
     needs_input = data.get("needsInput", False)
-    command_detail = data.get("commandDetail")
+    command_detail = data.get("command")
 
     if not resp_text:
         resp_text = "I processed your request but have no response text."
@@ -133,8 +133,18 @@ def _parse_sse_response(response: httpx.Response) -> ConversationResult:
     conv_id: Optional[str] = None
     needs_input = False
 
+    current_event_type = ""
+
     for line in response.text.splitlines():
+        line = line.strip()
+
+        if line.startswith("event:"):
+            current_event_type = line[len("event:"):].strip()
+            continue
+
         if not line.startswith("data:"):
+            if not line:
+                current_event_type = ""
             continue
 
         raw = line[len("data:"):].strip()
@@ -147,7 +157,9 @@ def _parse_sse_response(response: httpx.Response) -> ConversationResult:
             _LOGGER.debug("Skipping non-JSON SSE line: %s", raw[:100])
             continue
 
-        event_type = event.get("type", "")
+        # Use SSE event: field, fall back to JSON type field
+        event_type = current_event_type or event.get("type", "")
+
         if event_type == "delta":
             collected_text += event.get("text", "")
         elif event_type == "done":
@@ -155,7 +167,7 @@ def _parse_sse_response(response: httpx.Response) -> ConversationResult:
             conv_id = event.get("conversationId", conv_id)
             needs_input = event.get("needsInput", False)
         elif event_type == "error":
-            error_msg = event.get("message", "Unknown streaming error")
+            error_msg = event.get("error", event.get("message", "Unknown streaming error"))
             _LOGGER.error("SSE error event: %s", error_msg)
             return ConversationResult(
                 text=f"Streaming error: {error_msg}",

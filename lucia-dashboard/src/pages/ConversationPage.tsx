@@ -278,7 +278,7 @@ export default function ConversationPage() {
       let meta = ''
       if (response.type === 'command' && response.command) {
         const c = response.command
-        meta = `\uD83C\uDFCE\uFE0F ${c.skillId}/${c.action} \u2022 ${c.confidence}% \u2022 ${c.executionMs}ms`
+        meta = `\uD83C\uDFCE\uFE0F ${c.skillId}/${c.action} \u2022 ${(c.confidence * 100).toFixed(0)}% \u2022 ${c.executionMs}ms`
       } else if (response.type === 'llm') {
         meta = '\uD83E\uDD16 LLM'
       }

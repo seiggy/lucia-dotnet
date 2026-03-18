@@ -127,7 +127,7 @@ public sealed class ResponseTemplateRendererTests
         }
 
         // Assert — all results come from the template set
-        Assert.Subset(expectedTemplates, results);
+        Assert.All(results, r => Assert.Contains(r, expectedTemplates));
         Assert.True(results.Count > 1,
             "Expected multiple different templates to be selected across 100 iterations");
     }

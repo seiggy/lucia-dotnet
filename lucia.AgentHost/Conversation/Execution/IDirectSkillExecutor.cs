@@ -1,7 +1,7 @@
-namespace lucia.AgentHost.Conversation.Execution;
-
 using lucia.AgentHost.Conversation.Models;
 using lucia.Wyoming.CommandRouting;
+
+namespace lucia.AgentHost.Conversation.Execution;
 
 /// <summary>
 /// Executes a matched command route by calling the target skill directly, bypassing LLM processing.

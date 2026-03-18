@@ -55,23 +55,28 @@ public sealed partial class ConversationCommandProcessor
 
         LogProcessingStart(request.Text, request.Context.DeviceArea);
 
+        // Ensure a stable conversationId for multi-turn continuity
+        var conversationId = request.Context.ConversationId
+            ?? Guid.NewGuid().ToString("N");
+
         // Step 1: Try command pattern matching
         var routeResult = await _commandRouter.RouteAsync(request.Text, ct).ConfigureAwait(false);
 
         if (routeResult.IsMatch && routeResult.MatchedPattern is not null)
         {
-            return await HandleCommandMatchAsync(request, routeResult, activity, sw, ct)
+            return await HandleCommandMatchAsync(request, routeResult, conversationId, activity, sw, ct)
                 .ConfigureAwait(false);
         }
 
         // Step 2: No match — fall back to LLM
-        return await HandleLlmFallbackAsync(request, activity, sw, ct)
+        return await HandleLlmFallbackAsync(request, conversationId, activity, sw, ct)
             .ConfigureAwait(false);
     }
 
     private async Task<ProcessingResult> HandleCommandMatchAsync(
         ConversationRequest request,
         CommandRouteResult routeResult,
+        string conversationId,
         Activity? activity,
         Stopwatch sw,
         CancellationToken ct)
@@ -95,7 +100,7 @@ public sealed partial class ConversationCommandProcessor
             _telemetry.RecordCommandError(pattern.SkillId, pattern.Action);
 
             // Fall back to LLM on skill execution failure
-            return await HandleLlmFallbackAsync(request, activity, sw, ct)
+            return await HandleLlmFallbackAsync(request, conversationId, activity, sw, ct)
                 .ConfigureAwait(false);
         }
 
@@ -119,11 +124,12 @@ public sealed partial class ConversationCommandProcessor
         LogCommandSuccess(pattern.SkillId, pattern.Action, sw.ElapsedMilliseconds);
 
         return ProcessingResult.CommandHandled(
-            ConversationResponse.FromCommand(responseText, commandDetail, request.Context.ConversationId));
+            ConversationResponse.FromCommand(responseText, commandDetail, conversationId));
     }
 
     private async Task<ProcessingResult> HandleLlmFallbackAsync(
         ConversationRequest request,
+        string conversationId,
         Activity? activity,
         Stopwatch sw,
         CancellationToken ct)
@@ -138,14 +144,14 @@ public sealed partial class ConversationCommandProcessor
             _logger.LogError("LuciaEngine not available for LLM fallback");
             sw.Stop();
             return ProcessingResult.LlmFallback(
-                request.Context.ConversationId,
+                conversationId,
                 _contextReconstructor.Reconstruct(request));
         }
 
         var prompt = _contextReconstructor.Reconstruct(request);
 
         var result = await engine
-            .ProcessRequestAsync(prompt, sessionId: request.Context.ConversationId, cancellationToken: ct)
+            .ProcessRequestAsync(prompt, sessionId: conversationId, cancellationToken: ct)
             .ConfigureAwait(false);
 
         sw.Stop();
@@ -154,7 +160,7 @@ public sealed partial class ConversationCommandProcessor
         LogLlmComplete(sw.ElapsedMilliseconds);
 
         return ProcessingResult.LlmCompleted(
-            ConversationResponse.FromLlm(result.Text, request.Context.ConversationId));
+            ConversationResponse.FromLlm(result.Text, conversationId, result.NeedsInput));
     }
 
     [LoggerMessage(Level = LogLevel.Information,

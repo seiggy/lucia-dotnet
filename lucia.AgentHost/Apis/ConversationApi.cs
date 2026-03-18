@@ -15,7 +15,7 @@ namespace lucia.AgentHost.Apis;
 /// </summary>
 public static class ConversationApi
 {
-    private static readonly JsonSerializerOptions s_sseJsonOptions = new()
+    private static readonly JsonSerializerOptions SSseJsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
@@ -105,8 +105,6 @@ public static class ConversationApi
         httpContext.Response.Headers.CacheControl = "no-cache";
         httpContext.Response.Headers.Connection = "keep-alive";
 
-        var writer = httpContext.Response.BodyWriter;
-
         // Send metadata event
         await WriteSseEventAsync(httpContext, "metadata", new
         {
@@ -158,7 +156,7 @@ public static class ConversationApi
     private static async Task WriteSseEventAsync(
         HttpContext httpContext, string eventType, object data, CancellationToken ct)
     {
-        var json = JsonSerializer.Serialize(data, s_sseJsonOptions);
+        var json = JsonSerializer.Serialize(data, SSseJsonOptions);
         var line = $"event: {eventType}\ndata: {json}\n\n";
         await httpContext.Response.WriteAsync(line, ct).ConfigureAwait(false);
         await httpContext.Response.Body.FlushAsync(ct).ConfigureAwait(false);

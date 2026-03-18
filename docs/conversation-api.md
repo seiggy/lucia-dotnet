@@ -121,11 +121,12 @@ Commands are matched by regex patterns registered per skill. The `deviceArea` co
 
 ## Telemetry
 
-All metrics are emitted via OpenTelemetry under the `lucia.conversation` meter.
+All metrics are emitted via OpenTelemetry under the `lucia.AgentHost` meter.
 
 | Metric | Type | Tags | Description |
 |--------|------|------|-------------|
 | `conversation.command_parsed` | Counter | `skillId`, `action` | Incremented for each successfully parsed command |
 | `conversation.llm_fallback` | Counter | — | Incremented when the request falls through to LLM |
-| `conversation.command_parsed.duration_ms` | Histogram | `skillId`, `action` | End-to-end latency for command parse + HA execution |
+| `conversation.command_parsed.errors` | Counter | `skillId`, `action` | Incremented when a command execution fails |
+| `conversation.command_parsed.duration_ms` | Histogram | — | End-to-end latency for command parse + HA execution |
 | `conversation.llm_fallback.duration_ms` | Histogram | — | End-to-end latency for LLM orchestration |

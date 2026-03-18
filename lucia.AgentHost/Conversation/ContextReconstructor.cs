@@ -1,6 +1,6 @@
-namespace lucia.AgentHost.Conversation;
-
 using lucia.AgentHost.Conversation.Models;
+
+namespace lucia.AgentHost.Conversation;
 
 /// <summary>
 /// Rebuilds a system prompt with embedded context from a structured <see cref="ConversationRequest"/>.

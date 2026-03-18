@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any, Literal
 
 from homeassistant.components import conversation
@@ -137,6 +138,10 @@ class LuciaConversationEntity(conversation.ConversationEntity):
 
         conversation_id = tracked.context_id if tracked else None
         ha_conversation_id = user_input.conversation_id or ""
+
+        # Generate a stable conversation ID for the first turn
+        if not conversation_id:
+            conversation_id = uuid.uuid4().hex
 
         # Extract device context from HA ConversationInput
         device_id = None
