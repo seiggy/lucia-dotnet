@@ -108,10 +108,10 @@ See [DEPLOYMENT-OPENWEBUI.md](DEPLOYMENT-OPENWEBUI.md) for the shared capabiliti
 
 ## Deployment Modes
 
-| Mode | Value | Description |
-|------|-------|-------------|
-| **Standalone** (default) | `standalone` | All agents embedded in AgentHost. Single container + Redis + MongoDB. |
-| **Mesh** | `mesh` | Agents run as separate A2A containers. Set `Deployment__Mode=mesh` on the lucia service. |
+|           Mode           |     Value    |                                     Description                                          |
+| ------------------------ | ------------ | ---------------------------------------------------------------------------------------- |
+| **Standalone** (default) | `standalone` | All agents embedded in AgentHost. Single container + Redis + MongoDB.                    |
+| **Mesh**                 | `mesh`       | Agents run as separate A2A containers. Set `Deployment__Mode=mesh` on the lucia service. |
 
 Standalone mode is the default. External A2A agents can still connect to a standalone AgentHost. See [DEPLOYMENT.md](DEPLOYMENT.md) for details.
 

@@ -29,11 +29,6 @@ keywords:
   - home-assistant
   - lucia
 
-# Categories for chart discovery
-categories:
-  - AI
-  - Home Automation
-
 # Icon URL (base64 encoded or URL)
 icon: https://raw.githubusercontent.com/seiggy/lucia-dotnet/main/lucia-logo.png
 

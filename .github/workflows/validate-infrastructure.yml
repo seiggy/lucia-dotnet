@@ -23,7 +23,7 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Run hadolint on Dockerfiles
         run: |
@@ -74,12 +74,12 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Helm
         uses: azure/setup-helm@v4
         with:
-          version: '3.13.0'
+          version: '4.1.3'
 
       - name: Install yamllint
         run: pip install --break-system-packages yamllint
@@ -142,7 +142,7 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install systemd tools
         run: |
@@ -265,7 +265,7 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Check for required documentation files
         run: |
@@ -289,7 +289,7 @@ jobs:
           echo "✅ All required documentation present"
 
       - name: Validate markdown syntax
-        uses: DavidAnson/markdownlint-cli2-action@v15
+        uses: DavidAnson/markdownlint-cli2-action@v22
         with:
           globs: 'infra/**/*.md'
 
@@ -299,7 +299,7 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Check for exposed secrets
         run: |
@@ -370,7 +370,7 @@ jobs:
 
       - name: Comment PR with validation summary
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const dockerResult = '${{ needs.validate-docker.result }}';

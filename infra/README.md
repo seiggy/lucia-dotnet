@@ -6,10 +6,10 @@ This directory contains all infrastructure deployment utilities and documentatio
 
 Lucia supports two deployment topologies, controlled by the `Deployment__Mode` environment variable:
 
-| Mode | Default? | Description |
-|------|----------|-------------|
-| **Standalone** | ✅ Yes | All agents (Music, Timer, Orchestrator) run embedded in a single AgentHost process. Simplest setup — single container plus Redis and MongoDB. |
-| **Mesh** | No | Agents run as separate A2A containers that register with the AgentHost over the network. Used for Kubernetes, horizontal scaling, or multi-node distribution. |
+| Mode           | Default? | Description                                                                                                                                                   |
+| -------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Standalone** | ✅ Yes   | All agents (Music, Timer, Orchestrator) run embedded in a single AgentHost process. Simplest setup — single container plus Redis and MongoDB.                 |
+| **Mesh**       | No       | Agents run as separate A2A containers that register with the AgentHost over the network. Used for Kubernetes, horizontal scaling, or multi-node distribution. |
 
 **Standalone** is the default for Docker Compose and systemd. **Mesh** is the default for Kubernetes (Helm/manifests). External A2A agents can connect to a standalone AgentHost — the modes are not mutually exclusive.
 
@@ -128,17 +128,17 @@ Automated Docker image building and publishing to Docker Hub.
 
 ## Deployment Method Comparison
 
-| Feature | Docker | Kubernetes | systemd | CI/CD |
-| ------- | ------ | ---------- | ------- | ----- |
-| **Complexity** | Very Easy | Advanced | Intermediate | N/A |
-| **Setup Time** | ~5 min | ~20 min | ~25 min | <10 min |
-| **Best For** | Home servers | Production | Linux servers | Automation |
-| **Default Mode** | Standalone | Mesh | Standalone | N/A |
-| **Config Method** | Setup wizard | Helm values / env vars | env vars | N/A |
-| **Scalability** | Single host | Multi-host | Single host | N/A |
-| **HA/Failover** | Manual | Automatic | Manual | N/A |
-| **Persistence** | Volumes | PVCs | File system | N/A |
-| **Monitoring** | Health checks | Probes | journald | Logs |
+| Feature           | Docker        | Kubernetes             | systemd       | CI/CD      |
+| ----------------- | ------------- | ---------------------- | ------------- | ---------- |
+| **Complexity**    | Very Easy     | Advanced               | Intermediate  | N/A        |
+| **Setup Time**    | ~5 min        | ~20 min                | ~25 min       | <10 min    |
+| **Best For**      | Home servers  | Production             | Linux servers | Automation |
+| **Default Mode**  | Standalone    | Mesh                   | Standalone    | N/A        |
+| **Config Method** | Setup wizard  | Helm values / env vars | env vars      | N/A        |
+| **Scalability**   | Single host   | Multi-host             | Single host   | N/A        |
+| **HA/Failover**   | Manual        | Automatic              | Manual        | N/A        |
+| **Persistence**   | Volumes       | PVCs                   | File system   | N/A        |
+| **Monitoring**    | Health checks | Probes                 | journald      | Logs       |
 
 ---
 
@@ -158,12 +158,12 @@ Configuration is managed via Helm `values.yaml` or ConfigMap environment variabl
 
 Essential variables for manual/headless configuration:
 
-| Variable | Purpose |
-|----------|---------|
-| `HomeAssistant__BaseUrl` | Your Home Assistant URL |
-| `HomeAssistant__AccessToken` | Long-lived Home Assistant token |
+| Variable                        | Purpose                                                                                                                             |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `HomeAssistant__BaseUrl`        | Your Home Assistant URL                                                                                                             |
+| `HomeAssistant__AccessToken`    | Long-lived Home Assistant token                                                                                                     |
 | `ConnectionStrings__chat-model` | Unified LLM connection string (format: `Endpoint=...;AccessKey=...;Model=...;Provider=openai\|azureopenai\|ollama\|azureinference`) |
-| `Deployment__Mode` | `standalone` (default) or `mesh` |
+| `Deployment__Mode`              | `standalone` (default) or `mesh`                                                                                                    |
 
 **Note on Embeddings**: Embeddings for semantic search are currently supported on **Azure OpenAI** only. Support for other providers is planned.
 
