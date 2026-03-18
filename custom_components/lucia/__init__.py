@@ -14,6 +14,8 @@ from homeassistant.helpers.typing import ConfigType
 
 from .const import (
     CONF_API_KEY,
+    CONF_AGENT_ID,
+    CONF_PROMPT,
     CONF_REPOSITORY,
     CONF_VERIFY_SSL,
     DOMAIN,
@@ -29,6 +31,35 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Lucia component."""
     hass.data.setdefault(DOMAIN, {})
+    return True
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate config entry from an older version."""
+    _LOGGER.debug("Migrating Lucia config entry from version %s.%s", entry.version, entry.minor_version)
+
+    if entry.version == 1:
+        # V1 → V2: Remove legacy agent catalog keys, clean up stale options
+        new_data = dict(entry.data)
+        for stale_key in (CONF_AGENT_ID, CONF_PROMPT, "agent_name", "max_tokens"):
+            new_data.pop(stale_key, None)
+
+        new_options = dict(entry.options)
+        for stale_key in (CONF_AGENT_ID, CONF_PROMPT, "agent_name", "max_tokens"):
+            new_options.pop(stale_key, None)
+
+        hass.config_entries.async_update_entry(
+            entry,
+            data=new_data,
+            options=new_options,
+            version=2,
+            minor_version=1,
+        )
+        _LOGGER.info(
+            "Migrated Lucia config entry to version 2.1 — "
+            "removed legacy agent catalog keys"
+        )
+
     return True
 
 

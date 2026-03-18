@@ -7,7 +7,7 @@
 
 ## 🎙️ Overview
 
-"Pulsar" introduces the **Wyoming Voice Platform** — a full local speech pipeline that turns Lucia into a Wyoming protocol-compatible voice satellite for Home Assistant. This release delivers streaming speech-to-text, speaker verification, wake word detection, speech enhancement, a multi-engine model management system, and a new dashboard Voice Platform page for configuring everything from one surface. In addition, we introduce user-facing personalization to Lucia's orchestration layer. The headline feature lets users define a personality prompt that rewrites all agent responses through an LLM before delivery — giving Lucia a configurable voice, tone, and communication style without modifying the agents themselves.
+"Pulsar" introduces the **Wyoming Voice Platform** — a full local speech pipeline that turns Lucia into a Wyoming protocol-compatible voice satellite for Home Assistant. This release delivers streaming speech-to-text, speaker verification, wake word detection, speech enhancement, a multi-engine model management system, and a new dashboard Voice Platform page for configuring everything from one surface. In addition, we introduce the **Conversation Command Parser** — a fast-path processing pipeline that pattern-matches common voice commands (lights, climate, scenes) and executes them directly against Home Assistant, bypassing the LLM entirely for sub-50ms response times. We also introduce user-facing personalization to Lucia's orchestration layer, letting users define a personality prompt that rewrites all agent responses through an LLM before delivery.
 
 ## 🚀 Highlights
 
@@ -18,6 +18,9 @@
 - **GTCRN Speech Enhancement** — Real-time streaming noise reduction for cleaner audio in noisy environments.
 - **Voice Platform Dashboard** — New unified control room for model management, speaker profiles, wake words, engine status, and real-time session monitoring.
 - **Personality Prompt** — Configurable system prompt that rewrites the fan-in aggregated response through an LLM, giving Lucia a customizable personality (pirate speak, formal assistant, casual friend — you name it).
+- **Conversation Command Parser** — New `POST /api/conversation` endpoint with pattern-matching pipeline that executes common smart home commands (lights, climate, scenes) directly via skills — zero LLM latency for recognized commands, SSE-streamed LLM fallback for everything else.
+- **Response Templates** — Customizable response templates stored in MongoDB with `{placeholder}` interpolation. Manage templates per skill/action from the dashboard with guided dropdowns and token insertion buttons.
+- **Home Assistant Component v1.2** — Simplified integration migrated from A2A JSON-RPC to structured REST. No more agent catalog selection — just point to the host and go.
 - **Separate Model Support** — Personality rewriting can use a different (cheaper/faster) model than the orchestrator, selectable from a dropdown of configured chat-type providers.
 - **Zero-Cost Opt-In** — When no personality is configured, the pipeline is unchanged — no LLM call, no added latency.
 
@@ -90,6 +93,28 @@ Users can now define a personality prompt on the `/configuration` page under the
 - **Model provider dropdown** — The `ModelConnectionName` field renders as a searchable dropdown populated from configured chat-type model providers, matching the pattern used in Agent Definitions.
 - **Textarea field type** — New `textarea` field type in the configuration page for multi-line prompt editing with vertical resize support.
 - **Auto-discovery** — The Personality Prompt section appears automatically in the configuration sidebar via schema API.
+- **Conversation Test Page** — Interactive chat interface at `/conversation` for testing the command parser endpoint directly from the dashboard, with HA context simulation, SSE streaming, and response metadata badges showing whether commands were parsed locally or handled by the LLM.
+- **Response Templates Page** — Full CRUD management of response templates at `/response-templates`, grouped by skill. Features pattern-driven SkillId/Action dropdowns populated from the parser, token insertion buttons for `{entity}`, `{action}`, `{area}` placeholders, and template preview with sample values.
+- **Activity Dashboard Metrics** — Three new summary cards: Command Parsed count, LLM Fallback count, and Parser Rate percentage showing the ratio of commands handled locally vs forwarded to the LLM.
+
+### 💬 Conversation Command Parser
+- **`POST /api/conversation`** — New REST endpoint accepting structured JSON with user text and separated device/session context object. Returns instant JSON for parsed commands or SSE streaming for LLM fallback.
+- **True LLM Bypass** — Pattern-matched commands call skill methods (LightControlSkill, ClimateControlSkill, SceneControlSkill) directly against Home Assistant — zero LLM involvement, sub-50ms execution.
+- **Command Pattern Matching** — Leverages the existing `CommandPatternRouter` with template syntax (`{name}`, `{name:opt1|opt2}`, `[optional]`), confidence scoring, and priority-based tiebreaking.
+- **DirectSkillExecutor** — Dispatches matched routes to concrete skill methods: light toggle/brightness, climate set temperature/adjust, scene activate. Resolves entities via captured text and device area context.
+- **Response Template System** — MongoDB-stored templates with simple `{placeholder}` interpolation, random variant selection for natural variety, and seed defaults for all supported commands. Managed via CRUD API and dashboard.
+- **Context Reconstructor** — Rebuilds system prompt from structured context JSON for LLM fallback, matching the format the orchestrator expects.
+- **Conversation Telemetry** — OpenTelemetry counters (`conversation.command_parsed`, `conversation.llm_fallback`, `conversation.command_parsed.errors`) and duration histograms, plus in-memory stats for the activity dashboard.
+- **Multi-Turn Continuity** — Server generates stable `conversationId` (GUID) when client doesn't provide one, used consistently across command and LLM paths.
+- **`GET /api/conversation/patterns`** — Exposes registered command patterns with their SkillId, Action, placeholder tokens, and example templates for dashboard tooling.
+
+### 🏠 Home Assistant Component (v1.2.0-preview.1)
+- **REST Migration** — Component migrated from A2A JSON-RPC 2.0 to the new `POST /api/conversation` endpoint with structured context objects.
+- **Simplified Setup** — Removed agent catalog fetch and agent selection. Configuration requires only host URL + API key.
+- **SSE Streaming** — Handles both instant JSON (command parsed) and SSE event streams (LLM fallback) from the conversation endpoint.
+- **Structured Context** — Device ID, area, type, user ID, timestamp, and location sent as typed JSON fields instead of embedded in prompt text.
+- **Auto-Generated Conversation IDs** — Generates UUID for first-turn conversations, maintaining multi-turn continuity via the tracker.
+- **Optional Prompt Override** — Configurable prompt template override in the HA options flow.
 
 ### 🧺 Project Laundry
 - **SDK Pinned** — Pinned .NET 10 to the latest appropriate minimal SDK
@@ -136,11 +161,18 @@ Users can now define a personality prompt on the `/configuration` page under the
 | Wyoming status API | 2 |
 | Command pattern matching | 30+ |
 | Profile store (InMemory) | 10+ |
+| Conversation command processor | 5 |
+| Direct skill executor | 4 |
+| Response template renderer | 4 |
+| Context reconstructor | 4 |
 | **Total Wyoming Tests** | **230** |
+| **Total Conversation Tests** | **17** |
 
 ## 🔄 Upgrade Notes
 
-- **New infrastructure dependencies** — MongoDB (`luciaconfig` database) is used for speaker profiles and voice config persistence. Redis is optional but recommended for profile caching.
+- **New infrastructure dependencies** — MongoDB (`luciaconfig` database) is used for speaker profiles, voice config persistence, and response templates. Redis is optional but recommended for profile caching.
+- **Home Assistant component upgrade** — The HA custom component has been migrated to v1.2.0-preview.1. **Breaking change:** remove and re-add the Lucia integration in Home Assistant. The new setup flow only requires the host URL and API key — agent selection is no longer needed.
+- **Response templates** — Default templates are seeded automatically on first launch. Customize them via the Response Templates page in the dashboard or `POST /api/response-templates`.
 - **Model downloads required** — On first launch, navigate to the Voice Platform → Models tab to download and activate at least one STT model and supporting models (VAD, Wake Word, Speaker Embedding).
 - **Wyoming integration** — Add the Lucia Wyoming satellite in Home Assistant under Settings → Devices & Services → Add Integration → Wyoming. The server advertises via Zeroconf automatically.
 - **GPU acceleration** — The project now ships with `Microsoft.ML.OnnxRuntime.Gpu.Linux` for automatic CUDA support. For local development, install CUDA Toolkit 12.x and cuDNN 9.x. The `OnnxProviderDetector` will find and use CUDA automatically — no configuration required. The Docker voice image (`Dockerfile.voice`) includes all GPU dependencies out of the box.
