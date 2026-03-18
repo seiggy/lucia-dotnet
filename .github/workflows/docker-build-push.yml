@@ -52,7 +52,7 @@ jobs:
             dockerfile: ./infra/docker/Dockerfile
             title: Lucia Agent Host
             description: AI-powered Home Assistant agent orchestration
-            platforms: linux/amd64,linux/arm64
+            platforms: linux/amd64
             cache_scope: lucia-agenthost
             tag_suffix: ""
           - image: seiggy/lucia-agenthost
@@ -92,14 +92,9 @@ jobs:
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
-        with:
-          platforms: ${{ matrix.platforms }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
-        with:
-          driver-opts: |
-            image=moby/buildkit:latest
 
       - name: Detect preview release
         id: preview
