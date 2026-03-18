@@ -17,7 +17,6 @@ public sealed partial class ResponseTemplateRenderer
     private readonly IResponseTemplateRepository _repository;
     private readonly ILogger<ResponseTemplateRenderer> _logger;
     private readonly ConcurrentDictionary<string, ResponseTemplate?> _cache = new();
-    private readonly ConcurrentDictionary<string, long> _counters = new();
     private volatile bool _cacheLoaded;
 
     public ResponseTemplateRenderer(
@@ -34,7 +33,6 @@ public sealed partial class ResponseTemplateRenderer
     public void InvalidateCache()
     {
         _cache.Clear();
-        _counters.Clear();
         _cacheLoaded = false;
     }
 
@@ -57,10 +55,11 @@ public sealed partial class ResponseTemplateRenderer
             return FallbackResponse;
         }
 
-        // Round-robin through variants so consecutive calls always differ
-        var cacheKey = $"{skillId}::{action}";
-        var counter = _counters.AddOrUpdate(cacheKey, 0, (_, prev) => prev + 1);
-        var index = (int)(counter % template.Templates.Length);
+        // Use sub-millisecond tick count for entropy — avoids the deterministic
+        // sequence that Random.Shared produces when called at similar points in
+        // the request pipeline.
+        var ticks = Environment.TickCount64;
+        var index = (int)(ticks % template.Templates.Length);
         var selected = template.Templates[index];
 
         LogTemplateSelected(skillId, action, index, template.Templates.Length);

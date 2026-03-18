@@ -118,17 +118,18 @@ public sealed class ResponseTemplateRendererTests
             "lights switched on."
         };
 
-        // Act — run multiple times to observe randomness
+        // Act — run across enough time for tick-based selection to vary
         var results = new HashSet<string>();
-        for (var i = 0; i < 100; i++)
+        for (var i = 0; i < 20; i++)
         {
             results.Add(await _renderer.RenderAsync(
                 "LightControlSkill", "toggle", captures));
+            await Task.Delay(1);
         }
 
         // Assert — all results come from the template set
         Assert.All(results, r => Assert.Contains(r, expectedTemplates));
         Assert.True(results.Count > 1,
-            "Expected multiple different templates to be selected across 100 iterations");
+            "Expected multiple different templates to be selected across 20 iterations with delay");
     }
 }
