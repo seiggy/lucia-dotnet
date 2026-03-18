@@ -55,7 +55,10 @@ public sealed partial class ResponseTemplateRenderer
             return FallbackResponse;
         }
 
-        var selected = template.Templates[Random.Shared.Next(template.Templates.Length)];
+        var index = Random.Shared.Next(template.Templates.Length);
+        var selected = template.Templates[index];
+
+        LogTemplateSelected(skillId, action, index, template.Templates.Length);
 
         return PlaceholderPattern().Replace(selected, match =>
         {
@@ -98,4 +101,7 @@ public sealed partial class ResponseTemplateRenderer
 
     [LoggerMessage(Level = LogLevel.Debug, Message = "No response template found for {SkillId}/{Action}, using fallback")]
     private partial void LogTemplateMiss(string skillId, string action);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "Template {SkillId}/{Action}: selected index {Index} of {Count} variants")]
+    private partial void LogTemplateSelected(string skillId, string action, int index, int count);
 }
