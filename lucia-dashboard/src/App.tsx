@@ -4,7 +4,7 @@ import { AuthProvider, useAuth } from './auth/AuthContext'
 import {
   Activity, Download, Settings, Bot, Database, Server,
   Layers, Boxes, ListTodo, Menu, X, LogOut, Sparkles, BarChart3, MapPin,
-  AlarmClock, Radio, ShoppingCart, SlidersHorizontal, Puzzle, Mic
+  AlarmClock, Radio, ShoppingCart, SlidersHorizontal, Puzzle, Mic, MessageSquareText
 } from 'lucide-react'
 import LoginPage from './pages/LoginPage'
 import SetupPage from './pages/SetupPage'
@@ -24,6 +24,7 @@ import AlarmsPage from './pages/AlarmsPage'
 import PresencePage from './pages/PresencePage'
 import ListsPage from './pages/ListsPage'
 import SkillOptimizerPage from './pages/SkillOptimizerPage'
+import ResponseTemplatesPage from './pages/ResponseTemplatesPage'
 import PluginsPage from './pages/PluginsPage'
 import MatcherDebugPage from './pages/MatcherDebugPage'
 import VoicePlatformPage from './pages/VoicePlatformPage'
@@ -44,6 +45,7 @@ const NAV_ITEMS = [
   { to: '/tasks', label: 'Tasks', icon: ListTodo },
   { to: '/exports', label: 'Exports', icon: Download },
   { to: '/skill-optimizer', label: 'Skill Optimizer', icon: SlidersHorizontal },
+  { to: '/response-templates', label: 'Response Templates', icon: MessageSquareText },
   { to: '/plugins', label: 'Plugins', icon: Puzzle },
   { to: '/voice-platform', label: 'Voice Platform', icon: Mic },
   { to: '/matcher-debug', label: 'Matcher Debug', icon: Sparkles },
@@ -191,6 +193,7 @@ function AppRoutes() {
             <Route path="/traces/:id" element={<TraceDetailPage />} />
             <Route path="/exports" element={<ExportPage />} />
             <Route path="/skill-optimizer" element={<SkillOptimizerPage />} />
+            <Route path="/response-templates" element={<ResponseTemplatesPage />} />
             <Route path="/plugins" element={<PluginsPage />} />
             <Route path="/matcher-debug" element={<MatcherDebugPage />} />
             <Route path="/configuration" element={<ConfigurationPage />} />
