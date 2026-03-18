@@ -1,23 +1,22 @@
 # Lucia AgentHost - Voice-Enabled Multi-stage Docker Build
 # Purpose: Voice-enabled variant with pre-loaded Wyoming models
 #
-# This Dockerfile extends the standard Lucia AgentHost build by baking default
-# STT, VAD, wake-word, speaker-embedding, and speech-enhancement models into the
-# image so Wyoming voice services work out of the box without runtime downloads.
+# This Dockerfile extends the standard Lucia AgentHost build by referencing
+# pre-downloaded STT, VAD, wake-word, speaker-embedding, speech-enhancement
+# models, and GPU ONNX Runtime libs from the asset image so Wyoming voice
+# services work out of the box without runtime downloads.
 #
 # Stages:
-#   0a. copilot-cli     — Download Copilot CLI binary (optional, resilient)
-#   0b. node-build      — Build the React SPA dashboard with Node.js
-#   0c. model-download  — Pre-download default Wyoming voice models (~120MB)
-#    1. base            — ASP.NET 10.0 runtime base image with non-root user
-#    2. build           — Restore and build the .NET application with SDK
-#    3. publish         — Publish optimized ReadyToRun release build
-#    4. final           — Production image with health checks, security, and voice models
+#   0. assets         — Pre-built OCI image with all binary downloads
+#   0b. node-build    — Build the React SPA dashboard with Node.js
+#    1. base          — NVIDIA CUDA 12.8 runtime with .NET ASP.NET 10.0
+#    2. build         — Restore and build the .NET application with SDK
+#    3. publish       — Publish optimized ReadyToRun release build
+#    4. final         — Production image with health checks, security, and voice models
 #
 # Build args:
-#   INCLUDE_COPILOT_CLI   — Include Copilot CLI binary (default: true)
-#   COPILOT_CLI_VERSION   — Copilot CLI version to download (default: 0.0.411)
-#   BUILD_CONFIGURATION   — Debug or Release (default: Release)
+#   ASSET_IMAGE            — Pre-built asset image ref (default: ghcr.io/seiggy/lucia-dotnet/build-assets:latest)
+#   BUILD_CONFIGURATION    — Debug or Release (default: Release)
 #   BUILD_TARGET_FRAMEWORK — Target framework version (default: net10.0)
 #
 # Pre-loaded model inventory (~585MB total):
@@ -36,32 +35,13 @@
 # Usage:
 #   docker build -t lucia:voice -f infra/docker/Dockerfile.voice .
 #   docker build -t lucia:voice --build-arg BUILD_CONFIGURATION=Debug -f infra/docker/Dockerfile.voice .
-#   docker build -t lucia:voice --build-arg INCLUDE_COPILOT_CLI=false -f infra/docker/Dockerfile.voice .
 
 # ============================================================================
-# Stage 0a: Download Copilot CLI binary (resilient, downloaded once)
+# Stage 0a: Pre-built binary assets (Copilot CLI, voice models, GPU libs)
+# See Dockerfile.assets and asset.lock for what's included.
 # ============================================================================
-FROM alpine:3.21 AS copilot-cli
-
-ARG INCLUDE_COPILOT_CLI=true
-ARG COPILOT_CLI_VERSION=0.0.411
-ARG TARGETARCH
-
-RUN if [ "$INCLUDE_COPILOT_CLI" = "true" ]; then \
-      apk add --no-cache curl && \
-      PLATFORM=$(case "$TARGETARCH" in amd64) echo "linux-x64";; arm64) echo "linux-arm64";; *) echo "linux-x64";; esac) && \
-      RID=$(case "$TARGETARCH" in amd64) echo "linux-x64";; arm64) echo "linux-arm64";; *) echo "linux-x64";; esac) && \
-      mkdir -p /copilot-out/runtimes/${RID}/native && \
-      echo "Downloading Copilot CLI ${COPILOT_CLI_VERSION} for ${PLATFORM}..." && \
-      curl -fSL --retry 5 --retry-delay 10 --retry-max-time 300 \
-        "https://registry.npmjs.org/@github/copilot-${PLATFORM}/-/copilot-${PLATFORM}-${COPILOT_CLI_VERSION}.tgz" \
-        -o /tmp/copilot.tgz && \
-      tar -xzf /tmp/copilot.tgz --strip-components=1 -C /copilot-out/runtimes/${RID}/native && \
-      chmod +x /copilot-out/runtimes/${RID}/native/copilot && \
-      rm /tmp/copilot.tgz; \
-    else \
-      mkdir -p /copilot-out; \
-    fi
+ARG ASSET_IMAGE=ghcr.io/seiggy/lucia-dotnet/build-assets:latest
+FROM ${ASSET_IMAGE} AS assets
 
 # ============================================================================
 # Stage 0b: Node.js Build Stage (React SPA Dashboard)
@@ -79,58 +59,6 @@ RUN npm ci
 # Copy the rest of the dashboard source and build
 COPY lucia-dashboard/ ./
 RUN npm run build
-
-# ============================================================================
-# Stage 0c: Pre-download default Wyoming voice models
-# ============================================================================
-FROM alpine:3.21 AS model-download
-
-RUN apk add --no-cache curl tar bzip2
-
-WORKDIR /models
-
-# STT: Default streaming zipformer English model (~80MB archive)
-RUN mkdir -p /models/stt && \
-    curl -fSL --retry 3 --retry-delay 5 \
-      "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-en-2023-06-26.tar.bz2" \
-      -o /tmp/stt-model.tar.bz2 && \
-    tar -xjf /tmp/stt-model.tar.bz2 -C /models/stt && \
-    rm /tmp/stt-model.tar.bz2
-
-# VAD: Silero VAD model (~2MB)
-# VAD: Silero VAD v5 model (~2.3MB)
-RUN mkdir -p /models/vad/silero_vad_v5 && \
-    curl -fSL --retry 3 --retry-delay 5 -L \
-      "https://huggingface.co/csukuangfj/vad/resolve/main/silero_vad_v5.onnx" \
-      -o /models/vad/silero_vad_v5/silero_vad_v5.onnx
-
-# WakeWord: English keyword spotting model (~10MB archive)
-RUN mkdir -p /models/kws && \
-    curl -fSL --retry 3 --retry-delay 5 \
-      "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2" \
-      -o /tmp/kws-model.tar.bz2 && \
-    tar -xjf /tmp/kws-model.tar.bz2 -C /models/kws && \
-    rm /tmp/kws-model.tar.bz2
-
-# Speaker Embedding: 3D-Speaker model for voice enrollment (~25MB)
-RUN mkdir -p /models/speaker-embedding/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k && \
-    curl -fSL --retry 3 --retry-delay 5 \
-      "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx" \
-      -o /models/speaker-embedding/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx
-
-# Speech Enhancement: GTCRN Simple streaming model (~535KB)
-RUN mkdir -p /models/speech-enhancement/gtcrn_simple && \
-    curl -fSL --retry 3 --retry-delay 5 \
-      "https://raw.githubusercontent.com/Xiaobin-Rong/gtcrn/main/stream/onnx_models/gtcrn_simple.onnx" \
-      -o /models/speech-enhancement/gtcrn_simple/gtcrn_simple.onnx
-
-# Offline STT: Parakeet TDT 0.6B v2 Int8 — high accuracy offline model (~460MB archive)
-RUN mkdir -p /models/stt && \
-    curl -fSL --retry 3 --retry-delay 5 \
-      "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2" \
-      -o /tmp/parakeet-model.tar.bz2 && \
-    tar -xjf /tmp/parakeet-model.tar.bz2 -C /models/stt && \
-    rm /tmp/parakeet-model.tar.bz2
 
 # ============================================================================
 # Stage 1: Base Runtime Image (NVIDIA CUDA 12.8 + cuDNN 9 for GPU ONNX)
@@ -155,26 +83,6 @@ RUN useradd -m -u 1100 appuser
 
 # Expose ports
 EXPOSE 8080 8081 10400
-
-# ============================================================================
-# Stage 0d: Download GPU-enabled sherpa-onnx native libraries
-# sherpa-onnx 1.12.29 bundles ORT 1.23.2 → requires CUDA 12.x + cuDNN 9.x
-# ============================================================================
-FROM alpine:3.21 AS gpu-libs
-
-RUN apk add --no-cache curl unzip
-
-# Download the GPU-enabled shared libraries from sherpa-onnx releases
-# These replace the CPU-only libs from the NuGet package
-RUN mkdir -p /gpu-libs && \
-    curl -fSL --retry 3 --retry-delay 5 \
-      "https://github.com/csukuangfj/onnxruntime-libs/releases/download/v1.23.2/onnxruntime-linux-x64-gpu-1.23.2-patched.zip" \
-      -o /tmp/ort-gpu.zip && \
-    unzip -j /tmp/ort-gpu.zip "*/lib/libonnxruntime*.so*" -d /gpu-libs/ 2>/dev/null || \
-    unzip -j /tmp/ort-gpu.zip "*/libonnxruntime*.so*" -d /gpu-libs/ 2>/dev/null || \
-    unzip -l /tmp/ort-gpu.zip && \
-    rm /tmp/ort-gpu.zip && \
-    ls -la /gpu-libs/
 
 # ============================================================================
 # Stage 2: Build Stage
@@ -265,8 +173,8 @@ ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false \
 # Copy published application from publish stage
 COPY --from=publish --chown=appuser:appuser /app/publish .
 
-# Copy Copilot CLI binary (if INCLUDE_COPILOT_CLI=true)
-COPY --from=copilot-cli --chown=appuser:appuser /copilot-out/ ./
+# Copy Copilot CLI binary from pre-built asset image
+COPY --from=assets --chown=appuser:appuser /assets/copilot/ ./
 
 # Copy built SPA dashboard into wwwroot for static file serving
 COPY --from=node-build --chown=appuser:appuser /app/dist ./wwwroot/
@@ -277,11 +185,11 @@ COPY --from=build --chown=appuser:appuser /src/plugins ./plugins
 # PluginDirectory default is {AppContext.BaseDirectory}/plugins = /app/plugins
 ENV PluginDirectory=/app/plugins
 
-# Copy pre-downloaded Wyoming voice models
-COPY --from=model-download --chown=appuser:appuser /models ./models
+# Copy pre-downloaded Wyoming voice models from asset image
+COPY --from=assets --chown=appuser:appuser /assets/models ./models
 
-# Overlay GPU-enabled ONNX Runtime libs (replaces CPU-only from NuGet)
-COPY --from=gpu-libs /gpu-libs/libonnxruntime*.so* ./runtimes/linux-x64/native/
+# Overlay GPU-enabled ONNX Runtime libs from asset image (replaces CPU-only from NuGet)
+COPY --from=assets /assets/gpu-libs/libonnxruntime*.so* ./runtimes/linux-x64/native/
 
 # Set Wyoming model paths + GPU provider
 ENV Wyoming__Models__Stt__ModelBasePath=/app/models/stt \
@@ -306,8 +214,11 @@ ENTRYPOINT ["dotnet", "lucia.AgentHost.dll"]
 
 # Voice variant build examples:
 #
-#   # Build voice image locally
+#   # Build voice image locally (uses pre-built assets from ghcr.io)
 #   docker build -t lucia:voice -f infra/docker/Dockerfile.voice .
+#
+#   # Build with custom asset image
+#   docker build --build-arg ASSET_IMAGE=ghcr.io/seiggy/lucia-dotnet/build-assets:sha-abc123 -t lucia:voice -f infra/docker/Dockerfile.voice .
 #
 #   # Pull from Docker Hub
 #   docker pull seiggy/lucia-agenthost:voice
@@ -315,9 +226,10 @@ ENTRYPOINT ["dotnet", "lucia.AgentHost.dll"]
 #   # Build without voice models (use base Dockerfile instead)
 #   docker build -t lucia:latest -f infra/docker/Dockerfile .
 #
-# Pre-loaded models (~125MB total):
+# Pre-loaded models (~585MB total):
 #   STT:     sherpa-onnx-streaming-zipformer-en-2023-06-26 (English streaming, ~80MB)
-#   VAD:     silero_vad (universal voice activity detection, ~2MB)
+#   STT:     sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8 (English offline, ~460MB)
+#   VAD:     silero_vad v5 (universal voice activity detection, ~2.3MB)
 #   KWS:     sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01 (English keywords, ~10MB)
 #   Speaker: 3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k (voice enrollment, ~25MB)
 #   SE:      gtcrn_simple (streaming speech enhancement, ~535KB)

@@ -1,0 +1,126 @@
+# Lucia Build Assets — Pre-downloaded binaries for Docker builds
+# Purpose: Download and cache all external binary dependencies as an OCI image.
+#          Published to ghcr.io/seiggy/lucia-dotnet/build-assets:<hash>
+#          Rebuild ONLY when infra/docker/asset.lock changes.
+#
+# This image is never run — it exists only so that other Dockerfiles can
+# COPY --from=ghcr.io/seiggy/lucia-dotnet/build-assets:latest /assets/...
+#
+# Layout:
+#   /assets/copilot/runtimes/{RID}/native/copilot   — Copilot CLI binary
+#   /assets/models/stt/...                           — STT models
+#   /assets/models/vad/...                           — VAD models
+#   /assets/models/kws/...                           — Keyword spotting models
+#   /assets/models/speaker-embedding/...             — Speaker embedding models
+#   /assets/models/speech-enhancement/...            — Speech enhancement models
+#   /assets/gpu-libs/libonnxruntime*.so*             — GPU ONNX Runtime (x64 only)
+#
+# Build:
+#   docker buildx build --platform linux/amd64,linux/arm64 \
+#     -f infra/docker/Dockerfile.assets -t ghcr.io/seiggy/lucia-dotnet/build-assets:latest .
+
+FROM alpine:3.21 AS downloader
+
+RUN apk add --no-cache curl tar bzip2 unzip
+
+ARG TARGETARCH
+
+# Copy asset.lock so the build cache keys on its content
+COPY infra/docker/asset.lock /tmp/asset.lock
+
+# ============================================================================
+# Copilot CLI (arch-specific)
+# ============================================================================
+ARG COPILOT_CLI_VERSION=0.0.411
+
+RUN PLATFORM=$(case "$TARGETARCH" in amd64) echo "linux-x64";; arm64) echo "linux-arm64";; *) echo "linux-x64";; esac) && \
+    RID=$(case "$TARGETARCH" in amd64) echo "linux-x64";; arm64) echo "linux-arm64";; *) echo "linux-x64";; esac) && \
+    mkdir -p /assets/copilot/runtimes/${RID}/native && \
+    echo "Downloading Copilot CLI ${COPILOT_CLI_VERSION} for ${PLATFORM}..." && \
+    curl -fSL --retry 5 --retry-delay 10 --retry-max-time 300 \
+      "https://registry.npmjs.org/@github/copilot-${PLATFORM}/-/copilot-${PLATFORM}-${COPILOT_CLI_VERSION}.tgz" \
+      -o /tmp/copilot.tgz && \
+    tar -xzf /tmp/copilot.tgz --strip-components=1 -C /assets/copilot/runtimes/${RID}/native && \
+    chmod +x /assets/copilot/runtimes/${RID}/native/copilot && \
+    rm /tmp/copilot.tgz
+
+# ============================================================================
+# Voice Models — STT streaming zipformer (~80MB)
+# ============================================================================
+RUN mkdir -p /assets/models/stt && \
+    curl -fSL --retry 3 --retry-delay 5 \
+      "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-en-2023-06-26.tar.bz2" \
+      -o /tmp/stt-model.tar.bz2 && \
+    tar -xjf /tmp/stt-model.tar.bz2 -C /assets/models/stt && \
+    rm /tmp/stt-model.tar.bz2
+
+# ============================================================================
+# Voice Models — Offline STT Parakeet TDT 0.6B v2 Int8 (~460MB)
+# ============================================================================
+RUN curl -fSL --retry 3 --retry-delay 5 \
+      "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2" \
+      -o /tmp/parakeet-model.tar.bz2 && \
+    tar -xjf /tmp/parakeet-model.tar.bz2 -C /assets/models/stt && \
+    rm /tmp/parakeet-model.tar.bz2
+
+# ============================================================================
+# Voice Models — VAD Silero v5 (~2.3MB)
+# ============================================================================
+RUN mkdir -p /assets/models/vad/silero_vad_v5 && \
+    curl -fSL --retry 3 --retry-delay 5 -L \
+      "https://huggingface.co/csukuangfj/vad/resolve/main/silero_vad_v5.onnx" \
+      -o /assets/models/vad/silero_vad_v5/silero_vad_v5.onnx
+
+# ============================================================================
+# Voice Models — KWS gigaspeech (~10MB)
+# ============================================================================
+RUN mkdir -p /assets/models/kws && \
+    curl -fSL --retry 3 --retry-delay 5 \
+      "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2" \
+      -o /tmp/kws-model.tar.bz2 && \
+    tar -xjf /tmp/kws-model.tar.bz2 -C /assets/models/kws && \
+    rm /tmp/kws-model.tar.bz2
+
+# ============================================================================
+# Voice Models — Speaker embedding 3dspeaker (~25MB)
+# ============================================================================
+RUN mkdir -p /assets/models/speaker-embedding/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k && \
+    curl -fSL --retry 3 --retry-delay 5 \
+      "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx" \
+      -o /assets/models/speaker-embedding/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx
+
+# ============================================================================
+# Voice Models — Speech enhancement GTCRN simple (~535KB)
+# ============================================================================
+RUN mkdir -p /assets/models/speech-enhancement/gtcrn_simple && \
+    curl -fSL --retry 3 --retry-delay 5 \
+      "https://raw.githubusercontent.com/Xiaobin-Rong/gtcrn/main/stream/onnx_models/gtcrn_simple.onnx" \
+      -o /assets/models/speech-enhancement/gtcrn_simple/gtcrn_simple.onnx
+
+# ============================================================================
+# GPU ONNX Runtime libs (x64 only — skip on arm64)
+# ============================================================================
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+      mkdir -p /assets/gpu-libs && \
+      curl -fSL --retry 3 --retry-delay 5 \
+        "https://github.com/csukuangfj/onnxruntime-libs/releases/download/v1.23.2/onnxruntime-linux-x64-gpu-1.23.2-patched.zip" \
+        -o /tmp/ort-gpu.zip && \
+      unzip -j /tmp/ort-gpu.zip "*/lib/libonnxruntime*.so*" -d /assets/gpu-libs/ 2>/dev/null || \
+      unzip -j /tmp/ort-gpu.zip "*/libonnxruntime*.so*" -d /assets/gpu-libs/ 2>/dev/null || \
+      true && \
+      rm /tmp/ort-gpu.zip; \
+    else \
+      mkdir -p /assets/gpu-libs; \
+    fi
+
+# ============================================================================
+# Final: scratch image containing only the downloaded assets
+# ============================================================================
+FROM scratch
+
+LABEL org.opencontainers.image.title="Lucia Build Assets"
+LABEL org.opencontainers.image.description="Pre-downloaded binary assets for lucia Docker builds"
+LABEL org.opencontainers.image.vendor="Lucia Project"
+LABEL org.opencontainers.image.source="https://github.com/seiggy/lucia-dotnet"
+
+COPY --from=downloader /assets/ /assets/

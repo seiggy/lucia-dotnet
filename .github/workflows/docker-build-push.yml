@@ -9,6 +9,11 @@ on:
   pull_request:
     branches:
       - main
+  # Wait for the asset image to be built before starting, when asset.lock changes
+  workflow_run:
+    workflows: ["Build Assets Image"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       preview:
@@ -25,6 +30,9 @@ permissions:
   pull-requests: write
   security-events: write
 
+env:
+  ASSET_IMAGE: ghcr.io/${{ github.repository }}/build-assets
+
 jobs:
   # ==========================================================================
   # Build all platform images using a matrix strategy
@@ -32,6 +40,12 @@ jobs:
   build-and-push:
     name: Build ${{ matrix.image }}
     runs-on: ubuntu-latest
+    # When triggered by workflow_run (asset build finished), only proceed if it succeeded.
+    # When triggered by push that changes asset.lock, skip — the workflow_run trigger
+    # will pick it up after the asset image is ready.
+    if: |
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') &&
+      !(github.event_name == 'push' && contains(github.event.head_commit.modified, 'infra/docker/asset.lock'))
     strategy:
       fail-fast: true
       matrix:
@@ -52,6 +66,20 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Compute asset.lock hash
+        id: asset-hash
+        run: |
+          HASH=$(sha256sum infra/docker/asset.lock | cut -c1-12)
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+          echo "Asset image tag: sha-$HASH"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Docker Hub
         if: github.event_name != 'pull_request'
@@ -120,9 +148,14 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: |
+            type=gha,scope=${{ matrix.image }}
+            type=registry,ref=${{ matrix.image }}:buildcache
+          cache-to: |
+            type=gha,scope=${{ matrix.image }},mode=max
+            type=registry,ref=${{ matrix.image }}:buildcache,mode=max
           build-args: |
+            ASSET_IMAGE=${{ env.ASSET_IMAGE }}:sha-${{ steps.asset-hash.outputs.hash }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
             VCS_REF=${{ github.sha }}
             VERSION=${{ steps.meta.outputs.version }}
@@ -152,6 +185,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Compute asset.lock hash
+        id: asset-hash
+        run: |
+          HASH=$(sha256sum infra/docker/asset.lock | cut -c1-12)
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -163,6 +209,8 @@ jobs:
           load: true
           tags: lucia-agenthost:test
           cache-from: type=gha
+          build-args: |
+            ASSET_IMAGE=${{ env.ASSET_IMAGE }}:sha-${{ steps.asset-hash.outputs.hash }}
 
       - name: Test image structure
         run: |
