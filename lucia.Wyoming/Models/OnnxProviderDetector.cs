@@ -67,13 +67,23 @@ public sealed class OnnxProviderDetector
 
         foreach (var (ortName, sherpaName, _) in KnownAccelerators.OrderByDescending(a => a.Priority))
         {
-            if (available.Contains(ortName, StringComparer.OrdinalIgnoreCase))
+            if (!available.Contains(ortName, StringComparer.OrdinalIgnoreCase))
+                continue;
+
+            // Verify the provider actually works by trying to configure a session.
+            // ORT reports CUDA as "available" even when CUDA shared libs are stripped,
+            // which causes sherpa-onnx native code to crash with terminate().
+            if (VerifyProvider(ortName, logger))
             {
                 bestOrt = ortName;
                 bestSherpa = sherpaName;
                 isAccelerated = true;
                 break;
             }
+
+            logger.LogWarning(
+                "ONNX provider {Provider} reported as available but failed verification — skipping",
+                ortName);
         }
 
         BestProvider = bestOrt;
@@ -85,6 +95,46 @@ public sealed class OnnxProviderDetector
             BestProvider,
             BestSherpaProvider,
             string.Join(", ", available));
+    }
+
+    private static bool VerifyProvider(string ortProviderName, ILogger logger)
+    {
+        try
+        {
+            using var options = new SessionOptions();
+            switch (ortProviderName)
+            {
+                case "CUDAExecutionProvider":
+                    options.AppendExecutionProvider_CUDA();
+                    break;
+                case "TensorrtExecutionProvider":
+                    options.AppendExecutionProvider_Tensorrt();
+                    break;
+                case "MIGraphXExecutionProvider":
+                    options.AppendExecutionProvider_MIGraphX();
+                    break;
+                case "ROCMExecutionProvider":
+                    options.AppendExecutionProvider_ROCm();
+                    break;
+                case "OpenVINOExecutionProvider":
+                    options.AppendExecutionProvider_OpenVINO();
+                    break;
+                case "DmlExecutionProvider":
+                    options.AppendExecutionProvider_DML();
+                    break;
+                case "CoreMLExecutionProvider":
+                    options.AppendExecutionProvider_CoreML();
+                    break;
+                default:
+                    return false;
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Provider {Provider} verification failed", ortProviderName);
+            return false;
+        }
     }
 
     /// <summary>
