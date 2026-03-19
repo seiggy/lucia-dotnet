@@ -117,7 +117,7 @@ export default function CommandTimeline({
         </div>
 
         {/* Time axis */}
-        <div className="mt-2 flex justify-between pl-34 text-xs text-dust/60">
+        <div className="mt-2 flex justify-between pl-36 text-xs text-dust/60">
           <span>0ms</span>
           <span>{(timelineWidth / 2).toFixed(0)}ms</span>
           <span>{timelineWidth.toFixed(0)}ms</span>

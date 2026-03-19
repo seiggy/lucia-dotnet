@@ -54,7 +54,7 @@ export default function CommandTraceListPage() {
   const params: Record<string, string> = { page: String(page), pageSize: '20' }
   if (search) params.search = search
   if (outcomeFilter) params.outcome = outcomeFilter
-  if (skillFilter) params.skill = skillFilter
+  if (skillFilter) params.skillId = skillFilter
   if (fromDate) params.fromDate = fromDate
   if (toDate) params.toDate = toDate
 

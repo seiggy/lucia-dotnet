@@ -15,6 +15,9 @@ public sealed record CommandTrace
     /// <summary>Text after speaker tag stripping.</summary>
     public required string CleanText { get; init; }
 
+    /// <summary>Normalized text used for pattern matching (lowercased, fillers removed). Highlight offsets refer to this text.</summary>
+    public string? NormalizedText { get; init; }
+
     public string? SpeakerId { get; init; }
 
     public required CommandTraceContext RequestContext { get; init; }

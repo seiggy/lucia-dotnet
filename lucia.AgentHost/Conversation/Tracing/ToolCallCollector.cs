@@ -23,7 +23,6 @@ public sealed class ToolCallCollector
 
     /// <summary>
     /// Records a tool call with the given method name, arguments, and result.
-    /// Call <see cref="RecordAsync{T}"/> for a cleaner wrapper.
     /// </summary>
     public async Task<string> RecordAsync(
         string methodName,

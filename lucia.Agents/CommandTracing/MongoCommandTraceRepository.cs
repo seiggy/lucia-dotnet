@@ -154,10 +154,9 @@ public sealed class MongoCommandTraceRepository : ICommandTraceRepository
 
         if (!string.IsNullOrWhiteSpace(filter.Search))
         {
-            var regex = new System.Text.RegularExpressions.Regex(
-                System.Text.RegularExpressions.Regex.Escape(filter.Search),
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            filters.Add(fb.Regex(t => t.CleanText, regex.ToString()));
+            var escaped = System.Text.RegularExpressions.Regex.Escape(filter.Search);
+            var bsonRegex = new MongoDB.Bson.BsonRegularExpression(escaped, "i");
+            filters.Add(fb.Regex(t => t.CleanText, bsonRegex));
         }
 
         if (filter.Outcome is not null)

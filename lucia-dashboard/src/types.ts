@@ -646,6 +646,7 @@ export interface CommandTrace {
   timestamp: string
   rawText: string
   cleanText: string
+  normalizedText: string | null
   speakerId: string | null
   requestContext: CommandTraceContext
   match: CommandTraceMatch

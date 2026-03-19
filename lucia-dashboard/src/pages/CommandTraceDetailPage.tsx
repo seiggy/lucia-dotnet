@@ -123,10 +123,10 @@ export default function CommandTraceDetailPage() {
             <p className="mt-1 whitespace-pre-wrap text-light">{trace.rawText}</p>
           </div>
           <div>
-            <span className="text-xs text-dust">Clean Text (with highlights)</span>
+            <span className="text-xs text-dust">Matched Text (with highlights)</span>
             <div className="mt-1">
-              {match.tokenHighlights && match.tokenHighlights.length > 0 ? (
-                <InputHighlight text={trace.cleanText} highlights={match.tokenHighlights} />
+              {match.tokenHighlights && match.tokenHighlights.length > 0 && trace.normalizedText ? (
+                <InputHighlight text={trace.normalizedText} highlights={match.tokenHighlights} />
               ) : (
                 <div className="font-mono text-sm bg-void/50 rounded-lg p-3 border border-stone text-light">
                   {trace.cleanText}
