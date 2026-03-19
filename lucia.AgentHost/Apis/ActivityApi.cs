@@ -2,6 +2,7 @@ using System.Text.Json;
 using lucia.AgentHost.Conversation;
 using lucia.AgentHost.Models;
 using lucia.Agents.Abstractions;
+using lucia.Agents.CommandTracing;
 using lucia.Agents.Orchestration;
 using lucia.Agents.Orchestration.Models;
 using lucia.Agents.Registry;
@@ -134,17 +135,21 @@ public static class ActivityApi
         [FromServices] ITraceRepository traceRepo,
         [FromServices] ITaskArchiveStore taskArchive,
         [FromServices] IPromptCacheService cacheService,
-        [FromServices] ConversationTelemetry conversationTelemetry,
+        [FromServices] ICommandTraceRepository commandTraceRepo,
         CancellationToken ct)
     {
-        // All four calls hit independent data sources — run in parallel
+        // All five calls hit independent data sources — run in parallel
         var traceStatsTask = traceRepo.GetStatsAsync(ct);
         var taskStatsTask = taskArchive.GetTaskStatsAsync(ct);
         var cacheStatsTask = cacheService.GetStatsAsync(ct);
         var chatCacheStatsTask = cacheService.GetChatCacheStatsAsync(ct);
+        var commandTraceStatsTask = commandTraceRepo.GetStatsAsync(ct);
 
-        await Task.WhenAll(traceStatsTask, taskStatsTask, cacheStatsTask, chatCacheStatsTask)
+        await Task.WhenAll(traceStatsTask, taskStatsTask, cacheStatsTask, chatCacheStatsTask, commandTraceStatsTask)
             .ConfigureAwait(false);
+
+        var cmdStats = await commandTraceStatsTask.ConfigureAwait(false);
+        var total = cmdStats.CommandHandledCount + cmdStats.LlmFallbackCount;
 
         return TypedResults.Ok(new ActivitySummary
         {
@@ -152,7 +157,14 @@ public static class ActivityApi
             Tasks = await taskStatsTask.ConfigureAwait(false),
             Cache = await cacheStatsTask.ConfigureAwait(false),
             ChatCache = await chatCacheStatsTask.ConfigureAwait(false),
-            Conversation = conversationTelemetry.GetStats(),
+            Conversation = new ConversationStats
+            {
+                CommandParsed = cmdStats.CommandHandledCount,
+                LlmFallback = cmdStats.LlmFallbackCount,
+                Errors = cmdStats.ErrorCount,
+                Total = total,
+                CommandRate = total > 0 ? (double)cmdStats.CommandHandledCount / total : 0,
+            },
         });
     }
 

@@ -262,6 +262,21 @@ public sealed class SqliteMigrationRunner : IHostedService
                 id TEXT PRIMARY KEY,
                 data TEXT NOT NULL
             );
+
+            -- command traces (conversation shortcut pipeline)
+            CREATE TABLE IF NOT EXISTS command_traces (
+                id TEXT PRIMARY KEY,
+                timestamp TEXT NOT NULL,
+                clean_text TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                skill_id TEXT,
+                confidence REAL NOT NULL DEFAULT 0,
+                total_duration_ms REAL NOT NULL DEFAULT 0,
+                data TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_command_traces_timestamp ON command_traces(timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_command_traces_outcome ON command_traces(outcome);
+            CREATE INDEX IF NOT EXISTS idx_command_traces_skill ON command_traces(skill_id);
             """;
         cmd.ExecuteNonQuery();
     }
