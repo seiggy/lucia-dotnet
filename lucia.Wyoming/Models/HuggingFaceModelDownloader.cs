@@ -185,6 +185,15 @@ public sealed class HuggingFaceModelDownloader(
             CreateNoWindow = true,
         };
 
+#if DEBUG
+        // Aspire dev-hosting poisons SSL_CERT_DIR; override for Python subprocesses
+        process.StartInfo.Environment.Remove("SSL_CERT_DIR");
+        process.StartInfo.Environment.Remove("REQUESTS_CA_BUNDLE");
+        process.StartInfo.Environment.Remove("CURL_CA_BUNDLE");
+        process.StartInfo.Environment.Remove("NODE_EXTRA_CA_CERTS");
+        process.StartInfo.Environment["SSL_CERT_FILE"] = "/etc/ssl/certs/ca-certificates.crt";
+#endif
+
         process.Start();
 
         var pid = process.Id;
