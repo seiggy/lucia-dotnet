@@ -97,7 +97,7 @@ public static class WyomingModelApi
                         if (update.message.StartsWith("Extracting"))
                             stages.Report(1, update.percent, update.message);
                         else if (update.message.StartsWith("Installing"))
-                            stages.Report(2, 0, update.message);
+                            stages.Report(2, update.percent, update.message);
                     });
 
                     stages.Report(0, 0, "Starting…");

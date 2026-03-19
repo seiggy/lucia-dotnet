@@ -66,7 +66,7 @@ public sealed class ModelDownloader(
 
                     File.Copy(files[i], destPath, overwrite: true);
 
-                    var percent = (int)((i + 1) * 100L / files.Length);
+                    var percent = (int)((double)(i + 1) / files.Length * 100);
                     extractionProgress?.Report((percent, $"Installing {relativePath}"));
                 }
 
