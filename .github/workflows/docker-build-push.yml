@@ -158,6 +158,8 @@ jobs:
             type=gha,scope=${{ matrix.cache_scope }}
             type=registry,ref=${{ matrix.image }}:${{matrix.cache_scope}}-buildcache
           cache-to: type=gha,scope=${{ matrix.cache_scope }},mode=max
+          provenance: mode=min
+          sbom: true
           build-args: |
             ASSET_IMAGE=${{ env.ASSET_IMAGE }}:sha-${{ steps.asset-hash.outputs.hash }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
