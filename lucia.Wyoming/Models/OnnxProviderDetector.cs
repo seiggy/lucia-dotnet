@@ -17,8 +17,9 @@ public sealed class OnnxProviderDetector
     private static readonly (string OrtName, string SherpaName, int Priority)[] KnownAccelerators =
     [
         ("CUDAExecutionProvider", "cuda", 100),
-        ("ROCMExecutionProvider", "cpu", 90),
-        ("OpenVINOExecutionProvider", "cpu", 85),
+        ("MIGraphXExecutionProvider", "migraphx", 95),
+        ("ROCMExecutionProvider", "cpu", 90),           // deprecated in ROCm 7.1+; MIGraphX preferred
+        ("OpenVINOExecutionProvider", "cpu", 85),       // sherpa-onnx has no OpenVINO support
         ("DmlExecutionProvider", "directml", 80),
         ("CoreMLExecutionProvider", "coreml", 70),
     ];
@@ -104,6 +105,9 @@ public sealed class OnnxProviderDetector
             {
                 case "CUDAExecutionProvider":
                     options.AppendExecutionProvider_CUDA();
+                    break;
+                case "MIGraphXExecutionProvider":
+                    options.AppendExecutionProvider_MIGraphX();
                     break;
                 case "ROCMExecutionProvider":
                     options.AppendExecutionProvider_ROCm();
