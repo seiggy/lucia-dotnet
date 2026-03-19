@@ -121,10 +121,10 @@ public sealed class SqliteTaskArchiveStore : ITaskArchiveStore
         {
             if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                total = Convert.ToInt32(reader["total"]);
-                completed = Convert.ToInt32(reader["completed"]);
-                failed = Convert.ToInt32(reader["failed"]);
-                canceled = Convert.ToInt32(reader["canceled"]);
+                total = reader["total"] is DBNull ? 0 : Convert.ToInt32(reader["total"]);
+                completed = reader["completed"] is DBNull ? 0 : Convert.ToInt32(reader["completed"]);
+                failed = reader["failed"] is DBNull ? 0 : Convert.ToInt32(reader["failed"]);
+                canceled = reader["canceled"] is DBNull ? 0 : Convert.ToInt32(reader["canceled"]);
             }
         }
 

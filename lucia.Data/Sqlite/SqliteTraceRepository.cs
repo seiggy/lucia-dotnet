@@ -229,11 +229,11 @@ public sealed class SqliteTraceRepository : ITraceRepository
         {
             if (await reader.ReadAsync(ct).ConfigureAwait(false))
             {
-                total = Convert.ToInt32(reader["total"]);
-                unlabeled = Convert.ToInt32(reader["unlabeled"]);
-                positive = Convert.ToInt32(reader["positive"]);
-                negative = Convert.ToInt32(reader["negative"]);
-                errored = Convert.ToInt32(reader["errored"]);
+                total = reader["total"] is DBNull ? 0 : Convert.ToInt32(reader["total"]);
+                unlabeled = reader["unlabeled"] is DBNull ? 0 : Convert.ToInt32(reader["unlabeled"]);
+                positive = reader["positive"] is DBNull ? 0 : Convert.ToInt32(reader["positive"]);
+                negative = reader["negative"] is DBNull ? 0 : Convert.ToInt32(reader["negative"]);
+                errored = reader["errored"] is DBNull ? 0 : Convert.ToInt32(reader["errored"]);
             }
         }
 
