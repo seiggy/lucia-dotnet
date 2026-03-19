@@ -17,7 +17,7 @@ public sealed class OnnxProviderDetector
     private static readonly (string OrtName, string SherpaName, int Priority)[] KnownAccelerators =
     [
         ("CUDAExecutionProvider", "cuda", 100),
-        ("ROCMExecutionProvider", "cuda", 90),
+        ("ROCMExecutionProvider", "cpu", 90),
         ("OpenVINOExecutionProvider", "cpu", 85),
         ("DmlExecutionProvider", "directml", 80),
         ("CoreMLExecutionProvider", "coreml", 70),
