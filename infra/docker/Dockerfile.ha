@@ -50,12 +50,6 @@ RUN dotnet publish lucia.AgentHost/lucia.AgentHost.csproj \
     /p:PublishTrimmed=false \
     /p:CpuOnly=true
 
-# Remove non-linux runtimes to slim the image
-RUN rm -rf /app/publish/runtimes/win-* \
-           /app/publish/runtimes/osx-* \
-           /app/publish/runtimes/linux-arm64 \
-    2>/dev/null; true
-
 # Runtime stage — slim aspnet image, no GPU libs
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
