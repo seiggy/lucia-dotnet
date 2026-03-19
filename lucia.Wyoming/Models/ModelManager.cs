@@ -76,9 +76,17 @@ public sealed class ModelManager(
                 if (key == PreferredSttModelKey)
                     continue; // handled below
                 if (!Enum.TryParse<EngineType>(key, ignoreCase: true, out var engineType))
-                    continue; // unknown key
+                {
+                    // Unknown/legacy key (e.g. old synthetic "999") — remove it
+                    _ = preferenceStore.RemoveAsync(key, ct);
+                    continue;
+                }
                 if (engineType is EngineType.Stt or EngineType.OfflineStt)
-                    continue; // STT handled via PreferredSttModel
+                {
+                    // Legacy keys — clean them up from MongoDB
+                    _ = preferenceStore.RemoveAsync(key, ct);
+                    continue;
+                }
                 _activeModelOverrides[engineType] = modelId;
             }
 
@@ -300,14 +308,16 @@ public sealed class ModelManager(
 
         _activeModelOverrides[engineType] = modelId;
 
-        // Persist to MongoDB so the selection survives reboots
-        await preferenceStore.SaveAsync(engineType.ToString(), modelId, ct).ConfigureAwait(false);
-
-        // For STT models, persist as the single preferred STT model
+        // Persist to MongoDB so the selection survives reboots.
+        // For STT, only persist the single PreferredSttModel key (engine inferred from catalog).
         if (engineType is EngineType.Stt or EngineType.OfflineStt)
         {
             PreferredSttEngineType = engineType;
             await preferenceStore.SaveAsync(PreferredSttModelKey, modelId, ct).ConfigureAwait(false);
+        }
+        else
+        {
+            await preferenceStore.SaveAsync(engineType.ToString(), modelId, ct).ConfigureAwait(false);
         }
 
         ActiveModelChanged?.Invoke(new ActiveModelChangedEvent
@@ -351,7 +361,10 @@ public sealed class ModelManager(
             && string.Equals(active, modelId, StringComparison.Ordinal))
         {
             _activeModelOverrides.Remove(engineType);
-            await preferenceStore.RemoveAsync(engineType.ToString(), ct).ConfigureAwait(false);
+            if (engineType is EngineType.Stt or EngineType.OfflineStt)
+                await preferenceStore.RemoveAsync(PreferredSttModelKey, ct).ConfigureAwait(false);
+            else
+                await preferenceStore.RemoveAsync(engineType.ToString(), ct).ConfigureAwait(false);
         }
 
         logger.LogInformation(
