@@ -1,0 +1,29 @@
+name: "Lucia Agent"
+description: "Privacy-first multi-agent assistant for Home Assistant"
+version: "0.1.0"
+slug: "lucia-agent"
+url: "https://github.com/seiggy/lucia-dotnet"
+arch:
+  - amd64
+  - aarch64
+ports:
+  8099/tcp: 8099
+  10400/tcp: 10400
+ports_description:
+  8099/tcp: "Web API and Dashboard"
+  10400/tcp: "Wyoming Voice Protocol"
+map:
+  - type: data
+    read_only: false
+options:
+  ha_url: "http://homeassistant.local:8123"
+  ha_token: ""
+schema:
+  ha_url: url
+  ha_token: password
+startup: application
+boot: auto
+ingress: true
+ingress_port: 8099
+panel_icon: "mdi:robot"
+panel_title: "Lucia"

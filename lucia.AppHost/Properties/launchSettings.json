@@ -42,6 +42,19 @@
         "COMPLUS_FORCEENC": "0",
         "DOTNET_MODIFIABLE_ASSEMBLIES": ""
       }
+    },
+    "Lightweight": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "DOTNET_ENVIRONMENT": "Development",
+        "DOTNET_DASHBOARD_OTLP_ENDPOINT_URL": "https://localhost:21243",
+        "DOTNET_RESOURCE_SERVICE_ENDPOINT_URL": "https://localhost:22048",
+        "DataProvider__Cache": "InMemory",
+        "DataProvider__Store": "SQLite"
+      }
     }
   }
 }
