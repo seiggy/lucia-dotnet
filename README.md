@@ -137,6 +137,29 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
    docker compose up -d
    ```
 
+### Docker Image Variants
+
+| Image Tag | GPU | Size | Use Case |
+|-----------|-----|------|----------|
+| `seiggy/lucia-agenthost:latest` | None | ~250MB | Base orchestration (no voice) |
+| `seiggy/lucia-agenthost:voice` | NVIDIA CUDA 12.8 | ~3GB | Voice + NVIDIA GPU acceleration |
+| `seiggy/lucia-agenthost:voice-cpu` | None | ~3GB | Voice with CPU-only inference |
+| `seiggy/lucia-agenthost:voice-rocm` | AMD ROCm 6.4 | ~25GB | Voice + AMD GPU acceleration |
+
+> **Note:** The ROCm image is significantly larger than CUDA because AMD's ROCm runtime (~20GB) is much less modular than NVIDIA's CUDA runtime (~1.5GB). This is an upstream constraint. If disk space is a concern and you have an AMD GPU, consider using the `voice-cpu` image — CPU inference is still fast enough for real-time voice processing on modern hardware.
+
+To use the voice variants, change the image in your `docker-compose.yml`:
+```yaml
+# NVIDIA GPU (requires nvidia-container-toolkit)
+image: seiggy/lucia-agenthost:voice
+
+# AMD GPU (requires ROCm kernel driver + --device /dev/kfd --device /dev/dri)
+image: seiggy/lucia-agenthost:voice-rocm
+
+# CPU only (no GPU requirements)
+image: seiggy/lucia-agenthost:voice-cpu
+```
+
 3. **Open the Lucia Dashboard**
 
    Navigate to `http://localhost:7233`. On first launch, the setup wizard guides you through configuration:
