@@ -72,6 +72,13 @@ jobs:
             cache_scope: lucia-agenthost-voice-cpu
             description: AI-powered Home Assistant agent with pre-loaded Wyoming voice models (CPU only, no GPU dependencies)
             tag_suffix: "-voice-cpu"
+          - image: seiggy/lucia-agenthost
+            dockerfile: ./infra/docker/Dockerfile.ha
+            title: Lucia Agent Host (HA Mono-Container)
+            platforms: linux/amd64
+            cache_scope: lucia-agenthost-ha-mono
+            description: Home Assistant add-on — mono-container with InMemory cache, SQLite storage, CPU-only ONNX (no Redis/MongoDB required)
+            tag_suffix: "-ha-mono"
 
     steps:
       - name: Checkout repository
@@ -134,6 +141,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}},suffix=${{ matrix.tag_suffix }},enable=${{ github.ref_type == 'tag' && steps.preview.outputs.is_preview != 'true' }}
             type=raw,value=latest,enable=${{ matrix.tag_suffix == '' && github.event_name != 'pull_request' && steps.preview.outputs.is_preview != 'true' && (github.ref_type == 'tag' || github.ref == 'refs/heads/master') }}
             type=raw,value=voice,enable=${{ matrix.tag_suffix == '-voice' && github.event_name != 'pull_request' && steps.preview.outputs.is_preview != 'true' && (github.ref_type == 'tag' || github.ref == 'refs/heads/master') }}
+            type=raw,value=ha-mono,enable=${{ matrix.tag_suffix == '-ha-mono' && github.event_name != 'pull_request' && steps.preview.outputs.is_preview != 'true' && (github.ref_type == 'tag' || github.ref == 'refs/heads/master') }}
             type=ref,event=branch,suffix=${{ matrix.tag_suffix }}
             type=ref,event=pr,suffix=${{ matrix.tag_suffix }}
             type=sha,prefix=sha-,suffix=${{ matrix.tag_suffix }}

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using lucia.Agents.Abstractions;
 using lucia.Wyoming.Audio;
@@ -81,18 +82,17 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<AudioClipService>();
         builder.Services.AddSingleton<ProfileMergeService>();
 
-        // Use MongoDB-backed store when a MongoDB connection is available; fall back to in-memory.
-        // Wrap with Redis cache for fast enrolled profile lookups during diarization.
-        var hasMongoDb = builder.Configuration.GetConnectionString("luciaconfig") is not null
-            || builder.Configuration.GetConnectionString("luciatraces") is not null
-            || builder.Configuration.GetConnectionString("mongodb") is not null;
-        var hasRedis = builder.Configuration.GetConnectionString("redis") is not null;
+        // Determine data provider mode from configuration
+        var storeProvider = builder.Configuration["DataProvider:Store"] ?? "MongoDB";
+        var cacheProvider = builder.Configuration["DataProvider:Cache"] ?? "Redis";
+        var useMongo = !storeProvider.Equals("SQLite", StringComparison.OrdinalIgnoreCase);
+        var useRedis = !cacheProvider.Equals("InMemory", StringComparison.OrdinalIgnoreCase);
 
-        if (hasMongoDb)
+        if (useMongo)
         {
             builder.Services.AddSingleton<MongoSpeakerProfileStore>();
             builder.Services.AddSingleton<IModelPreferenceStore, MongoModelPreferenceStore>();
-            if (hasRedis)
+            if (useRedis)
             {
                 builder.Services.AddSingleton<ISpeakerProfileStore>(sp =>
                     new CachedSpeakerProfileStore(
@@ -109,9 +109,10 @@ public static class ServiceCollectionExtensions
         }
         else
         {
-            builder.Services.AddSingleton<ISpeakerProfileStore, InMemorySpeakerProfileStore>();
-            builder.Services.AddSingleton<ITranscriptStore, InMemoryTranscriptStore>();
-            builder.Services.AddSingleton<IModelPreferenceStore, InMemoryModelPreferenceStore>();
+            // SQLite stores may be registered by AddSqliteStoreProviders; fall back to in-memory
+            builder.Services.TryAddSingleton<ISpeakerProfileStore, InMemorySpeakerProfileStore>();
+            builder.Services.TryAddSingleton<ITranscriptStore, InMemoryTranscriptStore>();
+            builder.Services.TryAddSingleton<IModelPreferenceStore, InMemoryModelPreferenceStore>();
         }
 
         builder.Services.AddSingleton<SpeakerVerificationFilter>();

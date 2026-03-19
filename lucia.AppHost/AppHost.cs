@@ -1,21 +1,38 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
-var redis = builder.AddRedis("redis")
-    .WithDataVolume()
-    .WithLifetime(ContainerLifetime.Persistent)
-    .WithRedisInsight()
-        .WithPersistence()
-    .WithContainerName("redis");
+// Read DataProvider config to conditionally include infrastructure containers
+var dataProviderConfig = builder.Configuration.GetSection("DataProvider");
+var cacheProvider = dataProviderConfig["Cache"] ?? "Redis";
+var storeProvider = dataProviderConfig["Store"] ?? "MongoDB";
+var useRedis = cacheProvider.Equals("Redis", StringComparison.OrdinalIgnoreCase);
+var useMongo = storeProvider.Equals("MongoDB", StringComparison.OrdinalIgnoreCase);
 
-var mongodb = builder.AddMongoDB("mongodb")
-    .WithImageTag("7.0")
-    .WithDataVolume()
-    .WithLifetime(ContainerLifetime.Persistent)
-    .WithMongoExpress()
-    .WithContainerName("mongodb");
-var tracesDb = mongodb.AddDatabase("luciatraces");
-var configDb = mongodb.AddDatabase("luciaconfig");
-var tasksDb = mongodb.AddDatabase("luciatasks");
+IResourceBuilder<IResourceWithConnectionString>? redis = null;
+if (useRedis)
+{
+    redis = builder.AddRedis("redis")
+        .WithDataVolume()
+        .WithLifetime(ContainerLifetime.Persistent)
+        .WithRedisInsight()
+        .WithPersistence()
+        .WithContainerName("redis");
+}
+
+IResourceBuilder<MongoDBServerResource>? mongodb = null;
+IResourceBuilder<MongoDBDatabaseResource>? tracesDb = null, configDb = null, tasksDb = null;
+if (useMongo)
+{
+    mongodb = builder.AddMongoDB("mongodb")
+        .WithImageTag("7.0")
+        .WithDataVolume()
+        .WithLifetime(ContainerLifetime.Persistent)
+        .WithMongoExpress()
+        .WithContainerName("mongodb");
+
+    tracesDb = mongodb.AddDatabase("luciatraces");
+    configDb = mongodb.AddDatabase("luciaconfig");
+    tasksDb = mongodb.AddDatabase("luciatasks");
+}
 
 // Internal service-to-service authentication token.
 // Aspire generates a random secret at startup and injects it into all services
@@ -38,12 +55,6 @@ var registryApi = builder.AddProject<Projects.lucia_AgentHost>("lucia-agenthost"
     .WithEnvironment("OTEL_BSP_SCHEDULE_DELAY", "5000")
     .WithEnvironment("OTEL_BLRP_SCHEDULE_DELAY", "5000")
     .WithEnvironment("OTEL_METRIC_EXPORT_INTERVAL", "5000")
-    .WithReference(redis)
-    .WaitFor(redis)
-    .WithReference(tracesDb)
-    .WithReference(configDb)
-    .WithReference(tasksDb)
-    .WaitFor(mongodb)
     .WithHttpHealthCheck("/health")
     .WithEndpoint(port: 10400, name: "wyoming-tcp", scheme: "tcp", isProxied: false)
     .WithUrlForEndpoint("https", url =>
@@ -52,6 +63,22 @@ var registryApi = builder.AddProject<Projects.lucia_AgentHost>("lucia-agenthost"
         url.Url = "/scalar";
     })
     .WithExternalHttpEndpoints();
+
+// Conditionally wire infrastructure references
+if (redis is not null)
+    registryApi.WithReference(redis).WaitFor(redis);
+if (tracesDb is not null)
+    registryApi.WithReference(tracesDb);
+if (configDb is not null)
+    registryApi.WithReference(configDb);
+if (tasksDb is not null)
+    registryApi.WithReference(tasksDb);
+if (mongodb is not null)
+    registryApi.WaitFor(mongodb);
+
+// Pass DataProvider config as environment variables
+registryApi.WithEnvironment("DataProvider__Cache", cacheProvider);
+registryApi.WithEnvironment("DataProvider__Store", storeProvider);
 
 var currentDirectory = Environment.CurrentDirectory;
 var sep = Path.DirectorySeparatorChar.ToString();

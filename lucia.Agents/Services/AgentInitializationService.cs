@@ -30,7 +30,7 @@ public class AgentInitializationService : BackgroundService
     private readonly IEntityLocationService _entityLocationService;
     private readonly IPresenceDetectionService _presenceDetectionService;
     private readonly IApiKeyService _apiKeyService;
-    private readonly ConfigStoreWriter _configStore;
+    private readonly IConfigStoreWriter _configStore;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AgentInitializationService> _logger;
     private readonly IOptionsMonitor<HomeAssistantOptions> _haOptions;
@@ -46,7 +46,7 @@ public class AgentInitializationService : BackgroundService
         IEntityLocationService entityLocationService,
         IPresenceDetectionService presenceDetectionService,
         IApiKeyService apiKeyService,
-        ConfigStoreWriter configStore,
+        IConfigStoreWriter configStore,
         IConfiguration configuration,
         ILogger<AgentInitializationService> logger,
         IOptionsMonitor<HomeAssistantOptions> haOptions,

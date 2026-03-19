@@ -105,6 +105,7 @@ COPY ["lucia.MusicAgent/lucia.MusicAgent.csproj", "lucia.MusicAgent/"]
 COPY ["lucia.ServiceDefaults/lucia.ServiceDefaults.csproj", "lucia.ServiceDefaults/"]
 COPY ["lucia.TimerAgent/lucia.TimerAgent.csproj", "lucia.TimerAgent/"]
 COPY ["lucia.Wyoming/lucia.Wyoming.csproj", "lucia.Wyoming/"]
+COPY ["lucia.Data/lucia.Data.csproj", "lucia.Data/"]
 
 # Restore dependencies (skip Copilot CLI download — handled in copilot-cli stage)
 # This layer is cached unless .csproj files change
@@ -115,7 +116,8 @@ RUN RID=$(case "$TARGETARCH" in\
     dotnet restore "./lucia.AgentHost/lucia.AgentHost.csproj" \
     --runtime $RID \
     /p:PublishReadyToRun=true \
-    /p:CopilotSkipCliDownload=true
+    /p:CopilotSkipCliDownload=true \
+    /p:CpuOnly=true
 
 # Copy entire source tree
 COPY . .
@@ -160,7 +162,8 @@ RUN RID=$(case "$TARGETARCH" in\
     /p:UseAppHost=false \
     /p:PublishTrimmed=false \
     /p:PublishReadyToRun=true \
-    /p:CopilotSkipCliDownload=true
+    /p:CopilotSkipCliDownload=true \
+    /p:CpuOnly=true
 
 # ============================================================================
 # Stage 4: Final Production Image

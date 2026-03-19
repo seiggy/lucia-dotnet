@@ -7,7 +7,6 @@ using lucia.Agents.Models;
 using lucia.Agents.Training.Models;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
-using StackExchange.Redis;
 
 namespace lucia.AgentHost.Apis;
 
@@ -16,7 +15,6 @@ namespace lucia.AgentHost.Apis;
 /// </summary>
 public static class TaskManagementApi
 {
-    private const string TaskIdSetKey = "lucia:task-ids";
     
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -43,23 +41,19 @@ public static class TaskManagementApi
     /// List active tasks from Redis.
     /// </summary>
     private static async Task<Ok<List<ActiveTaskSummary>>> ListActiveTasksAsync(
-        [FromServices] IConnectionMultiplexer redis,
+        [FromServices] ITaskIdIndex taskIdIndex,
         [FromServices] ITaskStore taskStore,
         CancellationToken ct)
     {
-        var db = redis.GetDatabase();
-        var taskIdValues = await db.SetMembersAsync(TaskIdSetKey).ConfigureAwait(false);
+        var taskIds = await taskIdIndex.GetAllTrackedTaskIdsAsync(ct).ConfigureAwait(false);
 
         var tasks = new List<ActiveTaskSummary>();
-        foreach (var idValue in taskIdValues)
+        foreach (var taskId in taskIds)
         {
-            if (!idValue.HasValue) continue;
-            var taskId = idValue.ToString();
             var task = await taskStore.GetTaskAsync(taskId, ct).ConfigureAwait(false);
             if (task is null)
             {
-                // Task expired from Redis but ID remains in the set — clean up
-                _ = db.SetRemoveAsync(TaskIdSetKey, taskId, CommandFlags.FireAndForget);
+                await taskIdIndex.RemoveTaskIdAsync(taskId, ct).ConfigureAwait(false);
                 continue;
             }
 
@@ -130,14 +124,13 @@ public static class TaskManagementApi
     /// Get aggregate stats from both active and archived tasks.
     /// </summary>
     private static async Task<Ok<CombinedTaskStats>> GetStatsAsync(
-        [FromServices] IConnectionMultiplexer redis,
+        [FromServices] ITaskIdIndex taskIdIndex,
         [FromServices] ITaskStore taskStore,
         [FromServices] ITaskArchiveStore archive,
         CancellationToken ct)
     {
-        // Count active tasks from the SET index
-        var db = redis.GetDatabase();
-        var activeCount = await db.SetLengthAsync(TaskIdSetKey).ConfigureAwait(false);
+        var taskIds = await taskIdIndex.GetAllTrackedTaskIdsAsync(ct).ConfigureAwait(false);
+        var activeCount = taskIds.Count;
 
         // Get archived stats
         var archivedStats = await archive.GetTaskStatsAsync(ct).ConfigureAwait(false);

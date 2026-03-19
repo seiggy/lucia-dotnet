@@ -1,4 +1,4 @@
-using lucia.Agents.Auth;
+using lucia.Agents.Abstractions;
 using lucia.AgentHost.Models;
 using lucia.Wyoming.Diarization;
 using Microsoft.Extensions.Options;
@@ -35,7 +35,7 @@ public static class VoiceConfigApi
 
         group.MapPut("/", async (
             VoiceConfigUpdateRequest request,
-            ConfigStoreWriter configStore) =>
+            IConfigStoreWriter configStore) =>
         {
             const string prefix = VoiceProfileOptions.SectionName;
 

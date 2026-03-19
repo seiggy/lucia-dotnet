@@ -1,16 +1,16 @@
 using lucia.AgentHost.Extensions;
 using lucia.AgentHost.Models;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration.UserConfiguration;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
-using MongoDB.Driver;
 
 namespace lucia.AgentHost.Apis;
 
 /// <summary>
-/// Minimal API endpoints for managing platform configuration via MongoDB.
+/// Minimal API endpoints for managing platform configuration.
 /// </summary>
 public static class ConfigurationApi
 {
@@ -60,11 +60,10 @@ public static class ConfigurationApi
     /// Merges MongoDB-stored sections with live IConfiguration sections from the schema.
     /// </summary>
     private static async Task<Ok<List<ConfigSectionSummary>>> ListSectionsAsync(
-        IMongoClient mongoClient,
+        [FromServices] IConfigStoreWriter configStore,
         IConfiguration configuration)
     {
-        var collection = GetCollection(mongoClient);
-        var entries = await collection.Find(FilterDefinition<ConfigEntry>.Empty).ToListAsync().ConfigureAwait(false);
+        var entries = await configStore.GetAllEntriesAsync().ConfigureAwait(false);
 
         var sections = entries
             .GroupBy(e => e.Section)
@@ -106,13 +105,11 @@ public static class ConfigurationApi
     /// </summary>
     private static async Task<Results<Ok<List<ConfigEntryDto>>, NotFound>> GetSectionAsync(
         string section,
-        IMongoClient mongoClient,
+        [FromServices] IConfigStoreWriter configStore,
         IConfiguration configuration,
         [FromQuery] bool showSecrets = false)
     {
-        var collection = GetCollection(mongoClient);
-        var filter = Builders<ConfigEntry>.Filter.Eq(e => e.Section, section);
-        var entries = await collection.Find(filter).ToListAsync().ConfigureAwait(false);
+        var entries = await configStore.GetEntriesBySectionAsync(section).ConfigureAwait(false);
 
         List<ConfigEntryDto> dtos;
 
@@ -192,29 +189,23 @@ public static class ConfigurationApi
     private static async Task<Results<Ok<int>, BadRequest<string>>> UpdateSectionAsync(
         string section,
         [FromBody] Dictionary<string, string?> values,
-        IMongoClient mongoClient)
+        [FromServices] IConfigStoreWriter configStore)
     {
         if (values is null || values.Count == 0)
         {
             return TypedResults.BadRequest("No values provided.");
         }
 
-        var collection = GetCollection(mongoClient);
         var updateCount = 0;
 
         foreach (var (key, value) in values)
         {
             var fullKey = key.Contains(':') ? key : $"{section}:{key}";
-            var filter = Builders<ConfigEntry>.Filter.Eq(e => e.Key, fullKey);
-
-            var update = Builders<ConfigEntry>.Update
-                .Set(e => e.Value, value)
-                .Set(e => e.UpdatedAt, DateTime.UtcNow)
-                .Set(e => e.UpdatedBy, "admin-ui")
-                .SetOnInsert(e => e.Section, section)
-                .SetOnInsert(e => e.IsSensitive, IsSensitiveKey(fullKey));
-
-            await collection.UpdateOneAsync(filter, update, new UpdateOptions { IsUpsert = true }).ConfigureAwait(false);
+            await configStore.SetAsync(
+                fullKey,
+                value,
+                updatedBy: "admin-ui",
+                isSensitive: IsSensitiveKey(fullKey)).ConfigureAwait(false);
             updateCount++;
         }
 
@@ -225,11 +216,10 @@ public static class ConfigurationApi
     /// Resets MongoDB config by deleting all entries. ConfigSeeder will re-seed on next restart.
     /// </summary>
     private static async Task<Ok<string>> ResetConfigAsync(
-        IMongoClient mongoClient)
+        [FromServices] IConfigStoreWriter configStore)
     {
-        var collection = GetCollection(mongoClient);
-        var result = await collection.DeleteManyAsync(FilterDefinition<ConfigEntry>.Empty).ConfigureAwait(false);
-        return TypedResults.Ok($"Deleted {result.DeletedCount} configuration entries. Restart services to re-seed from appsettings.");
+        var deletedCount = await configStore.DeleteAllAsync().ConfigureAwait(false);
+        return TypedResults.Ok($"Deleted {deletedCount} configuration entries. Restart services to re-seed from appsettings.");
     }
 
     /// <summary>
@@ -454,12 +444,6 @@ public static class ConfigurationApi
             ]
         }
     ];
-
-    private static IMongoCollection<ConfigEntry> GetCollection(IMongoClient mongoClient)
-    {
-        var database = mongoClient.GetDatabase(ConfigEntry.DatabaseName);
-        return database.GetCollection<ConfigEntry>(ConfigEntry.CollectionName);
-    }
 
     private static bool IsSensitiveKey(string key)
     {

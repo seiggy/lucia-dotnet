@@ -117,6 +117,8 @@
   </ItemGroup>
   <!-- ── Data & Infrastructure ────────────────────────────────── -->
   <ItemGroup Label="Data and Infrastructure">
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="$(MicrosoftExtensionsVersion)" />
+    <PackageVersion Include="Microsoft.Extensions.Caching.Memory" Version="$(MicrosoftExtensionsVersion)" />
     <PackageVersion Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
     <PackageVersion Include="Anthropic" Version="12.8.0" />
     <PackageVersion Include="ModelContextProtocol" Version="1.1.0" />

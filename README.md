@@ -144,6 +144,7 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
 | `seiggy/lucia-agenthost:latest` | None | ~250MB | Base orchestration (no voice) |
 | `seiggy/lucia-agenthost:voice` | NVIDIA CUDA 12.8 | ~3GB | Voice + NVIDIA GPU acceleration |
 | `seiggy/lucia-agenthost:voice-cpu` | None | ~3GB | Voice with CPU-only inference |
+| `seiggy/lucia-agenthost:ha-mono` | None | ~350MB | Home Assistant add-on (mono-container, no Redis/MongoDB) |
 | *Self-build only* | AMD ROCm 6.4 | ~25GB | Voice + AMD GPU acceleration |
 
 > **Note:** The ROCm image is not published to Docker Hub due to its ~25GB size exceeding CI storage limits. AMD GPU users can build it locally:
@@ -163,6 +164,73 @@ image: seiggy/lucia-agenthost:voice-rocm
 # CPU only (no GPU requirements)
 image: seiggy/lucia-agenthost:voice-cpu
 ```
+
+### Home Assistant Add-on (Mono-Container)
+
+The `ha` image variant runs Lucia as a single container with **no external dependencies** — no Redis, no MongoDB. It uses in-memory caching and SQLite for persistence, making it ideal for Home Assistant add-on deployments or resource-constrained devices.
+
+#### Quick Start
+
+```bash
+docker build -f infra/docker/Dockerfile.ha -t lucia:ha .
+
+docker run -d \
+  --name lucia \
+  --network host \
+  -v lucia-data:/data \
+  -v lucia-models:/app/models \
+  -v lucia-plugins:/app/plugins \
+  lucia:ha
+```
+
+#### Volumes
+
+| Mount Point | Purpose | Required |
+|-------------|---------|----------|
+| `/data` | SQLite database (`lucia.db`) — all configuration, traces, tasks, and user data | **Yes** — data persists across restarts |
+| `/app/models` | Wyoming voice models (STT, VAD, wake word, speaker embedding) | Recommended — avoids re-downloading models |
+| `/app/plugins` | Lua/script plugins | Optional |
+
+#### Ports
+
+| Port | Protocol | Purpose |
+|------|----------|---------|
+| 8099 | HTTP | Web dashboard and REST API |
+| 10400 | TCP | Wyoming voice protocol |
+
+#### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DataProvider__Cache` | `InMemory` | Cache backend (`InMemory` or `Redis`) |
+| `DataProvider__Store` | `SQLite` | Persistence backend (`SQLite` or `MongoDB`) |
+| `DataProvider__SqlitePath` | `/data/lucia.db` | SQLite database file path |
+| `HomeAssistant__BaseUrl` | — | Home Assistant URL (e.g. `http://homeassistant.local:8123`) |
+| `HomeAssistant__AccessToken` | — | Home Assistant long-lived access token |
+
+#### Data Provider Configuration
+
+Lucia supports pluggable data providers, letting you choose between full-scale (Redis + MongoDB) and lightweight (InMemory + SQLite) backends:
+
+| Configuration | Cache | Store | Use Case |
+|--------------|-------|-------|----------|
+| **Default** | Redis | MongoDB | Full deployment with dedicated infrastructure |
+| **Lightweight** | InMemory | SQLite | Home Assistant add-on, single-container, resource-constrained |
+| **Hybrid** | InMemory | MongoDB | Reduce infrastructure while keeping durable document store |
+| **Hybrid** | Redis | SQLite | Shared cache with embedded persistence |
+
+To switch providers on any deployment, set the environment variables:
+```bash
+# Lightweight mode (no external dependencies)
+-e DataProvider__Cache=InMemory
+-e DataProvider__Store=SQLite
+
+# Default mode (requires Redis + MongoDB)
+-e DataProvider__Cache=Redis
+-e DataProvider__Store=MongoDB
+```
+
+> **Note:** The HA image (`Dockerfile.ha`) defaults to InMemory + SQLite. The standard images (`Dockerfile`, `Dockerfile.voice*`) default to Redis + MongoDB.
 
 3. **Open the Lucia Dashboard**
 
@@ -376,6 +444,7 @@ lucia-dotnet/
 │   └── Training/                 # Trace capture and export
 ├── lucia.MusicAgent/             # Music Assistant playback agent (A2AHost)
 ├── lucia.TimerAgent/             # Timer and reminder agent (A2AHost)
+├── lucia.Data/                  # Lightweight data providers (InMemory cache + SQLite repositories)
 ├── lucia.HomeAssistant/          # Strongly-typed HA REST API client
 │   ├── Models/                   # Entity, state, and service models
 │   ├── Services/                 # IHomeAssistantClient implementation
@@ -788,7 +857,7 @@ Lucia supports two deployment topologies controlled by the `Deployment__Mode` en
 
 | Mode | Value | Description |
 |------|-------|-------------|
-| **Standalone** (default) | `standalone` | All agents (Music, Timer, etc.) run embedded in the main AgentHost process. Simplest setup — single container plus Redis and MongoDB. Recommended for most users. |
+| **Standalone** (default) | `standalone` | All agents (Music, Timer, etc.) run embedded in the main AgentHost process. Simplest setup — single container plus Redis and MongoDB, or zero-dependency with the HA image (InMemory + SQLite). Recommended for most users. |
 | **Mesh** | `mesh` | Agents run as separate A2A containers that register with the AgentHost over the network. Used for Kubernetes deployments, horizontal scaling, or multi-node distribution. |
 
 > **⚠️ Single-Instance Constraint:** The AgentHost must run as a **single instance** (no horizontal scaling via replicas). The in-memory `ScheduledTaskStore` and `ActiveTimerStore` hold active alarms and timers — running multiple replicas would split scheduled task state across instances. For high availability, use a single replica with fast restart policies rather than multiple replicas behind a load balancer. This constraint applies to both standalone and mesh modes (the AgentHost itself must be single-instance; mesh agents can scale independently).
@@ -820,6 +889,16 @@ The Kubernetes deployment runs in **mesh mode** by default, with Music Agent and
 ### systemd
 
 For bare-metal or VM deployments, systemd service units are provided in [`infra/systemd/`](infra/systemd/).
+
+### Home Assistant Add-on
+
+Lucia can run as a Home Assistant add-on using the mono-container image:
+
+1. Build: `docker build -f infra/docker/Dockerfile.ha -t lucia:ha .`
+2. The add-on configuration is in [`ha-addon/`](ha-addon/) with `config.yaml` for the HA Supervisor
+3. All data persists in `/data/lucia.db` (SQLite) — back up this single file to preserve your configuration, traces, and scheduled tasks
+
+See [Home Assistant Add-on (Mono-Container)](#home-assistant-add-on-mono-container) for full setup details.
 
 ## 📊 Monitoring and Observability
 
@@ -873,6 +952,8 @@ The Aspire Dashboard provides built-in log aggregation, trace visualization, and
 - Internal token authentication for service-to-service A2A communication
 - SemVer versioning with preview release support in CI/CD
 - Matcher debug API and dashboard page for testing entity search queries
+- Pluggable data providers (InMemory + SQLite) for mono-container deployment
+- Home Assistant add-on Dockerfile with CPU-only ONNX
 
 ### 🔄 In Progress
 

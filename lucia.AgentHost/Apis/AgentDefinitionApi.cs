@@ -7,7 +7,6 @@ using lucia.Agents.Registry;
 using lucia.Agents.Services;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
-using MongoDB.Driver;
 
 namespace lucia.AgentHost.Apis;
 
@@ -211,7 +210,7 @@ public static class AgentDefinitionApi
     private static async Task<Results<Ok<List<object>>, NotFound<string>>> GetSkillConfigAsync(
         [FromRoute] string id,
         [FromServices] IEnumerable<ILuciaAgent> agents,
-        [FromServices] IMongoClient mongoClient,
+        [FromServices] IConfigStoreWriter configStore,
         CancellationToken ct)
     {
         var provider = agents
@@ -221,17 +220,11 @@ public static class AgentDefinitionApi
         if (provider is null)
             return TypedResults.NotFound($"Agent '{id}' has no configurable skills");
 
-        var collection = mongoClient.GetDatabase(ConfigEntry.DatabaseName)
-            .GetCollection<ConfigEntry>(ConfigEntry.CollectionName);
-
         var sections = new List<object>();
 
         foreach (var section in provider.GetSkillConfigSections())
         {
-            var escapedName = System.Text.RegularExpressions.Regex.Escape(section.SectionName);
-            var docs = await collection.Find(
-                Builders<ConfigEntry>.Filter.Regex(e => e.Key, $"^{escapedName}:"))
-                .ToListAsync(ct).ConfigureAwait(false);
+            var docs = await configStore.GetEntriesByKeyPrefixAsync($"{section.SectionName}:", ct).ConfigureAwait(false);
 
             var schema = BuildSchema(section.OptionsType);
             var currentValues = BuildCurrentValues(docs, section.SectionName, section.OptionsType);
@@ -257,7 +250,7 @@ public static class AgentDefinitionApi
         [FromRoute] string section,
         [FromBody] Dictionary<string, object?> values,
         [FromServices] IEnumerable<ILuciaAgent> agents,
-        [FromServices] IMongoClient mongoClient,
+        [FromServices] IConfigStoreWriter configStore,
         CancellationToken ct)
     {
         var provider = agents
@@ -273,18 +266,12 @@ public static class AgentDefinitionApi
         if (configSection is null)
             return TypedResults.BadRequest($"Section '{section}' not found for agent '{id}'");
 
-        var collection = mongoClient.GetDatabase(ConfigEntry.DatabaseName)
-            .GetCollection<ConfigEntry>(ConfigEntry.CollectionName);
-
         foreach (var (key, value) in values)
         {
             if (value is System.Text.Json.JsonElement jsonElement && jsonElement.ValueKind == System.Text.Json.JsonValueKind.Array)
             {
-                var escapedKey = System.Text.RegularExpressions.Regex.Escape(key);
                 // Delete existing indexed keys then insert new ones
-                await collection.DeleteManyAsync(
-                    Builders<ConfigEntry>.Filter.Regex(e => e.Key, $"^{section}:{escapedKey}:"),
-                    ct).ConfigureAwait(false);
+                await configStore.DeleteByKeyPrefixAsync($"{section}:{key}:", ct).ConfigureAwait(false);
 
                 var items = jsonElement.EnumerateArray().Select(e => e.GetString()).Where(s => s is not null).ToList();
                 if (items.Count > 0)
@@ -297,23 +284,14 @@ public static class AgentDefinitionApi
                         UpdatedAt = DateTime.UtcNow,
                         UpdatedBy = "admin-ui"
                     }).ToList();
-                    await collection.InsertManyAsync(entries, cancellationToken: ct).ConfigureAwait(false);
+                    await configStore.InsertManyAsync(entries, ct).ConfigureAwait(false);
                 }
             }
             else
             {
                 var fullKey = $"{section}:{key}";
                 var stringValue = value?.ToString();
-                var filter = Builders<ConfigEntry>.Filter.Eq(e => e.Key, fullKey);
-                var update = Builders<ConfigEntry>.Update
-                    .Set(e => e.Value, stringValue)
-                    .Set(e => e.UpdatedAt, DateTime.UtcNow)
-                    .Set(e => e.UpdatedBy, "admin-ui")
-                    .SetOnInsert(e => e.Section, section)
-                    .SetOnInsert(e => e.IsSensitive, false);
-
-                await collection.UpdateOneAsync(filter, update,
-                    new UpdateOptions { IsUpsert = true }, ct).ConfigureAwait(false);
+                await configStore.SetAsync(fullKey, stringValue, updatedBy: "admin-ui", cancellationToken: ct).ConfigureAwait(false);
             }
         }
 
@@ -362,7 +340,7 @@ public static class AgentDefinitionApi
     /// Handles indexed array keys (e.g. EntityDomains:0, EntityDomains:1).
     /// </summary>
     private static Dictionary<string, object?> BuildCurrentValues(
-        List<ConfigEntry> docs, string sectionName, Type optionsType)
+        IReadOnlyList<ConfigEntry> docs, string sectionName, Type optionsType)
     {
         var result = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
         var defaults = Activator.CreateInstance(optionsType);
