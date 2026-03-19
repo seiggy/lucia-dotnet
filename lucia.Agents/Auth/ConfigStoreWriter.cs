@@ -1,3 +1,4 @@
+using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
 using lucia.Agents.Configuration.UserConfiguration;
 using MongoDB.Driver;
@@ -8,7 +9,7 @@ namespace lucia.Agents.Auth;
 /// Helper service for reading and writing config entries during setup and auth operations.
 /// Wraps the MongoDB configuration collection with typed write operations.
 /// </summary>
-public sealed class ConfigStoreWriter
+public sealed class ConfigStoreWriter : IConfigStoreWriter
 {
     private readonly IMongoCollection<ConfigEntry> _collection;
 
@@ -56,5 +57,36 @@ public sealed class ConfigStoreWriter
             .ConfigureAwait(false);
 
         return entry?.Value;
+    }
+
+    /// <inheritdoc />
+    public async Task<long> GetEntryCountAsync(CancellationToken cancellationToken = default)
+    {
+        return await _collection.CountDocumentsAsync(
+            FilterDefinition<ConfigEntry>.Empty,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlySet<string>> GetAllKeysAsync(CancellationToken cancellationToken = default)
+    {
+        var keys = await _collection
+            .Find(FilterDefinition<ConfigEntry>.Empty)
+            .Project(e => e.Key)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <inheritdoc />
+    public async Task InsertManyAsync(IReadOnlyList<ConfigEntry> entries, CancellationToken cancellationToken = default)
+    {
+        if (entries.Count == 0)
+            return;
+
+        await _collection.InsertManyAsync(
+            entries,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 }

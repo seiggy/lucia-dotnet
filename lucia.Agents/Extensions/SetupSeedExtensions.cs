@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using lucia.Agents.Abstractions;
-using lucia.Agents.Auth;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
@@ -20,7 +19,7 @@ public static class SetupSeedExtensions
     /// </summary>
     public static async Task SeedSetupFromEnvAsync(
         this IApiKeyService apiKeyService,
-        ConfigStoreWriter configStore,
+        IConfigStoreWriter configStore,
         IConfiguration configuration,
         ILogger logger,
         CancellationToken ct = default)

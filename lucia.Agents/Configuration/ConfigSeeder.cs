@@ -1,26 +1,21 @@
+using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration.UserConfiguration;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using MongoDB.Driver;
 
 namespace lucia.Agents.Configuration;
 
 /// <summary>
-/// Seeds MongoDB configuration collection from appsettings/environment on first startup.
-/// Only seeds when the collection is empty — preserves existing MongoDB config.
+/// Seeds the configuration store from appsettings/environment on first startup.
+/// Only seeds when the store is empty — preserves existing config.
 /// </summary>
 public sealed class ConfigSeeder : IHostedService
 {
-    private readonly IMongoClient _mongoClient;
+    private readonly IConfigStoreWriter _configStore;
     private readonly IConfiguration _configuration;
     private readonly ILogger<ConfigSeeder> _logger;
 
-    /// <summary>
-    /// Only these top-level config sections are seeded to MongoDB.
-    /// Everything else (ConnectionStrings, Logging, ASPNETCORE_*, OTEL_*, ports, etc.)
-    /// stays in appsettings/env and is never persisted to Mongo.
-    /// </summary>
     private static readonly string[] AppConfigSections =
     [
         "HomeAssistant",
@@ -44,9 +39,9 @@ public sealed class ConfigSeeder : IHostedService
         "token", "password", "secret", "key", "accesskey", "connectionstring"
     ];
 
-    public ConfigSeeder(IMongoClient mongoClient, IConfiguration configuration, ILogger<ConfigSeeder> logger)
+    public ConfigSeeder(IConfigStoreWriter configStore, IConfiguration configuration, ILogger<ConfigSeeder> logger)
     {
-        _mongoClient = mongoClient;
+        _configStore = configStore;
         _configuration = configuration;
         _logger = logger;
     }
@@ -55,46 +50,38 @@ public sealed class ConfigSeeder : IHostedService
     {
         try
         {
-            var database = _mongoClient.GetDatabase(ConfigEntry.DatabaseName);
-            var collection = database.GetCollection<ConfigEntry>(ConfigEntry.CollectionName);
-
-            var existingCount = await collection.CountDocumentsAsync(
-                FilterDefinition<ConfigEntry>.Empty, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var existingCount = await _configStore.GetEntryCountAsync(cancellationToken).ConfigureAwait(false);
 
             var entries = new List<ConfigEntry>();
             FlattenConfiguration(_configuration, "", entries);
 
             if (existingCount == 0)
             {
-                _logger.LogInformation("Seeding MongoDB configuration from appsettings...");
+                _logger.LogInformation("Seeding configuration store from appsettings...");
                 if (entries.Count > 0)
                 {
-                    await collection.InsertManyAsync(entries, cancellationToken: cancellationToken).ConfigureAwait(false);
-                    _logger.LogInformation("Seeded {Count} configuration entries to MongoDB.", entries.Count);
+                    await _configStore.InsertManyAsync(entries, cancellationToken).ConfigureAwait(false);
+                    _logger.LogInformation("Seeded {Count} configuration entries.", entries.Count);
                 }
                 return;
             }
 
-            // Seed any new sections that don't have entries yet (handles upgrades)
-            var existingKeys = (await collection.Find(FilterDefinition<ConfigEntry>.Empty)
-                .Project(e => e.Key)
-                .ToListAsync(cancellationToken).ConfigureAwait(false))
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var existingKeys = await _configStore.GetAllKeysAsync(cancellationToken).ConfigureAwait(false);
 
             var missing = entries.Where(e => !existingKeys.Contains(e.Key)).ToList();
             if (missing.Count > 0)
             {
-                await collection.InsertManyAsync(missing, cancellationToken: cancellationToken).ConfigureAwait(false);
+                await _configStore.InsertManyAsync(missing, cancellationToken).ConfigureAwait(false);
                 _logger.LogInformation("Seeded {Count} new configuration entries for upgraded sections.", missing.Count);
             }
             else
             {
-                _logger.LogDebug("MongoDB config up to date ({Count} entries). No new sections to seed.", existingCount);
+                _logger.LogDebug("Config store up to date ({Count} entries). No new sections to seed.", existingCount);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to seed MongoDB configuration. Application will use appsettings defaults.");
+            _logger.LogError(ex, "Failed to seed configuration store. Application will use appsettings defaults.");
         }
     }
 

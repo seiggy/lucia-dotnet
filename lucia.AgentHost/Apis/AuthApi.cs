@@ -76,7 +76,7 @@ public static class AuthApi
 
     private static async Task<IResult> GetStatus(
         IApiKeyService apiKeyService,
-        ConfigStoreWriter configStore,
+        IConfigStoreWriter configStore,
         HttpContext httpContext)
     {
         var ct = httpContext.RequestAborted;

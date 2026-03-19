@@ -5,17 +5,16 @@ using lucia.Agents.DataStores;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using StackExchange.Redis;
 
 namespace lucia.Agents.Services;
 
 /// <summary>
-/// Background service that periodically sweeps Redis for tasks in terminal state
-/// and archives them to MongoDB. Acts as a safety net for the <see cref="ArchivingTaskStore"/> decorator.
+/// Background service that periodically sweeps for tasks in terminal state
+/// and archives them to durable storage. Acts as a safety net for the <see cref="ArchivingTaskStore"/> decorator.
 /// </summary>
 public sealed class TaskArchivalService : BackgroundService
 {
-    private readonly IConnectionMultiplexer _redis;
+    private readonly ITaskIdIndex _taskIdIndex;
     private readonly ITaskStore _taskStore;
     private readonly ITaskArchiveStore _archive;
     private readonly ILogger<TaskArchivalService> _logger;
@@ -28,16 +27,14 @@ public sealed class TaskArchivalService : BackgroundService
         TaskState.Canceled,
     ];
 
-    private const string TaskIdSetKey = "lucia:task-ids";
-
     public TaskArchivalService(
-        IConnectionMultiplexer redis,
+        ITaskIdIndex taskIdIndex,
         ITaskStore taskStore,
         ITaskArchiveStore archive,
         ILogger<TaskArchivalService> logger,
         IOptions<TaskArchiveOptions> options)
     {
-        _redis = redis;
+        _taskIdIndex = taskIdIndex;
         _taskStore = taskStore;
         _archive = archive;
         _logger = logger;
@@ -70,13 +67,7 @@ public sealed class TaskArchivalService : BackgroundService
 
     private async Task SweepAsync(CancellationToken cancellationToken)
     {
-        var db = _redis.GetDatabase();
-        var taskIdValues = await db.SetMembersAsync(TaskIdSetKey).ConfigureAwait(false);
-
-        var taskIds = taskIdValues
-            .Where(v => v.HasValue)
-            .Select(v => v.ToString())
-            .ToList();
+        var taskIds = await _taskIdIndex.GetAllTrackedTaskIdsAsync(cancellationToken).ConfigureAwait(false);
 
         if (taskIds.Count == 0)
         {
@@ -89,7 +80,6 @@ public sealed class TaskArchivalService : BackgroundService
         {
             try
             {
-                // Skip if already archived
                 if (await _archive.IsArchivedAsync(taskId, cancellationToken).ConfigureAwait(false))
                 {
                     continue;
@@ -98,8 +88,7 @@ public sealed class TaskArchivalService : BackgroundService
                 var task = await _taskStore.GetTaskAsync(taskId, cancellationToken).ConfigureAwait(false);
                 if (task is null)
                 {
-                    // Task expired from Redis but ID remains in the set — clean up
-                    _ = db.SetRemoveAsync(TaskIdSetKey, taskId, CommandFlags.FireAndForget);
+                    await _taskIdIndex.RemoveTaskIdAsync(taskId, cancellationToken).ConfigureAwait(false);
                     continue;
                 }
 

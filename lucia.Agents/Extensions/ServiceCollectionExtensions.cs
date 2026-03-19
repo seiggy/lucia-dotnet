@@ -71,6 +71,7 @@ public static class ServiceCollectionExtensions
 
         // Register Redis task store (T037) with archiving decorator
         builder.Services.AddSingleton<RedisTaskStore>();
+        builder.Services.AddSingleton<ITaskIdIndex>(sp => sp.GetRequiredService<RedisTaskStore>());
         builder.Services.AddSingleton<ITaskStore>(sp =>
         {
             var redisStore = sp.GetRequiredService<RedisTaskStore>();

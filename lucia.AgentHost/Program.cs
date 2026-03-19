@@ -177,7 +177,7 @@ builder.Services.AddSingleton<IApiKeyService>(sp =>
         sp.GetRequiredService<MongoApiKeyService>(),
         sp.GetRequiredService<ILogger<CachedApiKeyService>>()));
 builder.Services.AddSingleton<ISessionService, HmacSessionService>();
-builder.Services.AddSingleton<ConfigStoreWriter>();
+builder.Services.AddSingleton<IConfigStoreWriter, ConfigStoreWriter>();
 
 // Bind internal token options (injected by Aspire/K8s as env var InternalAuth__Token)
 builder.Services.Configure<InternalTokenOptions>(
@@ -262,7 +262,7 @@ var app = builder.Build();
 await using (var seedScope = app.Services.CreateAsyncScope())
 {
     var apiKeyService = seedScope.ServiceProvider.GetRequiredService<IApiKeyService>();
-    var configStore = seedScope.ServiceProvider.GetRequiredService<ConfigStoreWriter>();
+    var configStore = seedScope.ServiceProvider.GetRequiredService<IConfigStoreWriter>();
     var config = seedScope.ServiceProvider.GetRequiredService<IConfiguration>();
     var seedLogger = seedScope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("Lucia.HeadlessSeed");
     await apiKeyService.SeedSetupFromEnvAsync(configStore, config, seedLogger, CancellationToken.None).ConfigureAwait(false);

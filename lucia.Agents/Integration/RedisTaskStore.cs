@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Text.Json;
 using A2A;
+using lucia.Agents.Abstractions;
 using StackExchange.Redis;
 
 namespace lucia.Agents.Integration;
@@ -9,7 +10,7 @@ namespace lucia.Agents.Integration;
 /// <summary>
 /// Redis-based implementation of ITaskStore for durable task persistence.
 /// </summary>
-public sealed class RedisTaskStore : ITaskStore
+public sealed class RedisTaskStore : ITaskStore, ITaskIdIndex
 {
     private const string TaskIdSetKey = "lucia:task-ids";
     
@@ -220,6 +221,23 @@ public sealed class RedisTaskStore : ITaskStore
 
         activity?.SetTag("count", configs.Count);
         return configs;
+    }
+
+    public async Task<IReadOnlyList<string>> GetAllTrackedTaskIdsAsync(CancellationToken cancellationToken = default)
+    {
+        var db = _redis.GetDatabase();
+        var taskIdValues = await db.SetMembersAsync(TaskIdSetKey).WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        return taskIdValues
+            .Where(v => v.HasValue)
+            .Select(v => v.ToString())
+            .ToList();
+    }
+
+    public async Task RemoveTaskIdAsync(string taskId, CancellationToken cancellationToken = default)
+    {
+        var db = _redis.GetDatabase();
+        await db.SetRemoveAsync(TaskIdSetKey, taskId).WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static string GetTaskKey(string taskId) => $"lucia:task:{taskId}";

@@ -50,7 +50,7 @@ public static class SetupApi
     private static async Task<IResult> GetSetupStatus(
         IApiKeyService apiKeyService,
         IModelProviderRepository providerRepository,
-        ConfigStoreWriter configStore,
+        IConfigStoreWriter configStore,
         HttpContext httpContext)
     {
         var ct = httpContext.RequestAborted;
@@ -124,7 +124,7 @@ public static class SetupApi
     /// </summary>
     private static async Task<IResult> ConfigureHomeAssistantAsync(
         [FromBody] ConfigureHaRequest request,
-        ConfigStoreWriter configStore,
+        IConfigStoreWriter configStore,
         HttpContext httpContext)
     {
         if (string.IsNullOrWhiteSpace(request.BaseUrl))
@@ -162,7 +162,7 @@ public static class SetupApi
     /// newly-configured URL yet (first-run setup).
     /// </summary>
     private static async Task<IResult> TestHaConnectionAsync(
-        ConfigStoreWriter configStore,
+        IConfigStoreWriter configStore,
         IHttpClientFactory httpClientFactory,
         IEntityLocationService entityLocationService,
         ILogger<ConfigStoreWriter> logger,
@@ -302,7 +302,7 @@ public static class SetupApi
     /// </summary>
     private static async Task<IResult> ValidateHaConnectionAsync(
         [FromBody] ValidateHaConnectionRequest request,
-        ConfigStoreWriter configStore,
+        IConfigStoreWriter configStore,
         HttpContext httpContext)
     {
         if (string.IsNullOrWhiteSpace(request.HomeAssistantInstanceId))
@@ -328,7 +328,7 @@ public static class SetupApi
     /// Step 3c: Polled by the setup wizard to check if the HA plugin has called back.
     /// </summary>
     private static async Task<IResult> GetHaStatusAsync(
-        ConfigStoreWriter configStore,
+        IConfigStoreWriter configStore,
         HttpContext httpContext)
     {
         var ct = httpContext.RequestAborted;
@@ -378,7 +378,7 @@ public static class SetupApi
     /// </summary>
     private static async Task<IResult> CompleteSetupAsync(
         IApiKeyService apiKeyService,
-        ConfigStoreWriter configStore,
+        IConfigStoreWriter configStore,
         HttpContext httpContext)
     {
         var ct = httpContext.RequestAborted;

@@ -1,3 +1,4 @@
+using lucia.Agents.Abstractions;
 using lucia.Agents.Auth;
 using Microsoft.AspNetCore.Authentication;
 
@@ -73,7 +74,7 @@ public sealed class OnboardingMiddleware
                     configuration["Auth:SetupComplete"], "true", StringComparison.OrdinalIgnoreCase);
                 if (!setupComplete)
                 {
-                    var configStore = context.RequestServices.GetRequiredService<ConfigStoreWriter>();
+                    var configStore = context.RequestServices.GetRequiredService<IConfigStoreWriter>();
                     var directValue = await configStore.GetAsync("Auth:SetupComplete", context.RequestAborted)
                         .ConfigureAwait(false);
                     setupComplete = string.Equals(directValue, "true", StringComparison.OrdinalIgnoreCase);
@@ -96,7 +97,7 @@ public sealed class OnboardingMiddleware
             {
                 try
                 {
-                    var configStore = context.RequestServices.GetRequiredService<ConfigStoreWriter>();
+                    var configStore = context.RequestServices.GetRequiredService<IConfigStoreWriter>();
                     var directValue = await configStore.GetAsync("Auth:SetupComplete", context.RequestAborted)
                         .ConfigureAwait(false);
                     setupComplete = string.Equals(directValue, "true", StringComparison.OrdinalIgnoreCase);
