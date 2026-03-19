@@ -45,6 +45,20 @@ RUN dotnet publish lucia.AgentHost/lucia.AgentHost.csproj \
     -o /app/publish \
     --no-restore
 
+# Strip CUDA/TensorRT native libs — this is a CPU-only container.
+# sherpa-onnx bundles these but they cause fatal crashes when CUDA
+# drivers are absent. Removing them forces CPU execution provider.
+RUN rm -f /app/publish/runtimes/*/native/*cuda* \
+          /app/publish/runtimes/*/native/*tensorrt* \
+          /app/publish/runtimes/*/native/*nvinfer* \
+          /app/publish/runtimes/*/native/*cufft* \
+          /app/publish/runtimes/*/native/*cublas* \
+          /app/publish/runtimes/*/native/*cudnn* \
+          /app/publish/runtimes/*/native/*curand* \
+          /app/publish/libonnxruntime_providers_cuda* \
+          /app/publish/libonnxruntime_providers_tensorrt* \
+    2>/dev/null; true
+
 # Runtime stage
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
