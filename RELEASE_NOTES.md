@@ -7,7 +7,7 @@
 
 ## 🎙️ Overview
 
-"Pulsar" introduces the **Wyoming Voice Platform** — a full local speech pipeline that turns Lucia into a Wyoming protocol-compatible voice satellite for Home Assistant. This release delivers streaming speech-to-text, speaker verification, wake word detection, speech enhancement, a multi-engine model management system, and a new dashboard Voice Platform page for configuring everything from one surface. In addition, we introduce the **Conversation Command Parser** — a fast-path processing pipeline that pattern-matches common voice commands (lights, climate, scenes) and executes them directly against Home Assistant, bypassing the LLM entirely for sub-50ms response times. We also introduce user-facing personalization to Lucia's orchestration layer, letting users define a personality prompt that rewrites all agent responses through an LLM before delivery.
+"Pulsar" introduces the **Wyoming Voice Platform** — a full local speech pipeline that turns Lucia into a Wyoming protocol-compatible voice satellite for Home Assistant. This release delivers streaming speech-to-text, speaker verification, wake word detection, speech enhancement, a multi-engine model management system, and a new dashboard Voice Platform page for configuring everything from one surface. In addition, we introduce the **Conversation Command Parser** — a fast-path processing pipeline that pattern-matches common voice commands (lights, climate, scenes) and executes them directly against Home Assistant, bypassing the LLM entirely for sub-50ms response times. We also introduce user-facing personalization to Lucia's orchestration layer, letting users define a personality prompt that rewrites all agent responses through an LLM before delivery, and introduces **Pluggable Data Providers** — an agnostic persistence layer that enables mono-container deployment as a Home Assistant add-on with InMemory caching and SQLite storage, eliminating the need for Redis and MongoDB on resource-constrained devices.
 
 ## 🚀 Highlights
 
@@ -23,6 +23,9 @@
 - **Home Assistant Component v1.2** — Simplified integration migrated from A2A JSON-RPC to structured REST. No more agent catalog selection — just point to the host and go.
 - **Separate Model Support** — Personality rewriting can use a different (cheaper/faster) model than the orchestrator, selectable from a dropdown of configured chat-type providers.
 - **Zero-Cost Opt-In** — When no personality is configured, the pipeline is unchanged — no LLM call, no added latency.
+- **Pluggable Data Providers** — Agnostic persistence layer with InMemory (replaces Redis) and SQLite (replaces MongoDB) alternatives, configurable via `DataProvider:Cache` and `DataProvider:Store`.
+- **Home Assistant Mono-Container** — New `Dockerfile.ha` for single-container deployment with zero external dependencies, CPU-only ONNX, and embedded dashboard.
+- **CpuOnly Build Flag** — MSBuild property `/p:CpuOnly=true` excludes GPU ONNX packages for clean CPU-only container builds.
 
 ## ✨ Features
 
@@ -121,6 +124,56 @@ Users can now define a personality prompt on the `/configuration` page under the
 - **Removed outdated docs** — Removed a lot of outdated docs and old AI assistance templates and prompts.
 - **Package Updates** — Updated all central projects to the latest versions from .NET 10.0.4 security patch
 
+### 🔌 Pluggable Data Providers
+
+The new `lucia.Data` project introduces provider-agnostic persistence, enabling Lucia to run without Redis or MongoDB:
+
+**Cache Providers (replacing Redis):**
+- `InMemorySessionCacheService` — Multi-turn conversation state with sliding expiration
+- `InMemoryDeviceCacheService` — Home Assistant entity caching with TTL support
+- `InMemoryPromptCacheService` — Routing and response caching with SHA256 + semantic similarity matching
+- `InMemoryTaskStore` — A2A task persistence with configurable TTL and periodic cleanup
+- `InMemoryEntityLocationService` — Floor/area/entity graph with hybrid entity matching
+
+**Store Providers (replacing MongoDB):**
+- 17 SQLite repository implementations covering all 4 MongoDB databases (luciaconfig, luciatraces, luciatasks, luciawyoming)
+- Hybrid schema: indexed columns for query performance + JSON blob for full document storage
+- Code-first migrations with `SqliteMigrationRunner` and versioned schema tracking
+- `SqliteConfigurationProvider` with polling-based hot-reload matching the MongoDB provider pattern
+
+**Configuration:**
+```json
+{
+  "DataProvider": {
+    "Cache": "InMemory",
+    "Store": "SQLite",
+    "SqlitePath": "./data/lucia.db"
+  }
+}
+```
+
+**Interface Abstractions:**
+- `IConfigStoreWriter` — New interface for configuration CRUD (extracted from `ConfigStoreWriter`)
+- `ITaskIdIndex` — New interface for task ID enumeration (extracted from Redis-specific key scanning)
+- `ConfigSeeder` refactored to use `IConfigStoreWriter` instead of `IMongoClient`
+- `TaskArchivalService` refactored to use `ITaskIdIndex` instead of `IConnectionMultiplexer`
+- All API endpoints updated to use abstractions (no direct `IMongoClient` or `IConnectionMultiplexer` injection)
+
+### 📦 Home Assistant Mono-Container
+
+New `infra/docker/Dockerfile.ha` for resource-constrained deployment:
+
+- **Zero Dependencies** — No Redis, MongoDB, or GPU drivers required
+- **CPU-Only ONNX** — `CpuOnly=true` MSBuild flag excludes `Microsoft.ML.OnnxRuntime.Gpu.Linux`, verified ONNX provider detection with graceful CPU fallback
+- **Embedded Dashboard** — React SPA built and bundled into `wwwroot/` in a multi-stage Docker build
+- **SQLite Persistence** — Single `/data/lucia.db` file for all configuration, traces, tasks, and voice data
+- **Volume Mounts** — `/data` (SQLite DB), `/app/models` (Wyoming voice models), `/app/plugins` (script plugins)
+- **HA Add-on Support** — `ha-addon/config.yaml` with ingress, port mapping, and options schema
+
+### 🔍 ONNX Provider Verification
+
+`OnnxProviderDetector` now verifies each accelerated provider by attempting `SessionOptions.AppendExecutionProvider_*()` before selecting it. This prevents sherpa-onnx native crashes when CUDA shared libraries are absent — the detector gracefully falls back to `CPUExecutionProvider`.
+
 
 ## 🐛 Bug Fixes
 
@@ -177,6 +230,7 @@ Users can now define a personality prompt on the `/configuration` page under the
 - **Wyoming integration** — Add the Lucia Wyoming satellite in Home Assistant under Settings → Devices & Services → Add Integration → Wyoming. The server advertises via Zeroconf automatically.
 - **GPU acceleration** — The project now ships with `Microsoft.ML.OnnxRuntime.Gpu.Linux` for automatic CUDA support. For local development, install CUDA Toolkit 12.x and cuDNN 9.x. The `OnnxProviderDetector` will find and use CUDA automatically — no configuration required. The Docker voice image (`Dockerfile.voice`) includes all GPU dependencies out of the box.
 - **Existing voice config** — If you previously had a `voiceconfig.json`, those settings will need to be re-entered through the dashboard Voice Platform config panel (they now persist to MongoDB).
+- **No breaking changes for data providers** — Default behavior (Redis + MongoDB) is unchanged. The new `DataProvider` configuration section is optional; omitting it preserves existing behavior. Set `DataProvider:Cache` to `InMemory` and `DataProvider:Store` to `SQLite` to switch to the embedded providers.
 
 ---
 ---

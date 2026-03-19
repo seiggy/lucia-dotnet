@@ -33,6 +33,7 @@ jobs:
             "infra/docker/Dockerfile.a2ahost"
             "infra/docker/Dockerfile.music-agent"
             "infra/docker/Dockerfile.timer-agent"
+            "infra/docker/Dockerfile.ha"
           )
           for df in "${DOCKERFILES[@]}"; do
             echo "--- Linting $df ---"
