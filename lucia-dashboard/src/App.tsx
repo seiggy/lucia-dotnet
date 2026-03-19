@@ -5,7 +5,7 @@ import {
   Activity, Download, Settings, Bot, Database, Server,
   Layers, Boxes, ListTodo, Menu, X, LogOut, Sparkles, BarChart3, MapPin,
   AlarmClock, Radio, ShoppingCart, SlidersHorizontal, Puzzle, Mic, MessageSquareText,
-  MessageCircle,
+  MessageCircle, Zap,
 } from 'lucide-react'
 import LoginPage from './pages/LoginPage'
 import SetupPage from './pages/SetupPage'
@@ -30,11 +30,14 @@ import PluginsPage from './pages/PluginsPage'
 import MatcherDebugPage from './pages/MatcherDebugPage'
 import VoicePlatformPage from './pages/VoicePlatformPage'
 import ConversationPage from './pages/ConversationPage'
+import CommandTraceListPage from './pages/CommandTraceListPage'
+import CommandTraceDetailPage from './pages/CommandTraceDetailPage'
 import TaskTracker from './components/TaskTracker'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Activity', icon: BarChart3, end: true },
   { to: '/traces', label: 'Traces', icon: Activity },
+  { to: '/command-traces', label: 'Cmd Traces', icon: Zap },
   { to: '/agent-dashboard', label: 'Agents', icon: Bot },
   { to: '/conversation', label: 'Conversation', icon: MessageCircle },
   { to: '/agent-definitions', label: 'Definitions', icon: Layers },
@@ -194,6 +197,8 @@ function AppRoutes() {
             <Route path="/" element={<ActivityPage />} />
             <Route path="/traces" element={<TraceListPage />} />
             <Route path="/traces/:id" element={<TraceDetailPage />} />
+            <Route path="/command-traces" element={<CommandTraceListPage />} />
+            <Route path="/command-traces/:id" element={<CommandTraceDetailPage />} />
             <Route path="/exports" element={<ExportPage />} />
             <Route path="/skill-optimizer" element={<SkillOptimizerPage />} />
             <Route path="/response-templates" element={<ResponseTemplatesPage />} />

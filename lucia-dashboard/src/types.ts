@@ -571,3 +571,98 @@ export interface PluginConfigPropertySchema {
   defaultValue: string
   isSensitive: boolean
 }
+
+// ── Command Trace Types ─────────────────────────────────────────────
+
+export type CommandTraceOutcome = 'commandHandled' | 'llmFallback' | 'llmCompleted' | 'error'
+
+export interface TokenHighlight {
+  start: number
+  end: number
+  type: 'literal' | 'capture' | 'constrainedCapture' | 'optional'
+  value: string
+}
+
+export interface CommandTraceToolCall {
+  methodName: string
+  arguments: string | null
+  response: string | null
+  durationMs: number
+  success: boolean
+  error: string | null
+}
+
+export interface CommandTraceContext {
+  conversationId: string | null
+  deviceId: string | null
+  deviceArea: string | null
+  deviceType: string | null
+  userId: string | null
+  speakerId: string | null
+  location: string | null
+}
+
+export interface CommandTraceMatch {
+  isMatch: boolean
+  confidence: number
+  patternId: string | null
+  skillId: string | null
+  action: string | null
+  templateUsed: string | null
+  capturedValues: Record<string, string> | null
+  matchDurationMs: number
+  tokenHighlights: TokenHighlight[]
+}
+
+export interface CommandTraceExecution {
+  skillId: string
+  action: string
+  durationMs: number
+  success: boolean
+  error: string | null
+  parametersJson: string | null
+  responseText: string | null
+  toolCalls: CommandTraceToolCall[]
+}
+
+export interface CommandTraceLlmFallback {
+  orchestrationTraceId: string | null
+  prompt: string | null
+  durationMs: number
+}
+
+export interface CommandTraceTemplateRender {
+  templateKey: string
+  rawTemplate: string
+  renderedText: string
+  variantCount: number
+  selectedIndex: number
+  replacedTokens: Record<string, string>
+  isFallback: boolean
+}
+
+export interface CommandTrace {
+  id: string
+  timestamp: string
+  rawText: string
+  cleanText: string
+  speakerId: string | null
+  requestContext: CommandTraceContext
+  match: CommandTraceMatch
+  execution: CommandTraceExecution | null
+  llmFallback: CommandTraceLlmFallback | null
+  templateRender: CommandTraceTemplateRender | null
+  outcome: CommandTraceOutcome
+  totalDurationMs: number
+  responseText: string | null
+  error: string | null
+}
+
+export interface CommandTraceStats {
+  totalCount: number
+  commandHandledCount: number
+  llmFallbackCount: number
+  errorCount: number
+  avgDurationMs: number
+  bySkill: Record<string, number>
+}

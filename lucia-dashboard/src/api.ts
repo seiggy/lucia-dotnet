@@ -30,6 +30,8 @@ import type {
   JobStatusResponse,
   ModelAuthConfig,
   ProviderType,
+  CommandTrace,
+  CommandTraceStats,
 } from './types';
 
 const BASE = '/api';
@@ -1969,5 +1971,27 @@ export interface CommandPattern {
 export async function fetchCommandPatterns(): Promise<CommandPattern[]> {
   const res = await fetch(`${BASE}/conversation/patterns`)
   if (!res.ok) throw new Error(`Failed to fetch patterns: ${res.statusText}`)
+  return res.json()
+}
+
+/** Fetch paginated command traces with optional filters. */
+export async function fetchCommandTraces(
+  params: Record<string, string> = {},
+): Promise<PagedResult<CommandTrace>> {
+  const qs = new URLSearchParams(params).toString()
+  const res = await fetch(`${BASE}/command-traces?${qs}`, { credentials: 'include' })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function fetchCommandTrace(id: string): Promise<CommandTrace> {
+  const res = await fetch(`${BASE}/command-traces/${encodeURIComponent(id)}`, { credentials: 'include' })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function fetchCommandTraceStats(): Promise<CommandTraceStats> {
+  const res = await fetch(`${BASE}/command-traces/stats`, { credentials: 'include' })
+  if (!res.ok) throw new Error(await res.text())
   return res.json()
 }
