@@ -176,7 +176,7 @@ LABEL version="1.0.0"
 ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false \
     DOTNET_RUNNING_IN_CONTAINER=true \
     ASPNETCORE_URLS=http://+:8080;https://+:8081 \
-    COMPlus_EnableDiagnostics=0 \
+    COMPlus_EnableDiagnostics=0
 
 # Copy published application from publish stage
 COPY --from=publish --chown=appuser:appuser /app/publish .
