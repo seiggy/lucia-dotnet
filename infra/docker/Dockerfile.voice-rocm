@@ -2,17 +2,36 @@
 # Purpose: Voice-enabled variant with pre-loaded Wyoming models and AMD ROCm GPU acceleration
 #
 # ROCm variant differences from CUDA (Dockerfile.voice):
-#   - Base image: rocm/onnxruntime (ROCm 6.4 + ORT 1.21) instead of nvidia/cuda
-#   - No NVIDIA env vars (NVIDIA_VISIBLE_DEVICES, NVIDIA_DRIVER_CAPABILITIES)
-#   - ROCm env vars: HSA_OVERRIDE_GFX_VERSION, ROCR_VISIBLE_DEVICES
-#   - No GPU lib overlay: ROCm ORT libs come from the base image, not from assets
+#   - Base image: rocm/dev-ubuntu-24.04 (lean ROCm runtime, ~4GB vs ~63GB)
+#   - ROCm ORT native libs extracted from rocm/onnxruntime into the final image
+#   - No NVIDIA env vars; uses ROCR_VISIBLE_DEVICES instead
 #   - CUDA-specific ORT native libs are removed after publish to avoid conflicts
 #   - HybridStt Provider set to 'cpu' (sherpa-onnx lacks ROCm support; only
 #     ORT-native engines like Granite/GTCRN benefit from ROCm acceleration)
 #
 # Stages:
 #   0. assets         — Pre-built OCI image with all binary downloads
+#   0a. rocm-libs     — Extract ROCm ORT native libs from the fat rocm/onnxruntime image
 #   0b. node-build    — Build the React SPA dashboard with Node.js
+#    1. base          — Lean ROCm 6.4 runtime with .NET ASP.NET 10.0
+#    2. build         — Restore and build the .NET application with SDK
+#    3. publish       — Publish optimized ReadyToRun release build
+#    4. final         — Production image with health checks, security, and voice models
+#
+# Build args:
+#   ASSET_IMAGE            — Pre-built asset image ref (default: ghcr.io/seiggy/lucia-dotnet/build-assets:latest)
+#   BUILD_CONFIGURATION    — Debug or Release (default: Release)
+#   BUILD_TARGET_FRAMEWORK — Target framework version (default: net10.0)
+#
+# GPU acceleration:
+#   Base image: rocm/dev-ubuntu-24.04:6.4.1-complete (lean ROCm runtime)
+#   ONNX Runtime: 1.21 with ROCm + MIGraphX providers (extracted from rocm/onnxruntime)
+#   sherpa-onnx: CPU only (no ROCm support)
+#   Requires: --device /dev/kfd --device /dev/dri --group-add video
+#
+# Usage:
+#   docker build -t lucia:voice-rocm -f infra/docker/Dockerfile.voice-rocm .
+#   docker run --device /dev/kfd --device /dev/dri --group-add video lucia:voice-rocm
 #    1. base          — ROCm 6.4 + ONNX Runtime with .NET ASP.NET 10.0
 #    2. build         — Restore and build the .NET application with SDK
 #    3. publish       — Publish optimized ReadyToRun release build
@@ -51,6 +70,14 @@ ARG TARGETOS
 FROM ${ASSET_IMAGE} AS assets
 
 # ============================================================================
+# Stage 0a: Extract ROCm-enabled ORT native libs from the fat image
+# We only need the .so files, not the full ~63GB PyTorch/dev environment.
+# ============================================================================
+FROM rocm/onnxruntime:rocm6.4.4_ub24.04_ort1.21_torch2.8.0 AS rocm-libs
+RUN mkdir -p /rocm-ort-libs && \
+    cp /opt/venv/lib/python3.12/site-packages/onnxruntime/capi/libonnxruntime*.so* /rocm-ort-libs/
+
+# ============================================================================
 # Stage 0b: Node.js Build Stage (React SPA Dashboard)
 # ============================================================================
 FROM node:22-alpine AS node-build
@@ -68,11 +95,11 @@ COPY lucia-dashboard/ ./
 RUN npm run build
 
 # ============================================================================
-# Stage 1: Base Runtime Image (AMD ROCm 6.4 + ONNX Runtime)
-# Uses rocm/onnxruntime which includes ROCm-enabled ORT libs out of the box.
-# Unlike the CUDA variant, no GPU lib overlay is needed.
+# Stage 1: Base Runtime Image (AMD ROCm 6.4 — lean runtime, no PyTorch/dev)
+# Uses the -complete variant which includes rocm-libs for GPU access.
+# ROCm ORT native libs are overlaid from the rocm-libs stage.
 # ============================================================================
-FROM rocm/onnxruntime:rocm6.4.4_ub24.04_ort1.21_torch2.8.0 AS base
+FROM rocm/dev-ubuntu-24.04:6.4.1-complete AS base
 
 # Install .NET ASP.NET 10.0 runtime + curl for healthcheck
 # The ROCm base image is Ubuntu 24.04 but does not ship with .NET.
@@ -203,10 +230,10 @@ ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false \
 COPY --from=publish --chown=appuser:appuser /app/publish .
 
 # Remove CUDA-specific ONNX Runtime native libs bundled by the
-# Microsoft.ML.OnnxRuntime.Gpu.Linux NuGet package. The ROCm base image
-# already provides ROCm-enabled ORT libs via LD_LIBRARY_PATH, and leaving
-# the CUDA variants in place would cause symbol conflicts at runtime.
+# Microsoft.ML.OnnxRuntime.Gpu.Linux NuGet package, then overlay
+# ROCm-enabled ORT libs extracted from rocm/onnxruntime.
 RUN rm -f ./runtimes/linux-x64/native/libonnxruntime*.so*
+COPY --from=rocm-libs /rocm-ort-libs/libonnxruntime*.so* ./runtimes/linux-x64/native/
 
 # Copy Copilot CLI binary from pre-built asset image
 COPY --from=assets --chown=appuser:appuser /assets/copilot/ ./
@@ -222,9 +249,6 @@ ENV PluginDirectory=/app/plugins
 
 # Copy pre-downloaded Wyoming voice models from asset image
 COPY --from=assets --chown=appuser:appuser /assets/models ./models
-
-# NOTE: No GPU lib overlay step here (unlike the CUDA Dockerfile).
-# The rocm/onnxruntime base image already ships ROCm-enabled ORT libs.
 
 # Set Wyoming model paths + provider
 # HybridStt Provider is 'cpu' because sherpa-onnx has no ROCm support.
