@@ -3,7 +3,15 @@
 # Uses InMemory cache + SQLite storage (no Redis/MongoDB required)
 # =============================================================================
 
-# Build stage
+# Dashboard build stage
+FROM node:22-slim AS dashboard
+WORKDIR /dashboard
+COPY lucia-dashboard/package.json lucia-dashboard/package-lock.json* ./
+RUN npm ci --ignore-scripts
+COPY lucia-dashboard/ .
+RUN npm run build
+
+# .NET build stage
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
@@ -50,6 +58,9 @@ RUN useradd -m appuser
 
 # Copy published app
 COPY --from=build /app/publish .
+
+# Copy dashboard assets to wwwroot for SPA serving
+COPY --from=dashboard /dashboard/dist ./wwwroot/
 
 # Create data directories AFTER copy so they persist with correct ownership.
 # Use chmod 777 so volume mounts from any UID can write (HA add-on pattern).
