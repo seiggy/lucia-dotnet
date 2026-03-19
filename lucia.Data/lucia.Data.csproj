@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\lucia.Agents\lucia.Agents.csproj" />
+    <ProjectReference Include="..\lucia.TimerAgent\lucia.TimerAgent.csproj" />
+    <ProjectReference Include="..\lucia.Wyoming\lucia.Wyoming.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" />
+  </ItemGroup>
+
+</Project>

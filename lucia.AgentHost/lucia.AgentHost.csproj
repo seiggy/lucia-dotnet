@@ -33,5 +33,6 @@
     <ProjectReference Include="..\lucia.ServiceDefaults\lucia.ServiceDefaults.csproj" />
     <ProjectReference Include="..\lucia.TimerAgent\lucia.TimerAgent.csproj" />
     <ProjectReference Include="..\lucia.Wyoming\lucia.Wyoming.csproj" />
+    <ProjectReference Include="..\lucia.Data\lucia.Data.csproj" />
   </ItemGroup>
 </Project>

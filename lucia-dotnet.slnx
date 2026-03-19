@@ -16,6 +16,9 @@
   <Folder Name="/Dashboard/">
     <Project Path="lucia-dashboard/lucia-dashboard.esproj" />
   </Folder>
+  <Folder Name="/Data/">
+    <Project Path="lucia.Data/lucia.Data.csproj" />
+  </Folder>
   <Folder Name="/HomeAssistant/">
     <Project Path="lucia.HomeAssistant/lucia.HomeAssistant.csproj" />
   </Folder>
