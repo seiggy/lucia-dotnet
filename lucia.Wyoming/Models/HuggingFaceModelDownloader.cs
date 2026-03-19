@@ -71,11 +71,7 @@ public sealed class HuggingFaceModelDownloader(
         // Aspire dev-hosting sets SSL_CERT_DIR to its dev-cert directory, which breaks
         // Python's SSL verification. Override with the system CA bundle in debug builds only.
 #if DEBUG
-        process.StartInfo.Environment.Remove("SSL_CERT_DIR");
-        process.StartInfo.Environment.Remove("REQUESTS_CA_BUNDLE");
-        process.StartInfo.Environment.Remove("CURL_CA_BUNDLE");
-        process.StartInfo.Environment.Remove("NODE_EXTRA_CA_CERTS");
-        process.StartInfo.Environment["SSL_CERT_FILE"] = "/etc/ssl/certs/ca-certificates.crt";
+        ApplyDebugSslOverrides(process.StartInfo);
 #endif
 
         process.Start();
@@ -183,7 +179,7 @@ public sealed class HuggingFaceModelDownloader(
     private static string? ResolveSnapshotPath(string cacheDirectory, string repoId)
     {
         // The HF cache structure uses "--" as separator: models--onnx-community--granite-4.0-1b-speech-ONNX
-        var sanitizedRepoId = $"models--{repoId.Replace('/', '-').Replace('\\', '-')}";
+        var sanitizedRepoId = $"models--{repoId.Replace("/", "--")}";
 
         // Search for the cache folder — try exact match first, then scan
         var cacheModelDir = Path.Combine(cacheDirectory, sanitizedRepoId);
@@ -225,12 +221,7 @@ public sealed class HuggingFaceModelDownloader(
         };
 
 #if DEBUG
-        // Aspire dev-hosting poisons SSL_CERT_DIR; override for Python subprocesses
-        process.StartInfo.Environment.Remove("SSL_CERT_DIR");
-        process.StartInfo.Environment.Remove("REQUESTS_CA_BUNDLE");
-        process.StartInfo.Environment.Remove("CURL_CA_BUNDLE");
-        process.StartInfo.Environment.Remove("NODE_EXTRA_CA_CERTS");
-        process.StartInfo.Environment["SSL_CERT_FILE"] = "/etc/ssl/certs/ca-certificates.crt";
+        ApplyDebugSslOverrides(process.StartInfo);
 #endif
 
         process.Start();
@@ -298,4 +289,26 @@ public sealed class HuggingFaceModelDownloader(
             PercentComplete = percent,
         };
     }
+
+#if DEBUG
+    /// <summary>
+    /// Aspire dev-hosting sets SSL_CERT_DIR to its dev-cert directory, breaking Python SSL.
+    /// Clear poisoned vars and point to system CA bundle (Linux only).
+    /// </summary>
+    private static void ApplyDebugSslOverrides(ProcessStartInfo startInfo)
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        const string systemCaBundle = "/etc/ssl/certs/ca-certificates.crt";
+        if (!File.Exists(systemCaBundle))
+            return;
+
+        startInfo.Environment.Remove("SSL_CERT_DIR");
+        startInfo.Environment.Remove("REQUESTS_CA_BUNDLE");
+        startInfo.Environment.Remove("CURL_CA_BUNDLE");
+        startInfo.Environment.Remove("NODE_EXTRA_CA_CERTS");
+        startInfo.Environment["SSL_CERT_FILE"] = systemCaBundle;
+    }
+#endif
 }

@@ -56,8 +56,16 @@ public sealed class ModelDownloader(
                 Directory.CreateDirectory(hfTargetDirectory);
                 var files = Directory.GetFiles(hfResult.LocalPath, "*", SearchOption.AllDirectories);
 
+                if (files.Length == 0)
+                {
+                    logger.LogWarning("HuggingFace snapshot at {Path} contains no files", hfResult.LocalPath);
+                    return ModelDownloadResult.Failure(model.Id, "Downloaded snapshot contains no files");
+                }
+
                 for (var i = 0; i < files.Length; i++)
                 {
+                    ct.ThrowIfCancellationRequested();
+
                     var relativePath = Path.GetRelativePath(hfResult.LocalPath, files[i]);
                     var destPath = Path.Combine(hfTargetDirectory, relativePath);
                     var destDir = Path.GetDirectoryName(destPath);

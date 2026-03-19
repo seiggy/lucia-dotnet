@@ -178,10 +178,12 @@ public sealed class HybridSttEngine : ISttEngine, IDisposable
     }
 
     private static bool IsGraniteModel(string modelPath) =>
-        File.Exists(Path.Combine(modelPath, "encoder_model.onnx"))
-        || File.Exists(Path.Combine(modelPath, "onnx", "encoder_model.onnx"))
-        || (modelPath.Contains("granite", StringComparison.OrdinalIgnoreCase)
-            && !Directory.EnumerateFiles(modelPath, "tokens.txt", SearchOption.AllDirectories).Any());
+        !string.IsNullOrWhiteSpace(modelPath)
+        && Directory.Exists(modelPath)
+        && (File.Exists(Path.Combine(modelPath, "encoder_model.onnx"))
+            || File.Exists(Path.Combine(modelPath, "onnx", "encoder_model.onnx"))
+            || (modelPath.Contains("granite", StringComparison.OrdinalIgnoreCase)
+                && !Directory.EnumerateFiles(modelPath, "tokens.txt", SearchOption.AllDirectories).Any()));
 
     /// <summary>
     /// Scans the STT model base path for the best available offline model.
