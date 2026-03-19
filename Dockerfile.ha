@@ -41,15 +41,21 @@ RUN dotnet publish lucia.AgentHost/lucia.AgentHost.csproj \
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
 
+# Install curl for health check
+RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
+
 # Create non-root user
 RUN useradd -m appuser
 
-# Create data directories
-RUN mkdir -p /data /app/models /app/plugins && \
-    chown -R appuser:appuser /data /app/models /app/plugins
-
 # Copy published app
 COPY --from=build /app/publish .
+
+# Create data directories AFTER copy so they persist with correct ownership.
+# Use chmod 777 so volume mounts from any UID can write (HA add-on pattern).
+RUN mkdir -p /data /app/models /app/plugins && \
+    chown -R appuser:appuser /data /app/models /app/plugins && \
+    chmod 777 /data
 
 # Configure for lightweight mode
 ENV DataProvider__Cache=InMemory \
@@ -66,9 +72,9 @@ EXPOSE 10400/tcp
 # Volume for persistent data (SQLite DB, voice models, plugins)
 VOLUME ["/data", "/app/models", "/app/plugins"]
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD curl -f http://localhost:8099/health || exit 1
+# Health check using dotnet health endpoint
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -sf http://localhost:8099/health || exit 1
 
 USER appuser
 

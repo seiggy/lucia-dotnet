@@ -12,11 +12,13 @@ public sealed class SqliteConnectionFactoryTests : IDisposable
     }
 
     [Fact]
-    public void Constructor_CreatesDirectoryIfNeeded()
+    public void Constructor_CreatesDirectoryOnFirstUse()
     {
         var nestedPath = Path.Combine(Path.GetTempPath(), $"lucia-nested-{Guid.NewGuid():N}", "sub", "test.db");
 
         using var factory = new SqliteConnectionFactory(nestedPath);
+        // Directory is created lazily on first connection
+        using var conn = factory.CreateConnection();
 
         Assert.True(Directory.Exists(Path.GetDirectoryName(nestedPath)));
 

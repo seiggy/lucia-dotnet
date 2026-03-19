@@ -37,4 +37,29 @@ public interface IConfigStoreWriter
     /// Inserts multiple configuration entries at once (for seeding).
     /// </summary>
     Task InsertManyAsync(IReadOnlyList<ConfigEntry> entries, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns all configuration entries in the store (including metadata).
+    /// </summary>
+    Task<IReadOnlyList<ConfigEntry>> GetAllEntriesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns all configuration entries belonging to a specific section.
+    /// </summary>
+    Task<IReadOnlyList<ConfigEntry>> GetEntriesBySectionAsync(string section, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns all configuration entries whose key starts with the given prefix.
+    /// </summary>
+    Task<IReadOnlyList<ConfigEntry>> GetEntriesByKeyPrefixAsync(string keyPrefix, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes all configuration entries. Returns the number of deleted entries.
+    /// </summary>
+    Task<long> DeleteAllAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes all configuration entries whose key starts with the given prefix. Returns the number of deleted entries.
+    /// </summary>
+    Task<long> DeleteByKeyPrefixAsync(string keyPrefix, CancellationToken cancellationToken = default);
 }

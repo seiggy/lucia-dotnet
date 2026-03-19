@@ -26,6 +26,21 @@ public sealed class SqliteConfigurationProvider : ConfigurationProvider, IDispos
         try
         {
             using var connection = _connectionFactory.CreateConnection();
+
+            // Ensure the configuration table exists (may be called before migration runner)
+            using var createCmd = connection.CreateCommand();
+            createCmd.CommandText = """
+                CREATE TABLE IF NOT EXISTS configuration (
+                    key TEXT PRIMARY KEY,
+                    value TEXT,
+                    section TEXT,
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_by TEXT NOT NULL DEFAULT 'system',
+                    is_sensitive INTEGER NOT NULL DEFAULT 0
+                );
+                """;
+            createCmd.ExecuteNonQuery();
+
             using var cmd = connection.CreateCommand();
             cmd.CommandText = "SELECT key, value FROM configuration;";
 

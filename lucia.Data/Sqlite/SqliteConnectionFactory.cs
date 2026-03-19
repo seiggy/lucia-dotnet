@@ -10,15 +10,14 @@ namespace lucia.Data.Sqlite;
 public sealed class SqliteConnectionFactory : IDisposable
 {
     private readonly string _connectionString;
+    private readonly string _databasePath;
     private SqliteConnection? _keepAliveConnection;
+    private readonly object _initLock = new();
+    private bool _initialized;
 
     public SqliteConnectionFactory(string databasePath)
     {
-        var directory = Path.GetDirectoryName(databasePath);
-        if (!string.IsNullOrEmpty(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
+        _databasePath = databasePath;
 
         _connectionString = new SqliteConnectionStringBuilder
         {
@@ -27,15 +26,34 @@ public sealed class SqliteConnectionFactory : IDisposable
             Cache = SqliteCacheMode.Shared,
             Pooling = true
         }.ToString();
+    }
 
-        // Keep one connection alive to prevent the in-memory schema from being lost
-        // and to maintain WAL mode for the lifetime of the application
-        _keepAliveConnection = new SqliteConnection(_connectionString);
-        _keepAliveConnection.Open();
+    /// <summary>
+    /// Ensures the database directory exists and the keep-alive connection is open
+    /// with WAL mode enabled. Called lazily on first use.
+    /// </summary>
+    private void EnsureInitialized()
+    {
+        if (_initialized) return;
+        lock (_initLock)
+        {
+            if (_initialized) return;
 
-        using var cmd = _keepAliveConnection.CreateCommand();
-        cmd.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;";
-        cmd.ExecuteNonQuery();
+            var directory = Path.GetDirectoryName(_databasePath);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            _keepAliveConnection = new SqliteConnection(_connectionString);
+            _keepAliveConnection.Open();
+
+            using var cmd = _keepAliveConnection.CreateCommand();
+            cmd.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;";
+            cmd.ExecuteNonQuery();
+
+            _initialized = true;
+        }
     }
 
     /// <summary>
@@ -44,6 +62,7 @@ public sealed class SqliteConnectionFactory : IDisposable
     /// </summary>
     public SqliteConnection CreateConnection()
     {
+        EnsureInitialized();
         var connection = new SqliteConnection(_connectionString);
         connection.Open();
         return connection;

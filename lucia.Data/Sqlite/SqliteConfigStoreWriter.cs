@@ -113,4 +113,72 @@ public sealed class SqliteConfigStoreWriter : IConfigStoreWriter
 
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
+
+    public async Task<IReadOnlyList<ConfigEntry>> GetAllEntriesAsync(CancellationToken cancellationToken = default)
+    {
+        using var connection = _connectionFactory.CreateConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT key, value, section, updated_at, updated_by, is_sensitive FROM configuration;";
+
+        return await ReadEntriesAsync(cmd, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<ConfigEntry>> GetEntriesBySectionAsync(string section, CancellationToken cancellationToken = default)
+    {
+        using var connection = _connectionFactory.CreateConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT key, value, section, updated_at, updated_by, is_sensitive FROM configuration WHERE section = @section;";
+        cmd.Parameters.AddWithValue("@section", section);
+
+        return await ReadEntriesAsync(cmd, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<ConfigEntry>> GetEntriesByKeyPrefixAsync(string keyPrefix, CancellationToken cancellationToken = default)
+    {
+        using var connection = _connectionFactory.CreateConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT key, value, section, updated_at, updated_by, is_sensitive FROM configuration WHERE key LIKE @prefix;";
+        cmd.Parameters.AddWithValue("@prefix", keyPrefix + "%");
+
+        return await ReadEntriesAsync(cmd, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<long> DeleteAllAsync(CancellationToken cancellationToken = default)
+    {
+        using var connection = _connectionFactory.CreateConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "DELETE FROM configuration;";
+
+        return await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<long> DeleteByKeyPrefixAsync(string keyPrefix, CancellationToken cancellationToken = default)
+    {
+        using var connection = _connectionFactory.CreateConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "DELETE FROM configuration WHERE key LIKE @prefix;";
+        cmd.Parameters.AddWithValue("@prefix", keyPrefix + "%");
+
+        return await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<IReadOnlyList<ConfigEntry>> ReadEntriesAsync(SqliteCommand cmd, CancellationToken cancellationToken)
+    {
+        var entries = new List<ConfigEntry>();
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            entries.Add(new ConfigEntry
+            {
+                Key = reader.GetString(0),
+                Value = reader.IsDBNull(1) ? null : reader.GetString(1),
+                Section = reader.GetString(2),
+                UpdatedAt = DateTime.TryParse(reader.GetString(3), out var dt) ? dt : DateTime.UtcNow,
+                UpdatedBy = reader.GetString(4),
+                IsSensitive = reader.GetInt32(5) != 0
+            });
+        }
+
+        return entries;
+    }
 }

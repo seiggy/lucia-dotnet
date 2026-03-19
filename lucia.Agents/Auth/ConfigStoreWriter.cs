@@ -89,4 +89,54 @@ public sealed class ConfigStoreWriter : IConfigStoreWriter
             entries,
             cancellationToken: cancellationToken).ConfigureAwait(false);
     }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<ConfigEntry>> GetAllEntriesAsync(CancellationToken cancellationToken = default)
+    {
+        return await _collection
+            .Find(FilterDefinition<ConfigEntry>.Empty)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<ConfigEntry>> GetEntriesBySectionAsync(string section, CancellationToken cancellationToken = default)
+    {
+        var filter = Builders<ConfigEntry>.Filter.Eq(e => e.Section, section);
+        return await _collection
+            .Find(filter)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<ConfigEntry>> GetEntriesByKeyPrefixAsync(string keyPrefix, CancellationToken cancellationToken = default)
+    {
+        var escapedPrefix = System.Text.RegularExpressions.Regex.Escape(keyPrefix);
+        var filter = Builders<ConfigEntry>.Filter.Regex(e => e.Key, $"^{escapedPrefix}");
+        return await _collection
+            .Find(filter)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<long> DeleteAllAsync(CancellationToken cancellationToken = default)
+    {
+        var result = await _collection
+            .DeleteManyAsync(FilterDefinition<ConfigEntry>.Empty, cancellationToken)
+            .ConfigureAwait(false);
+        return result.DeletedCount;
+    }
+
+    /// <inheritdoc />
+    public async Task<long> DeleteByKeyPrefixAsync(string keyPrefix, CancellationToken cancellationToken = default)
+    {
+        var escapedPrefix = System.Text.RegularExpressions.Regex.Escape(keyPrefix);
+        var filter = Builders<ConfigEntry>.Filter.Regex(e => e.Key, $"^{escapedPrefix}");
+        var result = await _collection
+            .DeleteManyAsync(filter, cancellationToken)
+            .ConfigureAwait(false);
+        return result.DeletedCount;
+    }
 }
