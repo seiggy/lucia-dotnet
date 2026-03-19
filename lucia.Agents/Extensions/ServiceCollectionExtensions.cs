@@ -66,25 +66,38 @@ public static class ServiceCollectionExtensions
         // Register Telemetry Source
         builder.Services.AddSingleton<AgentsTelemetrySource>();
 
-        // Register Redis using Aspire client integration
-        builder.AddRedisClient(connectionName: "redis");
+        // Determine data provider mode (avoids circular dependency on lucia.Data)
+        var cacheProvider = builder.Configuration["DataProvider:Cache"] ?? "Redis";
+        var storeProvider = builder.Configuration["DataProvider:Store"] ?? "MongoDB";
+        var useRedis = !cacheProvider.Equals("InMemory", StringComparison.OrdinalIgnoreCase);
+        var useMongo = !storeProvider.Equals("SQLite", StringComparison.OrdinalIgnoreCase);
 
-        // Register Redis task store (T037) with archiving decorator
-        builder.Services.AddSingleton<RedisTaskStore>();
-        builder.Services.AddSingleton<ITaskIdIndex>(sp => sp.GetRequiredService<RedisTaskStore>());
-        builder.Services.AddSingleton<ITaskStore>(sp =>
+        if (useRedis)
         {
-            var redisStore = sp.GetRequiredService<RedisTaskStore>();
-            var archive = sp.GetRequiredService<ITaskArchiveStore>();
-            var logger = sp.GetRequiredService<ILogger<ArchivingTaskStore>>();
-            return new ArchivingTaskStore(redisStore, archive, logger);
-        });
+            // Register Redis using Aspire client integration
+            builder.AddRedisClient(connectionName: "redis");
 
-        // Register Redis device cache service
-        builder.Services.AddSingleton<IDeviceCacheService, RedisDeviceCacheService>();
+            // Register Redis task store (T037) with archiving decorator
+            builder.Services.AddSingleton<RedisTaskStore>();
+            builder.Services.AddSingleton<ITaskIdIndex>(sp => sp.GetRequiredService<RedisTaskStore>());
+            builder.Services.AddSingleton<ITaskStore>(sp =>
+            {
+                var redisStore = sp.GetRequiredService<RedisTaskStore>();
+                var archive = sp.GetRequiredService<ITaskArchiveStore>();
+                var logger = sp.GetRequiredService<ILogger<ArchivingTaskStore>>();
+                return new ArchivingTaskStore(redisStore, archive, logger);
+            });
 
-        // Register entity location service (shared singleton for floor/area/entity resolution)
-        builder.Services.AddSingleton<IEntityLocationService, EntityLocationService>();
+            // Register Redis device cache service
+            builder.Services.AddSingleton<IDeviceCacheService, RedisDeviceCacheService>();
+
+            // Register entity location service (shared singleton for floor/area/entity resolution)
+            builder.Services.AddSingleton<IEntityLocationService, EntityLocationService>();
+
+            // Register Redis session cache for multi-turn conversations
+            builder.Services.AddSingleton<ISessionCacheService, RedisSessionCacheService>();
+        }
+
         builder.Services.AddSingleton<IEmbeddingSimilarityService, EmbeddingSimilarityService>();
         builder.Services.AddSingleton<IHybridEntityMatcher, HybridEntityMatcher>();
 
@@ -92,7 +105,10 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<SkillOptimizerService>();
 
         // Register presence detection service (auto-discovers sensors, maps to areas)
-        builder.Services.AddSingleton<IPresenceSensorRepository, MongoPresenceSensorRepository>();
+        if (useMongo)
+        {
+            builder.Services.AddSingleton<IPresenceSensorRepository, MongoPresenceSensorRepository>();
+        }
         builder.Services.AddSingleton<IPresenceDetectionService, PresenceDetectionService>();
 
         // Register A2A TaskManager (T037)
@@ -126,8 +142,8 @@ public static class ServiceCollectionExtensions
         builder.Services.Configure<SessionCacheOptions>(
             builder.Configuration.GetSection("SessionCache"));
 
-        // Register Redis session cache for multi-turn conversations
-        builder.Services.AddSingleton<ISessionCacheService, RedisSessionCacheService>();
+        // Session cache: Redis registered in useRedis block above,
+        // InMemory registered by AddInMemoryCacheProviders in Program.cs.
 
         builder.Services.AddSingleton(TimeProvider.System);
 
@@ -181,14 +197,20 @@ public static class ServiceCollectionExtensions
             .AddCheck<AgentInitializationHealthCheck>("agent-initialization", tags: ["ready"]);
 
         // Register MCP tool registry and dynamic agent system
-        builder.Services.AddSingleton<IAgentDefinitionRepository, MongoAgentDefinitionRepository>();
+        if (useMongo)
+        {
+            builder.Services.AddSingleton<IAgentDefinitionRepository, MongoAgentDefinitionRepository>();
+        }
         builder.Services.AddSingleton<IMcpToolRegistry, McpToolRegistry>();
         builder.Services.AddSingleton<IDynamicAgentProvider, DynamicAgentProvider>();
         builder.Services.AddSingleton<DynamicAgentLoader>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<DynamicAgentLoader>());
 
         // Register model provider system
-        builder.Services.AddSingleton<IModelProviderRepository, MongoModelProviderRepository>();
+        if (useMongo)
+        {
+            builder.Services.AddSingleton<IModelProviderRepository, MongoModelProviderRepository>();
+        }
         builder.Services.AddSingleton<IModelProviderResolver, ModelProviderResolver>();
         builder.Services.AddSingleton<CopilotConnectService>();
         builder.Services.AddSingleton<CopilotClientLifecycleService>();

@@ -5,6 +5,9 @@ using lucia.A2AHost.Services;
 using lucia.Agents.Configuration;
 using lucia.Agents.Extensions;
 using lucia.Agents.Services;
+using lucia.Data;
+using lucia.Data.Extensions;
+using lucia.Data.Sqlite;
 using lucia.HomeAssistant.Configuration;
 using lucia.HomeAssistant.Services;
 using System.Net.Security;
@@ -22,26 +25,48 @@ using Scalar.AspNetCore;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
-builder.AddRedisClient(connectionName: "redis");
 
-// MongoDB for shared configuration
-builder.AddMongoDBClient(connectionName: "luciaconfig");
+// Determine data provider backends
+var dataProviderOptions = new DataProviderOptions();
+builder.Configuration.GetSection(DataProviderOptions.SectionName).Bind(dataProviderOptions);
+var useRedis = dataProviderOptions.Cache == CacheProviderType.Redis;
+var useMongo = dataProviderOptions.Store == StoreProviderType.MongoDB;
 
-// MongoDB for trace capture (per-agent training data)
-builder.AddMongoDBClient(connectionName: "luciatraces");
-builder.Services.AddSingleton<lucia.Agents.Training.ITraceRepository, lucia.Agents.Training.MongoTraceRepository>();
-
-// MongoDB for task persistence (scheduled tasks, alarm clocks).
-// Only register when the connection string is available — not all agent
-// containers receive the luciatasks reference (e.g., music-agent doesn't need it).
-if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("luciatasks")))
+if (useRedis)
 {
-    builder.AddMongoDBClient(connectionName: "luciatasks");
+    builder.AddRedisClient(connectionName: "redis");
+}
+
+if (useMongo)
+{
+    // MongoDB for shared configuration
+    builder.AddMongoDBClient(connectionName: "luciaconfig");
+
+    // MongoDB for trace capture (per-agent training data)
+    builder.AddMongoDBClient(connectionName: "luciatraces");
+    builder.Services.AddSingleton<lucia.Agents.Training.ITraceRepository, lucia.Agents.Training.MongoTraceRepository>();
+
+    // MongoDB for task persistence (scheduled tasks, alarm clocks).
+    // Only register when the connection string is available — not all agent
+    // containers receive the luciatasks reference (e.g., music-agent doesn't need it).
+    if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("luciatasks")))
+    {
+        builder.AddMongoDBClient(connectionName: "luciatasks");
+    }
+
+    // Add MongoDB configuration as highest-priority source (overrides appsettings)
+    builder.Configuration.AddMongoConfiguration("luciaconfig");
+}
+else
+{
+    // SQLite configuration provider (replaces MongoDB config source)
+    var sqliteFactory = new SqliteConnectionFactory(dataProviderOptions.SqlitePath);
+    builder.Services.AddSingleton(sqliteFactory);
+    builder.Configuration.AddSqliteConfiguration(sqliteFactory);
+
+    builder.Services.AddSingleton<lucia.Agents.Training.ITraceRepository, SqliteTraceRepository>();
 }
 builder.Services.AddSingleton<TracingChatClientFactory>();
-
-// Add MongoDB configuration as highest-priority source (overrides appsettings)
-builder.Configuration.AddMongoConfiguration("luciaconfig");
 
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
@@ -55,13 +80,14 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 
 // Chat and embedding clients are resolved at runtime from the Model Provider system
 // (MongoDB-backed) via IChatClientResolver and IEmbeddingProviderResolver.
-builder.Services.AddSingleton<IModelProviderRepository, MongoModelProviderRepository>();
+if (useMongo)
+{
+    builder.Services.AddSingleton<IModelProviderRepository, MongoModelProviderRepository>();
+    builder.Services.AddSingleton<IAgentDefinitionRepository, MongoAgentDefinitionRepository>();
+}
 builder.Services.AddSingleton<IModelProviderResolver, ModelProviderResolver>();
 builder.Services.AddSingleton<IEmbeddingProviderResolver, EmbeddingProviderResolver>();
 builder.Services.AddSingleton<IChatClientResolver, ChatClientResolver>();
-
-// Register agent definition repository so plugins can load AgentDefinition for model resolution
-builder.Services.AddSingleton<IAgentDefinitionRepository, MongoAgentDefinitionRepository>();
 
 builder.Services.Configure<HomeAssistantOptions>(
     builder.Configuration.GetSection("HomeAssistant"));
@@ -90,13 +116,14 @@ builder.Services.AddHttpClient<IHomeAssistantClient, HomeAssistantClient>((sp, c
 
     return handler;
 });
-builder.Services.AddSingleton<IDeviceCacheService, RedisDeviceCacheService>();
+if (useRedis)
+{
+    builder.Services.AddSingleton<IDeviceCacheService, RedisDeviceCacheService>();
+    builder.Services.AddSingleton<IEntityLocationService, EntityLocationService>();
+    builder.Services.AddSingleton<ITaskStore, RedisTaskStore>();
+}
 builder.Services.AddSingleton<IEmbeddingSimilarityService, EmbeddingSimilarityService>();
 builder.Services.AddSingleton<IHybridEntityMatcher, HybridEntityMatcher>();
-builder.Services.AddSingleton<IEntityLocationService, EntityLocationService>();
-
-// Register Redis task store for A2A task persistence (used by TimerAgent)
-builder.Services.AddSingleton<ITaskStore, RedisTaskStore>();
 
 builder.Services.AddHttpClient<AgentRegistryClient>(options =>
 {
@@ -106,6 +133,12 @@ builder.Services.AddHttpClient<AgentRegistryClient>(options =>
 
 var pluginDir = builder.Configuration["PluginDirectory"] ?? "/app/plugins";
 PluginLoader.LoadAgentPlugins(builder, pluginDir);
+
+// Register lightweight data providers when not using Redis/MongoDB
+if (!useRedis)
+    builder.AddInMemoryCacheProviders();
+if (!useMongo)
+    builder.AddSqliteStoreProviders();
 
 builder.Services.AddHostedService<AgentHostService>();
 builder.Services.AddProblemDetails();
