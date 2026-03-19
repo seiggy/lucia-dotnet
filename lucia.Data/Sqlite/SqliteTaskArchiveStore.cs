@@ -128,25 +128,26 @@ public sealed class SqliteTaskArchiveStore : ITaskArchiveStore
             }
         }
 
-        // Aggregate by agent from JSON data
+        // Agent aggregation using SQLite JSON functions
         var byAgent = new Dictionary<string, int>();
+
         using var agentCmd = connection.CreateCommand();
-        agentCmd.CommandText = "SELECT data FROM archived_tasks;";
+        agentCmd.CommandText = """
+            SELECT
+                json_extract(data, '$.agentId') AS agent_id,
+                COUNT(*) AS task_count
+            FROM archived_tasks
+            WHERE json_extract(data, '$.agentId') IS NOT NULL
+            GROUP BY agent_id;
+            """;
+
         using (var reader = await agentCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
         {
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                var json = reader.GetString(0);
-                var task = JsonSerializer.Deserialize<ArchivedTask>(json, JsonOptions);
-                if (task?.AgentIds is null) continue;
-
-                foreach (var agentId in task.AgentIds)
-                {
-                    if (!string.IsNullOrEmpty(agentId))
-                    {
-                        byAgent[agentId] = byAgent.GetValueOrDefault(agentId) + 1;
-                    }
-                }
+                var agentId = reader.GetString(0);
+                var count = reader.GetInt32(1);
+                byAgent[agentId] = count;
             }
         }
 

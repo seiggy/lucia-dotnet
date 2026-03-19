@@ -327,17 +327,8 @@ var app = builder.Build();
 if (!useMongo)
 {
     await using var migrationScope = app.Services.CreateAsyncScope();
-    var migrationRunner = migrationScope.ServiceProvider.GetRequiredService<IHostedService>() as lucia.Data.Sqlite.SqliteMigrationRunner;
-    if (migrationRunner is null)
-    {
-        // Find it among all hosted services
-        var hostedServices = migrationScope.ServiceProvider.GetServices<IHostedService>();
-        migrationRunner = hostedServices.OfType<lucia.Data.Sqlite.SqliteMigrationRunner>().FirstOrDefault();
-    }
-    if (migrationRunner is not null)
-    {
-        await migrationRunner.StartAsync(CancellationToken.None).ConfigureAwait(false);
-    }
+    var migrationRunner = migrationScope.ServiceProvider.GetRequiredService<lucia.Data.Sqlite.SqliteMigrationRunner>();
+    await migrationRunner.StartAsync(CancellationToken.None).ConfigureAwait(false);
 }
 
 // Headless seed: run before app accepts requests so env-based setup is in the config store

@@ -30,14 +30,18 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IDeviceCacheService, lucia.Data.InMemory.InMemoryDeviceCacheService>();
         builder.Services.AddSingleton<IPromptCacheService, lucia.Data.InMemory.InMemoryPromptCacheService>();
 
-        // Task store + task ID index (wraps with ArchivingTaskStore decorator)
+        // Task store + task ID index (wraps with ArchivingTaskStore decorator when available)
         builder.Services.AddSingleton<InMemoryTaskStore>();
         builder.Services.AddSingleton<ITaskStore>(sp =>
         {
             var inMemoryStore = sp.GetRequiredService<InMemoryTaskStore>();
-            var archive = sp.GetRequiredService<ITaskArchiveStore>();
-            var logger = sp.GetRequiredService<ILogger<ArchivingTaskStore>>();
-            return new ArchivingTaskStore(inMemoryStore, archive, logger);
+            var archive = sp.GetService<ITaskArchiveStore>();
+            if (archive is not null)
+            {
+                var logger = sp.GetRequiredService<ILogger<ArchivingTaskStore>>();
+                return new ArchivingTaskStore(inMemoryStore, archive, logger);
+            }
+            return inMemoryStore;
         });
         builder.Services.AddSingleton<ITaskIdIndex>(sp => sp.GetRequiredService<InMemoryTaskStore>());
 
@@ -59,8 +63,9 @@ public static class ServiceCollectionExtensions
         // SQLite connection factory (skip if already registered by the host)
         builder.Services.TryAddSingleton(new SqliteConnectionFactory(options.SqlitePath));
 
-        // Schema migration
-        builder.Services.AddHostedService<SqliteMigrationRunner>();
+        // Schema migration (registered as itself for direct resolution + as IHostedService)
+        builder.Services.AddSingleton<SqliteMigrationRunner>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<SqliteMigrationRunner>());
 
         // Config repositories
         builder.Services.AddSingleton<IConfigStoreWriter, SqliteConfigStoreWriter>();

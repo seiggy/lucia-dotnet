@@ -19,8 +19,6 @@ public static class SqliteConfigurationExtensions
     {
         ArgumentNullException.ThrowIfNull(connectionFactory);
 
-        Console.WriteLine("[lucia] SqliteConfiguration: Adding SQLite config source.");
-
         builder.Add(new SqliteConfigurationSource
         {
             ConnectionFactory = connectionFactory,

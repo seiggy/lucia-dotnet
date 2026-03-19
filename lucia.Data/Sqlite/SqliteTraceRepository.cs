@@ -237,31 +237,31 @@ public sealed class SqliteTraceRepository : ITraceRepository
             }
         }
 
-        // Agent aggregation — extract from JSON data since agent executions are nested
+        // Agent aggregation using SQLite JSON functions
         var byAgent = new Dictionary<string, int>();
         var errorsByAgent = new Dictionary<string, int>();
 
         using var agentCmd = connection.CreateCommand();
-        agentCmd.CommandText = "SELECT data FROM conversation_traces;";
+        agentCmd.CommandText = """
+            SELECT
+                json_extract(je.value, '$.agentId') AS agent_id,
+                COUNT(*) AS trace_count,
+                SUM(CASE WHEN json_extract(je.value, '$.success') = 0 THEN 1 ELSE 0 END) AS error_count
+            FROM conversation_traces ct,
+                 json_each(json_extract(ct.data, '$.agentExecutions')) je
+            WHERE json_extract(je.value, '$.agentId') IS NOT NULL
+            GROUP BY agent_id;
+            """;
+
         using (var reader = await agentCmd.ExecuteReaderAsync(ct).ConfigureAwait(false))
         {
             while (await reader.ReadAsync(ct).ConfigureAwait(false))
             {
-                var json = reader.GetString(0);
-                var trace = JsonSerializer.Deserialize<ConversationTrace>(json, JsonOptions);
-                if (trace?.AgentExecutions is null) continue;
-
-                foreach (var exec in trace.AgentExecutions)
-                {
-                    if (string.IsNullOrEmpty(exec.AgentId)) continue;
-
-                    byAgent[exec.AgentId] = byAgent.GetValueOrDefault(exec.AgentId) + 1;
-
-                    if (!exec.Success)
-                    {
-                        errorsByAgent[exec.AgentId] = errorsByAgent.GetValueOrDefault(exec.AgentId) + 1;
-                    }
-                }
+                var agentId = reader.GetString(0);
+                var traceCount = reader.GetInt32(1);
+                var errorCount = reader.GetInt32(2);
+                byAgent[agentId] = traceCount;
+                if (errorCount > 0) errorsByAgent[agentId] = errorCount;
             }
         }
 

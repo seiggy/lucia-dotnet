@@ -1,5 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace lucia.Data.Sqlite;
 
@@ -10,14 +12,19 @@ namespace lucia.Data.Sqlite;
 public sealed class SqliteConfigurationProvider : ConfigurationProvider, IDisposable
 {
     private readonly SqliteConnectionFactory _connectionFactory;
+    private readonly ILogger _logger;
     private readonly TimeSpan _pollInterval;
     private Timer? _pollTimer;
     private string _lastLoadTimestamp = DateTime.MinValue.ToString("O");
-    private volatile bool _isPolling;
+    private int _isPolling;
 
-    public SqliteConfigurationProvider(SqliteConnectionFactory connectionFactory, TimeSpan? pollInterval = null)
+    public SqliteConfigurationProvider(
+        SqliteConnectionFactory connectionFactory,
+        ILoggerFactory? loggerFactory = null,
+        TimeSpan? pollInterval = null)
     {
         _connectionFactory = connectionFactory;
+        _logger = (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger<SqliteConfigurationProvider>();
         _pollInterval = pollInterval ?? TimeSpan.FromSeconds(5);
     }
 
@@ -58,7 +65,7 @@ public sealed class SqliteConfigurationProvider : ConfigurationProvider, IDispos
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[lucia] SqliteConfigurationProvider: Failed to load from SQLite \u2014 {ex.Message}");
+            _logger.LogError(ex, "Failed to load configuration from SQLite");
         }
 
         _pollTimer ??= new Timer(PollForChanges, null, _pollInterval, _pollInterval);
@@ -66,8 +73,7 @@ public sealed class SqliteConfigurationProvider : ConfigurationProvider, IDispos
 
     private async void PollForChanges(object? state)
     {
-        if (_isPolling) return;
-        _isPolling = true;
+        if (Interlocked.CompareExchange(ref _isPolling, 1, 0) != 0) return;
 
         try
         {
@@ -99,11 +105,11 @@ public sealed class SqliteConfigurationProvider : ConfigurationProvider, IDispos
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[lucia] SqliteConfigurationProvider: Poll failed \u2014 {ex.Message}");
+            _logger.LogWarning(ex, "SQLite configuration poll failed");
         }
         finally
         {
-            _isPolling = false;
+            Interlocked.Exchange(ref _isPolling, 0);
         }
     }
 

@@ -65,6 +65,11 @@ public sealed class SqliteConnectionFactory : IDisposable
         EnsureInitialized();
         var connection = new SqliteConnection(_connectionString);
         connection.Open();
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;";
+        cmd.ExecuteNonQuery();
+
         return connection;
     }
 

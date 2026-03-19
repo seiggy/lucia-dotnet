@@ -52,6 +52,7 @@ if (useMongo)
     if (!string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("luciatasks")))
     {
         builder.AddMongoDBClient(connectionName: "luciatasks");
+        builder.Services.AddSingleton<ITaskArchiveStore, MongoTaskArchiveStore>();
     }
 
     // Add MongoDB configuration as highest-priority source (overrides appsettings)

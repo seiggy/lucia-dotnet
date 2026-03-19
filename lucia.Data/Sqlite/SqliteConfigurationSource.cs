@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace lucia.Data.Sqlite;
 
@@ -18,8 +19,14 @@ public sealed class SqliteConfigurationSource : IConfigurationSource
     /// </summary>
     public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(5);
 
+    /// <summary>
+    /// Optional logger factory for structured logging during configuration loading.
+    /// Falls back to NullLoggerFactory when not provided.
+    /// </summary>
+    public ILoggerFactory? LoggerFactory { get; set; }
+
     public IConfigurationProvider Build(IConfigurationBuilder builder)
     {
-        return new SqliteConfigurationProvider(ConnectionFactory, PollInterval);
+        return new SqliteConfigurationProvider(ConnectionFactory, LoggerFactory, PollInterval);
     }
 }
