@@ -23,10 +23,7 @@ public sealed class MongoModelPreferenceStore : IModelPreferenceStore
         _logger = logger;
     }
 
-    /// <summary>
-    /// Loads all persisted model overrides and returns them as a dictionary.
-    /// </summary>
-    public async Task<Dictionary<EngineType, string>> LoadOverridesAsync(CancellationToken ct = default)
+    public async Task<Dictionary<string, string>> LoadAllAsync(CancellationToken ct = default)
     {
         try
         {
@@ -35,15 +32,7 @@ public sealed class MongoModelPreferenceStore : IModelPreferenceStore
                 .ConfigureAwait(false);
 
             var prefs = await cursor.ToListAsync(ct).ConfigureAwait(false);
-
-            var result = new Dictionary<EngineType, string>();
-            foreach (var pref in prefs)
-            {
-                if (Enum.TryParse<EngineType>(pref.EngineType, ignoreCase: true, out var engineType))
-                {
-                    result[engineType] = pref.ModelId;
-                }
-            }
+            var result = prefs.ToDictionary(p => p.EngineType, p => p.ModelId);
 
             _logger.LogInformation("Loaded {Count} persisted model preference(s)", result.Count);
             return result;
@@ -55,18 +44,15 @@ public sealed class MongoModelPreferenceStore : IModelPreferenceStore
         }
     }
 
-    /// <summary>
-    /// Persists a model override for the given engine type.
-    /// </summary>
-    public async Task SaveOverrideAsync(EngineType engineType, string modelId, CancellationToken ct = default)
+    public async Task SaveAsync(string key, string value, CancellationToken ct = default)
     {
         try
         {
-            var filter = Builders<ActiveModelPreference>.Filter.Eq(p => p.EngineType, engineType.ToString());
+            var filter = Builders<ActiveModelPreference>.Filter.Eq(p => p.EngineType, key);
             var pref = new ActiveModelPreference
             {
-                EngineType = engineType.ToString(),
-                ModelId = modelId,
+                EngineType = key,
+                ModelId = value,
                 UpdatedAt = DateTime.UtcNow,
             };
 
@@ -76,24 +62,21 @@ public sealed class MongoModelPreferenceStore : IModelPreferenceStore
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to persist model preference for {EngineType}/{ModelId}", engineType, modelId);
+            _logger.LogWarning(ex, "Failed to persist model preference for {Key}/{Value}", key, value);
         }
     }
 
-    /// <summary>
-    /// Removes a persisted model override.
-    /// </summary>
-    public async Task RemoveOverrideAsync(EngineType engineType, CancellationToken ct = default)
+    public async Task RemoveAsync(string key, CancellationToken ct = default)
     {
         try
         {
             await _collection.DeleteOneAsync(
-                Builders<ActiveModelPreference>.Filter.Eq(p => p.EngineType, engineType.ToString()), ct)
+                Builders<ActiveModelPreference>.Filter.Eq(p => p.EngineType, key), ct)
                 .ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to remove model preference for {EngineType}", engineType);
+            _logger.LogWarning(ex, "Failed to remove model preference for {Key}", key);
         }
     }
 }

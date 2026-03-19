@@ -5,20 +5,20 @@ namespace lucia.Wyoming.Models;
 /// </summary>
 public sealed class InMemoryModelPreferenceStore : IModelPreferenceStore
 {
-    private readonly Dictionary<EngineType, string> _overrides = [];
+    private readonly Dictionary<string, string> _store = [];
 
-    public Task<Dictionary<EngineType, string>> LoadOverridesAsync(CancellationToken ct = default)
-        => Task.FromResult(new Dictionary<EngineType, string>(_overrides));
+    public Task<Dictionary<string, string>> LoadAllAsync(CancellationToken ct = default)
+        => Task.FromResult(new Dictionary<string, string>(_store));
 
-    public Task SaveOverrideAsync(EngineType engineType, string modelId, CancellationToken ct = default)
+    public Task SaveAsync(string key, string value, CancellationToken ct = default)
     {
-        _overrides[engineType] = modelId;
+        _store[key] = value;
         return Task.CompletedTask;
     }
 
-    public Task RemoveOverrideAsync(EngineType engineType, CancellationToken ct = default)
+    public Task RemoveAsync(string key, CancellationToken ct = default)
     {
-        _overrides.Remove(engineType);
+        _store.Remove(key);
         return Task.CompletedTask;
     }
 }

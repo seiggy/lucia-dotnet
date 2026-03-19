@@ -2,10 +2,11 @@ namespace lucia.Wyoming.Models;
 
 /// <summary>
 /// Abstracts persistence of active model overrides for testability.
+/// Keys are string-based to support both EngineType values and well-known preference keys.
 /// </summary>
 public interface IModelPreferenceStore
 {
-    Task<Dictionary<EngineType, string>> LoadOverridesAsync(CancellationToken ct = default);
-    Task SaveOverrideAsync(EngineType engineType, string modelId, CancellationToken ct = default);
-    Task RemoveOverrideAsync(EngineType engineType, CancellationToken ct = default);
+    Task<Dictionary<string, string>> LoadAllAsync(CancellationToken ct = default);
+    Task SaveAsync(string key, string value, CancellationToken ct = default);
+    Task RemoveAsync(string key, CancellationToken ct = default);
 }
