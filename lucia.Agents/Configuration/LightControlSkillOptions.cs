@@ -53,6 +53,7 @@ public sealed class LightControlSkillOptions
     /// <summary>
     /// The Home Assistant entity domains this skill operates on.
     /// Configurable so users can extend or restrict which domains the light agent searches.
+    /// Default to only light, if users need to control other domains like switch, they can set that in the GUI
     /// </summary>
-    public List<string> EntityDomains { get; set; } = ["light", "switch"];
+    public List<string> EntityDomains { get; set; } = ["light"];
 }

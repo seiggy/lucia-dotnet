@@ -51,6 +51,7 @@ public static class ResponseTemplateApi
     private static async Task<Results<Created<ResponseTemplate>, BadRequest<string>, Conflict<string>>> CreateAsync(
         [FromBody] CreateResponseTemplateRequest request,
         [FromServices] IResponseTemplateRepository repo,
+        [FromServices] ResponseTemplateRenderer renderer,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(request.SkillId))
@@ -73,6 +74,7 @@ public static class ResponseTemplateApi
         try
         {
             var created = await repo.CreateAsync(template, ct).ConfigureAwait(false);
+            renderer.InvalidateCache();
             return TypedResults.Created($"/api/response-templates/{created.Id}", created);
         }
         catch (MongoWriteException ex) when (ex.WriteError?.Category == ServerErrorCategory.DuplicateKey)
@@ -85,6 +87,7 @@ public static class ResponseTemplateApi
         [FromRoute] string id,
         [FromBody] UpdateResponseTemplateRequest request,
         [FromServices] IResponseTemplateRepository repo,
+        [FromServices] ResponseTemplateRenderer renderer,
         CancellationToken ct)
     {
         var existing = await repo.GetByIdAsync(id, ct).ConfigureAwait(false);
@@ -107,15 +110,18 @@ public static class ResponseTemplateApi
         };
 
         var result = await repo.UpdateAsync(id, updated, ct).ConfigureAwait(false);
+        renderer.InvalidateCache();
         return TypedResults.Ok(result);
     }
 
     private static async Task<Results<NoContent, NotFound>> DeleteAsync(
         [FromRoute] string id,
         [FromServices] IResponseTemplateRepository repo,
+        [FromServices] ResponseTemplateRenderer renderer,
         CancellationToken ct)
     {
         var deleted = await repo.DeleteAsync(id, ct).ConfigureAwait(false);
+        if (deleted) renderer.InvalidateCache();
         return deleted
             ? TypedResults.NoContent()
             : TypedResults.NotFound();
@@ -123,9 +129,11 @@ public static class ResponseTemplateApi
 
     private static async Task<Ok<string>> ResetToDefaultsAsync(
         [FromServices] IResponseTemplateRepository repo,
+        [FromServices] ResponseTemplateRenderer renderer,
         CancellationToken ct)
     {
         await repo.ResetToDefaultsAsync(ct).ConfigureAwait(false);
+        renderer.InvalidateCache();
         return TypedResults.Ok("Templates reset to defaults");
     }
 }

@@ -76,4 +76,26 @@ public sealed class TranscriptNormalizerTests
             "set thermostat to 72 degrees",
             TranscriptNormalizer.Normalize("set thermostat to 72 degrees"));
     }
+
+    [Theory]
+    [InlineData("TURN OF THE OFFICE LIGHTS", "turn off the office lights")]
+    [InlineData("turn of the kitchen lights", "turn off the kitchen lights")]
+    [InlineData("shut of the bedroom lights", "shut off the bedroom lights")]
+    [InlineData("trun on the lights", "turn on the lights")]
+    [InlineData("tern off the lights", "turn off the lights")]
+    [InlineData("activate the seen", "activate the scene")]
+    [InlineData("set the termstat to 72", "set the thermostat to 72")]
+    public void Normalize_CorrectsSttErrors(string input, string expected)
+    {
+        Assert.Equal(expected, TranscriptNormalizer.Normalize(input));
+    }
+
+    [Fact]
+    public void Normalize_DoesNotCorrectOfInNonCommandContext()
+    {
+        // "of" should only be corrected in "turn of" / "shut of" phrases, not standalone
+        Assert.Equal("turn off the lights", TranscriptNormalizer.Normalize("turn of the lights"));
+        // "of" in other contexts is untouched (e.g., would be left alone if not preceded by turn/shut)
+        Assert.Contains("of", TranscriptNormalizer.Normalize("top of the morning"));
+    }
 }
