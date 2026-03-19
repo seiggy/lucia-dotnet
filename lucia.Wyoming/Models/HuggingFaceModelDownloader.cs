@@ -68,14 +68,15 @@ public sealed class HuggingFaceModelDownloader(
             CreateNoWindow = true,
         };
 
-        // Aspire sets SSL_CERT_DIR to its dev-cert directory, which breaks Python's
-        // SSL verification since certifi doesn't trust those certs. Override with
-        // the system CA bundle so the HuggingFace CLI can verify huggingface.co.
+        // Aspire dev-hosting sets SSL_CERT_DIR to its dev-cert directory, which breaks
+        // Python's SSL verification. Override with the system CA bundle in debug builds only.
+#if DEBUG
         process.StartInfo.Environment.Remove("SSL_CERT_DIR");
         process.StartInfo.Environment.Remove("REQUESTS_CA_BUNDLE");
         process.StartInfo.Environment.Remove("CURL_CA_BUNDLE");
         process.StartInfo.Environment.Remove("NODE_EXTRA_CA_CERTS");
         process.StartInfo.Environment["SSL_CERT_FILE"] = "/etc/ssl/certs/ca-certificates.crt";
+#endif
 
         process.Start();
 
