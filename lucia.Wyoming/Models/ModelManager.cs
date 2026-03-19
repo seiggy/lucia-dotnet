@@ -23,9 +23,16 @@ public sealed class ModelManager(
     ILogger<ModelManager> logger) : IModelChangeNotifier
 {
     private readonly Dictionary<EngineType, string> _activeModelOverrides = [];
+    private readonly HashSet<EngineType> _restoredEngineTypes = [];
     private volatile bool _preferencesLoaded;
 
     public event Action<ActiveModelChangedEvent>? ActiveModelChanged;
+
+    /// <summary>
+    /// Returns true if the given engine type was restored from persisted preferences.
+    /// Used by ModelStartupValidator to skip re-activation of already-loaded engines.
+    /// </summary>
+    public bool IsPreferenceRestored(EngineType engineType) => _restoredEngineTypes.Contains(engineType);
 
     /// <summary>
     /// Tracks which STT engine type the user last activated (Stt for streaming, OfflineStt for hybrid/offline).
@@ -92,6 +99,8 @@ public sealed class ModelManager(
                         ModelId = modelId,
                         ModelPath = modelDirectory,
                     });
+
+                    _restoredEngineTypes.Add(engineType);
                 }
                 else
                 {

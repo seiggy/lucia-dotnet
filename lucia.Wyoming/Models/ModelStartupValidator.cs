@@ -115,6 +115,17 @@ public sealed class ModelStartupValidator(
             var activeModelId = modelManager.GetActiveModelId(engineType);
             logger.LogInformation("Validating active Wyoming {EngineType} model {ModelId} on startup", engineType, activeModelId);
 
+            // If preferences were already restored and activated, just validate
+            // the model directory exists — don't re-fire SwitchActiveModelAsync
+            // which would re-persist and potentially interfere with ordering.
+            if (modelManager.IsPreferenceRestored(engineType))
+            {
+                logger.LogDebug(
+                    "Skipping activation for {EngineType} — already restored from persisted preferences",
+                    engineType);
+                return;
+            }
+
             await modelManager.SwitchActiveModelAsync(engineType, activeModelId, ct).ConfigureAwait(false);
 
             logger.LogInformation("Wyoming {EngineType} model {ModelId} is ready", engineType, activeModelId);
