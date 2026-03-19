@@ -1,0 +1,265 @@
+# Lucia AgentHost - Voice-Enabled Multi-stage Docker Build (AMD ROCm)
+# Purpose: Voice-enabled variant with pre-loaded Wyoming models and AMD ROCm GPU acceleration
+#
+# ROCm variant differences from CUDA (Dockerfile.voice):
+#   - Base image: rocm/onnxruntime (ROCm 6.4 + ORT 1.21) instead of nvidia/cuda
+#   - No NVIDIA env vars (NVIDIA_VISIBLE_DEVICES, NVIDIA_DRIVER_CAPABILITIES)
+#   - ROCm env vars: HSA_OVERRIDE_GFX_VERSION, ROCR_VISIBLE_DEVICES
+#   - No GPU lib overlay: ROCm ORT libs come from the base image, not from assets
+#   - CUDA-specific ORT native libs are removed after publish to avoid conflicts
+#   - HybridStt Provider set to 'cpu' (sherpa-onnx lacks ROCm support; only
+#     ORT-native engines like Granite/GTCRN benefit from ROCm acceleration)
+#
+# Stages:
+#   0. assets         — Pre-built OCI image with all binary downloads
+#   0b. node-build    — Build the React SPA dashboard with Node.js
+#    1. base          — ROCm 6.4 + ONNX Runtime with .NET ASP.NET 10.0
+#    2. build         — Restore and build the .NET application with SDK
+#    3. publish       — Publish optimized ReadyToRun release build
+#    4. final         — Production image with health checks, security, and voice models
+#
+# Build args:
+#   ASSET_IMAGE            — Pre-built asset image ref (default: ghcr.io/seiggy/lucia-dotnet/build-assets:latest)
+#   BUILD_CONFIGURATION    — Debug or Release (default: Release)
+#   BUILD_TARGET_FRAMEWORK — Target framework version (default: net10.0)
+#
+# Pre-loaded model inventory (~585MB total):
+#   STT:     sherpa-onnx-streaming-zipformer-en-2023-06-26      (~80MB)
+#   STT:     sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8         (~460MB, offline, 0% WER)
+#   VAD:     silero_vad                                          (~2MB)
+#   KWS:     sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01 (~10MB)
+#   Speaker: 3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k (~25MB)
+#   SE:      gtcrn_simple (streaming)                              (~535KB)
+#
+# GPU acceleration:
+#   Base image: rocm/onnxruntime:rocm6.4.4_ub24.04_ort1.21_torch2.8.0
+#   ONNX Runtime: 1.21 with ROCm 6.4 (AMD Instinct / Radeon GPUs)
+#   Requires: --device /dev/kfd --device /dev/dri --group-add video
+#
+# Usage:
+#   docker build -t lucia:voice-rocm -f infra/docker/Dockerfile.voice-rocm .
+#   docker run --device /dev/kfd --device /dev/dri --group-add video lucia:voice-rocm
+
+# ============================================================================
+# Stage 0a: Pre-built binary assets (Copilot CLI, voice models)
+# See Dockerfile.assets and asset.lock for what's included.
+# Note: gpu-libs from assets are NOT used — ROCm ORT libs come from the base image.
+# ============================================================================
+ARG ASSET_IMAGE=ghcr.io/seiggy/lucia-dotnet/build-assets:latest
+ARG TARGETARCH=amd64
+ARG TARGETOS
+FROM ${ASSET_IMAGE} AS assets
+
+# ============================================================================
+# Stage 0b: Node.js Build Stage (React SPA Dashboard)
+# ============================================================================
+FROM node:22-alpine AS node-build
+
+WORKDIR /app
+
+# Copy package files first for dependency caching
+COPY lucia-dashboard/package*.json ./
+
+# Install dependencies (clean install for reproducible builds)
+RUN npm ci
+
+# Copy the rest of the dashboard source and build
+COPY lucia-dashboard/ ./
+RUN npm run build
+
+# ============================================================================
+# Stage 1: Base Runtime Image (AMD ROCm 6.4 + ONNX Runtime)
+# Uses rocm/onnxruntime which includes ROCm-enabled ORT libs out of the box.
+# Unlike the CUDA variant, no GPU lib overlay is needed.
+# ============================================================================
+FROM rocm/onnxruntime:rocm6.4.4_ub24.04_ort1.21_torch2.8.0 AS base
+
+# Install .NET ASP.NET 10.0 runtime + curl for healthcheck
+# The ROCm base image is Ubuntu 24.04 but does not ship with .NET.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl ca-certificates libicu74 libssl3t64 \
+    && curl -fSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
+    && chmod +x /tmp/dotnet-install.sh \
+    && /tmp/dotnet-install.sh --channel 10.0 --runtime aspnetcore --install-dir /usr/share/dotnet \
+    && ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet \
+    && rm /tmp/dotnet-install.sh \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /app
+
+# Create non-root user for security
+RUN useradd -m -u 1100 appuser
+
+# Expose ports
+EXPOSE 8080 8081 10400
+
+# ============================================================================
+# Stage 2: Build Stage
+# ============================================================================
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+ARG TARGETARCH=amd64
+ARG TARGETOS
+
+# Set build configuration (can be overridden via --build-arg)
+ARG BUILD_CONFIGURATION=Release
+ARG BUILD_TARGET_FRAMEWORK=net10.0
+
+# Set working directory
+WORKDIR /src
+
+# Copy MSBuild infrastructure files required before restore
+COPY ["Directory.Build.props", "."]
+COPY ["Directory.Packages.props", "."]
+
+# Copy project files(maintaining directory structure)
+COPY ["lucia.AgentHost/lucia.AgentHost.csproj", "lucia.AgentHost/"]
+COPY ["lucia.Agents/lucia.Agents.csproj", "lucia.Agents/"]
+COPY ["lucia.HomeAssistant/lucia.HomeAssistant.csproj", "lucia.HomeAssistant/"]
+COPY ["lucia.MusicAgent/lucia.MusicAgent.csproj", "lucia.MusicAgent/"]
+COPY ["lucia.ServiceDefaults/lucia.ServiceDefaults.csproj", "lucia.ServiceDefaults/"]
+COPY ["lucia.TimerAgent/lucia.TimerAgent.csproj", "lucia.TimerAgent/"]
+COPY ["lucia.Wyoming/lucia.Wyoming.csproj", "lucia.Wyoming/"]
+
+# Restore dependencies (skip Copilot CLI download — handled in copilot-cli stage)
+# This layer is cached unless .csproj files change
+RUN RID=$(case "$TARGETARCH" in\
+      amd64) echo "linux-x64" ;; \
+      arm64) echo "linux-arm64" ;; \
+    esac) && \
+    dotnet restore "./lucia.AgentHost/lucia.AgentHost.csproj" \
+    --runtime $RID \
+    /p:PublishReadyToRun=true \
+    /p:CopilotSkipCliDownload=true
+
+# Copy entire source tree
+COPY . .
+
+# Navigate to project directory and build
+WORKDIR "/src"
+
+RUN RID=$(case "$TARGETARCH" in\
+      amd64) echo "linux-x64" ;; \
+      arm64) echo "linux-arm64" ;; \
+    esac) && \
+    dotnet build "./lucia.AgentHost/lucia.AgentHost.csproj" \
+    -c $BUILD_CONFIGURATION \
+    -o /app/build \
+    --runtime $RID \
+    --framework $BUILD_TARGET_FRAMEWORK \
+    --no-restore \
+    /p:CopilotSkipCliDownload=true
+
+# ============================================================================
+# Stage 3: Publish Stage
+# ============================================================================
+FROM build AS publish
+
+# Build configuration (matches build stage)
+ARG BUILD_CONFIGURATION=Release
+ARG BUILD_TARGET_FRAMEWORK=net10.0
+ARG TARGETARCH=amd64
+
+# Publish to /app/publish directory
+# We tried running this with no-build, but it seems to cause issues with missing files. Will fix later.
+RUN RID=$(case "$TARGETARCH" in\
+      amd64) echo "linux-x64" ;; \
+      arm64) echo "linux-arm64" ;; \
+    esac) && \
+    dotnet publish "./lucia.AgentHost/lucia.AgentHost.csproj" \
+    -c $BUILD_CONFIGURATION \
+    -o /app/publish \
+    --no-restore \
+    --framework $BUILD_TARGET_FRAMEWORK \
+    --runtime $RID \
+    /p:UseAppHost=false \
+    /p:PublishTrimmed=false \
+    /p:PublishReadyToRun=true \
+    /p:CopilotSkipCliDownload=true
+
+# ============================================================================
+# Stage 4: Final Production Image
+# ============================================================================
+FROM base AS final
+
+# Set metadata labels
+LABEL maintainer="Lucia Project"
+LABEL description="Lucia Agent Host - Multi-agent orchestration with pre-loaded Wyoming voice models (AMD ROCm)"
+LABEL version="1.0.0"
+
+# Set environment variables for .NET runtime + ROCm
+# ROCm-specific:
+#   HSA_OVERRIDE_GFX_VERSION — Override GPU architecture for broader compatibility
+#     (e.g. set to "10.3.0" for gfx1030-family cards like RX 6000 series)
+#   ROCR_VISIBLE_DEVICES    — Which ROCm GPUs to expose (default: all)
+# No NVIDIA_VISIBLE_DEVICES or NVIDIA_DRIVER_CAPABILITIES (those are CUDA-only)
+ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false \
+    DOTNET_RUNNING_IN_CONTAINER=true \
+    ASPNETCORE_URLS=http://+:8080;https://+:8081 \
+    COMPlus_EnableDiagnostics=0 \
+    ROCR_VISIBLE_DEVICES=all
+
+# Copy published application from publish stage
+COPY --from=publish --chown=appuser:appuser /app/publish .
+
+# Remove CUDA-specific ONNX Runtime native libs bundled by the
+# Microsoft.ML.OnnxRuntime.Gpu.Linux NuGet package. The ROCm base image
+# already provides ROCm-enabled ORT libs via LD_LIBRARY_PATH, and leaving
+# the CUDA variants in place would cause symbol conflicts at runtime.
+RUN rm -f ./runtimes/linux-x64/native/libonnxruntime*.so*
+
+# Copy Copilot CLI binary from pre-built asset image
+COPY --from=assets --chown=appuser:appuser /assets/copilot/ ./
+
+# Copy built SPA dashboard into wwwroot for static file serving
+COPY --from=node-build --chown=appuser:appuser /app/dist ./wwwroot/
+
+# Copy official plugins (MetaMCP, SearXNG) so env-based tools are registered at startup
+COPY --from=build --chown=appuser:appuser /src/plugins ./plugins
+
+# PluginDirectory default is {AppContext.BaseDirectory}/plugins = /app/plugins
+ENV PluginDirectory=/app/plugins
+
+# Copy pre-downloaded Wyoming voice models from asset image
+COPY --from=assets --chown=appuser:appuser /assets/models ./models
+
+# NOTE: No GPU lib overlay step here (unlike the CUDA Dockerfile).
+# The rocm/onnxruntime base image already ships ROCm-enabled ORT libs.
+
+# Set Wyoming model paths + provider
+# HybridStt Provider is 'cpu' because sherpa-onnx has no ROCm support.
+# Only ORT-native engines (Granite, GTCRN) benefit from ROCm GPU acceleration.
+ENV Wyoming__Models__Stt__ModelBasePath=/app/models/stt \
+    Wyoming__Models__Vad__ModelBasePath=/app/models/vad \
+    Wyoming__Models__WakeWord__ModelBasePath=/app/models/kws \
+    Wyoming__Diarization__ModelBasePath=/app/models/speaker-embedding \
+    Wyoming__Models__SpeechEnhancement__ModelBasePath=/app/models/speech-enhancement \
+    Wyoming__Models__HybridStt__Provider=cpu \
+    Wyoming__Models__HybridStt__Enabled=true
+
+# Switch to non-root user for runtime security
+USER appuser
+
+# Health check for container orchestration
+# Tests HTTP endpoint to verify service is responding
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# Application entry point
+# Runs the .NET application
+ENTRYPOINT ["dotnet", "lucia.AgentHost.dll"]
+
+# ROCm voice variant build examples:
+#
+#   # Build ROCm voice image locally (uses pre-built assets from ghcr.io)
+#   docker build -t lucia:voice-rocm -f infra/docker/Dockerfile.voice-rocm .
+#
+#   # Run with AMD GPU access
+#   docker run --device /dev/kfd --device /dev/dri --group-add video lucia:voice-rocm
+#
+#   # Override GFX version for compatibility (e.g. RX 6800 XT = gfx1030)
+#   docker run --device /dev/kfd --device /dev/dri --group-add video \
+#     -e HSA_OVERRIDE_GFX_VERSION=10.3.0 lucia:voice-rocm
+#
+#   # Pull from Docker Hub
+#   docker pull seiggy/lucia-agenthost:voice-rocm

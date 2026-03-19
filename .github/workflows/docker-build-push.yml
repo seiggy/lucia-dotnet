@@ -62,6 +62,13 @@ jobs:
             cache_scope: lucia-agenthost-voice
             description: AI-powered Home Assistant agent with pre-loaded Wyoming voice models
             tag_suffix: "-voice"
+          - image: seiggy/lucia-agenthost
+            dockerfile: ./infra/docker/Dockerfile.voice-rocm
+            title: Lucia Agent Host (Voice ROCm)
+            platforms: linux/amd64
+            cache_scope: lucia-agenthost-voice-rocm
+            description: AI-powered Home Assistant agent with pre-loaded Wyoming voice models and AMD ROCm GPU acceleration
+            tag_suffix: "-voice-rocm"
 
     steps:
       - name: Checkout repository
