@@ -6,6 +6,8 @@ using lucia.AgentHost.Conversation;
 using lucia.AgentHost.Conversation.Execution;
 using lucia.AgentHost.Conversation.Models;
 using lucia.AgentHost.Conversation.Templates;
+using lucia.AgentHost.Conversation.Tracing;
+using lucia.Agents.CommandTracing;
 using lucia.Wyoming.CommandRouting;
 using Microsoft.Extensions.Logging;
 
@@ -26,6 +28,7 @@ public sealed class ConversationCommandProcessorTests : IDisposable
             _templateRepo, A.Fake<ILogger<ResponseTemplateRenderer>>());
         var contextReconstructor = new ContextReconstructor();
         var telemetry = new ConversationTelemetry(_telemetrySource);
+        var traceRepository = new InMemoryCommandTraceRepository();
 
         _processor = new ConversationCommandProcessor(
             _commandRouter,
@@ -33,6 +36,8 @@ public sealed class ConversationCommandProcessorTests : IDisposable
             templateRenderer,
             contextReconstructor,
             telemetry,
+            traceRepository,
+            new CommandTraceChannel(),
             _serviceProvider,
             A.Fake<ILogger<ConversationCommandProcessor>>());
     }
