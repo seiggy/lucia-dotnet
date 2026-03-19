@@ -24,7 +24,33 @@ public sealed class ModelDownloader(
         // Dispatch HuggingFace models to the HF CLI downloader
         if (model.Source == ModelSource.HuggingFace && !string.IsNullOrWhiteSpace(model.RepoId))
         {
-            return await hfDownloader.DownloadModelAsync(model.RepoId, targetBasePath, progress, ct);
+            var hfTargetDirectory = Path.Combine(targetBasePath, model.Id);
+            if (IsModelDirectoryReady(hfTargetDirectory))
+            {
+                return ModelDownloadResult.AlreadyExists(model.Id, hfTargetDirectory);
+            }
+
+            var hfResult = await hfDownloader.DownloadModelAsync(model.RepoId, targetBasePath, progress, ct);
+            if (!hfResult.Success)
+            {
+                return hfResult;
+            }
+
+            // HF CLI downloads into a cache structure (models--org--name/snapshots/{hash}/).
+            // Copy the snapshot contents into the flat {basePath}/{modelId}/ structure
+            // that the model catalog expects.
+            if (!string.Equals(hfResult.LocalPath, hfTargetDirectory, StringComparison.Ordinal)
+                && Directory.Exists(hfResult.LocalPath))
+            {
+                Directory.CreateDirectory(hfTargetDirectory);
+                CopyDirectory(hfResult.LocalPath, hfTargetDirectory);
+
+                logger.LogInformation(
+                    "Copied HuggingFace model from {SnapshotPath} to {TargetPath}",
+                    hfResult.LocalPath, hfTargetDirectory);
+            }
+
+            return ModelDownloadResult.Successful(model.Id, hfTargetDirectory);
         }
 
         var targetDirectory = Path.Combine(targetBasePath, model.Id);
