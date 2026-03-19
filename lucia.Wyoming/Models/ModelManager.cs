@@ -19,9 +19,11 @@ public sealed class ModelManager(
     ModelDownloader downloader,
     HuggingFaceModelDownloader hfDownloader,
     HuggingFaceClient hfClient,
+    IModelPreferenceStore preferenceStore,
     ILogger<ModelManager> logger) : IModelChangeNotifier
 {
     private readonly Dictionary<EngineType, string> _activeModelOverrides = [];
+    private volatile bool _preferencesLoaded;
 
     public event Action<ActiveModelChangedEvent>? ActiveModelChanged;
 
@@ -37,10 +39,13 @@ public sealed class ModelManager(
     /// </summary>
     public string ActiveModelId => GetActiveModelId(EngineType.Stt);
 
-    public string GetActiveModelId(EngineType engineType) =>
-        _activeModelOverrides.TryGetValue(engineType, out var overrideId) && !string.IsNullOrWhiteSpace(overrideId)
+    public string GetActiveModelId(EngineType engineType)
+    {
+        EnsurePreferencesLoaded();
+        return _activeModelOverrides.TryGetValue(engineType, out var overrideId) && !string.IsNullOrWhiteSpace(overrideId)
             ? overrideId
             : GetConfiguredActiveModel(engineType);
+    }
 
     public async Task<bool> ValidateActiveModelAsync(CancellationToken ct = default)
     {
@@ -200,6 +205,9 @@ public sealed class ModelManager(
 
         _activeModelOverrides[engineType] = modelId;
 
+        // Persist to MongoDB so the selection survives reboots
+        await preferenceStore.SaveOverrideAsync(engineType, modelId, ct).ConfigureAwait(false);
+
         // Track which STT engine type the user prefers
         if (engineType is EngineType.Stt or EngineType.OfflineStt)
         {
@@ -228,7 +236,7 @@ public sealed class ModelManager(
     public Task DeleteModelAsync(string modelId, CancellationToken ct = default) =>
         DeleteModelAsync(EngineType.Stt, modelId, ct);
 
-    public Task DeleteModelAsync(EngineType engineType, string modelId, CancellationToken ct = default)
+    public async Task DeleteModelAsync(EngineType engineType, string modelId, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
         ArgumentException.ThrowIfNullOrWhiteSpace(modelId);
@@ -238,7 +246,7 @@ public sealed class ModelManager(
 
         if (!Directory.Exists(modelDirectory))
         {
-            return Task.CompletedTask;
+            return;
         }
 
         Directory.Delete(modelDirectory, recursive: true);
@@ -247,6 +255,7 @@ public sealed class ModelManager(
             && string.Equals(active, modelId, StringComparison.Ordinal))
         {
             _activeModelOverrides.Remove(engineType);
+            await preferenceStore.RemoveOverrideAsync(engineType, ct).ConfigureAwait(false);
         }
 
         logger.LogInformation(
@@ -254,8 +263,6 @@ public sealed class ModelManager(
             engineType,
             modelId,
             modelDirectory);
-
-        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -320,6 +327,44 @@ public sealed class ModelManager(
             EngineType.SpeechEnhancement => enhancementOptionsMonitor.CurrentValue.ActiveModel,
             _ => throw new ArgumentOutOfRangeException(nameof(engineType)),
         };
+
+    /// <summary>
+    /// Loads persisted model overrides from MongoDB on first access (blocking).
+    /// </summary>
+    private void EnsurePreferencesLoaded()
+    {
+        if (_preferencesLoaded)
+            return;
+
+        try
+        {
+            var overrides = preferenceStore.LoadOverridesAsync(CancellationToken.None)
+                .ConfigureAwait(false).GetAwaiter().GetResult();
+
+            foreach (var (engineType, modelId) in overrides)
+            {
+                _activeModelOverrides.TryAdd(engineType, modelId);
+            }
+
+            // Restore preferred STT engine type
+            if (overrides.ContainsKey(EngineType.OfflineStt))
+                PreferredSttEngineType = EngineType.OfflineStt;
+            else if (overrides.ContainsKey(EngineType.Stt))
+                PreferredSttEngineType = EngineType.Stt;
+
+            logger.LogInformation(
+                "Restored {Count} model preference(s) from MongoDB (preferred STT: {PreferredStt})",
+                overrides.Count, PreferredSttEngineType);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to load model preferences — using config defaults");
+        }
+        finally
+        {
+            _preferencesLoaded = true;
+        }
+    }
 
     private string ResolveOfflineSttActiveModel()
     {

@@ -60,6 +60,8 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<HuggingFaceModelDownloader>();
 
         builder.Services.AddSingleton<ModelCatalogService>();
+        builder.Services.AddSingleton<MongoModelPreferenceStore>();
+        builder.Services.AddSingleton<IModelPreferenceStore>(sp => sp.GetRequiredService<MongoModelPreferenceStore>());
         builder.Services.AddSingleton<ModelManager>();
         builder.Services.AddSingleton<IModelChangeNotifier>(sp => sp.GetRequiredService<ModelManager>());
         builder.Services.AddSingleton<ModelDownloader>();

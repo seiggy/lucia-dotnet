@@ -84,6 +84,7 @@ public sealed class WyomingStatusApiTests
             new OptionsMonitorStub<HybridSttOptions>(new HybridSttOptions()),
             catalog, downloader, hfDownloader,
             new HuggingFaceClient(A.Fake<IHttpClientFactory>(), new OptionsMonitorStub<HuggingFaceOptions>(new HuggingFaceOptions()), NullLogger<HuggingFaceClient>.Instance),
+            A.Fake<IModelPreferenceStore>(),
             NullLogger<ModelManager>.Instance);
     }
 

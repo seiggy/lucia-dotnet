@@ -190,6 +190,7 @@ public sealed class ModelManagerMultiEngineTests : IDisposable
             downloader,
             hfDownloader,
             new HuggingFaceClient(A.Fake<IHttpClientFactory>(), new OptionsMonitorStub<HuggingFaceOptions>(new HuggingFaceOptions()), NullLogger<HuggingFaceClient>.Instance),
+            A.Fake<IModelPreferenceStore>(),
             NullLogger<ModelManager>.Instance);
     }
 
