@@ -1,11 +1,11 @@
-name: "Lucia Agent"
-description: "Privacy-first multi-agent assistant for Home Assistant"
-version: "0.1.0"
-slug: "lucia-agent"
-url: "https://github.com/seiggy/lucia-dotnet"
+# https://developers.home-assistant.io/docs/add-ons/configuration#add-on-config
+name: Lucia Voice Assistant
+description: Privacy-first multi-agent assistant for Home Assistant
+version: "1.2.0"
+slug: lucia-agent
+url: "https://github.com/seiggy/lucia-dotnet/tree/main/ha-addon"
 arch:
   - amd64
-  - aarch64
 ports:
   8099/tcp: 8099
   10400/tcp: 10400
@@ -14,16 +14,27 @@ ports_description:
   10400/tcp: "Wyoming Voice Protocol"
 map:
   - type: data
-    read_only: false
+    path: /data
+    read_only: False
+  - type: data
+    path: /app/models
+    read_only: False
+  - type: data
+    path: /app/plugins
+    read_only: False
 options:
   ha_url: "http://homeassistant.local:8123"
   ha_token: ""
 schema:
   ha_url: url
   ha_token: password
-startup: application
-boot: auto
+image: "hub.docker.com/r/seiggy/lucia-agent:ha"
+webui: "[PROTO:option_name]://[HOST]:[PORT:8099]"
+hassio_api: true
+hassio_role: default
+environment:
+  - name: HomeAssistant__BaseUrl
+    value: "http://supervisor"
+  - name: HomeAssistant__AccessToken
+    value: "$SUPERVISOR_TOKEN"
 ingress: true
-ingress_port: 8099
-panel_icon: "mdi:robot"
-panel_title: "Lucia"

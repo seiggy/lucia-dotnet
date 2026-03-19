@@ -1,0 +1,4 @@
+# https://developers.home-assistant.io/docs/add-ons/repository#repository-configuration
+name: Lucia Voice Assistant
+url: 'https://github.com/seiggy/lucia-dotnet'
+maintainer: Zack Way <seiggy2k@gmail.com>
