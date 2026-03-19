@@ -60,10 +60,9 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<HuggingFaceModelDownloader>();
 
         builder.Services.AddSingleton<ModelCatalogService>();
-        builder.Services.AddSingleton<MongoModelPreferenceStore>();
-        builder.Services.AddSingleton<IModelPreferenceStore>(sp => sp.GetRequiredService<MongoModelPreferenceStore>());
         builder.Services.AddSingleton<ModelManager>();
         builder.Services.AddSingleton<IModelChangeNotifier>(sp => sp.GetRequiredService<ModelManager>());
+        builder.Services.AddHostedService<ModelPreferenceInitializer>();
         builder.Services.AddSingleton<ModelDownloader>();
         builder.Services.AddSingleton<OnnxProviderDetector>();
         builder.Services.AddSingleton<IBackgroundTaskQueue>(_ => new BackgroundTaskQueue(capacity: 100));
@@ -92,6 +91,7 @@ public static class ServiceCollectionExtensions
         if (hasMongoDb)
         {
             builder.Services.AddSingleton<MongoSpeakerProfileStore>();
+            builder.Services.AddSingleton<IModelPreferenceStore, MongoModelPreferenceStore>();
             if (hasRedis)
             {
                 builder.Services.AddSingleton<ISpeakerProfileStore>(sp =>
@@ -111,6 +111,7 @@ public static class ServiceCollectionExtensions
         {
             builder.Services.AddSingleton<ISpeakerProfileStore, InMemorySpeakerProfileStore>();
             builder.Services.AddSingleton<ITranscriptStore, InMemoryTranscriptStore>();
+            builder.Services.AddSingleton<IModelPreferenceStore, InMemoryModelPreferenceStore>();
         }
 
         builder.Services.AddSingleton<SpeakerVerificationFilter>();

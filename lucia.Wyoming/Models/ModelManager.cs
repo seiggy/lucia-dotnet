@@ -41,10 +41,47 @@ public sealed class ModelManager(
 
     public string GetActiveModelId(EngineType engineType)
     {
-        EnsurePreferencesLoaded();
+        // Preferences are loaded asynchronously via InitializeAsync.
+        // If not yet loaded, fall back to config defaults.
         return _activeModelOverrides.TryGetValue(engineType, out var overrideId) && !string.IsNullOrWhiteSpace(overrideId)
             ? overrideId
             : GetConfiguredActiveModel(engineType);
+    }
+
+    /// <summary>
+    /// Loads persisted model preferences from MongoDB. Call during startup.
+    /// </summary>
+    public async Task LoadPersistedPreferencesAsync(CancellationToken ct = default)
+    {
+        if (_preferencesLoaded)
+            return;
+
+        try
+        {
+            var overrides = await preferenceStore.LoadOverridesAsync(ct).ConfigureAwait(false);
+
+            foreach (var (engineType, modelId) in overrides)
+            {
+                _activeModelOverrides[engineType] = modelId;
+            }
+
+            if (overrides.ContainsKey(EngineType.OfflineStt))
+                PreferredSttEngineType = EngineType.OfflineStt;
+            else if (overrides.ContainsKey(EngineType.Stt))
+                PreferredSttEngineType = EngineType.Stt;
+
+            logger.LogInformation(
+                "Restored {Count} model preference(s) from MongoDB (preferred STT: {PreferredStt})",
+                overrides.Count, PreferredSttEngineType);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to load model preferences — using config defaults");
+        }
+        finally
+        {
+            _preferencesLoaded = true;
+        }
     }
 
     public async Task<bool> ValidateActiveModelAsync(CancellationToken ct = default)
@@ -327,44 +364,6 @@ public sealed class ModelManager(
             EngineType.SpeechEnhancement => enhancementOptionsMonitor.CurrentValue.ActiveModel,
             _ => throw new ArgumentOutOfRangeException(nameof(engineType)),
         };
-
-    /// <summary>
-    /// Loads persisted model overrides from MongoDB on first access (blocking).
-    /// </summary>
-    private void EnsurePreferencesLoaded()
-    {
-        if (_preferencesLoaded)
-            return;
-
-        try
-        {
-            var overrides = preferenceStore.LoadOverridesAsync(CancellationToken.None)
-                .ConfigureAwait(false).GetAwaiter().GetResult();
-
-            foreach (var (engineType, modelId) in overrides)
-            {
-                _activeModelOverrides.TryAdd(engineType, modelId);
-            }
-
-            // Restore preferred STT engine type
-            if (overrides.ContainsKey(EngineType.OfflineStt))
-                PreferredSttEngineType = EngineType.OfflineStt;
-            else if (overrides.ContainsKey(EngineType.Stt))
-                PreferredSttEngineType = EngineType.Stt;
-
-            logger.LogInformation(
-                "Restored {Count} model preference(s) from MongoDB (preferred STT: {PreferredStt})",
-                overrides.Count, PreferredSttEngineType);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to load model preferences — using config defaults");
-        }
-        finally
-        {
-            _preferencesLoaded = true;
-        }
-    }
 
     private string ResolveOfflineSttActiveModel()
     {
