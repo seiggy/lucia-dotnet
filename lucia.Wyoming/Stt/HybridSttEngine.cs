@@ -165,9 +165,25 @@ public sealed class HybridSttEngine : ISttEngine, IDisposable
     private void OnActiveModelChanged(ActiveModelChangedEvent evt)
     {
         if (evt.EngineType != EngineType.OfflineStt) return;
+
+        // Skip Granite models — they use GraniteOnnxEngine, not sherpa-onnx
+        if (IsGraniteModel(evt.ModelPath))
+        {
+            _logger.LogDebug("Skipping Granite model {ModelId} — not compatible with HybridSttEngine", evt.ModelId);
+            return;
+        }
+
         _logger.LogInformation("Reloading hybrid STT engine with model {ModelId}", evt.ModelId);
         TryLoadModel(evt.ModelPath);
     }
+
+    private static bool IsGraniteModel(string modelPath) =>
+        !string.IsNullOrWhiteSpace(modelPath)
+        && Directory.Exists(modelPath)
+        && (File.Exists(Path.Combine(modelPath, "encoder_model.onnx"))
+            || File.Exists(Path.Combine(modelPath, "onnx", "encoder_model.onnx"))
+            || (modelPath.Contains("granite", StringComparison.OrdinalIgnoreCase)
+                && !Directory.EnumerateFiles(modelPath, "tokens.txt", SearchOption.AllDirectories).Any()));
 
     /// <summary>
     /// Scans the STT model base path for the best available offline model.

@@ -47,7 +47,13 @@ public sealed class HuggingFaceCatalogProvider(
         string modelId,
         CancellationToken ct = default)
     {
-        // modelId for HF models is the repo ID (e.g. "onnx-community/whisper-tiny")
+        // HF model IDs are repo paths with a slash (e.g. "onnx-community/whisper-tiny").
+        // Skip lookup for curated catalog IDs that don't match this format.
+        if (!modelId.Contains('/'))
+        {
+            return null;
+        }
+
         var info = await client.GetModelInfoAsync(modelId, ct);
 
         return info is not null ? MapToDefinition(info, engineType) : null;

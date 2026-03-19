@@ -68,6 +68,12 @@ public sealed class HuggingFaceModelDownloader(
             CreateNoWindow = true,
         };
 
+        // Aspire dev-hosting sets SSL_CERT_DIR to its dev-cert directory, which breaks
+        // Python's SSL verification. Override with the system CA bundle in debug builds only.
+#if DEBUG
+        ApplyDebugSslOverrides(process.StartInfo);
+#endif
+
         process.Start();
 
         // Register cancellation to kill the process by PID
@@ -113,10 +119,17 @@ public sealed class HuggingFaceModelDownloader(
             return ModelDownloadResult.Failure(repoId, stderr.Trim());
         }
 
+        // The hf CLI should print the snapshot path as the last stdout line,
+        // but it's not always reliable. Fall back to scanning the cache structure.
         if (string.IsNullOrWhiteSpace(snapshotPath) || !Directory.Exists(snapshotPath))
         {
-            logger.LogWarning("Download of {RepoId} completed but snapshot path could not be resolved", repoId);
-            return ModelDownloadResult.Failure(repoId, "Snapshot path not found in command output");
+            snapshotPath = ResolveSnapshotPath(cacheDirectory, repoId);
+        }
+
+        if (string.IsNullOrWhiteSpace(snapshotPath) || !Directory.Exists(snapshotPath))
+        {
+            logger.LogWarning("Download of {RepoId} completed but snapshot path could not be resolved in {Dir}", repoId, cacheDirectory);
+            return ModelDownloadResult.Failure(repoId, "Snapshot path not found in command output or cache directory");
         }
 
         logger.LogInformation("Downloaded {RepoId} to {SnapshotPath}", repoId, snapshotPath);
@@ -159,6 +172,38 @@ public sealed class HuggingFaceModelDownloader(
         return Task.FromResult(updateAvailable);
     }
 
+    /// <summary>
+    /// Scans the HF cache directory for the latest snapshot folder.
+    /// HF CLI stores downloads in: {cache}/models--{org}--{name}/snapshots/{hash}/
+    /// </summary>
+    private static string? ResolveSnapshotPath(string cacheDirectory, string repoId)
+    {
+        // The HF cache structure uses "--" as separator: models--onnx-community--granite-4.0-1b-speech-ONNX
+        var sanitizedRepoId = $"models--{repoId.Replace("/", "--")}";
+
+        // Search for the cache folder — try exact match first, then scan
+        var cacheModelDir = Path.Combine(cacheDirectory, sanitizedRepoId);
+        if (!Directory.Exists(cacheModelDir))
+        {
+            // HF may use a slightly different naming; scan for any models-- dir containing the repo name
+            var repoName = repoId.Split('/').Last();
+            cacheModelDir = Directory.EnumerateDirectories(cacheDirectory, "models--*", SearchOption.TopDirectoryOnly)
+                .FirstOrDefault(d => d.Contains(repoName, StringComparison.OrdinalIgnoreCase));
+
+            if (cacheModelDir is null)
+                return null;
+        }
+
+        var snapshotsDir = Path.Combine(cacheModelDir, "snapshots");
+        if (!Directory.Exists(snapshotsDir))
+            return null;
+
+        // Pick the most recently written snapshot (there's usually just one)
+        return Directory.EnumerateDirectories(snapshotsDir)
+            .OrderByDescending(d => Directory.GetLastWriteTimeUtc(d))
+            .FirstOrDefault();
+    }
+
     private async Task<(int ExitCode, string Stdout, string Stderr)> RunProcessAsync(
         string command,
         string arguments,
@@ -174,6 +219,10 @@ public sealed class HuggingFaceModelDownloader(
             UseShellExecute = false,
             CreateNoWindow = true,
         };
+
+#if DEBUG
+        ApplyDebugSslOverrides(process.StartInfo);
+#endif
 
         process.Start();
 
@@ -240,4 +289,26 @@ public sealed class HuggingFaceModelDownloader(
             PercentComplete = percent,
         };
     }
+
+#if DEBUG
+    /// <summary>
+    /// Aspire dev-hosting sets SSL_CERT_DIR to its dev-cert directory, breaking Python SSL.
+    /// Clear poisoned vars and point to system CA bundle (Linux only).
+    /// </summary>
+    private static void ApplyDebugSslOverrides(ProcessStartInfo startInfo)
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        const string systemCaBundle = "/etc/ssl/certs/ca-certificates.crt";
+        if (!File.Exists(systemCaBundle))
+            return;
+
+        startInfo.Environment.Remove("SSL_CERT_DIR");
+        startInfo.Environment.Remove("REQUESTS_CA_BUNDLE");
+        startInfo.Environment.Remove("CURL_CA_BUNDLE");
+        startInfo.Environment.Remove("NODE_EXTRA_CA_CERTS");
+        startInfo.Environment["SSL_CERT_FILE"] = systemCaBundle;
+    }
+#endif
 }
