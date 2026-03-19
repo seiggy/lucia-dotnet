@@ -28,7 +28,7 @@ COPY lucia.TimerAgent/lucia.TimerAgent.csproj lucia.TimerAgent/
 COPY lucia.MusicAgent/lucia.MusicAgent.csproj lucia.MusicAgent/
 
 # Restore for linux-x64 only
-RUN dotnet restore lucia.AgentHost/lucia.AgentHost.csproj --runtime linux-x64
+RUN dotnet restore lucia.AgentHost/lucia.AgentHost.csproj --runtime linux-x64 /p:CpuOnly=true
 
 # Copy source
 COPY lucia.AgentHost/ lucia.AgentHost/
@@ -40,23 +40,15 @@ COPY lucia.Wyoming/ lucia.Wyoming/
 COPY lucia.TimerAgent/ lucia.TimerAgent/
 COPY lucia.MusicAgent/ lucia.MusicAgent/
 
-# Publish for linux-x64 (self-contained false — use shared runtime)
+# Publish for linux-x64 CPU-only (no CUDA/TensorRT packages restored)
 RUN dotnet publish lucia.AgentHost/lucia.AgentHost.csproj \
     -c Release \
     -o /app/publish \
     --no-restore \
     --runtime linux-x64 \
     /p:UseAppHost=false \
-    /p:PublishTrimmed=false
-
-# Remove CUDA/TensorRT provider libs — the main libonnxruntime.so is compiled
-# with CUDA support baked in but these provider shims trigger native crashes
-# when CUDA drivers are absent. Removing them is defense-in-depth alongside
-# the OnnxProviderDetector verification that falls back to CPU.
-RUN rm -f /app/publish/runtimes/*/native/*cuda* \
-          /app/publish/runtimes/*/native/*tensorrt* \
-          /app/publish/runtimes/*/native/*nvinfer* \
-    2>/dev/null; true
+    /p:PublishTrimmed=false \
+    /p:CpuOnly=true
 
 # Remove non-linux runtimes to slim the image
 RUN rm -rf /app/publish/runtimes/win-* \
