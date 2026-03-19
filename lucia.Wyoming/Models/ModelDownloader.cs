@@ -36,18 +36,45 @@ public sealed class ModelDownloader(
                 return hfResult;
             }
 
+            // Signal download phase complete
+            progress?.Report(new ModelDownloadProgress
+            {
+                ModelId = model.Id,
+                BytesDownloaded = model.SizeBytes,
+                TotalBytes = model.SizeBytes,
+                PercentComplete = 100d,
+            });
+
             // HF CLI downloads into a cache structure (models--org--name/snapshots/{hash}/).
             // Copy the snapshot contents into the flat {basePath}/{modelId}/ structure
             // that the model catalog expects.
             if (!string.Equals(hfResult.LocalPath, hfTargetDirectory, StringComparison.Ordinal)
                 && Directory.Exists(hfResult.LocalPath))
             {
+                extractionProgress?.Report((0, "Installing model files..."));
+
                 Directory.CreateDirectory(hfTargetDirectory);
-                CopyDirectory(hfResult.LocalPath, hfTargetDirectory);
+                var files = Directory.GetFiles(hfResult.LocalPath, "*", SearchOption.AllDirectories);
+
+                for (var i = 0; i < files.Length; i++)
+                {
+                    var relativePath = Path.GetRelativePath(hfResult.LocalPath, files[i]);
+                    var destPath = Path.Combine(hfTargetDirectory, relativePath);
+                    var destDir = Path.GetDirectoryName(destPath);
+                    if (!string.IsNullOrWhiteSpace(destDir))
+                        Directory.CreateDirectory(destDir);
+
+                    File.Copy(files[i], destPath, overwrite: true);
+
+                    var percent = (int)((i + 1) * 100L / files.Length);
+                    extractionProgress?.Report((percent, $"Installing {relativePath}"));
+                }
+
+                extractionProgress?.Report((100, "Installation complete"));
 
                 logger.LogInformation(
-                    "Copied HuggingFace model from {SnapshotPath} to {TargetPath}",
-                    hfResult.LocalPath, hfTargetDirectory);
+                    "Installed {FileCount} files from HuggingFace snapshot to {TargetPath}",
+                    files.Length, hfTargetDirectory);
             }
 
             return ModelDownloadResult.Successful(model.Id, hfTargetDirectory);
