@@ -67,10 +67,11 @@ COPY --from=build /app/publish .
 # Copy dashboard assets to wwwroot for SPA serving
 COPY --from=dashboard /dashboard/dist ./wwwroot/
 
-# Create data directories with open permissions for volume mounts
+# Create data directories with group-writable permissions for volume mounts.
+# HA Supervisor runs containers with arbitrary UIDs; 775 allows group writes.
 RUN mkdir -p /data /app/models /app/plugins && \
     chown -R appuser:appuser /data /app /app/models /app/plugins && \
-    chmod 777 /data /app/models /app/plugins
+    chmod 775 /data /app/models /app/plugins
 
 # Configure for lightweight mode (CPU-only, InMemory cache, SQLite store)
 ENV DataProvider__Cache=InMemory \

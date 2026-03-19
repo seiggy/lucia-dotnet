@@ -81,7 +81,7 @@ public sealed class SqliteModelPreferenceStore : IModelPreferenceStore
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to persist model preference for {Key}/{Value}", key, value);
+            _logger.LogWarning(ex, "Failed to persist model preference for key {Key}", key);
         }
     }
 

@@ -15,7 +15,7 @@ public sealed class SqliteConfigurationProvider : ConfigurationProvider, IDispos
     private readonly ILogger _logger;
     private readonly TimeSpan _pollInterval;
     private Timer? _pollTimer;
-    private string _lastLoadTimestamp = DateTime.MinValue.ToString("O");
+    private long _lastLoadRowVersion;
     private int _isPolling;
 
     public SqliteConfigurationProvider(
@@ -61,7 +61,11 @@ public sealed class SqliteConfigurationProvider : ConfigurationProvider, IDispos
             }
 
             Data = data;
-            _lastLoadTimestamp = DateTime.UtcNow.ToString("O");
+
+            // Track row count as a simple change-detection proxy
+            using var countCmd = connection.CreateCommand();
+            countCmd.CommandText = "SELECT COUNT(*) FROM configuration;";
+            _lastLoadRowVersion = Convert.ToInt64(countCmd.ExecuteScalar());
         }
         catch (Exception ex)
         {
@@ -78,13 +82,22 @@ public sealed class SqliteConfigurationProvider : ConfigurationProvider, IDispos
         try
         {
             using var connection = _connectionFactory.CreateConnection();
+
+            // Use a hash of all keys+values to detect any change (inserts, updates, deletes)
             using var checkCmd = connection.CreateCommand();
-            checkCmd.CommandText = "SELECT COUNT(*) FROM configuration WHERE updated_at > @since;";
-            checkCmd.Parameters.AddWithValue("@since", _lastLoadTimestamp);
+            checkCmd.CommandText = "SELECT COUNT(*), COALESCE(MAX(updated_at), '') FROM configuration;";
+            using var checkReader = await checkCmd.ExecuteReaderAsync().ConfigureAwait(false);
 
-            var changedCount = Convert.ToInt32(await checkCmd.ExecuteScalarAsync().ConfigureAwait(false));
+            if (!await checkReader.ReadAsync().ConfigureAwait(false))
+            {
+                return;
+            }
 
-            if (changedCount > 0)
+            var currentCount = checkReader.GetInt64(0);
+            var maxUpdatedAt = checkReader.GetString(1);
+            var currentVersion = currentCount ^ maxUpdatedAt.GetHashCode();
+
+            if (currentVersion != _lastLoadRowVersion)
             {
                 using var cmd = connection.CreateCommand();
                 cmd.CommandText = "SELECT key, value FROM configuration;";
@@ -99,7 +112,7 @@ public sealed class SqliteConfigurationProvider : ConfigurationProvider, IDispos
                 }
 
                 Data = data;
-                _lastLoadTimestamp = DateTime.UtcNow.ToString("O");
+                _lastLoadRowVersion = currentVersion;
                 OnReload();
             }
         }
