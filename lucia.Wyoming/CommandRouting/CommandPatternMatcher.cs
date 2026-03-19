@@ -25,6 +25,7 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
 
         CommandPattern? matchedPattern = null;
         Dictionary<string, string>? capturedValues = null;
+        string? bestTemplate = null;
         var bestConfidence = 0f;
         var bestSpecificity = 0;
         var bestPriority = int.MinValue;
@@ -47,6 +48,7 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
 
                 matchedPattern = pattern;
                 capturedValues = captures;
+                bestTemplate = template;
                 bestConfidence = confidence;
                 bestSpecificity = specificity;
                 bestPriority = pattern.Priority;
@@ -66,6 +68,8 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
             MatchedPattern = matchedPattern,
             CapturedValues = capturedValues,
             MatchDuration = duration,
+            MatchedTemplate = bestTemplate,
+            NormalizedTranscript = normalizedTranscript,
         };
     }
 
