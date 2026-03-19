@@ -64,6 +64,7 @@
     <ProjectReference Include="..\lucia.AppHost\lucia.AppHost.csproj" />
     <ProjectReference Include="..\lucia.TimerAgent\lucia.TimerAgent.csproj" />
     <ProjectReference Include="..\lucia.Wyoming\lucia.Wyoming.csproj" />
+    <ProjectReference Include="..\lucia.Data\lucia.Data.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="AgentTests\" />
