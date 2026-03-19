@@ -651,9 +651,21 @@ public sealed class GraniteOnnxEngine : IGraniteEngine, IDisposable
     private void OnActiveModelChanged(ActiveModelChangedEvent evt)
     {
         if (evt.EngineType != EngineType.OfflineStt) return;
+
+        // Only load models with Granite's 3-model ONNX architecture
+        if (!IsGraniteModel(evt.ModelPath))
+        {
+            _logger.LogDebug("Skipping non-Granite model {ModelId} — not compatible with GraniteOnnxEngine", evt.ModelId);
+            return;
+        }
+
         _logger.LogInformation("Reloading Granite engine with model {ModelId}", evt.ModelId);
         TryLoadModel(evt.ModelPath);
     }
+
+    private static bool IsGraniteModel(string modelPath) =>
+        File.Exists(Path.Combine(modelPath, "encoder_model.onnx"))
+        || File.Exists(Path.Combine(modelPath, "onnx", "encoder_model.onnx"));
 
     /// <summary>
     /// Finds an ONNX model file, checking for external data files.
