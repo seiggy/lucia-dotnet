@@ -73,6 +73,33 @@ public sealed class ModelManager(
             logger.LogInformation(
                 "Restored {Count} model preference(s) from MongoDB (preferred STT: {PreferredStt})",
                 overrides.Count, PreferredSttEngineType);
+
+            // Notify engines so they load the restored models
+            foreach (var (engineType, modelId) in overrides)
+            {
+                var modelBasePath = GetModelBasePath(engineType);
+                var modelDirectory = GetSafeModelDirectory(modelId, modelBasePath);
+
+                if (IsUsableModelDirectory(modelDirectory))
+                {
+                    logger.LogInformation(
+                        "Activating restored {EngineType} model {ModelId} at {Path}",
+                        engineType, modelId, modelDirectory);
+
+                    ActiveModelChanged?.Invoke(new ActiveModelChangedEvent
+                    {
+                        EngineType = engineType,
+                        ModelId = modelId,
+                        ModelPath = modelDirectory,
+                    });
+                }
+                else
+                {
+                    logger.LogWarning(
+                        "Restored preference for {EngineType}/{ModelId} but model directory not found at {Path} — skipping activation",
+                        engineType, modelId, modelDirectory);
+                }
+            }
         }
         catch (Exception ex)
         {
