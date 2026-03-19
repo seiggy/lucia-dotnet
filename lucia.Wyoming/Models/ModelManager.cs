@@ -26,6 +26,9 @@ public sealed class ModelManager(
     private readonly HashSet<EngineType> _restoredEngineTypes = [];
     private volatile bool _preferencesLoaded;
 
+    /// <summary>Synthetic EngineType used to persist PreferredSttEngineType separately.</summary>
+    private static readonly EngineType PreferredSttEngineTypeKey = (EngineType)999;
+
     public event Action<ActiveModelChangedEvent>? ActiveModelChanged;
 
     /// <summary>
@@ -69,21 +72,49 @@ public sealed class ModelManager(
 
             foreach (var (engineType, modelId) in overrides)
             {
+                if (engineType == PreferredSttEngineTypeKey)
+                    continue; // synthetic key, not a real engine
                 _activeModelOverrides[engineType] = modelId;
             }
 
-            if (overrides.ContainsKey(EngineType.OfflineStt))
+            // Restore preferred STT engine type from the explicit persisted key
+            if (overrides.TryGetValue(PreferredSttEngineTypeKey, out var preferredStr)
+                && Enum.TryParse<EngineType>(preferredStr, ignoreCase: true, out var preferred))
+            {
+                PreferredSttEngineType = preferred;
+            }
+            else if (overrides.ContainsKey(EngineType.OfflineStt))
+            {
                 PreferredSttEngineType = EngineType.OfflineStt;
+            }
             else if (overrides.ContainsKey(EngineType.Stt))
+            {
                 PreferredSttEngineType = EngineType.Stt;
+            }
 
             logger.LogInformation(
                 "Restored {Count} model preference(s) from MongoDB (preferred STT: {PreferredStt})",
                 overrides.Count, PreferredSttEngineType);
 
-            // Notify engines so they load the restored models
+            // Notify engines so they load the restored models.
+            // For STT, only activate the preferred engine type to avoid the
+            // non-preferred one overwriting it during engine initialization.
+            var nonPreferredStt = PreferredSttEngineType == EngineType.Stt
+                ? EngineType.OfflineStt
+                : EngineType.Stt;
+
             foreach (var (engineType, modelId) in overrides)
             {
+                if (engineType == PreferredSttEngineTypeKey)
+                    continue;
+
+                if (engineType == nonPreferredStt)
+                {
+                    logger.LogDebug(
+                        "Skipping activation of non-preferred STT engine {EngineType}/{ModelId}",
+                        engineType, modelId);
+                    continue;
+                }
                 var modelBasePath = GetModelBasePath(engineType);
                 var modelDirectory = GetSafeModelDirectory(modelId, modelBasePath);
 
@@ -281,10 +312,13 @@ public sealed class ModelManager(
         // Persist to MongoDB so the selection survives reboots
         await preferenceStore.SaveOverrideAsync(engineType, modelId, ct).ConfigureAwait(false);
 
-        // Track which STT engine type the user prefers
+        // Track and persist which STT engine type the user prefers
         if (engineType is EngineType.Stt or EngineType.OfflineStt)
         {
             PreferredSttEngineType = engineType;
+            // Persist as a synthetic key so it survives reboots independently
+            await preferenceStore.SaveOverrideAsync(
+                PreferredSttEngineTypeKey, engineType.ToString(), ct).ConfigureAwait(false);
         }
 
         ActiveModelChanged?.Invoke(new ActiveModelChangedEvent
