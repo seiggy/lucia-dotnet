@@ -112,6 +112,29 @@ public sealed class ModelStartupValidator(
     {
         try
         {
+            // If this engine type was already restored from persisted preferences, skip.
+            if (modelManager.IsPreferenceRestored(engineType))
+            {
+                logger.LogDebug(
+                    "Skipping activation for {EngineType} — already restored from persisted preferences",
+                    engineType);
+                return;
+            }
+
+            // If the user's preferred STT engine was restored, skip the OTHER STT engine
+            // type entirely to prevent it from overwriting the preference.
+            if (engineType is EngineType.Stt or EngineType.OfflineStt)
+            {
+                var otherStt = engineType == EngineType.Stt ? EngineType.OfflineStt : EngineType.Stt;
+                if (modelManager.IsPreferenceRestored(otherStt))
+                {
+                    logger.LogDebug(
+                        "Skipping activation for {EngineType} — preferred STT engine {Other} was restored",
+                        engineType, otherStt);
+                    return;
+                }
+            }
+
             var activeModelId = modelManager.GetActiveModelId(engineType);
             logger.LogInformation("Validating active Wyoming {EngineType} model {ModelId} on startup", engineType, activeModelId);
 

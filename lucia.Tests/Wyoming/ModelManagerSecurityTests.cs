@@ -1,3 +1,4 @@
+using FakeItEasy;
 using lucia.Wyoming.Audio;
 using lucia.Wyoming.Diarization;
 using lucia.Wyoming.Models;
@@ -101,6 +102,7 @@ public sealed class ModelManagerSecurityTests : IDisposable
             downloader,
             hfDownloader,
             hfClient,
+            A.Fake<IModelPreferenceStore>(),
             NullLogger<ModelManager>.Instance);
     }
 

@@ -19,11 +19,23 @@ public sealed class ModelManager(
     ModelDownloader downloader,
     HuggingFaceModelDownloader hfDownloader,
     HuggingFaceClient hfClient,
+    IModelPreferenceStore preferenceStore,
     ILogger<ModelManager> logger) : IModelChangeNotifier
 {
     private readonly Dictionary<EngineType, string> _activeModelOverrides = [];
+    private readonly HashSet<EngineType> _restoredEngineTypes = [];
+    private volatile bool _preferencesLoaded;
+
+    /// <summary>Well-known preference key for the user's chosen STT model.</summary>
+    private const string PreferredSttModelKey = "PreferredSttModel";
 
     public event Action<ActiveModelChangedEvent>? ActiveModelChanged;
+
+    /// <summary>
+    /// Returns true if the given engine type was restored from persisted preferences.
+    /// Used by ModelStartupValidator to skip re-activation of already-loaded engines.
+    /// </summary>
+    public bool IsPreferenceRestored(EngineType engineType) => _restoredEngineTypes.Contains(engineType);
 
     /// <summary>
     /// Tracks which STT engine type the user last activated (Stt for streaming, OfflineStt for hybrid/offline).
@@ -37,10 +49,106 @@ public sealed class ModelManager(
     /// </summary>
     public string ActiveModelId => GetActiveModelId(EngineType.Stt);
 
-    public string GetActiveModelId(EngineType engineType) =>
-        _activeModelOverrides.TryGetValue(engineType, out var overrideId) && !string.IsNullOrWhiteSpace(overrideId)
+    public string GetActiveModelId(EngineType engineType)
+    {
+        // Preferences are loaded asynchronously via InitializeAsync.
+        // If not yet loaded, fall back to config defaults.
+        return _activeModelOverrides.TryGetValue(engineType, out var overrideId) && !string.IsNullOrWhiteSpace(overrideId)
             ? overrideId
             : GetConfiguredActiveModel(engineType);
+    }
+
+    /// <summary>
+    /// Loads persisted model preferences from MongoDB. Call during startup.
+    /// </summary>
+    public async Task LoadPersistedPreferencesAsync(CancellationToken ct = default)
+    {
+        if (_preferencesLoaded)
+            return;
+
+        try
+        {
+            var allPrefs = await preferenceStore.LoadAllAsync(ct).ConfigureAwait(false);
+
+            // Restore non-STT engine overrides (VAD, WakeWord, SpeakerEmbedding, SpeechEnhancement)
+            foreach (var (key, modelId) in allPrefs)
+            {
+                if (key == PreferredSttModelKey)
+                    continue; // handled below
+                if (!Enum.TryParse<EngineType>(key, ignoreCase: true, out var engineType))
+                {
+                    // Unknown/legacy key (e.g. old synthetic "999") — remove it
+                    _ = preferenceStore.RemoveAsync(key, ct);
+                    continue;
+                }
+                if (engineType is EngineType.Stt or EngineType.OfflineStt)
+                {
+                    // Legacy keys — clean them up from MongoDB
+                    _ = preferenceStore.RemoveAsync(key, ct);
+                    continue;
+                }
+                _activeModelOverrides[engineType] = modelId;
+            }
+
+            // Restore the single preferred STT model — catalog resolves the engine type
+            if (allPrefs.TryGetValue(PreferredSttModelKey, out var sttModelId)
+                && !string.IsNullOrWhiteSpace(sttModelId))
+            {
+                var model = catalogService.GetModelById(sttModelId);
+                var sttEngineType = model?.EngineType
+                    ?? (sttModelId.Contains("parakeet", StringComparison.OrdinalIgnoreCase)
+                        ? EngineType.OfflineStt : EngineType.Stt);
+
+                _activeModelOverrides[sttEngineType] = sttModelId;
+                PreferredSttEngineType = sttEngineType;
+
+                logger.LogInformation(
+                    "Restored preferred STT model: {ModelId} (engine: {EngineType})",
+                    sttModelId, sttEngineType);
+            }
+
+            logger.LogInformation(
+                "Restored {Count} model preference(s) from MongoDB (preferred STT: {PreferredStt})",
+                _activeModelOverrides.Count, PreferredSttEngineType);
+
+            // Notify engines so they load the restored models
+            foreach (var (engineType, modelId) in _activeModelOverrides)
+            {
+                var modelBasePath = GetModelBasePath(engineType);
+                var modelDirectory = GetSafeModelDirectory(modelId, modelBasePath);
+
+                if (IsUsableModelDirectory(modelDirectory))
+                {
+                    logger.LogInformation(
+                        "Activating restored {EngineType} model {ModelId} at {Path}",
+                        engineType, modelId, modelDirectory);
+
+                    ActiveModelChanged?.Invoke(new ActiveModelChangedEvent
+                    {
+                        EngineType = engineType,
+                        ModelId = modelId,
+                        ModelPath = modelDirectory,
+                    });
+
+                    _restoredEngineTypes.Add(engineType);
+                }
+                else
+                {
+                    logger.LogWarning(
+                        "Restored preference for {EngineType}/{ModelId} but model directory not found at {Path} — skipping activation",
+                        engineType, modelId, modelDirectory);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to load model preferences — using config defaults");
+        }
+        finally
+        {
+            _preferencesLoaded = true;
+        }
+    }
 
     public async Task<bool> ValidateActiveModelAsync(CancellationToken ct = default)
     {
@@ -200,10 +308,16 @@ public sealed class ModelManager(
 
         _activeModelOverrides[engineType] = modelId;
 
-        // Track which STT engine type the user prefers
+        // Persist to MongoDB so the selection survives reboots.
+        // For STT, only persist the single PreferredSttModel key (engine inferred from catalog).
         if (engineType is EngineType.Stt or EngineType.OfflineStt)
         {
             PreferredSttEngineType = engineType;
+            await preferenceStore.SaveAsync(PreferredSttModelKey, modelId, ct).ConfigureAwait(false);
+        }
+        else
+        {
+            await preferenceStore.SaveAsync(engineType.ToString(), modelId, ct).ConfigureAwait(false);
         }
 
         ActiveModelChanged?.Invoke(new ActiveModelChangedEvent
@@ -228,7 +342,7 @@ public sealed class ModelManager(
     public Task DeleteModelAsync(string modelId, CancellationToken ct = default) =>
         DeleteModelAsync(EngineType.Stt, modelId, ct);
 
-    public Task DeleteModelAsync(EngineType engineType, string modelId, CancellationToken ct = default)
+    public async Task DeleteModelAsync(EngineType engineType, string modelId, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
         ArgumentException.ThrowIfNullOrWhiteSpace(modelId);
@@ -238,7 +352,7 @@ public sealed class ModelManager(
 
         if (!Directory.Exists(modelDirectory))
         {
-            return Task.CompletedTask;
+            return;
         }
 
         Directory.Delete(modelDirectory, recursive: true);
@@ -247,6 +361,10 @@ public sealed class ModelManager(
             && string.Equals(active, modelId, StringComparison.Ordinal))
         {
             _activeModelOverrides.Remove(engineType);
+            if (engineType is EngineType.Stt or EngineType.OfflineStt)
+                await preferenceStore.RemoveAsync(PreferredSttModelKey, ct).ConfigureAwait(false);
+            else
+                await preferenceStore.RemoveAsync(engineType.ToString(), ct).ConfigureAwait(false);
         }
 
         logger.LogInformation(
@@ -254,8 +372,6 @@ public sealed class ModelManager(
             engineType,
             modelId,
             modelDirectory);
-
-        return Task.CompletedTask;
     }
 
     /// <summary>
