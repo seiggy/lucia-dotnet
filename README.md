@@ -144,9 +144,13 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
 | `seiggy/lucia-agenthost:latest` | None | ~250MB | Base orchestration (no voice) |
 | `seiggy/lucia-agenthost:voice` | NVIDIA CUDA 12.8 | ~3GB | Voice + NVIDIA GPU acceleration |
 | `seiggy/lucia-agenthost:voice-cpu` | None | ~3GB | Voice with CPU-only inference |
-| `seiggy/lucia-agenthost:voice-rocm` | AMD ROCm 6.4 | ~25GB | Voice + AMD GPU acceleration |
+| *Self-build only* | AMD ROCm 6.4 | ~25GB | Voice + AMD GPU acceleration |
 
-> **Note:** The ROCm image is significantly larger than CUDA because AMD's ROCm runtime (~20GB) is much less modular than NVIDIA's CUDA runtime (~1.5GB). This is an upstream constraint. If disk space is a concern and you have an AMD GPU, consider using the `voice-cpu` image — CPU inference is still fast enough for real-time voice processing on modern hardware.
+> **Note:** The ROCm image is not published to Docker Hub due to its ~25GB size exceeding CI storage limits. AMD GPU users can build it locally:
+> ```bash
+> docker build -t lucia:voice-rocm -f infra/docker/Dockerfile.voice-rocm .
+> ```
+> The image is large because AMD's ROCm runtime (~20GB) is much less modular than NVIDIA's CUDA runtime (~1.5GB). This is an upstream constraint. If disk space is a concern, the `voice-cpu` image provides CPU-only inference that is still fast enough for real-time voice processing on modern hardware.
 
 To use the voice variants, change the image in your `docker-compose.yml`:
 ```yaml
