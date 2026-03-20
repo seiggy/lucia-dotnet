@@ -41,12 +41,14 @@ public static class PluginRepositoryApi
         CancellationToken ct)
     {
         var url = request.Url.Trim();
-        var isLocal = !url.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
-                   && !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+        var isLocal = Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            ? uri.Scheme == "file"
+            : !url.Contains("://") && !url.StartsWith("git@", StringComparison.OrdinalIgnoreCase);
 
         var repo = new PluginRepositoryDefinition
         {
-            Id = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(url.ToLowerInvariant())))[..16],
+            Id = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+                isLocal ? url : url.ToLowerInvariant())))[..16],
             Name = isLocal
                 ? Path.GetFileName(url.TrimEnd('/', '\\')) ?? url
                 : url.Split('/').LastOrDefault() ?? url,

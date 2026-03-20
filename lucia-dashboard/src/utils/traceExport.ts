@@ -192,17 +192,20 @@ export function buildCommandTraceIssueUrl(trace: CommandTrace): string {
 
 function buildGitHubUrl(title: string, body: string, labels: string): string {
   const params = new URLSearchParams({ title, body, labels })
-  const url = `${GITHUB_ISSUES_URL}?${params.toString()}`
+  let url = `${GITHUB_ISSUES_URL}?${params.toString()}`
 
   if (url.length > MAX_URL_LENGTH) {
-    const availableBodyLength = MAX_URL_LENGTH
-      - GITHUB_ISSUES_URL.length
-      - new URLSearchParams({ title, body: '', labels }).toString().length
-      - 100 // safety margin
-
-    const truncatedBody = body.slice(0, availableBodyLength) + '\n\n⚠️ *Body truncated due to URL length limits. Export the trace JSON for full details.*'
-    const truncatedParams = new URLSearchParams({ title, body: truncatedBody, labels })
-    return `${GITHUB_ISSUES_URL}?${truncatedParams.toString()}`
+    // Iteratively shrink body until encoded URL fits within the limit
+    let truncatedBody = body
+    while (url.length > MAX_URL_LENGTH && truncatedBody.length > 200) {
+      truncatedBody = truncatedBody.slice(0, Math.floor(truncatedBody.length * 0.8))
+      const truncatedParams = new URLSearchParams({
+        title,
+        body: truncatedBody + '\n\n⚠️ *Body truncated due to URL length limits. Export the trace JSON for full details.*',
+        labels,
+      })
+      url = `${GITHUB_ISSUES_URL}?${truncatedParams.toString()}`
+    }
   }
 
   return url

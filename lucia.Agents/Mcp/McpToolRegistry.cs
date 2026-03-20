@@ -106,11 +106,11 @@ public sealed class McpToolRegistry : IMcpToolRegistry
                 InitializationTimeout = TimeSpan.FromSeconds(120),
             };
 
-            // CancellationToken.None — the MCP server process must outlive the calling context.
-            // Stdio processes are children of this application and are cleaned up via DisposeAsync.
-            var client = await McpClient.CreateAsync(transport, clientOptions, _loggerFactory, cancellationToken: CancellationToken.None)
+            // Use the caller's token for the handshake so app shutdown or aborted startup
+            // can cancel initialization; the MCP server process itself is still cleaned up via DisposeAsync.
+            var client = await McpClient.CreateAsync(transport, clientOptions, _loggerFactory, cancellationToken: ct)
                 .ConfigureAwait(false);
-            var tools = await client.ListToolsAsync(cancellationToken: CancellationToken.None)
+            var tools = await client.ListToolsAsync(cancellationToken: ct)
                 .ConfigureAwait(false);
 
             _clients[serverId] = new McpClientEntry(server, client, tools.ToList());

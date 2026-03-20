@@ -56,9 +56,10 @@ public sealed class BraveSearchWebSearchSkill : IWebSearchSkill
             if (!response.IsSuccessStatusCode)
             {
                 var errorBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                var truncatedBody = errorBody.Length > 500 ? errorBody[..500] + "…" : errorBody;
                 _logger.LogWarning(
-                    "Brave LLM Context API returned {StatusCode} for query '{Query}'. Response: {Body}",
-                    (int)response.StatusCode, query, errorBody);
+                    "Brave LLM Context API returned {StatusCode} for query '{Query}'. Response (truncated): {Body}",
+                    (int)response.StatusCode, query, truncatedBody);
                 return $"Web search failed: HTTP {(int)response.StatusCode}. Check your Brave Search API key and subscription.";
             }
 

@@ -38,20 +38,20 @@
   </ItemGroup>
   <!-- ── .NET Aspire Hosting (AppHost orchestration) ──────────── -->
   <ItemGroup Label="Aspire Hosting">
-    <PackageVersion Include="Aspire.Hosting.Azure.AIFoundry" Version="$(AspirePreviewVersion)" />
-    <PackageVersion Include="Aspire.Hosting.Azure.CognitiveServices" Version="$(AspireVersion)" />
-    <PackageVersion Include="Aspire.Hosting.JavaScript" Version="$(AspireVersion)" />
-    <PackageVersion Include="Aspire.Hosting.MongoDB" Version="$(AspireVersion)" />
-    <PackageVersion Include="Aspire.Hosting.OpenAI" Version="$(AspireVersion)" />
-    <PackageVersion Include="Aspire.Hosting.Redis" Version="$(AspireVersion)" />
+    <PackageVersion Include="Aspire.Hosting.Azure.AIFoundry" Version="13.1.3-preview.1.26166.8" />
+    <PackageVersion Include="Aspire.Hosting.Azure.CognitiveServices" Version="13.1.3" />
+    <PackageVersion Include="Aspire.Hosting.JavaScript" Version="13.1.3" />
+    <PackageVersion Include="Aspire.Hosting.MongoDB" Version="13.1.3" />
+    <PackageVersion Include="Aspire.Hosting.OpenAI" Version="13.1.3" />
+    <PackageVersion Include="Aspire.Hosting.Redis" Version="13.1.3" />
     <PackageVersion Include="Aspire.Hosting.Testing" Version="$(AspireVersion)" />
   </ItemGroup>
   <!-- ── .NET Aspire Client Integrations (service projects) ───── -->
   <ItemGroup Label="Aspire Client Integrations">
-    <PackageVersion Include="Aspire.Azure.AI.OpenAI" Version="$(AspirePreviewVersion)" />
-    <PackageVersion Include="Aspire.MongoDB.Driver" Version="$(AspireVersion)" />
+    <PackageVersion Include="Aspire.Azure.AI.OpenAI" Version="13.1.3-preview.1.26166.8" />
+    <PackageVersion Include="Aspire.MongoDB.Driver" Version="13.1.3" />
     <PackageVersion Include="Aspire.MongoDB.Driver.v3" Version="9.5.2" />
-    <PackageVersion Include="Aspire.StackExchange.Redis" Version="$(AspireVersion)" />
+    <PackageVersion Include="Aspire.StackExchange.Redis" Version="13.1.3" />
   </ItemGroup>
   <!-- ── Microsoft Agent Framework ────────────────────────────── -->
   <ItemGroup Label="Microsoft Agent Framework">
