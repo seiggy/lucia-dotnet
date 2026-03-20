@@ -6,7 +6,8 @@ import type { RelatedTraceSummary } from '../api'
 import { LabelStatus } from '../types'
 import type { AgentExecutionRecord } from '../types'
 import SpanTimeline from '../components/SpanTimeline'
-import { ArrowLeft, Clock, Hash, Timer, AlertTriangle, CheckCircle2, XCircle, ThumbsUp, ThumbsDown, Eraser, ChevronDown, Loader2 } from 'lucide-react'
+import { ArrowLeft, Clock, Hash, Timer, AlertTriangle, CheckCircle2, XCircle, ThumbsUp, ThumbsDown, Eraser, ChevronDown, Loader2, Download, Bug } from 'lucide-react'
+import { downloadJson, buildConversationTraceIssueUrl } from '../utils/traceExport'
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleString()
@@ -117,13 +118,31 @@ export default function TraceDetailPage() {
 
   return (
     <div className="space-y-6">
-      {/* Back button */}
-      <button
-        onClick={() => navigate('/')}
-        className="flex items-center gap-1.5 text-sm text-amber transition-colors hover:text-amber-glow"
-      >
-        <ArrowLeft className="h-4 w-4" /> Back to Traces
-      </button>
+      {/* Back button + actions */}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => navigate('/')}
+          className="flex items-center gap-1.5 text-sm text-amber transition-colors hover:text-amber-glow"
+        >
+          <ArrowLeft className="h-4 w-4" /> Back to Traces
+        </button>
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => downloadJson(trace, `llm-trace-${trace.id}.json`)}
+            className="flex items-center gap-1.5 rounded-xl border border-stone bg-basalt px-3 py-1.5 text-sm text-fog transition-colors hover:border-amber/30 hover:text-light"
+          >
+            <Download className="h-4 w-4" /> Export JSON
+          </button>
+          <a
+            href={buildConversationTraceIssueUrl(trace)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 rounded-xl border border-stone bg-basalt px-3 py-1.5 text-sm text-fog transition-colors hover:border-amber/30 hover:text-light"
+          >
+            <Bug className="h-4 w-4" /> Report Issue
+          </a>
+        </div>
+      </div>
 
       {/* Header */}
       <div className="glass-panel rounded-xl p-5">

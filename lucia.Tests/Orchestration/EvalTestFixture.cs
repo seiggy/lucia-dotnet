@@ -486,7 +486,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
         var musicAgent = await CreateMusicAgentAsync(deploymentName, embeddingModelName);
 
         var generalResolver = CreateAgentResolver(CreateBaseChatClient(deploymentName));
-        var generalAgent = new GeneralAgent(generalResolver, _mockDefinitionRepo, _tracingFactory, _loggerFactory);
+        var generalAgent = new GeneralAgent(generalResolver, _mockDefinitionRepo, A.Fake<IMcpToolRegistry>(), _tracingFactory, _loggerFactory);
         await generalAgent.InitializeAsync();
 
         var agentProvider = new EvalAgentProvider(
@@ -568,7 +568,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
         _musicAgentCard = musicAgent.GetAgentCard();
 
         // GeneralAgent card
-        var generalAgent = new GeneralAgent(_mockChatClientResolver, _mockDefinitionRepo, _tracingFactory, _loggerFactory);
+        var generalAgent = new GeneralAgent(_mockChatClientResolver, _mockDefinitionRepo, A.Fake<IMcpToolRegistry>(), _tracingFactory, _loggerFactory);
         _generalAgentCard = generalAgent.GetAgentCard();
     }
 }

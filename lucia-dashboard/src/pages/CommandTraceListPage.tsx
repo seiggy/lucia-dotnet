@@ -5,7 +5,8 @@ import { fetchCommandTraces, fetchCommandTraceStats } from '../api'
 import { useCommandTraceStream } from '../hooks/useCommandTraceStream'
 import CustomSelect from '../components/CustomSelect'
 import type { CommandTrace, CommandTraceOutcome } from '../types'
-import { Search, ChevronLeft, ChevronRight, Activity, Zap, Brain, AlertTriangle, Timer, Loader2, Wifi, WifiOff } from 'lucide-react'
+import { Search, ChevronLeft, ChevronRight, Activity, Zap, Brain, AlertTriangle, Timer, Loader2, Wifi, WifiOff, Download } from 'lucide-react'
+import { downloadJson, datestamp } from '../utils/traceExport'
 
 function outcomeBadge(outcome: CommandTraceOutcome) {
   switch (outcome) {
@@ -170,6 +171,13 @@ export default function CommandTraceListPage() {
             className={inputStyle}
           />
         </div>
+        <button
+          disabled={!traces || traces.items.length === 0}
+          onClick={() => downloadJson(traces!.items, `command-traces-page${page}-${datestamp()}.json`)}
+          className="flex items-center gap-1.5 rounded-xl border border-stone bg-basalt px-3 py-2 text-sm text-fog transition-colors hover:border-amber/30 hover:text-light disabled:opacity-40"
+        >
+          <Download className="h-4 w-4" /> Export Page
+        </button>
       </div>
 
       {/* Table */}

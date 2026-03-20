@@ -5,7 +5,8 @@ import { fetchTraces, fetchStats } from '../api'
 import CustomSelect from '../components/CustomSelect'
 import { LabelStatus } from '../types'
 import type { ConversationTrace } from '../types'
-import { Search, ChevronLeft, ChevronRight, Activity, ThumbsUp, ThumbsDown, Tag, AlertTriangle, Loader2 } from 'lucide-react'
+import { Search, ChevronLeft, ChevronRight, Activity, ThumbsUp, ThumbsDown, Tag, AlertTriangle, Loader2, Download } from 'lucide-react'
+import { downloadJson, datestamp } from '../utils/traceExport'
 
 function labelBadge(status: number) {
   switch (status) {
@@ -144,6 +145,13 @@ export default function TraceListPage() {
             className={inputStyle}
           />
         </div>
+        <button
+          disabled={!traces || traces.items.length === 0}
+          onClick={() => downloadJson(traces!.items, `llm-traces-page${page}-${datestamp()}.json`)}
+          className="flex items-center gap-1.5 rounded-xl border border-stone bg-basalt px-3 py-2 text-sm text-fog transition-colors hover:border-amber/30 hover:text-light disabled:opacity-40"
+        >
+          <Download className="h-4 w-4" /> Export Page
+        </button>
       </div>
 
       {/* Table */}

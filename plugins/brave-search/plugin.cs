@@ -52,7 +52,15 @@ public sealed class BraveSearchWebSearchSkill : IWebSearchSkill
             var searchUrl = $"https://api.search.brave.com/res/v1/llm/context?q={Uri.EscapeDataString(query)}&count=8&maximum_number_of_tokens=8192";
             var client = _httpClientFactory.CreateClient("BraveSearch");
             var response = await client.GetAsync(searchUrl, cancellationToken).ConfigureAwait(false);
-            response.EnsureSuccessStatusCode();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                _logger.LogWarning(
+                    "Brave LLM Context API returned {StatusCode} for query '{Query}'. Response: {Body}",
+                    (int)response.StatusCode, query, errorBody);
+                return $"Web search failed: HTTP {(int)response.StatusCode}. Check your Brave Search API key and subscription.";
+            }
 
             var json = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             var result = JsonSerializer.Deserialize<BraveLlmContextResponse>(json);
