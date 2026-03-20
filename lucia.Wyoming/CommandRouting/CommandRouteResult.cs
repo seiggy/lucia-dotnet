@@ -18,6 +18,12 @@ public sealed record CommandRouteResult
 
     public TimeSpan MatchDuration { get; init; }
 
+    /// <summary>The template string that produced the best match (for trace/debug).</summary>
+    public string? MatchedTemplate { get; init; }
+
+    /// <summary>The normalized transcript that was actually matched against.</summary>
+    public string? NormalizedTranscript { get; init; }
+
     public static CommandRouteResult NoMatch(TimeSpan duration) => new()
     {
         IsMatch = false,

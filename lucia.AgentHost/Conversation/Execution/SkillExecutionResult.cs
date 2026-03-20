@@ -1,3 +1,5 @@
+using lucia.Agents.CommandTracing;
+
 namespace lucia.AgentHost.Conversation.Execution;
 
 /// <summary>
@@ -25,6 +27,9 @@ public sealed record SkillExecutionResult
 
     /// <summary>Wall-clock duration of the skill execution.</summary>
     public TimeSpan ExecutionDuration { get; init; }
+
+    /// <summary>Individual tool calls made to skill methods during execution.</summary>
+    public IReadOnlyList<CommandTraceToolCall> ToolCalls { get; init; } = [];
 
     /// <summary>Creates a failed result with the given error details.</summary>
     public static SkillExecutionResult Failed(string skillId, string action, string error, TimeSpan duration) => new()

@@ -3,6 +3,8 @@ using System.Globalization;
 using System.Text.RegularExpressions;
 
 using lucia.AgentHost.Conversation.Models;
+using lucia.AgentHost.Conversation.Tracing;
+using lucia.Agents.CommandTracing;
 using lucia.Agents.Skills;
 using lucia.Wyoming.CommandRouting;
 
@@ -49,8 +51,9 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
 
         try
         {
+            var collector = new ToolCallCollector();
             var response = await DispatchAsync(
-                pattern.SkillId, pattern.Action, route, context, ct).ConfigureAwait(false);
+                pattern.SkillId, pattern.Action, route, context, collector, ct).ConfigureAwait(false);
 
             sw.Stop();
             LogSkillSuccess(pattern.SkillId, pattern.Action, sw.ElapsedMilliseconds);
@@ -63,6 +66,7 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
                 Captures = captures,
                 ResponseText = response,
                 ExecutionDuration = sw.Elapsed,
+                ToolCalls = collector.ToolCalls,
             };
         }
         catch (Exception ex)
@@ -75,20 +79,20 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
 
     private Task<string> DispatchAsync(
         string skillId, string action, CommandRouteResult route,
-        ConversationContext context, CancellationToken ct) =>
+        ConversationContext context, ToolCallCollector collector, CancellationToken ct) =>
         (skillId, action) switch
         {
-            ("LightControlSkill", "toggle") => ExecuteLightToggleAsync(route, context),
-            ("LightControlSkill", "brightness") => ExecuteLightBrightnessAsync(route, context),
-            ("ClimateControlSkill", "set_temperature") => ExecuteClimateSetTemperatureAsync(route, context),
-            ("ClimateControlSkill", "adjust") => ExecuteClimateAdjustAsync(route, context),
-            ("SceneControlSkill", "activate") => ExecuteSceneActivateAsync(route, context, ct),
+            ("LightControlSkill", "toggle") => ExecuteLightToggleAsync(route, context, collector),
+            ("LightControlSkill", "brightness") => ExecuteLightBrightnessAsync(route, context, collector),
+            ("ClimateControlSkill", "set_temperature") => ExecuteClimateSetTemperatureAsync(route, context, collector),
+            ("ClimateControlSkill", "adjust") => ExecuteClimateAdjustAsync(route, context, collector),
+            ("SceneControlSkill", "activate") => ExecuteSceneActivateAsync(route, context, collector, ct),
             _ => throw new NotSupportedException(
                 $"No executor registered for skill '{skillId}' action '{action}'"),
         };
 
     private async Task<string> ExecuteLightToggleAsync(
-        CommandRouteResult route, ConversationContext context)
+        CommandRouteResult route, ConversationContext context, ToolCallCollector collector)
     {
         var skill = _serviceProvider.GetRequiredService<LightControlSkill>();
         var captures = route.CapturedValues ?? new Dictionary<string, string>();
@@ -96,11 +100,14 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
         var state = captures.GetValueOrDefault("action", "on");
         var searchTerms = BuildSearchTerms(route, context);
 
-        return await skill.ControlLightsAsync(searchTerms, state).ConfigureAwait(false);
+        return await collector.RecordAsync(
+            nameof(LightControlSkill.ControlLightsAsync),
+            new { searchTerms, state },
+            () => skill.ControlLightsAsync(searchTerms, state)).ConfigureAwait(false);
     }
 
     private async Task<string> ExecuteLightBrightnessAsync(
-        CommandRouteResult route, ConversationContext context)
+        CommandRouteResult route, ConversationContext context, ToolCallCollector collector)
     {
         var skill = _serviceProvider.GetRequiredService<LightControlSkill>();
         var captures = route.CapturedValues ?? new Dictionary<string, string>();
@@ -114,11 +121,14 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
 
         var searchTerms = BuildSearchTerms(route, context);
 
-        return await skill.ControlLightsAsync(searchTerms, "on", brightness).ConfigureAwait(false);
+        return await collector.RecordAsync(
+            nameof(LightControlSkill.ControlLightsAsync),
+            new { searchTerms, state = "on", brightness },
+            () => skill.ControlLightsAsync(searchTerms, "on", brightness)).ConfigureAwait(false);
     }
 
     private async Task<string> ExecuteClimateSetTemperatureAsync(
-        CommandRouteResult route, ConversationContext context)
+        CommandRouteResult route, ConversationContext context, ToolCallCollector collector)
     {
         var skill = _serviceProvider.GetRequiredService<ClimateControlSkill>();
         var captures = route.CapturedValues ?? new Dictionary<string, string>();
@@ -132,11 +142,14 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
 
         var entityId = ResolveEntityId(route);
 
-        return await skill.SetClimateTemperatureAsync(entityId, temperature).ConfigureAwait(false);
+        return await collector.RecordAsync(
+            nameof(ClimateControlSkill.SetClimateTemperatureAsync),
+            new { entityId, temperature },
+            () => skill.SetClimateTemperatureAsync(entityId, temperature)).ConfigureAwait(false);
     }
 
     private async Task<string> ExecuteClimateAdjustAsync(
-        CommandRouteResult route, ConversationContext context)
+        CommandRouteResult route, ConversationContext context, ToolCallCollector collector)
     {
         var skill = _serviceProvider.GetRequiredService<ClimateControlSkill>();
         var captures = route.CapturedValues ?? new Dictionary<string, string>();
@@ -145,7 +158,11 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
         var entityId = ResolveEntityId(route);
 
         // Fetch current state to determine the baseline temperature
-        var stateInfo = await skill.GetClimateStateAsync(entityId).ConfigureAwait(false);
+        var stateInfo = await collector.RecordAsync(
+            nameof(ClimateControlSkill.GetClimateStateAsync),
+            new { entityId },
+            () => skill.GetClimateStateAsync(entityId)).ConfigureAwait(false);
+
         var currentTemp = ExtractTemperature(stateInfo);
 
         if (currentTemp is null)
@@ -162,16 +179,22 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
 
         var newTemp = currentTemp.Value + adjustment;
 
-        return await skill.SetClimateTemperatureAsync(entityId, newTemp).ConfigureAwait(false);
+        return await collector.RecordAsync(
+            nameof(ClimateControlSkill.SetClimateTemperatureAsync),
+            new { entityId, temperature = newTemp },
+            () => skill.SetClimateTemperatureAsync(entityId, newTemp)).ConfigureAwait(false);
     }
 
     private async Task<string> ExecuteSceneActivateAsync(
-        CommandRouteResult route, ConversationContext context, CancellationToken ct)
+        CommandRouteResult route, ConversationContext context, ToolCallCollector collector, CancellationToken ct)
     {
         var skill = _serviceProvider.GetRequiredService<SceneControlSkill>();
         var entityId = ResolveEntityId(route, captureKey: "scene");
 
-        return await skill.ActivateSceneAsync(entityId, ct).ConfigureAwait(false);
+        return await collector.RecordAsync(
+            nameof(SceneControlSkill.ActivateSceneAsync),
+            new { entityId },
+            () => skill.ActivateSceneAsync(entityId, ct)).ConfigureAwait(false);
     }
 
     /// <summary>

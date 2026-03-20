@@ -4,6 +4,8 @@ using lucia.AgentHost.Auth;
 using lucia.AgentHost.Conversation;
 using lucia.AgentHost.Conversation.Execution;
 using lucia.AgentHost.Conversation.Templates;
+using lucia.Agents.CommandTracing;
+using lucia.AgentHost.Conversation.Tracing;
 using lucia.AgentHost.Extensions;
 using lucia.AgentHost.PluginFramework;
 using lucia.AgentHost.Services;
@@ -211,6 +213,15 @@ builder.Services.AddSingleton<ResponseTemplateRenderer>();
 builder.Services.AddSingleton<IDirectSkillExecutor, DirectSkillExecutor>();
 builder.Services.AddSingleton<ContextReconstructor>();
 builder.Services.AddSingleton<ConversationTelemetry>();
+builder.Services.AddSingleton<CommandTraceChannel>();
+if (useMongo)
+{
+    builder.Services.AddSingleton<ICommandTraceRepository, MongoCommandTraceRepository>();
+}
+else
+{
+    builder.Services.AddSingleton<ICommandTraceRepository, lucia.Data.Sqlite.SqliteCommandTraceRepository>();
+}
 builder.Services.AddSingleton<ConversationCommandProcessor>();
 
 // Register span collector as an OTEL processor so captured Lucia.* spans
@@ -396,6 +407,7 @@ app.MapActivityApi();
 app.MapAlarmClockApi();
 app.MapResponseTemplateApi();
 app.MapConversationApi();
+app.MapCommandTraceApi();
 app.MapListsApi();
 app.MapPresenceApi();
 app.MapSkillOptimizerApi();

@@ -1,8 +1,11 @@
 using System.Diagnostics;
+using System.Text.Json;
 
 using lucia.AgentHost.Conversation.Execution;
 using lucia.AgentHost.Conversation.Models;
 using lucia.AgentHost.Conversation.Templates;
+using lucia.AgentHost.Conversation.Tracing;
+using lucia.Agents.CommandTracing;
 using lucia.Agents.Orchestration;
 using lucia.Agents.Orchestration.Models;
 using lucia.Wyoming.CommandRouting;
@@ -22,6 +25,8 @@ public sealed partial class ConversationCommandProcessor
     private readonly ResponseTemplateRenderer _templateRenderer;
     private readonly ContextReconstructor _contextReconstructor;
     private readonly ConversationTelemetry _telemetry;
+    private readonly ICommandTraceRepository _traceRepository;
+    private readonly CommandTraceChannel _traceChannel;
     private readonly ILogger<ConversationCommandProcessor> _logger;
     private readonly IServiceProvider _serviceProvider;
 
@@ -31,6 +36,8 @@ public sealed partial class ConversationCommandProcessor
         ResponseTemplateRenderer templateRenderer,
         ContextReconstructor contextReconstructor,
         ConversationTelemetry telemetry,
+        ICommandTraceRepository traceRepository,
+        CommandTraceChannel traceChannel,
         IServiceProvider serviceProvider,
         ILogger<ConversationCommandProcessor> logger)
     {
@@ -39,6 +46,8 @@ public sealed partial class ConversationCommandProcessor
         _templateRenderer = templateRenderer;
         _contextReconstructor = contextReconstructor;
         _telemetry = telemetry;
+        _traceRepository = traceRepository;
+        _traceChannel = traceChannel;
         _serviceProvider = serviceProvider;
         _logger = logger;
     }
@@ -71,16 +80,17 @@ public sealed partial class ConversationCommandProcessor
 
         if (routeResult.IsMatch && routeResult.MatchedPattern is not null)
         {
-            return await HandleCommandMatchAsync(cleanRequest, routeResult, conversationId, activity, sw, ct)
+            return await HandleCommandMatchAsync(request.Text, cleanRequest, routeResult, conversationId, activity, sw, ct)
                 .ConfigureAwait(false);
         }
 
         // Step 2: No match — fall back to LLM (with clean text + speaker in context)
-        return await HandleLlmFallbackAsync(cleanRequest, conversationId, activity, sw, ct)
+        return await HandleLlmFallbackAsync(request.Text, cleanRequest, routeResult, conversationId, activity, sw, ct)
             .ConfigureAwait(false);
     }
 
     private async Task<ProcessingResult> HandleCommandMatchAsync(
+        string originalText,
         ConversationRequest request,
         CommandRouteResult routeResult,
         string conversationId,
@@ -108,15 +118,16 @@ public sealed partial class ConversationCommandProcessor
             LogCommandExecutionFailed(pattern.SkillId, pattern.Action, executionResult.Error);
             _telemetry.RecordCommandError(pattern.SkillId, pattern.Action);
 
-            // Fall back to LLM on skill execution failure
-            return await HandleLlmFallbackAsync(request, conversationId, activity, sw, ct)
+            // Fall back to LLM on skill execution failure; single trace records both the failed execution and LLM fallback
+            return await HandleLlmFallbackAsync(originalText, request, routeResult, conversationId, activity, sw, ct, executionResult)
                 .ConfigureAwait(false);
         }
 
         // Render templated response
-        var responseText = await _templateRenderer
-            .RenderAsync(pattern.SkillId, pattern.Action, executionResult.Captures, ct)
+        var renderResult = await _templateRenderer
+            .RenderWithTraceAsync(pattern.SkillId, pattern.Action, executionResult.Captures, ct)
             .ConfigureAwait(false);
+        var responseText = renderResult.Text;
 
         sw.Stop();
         _telemetry.RecordCommandParsed(pattern.SkillId, pattern.Action, sw.Elapsed.TotalMilliseconds);
@@ -132,16 +143,23 @@ public sealed partial class ConversationCommandProcessor
 
         LogCommandSuccess(pattern.SkillId, pattern.Action, sw.ElapsedMilliseconds);
 
+        // Record successful trace
+        await SaveCommandTraceAsync(originalText, request, routeResult, executionResult, responseText, sw, CommandTraceOutcome.CommandHandled, templateRender: renderResult.TraceData)
+            .ConfigureAwait(false);
+
         return ProcessingResult.CommandHandled(
             ConversationResponse.FromCommand(responseText, commandDetail, conversationId));
     }
 
     private async Task<ProcessingResult> HandleLlmFallbackAsync(
+        string originalText,
         ConversationRequest request,
+        CommandRouteResult routeResult,
         string conversationId,
         Activity? activity,
         Stopwatch sw,
-        CancellationToken ct)
+        CancellationToken ct,
+        SkillExecutionResult? failedExecution = null)
     {
         activity?.SetTag("conversation.routing_path", "llm_fallback");
 
@@ -152,6 +170,10 @@ public sealed partial class ConversationCommandProcessor
         {
             _logger.LogError("LuciaEngine not available for LLM fallback");
             sw.Stop();
+
+            await SaveLlmFallbackTraceAsync(originalText, request, routeResult, sw, null, CommandTraceOutcome.LlmFallback, failedExecution)
+                .ConfigureAwait(false);
+
             return ProcessingResult.LlmFallback(
                 conversationId,
                 _contextReconstructor.Reconstruct(request));
@@ -168,8 +190,157 @@ public sealed partial class ConversationCommandProcessor
 
         LogLlmComplete(sw.ElapsedMilliseconds);
 
+        await SaveLlmFallbackTraceAsync(originalText, request, routeResult, sw, prompt, CommandTraceOutcome.LlmCompleted, failedExecution)
+            .ConfigureAwait(false);
+
         return ProcessingResult.LlmCompleted(
             ConversationResponse.FromLlm(result.Text, conversationId, result.NeedsInput));
+    }
+
+    private async Task SaveCommandTraceAsync(
+        string originalText,
+        ConversationRequest request,
+        CommandRouteResult routeResult,
+        SkillExecutionResult? executionResult,
+        string? responseText,
+        Stopwatch sw,
+        CommandTraceOutcome outcome,
+        string? error = null,
+        CommandTraceTemplateRender? templateRender = null)
+    {
+        try
+        {
+            var pattern = routeResult.MatchedPattern;
+            var normalizedTranscript = routeResult.NormalizedTranscript ?? string.Empty;
+            var tokens = TranscriptNormalizer.Tokenize(normalizedTranscript);
+
+            var highlights = pattern is not null && routeResult.MatchedTemplate is not null && routeResult.CapturedValues is not null
+                ? TokenHighlightBuilder.Build(normalizedTranscript, tokens, routeResult.MatchedTemplate, routeResult.CapturedValues)
+                : [];
+
+            var trace = new CommandTrace
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Timestamp = DateTimeOffset.UtcNow,
+                RawText = originalText,
+                CleanText = request.Text,
+                NormalizedText = normalizedTranscript,
+                SpeakerId = request.Context.SpeakerId,
+                RequestContext = new CommandTraceContext
+                {
+                    ConversationId = request.Context.ConversationId,
+                    DeviceId = request.Context.DeviceId,
+                    DeviceArea = request.Context.DeviceArea,
+                    DeviceType = request.Context.DeviceType,
+                    UserId = request.Context.UserId,
+                    SpeakerId = request.Context.SpeakerId,
+                    Location = request.Context.Location,
+                },
+                Match = new CommandTraceMatch
+                {
+                    IsMatch = routeResult.IsMatch,
+                    Confidence = routeResult.Confidence,
+                    PatternId = pattern?.Id,
+                    SkillId = pattern?.SkillId,
+                    Action = pattern?.Action,
+                    TemplateUsed = routeResult.MatchedTemplate,
+                    CapturedValues = routeResult.CapturedValues,
+                    MatchDurationMs = routeResult.MatchDuration.TotalMilliseconds,
+                    TokenHighlights = highlights,
+                },
+                Execution = executionResult is not null
+                    ? new CommandTraceExecution
+                    {
+                        SkillId = executionResult.SkillId,
+                        Action = executionResult.Action,
+                        DurationMs = executionResult.ExecutionDuration.TotalMilliseconds,
+                        Success = executionResult.Success,
+                        Error = executionResult.Error,
+                        ParametersJson = executionResult.Captures.Count > 0
+                            ? JsonSerializer.Serialize(executionResult.Captures)
+                            : null,
+                        ResponseText = executionResult.ResponseText,
+                        ToolCalls = executionResult.ToolCalls,
+                    }
+                    : null,
+                TemplateRender = templateRender,
+                Outcome = outcome,
+                TotalDurationMs = sw.Elapsed.TotalMilliseconds,
+                ResponseText = responseText,
+                Error = error,
+            };
+
+            await _traceRepository.SaveAsync(trace).ConfigureAwait(false);
+            _traceChannel.Write(trace);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to save command trace");
+        }
+    }
+
+    private async Task SaveLlmFallbackTraceAsync(
+        string originalText,
+        ConversationRequest request,
+        CommandRouteResult routeResult,
+        Stopwatch sw,
+        string? prompt,
+        CommandTraceOutcome outcome,
+        SkillExecutionResult? failedExecution = null)
+    {
+        try
+        {
+            var trace = new CommandTrace
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Timestamp = DateTimeOffset.UtcNow,
+                RawText = originalText,
+                CleanText = request.Text,
+                NormalizedText = routeResult.NormalizedTranscript,
+                SpeakerId = request.Context.SpeakerId,
+                RequestContext = new CommandTraceContext
+                {
+                    ConversationId = request.Context.ConversationId,
+                    DeviceId = request.Context.DeviceId,
+                    DeviceArea = request.Context.DeviceArea,
+                    DeviceType = request.Context.DeviceType,
+                    UserId = request.Context.UserId,
+                    SpeakerId = request.Context.SpeakerId,
+                    Location = request.Context.Location,
+                },
+                Match = new CommandTraceMatch
+                {
+                    IsMatch = routeResult.IsMatch,
+                    Confidence = routeResult.Confidence,
+                    MatchDurationMs = routeResult.MatchDuration.TotalMilliseconds,
+                },
+                Execution = failedExecution is not null
+                    ? new CommandTraceExecution
+                    {
+                        SkillId = failedExecution.SkillId,
+                        Action = failedExecution.Action,
+                        DurationMs = failedExecution.ExecutionDuration.TotalMilliseconds,
+                        Success = false,
+                        Error = failedExecution.Error,
+                        ToolCalls = failedExecution.ToolCalls,
+                    }
+                    : null,
+                LlmFallback = new CommandTraceLlmFallback
+                {
+                    Prompt = prompt,
+                    DurationMs = sw.Elapsed.TotalMilliseconds,
+                },
+                Outcome = outcome,
+                TotalDurationMs = sw.Elapsed.TotalMilliseconds,
+            };
+
+            await _traceRepository.SaveAsync(trace).ConfigureAwait(false);
+            _traceChannel.Write(trace);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to save LLM fallback command trace");
+        }
     }
 
     [LoggerMessage(Level = LogLevel.Information,

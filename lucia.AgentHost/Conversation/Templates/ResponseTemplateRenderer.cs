@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 
+using lucia.Agents.CommandTracing;
+
 using Microsoft.Extensions.Logging;
 
 namespace lucia.AgentHost.Conversation.Templates;
@@ -47,28 +49,73 @@ public sealed partial class ResponseTemplateRenderer
         IReadOnlyDictionary<string, string> captures,
         CancellationToken ct = default)
     {
+        var result = await RenderWithTraceAsync(skillId, action, captures, ct).ConfigureAwait(false);
+        return result.Text;
+    }
+
+    /// <summary>
+    /// Renders a response template and returns both the text and trace metadata
+    /// for the command trace pipeline.
+    /// </summary>
+    public async Task<TemplateRenderResult> RenderWithTraceAsync(
+        string skillId,
+        string action,
+        IReadOnlyDictionary<string, string> captures,
+        CancellationToken ct = default)
+    {
         var template = await GetCachedTemplateAsync(skillId, action, ct).ConfigureAwait(false);
+        var templateKey = $"{skillId}::{action}";
 
         if (template is null || template.Templates.Length == 0)
         {
             LogTemplateMiss(skillId, action);
-            return FallbackResponse;
+            return new TemplateRenderResult
+            {
+                Text = FallbackResponse,
+                TraceData = new CommandTraceTemplateRender
+                {
+                    TemplateKey = templateKey,
+                    RawTemplate = FallbackResponse,
+                    RenderedText = FallbackResponse,
+                    VariantCount = 0,
+                    SelectedIndex = -1,
+                    IsFallback = true,
+                },
+            };
         }
 
-        // Use sub-millisecond tick count for entropy — avoids the deterministic
-        // sequence that Random.Shared produces when called at similar points in
-        // the request pipeline.
         var ticks = Environment.TickCount64;
         var index = (int)(ticks % template.Templates.Length);
         var selected = template.Templates[index];
 
         LogTemplateSelected(skillId, action, index, template.Templates.Length);
 
-        return PlaceholderPattern().Replace(selected, match =>
+        var replacedTokens = new Dictionary<string, string>();
+        var rendered = PlaceholderPattern().Replace(selected, match =>
         {
             var key = match.Groups[1].Value;
-            return captures.TryGetValue(key, out var value) ? value : string.Empty;
+            if (captures.TryGetValue(key, out var value))
+            {
+                replacedTokens[key] = value;
+                return value;
+            }
+
+            return string.Empty;
         });
+
+        return new TemplateRenderResult
+        {
+            Text = rendered,
+            TraceData = new CommandTraceTemplateRender
+            {
+                TemplateKey = templateKey,
+                RawTemplate = selected,
+                RenderedText = rendered,
+                VariantCount = template.Templates.Length,
+                SelectedIndex = index,
+                ReplacedTokens = replacedTokens,
+            },
+        };
     }
 
     private async Task<ResponseTemplate?> GetCachedTemplateAsync(
