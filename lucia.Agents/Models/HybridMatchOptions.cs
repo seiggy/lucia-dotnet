@@ -46,5 +46,5 @@ public sealed record HybridMatchOptions
     /// Prevents the embedding signal from drowning out useful string-level
     /// differentiation between similarly-named entities. Range 0–1.
     /// </summary>
-    public double EmbeddingResolutionMargin { get; init; } = 0.30;
+    public double EmbeddingResolutionMargin { get; init; } = 0.10;
 }

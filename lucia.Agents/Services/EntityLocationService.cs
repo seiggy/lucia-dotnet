@@ -389,7 +389,7 @@ public sealed class EntityLocationService : IEntityLocationService
             ? floorMatches.Max(m => m.HybridScore)
             : (double?)null;
         
-        var margin = opts.EmbeddingResolutionMargin; // new option, default 0.30
+        var margin = opts.EmbeddingResolutionMargin;
 
         ResolutionStrategy strategy;
         string reason;
@@ -402,9 +402,9 @@ public sealed class EntityLocationService : IEntityLocationService
             // Entity embedding is clearly stronger — user means a specific device
             strategy = ResolutionStrategy.Entity;
             reason = $"Entity path: best entity score {bestEntityHybrid:F4}"
-                   + $" exceeds area {bestAreaHybrid?.ToString("F4") ?? "none"}"
-                   + $" and floor {bestFloorHybrid?.ToString("F4") ?? "none"}"
-                   + $" by margin >{margin:F2}";
+                   + $", area {bestAreaHybrid?.ToString("F4") ?? "none"}"
+                   + $", floor {bestFloorHybrid?.ToString("F4") ?? "none"}"
+                   + $" (margin {margin:F2})";
             resolvedEntities = entityMatches.Select(m => m.Entity).ToList();
         }
         else if (bestAreaHybrid is not null
@@ -413,8 +413,8 @@ public sealed class EntityLocationService : IEntityLocationService
             // Area is the best match — expand to all entities in matched areas
             strategy = ResolutionStrategy.Area;
             reason = $"Area path: best area score {bestAreaHybrid:F4}"
-                   + $" — entity {bestEntityHybrid?.ToString("F4") ?? "none"}"
-                   + $" did not exceed by margin >{margin:F2}";
+                   + $" exceeds entity {bestEntityHybrid?.ToString("F4") ?? "none"}"
+                   + $" by ≥{margin:F2}";
 
             var resolvedAreaIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var am in areaMatches)
