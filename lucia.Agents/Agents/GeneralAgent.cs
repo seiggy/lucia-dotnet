@@ -16,6 +16,7 @@ public sealed class GeneralAgent : ILuciaAgent
     private readonly AgentCard _agent;
     private readonly IChatClientResolver _clientResolver;
     private readonly IAgentDefinitionRepository _definitionRepository;
+    private readonly IMcpToolRegistry _toolRegistry;
     private readonly IWebSearchSkill? _webSearchSkill;
     private readonly TracingChatClientFactory _tracingFactory;
     private readonly ILoggerFactory _loggerFactory;
@@ -29,19 +30,22 @@ public sealed class GeneralAgent : ILuciaAgent
     public string Instructions { get; set; }
 
     /// <summary>
-    /// The AI tools available to this agent (web search when a provider is registered).
+    /// The AI tools available to this agent (plugin-provided tools like web search).
+    /// MCP tools from the agent definition are resolved at initialization time and merged in.
     /// </summary>
-    public IList<AITool> Tools { get; }
+    public IList<AITool> Tools { get; private set; }
 
     public GeneralAgent(
         IChatClientResolver clientResolver,
         IAgentDefinitionRepository definitionRepository,
+        IMcpToolRegistry toolRegistry,
         TracingChatClientFactory tracingFactory,
         ILoggerFactory loggerFactory,
         IWebSearchSkill? webSearchSkill = null)
     {
         _clientResolver = clientResolver;
         _definitionRepository = definitionRepository;
+        _toolRegistry = toolRegistry;
         _webSearchSkill = webSearchSkill;
         _tracingFactory = tracingFactory;
         _loggerFactory = loggerFactory;
@@ -145,6 +149,20 @@ public sealed class GeneralAgent : ILuciaAgent
 
         if (!string.IsNullOrEmpty(definition?.Instructions))
             Instructions = definition.Instructions;
+
+        // Resolve MCP tools from the agent definition and merge with plugin-provided tools
+        var pluginTools = _webSearchSkill?.GetTools() ?? [];
+        var mcpTools = definition?.Tools.Count > 0
+            ? await _toolRegistry.ResolveToolsAsync(definition.Tools, cancellationToken).ConfigureAwait(false)
+            : [];
+
+        var allTools = new List<AITool>(pluginTools);
+        allTools.AddRange(mcpTools);
+        Tools = allTools;
+
+        if (allTools.Count > 0)
+            _logger.LogInformation("GeneralAgent: resolved {Count} tools ({Plugin} plugin, {Mcp} MCP)",
+                allTools.Count, pluginTools.Count, mcpTools.Count);
 
         if (_lastConfigUpdate == null || _lastConfigUpdate < definition?.UpdatedAt)
         {

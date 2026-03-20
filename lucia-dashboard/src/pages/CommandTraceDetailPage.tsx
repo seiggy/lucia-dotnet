@@ -7,8 +7,9 @@ import InputHighlight from '../components/InputHighlight'
 import CommandTimeline from '../components/CommandTimeline'
 import {
   ArrowLeft, Clock, Timer, AlertTriangle, CheckCircle2, XCircle,
-  ChevronDown, Loader2, Hash, MapPin, Zap, Brain, ExternalLink,
+  ChevronDown, Loader2, Hash, MapPin, Zap, Brain, ExternalLink, Download, Bug,
 } from 'lucide-react'
+import { downloadJson, buildCommandTraceIssueUrl } from '../utils/traceExport'
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleString()
@@ -71,13 +72,31 @@ export default function CommandTraceDetailPage() {
 
   return (
     <div className="space-y-6">
-      {/* Back button */}
-      <button
-        onClick={() => navigate('/command-traces')}
-        className="flex items-center gap-1.5 text-sm text-amber transition-colors hover:text-amber-glow"
-      >
-        <ArrowLeft className="h-4 w-4" /> Back to Command Traces
-      </button>
+      {/* Back button + actions */}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => navigate('/command-traces')}
+          className="flex items-center gap-1.5 text-sm text-amber transition-colors hover:text-amber-glow"
+        >
+          <ArrowLeft className="h-4 w-4" /> Back to Command Traces
+        </button>
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => downloadJson(trace, `command-trace-${trace.id}.json`)}
+            className="flex items-center gap-1.5 rounded-xl border border-stone bg-basalt px-3 py-1.5 text-sm text-fog transition-colors hover:border-amber/30 hover:text-light"
+          >
+            <Download className="h-4 w-4" /> Export JSON
+          </button>
+          <a
+            href={buildCommandTraceIssueUrl(trace)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 rounded-xl border border-stone bg-basalt px-3 py-1.5 text-sm text-fog transition-colors hover:border-amber/30 hover:text-light"
+          >
+            <Bug className="h-4 w-4" /> Report Issue
+          </a>
+        </div>
+      </div>
 
       {/* Header card */}
       <div className="glass-panel rounded-xl p-5">

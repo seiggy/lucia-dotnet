@@ -12,25 +12,33 @@ namespace lucia.Agents.Mcp;
 /// Manages MCP client connections and exposes a tool catalog for dynamic agents.
 /// Connects to MCP servers defined in MongoDB, caches clients, and resolves
 /// individual tools by serverId + toolName.
+///
+/// MCP stdio server processes are long-lived — they are spawned without a
+/// cancellation token so they persist for the lifetime of the application.
+/// Cleanup happens only via <see cref="DisposeAsync"/> at shutdown.
 /// </summary>
 public sealed class McpToolRegistry : IMcpToolRegistry
 {
     private readonly IAgentDefinitionRepository _repository;
+    private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<McpToolRegistry> _logger;
     private readonly ConcurrentDictionary<string, McpClientEntry> _clients = new();
     private readonly ConcurrentDictionary<string, McpServerStatus> _statuses = new();
 
     public McpToolRegistry(
         IAgentDefinitionRepository repository,
-        ILogger<McpToolRegistry> logger)
+        ILoggerFactory loggerFactory)
     {
         _repository = repository;
-        _logger = logger;
+        _loggerFactory = loggerFactory;
+        _logger = loggerFactory.CreateLogger<McpToolRegistry>();
     }
 
     public async Task InitializeAsync(CancellationToken ct = default)
     {
         var servers = await _repository.GetAllToolServersAsync(ct).ConfigureAwait(false);
+        var failedServers = new List<McpToolServerDefinition>();
+
         foreach (var server in servers.Where(s => s.Enabled))
         {
             try
@@ -39,13 +47,35 @@ public sealed class McpToolRegistry : IMcpToolRegistry
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to connect MCP server {ServerId} during initialization", server.Id);
+                _logger.LogWarning(ex, "Failed to connect MCP server {ServerId} during initialization — will retry", server.Id);
+                failedServers.Add(server);
+            }
+        }
+
+        // Retry failed servers once after a short delay (npx may need extra time on first run)
+        if (failedServers.Count > 0)
+        {
+            _logger.LogInformation("Retrying {Count} failed MCP server connection(s) after delay...", failedServers.Count);
+            await Task.Delay(TimeSpan.FromSeconds(5), ct).ConfigureAwait(false);
+
+            foreach (var server in failedServers)
+            {
+                try
+                {
+                    await ConnectServerAsync(server.Id, ct).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to connect MCP server {ServerId} on retry", server.Id);
+                }
             }
         }
     }
 
     public async Task ConnectServerAsync(string serverId, CancellationToken ct = default)
     {
+        // Use the caller's token only for the DB lookup — the MCP process itself
+        // must be long-lived and not tied to any request or startup token.
         var server = await _repository.GetToolServerAsync(serverId, ct).ConfigureAwait(false);
         if (server is null)
         {
@@ -54,7 +84,7 @@ public sealed class McpToolRegistry : IMcpToolRegistry
         }
 
         // Disconnect existing client if reconnecting
-        await DisconnectServerAsync(serverId, ct).ConfigureAwait(false);
+        await DisconnectServerAsync(serverId).ConfigureAwait(false);
 
         _statuses[serverId] = new McpServerStatus
         {
@@ -63,13 +93,25 @@ public sealed class McpToolRegistry : IMcpToolRegistry
             State = McpConnectionState.Connecting
         };
 
-        _logger.LogInformation("Connecting to MCP server {ServerId} ({ServerName}) at {Url}", serverId, server.Name, server.Url ?? "(stdio)");
+        _logger.LogInformation(
+            "Connecting to MCP server {ServerId} ({ServerName}) — transport: {Transport}, command: {Command}",
+            serverId, server.Name, server.TransportType, server.Command ?? server.Url ?? "(none)");
 
         try
         {
             var transport = CreateTransport(server);
-            var client = await McpClient.CreateAsync(transport, cancellationToken: ct).ConfigureAwait(false);
-            var tools = await client.ListToolsAsync(cancellationToken: ct).ConfigureAwait(false);
+            var clientOptions = new McpClientOptions
+            {
+                // stdio servers (npx -y ...) may need extra time on first run to download packages
+                InitializationTimeout = TimeSpan.FromSeconds(120),
+            };
+
+            // Use the caller's token for the handshake so app shutdown or aborted startup
+            // can cancel initialization; the MCP server process itself is still cleaned up via DisposeAsync.
+            var client = await McpClient.CreateAsync(transport, clientOptions, _loggerFactory, cancellationToken: ct)
+                .ConfigureAwait(false);
+            var tools = await client.ListToolsAsync(cancellationToken: ct)
+                .ConfigureAwait(false);
 
             _clients[serverId] = new McpClientEntry(server, client, tools.ToList());
             _statuses[serverId] = new McpServerStatus
@@ -95,7 +137,13 @@ public sealed class McpToolRegistry : IMcpToolRegistry
                 ErrorMessage = ex.Message
             };
 
-            _logger.LogError(ex, "Failed to connect MCP server {ServerId}", serverId);
+            var cmdInfo = server.TransportType.Equals("stdio", StringComparison.OrdinalIgnoreCase)
+                ? $"command: '{server.Command} {string.Join(' ', server.Arguments)}'"
+                : $"url: '{server.Url}'";
+            _logger.LogError(ex,
+                "Failed to connect MCP server {ServerId} ({Transport} {CmdInfo}). " +
+                "For stdio servers, verify the command is installed and runs correctly in a terminal.",
+                serverId, server.TransportType, cmdInfo);
             throw;
         }
     }
@@ -199,6 +247,7 @@ public sealed class McpToolRegistry : IMcpToolRegistry
         {
             try
             {
+                _logger.LogInformation("Shutting down MCP server {ServerId}...", kvp.Key);
                 await kvp.Value.Client.DisposeAsync().ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -211,7 +260,7 @@ public sealed class McpToolRegistry : IMcpToolRegistry
         _statuses.Clear();
     }
 
-    private static IClientTransport CreateTransport(McpToolServerDefinition server)
+    private IClientTransport CreateTransport(McpToolServerDefinition server)
     {
         return server.TransportType.ToLowerInvariant() switch
         {
@@ -221,7 +270,7 @@ public sealed class McpToolRegistry : IMcpToolRegistry
         };
     }
 
-    private static StdioClientTransport CreateStdioTransport(McpToolServerDefinition server)
+    private StdioClientTransport CreateStdioTransport(McpToolServerDefinition server)
     {
         if (string.IsNullOrWhiteSpace(server.Command))
             throw new InvalidOperationException($"MCP server '{server.Id}' uses stdio transport but has no command configured");
@@ -231,6 +280,8 @@ public sealed class McpToolRegistry : IMcpToolRegistry
             Name = server.Name,
             Command = server.Command,
             Arguments = [.. server.Arguments],
+            StandardErrorLines = line =>
+                _logger.LogDebug("MCP server {ServerId} stderr: {Line}", server.Id, line),
         };
 
         if (server.EnvironmentVariables.Count > 0)

@@ -40,14 +40,22 @@ public static class PluginRepositoryApi
         PluginManagementService service,
         CancellationToken ct)
     {
+        var url = request.Url.Trim();
+        var isLocal = Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            ? uri.Scheme == "file"
+            : !url.Contains("://") && !url.StartsWith("git@", StringComparison.OrdinalIgnoreCase);
+
         var repo = new PluginRepositoryDefinition
         {
-            Id = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(request.Url.ToLowerInvariant())))[..16],
-            Name = request.Url.Split('/').LastOrDefault() ?? request.Url,
-            Url = request.Url,
-            Branch = request.Branch ?? "main",
+            Id = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+                isLocal ? url : url.ToLowerInvariant())))[..16],
+            Name = isLocal
+                ? Path.GetFileName(url.TrimEnd('/', '\\')) ?? url
+                : url.Split('/').LastOrDefault() ?? url,
+            Url = url,
+            Branch = request.Branch ?? "master",
             ManifestPath = request.ManifestPath ?? "lucia-plugins.json",
-            Type = "git",
+            Type = isLocal ? "local" : "git",
             Enabled = true,
         };
 

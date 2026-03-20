@@ -31,7 +31,7 @@ public sealed class PluginRepositoryDefinition
     /// </summary>
     public string? Url { get; set; }
 
-    public string Branch { get; set; } = "main";
+    public string Branch { get; set; } = "master";
 
     /// <summary>
     /// How plugin archives are downloaded from git repositories.
