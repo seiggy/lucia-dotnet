@@ -413,8 +413,9 @@ public sealed class EntityLocationService : IEntityLocationService
             // Area is the best match — expand to all entities in matched areas
             strategy = ResolutionStrategy.Area;
             reason = $"Area path: best area score {bestAreaHybrid:F4}"
-                   + $" exceeds entity {bestEntityHybrid?.ToString("F4") ?? "none"}"
-                   + $" by ≥{margin:F2}";
+                   + $", entity {bestEntityHybrid?.ToString("F4") ?? "none"}"
+                   + $", floor {bestFloorHybrid?.ToString("F4") ?? "none"}"
+                   + $" (margin {margin:F2})";
 
             var resolvedAreaIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var am in areaMatches)
