@@ -41,10 +41,10 @@ public sealed record HybridMatchOptions
     public double DisagreementPenalty { get; init; } = 0.4;
 
     /// <summary>
-    /// When multiple candidates have embedding similarities within this margin
-    /// of each other, string-level scores are used to resolve the tie.
-    /// Prevents the embedding signal from drowning out useful string-level
-    /// differentiation between similarly-named entities. Range 0–1.
+    /// Margin used by <see cref="lucia.Agents.Services.EntityLocationService"/> to decide
+    /// between entity, area, and floor resolution strategies. Entity resolution is
+    /// preferred unless the area (or floor) score exceeds the entity score by at
+    /// least this margin, triggering location-based expansion instead. Range 0–1.
     /// </summary>
-    public double EmbeddingResolutionMargin { get; init; } = 0.30;
+    public double EmbeddingResolutionMargin { get; init; } = 0.10;
 }

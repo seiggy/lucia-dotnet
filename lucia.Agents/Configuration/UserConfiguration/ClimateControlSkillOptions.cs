@@ -38,7 +38,7 @@ public sealed class ClimateControlSkillOptions
     /// When multiple candidates have embedding similarities within this margin,
     /// string-level scores resolve the tie. Range 0–1.
     /// </summary>
-    public double EmbeddingResolutionMargin { get; set; } = 0.30;
+    public double EmbeddingResolutionMargin { get; set; } = 0.10;
 
     /// <summary>
     /// How often the climate entity cache is refreshed from Home Assistant, in minutes.
