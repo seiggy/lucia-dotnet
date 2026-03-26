@@ -132,7 +132,7 @@ public sealed class ParameterSweepRunner
 
             var bestEntry = entries.OrderByDescending(e => e.AverageScore).First();
             AnsiConsole.MarkupLine(
-                $"[green]\u2713[/] Best config: {bestEntry.Profile.ToSummary()} → {bestEntry.AverageScore:F1} " +
+                $"[green]\u2713[/] Best config: {Markup.Escape(bestEntry.Profile.ToSummary())} → {bestEntry.AverageScore:F1} " +
                 $"(delta from baseline: {bestEntry.AverageScore - baselineAvg:+0.0;-0.0})");
             AnsiConsole.WriteLine();
 

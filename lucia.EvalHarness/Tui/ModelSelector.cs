@@ -27,7 +27,7 @@ public static class ModelSelector
                 .InstructionsText("[dim](Press [blue]<space>[/] to toggle, [green]<enter>[/] to accept)[/]")
                 .AddChoices(models.Select(m => m.Name)));
 
-        AnsiConsole.MarkupLine($"\n[green]\u2713[/] Selected {selected.Count} model(s): {string.Join(", ", selected)}");
+        AnsiConsole.MarkupLine($"\n[green]\u2713[/] Selected {selected.Count} model(s): {Markup.Escape(string.Join(", ", selected))}");
         AnsiConsole.WriteLine();
 
         return selected;

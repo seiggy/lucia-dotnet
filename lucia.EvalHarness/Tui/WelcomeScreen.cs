@@ -29,16 +29,16 @@ public static class WelcomeScreen
             .AddColumn("Value");
 
         var ollamaStatus = ollamaAvailable
-            ? $"[green]\u2713[/] {config.Ollama.Endpoint}"
-            : $"[red]\u2717[/] {config.Ollama.Endpoint} (unreachable)";
+            ? $"[green]\u2713[/] {Markup.Escape(config.Ollama.Endpoint)}"
+            : $"[red]\u2717[/] {Markup.Escape(config.Ollama.Endpoint)} (unreachable)";
 
         var judgeStatus = !string.IsNullOrWhiteSpace(config.AzureOpenAI.Endpoint)
-            ? $"[green]\u2713[/] {config.AzureOpenAI.JudgeDeployment}"
+            ? $"[green]\u2713[/] {Markup.Escape(config.AzureOpenAI.JudgeDeployment)}"
             : "[yellow]Not configured[/] (LLM judge metrics disabled)";
 
         configTable.AddRow("Ollama Endpoint", ollamaStatus);
         configTable.AddRow("Azure Judge Model", judgeStatus);
-        configTable.AddRow("GPU", gpuInfo.GpuLabel);
+        configTable.AddRow("GPU", Markup.Escape(gpuInfo.GpuLabel));
         configTable.AddRow("Report Path", config.ReportPath ?? "[dim]%TEMP%/lucia-eval-reports[/]");
 
         AnsiConsole.Write(configTable);
@@ -47,7 +47,7 @@ public static class WelcomeScreen
         if (!ollamaAvailable)
         {
             AnsiConsole.MarkupLine("[red bold]Ollama is not reachable.[/] Please start Ollama and try again.");
-            AnsiConsole.MarkupLine($"[dim]Expected at: {config.Ollama.Endpoint}[/]");
+            AnsiConsole.MarkupLine($"[dim]Expected at: {Markup.Escape(config.Ollama.Endpoint)}[/]");
         }
 
         await Task.CompletedTask;

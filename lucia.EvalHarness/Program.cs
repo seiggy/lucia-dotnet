@@ -84,7 +84,7 @@ AnsiConsole.WriteLine();
 // ─── Parameter Profile Selection ─────────────────────────────────────
 var selectedProfiles = ParameterSelector.SelectMultiple(config.GetAllProfiles());
 foreach (var p in selectedProfiles)
-    AnsiConsole.MarkupLine($"[green]\u2713[/] Profile: [bold]{p.Name}[/] ({p.ToSummary()})");
+    AnsiConsole.MarkupLine($"[green]\u2713[/] Profile: [bold]{Markup.Escape(p.Name)}[/] ({Markup.Escape(p.ToSummary())})");
 AnsiConsole.WriteLine();
 
 await using var agentFactory = new RealAgentFactory(config.Ollama.Endpoint, haSnapshotPath, loggerFactory);
@@ -108,11 +108,11 @@ if (!string.IsNullOrWhiteSpace(config.AzureOpenAI.Endpoint))
             .GetChatClient(config.AzureOpenAI.JudgeDeployment)
             .AsIChatClient();
 
-        AnsiConsole.MarkupLine($"[green]\u2713[/] Azure judge model connected: {config.AzureOpenAI.JudgeDeployment}");
+        AnsiConsole.MarkupLine($"[green]\u2713[/] Azure judge model connected: {Markup.Escape(config.AzureOpenAI.JudgeDeployment)}");
     }
     catch (Exception ex)
     {
-        AnsiConsole.MarkupLine($"[yellow]\u26a0[/] Azure judge unavailable: {ex.Message}");
+        AnsiConsole.MarkupLine($"[yellow]\u26a0[/] Azure judge unavailable: {Markup.Escape(ex.Message)}");
         AnsiConsole.MarkupLine("[dim]  LLM-as-judge metrics (TaskCompletion) will be skipped.[/]");
     }
 }
@@ -258,7 +258,7 @@ if (judgeChatClient is not NoOpChatClient &&
 
             try
             {
-                AnsiConsole.MarkupLine($"[dim]  Analyzing {agentResult.AgentName} × {targetModel}...[/]");
+                AnsiConsole.MarkupLine($"[dim]  Analyzing {Markup.Escape(agentResult.AgentName)} × {Markup.Escape(targetModel)}...[/]");
                 var optResult = await optimizer.OptimizeAsync(
                     agentResult.AgentName, targetModel, systemPrompt, targetResults, baselineResults);
                 optimizationResults.Add(optResult);
@@ -297,7 +297,7 @@ static IReadOnlyList<TestCase> LoadTestCases(string datasetFile)
 {
     if (!File.Exists(datasetFile))
     {
-        AnsiConsole.MarkupLine($"[yellow]\u26a0 Dataset not found: {datasetFile}[/]");
+        AnsiConsole.MarkupLine($"[yellow]\u26a0 Dataset not found: {Markup.Escape(datasetFile)}[/]");
         return [];
     }
 
@@ -309,7 +309,7 @@ static IReadOnlyList<TestCase> LoadTestCases(string datasetFile)
     }
     catch (Exception ex)
     {
-        AnsiConsole.MarkupLine($"[yellow]\u26a0 Failed to load {datasetFile}: {ex.Message}[/]");
+        AnsiConsole.MarkupLine($"[yellow]\u26a0 Failed to load {Markup.Escape(datasetFile)}: {Markup.Escape(ex.Message)}[/]");
         return [];
     }
 }

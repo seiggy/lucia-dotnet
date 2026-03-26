@@ -17,7 +17,7 @@ public static class AgentSelector
                 .InstructionsText("[dim](Press [blue]<space>[/] to toggle, [green]<enter>[/] to accept)[/]")
                 .AddChoiceGroup("All Agents", availableAgentNames));
 
-        AnsiConsole.MarkupLine($"\n[green]\u2713[/] Selected {selected.Count} agent(s): {string.Join(", ", selected)}");
+        AnsiConsole.MarkupLine($"\n[green]\u2713[/] Selected {selected.Count} agent(s): {Markup.Escape(string.Join(", ", selected))}");
         AnsiConsole.WriteLine();
 
         return selected;

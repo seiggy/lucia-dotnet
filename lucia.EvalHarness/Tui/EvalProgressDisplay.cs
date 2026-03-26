@@ -52,7 +52,7 @@ public static class EvalProgressDisplay
 
                     var totalTasks = selectedModels.Count * profiles.Count;
                     var agentTask = ctx.AddTask(
-                        $"[bold]{agentName}[/]",
+                        $"[bold]{Markup.Escape(agentName)}[/]",
                         maxValue: totalTasks);
 
                     var modelResults = new List<ModelEvalResult>();
@@ -65,13 +65,13 @@ public static class EvalProgressDisplay
                         foreach (var model in selectedModels)
                         {
                             var displayLabel = multiProfile
-                                ? $"  {model} @ {profile.Name}"
-                                : $"  {model}";
+                                ? $"  {Markup.Escape(model)} @ {Markup.Escape(profile.Name)}"
+                                : $"  {Markup.Escape(model)}";
                             var modelTask = ctx.AddTask(displayLabel, maxValue: 1);
 
                             AnsiConsole.MarkupLine(
-                                $"[dim]  Constructing {agentName} with {model}" +
-                                (multiProfile ? $" [{profile.Name}]" : "") + "...[/]");
+                                $"[dim]  Constructing {Markup.Escape(agentName)} with {Markup.Escape(model)}" +
+                                (multiProfile ? $" ({Markup.Escape(profile.Name)})" : "") + "...[/]");
 
                             var agentInstance = await createAgent(model);
 

@@ -59,10 +59,10 @@ public static class ParameterSweepSelector
 
         if (AnsiConsole.Confirm("[cornflowerblue]Use default sweep dimensions?[/]", defaultValue: true))
         {
-            AnsiConsole.MarkupLine($"[dim]  Temperature: [{string.Join(", ", config.TemperatureValues)}][/]");
-            AnsiConsole.MarkupLine($"[dim]  Top-K: [{string.Join(", ", config.TopKValues)}][/]");
-            AnsiConsole.MarkupLine($"[dim]  Top-P: [{string.Join(", ", config.TopPValues)}][/]");
-            AnsiConsole.MarkupLine($"[dim]  Repeat Penalty: [{string.Join(", ", config.RepeatPenaltyValues)}][/]");
+            AnsiConsole.MarkupLine($"[dim]  Temperature: {Markup.Escape($"[{string.Join(", ", config.TemperatureValues)}]")}[/]");
+            AnsiConsole.MarkupLine($"[dim]  Top-K: {Markup.Escape($"[{string.Join(", ", config.TopKValues)}]")}[/]");
+            AnsiConsole.MarkupLine($"[dim]  Top-P: {Markup.Escape($"[{string.Join(", ", config.TopPValues)}]")}[/]");
+            AnsiConsole.MarkupLine($"[dim]  Repeat Penalty: {Markup.Escape($"[{string.Join(", ", config.RepeatPenaltyValues)}]")}[/]");
         }
         else
         {
