@@ -1,0 +1,36 @@
+# General Agent Evaluation Dataset
+# Tests general knowledge responses and out-of-domain handling
+
+data:
+  - id: greeting
+    input: "Hello, how are you?"
+    expected: "hello"
+    expected_tools: []
+    criteria:
+      - "Provides a friendly greeting"
+      - "Keeps response short"
+
+  - id: factual_question
+    input: "What is the capital of France?"
+    expected: "Paris"
+    expected_tools: []
+    criteria:
+      - "Correctly answers Paris"
+      - "Response is concise"
+
+  - id: unknown_question
+    input: "What will the stock market do tomorrow?"
+    expected: "know"
+    expected_tools: []
+    criteria:
+      - "Acknowledges uncertainty"
+      - "Does not fabricate an answer"
+
+  - id: home_redirect
+    input: "Turn on the kitchen light"
+    expected_tools: []
+    criteria:
+      - "Recognizes this is a home automation request"
+      - "Suggests another agent handles lighting"
+    metadata:
+      category: out-of-domain

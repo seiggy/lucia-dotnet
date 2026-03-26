@@ -18,6 +18,7 @@ using lucia.Agents.Orchestration;
 using lucia.Agents.PluginFramework;
 using lucia.Agents.Training;
 using lucia.Agents.Services;
+using lucia.Agents.Services.EntityAssignment;
 using lucia.Data;
 using lucia.Data.Extensions;
 using lucia.Data.Sqlite;
@@ -311,6 +312,13 @@ builder.Services.AddHttpClient("ProviderModelCatalog", client =>
     client.Timeout = TimeSpan.FromSeconds(20);
 });
 builder.Services.AddSingleton<ProviderModelCatalogService>();
+
+// Entity auto-assignment rules + service
+builder.Services.AddSingleton<IEntityAssignmentRule, ExclusionPatternRule>();
+builder.Services.AddSingleton<IEntityAssignmentRule, PlatformExclusionRule>();
+builder.Services.AddSingleton<IEntityAssignmentRule, SwitchPositiveMatchRule>();
+builder.Services.AddSingleton<IEntityAssignmentRule, DomainMappingRule>();
+builder.Services.AddSingleton<IAutoAssignEntityService, AutoAssignEntityService>();
 
 // Skill optimizer job manager
 builder.Services.AddSingleton<SkillOptimizerJobManager>();

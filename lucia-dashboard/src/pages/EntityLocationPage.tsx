@@ -15,12 +15,17 @@ import {
   updateEntityAgents,
   clearAllAgentFilters,
   fetchAvailableAgents,
+  previewAutoAssign,
+  applyAutoAssign,
   type EntityLocationEmbeddingProgress,
+  type AutoAssignPreview,
 } from '../api'
 import {
   MapPin, Building2, Layers, Hash, Loader2, RefreshCw, Search, Clock,
-  ChevronLeft, ChevronRight, Shield, ShieldOff, Users, X, Check, Trash2, Eye, EyeOff,
+  ChevronLeft, ChevronRight, Shield, ShieldOff, Users, X, Check, Trash2, Eye, EyeOff, Wand2,
 } from 'lucide-react'
+import EntityOnboardingBanner from '../components/EntityOnboardingBanner'
+import AutoAssignPreviewModal from '../components/AutoAssignPreviewModal'
 
 interface FloorInfo {
   floorId: string
@@ -123,6 +128,11 @@ export default function EntityLocationPage() {
   const dropdownRef = useRef<HTMLDivElement>(null)
   const embeddingStreamRef = useRef<EventSource | null>(null)
   const embeddingGenerationWasRunningRef = useRef(false)
+
+  // Auto-assign state
+  const [autoAssignPreview, setAutoAssignPreview] = useState<AutoAssignPreview | null>(null)
+  const [autoAssignLoading, setAutoAssignLoading] = useState(false)
+  const [showPreviewModal, setShowPreviewModal] = useState(false)
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -405,6 +415,55 @@ export default function EntityLocationPage() {
     }
   }
 
+  async function handleStartClean() {
+    if (!confirm('Set all entities to hidden from all agents? You can assign them individually afterwards.')) return
+    setAutoAssignLoading(true)
+    setError(null)
+    try {
+      await applyAutoAssign('none')
+      await loadVisibility()
+      await loadTab(activeTab)
+      localStorage.setItem('entity-onboarding-dismissed', 'true')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to apply auto-assign')
+    } finally {
+      setAutoAssignLoading(false)
+    }
+  }
+
+  async function handleSmartAssignPreview() {
+    setShowPreviewModal(true)
+    setAutoAssignLoading(true)
+    setAutoAssignPreview(null)
+    setError(null)
+    try {
+      const preview = await previewAutoAssign('smart')
+      setAutoAssignPreview(preview)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load preview')
+      setShowPreviewModal(false)
+    } finally {
+      setAutoAssignLoading(false)
+    }
+  }
+
+  async function handleApplySmartAssign() {
+    setAutoAssignLoading(true)
+    setError(null)
+    try {
+      await applyAutoAssign('smart')
+      setShowPreviewModal(false)
+      setAutoAssignPreview(null)
+      await loadVisibility()
+      await loadTab(activeTab)
+      localStorage.setItem('entity-onboarding-dismissed', 'true')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to apply auto-assign')
+    } finally {
+      setAutoAssignLoading(false)
+    }
+  }
+
   function toggleSelect(entityId: string) {
     setSelectedEntityIds(prev => {
       const next = new Set(prev)
@@ -616,6 +675,48 @@ export default function EntityLocationPage() {
         </button>
 
         <button
+          onClick={async () => {
+            setAutoAssignLoading(true)
+            try {
+              const preview = await previewAutoAssign('smart')
+              const updates: Record<string, string[] | null> = {}
+              selectedEntityIds.forEach(id => {
+                const entityMap = preview.agentGroups.reduce<Record<string, string[]>>((acc, g) => {
+                  g.entityIds.forEach(eid => {
+                    if (!acc[eid]) acc[eid] = []
+                    acc[eid].push(g.agentName)
+                  })
+                  return acc
+                }, {})
+                updates[id] = entityMap[id] ?? []
+              })
+              await updateEntityAgents(updates)
+              setEntityAgentMap(prev => {
+                const next = { ...prev }
+                Object.entries(updates).forEach(([id, agents]) => {
+                  if (agents === null) delete next[id]
+                  else next[id] = agents
+                })
+                return next
+              })
+              setEntities(prev => prev.map(e =>
+                e.entityId in updates ? { ...e, includeForAgent: updates[e.entityId] } : e
+              ))
+              setSelectedEntityIds(new Set())
+            } catch (err) {
+              setError(err instanceof Error ? err.message : 'Failed to auto-assign')
+            } finally {
+              setAutoAssignLoading(false)
+            }
+          }}
+          className="flex items-center gap-1.5 rounded-lg bg-sage/15 px-3 py-1.5 text-xs font-medium text-sage transition-colors hover:bg-sage/25"
+          title="Auto-assign selected entities using smart rules"
+        >
+          <Wand2 className="h-3.5 w-3.5" />
+          Smart Assign
+        </button>
+
+        <button
           onClick={() => { setSelectedEntityIds(new Set()) }}
           className="ml-auto rounded-lg p-1.5 text-dust transition-colors hover:bg-stone/40 hover:text-fog"
           title="Clear selection"
@@ -769,6 +870,28 @@ export default function EntityLocationPage() {
             </button>
           )}
 
+          {/* Auto-assign actions */}
+          <button
+            onClick={handleSmartAssignPreview}
+            disabled={autoAssignLoading}
+            className="flex items-center gap-1.5 rounded-xl bg-sky-400/15 px-4 py-2 text-sm font-medium text-sky-400 transition-colors hover:bg-sky-400/25 disabled:opacity-40"
+            title="Auto-assign entities to agents using smart pattern matching"
+          >
+            {autoAssignLoading
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : <Wand2 className="h-4 w-4" />}
+            Smart Assign
+          </button>
+
+          <button
+            onClick={handleStartClean}
+            className="flex items-center gap-1.5 rounded-xl bg-rose/15 px-4 py-2 text-sm font-medium text-rose transition-colors hover:bg-rose/25"
+            title="Hide all entities from all agents"
+          >
+            <ShieldOff className="h-4 w-4" />
+            Start Clean
+          </button>
+
           {/* Reload from HA */}
           <button
             onClick={handleInvalidate}
@@ -845,6 +968,22 @@ export default function EntityLocationPage() {
             Generated {entityGeneratedForProgress} of {entityTotalForProgress} ({entityProgressPercent}%)
           </p>
         </div>
+      )}
+
+      <EntityOnboardingBanner
+        hasFilters={hasFilters}
+        entityCount={summary?.entityCount ?? 0}
+        onStartClean={handleStartClean}
+        onSmartAssignPreview={handleSmartAssignPreview}
+      />
+
+      {showPreviewModal && (
+        <AutoAssignPreviewModal
+          preview={autoAssignPreview}
+          loading={autoAssignLoading}
+          onApply={handleApplySmartAssign}
+          onClose={() => { setShowPreviewModal(false); setAutoAssignPreview(null) }}
+        />
       )}
 
       {/* Tabs */}
@@ -950,6 +1089,37 @@ export default function EntityLocationPage() {
       {/* Entities tab */}
       {activeTab === 'entities' && (
         <>
+          {/* Domain quick-filter pills */}
+          {!loading && entities.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs font-medium text-dust">Domains:</span>
+              {Array.from(new Set(entities.map(e => e.domain))).sort().map(domain => (
+                <button
+                  key={domain}
+                  onClick={() => {
+                    setDomainFilter(prev => prev === domain ? '' : domain)
+                    setEntityPage(0)
+                  }}
+                  className={`rounded-md px-2 py-0.5 text-xs font-medium transition-colors ${
+                    domainFilter === domain
+                      ? 'bg-amber/15 text-amber'
+                      : 'bg-stone/30 text-dust hover:bg-stone/50 hover:text-fog'
+                  }`}
+                >
+                  {domain}
+                </button>
+              ))}
+              {domainFilter && (
+                <button
+                  onClick={() => { setDomainFilter(''); setEntityPage(0) }}
+                  className="rounded-md px-2 py-0.5 text-xs text-dust hover:text-fog"
+                >
+                  ✕ clear
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="flex items-center gap-3">
             <input
               type="text"

@@ -1,0 +1,13 @@
+feat(evals): rewrite light agent evals with deep assertions + real trace data
+
+- Fix ControlLightsAsync/ControlLights name mismatch in ScenarioValidator (~50% false failure rate)
+- Rewrite LightAgentEvalTests: 7 shallow → 12 deep tests, 30+ variants
+- Every test now verifies specific tool calls, parameters, entity resolution
+- Add 5 assertion helpers: AssertToolCalledWithArgs, AssertToolNotCalled, GetToolCallArguments, AssertEntityResolved, GetAllToolCalls
+- Add ModelComparisonReporter for cross-model matrix output with failure classification
+- Create trace-derived test data: 22 scenarios from 77 real executions (granite4, gemma3)
+- Create user-issue test data: 6 scenarios from GitHub issues #103, #105, #84
+- Add TraceScenarioLoader with filtered MemberData accessors
+- Build: 0 errors, 0 warnings
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>

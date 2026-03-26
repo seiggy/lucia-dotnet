@@ -65,3 +65,28 @@
 - Compilation errors (missing usings, wrong namespaces) are easier to catch early
 - The build must succeed before considering the task complete
 
+### 2026-03-26: Light Agent Eval Rewrite — Deep Assertions
+
+**Shallow Tests Mask Real Failures**
+- The original LightAgentEvalTests only called `AssertHasTextResponse()` — the granite4 color-as-state bug (putting "blue" into `state` instead of `color`) would pass every test silently
+- `AssertToolCalled` and `GetToolCalls` existed in the base class but were never used — the helpers work perfectly once you actually call them
+
+**FunctionCallContent.Arguments Uses JsonElement Boxing**
+- When extracting arguments from tool calls, values arrive as `JsonElement` (not raw strings/ints) because the AI framework serializes them through System.Text.Json
+- Must handle `JsonElement.ValueKind` checks (String, Number) alongside raw types for robust assertion helpers
+- Pattern: `raw switch { string s => s, JsonElement { ValueKind: JsonValueKind.String } je => je.GetString(), ... }`
+
+**Ash's Pain Map Is Gold for Scenario Design**
+- The data-driven failure taxonomy (wrong tool 40%, param extraction 25%, entity resolution 20%) directly maps to test categories
+- The color-as-state bug (Category B) and GetLightsState-for-control bug (Category A) are the two highest-value assertions to add
+- Out-of-domain tests must assert NO tool calls, not just "has text response" — hallucinated tool calls are a real failure mode
+
+**Query vs Control Tool Separation Is Critical**
+- Status queries ("is the kitchen light on?") must call `GetLightsState`, NOT `ControlLights`
+- Control commands ("turn on the kitchen light") must call `ControlLights`, NOT `GetLightsState`
+- Small models (granite4) consistently confuse these — the test must verify the exact tool, not just "any tool called"
+
+**AssertToolNotCalled Already Exists in Base Class**
+- AgentEvalTestBase has `AssertToolNotCalled` (added alongside `AssertToolCalled`) — don't duplicate it in derived test classes
+- Always check the base class before adding new helpers — it's more complete than it appears from usage
+

@@ -1,0 +1,45 @@
+# Scene Agent Evaluation Dataset
+# Tests scene activation and discovery
+
+data:
+  - id: activate_movie
+    input: "Activate the movie scene"
+    expected: "movie"
+    expected_tools:
+      - SceneControlSkill
+    criteria:
+      - "Finds the movie scene"
+      - "Activates it by entity ID"
+
+  - id: activate_by_area
+    input: "Turn on the romantic scene in the bedroom"
+    expected: "bedroom"
+    expected_tools:
+      - SceneControlSkill
+    criteria:
+      - "Searches for scenes in the bedroom area"
+      - "Activates the romantic scene"
+
+  - id: list_scenes
+    input: "What scenes are available?"
+    expected: "scene"
+    expected_tools:
+      - SceneControlSkill
+    criteria:
+      - "Lists all available scenes"
+
+  - id: activate_goodnight
+    input: "Goodnight scene please"
+    expected: "goodnight"
+    expected_tools:
+      - SceneControlSkill
+    criteria:
+      - "Finds and activates goodnight/bedtime scene"
+
+  - id: out_of_domain
+    input: "Set the thermostat to 72"
+    expected_tools: []
+    criteria:
+      - "Recognizes this is not a scene request"
+    metadata:
+      category: out-of-domain

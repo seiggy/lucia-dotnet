@@ -1,8 +1,10 @@
-import { useState, useCallback, useMemo } from 'react'
-import { searchMatcherDebug } from '../api'
+import { useState, useCallback, useMemo, useEffect } from 'react'
+import { searchMatcherDebug, fetchAvailableAgents, fetchOptimizableSkills } from '../api'
+import type { OptimizableSkillInfo } from '../types'
 import {
   Search, Loader2, Layers, Building2, Hash, MapPin,
   SlidersHorizontal, ChevronDown, ChevronUp, Zap, X, Route, Info,
+  Eye, EyeOff, User, Settings2,
 } from 'lucide-react'
 
 interface MatchedFloor {
@@ -17,14 +19,16 @@ interface MatchedEntity {
   entityId: string; friendlyName: string; domain: string; aliases: string[]
   areaId: string | null; areaName: string | null
   hybridScore: number; embeddingSimilarity: number
+  visibleToAgent: boolean
 }
 interface ResolvedEntity {
   entityId: string; friendlyName: string; domain: string
   areaId: string | null; areaName: string | null
+  visibleToAgent: boolean
 }
 interface SearchResult {
   query: string
-  options: { threshold: number; embeddingWeight: number; scoreDropoffRatio: number; disagreementPenalty: number; embeddingResolutionMargin: number; domainFilter: string[] }
+  options: { threshold: number; embeddingWeight: number; scoreDropoffRatio: number; disagreementPenalty: number; embeddingResolutionMargin: number; domainFilter: string[]; agentFilter: string | null }
   resolution: {
     strategy: string
     reason: string
@@ -39,6 +43,7 @@ interface SearchResult {
   summary: {
     floorMatchCount: number; areaMatchCount: number
     entityMatchCount: number; resolvedEntityCount: number
+    visibleEntityMatchCount: number | null; visibleResolvedEntityCount: number | null
   }
 }
 
@@ -96,8 +101,52 @@ export default function MatcherDebugPage() {
   const [embeddingWeight, setEmbeddingWeight] = useState(0.4)
   const [dropoff, setDropoff] = useState(0.80)
   const [disagreementPenalty, setDisagreementPenalty] = useState(0.4)
-  const [embeddingResolutionMargin, setEmbeddingResolutionMargin] = useState(0.30)
+  const [embeddingResolutionMargin, setEmbeddingResolutionMargin] = useState(0.10)
   const [selectedDomains, setSelectedDomains] = useState<string[]>([])
+  const [selectedAgent, setSelectedAgent] = useState('')
+  const [availableAgents, setAvailableAgents] = useState<{ name: string; domains: string[] }[]>([])
+  const [skills, setSkills] = useState<OptimizableSkillInfo[]>([])
+  const [activeSkillPreset, setActiveSkillPreset] = useState('')
+
+  useEffect(() => {
+    fetchAvailableAgents().then(setAvailableAgents).catch(() => {})
+    fetchOptimizableSkills().then(loaded => {
+      setSkills(loaded)
+      // Auto-apply the first skill's config as default
+      if (loaded.length > 0) {
+        const p = loaded[0].currentParams
+        setThreshold(p.threshold)
+        setEmbeddingWeight(p.embeddingWeight)
+        setDropoff(p.scoreDropoffRatio)
+        setDisagreementPenalty(p.disagreementPenalty)
+        setEmbeddingResolutionMargin(p.embeddingResolutionMargin)
+        setActiveSkillPreset(loaded[0].skillId)
+      }
+    }).catch(() => {})
+  }, [])
+
+  const applySkillPreset = useCallback((skillId: string) => {
+    setActiveSkillPreset(skillId)
+    if (!skillId) return
+    const skill = skills.find(s => s.skillId === skillId)
+    if (!skill) return
+    const p = skill.currentParams
+    setThreshold(p.threshold)
+    setEmbeddingWeight(p.embeddingWeight)
+    setDropoff(p.scoreDropoffRatio)
+    setDisagreementPenalty(p.disagreementPenalty)
+    setEmbeddingResolutionMargin(p.embeddingResolutionMargin)
+  }, [skills])
+
+  const handleAgentChange = useCallback((agentName: string) => {
+    setSelectedAgent(agentName)
+    const agent = availableAgents.find(a => a.name === agentName)
+    if (agent && agent.domains.length > 0) {
+      setSelectedDomains(agent.domains)
+    } else if (!agentName) {
+      setSelectedDomains([])
+    }
+  }, [availableAgents])
 
   const doSearch = useCallback(async () => {
     if (!query.trim()) return
@@ -111,6 +160,7 @@ export default function MatcherDebugPage() {
         disagreementPenalty,
         embeddingResolutionMargin,
         domains: selectedDomains.length > 0 ? selectedDomains : undefined,
+        agent: selectedAgent || undefined,
       }) as SearchResult
       setResult(r)
     } catch (e: unknown) {
@@ -119,7 +169,7 @@ export default function MatcherDebugPage() {
     } finally {
       setLoading(false)
     }
-  }, [query, threshold, embeddingWeight, dropoff, disagreementPenalty, embeddingResolutionMargin, selectedDomains])
+  }, [query, threshold, embeddingWeight, dropoff, disagreementPenalty, embeddingResolutionMargin, selectedDomains, selectedAgent])
 
   const toggleDomain = useCallback((domain: string) => {
     setSelectedDomains(prev =>
@@ -179,6 +229,31 @@ export default function MatcherDebugPage() {
           </button>
         </form>
 
+        {/* Agent impersonation selector */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <User size={14} className="text-dust" />
+            <select
+              value={selectedAgent}
+              onChange={e => handleAgentChange(e.target.value)}
+              className="bg-obsidian border border-stone rounded-lg px-3 py-1.5 text-sm text-fog focus:outline-none focus:border-amber/50 transition"
+            >
+              <option value="">All Agents (no filter)</option>
+              {availableAgents.map(a => (
+                <option key={a.name} value={a.name}>
+                  {a.name}{a.domains.length > 0 ? ` (${a.domains.join(', ')})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          {selectedAgent && (
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-sky-400/15 border border-sky-400/30 px-2.5 py-1 text-xs font-medium text-sky-400">
+              <Eye size={12} />
+              {selectedAgent} view
+            </span>
+          )}
+        </div>
+
         {/* Tuning options toggle */}
         <button
           onClick={() => setShowOptions(o => !o)}
@@ -191,12 +266,43 @@ export default function MatcherDebugPage() {
 
         {showOptions && (
           <div className="space-y-3 pt-1">
+            {/* Skill config preset */}
+            {skills.length > 0 && (
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <Settings2 size={14} className="text-dust" />
+                  <span className="text-xs text-fog">Load from skill config:</span>
+                  <div className="flex gap-1.5">
+                    {skills.map(s => (
+                      <button
+                        key={s.skillId}
+                        type="button"
+                        onClick={() => applySkillPreset(s.skillId)}
+                        className={`px-2.5 py-1 rounded-md text-xs font-medium transition ${
+                          activeSkillPreset === s.skillId
+                            ? 'bg-amber/20 text-amber border border-amber/40'
+                            : 'bg-obsidian text-dust border border-stone hover:border-fog/30 hover:text-fog'
+                        }`}
+                      >
+                        {s.displayName}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {activeSkillPreset && (
+                  <span className="text-[10px] text-dust">
+                    Using live {skills.find(s => s.skillId === activeSkillPreset)?.displayName} config
+                  </span>
+                )}
+              </div>
+            )}
+
             <div className="grid grid-cols-5 gap-4">
               <label className="space-y-1">
                 <span className="text-xs text-fog">Threshold</span>
                 <input
                   type="number" step="0.05" min="0" max="1" value={threshold}
-                  onChange={e => setThreshold(+e.target.value)}
+                  onChange={e => { setThreshold(+e.target.value); setActiveSkillPreset('') }}
                   className="w-full bg-obsidian border border-stone rounded-md px-3 py-1.5 text-sm text-cloud font-mono focus:outline-none focus:border-amber/50 transition"
                 />
               </label>
@@ -204,7 +310,7 @@ export default function MatcherDebugPage() {
                 <span className="text-xs text-fog">Embedding weight</span>
                 <input
                   type="number" step="0.05" min="0" max="1" value={embeddingWeight}
-                  onChange={e => setEmbeddingWeight(+e.target.value)}
+                  onChange={e => { setEmbeddingWeight(+e.target.value); setActiveSkillPreset('') }}
                   className="w-full bg-obsidian border border-stone rounded-md px-3 py-1.5 text-sm text-cloud font-mono focus:outline-none focus:border-amber/50 transition"
                 />
               </label>
@@ -212,7 +318,7 @@ export default function MatcherDebugPage() {
                 <span className="text-xs text-fog">Score dropoff</span>
                 <input
                   type="number" step="0.05" min="0" max="1" value={dropoff}
-                  onChange={e => setDropoff(+e.target.value)}
+                  onChange={e => { setDropoff(+e.target.value); setActiveSkillPreset('') }}
                   className="w-full bg-obsidian border border-stone rounded-md px-3 py-1.5 text-sm text-cloud font-mono focus:outline-none focus:border-amber/50 transition"
                 />
               </label>
@@ -220,7 +326,7 @@ export default function MatcherDebugPage() {
                 <span className="text-xs text-fog">Disagreement penalty</span>
                 <input
                   type="number" step="0.05" min="0" max="1" value={disagreementPenalty}
-                  onChange={e => setDisagreementPenalty(+e.target.value)}
+                  onChange={e => { setDisagreementPenalty(+e.target.value); setActiveSkillPreset('') }}
                   className="w-full bg-obsidian border border-stone rounded-md px-3 py-1.5 text-sm text-cloud font-mono focus:outline-none focus:border-amber/50 transition"
                 />
               </label>
@@ -228,7 +334,7 @@ export default function MatcherDebugPage() {
                 <span className="text-xs text-fog">Embed. resolution</span>
                 <input
                   type="number" step="0.05" min="0" max="1" value={embeddingResolutionMargin}
-                  onChange={e => setEmbeddingResolutionMargin(+e.target.value)}
+                  onChange={e => { setEmbeddingResolutionMargin(+e.target.value); setActiveSkillPreset('') }}
                   className="w-full bg-obsidian border border-stone rounded-md px-3 py-1.5 text-sm text-cloud font-mono focus:outline-none focus:border-amber/50 transition"
                 />
               </label>
@@ -313,6 +419,16 @@ export default function MatcherDebugPage() {
             <span>{totalMatches} direct match{totalMatches !== 1 ? 'es' : ''}</span>
             <span className="text-dust">·</span>
             <span>{result.summary.resolvedEntityCount} resolved entit{result.summary.resolvedEntityCount !== 1 ? 'ies' : 'y'}</span>
+            {result.options.agentFilter && result.summary.visibleEntityMatchCount !== null && (
+              <>
+                <span className="text-dust">·</span>
+                <span className="text-sky-400">
+                  <Eye size={10} className="inline mr-1" />
+                  {result.summary.visibleEntityMatchCount}/{result.summary.entityMatchCount} entities visible,{' '}
+                  {result.summary.visibleResolvedEntityCount}/{result.summary.resolvedEntityCount} resolved
+                </span>
+              </>
+            )}
             {result.options.domainFilter.length > 0 && (
               <>
                 <span className="text-dust">·</span>
@@ -453,11 +569,16 @@ export default function MatcherDebugPage() {
                       <th className="pb-2 pr-3 font-medium">Area</th>
                       <th className="pb-2 pr-3 font-medium text-right">Hybrid</th>
                       <th className="pb-2 font-medium text-right">Embedding</th>
+                      {result.options.agentFilter && (
+                        <th className="pb-2 pl-3 font-medium text-center">Visible</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
                     {result.entities.map(e => (
-                      <tr key={e.entityId} className="border-b border-stone/50 hover:bg-obsidian/60">
+                      <tr key={e.entityId} className={`border-b border-stone/50 hover:bg-obsidian/60 ${
+                        result.options.agentFilter && !e.visibleToAgent ? 'opacity-40' : ''
+                      }`}>
                         <td className="py-2 pr-3">
                           <div className="text-cloud">{e.friendlyName}</div>
                           <div className="text-[10px] text-dust font-mono">{e.entityId}</div>
@@ -473,6 +594,14 @@ export default function MatcherDebugPage() {
                         <td className="py-2 pr-3 text-xs text-fog">{e.areaName ?? '—'}</td>
                         <td className="py-2 pr-3 text-right font-mono tabular-nums text-amber">{e.hybridScore.toFixed(4)}</td>
                         <td className="py-2 text-right font-mono tabular-nums text-mist">{e.embeddingSimilarity.toFixed(4)}</td>
+                        {result.options.agentFilter && (
+                          <td className="py-2 pl-3 text-center">
+                            {e.visibleToAgent
+                              ? <Eye size={14} className="inline text-sage" />
+                              : <EyeOff size={14} className="inline text-dust" />
+                            }
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -495,17 +624,30 @@ export default function MatcherDebugPage() {
                       <th className="pb-2 pr-3 font-medium">Entity</th>
                       <th className="pb-2 pr-3 font-medium">Domain</th>
                       <th className="pb-2 font-medium">Area</th>
+                      {result.options.agentFilter && (
+                        <th className="pb-2 pl-3 font-medium text-center">Visible</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
                     {result.resolvedEntities.map(e => (
-                      <tr key={e.entityId} className="border-b border-stone/50 hover:bg-obsidian/60">
+                      <tr key={e.entityId} className={`border-b border-stone/50 hover:bg-obsidian/60 ${
+                        result.options.agentFilter && !e.visibleToAgent ? 'opacity-40' : ''
+                      }`}>
                         <td className="py-1.5 pr-3">
                           <span className="text-cloud">{e.friendlyName}</span>
                           <span className="ml-2 text-[10px] text-dust font-mono">{e.entityId}</span>
                         </td>
                         <td className="py-1.5 pr-3 text-xs text-fog">{e.domain}</td>
                         <td className="py-1.5 text-xs text-fog">{e.areaName ?? '—'}</td>
+                        {result.options.agentFilter && (
+                          <td className="py-1.5 pl-3 text-center">
+                            {e.visibleToAgent
+                              ? <Eye size={14} className="inline text-sage" />
+                              : <EyeOff size={14} className="inline text-dust" />
+                            }
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>

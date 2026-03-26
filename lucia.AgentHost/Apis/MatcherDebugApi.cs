@@ -32,36 +32,72 @@ public static class MatcherDebugApi
         [FromQuery] double? disagreementPenalty,
         [FromQuery] double? embeddingResolutionMargin,
         [FromQuery] string? domains,
+        [FromQuery] string? agent,
         CancellationToken ct)
     {
+        var defaults = new HybridMatchOptions();
         HybridMatchOptions? options = (threshold is not null || embeddingWeight is not null || dropoff is not null || disagreementPenalty is not null || embeddingResolutionMargin is not null)
             ? new HybridMatchOptions
             {
-                Threshold = threshold ?? 0.55,
-                EmbeddingWeight = embeddingWeight ?? 0.4,
-                ScoreDropoffRatio = dropoff ?? 0.80,
-                DisagreementPenalty = disagreementPenalty ?? 0.4,
-                EmbeddingResolutionMargin = embeddingResolutionMargin ?? 0.30
+                Threshold = threshold ?? defaults.Threshold,
+                EmbeddingWeight = embeddingWeight ?? defaults.EmbeddingWeight,
+                ScoreDropoffRatio = dropoff ?? defaults.ScoreDropoffRatio,
+                DisagreementPenalty = disagreementPenalty ?? defaults.DisagreementPenalty,
+                EmbeddingResolutionMargin = embeddingResolutionMargin ?? defaults.EmbeddingResolutionMargin
             }
             : null;
+
+        // Resolve effective options for response metadata
+        var effective = options ?? defaults;
 
         IReadOnlyList<string>? domainFilter = !string.IsNullOrWhiteSpace(domains)
             ? domains.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             : null;
 
+        var hasAgent = !string.IsNullOrWhiteSpace(agent);
+
         var result = await locationService.SearchHierarchyAsync(term, options, domainFilter, ct).ConfigureAwait(false);
+
+        bool IsVisibleToAgent(HashSet<string>? includeForAgent) =>
+            !hasAgent ||
+            includeForAgent is null ||
+            includeForAgent.Contains(agent!, StringComparer.OrdinalIgnoreCase);
+
+        var entityProjections = result.EntityMatches.Select(m => new
+        {
+            m.Entity.EntityId,
+            m.Entity.FriendlyName,
+            m.Entity.Domain,
+            m.Entity.Aliases,
+            m.Entity.AreaId,
+            areaName = locationService.GetAreaForEntity(m.Entity.EntityId)?.Name,
+            m.HybridScore,
+            m.EmbeddingSimilarity,
+            visibleToAgent = IsVisibleToAgent(m.Entity.IncludeForAgent)
+        }).ToList();
+
+        var resolvedProjections = result.ResolvedEntities.Select(e => new
+        {
+            e.EntityId,
+            e.FriendlyName,
+            e.Domain,
+            e.AreaId,
+            areaName = locationService.GetAreaForEntity(e.EntityId)?.Name,
+            visibleToAgent = IsVisibleToAgent(e.IncludeForAgent)
+        }).ToList();
 
         return TypedResults.Ok<object>(new
         {
             query = term,
             options = new
             {
-                threshold = options?.Threshold ?? 0.55,
-                embeddingWeight = options?.EmbeddingWeight ?? 0.4,
-                scoreDropoffRatio = options?.ScoreDropoffRatio ?? 0.80,
-                disagreementPenalty = options?.DisagreementPenalty ?? 0.4,
-                embeddingResolutionMargin = options?.EmbeddingResolutionMargin ?? 0.30,
-                domainFilter = domainFilter ?? []
+                threshold = effective.Threshold,
+                embeddingWeight = effective.EmbeddingWeight,
+                scoreDropoffRatio = effective.ScoreDropoffRatio,
+                disagreementPenalty = effective.DisagreementPenalty,
+                embeddingResolutionMargin = effective.EmbeddingResolutionMargin,
+                domainFilter = domainFilter ?? [],
+                agentFilter = agent
             },
             resolution = new
             {
@@ -89,31 +125,16 @@ public static class MatcherDebugApi
                 m.HybridScore,
                 m.EmbeddingSimilarity
             }),
-            entities = result.EntityMatches.Select(m => new
-            {
-                m.Entity.EntityId,
-                m.Entity.FriendlyName,
-                m.Entity.Domain,
-                m.Entity.Aliases,
-                m.Entity.AreaId,
-                areaName = locationService.GetAreaForEntity(m.Entity.EntityId)?.Name,
-                m.HybridScore,
-                m.EmbeddingSimilarity
-            }),
-            resolvedEntities = result.ResolvedEntities.Select(e => new
-            {
-                e.EntityId,
-                e.FriendlyName,
-                e.Domain,
-                e.AreaId,
-                areaName = locationService.GetAreaForEntity(e.EntityId)?.Name
-            }),
+            entities = entityProjections,
+            resolvedEntities = resolvedProjections,
             summary = new
             {
                 floorMatchCount = result.FloorMatches.Count,
                 areaMatchCount = result.AreaMatches.Count,
                 entityMatchCount = result.EntityMatches.Count,
-                resolvedEntityCount = result.ResolvedEntities.Count
+                resolvedEntityCount = result.ResolvedEntities.Count,
+                visibleEntityMatchCount = hasAgent ? entityProjections.Count(e => e.visibleToAgent) : (int?)null,
+                visibleResolvedEntityCount = hasAgent ? resolvedProjections.Count(e => e.visibleToAgent) : (int?)null
             }
         });
     }

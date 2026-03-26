@@ -86,3 +86,27 @@
 7. Major testing gaps: no multi-room, relative brightness, color temperature, toggle, non-English, bulk operation, or error recovery scenarios
 
 **Deliverable:** `.squad/decisions/inbox/ash-light-agent-pain-map.md`
+
+### 2026-03-26: Trace Data → xUnit Test Integration
+
+**What I Built:**
+- `lucia.Tests/TestData/light-agent-traces.json` — 22 structured eval scenarios derived from 8 real eval trace runs (77 executions across granite4:350m and gemma3:270m)
+- `lucia.Tests/TestData/light-agent-user-issues.json` — 6 scenarios from real GitHub issues (#105, #103, #84)
+- `lucia.Tests/Orchestration/TraceScenarioLoader.cs` — static loader with filtering by failure type, model, category, regression status; returns `[MemberData]`-compatible rows for xUnit
+- `lucia.Tests/Orchestration/TraceScenario.cs` — model for trace-derived scenarios
+- `lucia.Tests/Orchestration/UserIssueScenario.cs` — model for issue-derived scenarios
+- `lucia.Tests/Orchestration/TraceScenarioCollection.cs` — root deserialization container for traces
+- `lucia.Tests/Orchestration/UserIssueScenarioCollection.cs` — root deserialization container for issues
+- `lucia.Tests/Orchestration/TraceScenarioMetadata.cs` — metadata header model
+
+**Key Learnings:**
+1. Failure type distribution from real traces: WRONG_TOOL (14%), NO_TOOL_CALL (32%), WRONG_PARAMS (14%), STATE_ERROR (9%), CORRECT (27%), WRONG_RESPONSE (5%)
+2. gemma3:270m produces zero tool calls on 9/11 scenarios — it's a baseline-only model, not viable for production
+3. granite4:350m has a consistent WRONG_TOOL pattern for control commands (calls GetLightsState instead of ControlLights), reproducible across all 8 runs
+4. ~50% of eval failures in later runs are inflated by the Async suffix mismatch bug in eval harness — real failures are lower than reported scores suggest
+5. GitHub issues #105/#103 reveal entity resolution failures that no eval scenario covers — colloquial room names and area matching are production-critical gaps
+6. The `TraceScenarioLoader` resolves test data from both output directory (CI) and project root (IDE) — portable across test runners
+
+**Build Status:** ✅ New code compiles cleanly (pre-existing error in ModelComparisonReporter.cs is unrelated)
+
+**Deliverable:** `.squad/decisions/inbox/ash-trace-data-integration.md`

@@ -1158,7 +1158,7 @@ export async function fetchAvailableAgents(): Promise<{ name: string; domains: s
 
 export async function searchMatcherDebug(
   term: string,
-  options?: { threshold?: number; embeddingWeight?: number; dropoff?: number; disagreementPenalty?: number; embeddingResolutionMargin?: number; domains?: string[] }
+  options?: { threshold?: number; embeddingWeight?: number; dropoff?: number; disagreementPenalty?: number; embeddingResolutionMargin?: number; domains?: string[]; agent?: string }
 ): Promise<unknown> {
   const params = new URLSearchParams();
   if (options?.threshold !== undefined) params.set('threshold', String(options.threshold));
@@ -1167,6 +1167,7 @@ export async function searchMatcherDebug(
   if (options?.disagreementPenalty !== undefined) params.set('disagreementPenalty', String(options.disagreementPenalty));
   if (options?.embeddingResolutionMargin !== undefined) params.set('embeddingResolutionMargin', String(options.embeddingResolutionMargin));
   if (options?.domains?.length) params.set('domains', options.domains.join(','));
+  if (options?.agent) params.set('agent', options.agent);
   const qs = params.toString();
   const res = await fetch(`${BASE}/matcher-debug/search/${encodeURIComponent(term)}${qs ? `?${qs}` : ''}`);
   if (!res.ok) throw new Error(`Failed to search matcher debug: ${res.statusText}`);
@@ -1992,6 +1993,49 @@ export async function fetchCommandTrace(id: string): Promise<CommandTrace> {
 
 export async function fetchCommandTraceStats(): Promise<CommandTraceStats> {
   const res = await fetch(`${BASE}/command-traces/stats`, { credentials: 'include' })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+// ── Auto-assign types ────────────────────────────────────────────
+export interface AutoAssignAgentGroup {
+  agentName: string
+  count: number
+  entityIds: string[]
+}
+
+export interface AutoAssignPreview {
+  strategy: string
+  totalEntities: number
+  assignedCount: number
+  excludedCount: number
+  agentGroups: AutoAssignAgentGroup[]
+  excludedSample: string[]
+}
+
+export interface AutoAssignResult {
+  strategy: string
+  totalEntities: number
+  assignedCount: number
+  excludedCount: number
+}
+
+export async function previewAutoAssign(strategy: 'none' | 'smart'): Promise<AutoAssignPreview> {
+  const res = await fetch(`${BASE}/entity-location/visibility/auto-assign/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ strategy: strategy === 'none' ? 0 : 1 }),
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function applyAutoAssign(strategy: 'none' | 'smart'): Promise<AutoAssignResult> {
+  const res = await fetch(`${BASE}/entity-location/visibility/auto-assign`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ strategy: strategy === 'none' ? 0 : 1 }),
+  })
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }
