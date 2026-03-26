@@ -170,6 +170,54 @@ internal sealed class SnapshotEntityLocationService : IEntityLocationService
 
     public FloorInfo? GetFloorForArea(string areaId) => null;
 
+    // ── Synchronous, cache-only fast-path lookups ─────────────────
+
+    public bool IsCacheReady => LastLoadedAt is not null;
+
+    public IReadOnlyList<HomeAssistantEntity> ExactMatchEntities(string query, IReadOnlyList<string>? domainFilter = null)
+    {
+        if (!IsCacheReady || _entities.Count == 0)
+            return [];
+
+        var trimmed = query.Trim();
+
+        var exactById = _entities.FirstOrDefault(e =>
+            string.Equals(e.EntityId, trimmed, StringComparison.OrdinalIgnoreCase));
+        if (exactById is not null)
+        {
+            if (domainFilter is null || domainFilter.Contains(exactById.Domain, StringComparer.OrdinalIgnoreCase))
+                return [exactById];
+            return [];
+        }
+
+        var matchedArea = ExactMatchArea(trimmed);
+        if (matchedArea is not null)
+        {
+            var areaEntities = _entities
+                .Where(e => string.Equals(e.AreaId, matchedArea.AreaId, StringComparison.OrdinalIgnoreCase)
+                    && (domainFilter is null || domainFilter.Contains(e.Domain, StringComparer.OrdinalIgnoreCase)))
+                .ToList();
+            if (areaEntities.Count > 0)
+                return areaEntities;
+        }
+
+        return _entities
+            .Where(e => string.Equals(e.FriendlyName, trimmed, StringComparison.OrdinalIgnoreCase)
+                && (domainFilter is null || domainFilter.Contains(e.Domain, StringComparer.OrdinalIgnoreCase)))
+            .ToList();
+    }
+
+    public AreaInfo? ExactMatchArea(string query)
+    {
+        if (!IsCacheReady || _areas.Count == 0)
+            return null;
+
+        var trimmed = query.Trim();
+        return _areas.FirstOrDefault(a =>
+            string.Equals(a.AreaId, trimmed, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(a.Name, trimmed, StringComparison.OrdinalIgnoreCase));
+    }
+
     // ── Visibility stubs (not needed for eval) ────────────────────
 
     public Task<EntityVisibilityConfig> GetVisibilityConfigAsync(CancellationToken ct = default)

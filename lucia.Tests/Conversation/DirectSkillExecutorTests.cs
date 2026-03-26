@@ -22,7 +22,9 @@ public sealed class DirectSkillExecutorTests
     public DirectSkillExecutorTests()
     {
         _executor = new DirectSkillExecutor(
-            _serviceProvider, A.Fake<ILogger<DirectSkillExecutor>>());
+            _serviceProvider,
+            A.Fake<IEntityLocationService>(),
+            A.Fake<ILogger<DirectSkillExecutor>>());
     }
 
     [Fact]

@@ -363,6 +363,78 @@ public sealed class InMemoryEntityLocationService : IEntityLocationService
         return floor;
     }
 
+    // ── Synchronous, cache-only fast-path lookups ───────────────────
+
+    /// <inheritdoc />
+    public bool IsCacheReady => Volatile.Read(ref _lastLoadedAtTicks) != 0;
+
+    /// <inheritdoc />
+    public IReadOnlyList<HomeAssistantEntity> ExactMatchEntities(string query, IReadOnlyList<string>? domainFilter = null)
+    {
+        var snap = _snapshot;
+        if (snap.Entities.IsEmpty)
+            return [];
+
+        var trimmed = query.Trim();
+
+        if (snap.EntityById.TryGetValue(trimmed, out var exactEntity))
+        {
+            if (domainFilter is null || domainFilter.Contains(exactEntity.Domain, StringComparer.OrdinalIgnoreCase))
+                return [exactEntity];
+            return [];
+        }
+
+        var matchedArea = ExactMatchArea(trimmed);
+        if (matchedArea is not null)
+        {
+            var areaEntities = new List<HomeAssistantEntity>();
+            foreach (var entity in snap.Entities)
+            {
+                if (string.Equals(entity.AreaId, matchedArea.AreaId, StringComparison.OrdinalIgnoreCase)
+                    && (domainFilter is null || domainFilter.Contains(entity.Domain, StringComparer.OrdinalIgnoreCase)))
+                {
+                    areaEntities.Add(entity);
+                }
+            }
+
+            if (areaEntities.Count > 0)
+                return areaEntities;
+        }
+
+        var results = new List<HomeAssistantEntity>();
+        foreach (var entity in snap.Entities)
+        {
+            if (string.Equals(entity.FriendlyName, trimmed, StringComparison.OrdinalIgnoreCase)
+                && (domainFilter is null || domainFilter.Contains(entity.Domain, StringComparer.OrdinalIgnoreCase)))
+            {
+                results.Add(entity);
+            }
+        }
+
+        return results;
+    }
+
+    /// <inheritdoc />
+    public AreaInfo? ExactMatchArea(string query)
+    {
+        var snap = _snapshot;
+        if (snap.Areas.IsEmpty)
+            return null;
+
+        var trimmed = query.Trim();
+
+        if (snap.AreaById.TryGetValue(trimmed, out var area))
+            return area;
+
+        foreach (var a in snap.Areas)
+        {
+            if (string.Equals(a.Name, trimmed, StringComparison.OrdinalIgnoreCase))
+                return a;
+        }
+
+        return null;
+    }
+
     // ── Visibility ──────────────────────────────────────────────────
 
     public Task<EntityVisibilityConfig> GetVisibilityConfigAsync(CancellationToken ct = default)

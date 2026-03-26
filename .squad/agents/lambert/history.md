@@ -90,3 +90,30 @@
 - AgentEvalTestBase has `AssertToolNotCalled` (added alongside `AssertToolCalled`) — don't duplicate it in derived test classes
 - Always check the base class before adding new helpers — it's more complete than it appears from usage
 
+
+### 2026-03-26: Conversation Fast-Path Refactor Test Suite
+
+**Parker/Dallas Are Already Shipping — Adapt, Don't Stub**
+- When I started, the `ConversationCommandProcessor` constructor only took 9 params. By the time I built, it had 11 (adding `IOptionsMonitor<CommandRoutingOptions>` and `IPersonalityResponseRenderer?`).
+- The `IEntityLocationService` interface already had `ExactMatchEntities`, `ExactMatchArea`, and `IsCacheReady` methods with real implementations in `InMemoryEntityLocationService`.
+- Lesson: Always `dotnet build` before writing any test to catch in-flight constructor changes from parallel dev.
+
+**Personality Pipeline Is Real, Not Theoretical**
+- `IPersonalityResponseRenderer` interface already exists at `lucia.AgentHost/Conversation/Templates/IPersonalityResponseRenderer.cs`.
+- `CommandRoutingOptions` has `UsePersonalityResponses`, `PersonalityPrompt`, and `PersonalityModelConnectionName`.
+- The processor's `HandleCommandMatchAsync` already has the `if (opts.UsePersonalityResponses && _personalityRenderer is not null)` guard.
+- All 4 personality tests compile and run against the REAL pipeline — no stubs needed.
+
+**MeterListener Cross-Test Interference Is Real**
+- `MeterListener` picks up events from ALL `Meter` instances with the same instrument name across parallel tests.
+- Fix: Scope the listener to the test's specific `Meter` instance via `instrument.Meter == meter` check.
+- The existing `ConversationCommandProcessorTests.ProcessAsync_RecordsTelemetry_ForCommandPath` has this bug and fails intermittently.
+
+**Pre-Existing Test Breakage From In-Flight Changes**
+- `DirectSkillExecutorTests` has 2 failures from Dallas/Parker's entity cache changes (error message changed from "No executor registered" to "Entity location cache not loaded").
+- These are NOT regressions from my work — they were broken before I started.
+
+**Test Categorization Makes Intent Explicit**
+- 5 test files × 1 class each (one class per file rule) across 5 behavioral categories.
+- 10 tests run immediately (happy-path + existing telemetry), 13 skipped pending full implementation.
+- Skip messages reference specific pending work ("by Parker/Dallas") so activation is self-documenting.

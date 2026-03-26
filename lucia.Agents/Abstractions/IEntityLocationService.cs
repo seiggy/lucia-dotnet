@@ -162,4 +162,26 @@ public interface IEntityLocationService
     /// Get current embedding generation progress across floors, areas, and entities.
     /// </summary>
     Task<EntityLocationEmbeddingProgress> GetEmbeddingProgressAsync(CancellationToken ct = default);
+
+    // ── Synchronous, cache-only fast-path lookups ─────────────
+
+    /// <summary>
+    /// Whether the in-memory entity location cache has been loaded at least once.
+    /// When <c>false</c>, callers should bail to the LLM orchestrator rather than
+    /// attempting entity resolution.
+    /// </summary>
+    bool IsCacheReady { get; }
+
+    /// <summary>
+    /// Performs an exact-match lookup against the in-memory cache without triggering a load.
+    /// Matches by entity ID, friendly name, or area name (returning all entities in that area).
+    /// Returns an empty list if the cache is not loaded or no exact match is found.
+    /// </summary>
+    IReadOnlyList<HomeAssistantEntity> ExactMatchEntities(string query, IReadOnlyList<string>? domainFilter = null);
+
+    /// <summary>
+    /// Performs an exact-match lookup for an area by area ID or name against the in-memory cache.
+    /// Returns <c>null</c> if the cache is not loaded or no exact match is found.
+    /// </summary>
+    AreaInfo? ExactMatchArea(string query);
 }

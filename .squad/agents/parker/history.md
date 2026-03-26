@@ -45,3 +45,24 @@ Completed full code audit of the Conversation API pipeline at Zack's request. Ke
 7. **Multiple entity matches are all acted upon** — no disambiguation prompt exists in fast-path. LightControlSkill iterates all `allEntities.Values`.
 
 8. **Report delivered to**: `.squad/decisions/inbox/parker-conversation-audit.md`
+
+### 2025-07-17 — Exact-Match Entity Resolution Refactor
+
+Refactored the conversation fast-path to eliminate fuzzy entity resolution per Zack's architecture decision. Key changes:
+
+1. **Added `IsCacheReady`, `ExactMatchEntities()`, `ExactMatchArea()` to `IEntityLocationService`** — synchronous, cache-only lookups that never trigger a load. Implemented in `EntityLocationService` (Redis), `InMemoryEntityLocationService`, and the test double `SnapshotEntityLocationService`.
+
+2. **`DirectSkillExecutor` now gates on cache readiness** — if the entity cache isn't loaded, the executor returns a `Bail` result immediately (`cache_miss`). If cache is loaded but no exact match is found, it bails with `no_exact_match`. Zero fuzzy search in the executor.
+
+3. **`CommandPatternMatcher` now rejects transcripts with bail-signal tokens** — temporal words (`in`, `at`, `when`, `after`, `minutes`, etc.), color words (`red`, `blue`, `green`, `warm`, `cool`, `color`), and multi-step conjunctions (`and`, `then`, `also`) cause immediate `NoMatch` return before any template matching begins. This prevents the pattern matcher from silently ignoring components it can't handle (e.g., "turn off lights in 5 minutes" matching but ignoring the timer).
+
+4. **`SkillExecutionResult` gained `BailReason` property and `Bail()` factory** — enables the processor to distinguish between execution errors and intentional fast-path deferrals.
+
+5. **`ConversationCommandProcessor` tags `fast_path_bail_reason`** on the conversation activity when a bail occurs, enabling observability on why the fast-path deferred to LLM.
+
+6. **Climate entity resolution fixed** — `ResolveEntityIdFromCache()` validates captured entity text against the cache instead of blindly passing raw capture text as a HA entity ID.
+
+7. **New exception type `EntityResolutionBailException`** — clean internal signal for bail conditions that get caught and converted to `SkillExecutionResult.Bail()` results.
+
+**Design principle**: The fast-path now follows "instant if certain, orchestrator if not" — it never acts on an entity it isn't 100% sure about.
+

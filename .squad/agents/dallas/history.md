@@ -83,4 +83,26 @@
 **Build verification:**
 - `dotnet build lucia-dotnet.slnx -v minimal` — 0 warnings, 0 errors
 
+### 2025-07-15: Personality-Rendered Fast-Path Responses
+
+**What I implemented:**
+- Opt-in personality response mode for the conversation fast-path pipeline. When `Wyoming:CommandRouting:UsePersonalityResponses` is `true` and a `PersonalityPrompt` is configured, canned template responses are rephrased through an LLM call using the personality prompt before returning to the user.
+
+**Key files created/modified:**
+1. `lucia.AgentHost/Conversation/Templates/IPersonalityResponseRenderer.cs` — new interface
+2. `lucia.AgentHost/Conversation/Templates/PersonalityResponseRenderer.cs` — implementation using `IChatClientResolver` for LLM calls, with fallback to canned response on failure
+3. `lucia.Wyoming/CommandRouting/CommandRoutingOptions.cs` — added `UsePersonalityResponses`, `PersonalityPrompt`, `PersonalityModelConnectionName`
+4. `lucia.AgentHost/Conversation/ConversationCommandProcessor.cs` — injected `IPersonalityResponseRenderer?` (optional) and `IOptionsMonitor<CommandRoutingOptions>`; personality rendering applied after template rendering when enabled
+5. `lucia.Tests/Conversation/PersonalityResponseTests.cs` — removed all `Skip` attributes, wired real mocks for the personality renderer
+
+**Design decisions:**
+- Personality renderer is optional DI injection (`= null` default) so existing test code only needs the `IOptionsMonitor<CommandRoutingOptions>` addition
+- Fallback to canned response is handled both in the renderer (LLM failure) and in the processor (feature disabled / renderer not registered)
+- The existing `PersonalityPromptOptions` in `lucia.Agents.Orchestration` is for orchestrator-level personality rewriting; this new feature is specifically for command fast-path responses
+- `IChatClientResolver` is reused (not a new resolver) — same pattern as `ResultAggregatorExecutor.ApplyPersonalityAsync`
+
+**Build verification:**
+- `dotnet build lucia-dotnet.slnx -v minimal` — 0 warnings, 0 errors
+- `dotnet test --filter PersonalityResponse` — 4/4 tests passed
+
 <!-- Append new learnings below. Each entry is something lasting about the project. -->

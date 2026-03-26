@@ -11,6 +11,7 @@ using lucia.Agents.Orchestration.Models;
 using lucia.Wyoming.CommandRouting;
 
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace lucia.AgentHost.Conversation;
 
@@ -23,6 +24,8 @@ public sealed partial class ConversationCommandProcessor
     private readonly ICommandRouter _commandRouter;
     private readonly IDirectSkillExecutor _skillExecutor;
     private readonly ResponseTemplateRenderer _templateRenderer;
+    private readonly IPersonalityResponseRenderer? _personalityRenderer;
+    private readonly IOptionsMonitor<CommandRoutingOptions> _routingOptions;
     private readonly ContextReconstructor _contextReconstructor;
     private readonly ConversationTelemetry _telemetry;
     private readonly ICommandTraceRepository _traceRepository;
@@ -39,11 +42,15 @@ public sealed partial class ConversationCommandProcessor
         ICommandTraceRepository traceRepository,
         CommandTraceChannel traceChannel,
         IServiceProvider serviceProvider,
-        ILogger<ConversationCommandProcessor> logger)
+        ILogger<ConversationCommandProcessor> logger,
+        IOptionsMonitor<CommandRoutingOptions> routingOptions,
+        IPersonalityResponseRenderer? personalityRenderer = null)
     {
         _commandRouter = commandRouter;
         _skillExecutor = skillExecutor;
         _templateRenderer = templateRenderer;
+        _personalityRenderer = personalityRenderer;
+        _routingOptions = routingOptions;
         _contextReconstructor = contextReconstructor;
         _telemetry = telemetry;
         _traceRepository = traceRepository;
@@ -118,6 +125,10 @@ public sealed partial class ConversationCommandProcessor
             LogCommandExecutionFailed(pattern.SkillId, pattern.Action, executionResult.Error);
             _telemetry.RecordCommandError(pattern.SkillId, pattern.Action);
 
+            // Tag bail reason for observability when the fast-path explicitly deferred
+            if (executionResult.BailReason is not null)
+                activity?.SetTag("conversation.fast_path_bail_reason", executionResult.BailReason);
+
             // Fall back to LLM on skill execution failure; single trace records both the failed execution and LLM fallback
             return await HandleLlmFallbackAsync(originalText, request, routeResult, conversationId, activity, sw, ct, executionResult)
                 .ConfigureAwait(false);
@@ -128,6 +139,15 @@ public sealed partial class ConversationCommandProcessor
             .RenderWithTraceAsync(pattern.SkillId, pattern.Action, executionResult.Captures, ct)
             .ConfigureAwait(false);
         var responseText = renderResult.Text;
+
+        // Apply personality rewriting when enabled
+        var opts = _routingOptions.CurrentValue;
+        if (opts.UsePersonalityResponses && _personalityRenderer is not null)
+        {
+            responseText = await _personalityRenderer
+                .RenderAsync(pattern.SkillId, pattern.Action, responseText, executionResult.Captures, ct)
+                .ConfigureAwait(false);
+        }
 
         sw.Stop();
         _telemetry.RecordCommandParsed(pattern.SkillId, pattern.Action, sw.Elapsed.TotalMilliseconds);

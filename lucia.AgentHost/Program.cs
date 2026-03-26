@@ -224,6 +224,7 @@ else
     builder.Services.AddSingleton<ICommandTraceRepository, lucia.Data.Sqlite.SqliteCommandTraceRepository>();
 }
 builder.Services.AddSingleton<ConversationCommandProcessor>();
+builder.Services.AddSingleton<IPersonalityResponseRenderer, PersonalityResponseRenderer>();
 
 // Register span collector as an OTEL processor so captured Lucia.* spans
 // can be attached to conversation traces for the waterfall timeline.

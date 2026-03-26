@@ -4,7 +4,9 @@ using System.Text.RegularExpressions;
 
 using lucia.AgentHost.Conversation.Models;
 using lucia.AgentHost.Conversation.Tracing;
+using lucia.Agents.Abstractions;
 using lucia.Agents.CommandTracing;
+using lucia.Agents.Models.HomeAssistant;
 using lucia.Agents.Skills;
 using lucia.Wyoming.CommandRouting;
 
@@ -15,21 +17,30 @@ namespace lucia.AgentHost.Conversation.Execution;
 
 /// <summary>
 /// Executes matched command routes by calling skill methods directly, bypassing LLM processing.
-/// Dispatches to <see cref="LightControlSkill"/>, <see cref="ClimateControlSkill"/>, or
-/// <see cref="SceneControlSkill"/> based on the <see cref="CommandPattern.SkillId"/> and
-/// <see cref="CommandPattern.Action"/> from the matched route.
+/// Entity resolution uses exact-match lookups against the in-memory cache only.
+/// If the cache is not loaded or no exact match is found, execution bails immediately
+/// so the orchestrator can handle the request via LLM.
 /// </summary>
 public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
 {
     /// <summary>Default comfort temperature adjustment in degrees Fahrenheit.</summary>
     private const double DefaultComfortAdjustmentF = 3.0;
 
+    private static readonly IReadOnlyList<string> LightDomains = ["light", "switch"];
+    private static readonly IReadOnlyList<string> ClimateDomains = ["climate"];
+    private static readonly IReadOnlyList<string> SceneDomains = ["scene"];
+
     private readonly IServiceProvider _serviceProvider;
+    private readonly IEntityLocationService _entityLocationService;
     private readonly ILogger<DirectSkillExecutor> _logger;
 
-    public DirectSkillExecutor(IServiceProvider serviceProvider, ILogger<DirectSkillExecutor> logger)
+    public DirectSkillExecutor(
+        IServiceProvider serviceProvider,
+        IEntityLocationService entityLocationService,
+        ILogger<DirectSkillExecutor> logger)
     {
         _serviceProvider = serviceProvider;
+        _entityLocationService = entityLocationService;
         _logger = logger;
     }
 
@@ -46,6 +57,17 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
 
         var pattern = route.MatchedPattern;
         var captures = route.CapturedValues ?? new Dictionary<string, string>();
+
+        // Gate: bail immediately if entity cache is not loaded
+        if (!_entityLocationService.IsCacheReady)
+        {
+            LogCacheMiss(pattern.SkillId, pattern.Action);
+            return SkillExecutionResult.Bail(
+                pattern.SkillId, pattern.Action,
+                "cache_miss",
+                "Entity location cache not loaded; deferring to orchestrator",
+                sw.Elapsed);
+        }
 
         LogSkillDispatch(pattern.SkillId, pattern.Action);
 
@@ -69,11 +91,21 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
                 ToolCalls = collector.ToolCalls,
             };
         }
+        catch (EntityResolutionBailException ex)
+        {
+            sw.Stop();
+            LogEntityResolutionBail(pattern.SkillId, pattern.Action, ex.BailReason);
+            return SkillExecutionResult.Bail(
+                pattern.SkillId, pattern.Action,
+                ex.BailReason, ex.Message, sw.Elapsed);
+        }
         catch (Exception ex)
         {
             sw.Stop();
             LogSkillFailure(pattern.SkillId, pattern.Action, ex);
-            return SkillExecutionResult.Failed(pattern.SkillId, pattern.Action, ex.Message, sw.Elapsed);
+            return SkillExecutionResult.Bail(
+                pattern.SkillId, pattern.Action,
+                "execution_error", ex.Message, sw.Elapsed);
         }
     }
 
@@ -100,10 +132,13 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
         var state = captures.GetValueOrDefault("action", "on");
         var searchTerms = BuildSearchTerms(route, context);
 
+        // Exact-match resolve: every search term must map to cached entities
+        var resolvedIds = ResolveSearchTermsToEntityIds(searchTerms, LightDomains);
+
         return await collector.RecordAsync(
             nameof(LightControlSkill.ControlLightsAsync),
-            new { searchTerms, state },
-            () => skill.ControlLightsAsync(searchTerms, state)).ConfigureAwait(false);
+            new { searchTerms = resolvedIds, state },
+            () => skill.ControlLightsAsync(resolvedIds, state)).ConfigureAwait(false);
     }
 
     private async Task<string> ExecuteLightBrightnessAsync(
@@ -120,11 +155,12 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
         }
 
         var searchTerms = BuildSearchTerms(route, context);
+        var resolvedIds = ResolveSearchTermsToEntityIds(searchTerms, LightDomains);
 
         return await collector.RecordAsync(
             nameof(LightControlSkill.ControlLightsAsync),
-            new { searchTerms, state = "on", brightness },
-            () => skill.ControlLightsAsync(searchTerms, "on", brightness)).ConfigureAwait(false);
+            new { searchTerms = resolvedIds, state = "on", brightness },
+            () => skill.ControlLightsAsync(resolvedIds, "on", brightness)).ConfigureAwait(false);
     }
 
     private async Task<string> ExecuteClimateSetTemperatureAsync(
@@ -140,7 +176,7 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
                 "Temperature value not captured or not a valid number");
         }
 
-        var entityId = ResolveEntityId(route);
+        var entityId = ResolveEntityIdFromCache(route, ClimateDomains);
 
         return await collector.RecordAsync(
             nameof(ClimateControlSkill.SetClimateTemperatureAsync),
@@ -155,9 +191,8 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
         var captures = route.CapturedValues ?? new Dictionary<string, string>();
 
         var direction = captures.GetValueOrDefault("action", "warmer");
-        var entityId = ResolveEntityId(route);
+        var entityId = ResolveEntityIdFromCache(route, ClimateDomains);
 
-        // Fetch current state to determine the baseline temperature
         var stateInfo = await collector.RecordAsync(
             nameof(ClimateControlSkill.GetClimateStateAsync),
             new { entityId },
@@ -189,7 +224,7 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
         CommandRouteResult route, ConversationContext context, ToolCallCollector collector, CancellationToken ct)
     {
         var skill = _serviceProvider.GetRequiredService<SceneControlSkill>();
-        var entityId = ResolveEntityId(route, captureKey: "scene");
+        var entityId = ResolveEntityIdFromCache(route, SceneDomains, captureKey: "scene");
 
         return await collector.RecordAsync(
             nameof(SceneControlSkill.ActivateSceneAsync),
@@ -197,9 +232,79 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
             () => skill.ActivateSceneAsync(entityId, ct)).ConfigureAwait(false);
     }
 
+    // ── Entity resolution helpers ────────────────────────────────────
+
     /// <summary>
-    /// Builds search terms from captured values and context for skills that accept free-text search
-    /// (e.g., <see cref="LightControlSkill.ControlLightsAsync"/>).
+    /// Resolves each search term to cached entity IDs via exact match.
+    /// Throws <see cref="EntityResolutionBailException"/> if any term has no match.
+    /// </summary>
+    private string[] ResolveSearchTermsToEntityIds(string[] searchTerms, IReadOnlyList<string> domainFilter)
+    {
+        var entityIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var term in searchTerms)
+        {
+            var matches = _entityLocationService.ExactMatchEntities(term, domainFilter);
+            if (matches.Count == 0)
+            {
+                throw new EntityResolutionBailException(
+                    "no_exact_match",
+                    $"No exact cache match for '{term}'; deferring to orchestrator");
+            }
+
+            foreach (var entity in matches)
+            {
+                entityIds.Add(entity.EntityId);
+            }
+        }
+
+        return [.. entityIds];
+    }
+
+    /// <summary>
+    /// Resolves a single entity ID from the route's pre-resolved value or captured text,
+    /// validating against the cache via exact match.
+    /// </summary>
+    private string ResolveEntityIdFromCache(
+        CommandRouteResult route, IReadOnlyList<string> domainFilter, string captureKey = "entity")
+    {
+        // Prefer pre-resolved entity ID if available and valid in cache
+        if (!string.IsNullOrWhiteSpace(route.ResolvedEntityId))
+        {
+            var directMatches = _entityLocationService.ExactMatchEntities(route.ResolvedEntityId, domainFilter);
+            if (directMatches.Count > 0)
+                return directMatches[0].EntityId;
+        }
+
+        // Fall back to captured text and resolve from cache
+        if (route.CapturedValues?.TryGetValue(captureKey, out var captured) == true
+            && !string.IsNullOrWhiteSpace(captured))
+        {
+            var capturedMatches = _entityLocationService.ExactMatchEntities(captured, domainFilter);
+            if (capturedMatches.Count > 0)
+                return capturedMatches[0].EntityId;
+
+            throw new EntityResolutionBailException(
+                "no_exact_match",
+                $"No exact cache match for captured '{captureKey}' value '{captured}'; deferring to orchestrator");
+        }
+
+        // Fall back to area context
+        var areaName = route.ResolvedAreaId ?? route.CapturedValues?.GetValueOrDefault("entity");
+        if (!string.IsNullOrWhiteSpace(areaName))
+        {
+            var areaMatches = _entityLocationService.ExactMatchEntities(areaName, domainFilter);
+            if (areaMatches.Count > 0)
+                return areaMatches[0].EntityId;
+        }
+
+        throw new EntityResolutionBailException(
+            "no_exact_match",
+            $"No resolved entity ID or '{captureKey}' capture with exact cache match");
+    }
+
+    /// <summary>
+    /// Builds search terms from captured values and context for skills that accept free-text search.
     /// </summary>
     private static string[] BuildSearchTerms(CommandRouteResult route, ConversationContext context)
     {
@@ -212,7 +317,6 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
             terms.Add(entity);
         }
 
-        // Fall back to area context when no explicit entity was captured
         if (terms.Count == 0 && !string.IsNullOrWhiteSpace(route.ResolvedAreaId))
         {
             terms.Add(route.ResolvedAreaId);
@@ -225,29 +329,9 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
 
         return terms.Count > 0
             ? terms.ToArray()
-            : throw new InvalidOperationException(
+            : throw new EntityResolutionBailException(
+                "no_exact_match",
                 "No entity name or area context available to identify the target device");
-    }
-
-    /// <summary>
-    /// Resolves the Home Assistant entity ID from the route's pre-resolved value or captured text.
-    /// </summary>
-    private static string ResolveEntityId(CommandRouteResult route, string captureKey = "entity")
-    {
-        if (!string.IsNullOrWhiteSpace(route.ResolvedEntityId))
-        {
-            return route.ResolvedEntityId;
-        }
-
-        if (route.CapturedValues?.TryGetValue(captureKey, out var captured) == true
-            && !string.IsNullOrWhiteSpace(captured))
-        {
-            return captured;
-        }
-
-        throw new InvalidOperationException(
-            $"No resolved entity ID or '{captureKey}' capture available. " +
-            "The command router must resolve the entity ID for this action.");
     }
 
     /// <summary>
@@ -282,4 +366,14 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
         Level = LogLevel.Warning,
         Message = "Skill execution failed: {SkillId}/{Action}")]
     private partial void LogSkillFailure(string skillId, string action, Exception exception);
+
+    [LoggerMessage(
+        Level = LogLevel.Information,
+        Message = "Fast-path bail (cache miss): {SkillId}/{Action} — deferring to orchestrator")]
+    private partial void LogCacheMiss(string skillId, string action);
+
+    [LoggerMessage(
+        Level = LogLevel.Information,
+        Message = "Fast-path bail ({BailReason}): {SkillId}/{Action} — deferring to orchestrator")]
+    private partial void LogEntityResolutionBail(string skillId, string action, string bailReason);
 }
