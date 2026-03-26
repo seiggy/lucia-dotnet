@@ -110,3 +110,29 @@
 **Build Status:** ✅ New code compiles cleanly (pre-existing error in ModelComparisonReporter.cs is unrelated)
 
 **Deliverable:** `.squad/decisions/inbox/ash-trace-data-integration.md`
+
+### 2026-03-26: Conversation Pipeline Issue Analysis
+
+**What I Analyzed:**
+- 100 GitHub issues (12 directly relevant to conversation routing/command parsing/handoff)
+- ConversationCommandProcessor.cs fast-path architecture
+- All registered command patterns (LightControlSkill, ClimateControlSkill, SceneControlSkill)
+- Prior light agent pain map findings for conversation-routing overlap
+
+**Key Findings:**
+1. Fast-path is too aggressive: it matches commands it can't properly resolve. Issues #105 and #103 show entity resolution matching the wrong room despite HA areas existing — "front room" → Guest Room, "dining room" not matched at all.
+2. Of 12 relevant issues: 6 are fast-path failures, 3 are orchestrator failures, 3 are handoff/pipeline failures.
+3. The fast-path's entity resolution is purely string-matching with no semantic understanding of aliases, colloquial names, or area hierarchies. It matches syntax but fails semantics.
+4. Orchestrator has its own problems: routes garbled STT at 95% confidence (#106), translates non-English entity names breaking resolution (#84), and drops multi-turn conversation state (#58).
+5. Commands that consistently fail in fast-path: colloquial room names, color, fan/HVAC mode, temporal ("in 5 minutes"), multi-room groups, non-English, relative adjustments.
+6. Commands that succeed in fast-path: exact-name on/off, exact-area thermostat, simple scene activation.
+7. Zack's own comment on #103 confirms the direction: make fast-path "exact" matching only, let orchestrator handle fuzzy/ambiguous cases.
+
+**Recommendations:**
+- Fast-path should require exact area/entity name match; any fuzzy match → orchestrator
+- Remove color, fan, HVAC mode, temporal, multi-room from fast-path scope
+- Add STT quality gate before orchestrator routing
+- Add entity name preservation rule to orchestrator prompt (fix #84)
+- Add entity resolution quality signal — low-quality matches should not produce `commandHandled`
+
+**Deliverable:** `.squad/decisions/inbox/ash-conversation-issues.md`

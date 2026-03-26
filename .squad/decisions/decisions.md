@@ -190,3 +190,91 @@ TraceScenarioLoader.IssuesByCategory("entity-resolution")
 - [ ] Implement deduplication — scenarios from different runs of the same prompt should merge
 - [ ] Add entity resolution scenarios to eval YAML (covers #105, #103, #84)
 - [ ] Fix the Async suffix mismatch in eval harness to unblock accurate scoring
+
+## Decision: Conversation API Pipeline — Technical Audit
+
+**Author:** Parker (Backend/Platform Engineer)  
+**Date:** 2026-03-26  
+**Requested by:** Zack Way  
+**Status:** Complete  
+**Decision Type:** Technical Audit  
+
+### Summary
+
+Complete technical reverse-engineering and audit of the conversation fast-path and orchestrator fallback pipeline. Identifies 5 reliable patterns, documents broken climate resolution (missing fan/HVAC/timer), missing domain patterns, and accidental bail behavior via leftover token penalties.
+
+### Key Architecture
+
+**HTTP Entry Point:** POST `/api/conversation` → `ConversationCommandProcessor.ProcessAsync()`
+
+**Pattern Matching Engine:** Token-based matching (not regex)
+- **Confidence Formula:** 0.5 base + 0.3 (constrained match) + 0.1 (zero leftover) − 0.05 per leftover token
+- **Example:** "turn on kitchen lights" = 0.9; "turn off in 5 minutes" = 0.65 (caught by leftover penalty)
+
+### 5 Reliable Patterns
+
+1. `light-on-off` — exact area name matching
+2. `climate-set-temp` — exact entity matching
+3. `climate-comfort` — relative adjustments with area
+4. `scene-activate` — exact scene matching
+5. `climate-get-status` — query patterns
+
+### Broken Behaviors
+
+- **Climate:** Missing fan, HVAC mode, timer patterns
+- **Entity resolution:** Pure string-matching, fails on aliases ("front room" ≠ "Front Room")
+- **Accidental bail:** Temporal commands caught by leftover token penalty, not by design
+- **Pattern-skill binding:** Direct switch-dispatch, not registry-based
+
+---
+
+## Decision: Conversation Pipeline Issue Analysis — 12 Real-World Failures
+
+**Author:** Ash (Data Engineer)  
+**Date:** 2026-03-26  
+**Requested by:** Zack Way  
+**Status:** Complete  
+**Decision Type:** Issue Analysis  
+
+### Summary
+
+Classified 12 real-world conversation routing failures: 6 fast-path, 3 orchestrator, 3 handoff/pipeline.
+
+### Failure Patterns
+
+**Fast-Path (6):** Entity resolution on aliases, missing color pattern, cache failures, tool name mismatches
+
+**Orchestrator (3):** Garbled STT over-confident (#106), entity translation breaks (#84), multi-turn state lost (#58)
+
+**Handoff (3):** Multi-turn state not persistent, orchestrator unreachable in Docker, SLM fallback fails
+
+### Recommendations
+
+**Remove from fast-path:** Fuzzy entity resolution, color commands, fan/HVAC, temporal, multi-room, relative adjustments
+
+**Keep:** Exact-match on/off, exact temperature, simple scenes
+
+**Architectural fixes:** STT quality gate, entity name preservation, multi-turn durability, confidence quality signal
+
+---
+
+## Decision: Conversation Fast-Path Tightening + Personality Rendering
+
+**Author:** Zack Way  
+**Date:** 2026-03-26T20:05:00Z  
+**Status:** Approved  
+**Decision Type:** Product Direction  
+
+### Directive 1: Exact-Match Enforcement
+
+Kill fuzzy search. Use exact area/entity matching only. If cache load required, bail to orchestrator. 100% string match from cached data only.
+
+**Rationale:** Simple commands instant; complex/ambiguous defer to LLM immediately.
+
+### Directive 2: Optional Personality Rendering
+
+Add optional mode where fast-path responses routed through user's personality prompt. User-configurable, not replacing canned templates.
+
+**Rationale:** More natural, personality-consistent responses. Latency acknowledged.
+
+---
