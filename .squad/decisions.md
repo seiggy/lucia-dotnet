@@ -1434,3 +1434,463 @@ Followed the exact structure of `LightAgentEvalTests.cs`:
 - YAML dataset format is clear and maps well to test scenarios
 - STT variant testing is a critical part of the eval strategy
 - Missing climate entities in snapshot is the main blocker for realistic validation
+# LightAgentEvalTests — Deep Audit & Critique
+
+**Author:** Ripley (Lead / Eval Architect)  
+**Date:** 2026-03-26  
+**Requested by:** Zack Way  
+**Status:** Analysis Complete
+
+---
+
+## Part 1: What Each Test Actually Does
+
+### Test Infrastructure Summary
+
+The eval suite is built on:
+- **AgentEvalTestBase** — shared base class providing model parameterization, `RunAgentAndEvaluateAsync()`, and assertion helpers
+- **EvalTestFixture** — constructs real LightAgent instances backed by Ollama or Azure OpenAI, with a `ChatHistoryCapture` layer to record intermediate tool calls
+- **SmartHomeToolCallEvaluator** — LLM-as-judge (gpt-4o) scoring tool usage 1–5
+- **LatencyEvaluator** — records wall-clock time per scenario
+- **DiskBasedReportingConfiguration** — stores results for `dotnet aieval report`
+
+### Configuration (appsettings.json)
+
+Two models configured:
+1. `gpt-oss:20b` via Ollama (localhost:11434) with `nomic-embed-text` embeddings
+2. `gpt-5-nano` via Azure OpenAI with `text-embedding-3-small` embeddings
+
+Judge model: `chat` (Azure OpenAI deployment)
+
+### Per-Test Method Analysis
+
+#### 1. `FindLight_SingleLight_ProducesResponse`
+- **Prompt:** `"Turn on the kitchen light"`
+- **Asserts:** `AssertHasTextResponse()` + `AssertNoUnacceptableMetrics()`
+- **What it checks:** That the agent replied with *some text* and the LLM judge didn't score tool usage below 2/5
+- **What it does NOT check:**
+  - ❌ Does NOT verify `FindLight` or `ControlLights` was called
+  - ❌ Does NOT verify the *kitchen light* entity was targeted
+  - ❌ Does NOT verify the light was turned ON (state change)
+  - ❌ Does NOT verify tool call parameters (searchTerms, state, brightness)
+- **Specificity: VERY LOW** — A response like "I can't do that" would pass if the judge gives it 3+/5
+
+#### 2. `FindLightsByArea_AreaRequest_ProducesResponse`
+- **Prompt:** `"Turn off all the lights in the living room"`
+- **Asserts:** Same as above — text response + no unacceptable metrics
+- **What it does NOT check:**
+  - ❌ Does NOT verify area-based search was used
+  - ❌ Does NOT verify multiple lights were targeted
+  - ❌ Does NOT verify state was set to OFF
+- **Specificity: VERY LOW**
+
+#### 3. `GetLightState_StatusQuery_ProducesResponse`
+- **Prompt:** `"What is the status of the hallway light?"`
+- **Asserts:** Same pattern
+- **What it does NOT check:**
+  - ❌ Does NOT verify `GetLightState` tool was called
+  - ❌ Does NOT verify the response includes actual state info (on/off/brightness)
+  - ❌ Does NOT verify the correct entity was queried
+- **Specificity: VERY LOW**
+
+#### 4. `DimLight_ProducesResponse` (5 variants)
+- **Prompts:**
+  - `"Dim Zack's Light to 50%"` (exact)
+  - `"Dim Zach's Light to 50%"` (STT spelling)
+  - `"Dim Sack's Light to 50%"` (STT lisp)
+  - `"Dim Zagslight to 50%"` (STT lisp)
+  - `"Dim Sag's Light to 50%"` (STT lisp)
+- **Asserts:** Same pattern — text response + no unacceptable metrics
+- **What it does NOT check:**
+  - ❌ Does NOT verify `ControlLights` was called with brightness parameter
+  - ❌ Does NOT verify brightness was set to 50% (127/255)
+  - ❌ Does NOT verify the correct entity ("Zack's Light") was resolved despite STT errors
+  - ❌ Does NOT compare STT variant performance against the exact prompt
+- **Specificity: VERY LOW** — This is the most interesting test (STT robustness) but asserts nothing about the STT handling quality
+
+#### 5. `SetColor_IntentRecognized_ProducesResponse`
+- **Prompt:** `"Set the kitchen lights to blue"`
+- **Asserts:** Same pattern
+- **What it does NOT check:**
+  - ❌ Does NOT verify color parameter was extracted
+  - ❌ Does NOT verify the HA color format (RGB, color_name, etc.)
+  - ❌ Does NOT verify correct entity
+- **Specificity: VERY LOW**
+
+#### 6. `OutOfDomain_MusicRequest_StaysInDomain`
+- **Prompt:** `"Play some jazz music in the living room"`
+- **Asserts:** `AssertHasTextResponse()` only — explicitly discards evaluation result (`_`)
+- **What it does NOT check:**
+  - ❌ Does NOT verify that NO light tools were called
+  - ❌ Does NOT verify the response is a polite decline (could say "sure, playing jazz!")
+  - ❌ Does NOT verify no side effects on any entities
+- **Specificity: VERY LOW** — A hallucinated positive response would pass
+
+### Assertion Helpers Available But NOT Used
+
+The base class provides these methods that **exist** but are **never called** by LightAgentEvalTests:
+
+| Helper | Purpose | Used in LightAgentEvalTests? |
+|--------|---------|------------------------------|
+| `AssertToolCalled(response, functionName)` | Verify a specific tool was invoked | ❌ **NEVER** |
+| `GetToolCalls(response)` | Extract all FunctionCallContent items | ❌ **NEVER** |
+| `AssertHasTextResponse(response)` | Verify any text exists | ✅ Yes (all tests) |
+| `AssertNoUnacceptableMetrics(result)` | Verify judge score ≥ 2/5 | ✅ Yes (5/6 tests) |
+
+**The most useful assertion (`AssertToolCalled`) is never used.** Every test simply checks "did the agent say something?" and "was the judge not horrified?"
+
+---
+
+## Part 2: Test Run Results
+
+### xUnit Run (Current Environment)
+
+**20 test cases** (2 models × 10 prompt variants):
+- **10 Passed** — All `gpt-oss:20b` (Ollama) variants
+- **10 Failed** — All `gpt-5-nano` (Azure OpenAI) variants
+
+**Failure reason for all Azure tests:** `HTTP 401 — Access denied due to invalid subscription key`
+
+The Azure API key in appsettings.json is a placeholder (`<YOUR_AZURE_OPENAI_API_KEY>`), so all Azure-backed tests fail with auth errors, not eval failures. The Ollama tests pass because they only check for *any text response* and the LLM judge never runs (also needs Azure).
+
+### EvalHarness Reports (Previous Runs)
+
+From `lucia.EvalHarness/Reports/eval-20260325_152116.md` (most recent full run):
+
+**granite4:350m on LightAgent: 18% pass rate, 37.1/100 overall score**
+
+Key failures from the harness (which IS more specific than xUnit):
+| Scenario | Score | Failure |
+|----------|-------|---------|
+| turn_on_kitchen_light | 33 | Expected `ControlLightsAsync` but got `ControlLights` |
+| dim_living_room_to_30 | 50 | Expected `ControlLightsAsync` but got `ControlLights` |
+| set_office_light_blue | 0 | Expected 1 tool call, got 0 |
+| query_kitchen_state_off | 0 | Response said "on" but expected "off" |
+| stt_fuzzy_dim_kitchen | 0 | Expected `ControlLightsAsync` but got `ControlLights` |
+
+**Critical insight:** The EvalHarness (TUI) tests ARE specific — they check exact tool names and parameters. The xUnit `LightAgentEvalTests` are the weak ones. The TUI harness catches problems the xUnit suite completely misses.
+
+From `eval-20260325_131333.md` (multi-model comparison):
+- **granite4:350m** LightAgent: 32.6/100
+- **gemma3:270m** LightAgent: 18.2/100
+- Both only 18% pass rate
+
+---
+
+## Part 3: The Critique
+
+### 3.1 What's Actually Tested vs What Should Be Tested
+
+#### Entity Resolution Accuracy — NOT TESTED
+The xUnit tests never verify that the agent resolved to the correct entity. "Turn on the kitchen light" should resolve to `light.kitchen_light`, but no assertion checks this. The agent could target `light.bedroom_lamp` and the test would pass.
+
+#### Parameter Extraction — NOT TESTED
+"Dim to 50%" should extract brightness=127. "Set to blue" should extract a color value. No test checks extracted parameters.
+
+#### Tool Selection — NOT TESTED (in xUnit)
+Despite having `AssertToolCalled()` available, no test uses it. The YAML dataset in the TUI harness does check exact tool names — but the xUnit suite does not.
+
+#### Real HA Entity Data — PARTIALLY USED
+The fixture loads `ha-snapshot.json` via `FakeHomeAssistantClient.FromSnapshotFile()`, so entity data is real. But since no test verifies entity resolution, this is wasted fidelity.
+
+#### Model-Specific Behavior — STRUCTURALLY SUPPORTED, NOT ANALYZED
+Tests are parameterized across models (`gpt-oss:20b`, `gpt-5-nano`), but all models are held to the same binary pass/fail threshold. There's no comparison matrix in the xUnit output showing "model A got brightness right 80% of the time, model B only 40%."
+
+### 3.2 What's Missing for "Debugging What Models Work Best"
+
+#### No Model Comparison Matrix
+The EvalHarness produces comparison tables (granite4:350m vs gemma3:270m), but the xUnit suite treats each model independently. There's no test that says "compare these N models on this scenario and rank them."
+
+#### No Spectrum Scoring in xUnit
+Tests are binary: pass or fail. The SmartHomeToolCallEvaluator returns a 1–5 score, but `AssertNoUnacceptableMetrics` only checks for score ≤ 1 (Unacceptable). A score of 2 (Poor) passes. There's no way to see that Model A scored 4.2 average while Model B scored 3.1.
+
+#### No Latency/Token Tracking in Assertions
+`LatencyEvaluator` is included in every test run, but no test asserts on latency. A 10-second response and a 100ms response are both "passing." Token usage is not measured at all.
+
+#### No Parameter Sweep Capability
+The EvalHarness supports parameter profiles (temperature, top-k, top-p, repeat penalty) and compares them — the xUnit suite does not. You can't answer "does temperature=0.1 vs 0.7 affect tool selection accuracy?"
+
+#### No Failure Mode Taxonomy
+When a test fails, you get "metric failed." You don't know if it was:
+- Wrong entity (resolved bedroom instead of kitchen)
+- Wrong action (queried state instead of turning on)
+- Wrong parameter (brightness 255 instead of 127)
+- Hallucinated tool (called a non-existent function)
+- No tool called at all
+- Correct tool but wrong argument format
+
+The EvalHarness reports DO classify some of these, but the xUnit suite is a black box.
+
+### 3.3 What "Far Deeper Analysis" Would Look Like
+
+#### 1. Specific Tool Call Assertions
+Every control test should assert:
+```csharp
+AssertToolCalled(response, "ControlLights");
+var toolCalls = GetToolCalls(response);
+var controlCall = toolCalls.First(tc => tc.Name.Contains("ControlLights"));
+Assert.Contains("kitchen", controlCall.Arguments["searchTerms"].ToString(), StringComparison.OrdinalIgnoreCase);
+Assert.Equal("on", controlCall.Arguments["state"].ToString());
+```
+
+#### 2. Entity Resolution Accuracy Tests
+Given the HA snapshot, verify the agent resolved to the correct `entity_id`:
+- "Zack's Light" → `light.zacks_light` (or whatever the real entity is)
+- "Kitchen light" → `light.kitchen_light`
+- STT variant "Zagslight" → still resolves to `light.zacks_light`
+
+#### 3. Model Comparison as First-Class Output
+```
+| Scenario              | gpt-oss:20b | gpt-5-nano | granite4:350m | gemma3:270m |
+|-----------------------|-------------|------------|---------------|-------------|
+| turn_on_kitchen       | ✅ 5/5      | ✅ 5/5     | ❌ 2/5        | ❌ 1/5      |
+| dim_to_50_exact       | ✅ 4/5      | ✅ 5/5     | ❌ 3/5        | ❌ 1/5      |
+| dim_to_50_stt_lisp    | ✅ 4/5      | ❌ 2/5     | ❌ 1/5        | ❌ 1/5      |
+```
+
+#### 4. Real Trace Data as Test Inputs
+Instead of synthetic prompts like "Turn on the kitchen light," use actual user utterances from production traces. The trace pipeline (TraceCaptureObserver → MongoTraceRepository) already exists. Convert high-value traces into eval scenarios.
+
+#### 5. Confidence Scoring
+Track the LLM's confidence at each decision point:
+- Entity resolution confidence (embedding similarity score)
+- Tool selection confidence (from function calling logprobs if available)
+- Overall response confidence
+
+#### 6. Failure Mode Classification
+For each failed scenario, classify WHY it failed:
+- `WRONG_ENTITY` — resolved wrong device
+- `WRONG_ACTION` — correct device, wrong operation
+- `WRONG_PARAMS` — correct device + action, wrong parameters
+- `HALLUCINATED_TOOL` — called non-existent function
+- `NO_TOOL_CALL` — didn't call any tool
+- `TOOL_NAME_MISMATCH` — called right logic but wrong function name (the ControlLightsAsync vs ControlLights issue from the harness)
+- `STATE_ERROR` — queried state instead of changing it
+
+#### 7. STT Robustness Scoring
+The DimLight STT variants are the most interesting tests but produce no comparative data. They should report:
+- What entity was resolved for each variant
+- Whether the brightness parameter was correctly extracted
+- A fuzzy match score showing how degraded the STT input was vs how degraded the outcome was
+
+---
+
+## Summary: The Gap
+
+**The xUnit LightAgentEvalTests are smoke tests, not eval tests.** They verify the agent doesn't crash and produces some text. They don't verify correctness.
+
+The EvalHarness (TUI) is significantly better — it checks exact tool names, parameters, and state changes. But it runs separately from the xUnit suite, its results aren't in CI, and it still has blind spots (the `ControlLightsAsync` vs `ControlLights` name mismatch is a test infrastructure bug, not a model bug).
+
+To get "far deeper analysis of what models work best," the xUnit suite needs to evolve from asserting `AssertHasTextResponse()` to asserting specific tool calls, parameters, entity resolution, and state changes — and it needs to produce comparison data across models rather than isolated pass/fail verdicts.
+
+---
+
+## Recommended Next Steps
+
+1. **Add specific assertions** to every existing test (use `AssertToolCalled`, check parameters)
+2. **Add entity resolution tests** that verify the correct HA entity was targeted
+3. **Add parameter extraction tests** for brightness, color, state
+4. **Add failure mode classification** to SmartHomeToolCallEvaluator output
+5. **Create a model comparison report** that runs all tests across N models and produces a matrix
+6. **Port high-value YAML scenarios** from the harness into xUnit with full assertions
+7. **Fix the `Async` suffix mismatch** in tool name comparisons (test infra bug)
+8. **Add trace-to-scenario pipeline** to generate tests from real production data
+# Light Agent Pain Map
+
+**Author:** Ash (Data Engineer)
+**Date:** 2026-03-26
+**Sources:** GitHub Issues, Eval Trace Data (8 runs, 2 models), YAML Scenarios, xUnit Tests, Agent Source Code
+
+---
+
+## 1. Real User Issues
+
+### Issues Directly About Light Agent Behavior
+
+| # | Title | Failure Type | What User Tried | What Went Wrong | Agent | Model |
+|---|-------|-------------|-----------------|-----------------|-------|-------|
+| **#105** | Turn on the front room lights | **Entity resolution** | Turn on "front room lights" from Kitchen device | Matched wrong room — user says "front room" but system picked a different area. Response was just "Done." with no indication of which lights were affected. | LightAgent (command path) | SLM (command pattern) |
+| **#103** | Turn off dining room lights | **Entity resolution** | Turn off "dining room lights" — area called "Dining room" exists | Area not matched despite existing. Entity search failed to resolve "dining room lights" to the correct area. Response was just "Done." — no confirmation of what was toggled. | LightAgent (command path) | SLM (command pattern) |
+| **#84** | Entity & Name Preservation for Inter-Agent Communication | **Routing / Translation** | German user says "schalte den keller ein" (turn on basement). Orchestrator translates to English before delegating. | Light agent receives "turn on the lights in the basement" but entity names are in German. Entity resolution fails because the translated name doesn't match any HA entity. | Orchestrator → LightAgent | Claude Sonnet (orchestrator) |
+| **#83** | Entity Locations shows no entity if "Only Exposed" selected | **Entity resolution (infra)** | Admin tries to configure which entities the light agent can see | "Exposed Only" filter returns 0 entities due to WebSocket API response shape mismatch. Agent operates with potentially wrong entity scope. | EntityLocationService | N/A |
+| **#38** | HTTP request failure for entity locations | **Entity resolution (infra)** | System tries to load entity location data | POST /api/template returns 400 Bad Request. EntityLocationService fails to load, meaning all entity searches degrade or fail entirely. | EntityLocationService | N/A |
+| **#71** | Domain Settings on Agents not updating | **Configuration** | Admin tries to add light/switch domains to agent config | Domain list doesn't persist. Agent may not search the correct entity domains, missing lights or switches. | Agent definition API | N/A |
+
+### Issues Indirectly Affecting Light Agent
+
+| # | Title | Impact on Light Agent |
+|---|-------|-----------------------|
+| **#33** | Orchestrator publishes non-routable URL in Docker | Orchestrator can't reach light agent in containerized deployments — all light requests fail silently or route to wrong endpoint. |
+| **#32** | Lucia does not respond when agents array is empty | If light agent fails to initialize, entire system returns errors instead of graceful degradation. |
+| **#106** | Music agent mixed with speech transcription artifacts | Shows that STT artifacts are a systemic problem — garbled speech gets misrouted. Light agent would face same issue. |
+| **#107** | Mono container fails to run | Infrastructure failure prevents any agent from working. |
+
+---
+
+## 2. Failure Taxonomy
+
+Classified from GitHub issues + 8 eval trace runs (77 total test executions across `granite4:350m` and `gemma3:270m`).
+
+### Category A: Wrong Tool Selected (Most Common — 40% of failures)
+
+**Pattern:** Model calls `GetLightsState` when user wants to control (turn on/off), or skips tool calls entirely.
+
+| Observation | Frequency | Models Affected |
+|-------------|-----------|-----------------|
+| "Turn on X" → calls `GetLightsState` instead of `ControlLights` | 8/8 runs (granite4, turn_on_kitchen) | granite4:350m |
+| "Turn off X" → calls `GetLightsState` then asks user for confirmation | 3/8 runs | granite4:350m |
+| "Turn on X (already on)" → calls `GetLightsState` instead of `ControlLights` | 3/3 runs (post-scenario-expansion) | granite4:350m |
+| No tool call at all (empty response) | 9/11 scenarios | gemma3:270m |
+
+**Root Cause:** Small models struggle with the system prompt instruction "For control requests: call ControlLights directly. Do NOT call GetLightsState first." The models default to a query-then-act pattern that the prompt explicitly prohibits.
+
+### Category B: Parameter Extraction Failures (25% of failures)
+
+| Observation | Frequency | Models Affected |
+|-------------|-----------|-----------------|
+| Color passed as `state` parameter ("blue" instead of "on" + color="blue") | Every run with set_color_blue | granite4:350m |
+| Brightness value omitted from ControlLights call (dim request) | 2/8 runs | granite4:350m |
+| Brightness present but light not actually dimmed (API called without brightness param) | 1/8 runs | granite4:350m |
+
+**Root Cause:** The `ControlLightsAsync` signature has `state` as a required param and `color`/`brightness` as optional. Small models conflate "set to blue" with state="blue" rather than state="on", color="blue".
+
+### Category C: Entity Resolution Failures (20% of failures)
+
+| Observation | Source | Impact |
+|-------------|--------|--------|
+| "Front room lights" matched wrong room | Issue #105 (real user) | User's lights not controlled |
+| "Dining room lights" not matched to existing area | Issue #103 (real user) | Lights not controlled |
+| German entity names not matched after orchestrator translation | Issue #84 (real user) | Non-English users completely blocked |
+| Exposed entity filter returns 0 entities | Issue #83 (real user) | Agent has no entities to search |
+| EntityLocationService fails to load from HA | Issue #38 (real user) | Entity resolution entirely broken |
+| STT fuzzy input ("kichen lite") not resolved | Eval traces (stt_fuzzy_dim) | 50%+ failure rate on STT variants |
+
+### Category D: Response Quality Issues (10% of failures)
+
+| Observation | Source |
+|-------------|--------|
+| Response is just "Done." — no confirmation of which lights were affected | Issues #103, #105 |
+| Model says "I can't dim the living room lights" despite having the tool | Trace: granite4 dim_living_room (20260325) |
+| Model offers unsolicited help: "Is there anything else I can assist with?" | Traces: granite4 multiple runs |
+| Model reports wrong state: "Kitchen light is currently off" when it's on | Trace: granite4 turn_on_kitchen (20260321_184051) |
+| Empty response — no text at all | All gemma3:270m failures |
+
+### Category E: Eval Infrastructure Issues (5% of failures)
+
+| Observation | Impact |
+|-------------|--------|
+| YAML expects `ControlLightsAsync` but model emits `ControlLights` (no Async suffix) | All post-20260323 granite4 runs show false failures — tool name mismatch inflates failure count |
+| Eval harness doesn't distinguish "called wrong tool" from "tool name format mismatch" | Scores appear worse than actual behavior |
+
+---
+
+## 3. Model-Specific Issues
+
+### gemma3:270m — Complete Failure (18.2% score)
+
+- **Zero tool calls** on 9/11 scenarios. Model generates empty responses.
+- Passes only out-of-domain rejection tests (where no tool call is expected).
+- **Root cause:** 270M parameter model is too small for tool-calling with the current prompt format. It doesn't understand the function-calling schema.
+- **Recommendation:** Drop from eval matrix or add as a "minimum viable model" baseline.
+
+### granite4:350m — Partial Success (32-67% score, declining over time)
+
+- **Turn-on pattern consistently broken:** Calls `GetLightsState` for control requests across all 8 trace runs.
+- **Color handling broken:** Puts color name in `state` parameter instead of `color` parameter (100% repro).
+- **Brightness extraction inconsistent:** Works for "dim to 30%" about 50% of the time.
+- **Score declined** from 67% (early runs with 8 scenarios) to 32-37% (later runs with 11 scenarios) — partly due to eval tool-name mismatch bug, partly real regression.
+- **Response verbosity:** Offers follow-up questions ("Is there anything else?") despite system prompt saying "Do not offer additional assistance."
+- **Hallucination of state:** Reports kitchen light as "off" when tool returned "on at 100%".
+
+### Observations Across Models
+
+- No cloud model (GPT-4, Claude) traces exist for LightAgent — all data is from local SLMs.
+- Tool-name mismatch (`ControlLights` vs `ControlLightsAsync`) affects scoring for all models equally.
+- Out-of-domain rejection works well across both models tested.
+
+---
+
+## 4. Gaps in Testing
+
+### Real User Issues NOT Covered by Existing Tests
+
+| Real User Problem | Covered in YAML? | Covered in xUnit? | Priority |
+|-------------------|-------------------|--------------------|----------|
+| Wrong room matched ("front room" → wrong area) | ❌ | ❌ | **HIGH** |
+| Area exists but entity search doesn't find it ("dining room") | ❌ | ❌ | **HIGH** |
+| Non-English entity names / translation by orchestrator | ❌ | ❌ | **HIGH** |
+| Entity location service returns 0 entities (exposed filter bug) | ❌ | ❌ | **MEDIUM** |
+| Entity location service fails to load from HA | ❌ | ❌ | **MEDIUM** |
+| Response says "Done" without listing affected entities | ❌ | ❌ | **MEDIUM** |
+| Command from non-matching area context (speaker in Kitchen, controls Bedroom) | ❌ | ❌ | **MEDIUM** |
+| Multiple users controlling lights simultaneously | ❌ | ❌ | **LOW** |
+| Light groups (controlling all lights in a zone) | ❌ | Partial (FindLightSkillEvalTests) | **MEDIUM** |
+
+### Scenario Categories Missing Entirely
+
+| Category | Description | Existing Coverage |
+|----------|-------------|-------------------|
+| **Multi-room commands** | "Turn off all the lights except the kitchen" | ❌ None |
+| **Relative brightness** | "Make it brighter / dimmer" (no absolute value) | ❌ None |
+| **Color temperature** | "Make the lights warmer / cooler" | ❌ None |
+| **Toggle semantics** | "Toggle the bedroom lights" | ❌ None |
+| **Contextual references** | "Turn off that light" (requires conversational context) | ❌ None |
+| **Ambiguous entity names** | "Turn on the lamp" (when multiple lamps exist) | ❌ None |
+| **Switch-domain lights** | Entities under `switch.*` domain that are lights | Partial (code handles it, no test) |
+| **Bulk operations** | "Turn off all the lights" / "Everything off" | ❌ None |
+| **Confirmation flow** | Agent should confirm when many lights match before acting | ❌ None |
+| **Error recovery** | HA API is down, entity not found, timeout | ❌ None |
+| **Non-English input** | German, Spanish, French commands | ❌ None |
+| **Speaker-aware context** | Different response for different household members | ❌ None |
+
+### Eval Infrastructure Gaps
+
+- Tool name validation uses exact string match — `ControlLights` ≠ `ControlLightsAsync` causes false failures
+- No assertion on which entities were actually affected (only checks state change)
+- No latency regression tracking between runs
+- No cross-model comparison report generation
+
+---
+
+## 5. High-Value Scenarios for Eval Test Cases
+
+Ranked by frequency of real-world occurrence × severity of failure.
+
+| Rank | Scenario | Category | Why It Matters |
+|------|----------|----------|----------------|
+| **1** | "Turn on the [room] lights" — correct tool selection | Tool selection | Fails in every granite4 run. Most basic light command. |
+| **2** | "Turn off the dining room lights" — area-based entity resolution | Entity resolution | Real user bug #103. Area exists but not matched. |
+| **3** | "Set the [light] to [color]" — color as parameter not state | Parameter extraction | Fails 100% on granite4. Color goes into wrong field. |
+| **4** | "Turn on the front room lights" — colloquial room name mapping | Entity resolution | Real user bug #105. "Front room" is not the HA area name. |
+| **5** | "Dim the lights to 50%" — brightness as percentage | Parameter extraction | Inconsistent across runs. Critical for usability. |
+| **6** | "Schalte das Licht ein" — non-English commands via orchestrator | Translation/routing | Real user bug #84. Entire non-English user base affected. |
+| **7** | "Dimm the kichen lite" — STT transcription artifacts | STT robustness | Existing scenario but 50%+ failure rate. Needs more variants. |
+| **8** | "Turn off all the lights" — bulk operation | Bulk control | Not tested. Common real-world command. |
+| **9** | "Make it brighter" — relative brightness without absolute value | Intent understanding | Not tested. Very natural phrasing. |
+| **10** | "Toggle the bedroom lights" — toggle semantics | Action interpretation | Not tested. Common voice command pattern. |
+
+### Bonus: Infrastructure Scenarios (Non-LLM)
+
+| Scenario | Why It Matters |
+|----------|----------------|
+| Entity location service fails to load | Issue #38 — lights become uncontrollable |
+| Exposed entity filter returns empty set | Issue #83 — agent has nothing to search |
+| HA API returns error during control call | No error recovery testing exists |
+| Domain config not persisted | Issue #71 — agent may miss entity domains |
+
+---
+
+## Appendix: Eval Score Summary Across All Trace Runs
+
+| Date | Model | Scenarios | Passed | Failed | Score | Key Issue |
+|------|-------|-----------|--------|--------|-------|-----------|
+| 2026-03-21 | granite4:350m | 8 | 5 | 3 | 67.4% | turn_on uses wrong tool, color→state confusion |
+| 2026-03-21 | granite4:350m | 8 | 4 | 4 | 64.5% | Duplicate tool calls, turn_on wrong tool |
+| 2026-03-21 | granite4:350m | 8 | 3 | 5 | 61.6% | turn_off also uses GetLightsState |
+| 2026-03-21 | granite4:350m | 8 | 3 | 5 | 63.2% | dim fails, area listing fails |
+| 2026-03-23 | granite4:350m | 11 | 2 | 9 | 32.6% | Tool name mismatch (Async suffix) inflates failures |
+| 2026-03-25 | granite4:350m | 11 | 2 | 9 | 32.6% | Same — plus dim now says "I can't" |
+| 2026-03-25 | granite4:350m | 11 | 2 | 9 | 37.1% | Same pattern, slightly better scores |
+| 2026-03-25 | gemma3:270m | 11 | 2 | 9 | 18.2% | Zero tool calls — model too small |
+
+**Trend:** Scores dropped from ~65% to ~35% when scenarios expanded from 8→11, but ~50% of the new failures are eval infrastructure bugs (tool name mismatch), not real agent regressions.

@@ -69,3 +69,20 @@
 - No systematic GitHub issue → eval scenario pipeline (bugs likely to recur)
 - No production trace → eval scenario conversion (missing real-world usage patterns)
 - MusicAgent has xUnit suite but no YAML dataset (inverse of other agents)
+
+### 2026-03-26: LightAgentEvalTests Deep Audit
+
+**Key Finding: xUnit eval tests are smoke tests, not real evals.**
+
+Every test in `LightAgentEvalTests.cs` only asserts `AssertHasTextResponse()` + `AssertNoUnacceptableMetrics()`. No test uses the available `AssertToolCalled()` helper. No test verifies entity resolution, parameter extraction, or state changes. The LLM judge (SmartHomeToolCallEvaluator) provides a 1-5 score but `AssertNoUnacceptableMetrics` only catches scores ≤1, meaning "Poor" (2/5) passes.
+
+**Contrast with EvalHarness:** The TUI harness (`lucia.EvalHarness`) tests ARE specific — they check exact tool names, parameters, and expected state. The xUnit suite is dramatically less useful for model debugging.
+
+**Infrastructure issues found:**
+- Azure API key in appsettings.json is placeholder — all Azure-backed tests fail with 401
+- `ControlLightsAsync` vs `ControlLights` name mismatch appears in harness failures (test infra bug, not model bug)
+- Judge model requires Azure OpenAI — Ollama-only environments can't score
+
+**EvalHarness results (most recent):** granite4:350m scored 37.1/100 on LightAgent (18% pass), gemma3:270m scored 18.2/100. GeneralAgent (no tools) scores 84-87 across both models.
+
+**Full audit written to:** `.squad/decisions/inbox/ripley-light-eval-audit.md`
