@@ -86,3 +86,42 @@ Every test in `LightAgentEvalTests.cs` only asserts `AssertHasTextResponse()` + 
 **EvalHarness results (most recent):** granite4:350m scored 37.1/100 on LightAgent (18% pass), gemma3:270m scored 18.2/100. GeneralAgent (no tools) scores 84-87 across both models.
 
 **Full audit written to:** `.squad/decisions/inbox/ripley-light-eval-audit.md`
+
+### 2025-10-13: Orchestration Simplification Investigation
+
+**Hypothesis Investigated:** Remove A2A setup and simplify to agents-as-tools where orchestrator receives dynamic collection of agents as its tools.
+
+**Key Findings:**
+
+1. **Current Architecture Complexity Source:**
+   - A2A infrastructure (RemoteAgentInvoker, A2AHost, mesh deployment) adds ~2,000 lines of code
+   - **Standalone mode (default)** uses LocalAgentInvoker exclusively — A2A is not used in production
+   - Real complexity is in unused deployment flexibility, not orchestration pattern itself
+
+2. **Agents-as-Tools Feasibility:**
+   - **Not viable** with Microsoft Agent Framework — agents are not composable as tools
+   - Framework expects `AIFunction` instances (typed parameters, synchronous/async methods)
+   - Agents take unstructured text and return chat responses (incompatible signatures)
+   - Critical losses: parallel execution (sequential tool calls), multi-agent coordination, explicit routing cache, streaming observability
+
+3. **Dynamic Agents + MCP Compatibility:**
+   - DynamicAgent uses MCP tools internally (via IMcpToolRegistry)
+   - Works perfectly as orchestration target via LocalAgentInvoker
+   - No benefit from agents-as-tools pattern — would risk breaking MCP integration
+
+4. **Incremental Simplification Path (Recommended):**
+   - Remove A2A infrastructure entirely (RemoteAgentInvoker, A2AHost, mesh mode config)
+   - Keep LuciaEngine workflow orchestration (RouterExecutor → AgentDispatchExecutor → LocalAgentInvoker)
+   - Preserves: parallel execution, multi-agent coordination, routing cache, streaming traces, dynamic agents + MCP
+   - Benefits: -2,000 lines code, single-process deployment, zero network latency, reduced operational complexity
+   - Effort: 1-2 weeks vs. 4-6 weeks for full rewrite
+
+5. **Architecture Insight:**
+   - Workflow pattern (Router → Dispatch → Aggregate) is not the complexity source
+   - Pattern enables parallel agent execution, tailored instructions per agent, explicit routing decisions
+   - LocalAgentInvoker already eliminates HTTP overhead for in-process agents
+   - Removing workflow layer would lose critical capabilities for marginal simplification
+
+**Recommendation:** Incremental simplification — delete A2A/mesh infrastructure, keep workflow orchestration. POC scope: Phase 1 (A2A removal), Phase 2 (registry simplification), Phase 3 (WorkflowFactory cleanup). Total effort: 1-2 weeks.
+
+**Full analysis written to:** `.squad/decisions/inbox/ripley-orchestration-simplification.md`
