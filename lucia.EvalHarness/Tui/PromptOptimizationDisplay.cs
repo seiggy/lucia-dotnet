@@ -59,7 +59,7 @@ public static class PromptOptimizationDisplay
                     _ => "white"
                 };
 
-                AnsiConsole.MarkupLine($"  [{typeColor}]{idx + 1}. [{suggestion.Type}][/] at [dim]{Markup.Escape(suggestion.Location)}[/]");
+                AnsiConsole.MarkupLine($"  [{typeColor}]{idx + 1}. {Markup.Escape($"[{suggestion.Type}]")}[/] at [dim]{Markup.Escape(suggestion.Location)}[/]");
                 AnsiConsole.MarkupLine($"     [dim]Reasoning:[/] {Markup.Escape(Truncate(suggestion.Reasoning, 120))}");
                 if (suggestion.PredictedImpact is not null)
                     AnsiConsole.MarkupLine($"     [dim]Impact:[/] [green]{Markup.Escape(suggestion.PredictedImpact)}[/]");
