@@ -39,6 +39,7 @@ public sealed class PersonalityEvalTests : IAsyncLifetime
 {
     private readonly ITestOutputHelper _output;
     private readonly List<PersonalityEvalScenario> _scenarios = [];
+    private readonly List<PersonalityProfile> _profiles = [];
     private IChatClient? _chatClient;
     private bool _ollamaAvailable;
 
@@ -70,6 +71,18 @@ public sealed class PersonalityEvalTests : IAsyncLifetime
         }
 
         _scenarios.AddRange(scenarios);
+
+        // Load personality profiles
+        var profilePath = Path.Combine(AppContext.BaseDirectory, "TestData", "personality-profiles.json");
+        if (File.Exists(profilePath))
+        {
+            var profileJson = await File.ReadAllTextAsync(profilePath);
+            var profiles = JsonSerializer.Deserialize<List<PersonalityProfile>>(profileJson, s_jsonOptions);
+            if (profiles is not null)
+            {
+                _profiles.AddRange(profiles);
+            }
+        }
 
         // Resolve Ollama endpoint and model from environment or defaults
         var ollamaEndpoint = Environment.GetEnvironmentVariable("OLLAMA_ENDPOINT") ?? "http://localhost:11434";
@@ -271,6 +284,130 @@ public sealed class PersonalityEvalTests : IAsyncLifetime
         Assert.True(passed > 0, "No scenarios passed — check Ollama connectivity and model.");
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // Personality Switching — all profiles × representative scenarios
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Representative scenario IDs covering success, error, clarification, multi-agent, and brevity.
+    /// </summary>
+    private static readonly string[] s_switchingScenarioIds =
+    [
+        "personality-success-light-on",
+        "personality-error-device-not-found",
+        "personality-clarification-which-room",
+        "personality-multi-agent-lights-music",
+        "personality-multi-agent-partial-failure",
+        "personality-brevity-timer-set"
+    ];
+
+    [SkippableFact]
+    [Trait("Category", "Eval")]
+    public async Task PersonalitySwitching_AllProfiles_PreserveMeaning()
+    {
+        Skip.If(!_ollamaAvailable, "Ollama is not available — skipping personality switching eval.");
+        Skip.If(_profiles.Count == 0, "No personality profiles loaded — skipping personality switching eval.");
+
+        var passed = 0;
+        var failed = 0;
+        var failures = new List<string>();
+        var total = 0;
+
+        foreach (var scenarioId in s_switchingScenarioIds)
+        {
+            var scenario = _scenarios.FirstOrDefault(s => s.Id == scenarioId);
+            if (scenario is null)
+            {
+                _output.WriteLine($"  ⚠️ Scenario '{scenarioId}' not found — skipping.");
+                continue;
+            }
+
+            // Determine which profiles apply to this scenario
+            var applicableProfileIds = scenario.PersonalityProfileIds is { Count: > 0 }
+                ? scenario.PersonalityProfileIds
+                : _profiles.Select(p => p.Id).ToList();
+
+            foreach (var profile in _profiles.Where(p => applicableProfileIds.Contains(p.Id)))
+            {
+                total++;
+                var pairLabel = $"{scenario.Id} × {profile.Id}";
+
+                try
+                {
+                    var rewritten = await RunPersonalityRewriteWithProfileAsync(scenario, profile);
+                    var pairFailures = new List<string>();
+
+                    // Standard scenario expectations
+                    ValidateExpectations(scenario.Expectations, rewritten, pairFailures);
+
+                    // Profile anti-patterns
+                    var lower = rewritten.ToLowerInvariant();
+                    foreach (var antiPattern in profile.AntiPatterns)
+                    {
+                        if (lower.Contains(antiPattern.ToLowerInvariant()))
+                        {
+                            pairFailures.Add($"Profile anti-pattern detected: '{antiPattern}'");
+                        }
+                    }
+
+                    // Voice characteristic adoption — at least one must appear
+                    var hasVoice = profile.VoiceCharacteristics.Count == 0
+                        || profile.VoiceCharacteristics.Any(vc =>
+                            lower.Contains(vc.ToLowerInvariant()));
+                    if (!hasVoice)
+                    {
+                        pairFailures.Add(
+                            $"No voice characteristics found (expected at least one of: {string.Join(", ", profile.VoiceCharacteristics)})");
+                    }
+
+                    if (pairFailures.Count == 0)
+                    {
+                        passed++;
+                        _output.WriteLine($"  ✅ {pairLabel}: PASS");
+                    }
+                    else
+                    {
+                        failed++;
+                        var detail = $"  ❌ {pairLabel}: FAIL — {string.Join("; ", pairFailures)}";
+                        failures.Add(detail);
+                        _output.WriteLine(detail);
+                    }
+
+                    _output.WriteLine($"     Profile: {profile.Name}");
+                    _output.WriteLine($"     Original: {scenario.AgentResponse}");
+                    _output.WriteLine($"     Rewritten: {rewritten}");
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    var detail = $"  ❌ {pairLabel}: ERROR — {ex.Message}";
+                    failures.Add(detail);
+                    _output.WriteLine(detail);
+                }
+            }
+        }
+
+        _output.WriteLine("");
+        _output.WriteLine($"═══ Personality Switching Report ═══");
+        _output.WriteLine($"  Total: {total}  Passed: {passed}  Failed: {failed}");
+        if (total > 0)
+        {
+            _output.WriteLine($"  Pass rate: {(double)passed / total:P0}");
+        }
+
+        if (failures.Count > 0)
+        {
+            _output.WriteLine("");
+            _output.WriteLine("Failures:");
+            foreach (var f in failures)
+            {
+                _output.WriteLine(f);
+            }
+        }
+
+        Assert.True(passed > 0, "No personality switching pairs passed — check Ollama connectivity and model.");
+    }
+
     // ─── Core engine ──────────────────────────────────────────────────
 
     private async Task<string> RunPersonalityRewriteAsync(
@@ -305,6 +442,37 @@ public sealed class PersonalityEvalTests : IAsyncLifetime
 
         _output.WriteLine($"[{scenario.Id}] Original: {scenario.AgentResponse}");
         _output.WriteLine($"[{scenario.Id}] Rewritten: {rewritten}");
+
+        return rewritten;
+    }
+
+    private async Task<string> RunPersonalityRewriteWithProfileAsync(
+        PersonalityEvalScenario scenario,
+        PersonalityProfile profile)
+    {
+        var voiceTagsEnabled = scenario.VoiceTagsEnabled ?? false;
+
+        var voiceTagInstruction = voiceTagsEnabled
+            ? "Include paralinguistic voice tags in your response for improved personality, such as [laugh], [sigh], [cough]."
+            : "Do not include any markup or tags in your response. Plain text only.";
+
+        var messages = new List<ChatMessage>
+        {
+            new(ChatRole.System, profile.Instructions),
+            new(ChatRole.User,
+                $"Rephrase this home automation action result in your voice. Be brief and natural. Aim for 10-15 seconds of speech.\n" +
+                $"{voiceTagInstruction}\n" +
+                $"Action Requested: {scenario.SkillId}/{scenario.Action}\n" +
+                $"Result from System: {scenario.AgentResponse}")
+        };
+
+        var response = await _chatClient!.GetResponseAsync(messages,
+            cancellationToken: new CancellationTokenSource(TimeSpan.FromSeconds(30)).Token);
+
+        var rewritten = response.Text?.Trim() ?? string.Empty;
+
+        _output.WriteLine($"[{scenario.Id}×{profile.Id}] Original: {scenario.AgentResponse}");
+        _output.WriteLine($"[{scenario.Id}×{profile.Id}] Rewritten: {rewritten}");
 
         return rewritten;
     }
@@ -381,6 +549,59 @@ public sealed class PersonalityEvalTests : IAsyncLifetime
                           $"  Rewritten: {rewritten}\n" +
                           $"  Failures: {string.Join("; ", failures)}";
             Assert.Fail(message);
+        }
+    }
+
+    /// <summary>
+    /// Validates scenario expectations and collects failures without throwing.
+    /// Shared between the full-suite report and the personality-switching test.
+    /// </summary>
+    private void ValidateExpectations(
+        PersonalityEvalExpectations expectations,
+        string rewritten,
+        List<string> failures)
+    {
+        var lower = rewritten.ToLowerInvariant();
+
+        foreach (var required in expectations.MustContain)
+        {
+            if (!lower.Contains(required.ToLowerInvariant()))
+            {
+                failures.Add($"Missing required content '{required}'");
+            }
+        }
+
+        foreach (var forbidden in expectations.MustNotContain)
+        {
+            if (lower.Contains(forbidden.ToLowerInvariant()))
+            {
+                failures.Add($"Contains forbidden content '{forbidden}'");
+            }
+        }
+
+        if (expectations.MaxLength > 0 && rewritten.Length > expectations.MaxLength)
+        {
+            failures.Add($"Response too long: {rewritten.Length} > {expectations.MaxLength}");
+        }
+
+        if (expectations.IsQuestion && !rewritten.TrimEnd().EndsWith('?'))
+        {
+            failures.Add("Expected a question (ending with '?') but response is a statement");
+        }
+
+        if (!string.IsNullOrWhiteSpace(expectations.SentimentPreserved))
+        {
+            var sentimentOk = expectations.SentimentPreserved.ToLowerInvariant() switch
+            {
+                "positive" => !ContainsNegativeSentiment(lower),
+                "negative" => !ContainsFalsePositiveSentiment(lower),
+                _ => true
+            };
+
+            if (!sentimentOk)
+            {
+                failures.Add($"Sentiment not preserved: expected '{expectations.SentimentPreserved}'");
+            }
         }
     }
 

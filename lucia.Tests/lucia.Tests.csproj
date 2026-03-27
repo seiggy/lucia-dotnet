@@ -50,6 +50,7 @@
     <Content Include="TestData\light-agent-traces.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="TestData\light-agent-user-issues.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="TestData\personality-eval-scenarios.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="TestData\personality-profiles.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="System.Net" />

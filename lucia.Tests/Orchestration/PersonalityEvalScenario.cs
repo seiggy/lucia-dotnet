@@ -32,6 +32,13 @@ public sealed class PersonalityEvalScenario
     [JsonPropertyName("voiceTagsEnabled")]
     public bool? VoiceTagsEnabled { get; set; }
 
+    /// <summary>
+    /// IDs of personality profiles to test this scenario against.
+    /// Defaults to all profiles when omitted or empty.
+    /// </summary>
+    [JsonPropertyName("personalityProfileIds")]
+    public List<string>? PersonalityProfileIds { get; set; }
+
     [JsonPropertyName("expectations")]
     public required PersonalityEvalExpectations Expectations { get; set; }
 }
