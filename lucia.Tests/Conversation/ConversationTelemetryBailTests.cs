@@ -52,7 +52,7 @@ public sealed class ConversationTelemetryBailTests : IDisposable
             routingOptions);
     }
 
-    [Fact(Skip = "Pending: bail reason telemetry tags in ConversationCommandProcessor by Parker/Dallas")]
+    [Fact(Skip = "Requires ConversationCommandProcessor to emit fast_path_bail_reason activity tags")]
     public async Task CacheMiss_RecordsTelemetryTag()
     {
         // Arrange — entity cache not loaded; router bails
@@ -77,7 +77,7 @@ public sealed class ConversationTelemetryBailTests : IDisposable
         Assert.Equal("cache_miss", bailTag);
     }
 
-    [Fact(Skip = "Pending: bail reason telemetry tags in ConversationCommandProcessor by Parker/Dallas")]
+    [Fact(Skip = "Requires ConversationCommandProcessor to emit fast_path_bail_reason activity tags")]
     public async Task NoExactMatch_RecordsTelemetryTag()
     {
         // Arrange — cache loaded but entity not found via exact match
@@ -101,7 +101,7 @@ public sealed class ConversationTelemetryBailTests : IDisposable
         Assert.Equal("no_exact_match", bailTag);
     }
 
-    [Fact(Skip = "Pending: bail reason telemetry tags in ConversationCommandProcessor by Parker/Dallas")]
+    [Fact(Skip = "Requires ConversationCommandProcessor to emit fast_path_bail_reason activity tags")]
     public async Task BailSignalDetected_RecordsTelemetryTag()
     {
         // Arrange — temporal/complex signal detected; router bails

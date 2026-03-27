@@ -49,7 +49,7 @@ public sealed class ExactMatchEntityResolutionTests : IDisposable
             routingOptions);
     }
 
-    [Fact(Skip = "Pending: exact-match entity cache implementation by Parker/Dallas")]
+    [Fact]
     public async Task ExactMatch_KitchenInCache_FastPathSucceeds()
     {
         // Arrange — "kitchen" is in the entity cache; router resolves exact match
@@ -102,7 +102,7 @@ public sealed class ExactMatchEntityResolutionTests : IDisposable
         Assert.Equal("command", result.Response!.Type);
     }
 
-    [Fact(Skip = "Pending: exact-match entity cache implementation by Parker/Dallas")]
+    [Fact]
     public async Task CacheNotLoaded_BailsToLlm()
     {
         // Arrange — entity cache is not yet populated; router bails immediately
@@ -122,7 +122,7 @@ public sealed class ExactMatchEntityResolutionTests : IDisposable
             .MustNotHaveHappened();
     }
 
-    [Fact(Skip = "Pending: exact-match entity cache implementation by Parker/Dallas")]
+    [Fact]
     public async Task NoExactMatch_FrontRoomNotInCache_BailsToLlm()
     {
         // Arrange — "front room" is not in cache; even if "Guest Room" exists,
@@ -142,7 +142,7 @@ public sealed class ExactMatchEntityResolutionTests : IDisposable
             .MustNotHaveHappened();
     }
 
-    [Fact(Skip = "Pending: exact-match entity cache implementation by Parker/Dallas")]
+    [Fact]
     public async Task ExactMatch_DiningRoomCaseInsensitive_FastPathSucceeds()
     {
         // Arrange — "Dining room" is in cache (case-insensitive exact match).
@@ -195,7 +195,7 @@ public sealed class ExactMatchEntityResolutionTests : IDisposable
         Assert.NotNull(result.Response);
     }
 
-    [Fact(Skip = "Pending: exact-match entity cache implementation by Parker/Dallas")]
+    [Fact]
     public async Task CacheLoadedButEmpty_BailsToLlm()
     {
         // Arrange — cache is loaded but contains zero entities.

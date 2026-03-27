@@ -49,7 +49,7 @@ public sealed class BailSignalDetectionTests : IDisposable
             routingOptions);
     }
 
-    [Fact(Skip = "Pending: bail signal detection in CommandRouter by Parker/Dallas")]
+    [Fact]
     public async Task TemporalSignal_InMinutes_BailsToLlm()
     {
         // Arrange — "in 5 minutes" is a temporal modifier; router should bail
@@ -70,7 +70,7 @@ public sealed class BailSignalDetectionTests : IDisposable
             .MustNotHaveHappened();
     }
 
-    [Fact(Skip = "Pending: bail signal detection in CommandRouter by Parker/Dallas")]
+    [Fact]
     public async Task ColorSignal_SetToBlue_BailsToLlm()
     {
         // Arrange — "set the lights to blue" is a color command; too complex for fast-path
@@ -91,7 +91,7 @@ public sealed class BailSignalDetectionTests : IDisposable
             .MustNotHaveHappened();
     }
 
-    [Fact(Skip = "Pending: bail signal detection in CommandRouter by Parker/Dallas")]
+    [Fact]
     public async Task ConjunctionSignal_TurnOnAndMakeWarmer_BailsToLlm()
     {
         // Arrange — "and" conjoins two separate intents; requires LLM decomposition
@@ -112,7 +112,7 @@ public sealed class BailSignalDetectionTests : IDisposable
             .MustNotHaveHappened();
     }
 
-    [Fact(Skip = "Pending: bail signal detection in CommandRouter by Parker/Dallas")]
+    [Fact]
     public async Task TemporalSignal_AtTime_BailsToLlm()
     {
         // Arrange — "at 10pm" is a scheduled action; requires LLM
@@ -133,7 +133,7 @@ public sealed class BailSignalDetectionTests : IDisposable
             .MustNotHaveHappened();
     }
 
-    [Fact(Skip = "Pending: bail signal detection in CommandRouter by Parker/Dallas")]
+    [Fact]
     public async Task ColorTemperatureSignal_WarmWhite_BailsToLlm()
     {
         // Arrange — "warm white" is a color temperature modifier; requires LLM
