@@ -17,7 +17,8 @@ using Spectre.Console;
 var configBuilder = new ConfigurationBuilder()
     .SetBasePath(Directory.GetCurrentDirectory())
     .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
-    .AddEnvironmentVariables(prefix: "Harness__");
+    .AddEnvironmentVariables(prefix: "Harness__")
+    .AddUserSecrets<HarnessConfiguration>();
 
 var configRoot = configBuilder.Build();
 var config = new HarnessConfiguration();

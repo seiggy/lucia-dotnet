@@ -1,9 +1,10 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <NoWarn>SKEXP0110;SKEXP0001;SKEXP0010;AIEVAL001</NoWarn>
     <PreviewFeatures>enable</PreviewFeatures>
+    <UserSecretsId>8689ee8a-efa5-4852-abbc-7cc457540792</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
