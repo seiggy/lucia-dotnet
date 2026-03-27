@@ -366,6 +366,9 @@ public sealed class InMemoryEntityLocationService : IEntityLocationService
     // ── Synchronous, cache-only fast-path lookups ───────────────────
 
     /// <inheritdoc />
+    public LocationSnapshot GetSnapshot() => _snapshot;
+
+    /// <inheritdoc />
     public bool IsCacheReady => Volatile.Read(ref _lastLoadedAtTicks) != 0;
 
     /// <inheritdoc />
@@ -992,28 +995,4 @@ public sealed class InMemoryEntityLocationService : IEntityLocationService
     }
 
     // ── Private: Immutable snapshot ─────────────────────────────────
-
-    private sealed class LocationSnapshot(
-        ImmutableArray<FloorInfo> floors,
-        ImmutableArray<AreaInfo> areas,
-        ImmutableArray<HomeAssistantEntity> entities,
-        ImmutableDictionary<string, FloorInfo> floorById,
-        ImmutableDictionary<string, AreaInfo> areaById,
-        ImmutableDictionary<string, HomeAssistantEntity> entityById)
-    {
-        public static readonly LocationSnapshot Empty = new(
-            ImmutableArray<FloorInfo>.Empty,
-            ImmutableArray<AreaInfo>.Empty,
-            ImmutableArray<HomeAssistantEntity>.Empty,
-            ImmutableDictionary<string, FloorInfo>.Empty,
-            ImmutableDictionary<string, AreaInfo>.Empty,
-            ImmutableDictionary<string, HomeAssistantEntity>.Empty);
-
-        public ImmutableArray<FloorInfo> Floors { get; } = floors;
-        public ImmutableArray<AreaInfo> Areas { get; } = areas;
-        public ImmutableArray<HomeAssistantEntity> Entities { get; } = entities;
-        public ImmutableDictionary<string, FloorInfo> FloorById { get; } = floorById;
-        public ImmutableDictionary<string, AreaInfo> AreaById { get; } = areaById;
-        public ImmutableDictionary<string, HomeAssistantEntity> EntityById { get; } = entityById;
-    }
 }

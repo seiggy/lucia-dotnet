@@ -28,6 +28,7 @@ using lucia.TimerAgent.ScheduledTasks;
 using lucia.Wyoming.Extensions;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.FeatureManagement;
 using OpenTelemetry.Trace;
 using Scalar.AspNetCore;
 
@@ -35,6 +36,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 builder.Services.AddAntiforgery();
+builder.Services.AddFeatureManagement();
 
 // Determine data provider backends
 var dataProviderOptions = new DataProviderOptions();
@@ -212,6 +214,7 @@ else
 }
 builder.Services.AddSingleton<ResponseTemplateRenderer>();
 builder.Services.AddSingleton<IDirectSkillExecutor, DirectSkillExecutor>();
+builder.Services.AddSingleton<ICascadingEntityResolver, CascadingEntityResolver>();
 builder.Services.AddSingleton<ContextReconstructor>();
 builder.Services.AddSingleton<ConversationTelemetry>();
 builder.Services.AddSingleton<CommandTraceChannel>();

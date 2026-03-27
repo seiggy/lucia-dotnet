@@ -96,6 +96,7 @@
     <PackageVersion Include="Microsoft.Extensions.ServiceDiscovery" Version="10.4.0" />
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.4.0" />
     <PackageVersion Include="Microsoft.Extensions.VectorData.Abstractions" Version="10.0.1" />
+    <PackageVersion Include="Microsoft.FeatureManagement.AspNetCore" Version="3.1.0" />
   </ItemGroup>
   <!-- ── Azure SDK ────────────────────────────────────────────── -->
   <ItemGroup Label="Azure">

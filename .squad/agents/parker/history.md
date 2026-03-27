@@ -82,3 +82,6 @@ Key findings:
 
 5. **Proposed fix** (in `.squad/decisions/inbox/parker-entity-matching-fix.md`): (A) Strip stop words before generating embeddings, and (B) swap path priority to area-first in `SearchHierarchyAsync`. Both changes are minimal and apply to all agents using the shared matcher.
 
+### 2026-03-27 — Cascading Entity Resolver Implementation
+
+Implemented the cascading entity resolution pipeline with deterministic query decomposition, location grounding, domain filtering, and exact/phonetic/token matching. Added the UseCascadingResolver feature flag (FeatureManagement) to gate the new path, and wired speaker identity expansions ("my X" → "{SpeakerId}'s X") plus caller-area grounding for fast-path resolution.

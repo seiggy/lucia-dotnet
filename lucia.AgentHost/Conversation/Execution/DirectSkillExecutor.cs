@@ -6,12 +6,15 @@ using lucia.AgentHost.Conversation.Models;
 using lucia.AgentHost.Conversation.Tracing;
 using lucia.Agents.Abstractions;
 using lucia.Agents.CommandTracing;
+using lucia.Agents.Models;
 using lucia.Agents.Models.HomeAssistant;
+using lucia.Agents.Services;
 using lucia.Agents.Skills;
 using lucia.Wyoming.CommandRouting;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.FeatureManagement;
 
 namespace lucia.AgentHost.Conversation.Execution;
 
@@ -29,18 +32,25 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
     private static readonly IReadOnlyList<string> LightDomains = ["light", "switch"];
     private static readonly IReadOnlyList<string> ClimateDomains = ["climate"];
     private static readonly IReadOnlyList<string> SceneDomains = ["scene"];
+    private const string UseCascadingResolverFeature = "UseCascadingResolver";
 
     private readonly IServiceProvider _serviceProvider;
     private readonly IEntityLocationService _entityLocationService;
+    private readonly ICascadingEntityResolver _cascadingEntityResolver;
+    private readonly IFeatureManager _featureManager;
     private readonly ILogger<DirectSkillExecutor> _logger;
 
     public DirectSkillExecutor(
         IServiceProvider serviceProvider,
         IEntityLocationService entityLocationService,
+        ICascadingEntityResolver cascadingEntityResolver,
+        IFeatureManager featureManager,
         ILogger<DirectSkillExecutor> logger)
     {
         _serviceProvider = serviceProvider;
         _entityLocationService = entityLocationService;
+        _cascadingEntityResolver = cascadingEntityResolver;
+        _featureManager = featureManager;
         _logger = logger;
     }
 
@@ -58,8 +68,11 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
         var pattern = route.MatchedPattern;
         var captures = route.CapturedValues ?? new Dictionary<string, string>();
 
-        // Gate: bail immediately if entity cache is not loaded
-        if (!_entityLocationService.IsCacheReady)
+        var useCascadingResolver = await _featureManager
+            .IsEnabledAsync(UseCascadingResolverFeature)
+            .ConfigureAwait(false);
+
+        if (!useCascadingResolver && !_entityLocationService.IsCacheReady)
         {
             LogCacheMiss(pattern.SkillId, pattern.Action);
             return SkillExecutionResult.Bail(
@@ -75,7 +88,8 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
         {
             var collector = new ToolCallCollector();
             var response = await DispatchAsync(
-                pattern.SkillId, pattern.Action, route, context, collector, ct).ConfigureAwait(false);
+                pattern.SkillId, pattern.Action, route, context, collector, useCascadingResolver, ct)
+                .ConfigureAwait(false);
 
             sw.Stop();
             LogSkillSuccess(pattern.SkillId, pattern.Action, sw.ElapsedMilliseconds);
@@ -111,29 +125,28 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
 
     private Task<string> DispatchAsync(
         string skillId, string action, CommandRouteResult route,
-        ConversationContext context, ToolCallCollector collector, CancellationToken ct) =>
+        ConversationContext context, ToolCallCollector collector, bool useCascadingResolver, CancellationToken ct) =>
         (skillId, action) switch
         {
-            ("LightControlSkill", "toggle") => ExecuteLightToggleAsync(route, context, collector),
-            ("LightControlSkill", "brightness") => ExecuteLightBrightnessAsync(route, context, collector),
-            ("ClimateControlSkill", "set_temperature") => ExecuteClimateSetTemperatureAsync(route, context, collector),
-            ("ClimateControlSkill", "adjust") => ExecuteClimateAdjustAsync(route, context, collector),
-            ("SceneControlSkill", "activate") => ExecuteSceneActivateAsync(route, context, collector, ct),
+            ("LightControlSkill", "toggle") => ExecuteLightToggleAsync(route, context, collector, useCascadingResolver, ct),
+            ("LightControlSkill", "brightness") => ExecuteLightBrightnessAsync(route, context, collector, useCascadingResolver, ct),
+            ("ClimateControlSkill", "set_temperature") => ExecuteClimateSetTemperatureAsync(route, context, collector, useCascadingResolver, ct),
+            ("ClimateControlSkill", "adjust") => ExecuteClimateAdjustAsync(route, context, collector, useCascadingResolver, ct),
+            ("SceneControlSkill", "activate") => ExecuteSceneActivateAsync(route, context, collector, useCascadingResolver, ct),
             _ => throw new NotSupportedException(
                 $"No executor registered for skill '{skillId}' action '{action}'"),
         };
 
     private async Task<string> ExecuteLightToggleAsync(
-        CommandRouteResult route, ConversationContext context, ToolCallCollector collector)
+        CommandRouteResult route, ConversationContext context, ToolCallCollector collector, bool useCascadingResolver, CancellationToken ct)
     {
         var skill = _serviceProvider.GetRequiredService<LightControlSkill>();
         var captures = route.CapturedValues ?? new Dictionary<string, string>();
 
         var state = captures.GetValueOrDefault("action", "on");
-        var searchTerms = BuildSearchTerms(route, context);
-
-        // Exact-match resolve: every search term must map to cached entities
-        var resolvedIds = ResolveSearchTermsToEntityIds(searchTerms, LightDomains);
+        var resolvedIds = useCascadingResolver
+            ? ResolveEntitiesWithCascade(route, context, LightDomains, requireSingle: false, ct)
+            : ResolveSearchTermsToEntityIds(BuildSearchTerms(route, context), LightDomains);
 
         return await collector.RecordAsync(
             nameof(LightControlSkill.ControlLightsAsync),
@@ -142,7 +155,7 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
     }
 
     private async Task<string> ExecuteLightBrightnessAsync(
-        CommandRouteResult route, ConversationContext context, ToolCallCollector collector)
+        CommandRouteResult route, ConversationContext context, ToolCallCollector collector, bool useCascadingResolver, CancellationToken ct)
     {
         var skill = _serviceProvider.GetRequiredService<LightControlSkill>();
         var captures = route.CapturedValues ?? new Dictionary<string, string>();
@@ -154,8 +167,9 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
                 "Brightness value not captured or not a valid integer");
         }
 
-        var searchTerms = BuildSearchTerms(route, context);
-        var resolvedIds = ResolveSearchTermsToEntityIds(searchTerms, LightDomains);
+        var resolvedIds = useCascadingResolver
+            ? ResolveEntitiesWithCascade(route, context, LightDomains, requireSingle: false, ct)
+            : ResolveSearchTermsToEntityIds(BuildSearchTerms(route, context), LightDomains);
 
         return await collector.RecordAsync(
             nameof(LightControlSkill.ControlLightsAsync),
@@ -164,7 +178,7 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
     }
 
     private async Task<string> ExecuteClimateSetTemperatureAsync(
-        CommandRouteResult route, ConversationContext context, ToolCallCollector collector)
+        CommandRouteResult route, ConversationContext context, ToolCallCollector collector, bool useCascadingResolver, CancellationToken ct)
     {
         var skill = _serviceProvider.GetRequiredService<ClimateControlSkill>();
         var captures = route.CapturedValues ?? new Dictionary<string, string>();
@@ -176,7 +190,9 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
                 "Temperature value not captured or not a valid number");
         }
 
-        var entityId = ResolveEntityIdFromCache(route, ClimateDomains);
+        var entityId = useCascadingResolver
+            ? ResolveSingleEntityWithCascade(route, context, ClimateDomains, ct)
+            : ResolveEntityIdFromCache(route, ClimateDomains);
 
         return await collector.RecordAsync(
             nameof(ClimateControlSkill.SetClimateTemperatureAsync),
@@ -185,13 +201,15 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
     }
 
     private async Task<string> ExecuteClimateAdjustAsync(
-        CommandRouteResult route, ConversationContext context, ToolCallCollector collector)
+        CommandRouteResult route, ConversationContext context, ToolCallCollector collector, bool useCascadingResolver, CancellationToken ct)
     {
         var skill = _serviceProvider.GetRequiredService<ClimateControlSkill>();
         var captures = route.CapturedValues ?? new Dictionary<string, string>();
 
         var direction = captures.GetValueOrDefault("action", "warmer");
-        var entityId = ResolveEntityIdFromCache(route, ClimateDomains);
+        var entityId = useCascadingResolver
+            ? ResolveSingleEntityWithCascade(route, context, ClimateDomains, ct)
+            : ResolveEntityIdFromCache(route, ClimateDomains);
 
         var stateInfo = await collector.RecordAsync(
             nameof(ClimateControlSkill.GetClimateStateAsync),
@@ -221,10 +239,16 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
     }
 
     private async Task<string> ExecuteSceneActivateAsync(
-        CommandRouteResult route, ConversationContext context, ToolCallCollector collector, CancellationToken ct)
+        CommandRouteResult route,
+        ConversationContext context,
+        ToolCallCollector collector,
+        bool useCascadingResolver,
+        CancellationToken ct)
     {
         var skill = _serviceProvider.GetRequiredService<SceneControlSkill>();
-        var entityId = ResolveEntityIdFromCache(route, SceneDomains, captureKey: "scene");
+        var entityId = useCascadingResolver
+            ? ResolveSingleEntityWithCascade(route, context, SceneDomains, ct)
+            : ResolveEntityIdFromCache(route, SceneDomains, captureKey: "scene");
 
         return await collector.RecordAsync(
             nameof(SceneControlSkill.ActivateSceneAsync),
@@ -233,6 +257,75 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
     }
 
     // ── Entity resolution helpers ────────────────────────────────────
+
+    private string[] ResolveEntitiesWithCascade(
+        CommandRouteResult route,
+        ConversationContext context,
+        IReadOnlyList<string> domains,
+        bool requireSingle,
+        CancellationToken ct)
+    {
+        var query = ResolveCascadeQuery(route);
+        var result = _cascadingEntityResolver.Resolve(
+            query,
+            context.DeviceArea,
+            context.SpeakerId,
+            domains,
+            ct);
+
+        if (!result.IsResolved)
+        {
+            var reason = result.BailReason?.ToString() ?? "cascade_bail";
+            var explanation = result.Explanation ?? "Cascading resolver bailed; deferring to orchestrator";
+            throw new EntityResolutionBailException(reason, explanation);
+        }
+
+        if (result.ResolvedEntityIds.Count == 0)
+        {
+            throw new EntityResolutionBailException(
+                BailReason.NoMatch.ToString(),
+                "Cascading resolver returned no entity IDs");
+        }
+
+        if (requireSingle && result.ResolvedEntityIds.Count != 1)
+        {
+            throw new EntityResolutionBailException(
+                BailReason.Ambiguous.ToString(),
+                "Multiple entities resolved for single-target command");
+        }
+
+        return result.ResolvedEntityIds.ToArray();
+    }
+
+    private string ResolveSingleEntityWithCascade(
+        CommandRouteResult route,
+        ConversationContext context,
+        IReadOnlyList<string> domains,
+        CancellationToken ct)
+    {
+        var resolvedIds = ResolveEntitiesWithCascade(route, context, domains, requireSingle: true, ct);
+        return resolvedIds[0];
+    }
+
+    private static string ResolveCascadeQuery(CommandRouteResult route)
+    {
+        if (!string.IsNullOrWhiteSpace(route.NormalizedTranscript))
+            return route.NormalizedTranscript!;
+
+        if (route.CapturedValues?.TryGetValue("entity", out var entity) == true
+            && !string.IsNullOrWhiteSpace(entity))
+        {
+            return entity;
+        }
+
+        if (route.CapturedValues?.TryGetValue("scene", out var scene) == true
+            && !string.IsNullOrWhiteSpace(scene))
+        {
+            return scene;
+        }
+
+        return route.MatchedTemplate ?? string.Empty;
+    }
 
     /// <summary>
     /// Resolves each search term to cached entity IDs via exact match.

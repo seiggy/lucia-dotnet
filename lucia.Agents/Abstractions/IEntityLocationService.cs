@@ -166,6 +166,11 @@ public interface IEntityLocationService
     // ── Synchronous, cache-only fast-path lookups ─────────────
 
     /// <summary>
+    /// Get the current immutable location snapshot without triggering any reloads.
+    /// </summary>
+    LocationSnapshot GetSnapshot();
+
+    /// <summary>
     /// Whether the in-memory entity location cache has been loaded at least once.
     /// When <c>false</c>, callers should bail to the LLM orchestrator rather than
     /// attempting entity resolution.

@@ -5,10 +5,12 @@ using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
 using lucia.Agents.Models;
 using lucia.Agents.Models.HomeAssistant;
+using lucia.Agents.Services;
 using lucia.Agents.Skills;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
 using lucia.Wyoming.CommandRouting;
+using Microsoft.FeatureManagement;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -17,13 +19,21 @@ namespace lucia.Tests.Conversation;
 public sealed class DirectSkillExecutorTests
 {
     private readonly IServiceProvider _serviceProvider = A.Fake<IServiceProvider>();
+    private readonly IEntityLocationService _entityLocationService = A.Fake<IEntityLocationService>();
+    private readonly IFeatureManager _featureManager = A.Fake<IFeatureManager>();
+    private readonly ICascadingEntityResolver _cascadingEntityResolver = A.Fake<ICascadingEntityResolver>();
     private readonly DirectSkillExecutor _executor;
 
     public DirectSkillExecutorTests()
     {
+        A.CallTo(() => _featureManager.IsEnabledAsync(A<string>._))
+            .Returns(Task.FromResult(false));
+        A.CallTo(() => _entityLocationService.IsCacheReady).Returns(true);
         _executor = new DirectSkillExecutor(
             _serviceProvider,
-            A.Fake<IEntityLocationService>(),
+            _entityLocationService,
+            _cascadingEntityResolver,
+            _featureManager,
             A.Fake<ILogger<DirectSkillExecutor>>());
     }
 

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Models;
@@ -171,6 +172,20 @@ internal sealed class SnapshotEntityLocationService : IEntityLocationService
     public FloorInfo? GetFloorForArea(string areaId) => null;
 
     // ── Synchronous, cache-only fast-path lookups ─────────────────
+
+    public LocationSnapshot GetSnapshot()
+    {
+        var areas = _areas.ToImmutableArray();
+        var entities = _entities.ToImmutableArray();
+
+        return new LocationSnapshot(
+            ImmutableArray<FloorInfo>.Empty,
+            areas,
+            entities,
+            ImmutableDictionary<string, FloorInfo>.Empty,
+            areas.ToImmutableDictionary(a => a.AreaId, StringComparer.OrdinalIgnoreCase),
+            entities.ToImmutableDictionary(e => e.EntityId, StringComparer.OrdinalIgnoreCase));
+    }
 
     public bool IsCacheReady => LastLoadedAt is not null;
 
