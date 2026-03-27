@@ -29,4 +29,10 @@ public sealed class CommandRoutingOptions
     /// When null or empty, uses the default chat provider via <c>IChatClientResolver</c>.
     /// </summary>
     public string? PersonalityModelConnectionName { get; set; }
+
+    /// <summary>
+    /// When enabled, the personality renderer includes SSML voice tags (break, emphasis, prosody)
+    /// in the LLM output for text-to-speech rendering via Wyoming. Default is OFF (plain text only).
+    /// </summary>
+    public bool SupportVoiceTags { get; set; }
 }

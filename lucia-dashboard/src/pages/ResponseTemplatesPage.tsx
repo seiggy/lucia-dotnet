@@ -15,6 +15,7 @@ import type {
 } from '../api'
 import ToastContainer from '../components/ToastContainer'
 import ConfirmDialog from '../components/ConfirmDialog'
+import PersonalityEnginePanel from '../components/PersonalityEnginePanel'
 import { useToast } from '../hooks/useToast'
 import {
   Plus, Save, Trash2, RotateCcw, Eye, X, ChevronDown, ChevronRight,
@@ -701,6 +702,9 @@ export default function ResponseTemplatesPage() {
           <RotateCcw className="h-4 w-4" /> Reset to Defaults
         </button>
       </div>
+
+      {/* Personality Response Engine */}
+      <PersonalityEnginePanel onToast={addToast} />
 
       {/* Add Template Form */}
       <AddTemplateForm

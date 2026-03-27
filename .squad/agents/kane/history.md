@@ -24,3 +24,8 @@ MeshGraph, PluginRepoDialog, PluginConfigTab, RestartBanner, SkillConfigEditor, 
 ## Learnings
 
 <!-- Append new learnings below. -->
+
+- **PersonalityPrompt config section**: The backend exposes personality settings via the generic config API at `GET/PUT /api/config/sections/PersonalityPrompt`. Properties: `UsePersonalityResponses` (boolean), `Instructions` (textarea), `ModelConnectionName` (model-select), `SupportVoiceTags` (boolean). Schema is defined in `ConfigurationApi.GetAllSchemas()`.
+- **ConfigurationPage is generic**: The Configuration page renders all schema sections with a sidebar + form pattern. For purpose-built UIs, create dedicated components that call the same `fetchConfigSection`/`updateConfigSection` API functions.
+- **Model providers for dropdowns**: Use `fetchModelProviders('Chat')` to populate model selection dropdowns. Filter to `enabled` providers. The ConfigurationPage's `ModelSelectField` pattern uses `CustomSelect` with a default "orchestrator default" option.
+- **Tailwind theme tokens**: The project uses custom tokens like `bg-basalt`, `bg-charcoal`, `bg-void`, `text-light`, `text-dust`, `text-amber`, `border-stone`, `bg-amber-glow`. Use `input-focus` class for focus ring styling on inputs.

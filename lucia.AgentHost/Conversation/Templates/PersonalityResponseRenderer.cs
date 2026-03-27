@@ -50,11 +50,16 @@ public sealed partial class PersonalityResponseRenderer : IPersonalityResponseRe
 
             var actionDescription = BuildActionDescription(skillId, action, captures);
 
+            var voiceTagInstruction = opts.SupportVoiceTags
+                ? "Include SSML voice tags in your response for text-to-speech rendering. Use <break>, <emphasis>, and prosody tags where natural."
+                : "Do not include any markup or tags in your response. Plain text only.";
+
             var messages = new List<ChatMessage>
             {
                 new(ChatRole.System, opts.PersonalityPrompt),
                 new(ChatRole.User,
                     $"Rephrase this home automation action result in your voice. Be brief and natural.\n" +
+                    $"{voiceTagInstruction}\n" +
                     $"Action: {actionDescription}\n" +
                     $"Result: {cannedResponse}"),
             };

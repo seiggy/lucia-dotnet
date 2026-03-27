@@ -125,3 +125,17 @@ Migrated the entire solution from A2A SDK 0.3.4-preview to 1.0.0-preview and MAF
 - `MapWellKnownAgentCard(endpoints, AgentCard, path)` for standalone card endpoints
 
 **SessionManager** now depends on `ITaskStore` directly instead of `ITaskManager`, since task CRUD is all it needs. Task creation uses direct `new AgentTask { ... }` + `SaveTaskAsync()`.
+
+### 2025-07-18 — SupportVoiceTags & Config API for Personality Settings
+
+Added `SupportVoiceTags` flag to `CommandRoutingOptions` and wired it through the personality pipeline:
+
+1. **`CommandRoutingOptions.SupportVoiceTags`** — new `bool` property (default `false`). When enabled, the personality renderer instructs the LLM to include SSML tags (`<break>`, `<emphasis>`, prosody) in its output for TTS rendering.
+
+2. **`PersonalityResponseRenderer`** — now injects a voice-tag instruction into the LLM user message. When `SupportVoiceTags` is true, it asks for SSML; when false, it explicitly requests plain text only. This keeps the rendering deterministic regardless of LLM tendencies.
+
+3. **`ConfigurationApi` schema** — added a `Wyoming:CommandRouting` section to the schema endpoint, exposing all 7 personality-related settings (Enabled, ConfidenceThreshold, FallbackToLlm, UsePersonalityResponses, PersonalityPrompt, PersonalityModelConnectionName, SupportVoiceTags). The existing generic GET/PUT section endpoints already serve this section — no new endpoints were needed.
+
+4. **`appsettings.json`** — added `SupportVoiceTags: false` to the `Wyoming:CommandRouting` block.
+
+**Key insight:** The existing `ConfigurationApi` is section-generic — `GET /api/config/sections/Wyoming:CommandRouting` and `PUT /api/config/sections/Wyoming:CommandRouting` already work for any section. The missing piece was the schema definition for the dashboard to render a proper form, which was the only code addition needed in ConfigurationApi.
