@@ -29,7 +29,7 @@ public sealed class ConfigStoreWriter : IConfigStoreWriter
         bool isSensitive = false,
         CancellationToken cancellationToken = default)
     {
-        var section = key.Contains(':') ? key[..key.IndexOf(':')] : key;
+        var section = key.Contains(':') ? key[..key.LastIndexOf(':')] : key;
 
         var filter = Builders<ConfigEntry>.Filter.Eq(e => e.Key, key);
         var update = Builders<ConfigEntry>.Update
