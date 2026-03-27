@@ -65,6 +65,56 @@ if (models.Count == 0)
 var selectedModels = ModelSelector.Select(models);
 if (selectedModels.Count == 0) return 0;
 
+// ─── Eval Type Selection ──────────────────────────────────────────────
+var evalType = EvalTypeSelector.Select();
+
+if (evalType == EvalTypeSelector.PersonalityEval)
+{
+    // ─── Personality Eval Flow ────────────────────────────────────────
+    IReadOnlyList<lucia.EvalHarness.Personality.PersonalityProfile> allProfiles;
+    IReadOnlyList<lucia.EvalHarness.Personality.PersonalityEvalScenario> scenarios;
+
+    try
+    {
+        allProfiles = lucia.EvalHarness.Personality.PersonalityEvalRunner.LoadProfiles();
+        scenarios = lucia.EvalHarness.Personality.PersonalityEvalRunner.LoadScenarios();
+    }
+    catch (FileNotFoundException ex)
+    {
+        AnsiConsole.MarkupLine($"[red]{Markup.Escape(ex.Message)}[/]");
+        return 1;
+    }
+
+    AnsiConsole.MarkupLine($"[dim]Loaded {scenarios.Count} scenarios and {allProfiles.Count} personality profiles[/]");
+    AnsiConsole.WriteLine();
+
+    var personalityProfiles = lucia.EvalHarness.Personality.PersonalityProfileSelector.Select(allProfiles);
+    if (personalityProfiles.Count == 0) return 0;
+
+    var combinations = lucia.EvalHarness.Personality.PersonalityEvalRunner.CountCombinations(scenarios, personalityProfiles);
+    AnsiConsole.MarkupLine(
+        $"[dim]Running {combinations} scenario\u00d7profile combinations per model " +
+        $"({selectedModels.Count} model(s))...[/]");
+    AnsiConsole.WriteLine();
+
+    AnsiConsole.Write(new Rule("[bold]Running Personality Eval[/]").LeftJustified());
+    AnsiConsole.WriteLine();
+
+    var reports = await lucia.EvalHarness.Personality.PersonalityEvalDisplay.RunWithProgressAsync(
+        config.Ollama.Endpoint,
+        selectedModels,
+        scenarios,
+        personalityProfiles);
+
+    lucia.EvalHarness.Personality.PersonalityEvalDisplay.RenderReport(reports);
+
+    AnsiConsole.WriteLine();
+    AnsiConsole.MarkupLine("[dim]Personality evaluation complete.[/]");
+    return 0;
+}
+
+// ─── Standard Agent Eval Flow ────────────────────────────────────────
+
 // Create real agent factory (uses HA snapshot + FakeItEasy fakes for non-LLM deps)
 var loggerFactory = LoggerFactory.Create(builder =>
     builder.AddConsole().SetMinimumLevel(LogLevel.Warning));

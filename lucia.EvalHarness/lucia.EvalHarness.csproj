@@ -36,6 +36,8 @@
     <Content Include="TestData\*.yaml" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Reports\Templates\*.html" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\lucia.Tests\TestData\ha-snapshot.json" Link="TestData\ha-snapshot.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\lucia.Tests\TestData\personality-eval-scenarios.json" Link="Personality\Data\personality-eval-scenarios.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\lucia.Tests\TestData\personality-profiles.json" Link="Personality\Data\personality-profiles.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
