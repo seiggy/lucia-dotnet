@@ -127,7 +127,7 @@ public sealed partial class ConversationCommandProcessor
 
             // Tag bail reason for observability when the fast-path explicitly deferred
             if (executionResult.BailReason is not null)
-                activity?.SetTag("conversation.fast_path_bail_reason", executionResult.BailReason);
+                activity?.SetTag("fast_path_bail_reason", executionResult.BailReason);
 
             // Fall back to LLM on skill execution failure; single trace records both the failed execution and LLM fallback
             return await HandleLlmFallbackAsync(originalText, request, routeResult, conversationId, activity, sw, ct, executionResult)

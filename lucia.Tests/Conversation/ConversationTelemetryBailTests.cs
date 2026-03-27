@@ -52,14 +52,33 @@ public sealed class ConversationTelemetryBailTests : IDisposable
             routingOptions);
     }
 
-    [Fact(Skip = "Requires ConversationCommandProcessor to emit fast_path_bail_reason activity tags")]
+    [Fact]
     public async Task CacheMiss_RecordsTelemetryTag()
     {
-        // Arrange — entity cache not loaded; router bails
+        // Arrange — entity cache not loaded; skill executor bails with cache_miss
         using var activityListener = CreateActivityListener();
 
+        var pattern = CreateLightPattern();
         A.CallTo(() => _commandRouter.RouteAsync(A<string>._, A<CancellationToken>._))
-            .Returns(CommandRouteResult.NoMatch(TimeSpan.FromMilliseconds(1)));
+            .Returns(new CommandRouteResult
+            {
+                IsMatch = true,
+                Confidence = 0.9f,
+                MatchedPattern = pattern,
+                CapturedValues = new Dictionary<string, string>
+                {
+                    ["action"] = "on",
+                    ["entity"] = "kitchen"
+                }
+            });
+
+        A.CallTo(() => _skillExecutor.ExecuteAsync(
+                A<CommandRouteResult>._, A<ConversationContext>._, A<CancellationToken>._))
+            .Returns(SkillExecutionResult.Bail(
+                pattern.SkillId, pattern.Action,
+                "cache_miss",
+                "Entity location cache not loaded; deferring to orchestrator",
+                TimeSpan.FromMilliseconds(1)));
 
         A.CallTo(() => _serviceProvider.GetService(A<Type>._)).Returns(null);
 
@@ -70,21 +89,38 @@ public sealed class ConversationTelemetryBailTests : IDisposable
         await _processor.ProcessAsync(CreateRequest("turn on kitchen lights"));
 
         // Assert — activity should have the bail reason tag
-        // NOTE: When implemented, the activity will have:
-        //   SetTag("fast_path_bail_reason", "cache_miss")
         Assert.NotNull(capturedActivity);
         var bailTag = capturedActivity!.GetTagItem("fast_path_bail_reason");
         Assert.Equal("cache_miss", bailTag);
     }
 
-    [Fact(Skip = "Requires ConversationCommandProcessor to emit fast_path_bail_reason activity tags")]
+    [Fact]
     public async Task NoExactMatch_RecordsTelemetryTag()
     {
-        // Arrange — cache loaded but entity not found via exact match
+        // Arrange — cache loaded but entity not found via exact match; executor bails
         using var activityListener = CreateActivityListener();
 
+        var pattern = CreateLightPattern();
         A.CallTo(() => _commandRouter.RouteAsync(A<string>._, A<CancellationToken>._))
-            .Returns(CommandRouteResult.NoMatch(TimeSpan.FromMilliseconds(2)));
+            .Returns(new CommandRouteResult
+            {
+                IsMatch = true,
+                Confidence = 0.85f,
+                MatchedPattern = pattern,
+                CapturedValues = new Dictionary<string, string>
+                {
+                    ["action"] = "on",
+                    ["entity"] = "front room"
+                }
+            });
+
+        A.CallTo(() => _skillExecutor.ExecuteAsync(
+                A<CommandRouteResult>._, A<ConversationContext>._, A<CancellationToken>._))
+            .Returns(SkillExecutionResult.Bail(
+                pattern.SkillId, pattern.Action,
+                "no_exact_match",
+                "No exact cache match for 'front room'; deferring to orchestrator",
+                TimeSpan.FromMilliseconds(2)));
 
         A.CallTo(() => _serviceProvider.GetService(A<Type>._)).Returns(null);
 
@@ -101,14 +137,33 @@ public sealed class ConversationTelemetryBailTests : IDisposable
         Assert.Equal("no_exact_match", bailTag);
     }
 
-    [Fact(Skip = "Requires ConversationCommandProcessor to emit fast_path_bail_reason activity tags")]
+    [Fact]
     public async Task BailSignalDetected_RecordsTelemetryTag()
     {
-        // Arrange — temporal/complex signal detected; router bails
+        // Arrange — temporal/complex signal detected; executor bails
         using var activityListener = CreateActivityListener();
 
+        var pattern = CreateLightPattern();
         A.CallTo(() => _commandRouter.RouteAsync(A<string>._, A<CancellationToken>._))
-            .Returns(CommandRouteResult.NoMatch(TimeSpan.FromMilliseconds(1)));
+            .Returns(new CommandRouteResult
+            {
+                IsMatch = true,
+                Confidence = 0.8f,
+                MatchedPattern = pattern,
+                CapturedValues = new Dictionary<string, string>
+                {
+                    ["action"] = "off",
+                    ["entity"] = "lights"
+                }
+            });
+
+        A.CallTo(() => _skillExecutor.ExecuteAsync(
+                A<CommandRouteResult>._, A<ConversationContext>._, A<CancellationToken>._))
+            .Returns(SkillExecutionResult.Bail(
+                pattern.SkillId, pattern.Action,
+                "bail_signal_detected",
+                "Temporal complexity signal detected; deferring to orchestrator",
+                TimeSpan.FromMilliseconds(1)));
 
         A.CallTo(() => _serviceProvider.GetService(A<Type>._)).Returns(null);
 

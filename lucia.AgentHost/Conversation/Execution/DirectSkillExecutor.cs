@@ -75,6 +75,7 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
         if (!useCascadingResolver && !_entityLocationService.IsCacheReady)
         {
             LogCacheMiss(pattern.SkillId, pattern.Action);
+            Activity.Current?.SetTag("fast_path_bail_reason", "cache_miss");
             return SkillExecutionResult.Bail(
                 pattern.SkillId, pattern.Action,
                 "cache_miss",
@@ -109,6 +110,7 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
         {
             sw.Stop();
             LogEntityResolutionBail(pattern.SkillId, pattern.Action, ex.BailReason);
+            Activity.Current?.SetTag("fast_path_bail_reason", ex.BailReason);
             return SkillExecutionResult.Bail(
                 pattern.SkillId, pattern.Action,
                 ex.BailReason, ex.Message, sw.Elapsed);
@@ -117,6 +119,7 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
         {
             sw.Stop();
             LogSkillFailure(pattern.SkillId, pattern.Action, ex);
+            Activity.Current?.SetTag("fast_path_bail_reason", "execution_error");
             return SkillExecutionResult.Bail(
                 pattern.SkillId, pattern.Action,
                 "execution_error", ex.Message, sw.Elapsed);
