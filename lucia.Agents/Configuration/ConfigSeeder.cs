@@ -28,6 +28,7 @@ public sealed class ConfigSeeder : IHostedService
         "PluginDirectory",
         "TraceCapture",
         "Wyoming",
+        "PersonalityPrompt",
         LightControlSkillOptions.SectionName,
         ClimateControlSkillOptions.SectionName,
         FanControlSkillOptions.SectionName,

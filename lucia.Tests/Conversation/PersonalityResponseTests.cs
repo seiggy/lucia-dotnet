@@ -6,6 +6,7 @@ using lucia.AgentHost.Conversation.Models;
 using lucia.AgentHost.Conversation.Templates;
 using lucia.AgentHost.Conversation.Tracing;
 using lucia.Agents.CommandTracing;
+using lucia.Agents.Orchestration;
 using lucia.Wyoming.CommandRouting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -27,18 +28,22 @@ public sealed class PersonalityResponseTests : IDisposable
     private readonly IServiceProvider _serviceProvider = A.Fake<IServiceProvider>();
     private readonly AgentHostTelemetrySource _telemetrySource = new();
     private readonly IOptionsMonitor<CommandRoutingOptions> _routingOptions = A.Fake<IOptionsMonitor<CommandRoutingOptions>>();
+    private readonly IOptionsMonitor<PersonalityPromptOptions> _personalityOptions = A.Fake<IOptionsMonitor<PersonalityPromptOptions>>();
 
     private ConversationCommandProcessor CreateProcessor(
         bool usePersonality = false,
         string? personalityPrompt = null,
         IPersonalityResponseRenderer? renderer = null)
     {
-        var options = new CommandRoutingOptions
+        var routingOpts = new CommandRoutingOptions();
+        A.CallTo(() => _routingOptions.CurrentValue).Returns(routingOpts);
+
+        var personalityOpts = new PersonalityPromptOptions
         {
             UsePersonalityResponses = usePersonality,
-            PersonalityPrompt = personalityPrompt
+            Instructions = personalityPrompt
         };
-        A.CallTo(() => _routingOptions.CurrentValue).Returns(options);
+        A.CallTo(() => _personalityOptions.CurrentValue).Returns(personalityOpts);
 
         var templateRenderer = new ResponseTemplateRenderer(
             _templateRepo, A.Fake<ILogger<ResponseTemplateRenderer>>());
@@ -54,6 +59,7 @@ public sealed class PersonalityResponseTests : IDisposable
             _serviceProvider,
             A.Fake<ILogger<ConversationCommandProcessor>>(),
             _routingOptions,
+            _personalityOptions,
             renderer);
     }
 

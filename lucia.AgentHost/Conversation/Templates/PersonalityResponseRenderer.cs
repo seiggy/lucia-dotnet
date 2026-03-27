@@ -1,5 +1,5 @@
 using lucia.Agents.Abstractions;
-using lucia.Wyoming.CommandRouting;
+using lucia.Agents.Orchestration;
 
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -14,12 +14,12 @@ namespace lucia.AgentHost.Conversation.Templates;
 public sealed partial class PersonalityResponseRenderer : IPersonalityResponseRenderer
 {
     private readonly IChatClientResolver _chatClientResolver;
-    private readonly IOptionsMonitor<CommandRoutingOptions> _options;
+    private readonly IOptionsMonitor<PersonalityPromptOptions> _options;
     private readonly ILogger<PersonalityResponseRenderer> _logger;
 
     public PersonalityResponseRenderer(
         IChatClientResolver chatClientResolver,
-        IOptionsMonitor<CommandRoutingOptions> options,
+        IOptionsMonitor<PersonalityPromptOptions> options,
         ILogger<PersonalityResponseRenderer> logger)
     {
         _chatClientResolver = chatClientResolver;
@@ -36,7 +36,7 @@ public sealed partial class PersonalityResponseRenderer : IPersonalityResponseRe
     {
         var opts = _options.CurrentValue;
 
-        if (string.IsNullOrWhiteSpace(opts.PersonalityPrompt))
+        if (string.IsNullOrWhiteSpace(opts.Instructions))
         {
             // UsePersonalityResponses is true (caller already checked) but the prompt is empty —
             // this is a misconfiguration that should be visible, not hidden at Debug level
@@ -47,7 +47,7 @@ public sealed partial class PersonalityResponseRenderer : IPersonalityResponseRe
         try
         {
             var chatClient = await _chatClientResolver
-                .ResolveAsync(opts.PersonalityModelConnectionName, ct)
+                .ResolveAsync(opts.ModelConnectionName, ct)
                 .ConfigureAwait(false);
 
             var actionDescription = BuildActionDescription(skillId, action, captures);
@@ -58,7 +58,7 @@ public sealed partial class PersonalityResponseRenderer : IPersonalityResponseRe
 
             var messages = new List<ChatMessage>
             {
-                new(ChatRole.System, opts.PersonalityPrompt),
+                new(ChatRole.System, opts.Instructions),
                 new(ChatRole.User,
                     $"Rephrase this home automation action result in your voice. Be brief and natural.\n" +
                     $"{voiceTagInstruction}\n" +
@@ -110,7 +110,7 @@ public sealed partial class PersonalityResponseRenderer : IPersonalityResponseRe
     }
 
     [LoggerMessage(Level = LogLevel.Warning,
-        Message = "UsePersonalityResponses is enabled but PersonalityPrompt is null/empty for {SkillId}/{Action} — falling back to canned response. Set Wyoming:CommandRouting:PersonalityPrompt to enable personality rewriting.")]
+        Message = "UsePersonalityResponses is enabled but Instructions is null/empty for {SkillId}/{Action} — falling back to canned response. Set PersonalityPrompt:Instructions to enable personality rewriting.")]
     private partial void LogPersonalityPromptMissing(string skillId, string action);
 
     [LoggerMessage(Level = LogLevel.Information,

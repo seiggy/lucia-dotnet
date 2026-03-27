@@ -423,19 +423,27 @@ public static class ConfigurationApi
         new()
         {
             Section = "Wyoming:CommandRouting",
-            Description = "Voice command routing and personality response settings",
+            Description = "Voice command routing settings",
             Properties =
             [
                 new("Enabled", "boolean", "Enable fast-path command routing for voice commands", "true"),
                 new("ConfidenceThreshold", "number", "Minimum confidence to accept a pattern match (0.0-1.0)", "0.8"),
-                new("FallbackToLlm", "boolean", "Fall back to LLM orchestrator when fast-path cannot handle a command", "true"),
+                new("FallbackToLlm", "boolean", "Fall back to LLM orchestrator when fast-path cannot handle a command", "true")
+            ]
+        },
+        new()
+        {
+            Section = "PersonalityPrompt",
+            Description = "Personality response engine — rewrites canned responses through an LLM personality prompt",
+            Properties =
+            [
                 new("UsePersonalityResponses", "boolean",
                     "Pass fast-path responses through the personality LLM prompt instead of returning canned template responses. " +
                     "Adds one lightweight LLM round-trip (~200-500ms).", "false"),
-                new("PersonalityPrompt", "textarea",
-                    "System prompt that defines the assistant's personality and communication style for fast-path responses. " +
+                new("Instructions", "textarea",
+                    "System prompt that defines the assistant's personality and communication style. " +
                     "Only used when UsePersonalityResponses is enabled.", ""),
-                new("PersonalityModelConnectionName", "model-select",
+                new("ModelConnectionName", "model-select",
                     "Model provider name for personality rewriting. Leave empty to use the default model.", ""),
                 new("SupportVoiceTags", "boolean",
                     "Include SSML voice tags (break, emphasis, prosody) in personality responses for text-to-speech rendering.", "false")

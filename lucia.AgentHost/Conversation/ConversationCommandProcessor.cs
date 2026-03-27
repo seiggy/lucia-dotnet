@@ -26,6 +26,7 @@ public sealed partial class ConversationCommandProcessor
     private readonly ResponseTemplateRenderer _templateRenderer;
     private readonly IPersonalityResponseRenderer? _personalityRenderer;
     private readonly IOptionsMonitor<CommandRoutingOptions> _routingOptions;
+    private readonly IOptionsMonitor<PersonalityPromptOptions> _personalityOptions;
     private readonly ContextReconstructor _contextReconstructor;
     private readonly ConversationTelemetry _telemetry;
     private readonly ICommandTraceRepository _traceRepository;
@@ -44,6 +45,7 @@ public sealed partial class ConversationCommandProcessor
         IServiceProvider serviceProvider,
         ILogger<ConversationCommandProcessor> logger,
         IOptionsMonitor<CommandRoutingOptions> routingOptions,
+        IOptionsMonitor<PersonalityPromptOptions> personalityOptions,
         IPersonalityResponseRenderer? personalityRenderer = null)
     {
         _commandRouter = commandRouter;
@@ -51,6 +53,7 @@ public sealed partial class ConversationCommandProcessor
         _templateRenderer = templateRenderer;
         _personalityRenderer = personalityRenderer;
         _routingOptions = routingOptions;
+        _personalityOptions = personalityOptions;
         _contextReconstructor = contextReconstructor;
         _telemetry = telemetry;
         _traceRepository = traceRepository;
@@ -141,8 +144,8 @@ public sealed partial class ConversationCommandProcessor
         var responseText = renderResult.Text;
 
         // Apply personality rewriting when enabled
-        var opts = _routingOptions.CurrentValue;
-        if (opts.UsePersonalityResponses)
+        var personalityOpts = _personalityOptions.CurrentValue;
+        if (personalityOpts.UsePersonalityResponses)
         {
             if (_personalityRenderer is not null)
             {
