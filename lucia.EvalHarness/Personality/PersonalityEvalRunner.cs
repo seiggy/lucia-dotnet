@@ -5,10 +5,8 @@ using Microsoft.Extensions.AI;
 namespace lucia.EvalHarness.Personality;
 
 /// <summary>
-/// Runs personality eval scenarios against an LLM via <see cref="IChatClient"/>.
-/// Replicates the personality rewrite prompt from
-/// <c>ResultAggregatorExecutor.ApplyPersonalityAsync</c> and validates
-/// the response against scenario expectations and profile constraints.
+/// Runs personality eval scenarios against an LLM via <see cref="IChatClient"/>,
+/// then scores each result using an LLM-as-Judge approach.
 /// </summary>
 public sealed class PersonalityEvalRunner
 {
@@ -46,11 +44,14 @@ public sealed class PersonalityEvalRunner
     }
 
     /// <summary>
-    /// Runs all applicable (scenario × profile) combinations against a single model.
+    /// Runs all applicable (scenario × profile) combinations against a single model,
+    /// scoring each with the LLM judge.
     /// </summary>
     public async Task<PersonalityEvalReport> RunAsync(
         IChatClient chatClient,
         string modelName,
+        IChatClient judgeChatClient,
+        string judgeModelName,
         IReadOnlyList<PersonalityEvalScenario> scenarios,
         IReadOnlyList<PersonalityProfile> profiles,
         Action<PersonalityScenarioResult>? onProgress = null,
@@ -58,6 +59,7 @@ public sealed class PersonalityEvalRunner
     {
         var startedAt = DateTimeOffset.UtcNow;
         var results = new List<PersonalityScenarioResult>();
+        var judge = new PersonalityJudge(judgeChatClient);
 
         foreach (var scenario in scenarios)
         {
@@ -66,7 +68,7 @@ public sealed class PersonalityEvalRunner
             foreach (var profile in applicableProfiles)
             {
                 ct.ThrowIfCancellationRequested();
-                var result = await EvaluateSingleAsync(chatClient, modelName, scenario, profile, ct);
+                var result = await EvaluateSingleAsync(chatClient, modelName, judge, scenario, profile, ct);
                 results.Add(result);
                 onProgress?.Invoke(result);
             }
@@ -75,6 +77,7 @@ public sealed class PersonalityEvalRunner
         return new PersonalityEvalReport
         {
             ModelName = modelName,
+            JudgeModelName = judgeModelName,
             Results = results,
             StartedAt = startedAt,
             CompletedAt = DateTimeOffset.UtcNow
@@ -112,19 +115,22 @@ public sealed class PersonalityEvalRunner
     private static async Task<PersonalityScenarioResult> EvaluateSingleAsync(
         IChatClient chatClient,
         string modelName,
+        PersonalityJudge judge,
         PersonalityEvalScenario scenario,
         PersonalityProfile profile,
         CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
         string llmResponse;
+        var userMessage = PersonalityRewritePrompt + scenario.AgentResponse;
 
+        // Step 1: Get personality rewrite from model-under-test
         try
         {
             var messages = new List<ChatMessage>
             {
                 new(ChatRole.System, profile.Instructions),
-                new(ChatRole.User, PersonalityRewritePrompt + scenario.AgentResponse)
+                new(ChatRole.User, userMessage)
             };
 
             var response = await chatClient.GetResponseAsync(messages, cancellationToken: ct);
@@ -142,14 +148,24 @@ public sealed class PersonalityEvalRunner
                 ProfileName = profile.Name,
                 ModelName = modelName,
                 Passed = false,
-                FailedChecks = [$"LLM call failed: {ex.Message}"],
                 LlmResponse = string.Empty,
-                DurationMs = sw.ElapsedMilliseconds
+                DurationMs = sw.ElapsedMilliseconds,
+                ErrorMessage = $"Model call failed: {ex.Message}"
             };
         }
 
+        // Step 2: Build conversation trace
+        var trace = new ConversationTrace
+        {
+            SystemPrompt = profile.Instructions,
+            UserMessage = userMessage,
+            AssistantResponse = llmResponse,
+            OriginalResponse = scenario.AgentResponse
+        };
+
+        // Step 3: Send trace to judge
+        var judgeResult = await judge.EvaluateAsync(trace, ct);
         sw.Stop();
-        var failedChecks = ValidateResponse(llmResponse, scenario, profile);
 
         return new PersonalityScenarioResult
         {
@@ -159,97 +175,11 @@ public sealed class PersonalityEvalRunner
             ProfileId = profile.Id,
             ProfileName = profile.Name,
             ModelName = modelName,
-            Passed = failedChecks.Count == 0,
-            FailedChecks = failedChecks,
+            Passed = judgeResult.Passed,
             LlmResponse = llmResponse,
-            DurationMs = sw.ElapsedMilliseconds
+            DurationMs = sw.ElapsedMilliseconds,
+            JudgeResult = judgeResult,
+            Trace = trace
         };
-    }
-
-    private static List<string> ValidateResponse(
-        string response,
-        PersonalityEvalScenario scenario,
-        PersonalityProfile profile)
-    {
-        var failures = new List<string>();
-        var lower = response.ToLowerInvariant();
-
-        // mustContain — catches information loss
-        foreach (var term in scenario.Expectations.MustContain)
-        {
-            if (!lower.Contains(term.ToLowerInvariant()))
-                failures.Add($"Missing required term: '{term}'");
-        }
-
-        // mustNotContain — catches refusal injection
-        foreach (var term in scenario.Expectations.MustNotContain)
-        {
-            if (lower.Contains(term.ToLowerInvariant()))
-                failures.Add($"Contains forbidden term: '{term}'");
-        }
-
-        // maxLength — catches excessive verbosity
-        if (response.Length > scenario.Expectations.MaxLength)
-            failures.Add($"Response too long: {response.Length} > {scenario.Expectations.MaxLength}");
-
-        // isQuestion — catches question destruction
-        if (scenario.Expectations.IsQuestion && !response.TrimEnd().EndsWith('?'))
-            failures.Add("Expected a question (ending with '?') but got a statement");
-
-        // sentimentPreserved — catches meaning inversion
-        ValidateSentiment(response, scenario.Expectations.SentimentPreserved, failures);
-
-        // Profile antiPatterns — catches character-breaking responses
-        foreach (var pattern in profile.AntiPatterns)
-        {
-            if (lower.Contains(pattern.ToLowerInvariant()))
-                failures.Add($"Contains anti-pattern: '{pattern}'");
-        }
-
-        // Profile voiceCharacteristics — at least one must appear
-        if (profile.VoiceCharacteristics.Count > 0)
-        {
-            var hasVoice = profile.VoiceCharacteristics.Any(v =>
-                lower.Contains(v.ToLowerInvariant()));
-            if (!hasVoice)
-                failures.Add($"No voice characteristics found (expected one of: {string.Join(", ", profile.VoiceCharacteristics)})");
-        }
-
-        return failures;
-    }
-
-    private static void ValidateSentiment(
-        string response,
-        string? expectedSentiment,
-        List<string> failures)
-    {
-        if (string.IsNullOrWhiteSpace(expectedSentiment))
-            return;
-
-        var lower = response.ToLowerInvariant();
-
-        var negativeIndicators = new[]
-        {
-            "error", "couldn't", "could not", "unable", "failed",
-            "unavailable", "not found", "can't", "cannot", "invalid", "out of range"
-        };
-        var positiveIndicators = new[]
-        {
-            "done", "set to", "turned on", "turned off", "activated",
-            "playing", "timer set", "lit up"
-        };
-
-        var hasNegative = negativeIndicators.Any(lower.Contains);
-        var hasPositive = positiveIndicators.Any(lower.Contains);
-
-        switch (expectedSentiment.ToLowerInvariant())
-        {
-            case "positive" when hasNegative && !hasPositive:
-                failures.Add("Sentiment should be positive but response contains only negative indicators");
-                break;
-            case "negative" when hasPositive && !hasNegative:
-                failures.Add("Sentiment should be negative but response contains only positive indicators");
-                break;
-        }
     }
 }

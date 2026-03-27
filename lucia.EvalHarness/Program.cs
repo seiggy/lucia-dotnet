@@ -88,13 +88,23 @@ if (evalType == EvalTypeSelector.PersonalityEval)
     AnsiConsole.MarkupLine($"[dim]Loaded {scenarios.Count} scenarios and {allProfiles.Count} personality profiles[/]");
     AnsiConsole.WriteLine();
 
+    // ─── Judge Model Selection ───────────────────────────────────────
+    var judgeModel = AnsiConsole.Prompt(
+        new SelectionPrompt<string>()
+            .Title("[cornflowerblue]Select judge model[/] [dim](larger model recommended)[/]")
+            .PageSize(15)
+            .AddChoices(models.Select(m => m.Name)));
+
+    AnsiConsole.MarkupLine($"[green]\u2713[/] Judge model: [bold]{Markup.Escape(judgeModel)}[/]");
+    AnsiConsole.WriteLine();
+
     var personalityProfiles = lucia.EvalHarness.Personality.PersonalityProfileSelector.Select(allProfiles);
     if (personalityProfiles.Count == 0) return 0;
 
     var combinations = lucia.EvalHarness.Personality.PersonalityEvalRunner.CountCombinations(scenarios, personalityProfiles);
     AnsiConsole.MarkupLine(
         $"[dim]Running {combinations} scenario\u00d7profile combinations per model " +
-        $"({selectedModels.Count} model(s))...[/]");
+        $"({selectedModels.Count} model(s)), judged by {Markup.Escape(judgeModel)}...[/]");
     AnsiConsole.WriteLine();
 
     AnsiConsole.Write(new Rule("[bold]Running Personality Eval[/]").LeftJustified());
@@ -103,6 +113,7 @@ if (evalType == EvalTypeSelector.PersonalityEval)
     var reports = await lucia.EvalHarness.Personality.PersonalityEvalDisplay.RunWithProgressAsync(
         config.Ollama.Endpoint,
         selectedModels,
+        judgeModel,
         scenarios,
         personalityProfiles);
 
