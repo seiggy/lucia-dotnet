@@ -139,3 +139,22 @@ Added `SupportVoiceTags` flag to `CommandRoutingOptions` and wired it through th
 4. **`appsettings.json`** — added `SupportVoiceTags: false` to the `Wyoming:CommandRouting` block.
 
 **Key insight:** The existing `ConfigurationApi` is section-generic — `GET /api/config/sections/Wyoming:CommandRouting` and `PUT /api/config/sections/Wyoming:CommandRouting` already work for any section. The missing piece was the schema definition for the dashboard to render a proper form, which was the only code addition needed in ConfigurationApi.
+
+### 2025-07-18 — DB-Backed Options Pattern & ConfigurationApi Nested Section Fix
+
+**Problem:** The dashboard saved `Wyoming:CommandRouting` settings to the config store (DB) via `IConfigStoreWriter.SetAsync()`, but `GetSectionAsync` used `GetEntriesBySectionAsync(section)` which does exact match on the `section` column. Since `SetAsync` derives the section as only the text before the first `:` (e.g., "Wyoming" for key "Wyoming:CommandRouting:Enabled"), `GetEntriesBySectionAsync("Wyoming:CommandRouting")` always returned empty — falling back to `IConfiguration` with stale values. Additionally, `UpdateSectionAsync` didn't trigger an `IConfigurationRoot.Reload()`, so options monitors had to wait for the 5-second poll cycle.
+
+**Root cause analysis:** The codebase's "DB-backed options pattern" is:
+1. `IConfigStoreWriter.SetAsync()` writes key-value pairs to DB (MongoDB or SQLite)
+2. Custom `ConfigurationProvider`s (`MongoConfigurationProvider`, `SqliteConfigurationProvider`) poll DB every 5 seconds
+3. On change, the provider calls `OnReload()`, which fires `IConfiguration` change tokens
+4. `Configure<T>(builder.Configuration.GetSection(...))` binds to `IOptionsMonitor<T>` using the standard .NET options pipeline
+5. `IOptionsMonitor<T>.CurrentValue` refreshes when the change token fires
+
+This means `Configure<T>(builder.Configuration.GetSection(...))` IS the DB-backed pattern — the DB is a configuration source in the pipeline. All options classes use this same pattern.
+
+**Fixes applied:**
+1. `ConfigurationApi.GetSectionAsync` — switched from `GetEntriesBySectionAsync(section)` to `GetEntriesByKeyPrefixAsync(section + ":")` so nested sections like "Wyoming:CommandRouting" correctly find their DB entries by key prefix instead of relying on the first-segment section column.
+2. `ConfigurationApi.UpdateSectionAsync` — added `IConfigurationRoot.Reload()` call after writes to force immediate provider reload, eliminating the 5-second poll delay for dashboard-initiated changes.
+
+**Key insight:** The `section` column in both MongoDB and SQLite config stores only holds the text before the first `:` in the key. This is a display/query optimization but means `GetEntriesBySectionAsync` cannot find entries for nested sections. Use `GetEntriesByKeyPrefixAsync` instead when querying by section path.

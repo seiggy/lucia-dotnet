@@ -27,6 +27,7 @@ public sealed class ConfigSeeder : IHostedService
         "Agent",
         "PluginDirectory",
         "TraceCapture",
+        "Wyoming",
         LightControlSkillOptions.SectionName,
         ClimateControlSkillOptions.SectionName,
         FanControlSkillOptions.SectionName,
@@ -108,7 +109,7 @@ public sealed class ConfigSeeder : IHostedService
                     continue;
 
                 var section = fullKey.Contains(':')
-                    ? fullKey[..fullKey.IndexOf(':')]
+                    ? fullKey[..fullKey.LastIndexOf(':')]
                     : "Root";
 
                 entries.Add(new ConfigEntry
