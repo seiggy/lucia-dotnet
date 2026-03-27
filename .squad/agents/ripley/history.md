@@ -328,3 +328,53 @@ The current orchestration (WorkflowFactory + Custom Executors) is the proper MAF
 - **The real win is architectural clarity, not line count**
 
 **Full proposal written to:** `.squad/decisions/inbox/ripley-maf-workflow-v2.md`
+
+### 2025-01-13: Entity Resolution Architecture — Cascading Elimination Pipeline
+
+**Current State Analysis:**
+- **EntityLocationService** uses global hybrid scoring (HybridEntityMatcher) that combines embedding cosine similarity + string-level similarity (Levenshtein + token-core + phonetic Metaphone)
+- **SearchHierarchyAsync** searches floors/areas/entities in parallel, compares best scores across levels to decide resolution path (entity vs area vs floor)
+- **DirectSkillExecutor** uses fast-path **ExactMatchEntities** which does: exact entity_id lookup, exact area name match, exact friendly_name match
+- **Limitation:** No fuzzy matching in fast-path, no STT artifact handling, no multi-match disambiguation
+- **Context Available:** ConversationContext.DeviceArea from Wyoming voice platform (caller location), but not fully leveraged
+
+**Cache Structure:**
+- **LocationSnapshot** (immutable, swapped atomically via Volatile): ImmutableArray of Floors/Areas/Entities + ImmutableDictionary by ID
+- **FloorInfo:** FloorId, Name, Aliases, Level, Icon, NameEmbedding, PhoneticKeys, AliasPhoneticKeys
+- **AreaInfo:** AreaId, Name, FloorId, Aliases, EntityIds, Icon, Labels, NameEmbedding, PhoneticKeys, AliasPhoneticKeys
+- **HomeAssistantEntity:** EntityId, FriendlyName, Domain, Aliases, AreaId, Platform, SupportedFeatures, IncludeForAgent (visibility), PhoneticKeys
+- **Key Constraint:** No STT confidence score — HA strips it from Wyoming before reaching us
+
+**Cascading Entity Resolver Design:**
+1. **Step 1: Query Decomposition (deterministic NLP)** — Extract action, explicit location, device type, detect complexity (temporal, conditional, color)
+2. **Step 2: Location Grounding** — Explicit location in query → use it; else use callerArea from context; else no location context
+3. **Step 3: Domain Filtering** — Filter cached entities: domain ∈ [light, switch] based on detected device type + skill filter
+4. **Step 4: Entity Matching** — Exact/normalized friendly_name, phonetic keys (STT artifacts), partial token match
+5. **Decision Tree:** 1 match → resolve; N matches same area → resolve all; 0 matches → bail to LLM (NoMatch); N matches multiple areas → bail to LLM (Ambiguous)
+
+**Key Architecture Decisions:**
+- **Zero matches from cascade = uncertainty signal** → hand off to LLM orchestrator (handles garbled STT, unusual requests)
+- **Complex commands (temporal, multi-domain, compound) → always LLM** — detected in Step 1 and bail immediately
+- **Fast-path must be <50ms** — pure string/dictionary operations, no embeddings
+- **Keep embeddings for LLM agent path only** — SearchHierarchyAsync still used when cascade bails
+- **DeviceArea context is primary grounding signal** — overridden only by explicit location in query
+
+**Migration Strategy:**
+- Phase 1: Parallel execution with feature flag for telemetry comparison
+- Phase 2: Switch default after validating <5% LLM fallback rate regression
+- Phase 3: Remove feature flag, keep SearchHierarchyAsync for LLM agents
+- **Do NOT remove HybridEntityMatcher** — still needed for LLM agent fuzzy search
+
+**Performance Target:** <50ms cache-hit resolution (Step 1: <5ms, Step 2: <5ms, Step 3: <10ms, Step 4: <30ms)
+
+**Integration Points:**
+- DirectSkillExecutor: Replace ResolveSearchTermsToEntityIds/ResolveEntityIdFromCache with ICascadingEntityResolver.Resolve()
+- ConversationCommandProcessor: Already has HandleLlmFallbackAsync() for bail path
+- LuciaEngine: Receives full context when cascade bails (original query, caller area, full entity/area lists)
+
+**Test Coverage:**
+- Unit tests: QueryDecomposer, Location Grounding, Domain Filtering, Entity Matching (exact/phonetic/token)
+- Integration tests: End-to-end cascade scenarios, bail conditions, performance benchmarks (<50ms p99)
+- Telemetry: cascade.resolution.duration_ms, cascade.bail.count (by BailReason), llm.fallback.rate
+
+**Full specification written to:** `.squad/decisions/inbox/ripley-cascading-entity-spec.md`

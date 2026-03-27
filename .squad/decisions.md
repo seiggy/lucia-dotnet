@@ -1894,3 +1894,55 @@ Ranked by frequency of real-world occurrence × severity of failure.
 | 2026-03-25 | gemma3:270m | 11 | 2 | 9 | 18.2% | Zero tool calls — model too small |
 
 **Trend:** Scores dropped from ~65% to ~35% when scenarios expanded from 8→11, but ~50% of the new failures are eval infrastructure bugs (tool name mismatch), not real agent regressions.
+
+---
+
+## Cascading Entity Resolution Pipeline — Design Specification
+
+**Decision Type:** Architecture  
+**Status:** Draft (pending approval)  
+**Submitted:** 2025-01-13  
+**Author:** Ripley (Lead Eval Architect)  
+**Requested by:** Zack Way  
+**EMNLP 2024 Entity Grounding Research:** Cascading elimination for deterministic entity resolution  
+
+**Summary:** Replace the current global hybrid scoring entity resolution (HybridEntityMatcher + SearchHierarchyAsync) with a **cascading elimination pipeline** that uses location grounding, domain filtering, and exact/near-exact name matching to achieve <50ms deterministic resolution for the happy path. Zero matches from the cascade serve as the uncertainty signal that hands off to LLM orchestration.
+
+**Architecture Overview:**
+1. **Query Decomposition** — Extract action, location, device type (deterministic NLP)
+2. **Location Grounding** — Explicit location in query OR caller area from context
+3. **Domain Filtering** — Filter cached entities by device type within resolved area
+4. **Entity Matching** — Exact/normalized string match on friendly_name; resolve on 1 match or N matches in same area; bail on 0 or ambiguous
+
+**Performance Target:** <50ms for cache-hit resolution (p99)
+
+**Integration:** Wire into DirectSkillExecutor via feature flag; LLM fallback unchanged; keep SearchHierarchyAsync for LLM agents indefinitely.
+
+**Test Coverage:** Unit tests (QueryDecomposer, LocationGrounding, DomainFiltering, EntityMatching) + Integration tests (end-to-end cascade) + Telemetry validation (duration histograms, bail reasons, LLM fallback rate ≤5%).
+
+**Next Steps:** Review with Zack → Implement CascadingEntityResolver + unit tests → Integrate with feature flag → Validate telemetry → Switch default → Monitor 2 weeks → Remove flag.
+
+See full document in `.squad/decisions/inbox/ripley-cascading-entity-spec.md` for detailed design.
+
+---
+
+## User Directive — Speaker Identity for Possessive Resolution
+
+**Decision Type:** Feature Requirement  
+**Date:** 2026-03-27T14:22:00Z  
+**Author:** Zack Way (via Copilot)  
+**Scope:** Speaker identity for possessive resolution in entity/area matching
+
+**Directive:** Use SpeakerId from ConversationContext to resolve possessive references in entity/area matching. 
+- "Turn off my light" with SpeakerId="Zack" should match "{Zack}'s Light" or "{Zack} Light"
+- "Turn off the lights in my office" should match area "{Zack}'s Office" or "{Zack} Office"
+- Apply with and without possessive qualifier ('s) for exact matching in the cascading resolver
+
+**Rationale:** Speaker identity is already in the context data from HA. Possessive references ("my light", "my office") are extremely common in voice commands and currently unresolvable. This turns a bail-to-LLM case into a fast-path resolution.
+
+**Integration Point:** Implement in CascadingEntityResolver.Resolve() Step 4 (Entity Matching) + Step 2 (Location Grounding) to handle both entity and area possessive resolution.
+
+---
+
+# Detailed Decision Documents
+
