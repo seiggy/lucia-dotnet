@@ -85,3 +85,43 @@ Key findings:
 ### 2026-03-27 — Cascading Entity Resolver Implementation
 
 Implemented the cascading entity resolution pipeline with deterministic query decomposition, location grounding, domain filtering, and exact/phonetic/token matching. Added the UseCascadingResolver feature flag (FeatureManagement) to gate the new path, and wired speaker identity expansions ("my X" → "{SpeakerId}'s X") plus caller-area grounding for fast-path resolution.
+
+### 2025-07-18 — Microsoft Agent Framework RC4 / A2A 1.0 Migration
+
+Migrated the entire solution from A2A SDK 0.3.4-preview to 1.0.0-preview and MAF packages to RC4. The A2A 1.0 spec introduced breaking changes across the board:
+
+## Learnings
+
+**Type renames (A2A 0.3.x → 1.0):**
+- `AgentMessage` → `Message`
+- `AgentTaskStatus` (struct) → `TaskStatus` (class) — use `A2A.TaskStatus` to avoid ambiguity with `System.Threading.Tasks.TaskStatus`
+- `MessageSendParams` → `SendMessageRequest`
+- `MessageRole` (enum) → `Role` (enum, values: `Unspecified=0, User=1, Agent=2`)
+- `ITaskManager` / `TaskManager` → **removed** — replaced by `IA2ARequestHandler` / `A2AServer`
+- `TaskQueryParams` → `GetTaskRequest`
+- `TextPart` → **removed** — `Part` is now a unified type with `ContentCase` discriminator; use `new Part { Text = "..." }` and `p.ContentCase == PartContentCase.Text`
+
+**AgentCard changes:**
+- `AgentCard.Url` → **removed** — agent URL now lives in `AgentCard.SupportedInterfaces[0].Url` via `AgentInterface`
+- `AgentCard.SupportsAuthenticatedExtendedCard` → removed
+- `AgentCard.ProtocolVersion` → removed
+- `AgentCapabilities.StateTransitionHistory` → removed
+- `AgentCapabilities.PushNotifications` and `.Streaming` now `bool?` (nullable)
+
+**ITaskStore interface (A2A 1.0):**
+- `SetTaskAsync(AgentTask)` → `SaveTaskAsync(string taskId, AgentTask task, CancellationToken)`
+- `UpdateStatusAsync(...)` → removed
+- Push notification methods → removed from ITaskStore
+- New: `DeleteTaskAsync(string taskId, CancellationToken)`, `ListTasksAsync(ListTasksRequest, CancellationToken)` → `Task<ListTasksResponse>`
+
+**A2AServer replaces TaskManager:**
+- Constructor: `A2AServer(IAgentHandler, ITaskStore, ChannelEventNotifier, ILogger<A2AServer>, A2AServerOptions)`
+- `IAgentHandler.ExecuteAsync(RequestContext, AgentEventQueue, CancellationToken)` replaces `OnMessageReceived` event
+- Use `TaskUpdater` / `MessageResponder` to write responses to `AgentEventQueue`
+
+**Routing:**
+- `A2ARouteBuilderExtensions.MapA2A(endpoints, IA2ARequestHandler, path)` replaces the old `MapA2A(endpoints, ITaskManager, path)`
+- `MapHttpA2A(endpoints, IA2ARequestHandler, AgentCard, path)` for combined card + handler
+- `MapWellKnownAgentCard(endpoints, AgentCard, path)` for standalone card endpoints
+
+**SessionManager** now depends on `ITaskStore` directly instead of `ITaskManager`, since task CRUD is all it needs. Task creation uses direct `new AgentTask { ... }` + `SaveTaskAsync()`.
