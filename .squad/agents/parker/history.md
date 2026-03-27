@@ -66,3 +66,19 @@ Refactored the conversation fast-path to eliminate fuzzy entity resolution per Z
 
 **Design principle**: The fast-path now follows "instant if certain, orchestrator if not" — it never acts on an entity it isn't 100% sure about.
 
+### 2025-07-17 — Entity Matching Bug Investigation (Bedroom Lights / Office Speaker)
+
+Investigated two bugs where entity resolution picks the wrong device: "bedroom lights" controlling bathroom lights, and music playing on the wrong speaker. Traced the full pipeline: `LightControlSkill.ControlLightsAsync` → `EntityLocationService.SearchHierarchyAsync` → `HybridEntityMatcher.FindMatchesAsync` → `StringSimilarity.HybridScore`.
+
+Key findings:
+
+1. **Embedding mismatch is the primary root cause.** Stop words ("light", "lights", "lamp") are stripped for token-core string similarity but NOT for embedding generation. The embedding of "bedroom lights" is computed from the full phrase, making it semantically closer to entity "Bathroom Light" than to area "Bedroom". This reverses the string-score advantage that area "Bedroom" has.
+
+2. **Path-selection logic in `SearchHierarchyAsync` (line 398–401) biases toward entities.** Entity path wins unless area beats it by `EmbeddingResolutionMargin` (0.10 for lights). In close races, entity always wins — the margin acts as a handicap against areas.
+
+3. **Old `FindLightsByAreaAsync` / `FindLightAsync` approach was removed** — stubs exist at `LightControlSkill.cs:132–157` throwing `NotSupportedException`. The old design had the LLM explicitly split area from entity name. The current single-tool design passes raw user words ("bedroom lights") as a single search term.
+
+4. **Music agent uses the exact same pipeline** via `MusicPlaybackSkill.ResolvePlayerAsync` → `SearchHierarchyAsync`. Same vulnerability, though `EmbeddingResolutionMargin = 0.30` provides slightly more area bias.
+
+5. **Proposed fix** (in `.squad/decisions/inbox/parker-entity-matching-fix.md`): (A) Strip stop words before generating embeddings, and (B) swap path priority to area-first in `SearchHierarchyAsync`. Both changes are minimal and apply to all agents using the shared matcher.
+

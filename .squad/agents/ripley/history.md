@@ -125,3 +125,206 @@ Every test in `LightAgentEvalTests.cs` only asserts `AssertHasTextResponse()` + 
 **Recommendation:** Incremental simplification — delete A2A/mesh infrastructure, keep workflow orchestration. POC scope: Phase 1 (A2A removal), Phase 2 (registry simplification), Phase 3 (WorkflowFactory cleanup). Total effort: 1-2 weeks.
 
 **Full analysis written to:** `.squad/decisions/inbox/ripley-orchestration-simplification.md`
+
+### 2025-10-13: MAF Workflows Deep-Dive — Can We Replace the Orchestration Engine?
+
+**Context:** Zack corrected previous assumption that MAF doesn't support nested agents. MAF DOES support nested agents through Workflows. Question: Can we replace the orchestration engine with a dynamic workflow service?
+
+**Key Discovery: We're Already Using MAF Workflows!**
+
+The current orchestration IS a MAF Workflow:
+- `RouterExecutor`, `AgentDispatchExecutor`, `ResultAggregatorExecutor` all extend `Microsoft.Agents.AI.Workflows.Executor`
+- `WorkflowFactory.BuildAndExecuteAsync` uses `WorkflowBuilder` to connect them: Router → Dispatch → Aggregator
+- `InProcessExecution.RunAsync` handles workflow execution with type-safe data flow
+
+**Architecture:**
+- 18 files, ~3,000 lines in `lucia.Agents/Orchestration/`
+- Core pattern: LuciaEngine (session lifecycle) → WorkflowFactory (workflow construction) → Custom Executors (business logic)
+- RouterExecutor (432 lines): LLM-based routing + prompt cache for exact match + semantic similarity
+- AgentDispatchExecutor (300 lines): Parallel agent execution via `Task.WhenAll`, clarification handling
+- ResultAggregatorExecutor (270 lines): Response aggregation + optional personality rewriting via LLM
+- LocalAgentInvoker (187 lines): In-process agent execution via `AIHostAgent` with session persistence
+
+**MAF Workflow Capabilities:**
+- Graph execution: DAG with automatic data flow between executors
+- Type safety: WorkflowBuilder validates input/output type compatibility
+- Event system: ExecutorInvokedEvent, WorkflowOutputEvent, WorkflowErrorEvent for telemetry
+- Conditional routing: `AddSwitch` for branching based on data
+- Fan-out/fan-in: Multiple edges for parallel execution (we use internal parallelism in AgentDispatchExecutor instead)
+- Nested workflows: `workflow.BindAsExecutor()` for composition
+- Durable workflows: Azure Functions + Durable Task Scheduler integration (not used, we're in-process only)
+
+**Answer: YES, we can replace the orchestration with a dynamic workflow service, with caveats.**
+
+**Simplification Opportunity:**
+- Replace `WorkflowFactory` (349 lines) with `DynamicOrchestrationWorkflow` service (~250 lines)
+- Consolidate agent discovery logic (ResolveAgentsAsync, CreateAgentInvokers) into one place
+- Cache stateless executors (Router, Aggregator) for reuse across requests
+- **Complexity reduction: ~10-15% (100-150 lines), not 100%**
+
+**What Must Stay:**
+- All three custom Executors (Router, Dispatch, Aggregator) — they contain the orchestration business logic
+- LocalAgentInvoker — in-process agent execution with session persistence + NeedsInput detection
+- SessionManager — Redis-backed session/task lifecycle
+- LuciaEngine — session management, observer coordination, error handling
+
+**What the Workflow Gives Us for FREE:**
+- Type-safe data flow between executors
+- Event system for telemetry
+- Error isolation (ExecutorFailedEvent doesn't crash workflow)
+- Execution lifecycle management
+- Future extensibility (add pre/post-processing executors without refactoring)
+
+**What We're Still Building:**
+- Routing logic (LLM call + prompt cache)
+- Agent execution (parallel invocation + clarification)
+- Response aggregation (combining + personality rewriting)
+- Session management (multi-turn context, Redis persistence)
+- Agent resolution (ILuciaAgent, IDynamicAgentProvider, remote agents)
+
+**Dynamic Agent + MCP Compatibility:**
+- **No impact.** DynamicAgent.GetAIAgent() returns AIAgent with MCP tools resolved at initialization
+- LocalAgentInvoker wraps AIAgent in AIHostAgent and executes it
+- Workflow is oblivious to static vs dynamic agents
+
+**Parallel Execution:**
+- **Preserved.** AgentDispatchExecutor uses `Task.WhenAll` for internal parallelism
+- Alternative (future): Use MAF fan-out pattern (Router → [Agent1, Agent2, Agent3] → Aggregator)
+- Recommendation: Keep internal parallelism — simpler and more efficient (avoids per-request workflow rebuilding)
+
+**Streaming + Multi-Turn:**
+- **Preserved.** Streaming happens at agent level (AIHostAgent) and orchestrator level (OrchestratorAgent)
+- Multi-turn context managed via LuciaEngine (SessionData from Redis) + LocalAgentInvoker (a2a.contextId propagation)
+- Orthogonal to workflow structure
+
+**Migration Path:**
+1. Phase 1: Refactor WorkflowFactory → DynamicOrchestrationWorkflow (Week 1) — consolidate logic, no behavior change
+2. Phase 2 (optional): Optimize executor caching (Week 2) — singleton Router/Aggregator, per-request Dispatch
+3. Phase 3 (separate): Remove A2A infrastructure (per previous decision) — saves ~2,000 lines
+
+**POC Scope:**
+- Create DynamicOrchestrationWorkflow service
+- Update LuciaEngine to use it
+- Run all existing tests (xUnit eval tests, TUI harness, integration tests)
+- Verify: routing, prompt cache, multi-agent, clarification, DynamicAgent + MCP, personality, streaming traces
+- Success criteria: All tests pass, no performance regression, 10-15% code reduction
+- Estimated effort: 3-5 days
+
+**Risk Assessment:**
+- Low risk: Already using MAF Workflows, this is refactoring not rewriting, strong test coverage
+- Medium risk: DI lifecycle changes (executor caching), session state interactions, observer integration
+- Mitigation: Test concurrency, keep session management outside workflow, ensure events still captured
+
+**Recommendation:**
+- **Proceed with Phase 1** — DynamicOrchestrationWorkflow refactor
+- Why: 10-15% complexity reduction, no risk, foundation for future optimization, aligns with Zack's vision
+- Why not full rewrite: Custom executors contain business logic (must stay), A2A infrastructure is the real complexity source (separate decision), incremental value meaningful but not transformative
+
+**Full proposal written to:** `.squad/decisions/inbox/ripley-maf-workflow-proposal.md`
+
+### 2025-10-13: MAF Workflows v2 Research — Dynamic Workflow Service Feasibility
+
+**Context:** Zack corrected previous assumption — MAF DOES support nested agents through Workflows. Question: Can we simplify the orchestration by replacing the engine with a dynamic workflow service?
+
+**Critical Discovery: We're ALREADY Using MAF Workflows Correctly!**
+
+The current orchestration (WorkflowFactory + Custom Executors) is the proper MAF Workflows pattern:
+- `RouterExecutor`, `AgentDispatchExecutor`, `ResultAggregatorExecutor` all extend `Microsoft.Agents.AI.Workflows.Executor`
+- `WorkflowFactory.BuildAndExecuteAsync` uses `WorkflowBuilder` to connect them: Router → Dispatch → Aggregator
+- `InProcessExecution.RunAsync` handles workflow execution with type-safe data flow
+- Event system (`ExecutorInvokedEvent`, `WorkflowOutputEvent`, `WorkflowErrorEvent`) provides telemetry for free
+
+**MAF Workflows Capabilities (via Context7 research):**
+- Graph execution: DAG with automatic data flow between executors
+- Type safety: WorkflowBuilder validates input/output type compatibility
+- Event system: Built-in telemetry hooks
+- Conditional routing: `AddSwitch` for branching based on data
+- Fan-out/fan-in: Multiple edges for parallel execution
+- Nested workflows: `workflow.BindAsExecutor()` for composition
+- Durable workflows: Azure Functions + Durable Task Scheduler integration (not used, we're in-process only)
+- Streaming support: Works with streaming agents transparently
+
+**What MAF Workflows Doesn't Provide (we must build):**
+- Routing logic (LLM call + prompt cache + semantic similarity)
+- Agent execution (parallel invocation + clarification handling)
+- Response aggregation (combining + personality rewriting)
+- Session management (multi-turn context, Redis persistence)
+- Agent resolution (ILuciaAgent, IDynamicAgentProvider, remote agents)
+
+**Complexity Analysis (18 files, 2,753 total lines):**
+
+| Component | Lines | Purpose | Can Delete? |
+|-----------|-------|---------|-------------|
+| RouterExecutor | 431 | LLM routing + prompt cache | ❌ Business logic |
+| WorkflowFactory | 348 | Agent resolution + workflow construction | ✅ Refactor to ~250 lines |
+| AgentDispatchExecutor | 299 | Parallel execution + clarification | ❌ Business logic |
+| LuciaEngine | 277 | Session lifecycle + observer coordination | ❌ Core orchestration |
+| ResultAggregatorExecutor | 269 | Response aggregation + personality | ❌ Business logic |
+| LocalAgentInvoker | 186 | In-process agent execution | ❌ Core invocation |
+| RemoteAgentInvoker | 154 | A2A HTTP invocation | ✅ Phase 3 (A2A removal) |
+| SessionManager | 145 | Redis-backed session/task lifecycle | ❌ State management |
+| Other | 644 | Options, models, observers, telemetry | ❌ Required support |
+
+**Answer: YES, we can simplify with DynamicOrchestrationWorkflow service, with caveats.**
+
+**Simplification Opportunity:**
+- Replace `WorkflowFactory` (348 lines) with `DynamicOrchestrationWorkflow` service (~250 lines)
+- Consolidate agent discovery logic (ResolveAgentsAsync, CreateAgentInvokers) into one place
+- Cache stateless executors (Router, Aggregator) for reuse across requests
+- **Complexity reduction: ~10-15% (100-150 lines), not 100%**
+
+**What Must Stay:**
+- All three custom Executors (Router, Dispatch, Aggregator) — they contain the orchestration business logic
+- LocalAgentInvoker — in-process agent execution with session persistence + NeedsInput detection
+- SessionManager — Redis-backed session/task lifecycle
+- LuciaEngine — session management, observer coordination, error handling
+
+**What the Workflow Gives Us for FREE:**
+- Type-safe data flow: `ChatMessage → AgentChoiceResult → List<OrchestratorAgentResponse> → OrchestratorResult`
+- Event system for telemetry (no manual event emitting needed)
+- Error isolation (`ExecutorFailedEvent` doesn't crash workflow)
+- Execution lifecycle management
+- Future extensibility (add pre/post-processing executors without refactoring)
+
+**Dynamic Agent + MCP Compatibility:**
+- **No impact.** DynamicAgent.GetAIAgent() returns AIAgent with MCP tools resolved at initialization
+- LocalAgentInvoker wraps AIAgent in AIHostAgent and executes it
+- Workflow is oblivious to static vs dynamic agents
+- MCP tool registry, tool resolution, hot-reload — all orthogonal to workflow structure
+
+**Parallel Execution:**
+- **Preserved.** AgentDispatchExecutor uses `Task.WhenAll` for internal parallelism
+- Alternative (future): Use MAF fan-out pattern (Router → [Agent1, Agent2, Agent3] → Aggregator)
+- **Recommendation:** Keep internal parallelism — simpler and more efficient (avoids per-request workflow rebuilding)
+
+**Streaming + Multi-Turn:**
+- **Preserved.** Streaming happens at agent level (AIHostAgent) and orchestrator level (OrchestratorAgent)
+- Multi-turn context managed via LuciaEngine (SessionData from Redis) + LocalAgentInvoker (a2a.contextId propagation)
+- Orthogonal to workflow structure
+
+**Migration Path:**
+1. Phase 1: Refactor WorkflowFactory → DynamicOrchestrationWorkflow (Week 1) — consolidate logic, executor caching, no behavior change
+2. Phase 2 (optional): Optimize executor caching (Week 2) — thread-safety analysis, DI lifecycle optimization
+3. Phase 3 (separate): Remove A2A infrastructure (per previous decision) — saves ~154 lines
+
+**POC Scope (3-5 days):**
+- Create DynamicOrchestrationWorkflow service
+- Consolidate agent resolution logic
+- Implement executor caching (Router/Aggregator singletons)
+- Update LuciaEngine to use new service
+- Run all tests (xUnit eval tests, TUI harness, integration tests)
+- Verify: routing, prompt cache, multi-agent, clarification, DynamicAgent + MCP, personality, streaming traces
+- Success criteria: All tests pass, no performance regression, 100-150 line reduction
+
+**Risk Assessment:**
+- Low risk: Already using MAF Workflows, this is refactoring not rewriting, strong test coverage
+- Medium risk: DI lifecycle changes (executor caching), session state interactions, observer integration
+- Mitigation: Test concurrency, keep session management outside workflow, ensure events still captured
+
+**Recommendation:**
+- **Proceed with Phase 1** — DynamicOrchestrationWorkflow refactor
+- Why: 10-15% complexity reduction, no risk, foundation for future optimization, aligns with Zack's vision, single-responsibility principle
+- Why not full rewrite: Custom executors contain business logic (must stay), A2A infrastructure is the real complexity source (separate decision), incremental value meaningful but not transformative
+- **The real win is architectural clarity, not line count**
+
+**Full proposal written to:** `.squad/decisions/inbox/ripley-maf-workflow-v2.md`
