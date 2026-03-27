@@ -38,7 +38,9 @@ public sealed partial class PersonalityResponseRenderer : IPersonalityResponseRe
 
         if (string.IsNullOrWhiteSpace(opts.PersonalityPrompt))
         {
-            LogNoPersonalityPrompt(skillId, action);
+            // UsePersonalityResponses is true (caller already checked) but the prompt is empty —
+            // this is a misconfiguration that should be visible, not hidden at Debug level
+            LogPersonalityPromptMissing(skillId, action);
             return cannedResponse;
         }
 
@@ -107,15 +109,15 @@ public sealed partial class PersonalityResponseRenderer : IPersonalityResponseRe
         };
     }
 
-    [LoggerMessage(Level = LogLevel.Debug,
-        Message = "No personality prompt configured for {SkillId}/{Action}, using canned response")]
-    private partial void LogNoPersonalityPrompt(string skillId, string action);
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "UsePersonalityResponses is enabled but PersonalityPrompt is null/empty for {SkillId}/{Action} — falling back to canned response. Set Wyoming:CommandRouting:PersonalityPrompt to enable personality rewriting.")]
+    private partial void LogPersonalityPromptMissing(string skillId, string action);
 
-    [LoggerMessage(Level = LogLevel.Debug,
+    [LoggerMessage(Level = LogLevel.Information,
         Message = "Calling personality LLM for {SkillId}/{Action}")]
     private partial void LogPersonalityCallStart(string skillId, string action);
 
-    [LoggerMessage(Level = LogLevel.Debug,
+    [LoggerMessage(Level = LogLevel.Information,
         Message = "Personality rewrite for {SkillId}/{Action} produced {Length} characters")]
     private partial void LogPersonalityCallSuccess(string skillId, string action, int length);
 

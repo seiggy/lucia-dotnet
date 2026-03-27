@@ -131,6 +131,11 @@ public sealed class AgentDispatchExecutor : Executor
 
         var executionOrder = BuildExecutionOrder(agentChoice);
 
+        _logger.LogInformation(
+            "AgentDispatchExecutor: dispatching to [{ExecutionOrder}]. Available invokers: [{InvokerKeys}]",
+            string.Join(", ", executionOrder),
+            string.Join(", ", _invokers.Keys.OrderBy(k => k, StringComparer.Ordinal)));
+
         // Dispatch all agents in parallel
         var tasks = new List<Task<OrchestratorAgentResponse>>(executionOrder.Count);
         foreach (var agentId in executionOrder)

@@ -142,11 +142,23 @@ public sealed partial class ConversationCommandProcessor
 
         // Apply personality rewriting when enabled
         var opts = _routingOptions.CurrentValue;
-        if (opts.UsePersonalityResponses && _personalityRenderer is not null)
+        if (opts.UsePersonalityResponses)
         {
-            responseText = await _personalityRenderer
-                .RenderAsync(pattern.SkillId, pattern.Action, responseText, executionResult.Captures, ct)
-                .ConfigureAwait(false);
+            if (_personalityRenderer is not null)
+            {
+                LogPersonalityBranchEntered(pattern.SkillId, pattern.Action);
+                responseText = await _personalityRenderer
+                    .RenderAsync(pattern.SkillId, pattern.Action, responseText, executionResult.Captures, ct)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                LogPersonalityRendererMissing(pattern.SkillId, pattern.Action);
+            }
+        }
+        else
+        {
+            LogPersonalityBranchSkipped(pattern.SkillId, pattern.Action);
         }
 
         sw.Stop();
@@ -386,4 +398,16 @@ public sealed partial class ConversationCommandProcessor
     [LoggerMessage(Level = LogLevel.Information,
         Message = "LLM fallback completed in {ElapsedMs}ms")]
     private partial void LogLlmComplete(long elapsedMs);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Personality rendering enabled for {SkillId}/{Action} — entering personality branch")]
+    private partial void LogPersonalityBranchEntered(string skillId, string action);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "UsePersonalityResponses is enabled but IPersonalityResponseRenderer is not registered — using canned response for {SkillId}/{Action}")]
+    private partial void LogPersonalityRendererMissing(string skillId, string action);
+
+    [LoggerMessage(Level = LogLevel.Debug,
+        Message = "UsePersonalityResponses is disabled for {SkillId}/{Action} — using canned response")]
+    private partial void LogPersonalityBranchSkipped(string skillId, string action);
 }
