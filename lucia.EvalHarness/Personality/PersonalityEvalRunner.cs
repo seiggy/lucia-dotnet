@@ -13,7 +13,7 @@ public sealed class PersonalityEvalRunner
     private static readonly string PersonalityRewritePrompt =
         "Rephrase the following smart home assistant response in your voice. " +
         "Keep the SAME meaning \u2014 if it's an error, keep it as an error. If it's a question, keep it as a question. " +
-        "If it reports success, keep the success. Never refuse, never say you can't do things, never add disclaimers. " +
+        "If it reports success, keep the success. Preserve the original intent faithfully — do not add caveats or change the outcome. " +
         "Just change the tone and style to match your personality. Be brief.\n\n" +
         "Response to rephrase:\n";
 
