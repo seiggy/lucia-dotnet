@@ -32,6 +32,7 @@ public sealed partial class PersonalityResponseRenderer : IPersonalityResponseRe
         string action,
         string cannedResponse,
         IReadOnlyDictionary<string, string> captures,
+        string? skillResultText = null,
         CancellationToken ct = default)
     {
         var opts = _options.CurrentValue;
@@ -52,18 +53,23 @@ public sealed partial class PersonalityResponseRenderer : IPersonalityResponseRe
 
             var actionDescription = BuildActionDescription(skillId, action, captures);
 
+            // Prefer the actual skill result text over the canned template response
+            var resultDescription = !string.IsNullOrWhiteSpace(skillResultText)
+                ? skillResultText
+                : cannedResponse;
+
             var voiceTagInstruction = opts.SupportVoiceTags
-                ? "Include SSML voice tags in your response for text-to-speech rendering. Use <break>, <emphasis>, and prosody tags where natural."
+                ? "Include paralinguistic voice tags in your response for improved personality, such as [laugh], [sigh], [cough]."
                 : "Do not include any markup or tags in your response. Plain text only.";
 
             var messages = new List<ChatMessage>
             {
                 new(ChatRole.System, opts.Instructions),
                 new(ChatRole.User,
-                    $"Rephrase this home automation action result in your voice. Be brief and natural.\n" +
+                    $"Rephrase this home automation action result in your voice. Be brief and natural. Aim for 10-15 seconds of speech.\n" +
                     $"{voiceTagInstruction}\n" +
-                    $"Action: {actionDescription}\n" +
-                    $"Result: {cannedResponse}"),
+                    $"Action Requested: {actionDescription}\n" +
+                    $"Result from System: {resultDescription}"),
             };
 
             LogPersonalityCallStart(skillId, action);
@@ -99,13 +105,24 @@ public sealed partial class PersonalityResponseRenderer : IPersonalityResponseRe
     {
         var entity = captures.GetValueOrDefault("entity", "unknown device");
         var actionValue = captures.GetValueOrDefault("action", action);
+        var area = captures.GetValueOrDefault("area");
+        var value = captures.GetValueOrDefault("value");
+
+        var location = !string.IsNullOrWhiteSpace(area) ? $" in the {area}" : string.Empty;
 
         return skillId switch
         {
-            "LightControlSkill" => $"{actionValue} {entity} lights",
-            "ClimateControlSkill" => $"{action} climate for {entity}",
-            "SceneControlSkill" => $"activate scene {entity}",
-            _ => $"{action} on {entity}",
+            "LightControlSkill" when action == "brightness" && value is not null
+                => $"set {entity} lights{location} brightness to {value}%",
+            "LightControlSkill"
+                => $"{actionValue} {entity} lights{location}",
+            "ClimateControlSkill" when value is not null
+                => $"{action} climate for {entity}{location} to {value}",
+            "ClimateControlSkill"
+                => $"{action} climate for {entity}{location}",
+            "SceneControlSkill"
+                => $"activate scene {entity}",
+            _ => $"{action} on {entity}{location}",
         };
     }
 

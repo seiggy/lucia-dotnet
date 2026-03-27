@@ -151,7 +151,8 @@ public sealed partial class ConversationCommandProcessor
             {
                 LogPersonalityBranchEntered(pattern.SkillId, pattern.Action);
                 responseText = await _personalityRenderer
-                    .RenderAsync(pattern.SkillId, pattern.Action, responseText, executionResult.Captures, ct)
+                    .RenderAsync(pattern.SkillId, pattern.Action, responseText, executionResult.Captures,
+                        executionResult.ResponseText, ct)
                     .ConfigureAwait(false);
             }
             else

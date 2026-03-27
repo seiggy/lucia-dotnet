@@ -14,6 +14,7 @@ public interface IPersonalityResponseRenderer
     /// <param name="action">The action that was executed (e.g., "toggle").</param>
     /// <param name="cannedResponse">The template-rendered canned response text.</param>
     /// <param name="captures">Captured values from the command pattern (entity, action, etc.).</param>
+    /// <param name="skillResultText">The actual result text from the skill execution (e.g., "'Kitchen Light' turned on."), or null if unavailable.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Personality-styled response text, or the original <paramref name="cannedResponse"/> on failure.</returns>
     Task<string> RenderAsync(
@@ -21,5 +22,6 @@ public interface IPersonalityResponseRenderer
         string action,
         string cannedResponse,
         IReadOnlyDictionary<string, string> captures,
+        string? skillResultText = null,
         CancellationToken ct = default);
 }

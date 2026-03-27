@@ -237,11 +237,13 @@ public class LightControlSkill : IAgentSkill, IOptimizableSkill, ICommandPattern
         [Description("Search terms to find lights (e.g., ['living room', 'kitchen lights', 'upstairs'])")] string[] searchTerms,
         [Description("Desired state: 'on' or 'off'")] string state,
         [Description("Brightness 0-100 for 'on' state; use -1 to omit")] int brightness = -1,
-        [Description("Color name like 'red', 'blue', 'warm_white'; use empty string to omit")] string color = "")
+        [Description("Color name like 'red', 'blue', 'warm_white'; use empty string to omit")] string color = "",
+        bool preResolved = false)
     {
         using var activity = ActivitySource.StartActivity();
         activity?.SetTag("search.terms", string.Join(", ", searchTerms));
         activity?.SetTag("desired.state", state);
+        activity?.SetTag("pre_resolved", preResolved);
         if (brightness >= 0)
             activity?.SetTag("desired.brightness", brightness);
         if (!string.IsNullOrEmpty(color))
@@ -252,20 +254,55 @@ public class LightControlSkill : IAgentSkill, IOptimizableSkill, ICommandPattern
 
         try
         {
-            // Resolve all search terms into a deduplicated set of entities
-            var matchOptions = GetCurrentMatchOptions();
             var allEntities = new Dictionary<string, HomeAssistantEntity>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var term in searchTerms)
+            if (preResolved)
             {
-                var hierarchyResult = await _locationService.SearchHierarchyAsync(
-                    term, matchOptions, EntityDomains).ConfigureAwait(false);
+                // Entity IDs already resolved — look up directly from cache
+                foreach (var entityId in searchTerms)
+                {
+                    var matches = _locationService.ExactMatchEntities(entityId, EntityDomains);
+                    if (matches.Count > 0)
+                    {
+                        foreach (var entity in matches)
+                            if (entity.IncludeForAgent is null || entity.IncludeForAgent.Contains(AgentId))
+                                allEntities.TryAdd(entity.EntityId, entity);
+                    }
+                    else
+                    {
+                        // Cache miss for a pre-resolved ID — still add it with a minimal entity
+                        // so the service call proceeds; use the HA client for friendly name
+                        var haState = await _homeAssistantClient.GetEntityStateAsync(entityId)
+                            .ConfigureAwait(false);
+                        var friendlyName = haState?.Attributes.TryGetValue("friendly_name", out var fn) == true
+                            ? fn?.ToString() ?? entityId
+                            : entityId;
 
-                activity?.SetTag($"resolution.{term}", hierarchyResult.ResolutionStrategy.ToString());
+                        allEntities.TryAdd(entityId, new HomeAssistantEntity
+                        {
+                            EntityId = entityId,
+                            FriendlyName = friendlyName,
+                        });
+                    }
+                }
 
-                foreach (var entity in hierarchyResult.ResolvedEntities)
-                    if (entity.IncludeForAgent is null || entity.IncludeForAgent.Contains(AgentId))
-                        allEntities.TryAdd(entity.EntityId, entity);
+                activity?.SetTag("resolution.strategy", "pre_resolved");
+            }
+            else
+            {
+                // Resolve all search terms into a deduplicated set of entities
+                var matchOptions = GetCurrentMatchOptions();
+                foreach (var term in searchTerms)
+                {
+                    var hierarchyResult = await _locationService.SearchHierarchyAsync(
+                        term, matchOptions, EntityDomains).ConfigureAwait(false);
+
+                    activity?.SetTag($"resolution.{term}", hierarchyResult.ResolutionStrategy.ToString());
+
+                    foreach (var entity in hierarchyResult.ResolvedEntities)
+                        if (entity.IncludeForAgent is null || entity.IncludeForAgent.Contains(AgentId))
+                            allEntities.TryAdd(entity.EntityId, entity);
+                }
             }
 
             if (allEntities.Count == 0)

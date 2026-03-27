@@ -153,8 +153,8 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
 
         return await collector.RecordAsync(
             nameof(LightControlSkill.ControlLightsAsync),
-            new { searchTerms = resolvedIds, state },
-            () => skill.ControlLightsAsync(resolvedIds, state)).ConfigureAwait(false);
+            new { searchTerms = resolvedIds, state, preResolved = useCascadingResolver },
+            () => skill.ControlLightsAsync(resolvedIds, state, preResolved: useCascadingResolver)).ConfigureAwait(false);
     }
 
     private async Task<string> ExecuteLightBrightnessAsync(
@@ -176,8 +176,8 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
 
         return await collector.RecordAsync(
             nameof(LightControlSkill.ControlLightsAsync),
-            new { searchTerms = resolvedIds, state = "on", brightness },
-            () => skill.ControlLightsAsync(resolvedIds, "on", brightness)).ConfigureAwait(false);
+            new { searchTerms = resolvedIds, state = "on", brightness, preResolved = useCascadingResolver },
+            () => skill.ControlLightsAsync(resolvedIds, "on", brightness, preResolved: useCascadingResolver)).ConfigureAwait(false);
     }
 
     private async Task<string> ExecuteClimateSetTemperatureAsync(
