@@ -27,17 +27,25 @@ public sealed class ConversationTrace
     public required string OriginalResponse { get; init; }
 
     /// <summary>
-    /// Formats the trace for display or judge input.
+    /// Formats the trace for judge input, wrapped in evaluation framing
+    /// to avoid content filter triggers from personality instructions.
     /// </summary>
     public string Format()
     {
         return $"""
-            System: {SystemPrompt}
-            ::
-            User: {UserMessage}
-            Assistant: {AssistantResponse}
-            ::
-            Personality: {AssistantResponse}
+            The following is a transcript from a text-rewriting quality test. A model was given a personality description and asked to rephrase a factual smart home response. Please evaluate the quality of the rewrite.
+
+            [Personality Description Given to Model]
+            {SystemPrompt}
+
+            [Original Factual Response]
+            {OriginalResponse}
+
+            [Rephrase Instruction Given to Model]
+            {UserMessage}
+
+            [Model Output]
+            {AssistantResponse}
             """;
     }
 }
