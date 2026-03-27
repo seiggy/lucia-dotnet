@@ -1,3 +1,4 @@
+using Microsoft.Extensions.AI;
 using OllamaSharp;
 using Spectre.Console;
 
@@ -16,7 +17,8 @@ public static class PersonalityEvalDisplay
     public static async Task<IReadOnlyList<PersonalityEvalReport>> RunWithProgressAsync(
         string ollamaEndpoint,
         IReadOnlyList<string> selectedModels,
-        string judgeModel,
+        IChatClient judgeChatClient,
+        string judgeModelName,
         IReadOnlyList<PersonalityEvalScenario> scenarios,
         IReadOnlyList<PersonalityProfile> selectedProfiles,
         CancellationToken ct = default)
@@ -24,7 +26,6 @@ public static class PersonalityEvalDisplay
         var runner = new PersonalityEvalRunner();
         var reports = new List<PersonalityEvalReport>();
         var totalCombinations = PersonalityEvalRunner.CountCombinations(scenarios, selectedProfiles);
-        var judgeChatClient = new OllamaApiClient(new Uri(ollamaEndpoint), judgeModel);
 
         await AnsiConsole.Progress()
             .AutoClear(false)
@@ -49,7 +50,7 @@ public static class PersonalityEvalDisplay
                         chatClient,
                         model,
                         judgeChatClient,
-                        judgeModel,
+                        judgeModelName,
                         scenarios,
                         selectedProfiles,
                         onProgress: _ => task.Increment(1),

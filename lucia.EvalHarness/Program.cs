@@ -66,6 +66,41 @@ var selectedModels = ModelSelector.Select(models);
 if (selectedModels.Count == 0) return 0;
 
 // ─── Eval Type Selection ──────────────────────────────────────────────
+// ─── Create Judge Client (Azure OpenAI) ──────────────────────────────
+IChatClient? judgeChatClient = null;
+if (!string.IsNullOrWhiteSpace(config.AzureOpenAI.Endpoint))
+{
+    try
+    {
+        var azureClient = !string.IsNullOrWhiteSpace(config.AzureOpenAI.ApiKey)
+            ? new AzureOpenAIClient(
+                new Uri(config.AzureOpenAI.Endpoint),
+                new AzureKeyCredential(config.AzureOpenAI.ApiKey))
+            : new AzureOpenAIClient(
+                new Uri(config.AzureOpenAI.Endpoint),
+                new Azure.Identity.AzureCliCredential());
+
+        judgeChatClient = azureClient
+            .GetChatClient(config.AzureOpenAI.JudgeDeployment)
+            .AsIChatClient();
+
+        AnsiConsole.MarkupLine($"[green]\u2713[/] Azure judge model connected: {Markup.Escape(config.AzureOpenAI.JudgeDeployment)}");
+    }
+    catch (Exception ex)
+    {
+        AnsiConsole.MarkupLine($"[yellow]\u26a0[/] Azure judge unavailable: {Markup.Escape(ex.Message)}");
+        AnsiConsole.MarkupLine("[dim]  LLM-as-judge metrics (TaskCompletion) will be skipped.[/]");
+    }
+}
+else
+{
+    AnsiConsole.MarkupLine("[yellow]\u26a0[/] No Azure OpenAI judge configured. LLM-evaluated metrics disabled.");
+}
+AnsiConsole.WriteLine();
+
+// Use a no-op judge if Azure isn't configured
+judgeChatClient ??= new NoOpChatClient();
+
 var evalType = EvalTypeSelector.Select();
 
 if (evalType == EvalTypeSelector.PersonalityEval)
@@ -88,14 +123,15 @@ if (evalType == EvalTypeSelector.PersonalityEval)
     AnsiConsole.MarkupLine($"[dim]Loaded {scenarios.Count} scenarios and {allProfiles.Count} personality profiles[/]");
     AnsiConsole.WriteLine();
 
-    // ─── Judge Model Selection ───────────────────────────────────────
-    var judgeModel = AnsiConsole.Prompt(
-        new SelectionPrompt<string>()
-            .Title("[cornflowerblue]Select judge model[/] [dim](larger model recommended)[/]")
-            .PageSize(15)
-            .AddChoices(models.Select(m => m.Name)));
+    // ─── Judge: reuse Azure OpenAI judge from main config ────────────
+    if (judgeChatClient is NoOpChatClient)
+    {
+        AnsiConsole.MarkupLine("[red]\u2717[/] Personality eval requires an Azure OpenAI judge model. Configure AzureOpenAI settings.");
+        return 1;
+    }
 
-    AnsiConsole.MarkupLine($"[green]\u2713[/] Judge model: [bold]{Markup.Escape(judgeModel)}[/]");
+    var judgeModelName = config.AzureOpenAI.JudgeDeployment;
+    AnsiConsole.MarkupLine($"[green]\u2713[/] Judge: [bold]{Markup.Escape(judgeModelName)}[/] (Azure OpenAI)");
     AnsiConsole.WriteLine();
 
     var personalityProfiles = lucia.EvalHarness.Personality.PersonalityProfileSelector.Select(allProfiles);
@@ -104,7 +140,7 @@ if (evalType == EvalTypeSelector.PersonalityEval)
     var combinations = lucia.EvalHarness.Personality.PersonalityEvalRunner.CountCombinations(scenarios, personalityProfiles);
     AnsiConsole.MarkupLine(
         $"[dim]Running {combinations} scenario\u00d7profile combinations per model " +
-        $"({selectedModels.Count} model(s)), judged by {Markup.Escape(judgeModel)}...[/]");
+        $"({selectedModels.Count} model(s)), judged by {Markup.Escape(judgeModelName)}...[/]");
     AnsiConsole.WriteLine();
 
     AnsiConsole.Write(new Rule("[bold]Running Personality Eval[/]").LeftJustified());
@@ -113,7 +149,8 @@ if (evalType == EvalTypeSelector.PersonalityEval)
     var reports = await lucia.EvalHarness.Personality.PersonalityEvalDisplay.RunWithProgressAsync(
         config.Ollama.Endpoint,
         selectedModels,
-        judgeModel,
+        judgeChatClient,
+        judgeModelName,
         scenarios,
         personalityProfiles);
 
@@ -152,40 +189,6 @@ AnsiConsole.WriteLine();
 await using var agentFactory = new RealAgentFactory(config.Ollama.Endpoint, haSnapshotPath, loggerFactory);
 agentFactory.EnableTracing = enableTraces;
 
-// ─── Create Judge Client (Azure OpenAI) ──────────────────────────────
-IChatClient? judgeChatClient = null;
-if (!string.IsNullOrWhiteSpace(config.AzureOpenAI.Endpoint))
-{
-    try
-    {
-        var azureClient = !string.IsNullOrWhiteSpace(config.AzureOpenAI.ApiKey)
-            ? new AzureOpenAIClient(
-                new Uri(config.AzureOpenAI.Endpoint),
-                new AzureKeyCredential(config.AzureOpenAI.ApiKey))
-            : new AzureOpenAIClient(
-                new Uri(config.AzureOpenAI.Endpoint),
-                new Azure.Identity.AzureCliCredential());
-
-        judgeChatClient = azureClient
-            .GetChatClient(config.AzureOpenAI.JudgeDeployment)
-            .AsIChatClient();
-
-        AnsiConsole.MarkupLine($"[green]\u2713[/] Azure judge model connected: {Markup.Escape(config.AzureOpenAI.JudgeDeployment)}");
-    }
-    catch (Exception ex)
-    {
-        AnsiConsole.MarkupLine($"[yellow]\u26a0[/] Azure judge unavailable: {Markup.Escape(ex.Message)}");
-        AnsiConsole.MarkupLine("[dim]  LLM-as-judge metrics (TaskCompletion) will be skipped.[/]");
-    }
-}
-else
-{
-    AnsiConsole.MarkupLine("[yellow]\u26a0[/] No Azure OpenAI judge configured. LLM-evaluated metrics disabled.");
-}
-AnsiConsole.WriteLine();
-
-// Use a no-op judge if Azure isn't configured
-judgeChatClient ??= new NoOpChatClient();
 
 var runner = new EvalRunner(config, judgeChatClient);
 
