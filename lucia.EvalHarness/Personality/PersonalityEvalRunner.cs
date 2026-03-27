@@ -59,7 +59,8 @@ public sealed class PersonalityEvalRunner
     {
         var startedAt = DateTimeOffset.UtcNow;
         var results = new List<PersonalityScenarioResult>();
-        var judge = new PersonalityJudge(judgeChatClient);
+        var traceDir = Path.Combine("personality-eval-traces", $"{modelName}_{startedAt:yyyyMMdd_HHmmss}");
+        var judge = new PersonalityJudge(judgeChatClient, traceDir);
 
         foreach (var scenario in scenarios)
         {
@@ -164,7 +165,7 @@ public sealed class PersonalityEvalRunner
         };
 
         // Step 3: Send trace to judge
-        var judgeResult = await judge.EvaluateAsync(trace, ct);
+        var judgeResult = await judge.EvaluateAsync(trace, $"{scenario.Id}_{profile.Id}", ct);
         sw.Stop();
 
         return new PersonalityScenarioResult

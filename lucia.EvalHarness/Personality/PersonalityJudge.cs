@@ -34,10 +34,14 @@ public sealed class PersonalityJudge
         """;
 
     private readonly IChatClient _judgeChatClient;
+    private readonly string? _traceDir;
 
-    public PersonalityJudge(IChatClient judgeChatClient)
+    public PersonalityJudge(IChatClient judgeChatClient, string? traceOutputDir = null)
     {
         _judgeChatClient = judgeChatClient;
+        _traceDir = traceOutputDir;
+        if (_traceDir is not null)
+            Directory.CreateDirectory(_traceDir);
     }
 
     /// <summary>
@@ -45,22 +49,27 @@ public sealed class PersonalityJudge
     /// </summary>
     public async Task<JudgeResult> EvaluateAsync(
         ConversationTrace trace,
+        string? scenarioId = null,
         CancellationToken ct = default)
     {
+        var formattedTrace = trace.Format();
         var messages = new List<ChatMessage>
         {
             new(ChatRole.System, JudgeSystemPrompt),
-            new(ChatRole.User, trace.Format())
+            new(ChatRole.User, formattedTrace)
         };
 
         try
         {
             var response = await _judgeChatClient.GetResponseAsync(messages, cancellationToken: ct);
             var text = response.Text ?? string.Empty;
-            return ParseJudgeResponse(text);
+            var result = ParseJudgeResponse(text);
+            DumpTrace(scenarioId, formattedTrace, text, null);
+            return result;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            DumpTrace(scenarioId, formattedTrace, null, ex);
             return new JudgeResult
             {
                 PersonalityScore = 0,
@@ -68,6 +77,39 @@ public sealed class PersonalityJudge
                 MeaningScore = 0,
                 MeaningReason = $"Judge call failed: {ex.Message}"
             };
+        }
+    }
+
+    private void DumpTrace(string? scenarioId, string judgeInput, string? judgeOutput, Exception? error)
+    {
+        if (_traceDir is null)
+            return;
+
+        var slug = scenarioId ?? $"unknown-{DateTime.UtcNow:HHmmss}";
+        var path = Path.Combine(_traceDir, $"{slug}.txt");
+
+        try
+        {
+            var content = $"""
+                ═══ JUDGE TRACE: {slug} ═══
+                Timestamp: {DateTime.UtcNow:O}
+
+                ─── JUDGE INPUT (sent to judge model) ───
+                [System Prompt]
+                {JudgeSystemPrompt}
+
+                [User Message — Conversation Trace]
+                {judgeInput}
+
+                ─── JUDGE OUTPUT ───
+                {(error is not null ? $"ERROR: {error.GetType().Name}: {error.Message}" : judgeOutput ?? "(empty)")}
+                ═══ END TRACE ═══
+                """;
+            File.WriteAllText(path, content);
+        }
+        catch
+        {
+            // Don't let trace dumping crash the eval
         }
     }
 
