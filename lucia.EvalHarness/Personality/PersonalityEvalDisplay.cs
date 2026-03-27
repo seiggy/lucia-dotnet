@@ -99,7 +99,7 @@ public static class PersonalityEvalDisplay
         table.AddColumn(new TableColumn("[bold]Profile[/]").NoWrap());
         table.AddColumn(new TableColumn("[bold]Personality Avg[/]").Centered());
         table.AddColumn(new TableColumn("[bold]Meaning Avg[/]").Centered());
-        table.AddColumn(new TableColumn("[bold]Pass Rate[/]").Centered());
+        table.AddColumn(new TableColumn("[bold]Combined Avg[/]").Centered());
 
         var profileGroups = report.Results
             .GroupBy(r => new { r.ProfileId, r.ProfileName })
@@ -114,35 +114,35 @@ public static class PersonalityEvalDisplay
             var meaningAvg = scored.Count > 0
                 ? scored.Average(r => r.JudgeResult!.MeaningScore)
                 : 0.0;
-            var passRate = group.Count() > 0
-                ? (double)group.Count(r => r.Passed) / group.Count() * 100
+            var combinedAvg = scored.Count > 0
+                ? scored.Average(r => r.JudgeResult!.CombinedScore)
                 : 0.0;
 
             var personalityColor = personalityAvg >= 4 ? "green" : personalityAvg >= 3 ? "yellow" : "red";
             var meaningColor = meaningAvg >= 4 ? "green" : meaningAvg >= 3 ? "yellow" : "red";
-            var passColor = passRate >= 80 ? "green" : passRate >= 60 ? "yellow" : "red";
+            var combinedColor = combinedAvg >= 4 ? "green" : combinedAvg >= 3 ? "yellow" : "red";
 
             table.AddRow(
                 Markup.Escape(group.Key.ProfileName),
                 $"[{personalityColor}]{personalityAvg:F1}/5[/]",
                 $"[{meaningColor}]{meaningAvg:F1}/5[/]",
-                $"[{passColor}]{passRate:F0}%[/]");
+                $"[{combinedColor}]{combinedAvg:F1}/5[/]");
         }
 
         // Overall row
         var overallPersonality = report.AveragePersonalityScore;
         var overallMeaning = report.AverageMeaningScore;
-        var overallPassRate = report.PassRate;
+        var overallCombined = report.AverageCombinedScore;
         var opColor = overallPersonality >= 4 ? "green" : overallPersonality >= 3 ? "yellow" : "red";
         var omColor = overallMeaning >= 4 ? "green" : overallMeaning >= 3 ? "yellow" : "red";
-        var oprColor = overallPassRate >= 80 ? "green" : overallPassRate >= 60 ? "yellow" : "red";
+        var ocColor = overallCombined >= 4 ? "green" : overallCombined >= 3 ? "yellow" : "red";
 
         table.AddEmptyRow();
         table.AddRow(
             "[bold]Overall[/]",
             $"[bold][{opColor}]{overallPersonality:F1}/5[/][/]",
             $"[bold][{omColor}]{overallMeaning:F1}/5[/][/]",
-            $"[bold][{oprColor}]{overallPassRate:F0}%[/][/]");
+            $"[bold][{ocColor}]{overallCombined:F1}/5[/][/]");
 
         AnsiConsole.Write(table);
     }
@@ -161,13 +161,11 @@ public static class PersonalityEvalDisplay
             var scored = category.Where(r => r.JudgeResult is not null).ToList();
             var pAvg = scored.Count > 0 ? scored.Average(r => r.JudgeResult!.PersonalityScore) : 0.0;
             var mAvg = scored.Count > 0 ? scored.Average(r => r.JudgeResult!.MeaningScore) : 0.0;
-            var passRate = category.Count() > 0
-                ? (double)category.Count(r => r.Passed) / category.Count() * 100
-                : 0.0;
-            var color = passRate >= 80 ? "green" : passRate >= 60 ? "yellow" : "red";
+            var combined = scored.Count > 0 ? scored.Average(r => r.JudgeResult!.CombinedScore) : 0.0;
+            var color = combined >= 4 ? "green" : combined >= 3 ? "yellow" : "red";
 
             AnsiConsole.MarkupLine(
-                $"  [{color}]{passRate,5:F0}%[/] {Markup.Escape(category.Key)} " +
+                $"  [{color}]{combined,4:F1}/5[/] {Markup.Escape(category.Key)} " +
                 $"[dim](P:{pAvg:F1} M:{mAvg:F1})[/]");
         }
     }
@@ -177,29 +175,34 @@ public static class PersonalityEvalDisplay
         AnsiConsole.WriteLine();
         AnsiConsole.Write(new Rule("[bold]Detailed Results[/]").LeftJustified());
 
-        var failed = report.Results.Where(r => !r.Passed).ToList();
-        if (failed.Count == 0)
+        // Show all results with score-based color coding
+        var ordered = report.Results.OrderBy(r => r.Score).ToList();
+        if (ordered.Count == 0)
         {
             AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine("[green]All scenarios passed! \ud83c\udf89[/]");
+            AnsiConsole.MarkupLine("[dim]No results.[/]");
             return;
         }
 
-        foreach (var result in failed)
+        foreach (var result in ordered)
         {
             AnsiConsole.WriteLine();
             var pScore = result.JudgeResult?.PersonalityScore ?? 0;
             var mScore = result.JudgeResult?.MeaningScore ?? 0;
+            var combined = result.JudgeResult?.CombinedScore ?? 0;
+            var icon = combined >= 4 ? "[green]\u2714[/]" : combined >= 3 ? "[yellow]\u25cf[/]" : "[red]\u2718[/]";
+            var combinedColor = combined >= 4 ? "green" : combined >= 3 ? "yellow" : "red";
 
             AnsiConsole.MarkupLine(
-                $"  [red]\u274c[/] [bold]{Markup.Escape(result.ScenarioId)}[/] \u00d7 " +
+                $"  {icon} [bold]{Markup.Escape(result.ScenarioId)}[/] \u00d7 " +
                 $"[yellow]{Markup.Escape(result.ProfileName)}[/] " +
+                $"[{combinedColor}]{combined:F1}/5[/] " +
                 $"[dim]({result.DurationMs}ms)[/]");
 
             if (result.JudgeResult is not null)
             {
-                var pColor = pScore >= 3 ? "green" : "red";
-                var mColor = mScore >= 3 ? "green" : "red";
+                var pColor = pScore >= 4 ? "green" : pScore >= 3 ? "yellow" : "red";
+                var mColor = mScore >= 4 ? "green" : mScore >= 3 ? "yellow" : "red";
 
                 AnsiConsole.MarkupLine(
                     $"     Personality: [{pColor}]{pScore}/5[/] \u2014 {Markup.Escape(result.JudgeResult.PersonalityReason)}");
@@ -262,25 +265,24 @@ public static class PersonalityEvalDisplay
             .AddColumn("[bold]Model[/]")
             .AddColumn(new TableColumn("[bold]Personality[/]").Centered())
             .AddColumn(new TableColumn("[bold]Meaning[/]").Centered())
-            .AddColumn(new TableColumn("[bold]Pass[/]").Centered())
-            .AddColumn(new TableColumn("[bold]Fail[/]").Centered())
-            .AddColumn(new TableColumn("[bold]Rate[/]").Centered())
+            .AddColumn(new TableColumn("[bold]Combined[/]").Centered())
+            .AddColumn(new TableColumn("[bold]Meaning < 3[/]").Centered())
             .AddColumn(new TableColumn("[bold]Duration[/]").Centered());
 
         foreach (var report in reports)
         {
             var totalMs = report.Results.Sum(r => r.DurationMs);
-            var rateColor = report.PassRate >= 80 ? "green" : report.PassRate >= 60 ? "yellow" : "red";
+            var combinedColor = report.AverageCombinedScore >= 4 ? "green" : report.AverageCombinedScore >= 3 ? "yellow" : "red";
             var pColor = report.AveragePersonalityScore >= 4 ? "green" : report.AveragePersonalityScore >= 3 ? "yellow" : "red";
             var mColor = report.AverageMeaningScore >= 4 ? "green" : report.AverageMeaningScore >= 3 ? "yellow" : "red";
+            var failColor = report.MeaningFailures.Count > 0 ? "red" : "green";
 
             table.AddRow(
                 Markup.Escape(report.ModelName),
                 $"[{pColor}]{report.AveragePersonalityScore:F1}/5[/]",
                 $"[{mColor}]{report.AverageMeaningScore:F1}/5[/]",
-                $"[green]{report.PassCount}[/]",
-                $"[red]{report.FailCount}[/]",
-                $"[{rateColor}]{report.PassRate:F1}%[/]",
+                $"[{combinedColor}]{report.AverageCombinedScore:F1}/5[/]",
+                $"[{failColor}]{report.MeaningFailures.Count}[/]",
                 $"{totalMs / 1000.0:F1}s");
         }
 

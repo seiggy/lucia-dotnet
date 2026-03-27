@@ -12,7 +12,10 @@ public sealed class PersonalityScenarioResult
     public required string ProfileId { get; init; }
     public required string ProfileName { get; init; }
     public required string ModelName { get; init; }
-    public required bool Passed { get; init; }
+    /// <summary>
+    /// Combined score from LLM judge (1–5 scale, average of personality + meaning).
+    /// </summary>
+    public required double Score { get; init; }
     public required string LlmResponse { get; init; }
     public required long DurationMs { get; init; }
 

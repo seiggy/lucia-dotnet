@@ -13,9 +13,12 @@ public sealed class PersonalityEvalReport
     public required DateTimeOffset CompletedAt { get; init; }
 
     public int TotalCombinations => Results.Count;
-    public int PassCount => Results.Count(r => r.Passed);
-    public int FailCount => Results.Count(r => !r.Passed);
-    public double PassRate => TotalCombinations > 0 ? (double)PassCount / TotalCombinations * 100 : 0;
+
+    /// <summary>
+    /// Average combined score across all results (1–5 scale).
+    /// </summary>
+    public double AverageCombinedScore =>
+        Results.Where(r => r.JudgeResult is not null).Select(r => r.JudgeResult!.CombinedScore).DefaultIfEmpty(0).Average();
 
     public IReadOnlyList<string> ScenarioIds =>
         Results.Select(r => r.ScenarioId).Distinct().ToList();

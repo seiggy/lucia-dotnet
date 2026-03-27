@@ -20,8 +20,8 @@ public sealed class JudgeResult
     public string MeaningReason { get; set; } = string.Empty;
 
     /// <summary>
-    /// Both scores must be >= 3 to pass.
+    /// Combined score (average of personality + meaning, 1–5 scale).
     /// </summary>
     [JsonIgnore]
-    public bool Passed => PersonalityScore >= 3 && MeaningScore >= 3;
+    public double CombinedScore => (PersonalityScore + MeaningScore) / 2.0;
 }

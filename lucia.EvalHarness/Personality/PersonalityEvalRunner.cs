@@ -147,7 +147,7 @@ public sealed class PersonalityEvalRunner
                 ProfileId = profile.Id,
                 ProfileName = profile.Name,
                 ModelName = modelName,
-                Passed = false,
+                Score = 0,
                 LlmResponse = string.Empty,
                 DurationMs = sw.ElapsedMilliseconds,
                 ErrorMessage = $"Model call failed: {ex.Message}"
@@ -175,7 +175,7 @@ public sealed class PersonalityEvalRunner
             ProfileId = profile.Id,
             ProfileName = profile.Name,
             ModelName = modelName,
-            Passed = judgeResult.Passed,
+            Score = judgeResult.CombinedScore,
             LlmResponse = llmResponse,
             DurationMs = sw.ElapsedMilliseconds,
             JudgeResult = judgeResult,

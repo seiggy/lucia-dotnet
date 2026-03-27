@@ -337,28 +337,8 @@ public sealed class PersonalityEvalTests : IAsyncLifetime
                     var rewritten = await RunPersonalityRewriteWithProfileAsync(scenario, profile);
                     var pairFailures = new List<string>();
 
-                    // Standard scenario expectations
+                    // Structural expectations only — content quality is the judge's job
                     ValidateExpectations(scenario.Expectations, rewritten, pairFailures);
-
-                    // Profile anti-patterns
-                    var lower = rewritten.ToLowerInvariant();
-                    foreach (var antiPattern in profile.AntiPatterns)
-                    {
-                        if (lower.Contains(antiPattern.ToLowerInvariant()))
-                        {
-                            pairFailures.Add($"Profile anti-pattern detected: '{antiPattern}'");
-                        }
-                    }
-
-                    // Voice characteristic adoption — at least one must appear
-                    var hasVoice = profile.VoiceCharacteristics.Count == 0
-                        || profile.VoiceCharacteristics.Any(vc =>
-                            lower.Contains(vc.ToLowerInvariant()));
-                    if (!hasVoice)
-                    {
-                        pairFailures.Add(
-                            $"No voice characteristics found (expected at least one of: {string.Join(", ", profile.VoiceCharacteristics)})");
-                    }
 
                     if (pairFailures.Count == 0)
                     {
@@ -494,25 +474,6 @@ public sealed class PersonalityEvalTests : IAsyncLifetime
     {
         failures = [];
         var expectations = scenario.Expectations;
-        var lower = rewritten.ToLowerInvariant();
-
-        // mustContain — case-insensitive substring checks
-        foreach (var required in expectations.MustContain)
-        {
-            if (!lower.Contains(required.ToLowerInvariant()))
-            {
-                failures.Add($"Missing required content '{required}'");
-            }
-        }
-
-        // mustNotContain — refusal injection detection
-        foreach (var forbidden in expectations.MustNotContain)
-        {
-            if (lower.Contains(forbidden.ToLowerInvariant()))
-            {
-                failures.Add($"Contains forbidden content '{forbidden}'");
-            }
-        }
 
         // maxLength — verbosity check
         if (expectations.MaxLength > 0 && rewritten.Length > expectations.MaxLength)
@@ -526,22 +487,6 @@ public sealed class PersonalityEvalTests : IAsyncLifetime
             failures.Add("Expected a question (ending with '?') but response is a statement");
         }
 
-        // sentimentPreserved — basic positive/negative/neutral check
-        if (!string.IsNullOrWhiteSpace(expectations.SentimentPreserved))
-        {
-            var sentimentOk = expectations.SentimentPreserved.ToLowerInvariant() switch
-            {
-                "positive" => !ContainsNegativeSentiment(lower),
-                "negative" => !ContainsFalsePositiveSentiment(lower),
-                _ => true // "neutral" and "mixed" pass without additional checks
-            };
-
-            if (!sentimentOk)
-            {
-                failures.Add($"Sentiment not preserved: expected '{expectations.SentimentPreserved}'");
-            }
-        }
-
         if (throwOnFailure && failures.Count > 0)
         {
             var message = $"Scenario '{scenario.Id}' failed:\n" +
@@ -553,32 +498,14 @@ public sealed class PersonalityEvalTests : IAsyncLifetime
     }
 
     /// <summary>
-    /// Validates scenario expectations and collects failures without throwing.
-    /// Shared between the full-suite report and the personality-switching test.
+    /// Validates structural expectations only (maxLength, isQuestion).
+    /// Content quality is the LLM judge's job in the TUI.
     /// </summary>
-    private void ValidateExpectations(
+    private static void ValidateExpectations(
         PersonalityEvalExpectations expectations,
         string rewritten,
         List<string> failures)
     {
-        var lower = rewritten.ToLowerInvariant();
-
-        foreach (var required in expectations.MustContain)
-        {
-            if (!lower.Contains(required.ToLowerInvariant()))
-            {
-                failures.Add($"Missing required content '{required}'");
-            }
-        }
-
-        foreach (var forbidden in expectations.MustNotContain)
-        {
-            if (lower.Contains(forbidden.ToLowerInvariant()))
-            {
-                failures.Add($"Contains forbidden content '{forbidden}'");
-            }
-        }
-
         if (expectations.MaxLength > 0 && rewritten.Length > expectations.MaxLength)
         {
             failures.Add($"Response too long: {rewritten.Length} > {expectations.MaxLength}");
@@ -588,65 +515,6 @@ public sealed class PersonalityEvalTests : IAsyncLifetime
         {
             failures.Add("Expected a question (ending with '?') but response is a statement");
         }
-
-        if (!string.IsNullOrWhiteSpace(expectations.SentimentPreserved))
-        {
-            var sentimentOk = expectations.SentimentPreserved.ToLowerInvariant() switch
-            {
-                "positive" => !ContainsNegativeSentiment(lower),
-                "negative" => !ContainsFalsePositiveSentiment(lower),
-                _ => true
-            };
-
-            if (!sentimentOk)
-            {
-                failures.Add($"Sentiment not preserved: expected '{expectations.SentimentPreserved}'");
-            }
-        }
-    }
-
-    /// <summary>
-    /// Detects if a positive response was inverted to contain negative sentiment.
-    /// </summary>
-    private static bool ContainsNegativeSentiment(string lower)
-    {
-        ReadOnlySpan<string> negativeIndicators =
-        [
-            "i can't", "i cannot", "unable to", "failed to", "error",
-            "unfortunately", "i'm sorry", "i apologize", "not possible"
-        ];
-
-        foreach (var indicator in negativeIndicators)
-        {
-            if (lower.Contains(indicator))
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Detects if a negative/error response was falsely rewritten as a success.
-    /// </summary>
-    private static bool ContainsFalsePositiveSentiment(string lower)
-    {
-        ReadOnlySpan<string> falsePositiveIndicators =
-        [
-            "all done", "everything is set", "successfully", "completed",
-            "you're all set", "taken care of"
-        ];
-
-        foreach (var indicator in falsePositiveIndicators)
-        {
-            if (lower.Contains(indicator))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     // ─── Static data loading ──────────────────────────────────────────
