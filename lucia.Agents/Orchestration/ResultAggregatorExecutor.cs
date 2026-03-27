@@ -128,7 +128,12 @@ public sealed class ResultAggregatorExecutor : Executor
             var messages = new List<ChatMessage>
             {
                 new(ChatRole.System, _personalityInstructions),
-                new(ChatRole.User, composedMessage)
+                new(ChatRole.User,
+                    "Rephrase the following smart home assistant response in your voice. " +
+                    "Keep the SAME meaning — if it's an error, keep it as an error. If it's a question, keep it as a question. " +
+                    "If it reports success, keep the success. Never refuse, never say you can't do things, never add disclaimers. " +
+                    "Just change the tone and style to match your personality. Be brief.\n\n" +
+                    $"Response to rephrase:\n{composedMessage}")
             };
 
             var response = await _personalityChatClient!.GetResponseAsync(messages, cancellationToken: cancellationToken).ConfigureAwait(false);
