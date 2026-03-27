@@ -86,7 +86,7 @@ public sealed class CascadingEntityResolver : ICascadingEntityResolver
                 "Entity location cache is empty; deferring to orchestrator");
         }
 
-        var resolvedArea = GroundLocation(intent, callerArea, snapshot);
+        var resolvedArea = GroundLocation(intent, callerArea, speakerId, snapshot);
         if (intent.ExplicitLocation is not null && resolvedArea is null)
         {
             return Bail(
@@ -164,8 +164,9 @@ public sealed class CascadingEntityResolver : ICascadingEntityResolver
         };
     }
 
-    private AreaInfo? GroundLocation(QueryIntent intent, string? callerArea, LocationSnapshot snapshot)
+    private AreaInfo? GroundLocation(QueryIntent intent, string? callerArea, string? speakerId, LocationSnapshot snapshot)
     {
+        // Stage 1: Try each candidate area name for exact name/alias match
         foreach (var candidate in intent.CandidateAreaNames)
         {
             var area = _entityLocationService.ExactMatchArea(candidate);
@@ -174,7 +175,38 @@ public sealed class CascadingEntityResolver : ICascadingEntityResolver
                 return area;
         }
 
-        if (!string.IsNullOrWhiteSpace(callerArea))
+        // Stage 2: Speaker-disambiguated contains match
+        // If "office" didn't match exactly, check if any area names contain the
+        // location word. If multiple match (Zack's Office, Dianna's Office), use
+        // the speaker ID to disambiguate. If no speaker ID or still ambiguous, bail.
+        if (intent.ExplicitLocation is not null)
+        {
+            var location = intent.ExplicitLocation;
+            var containsMatches = new List<AreaInfo>();
+            foreach (var area in snapshot.Areas)
+            {
+                if (area.Name.Contains(location, StringComparison.OrdinalIgnoreCase))
+                    containsMatches.Add(area);
+            }
+
+            if (containsMatches.Count == 1)
+                return containsMatches[0];
+
+            if (containsMatches.Count > 1 && !string.IsNullOrWhiteSpace(speakerId))
+            {
+                var speakerMatch = containsMatches
+                    .FirstOrDefault(a => a.Name.Contains(speakerId, StringComparison.OrdinalIgnoreCase));
+                if (speakerMatch is not null)
+                    return speakerMatch;
+            }
+
+            // Multiple matches + no speaker disambiguation → return null (bail to LLM)
+        }
+
+        // Only fall back to callerArea when the user did NOT name a location.
+        // If they said "office lights" and nothing matched, that's ambiguous — bail
+        // to the LLM for clarification rather than silently using the device's room.
+        if (intent.ExplicitLocation is null && !string.IsNullOrWhiteSpace(callerArea))
         {
             var area = _entityLocationService.ExactMatchArea(callerArea);
             area ??= MatchAlias(callerArea, snapshot);

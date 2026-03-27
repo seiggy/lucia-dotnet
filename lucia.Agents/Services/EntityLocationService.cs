@@ -552,9 +552,8 @@ public sealed class EntityLocationService : IEntityLocationService
 
         var trimmed = query.Trim();
 
-        if (snap.AreaById.TryGetValue(trimmed, out var area))
-            return area;
-
+        // Match against area names only — not area_id (internal HA identifier).
+        // Users reference areas by display name or alias, not internal IDs.
         foreach (var a in snap.Areas)
         {
             if (string.Equals(a.Name, trimmed, StringComparison.OrdinalIgnoreCase))
