@@ -308,3 +308,4 @@ lucia.AgentHost/models/
 .squad/sessions/
 # Squad: SubSquad activation file (local to this machine)
 .squad-workstream
+personality-eval-traces/
