@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using A2A;
 using lucia.Agents.Abstractions;
+using lucia.Agents.Extensions;
 using lucia.Agents.Integration;
 using lucia.Agents.Services;
 using Microsoft.Agents.AI;
@@ -110,23 +111,20 @@ public sealed class TimerAgent : ILuciaAgent
 
         _agent = new AgentCard
         {
-            Url = "pending",
             Name = "timer-agent",
             Description = "Agent that manages #timers, #alarms, #reminders, and #scheduled-actions on Home Assistant devices using TTS and media playback",
             DocumentationUrl = "https://github.com/seiggy/lucia-dotnet/",
             IconUrl = "https://github.com/seiggy/lucia-dotnet/blob/master/lucia.png?raw=true",
-            SupportsAuthenticatedExtendedCard = false,
+            SupportedInterfaces = [new AgentInterface { Url = "pending" }],
             Capabilities = new AgentCapabilities
             {
                 PushNotifications = true,
-                StateTransitionHistory = true,
                 Streaming = true
             },
             DefaultInputModes = ["text"],
             DefaultOutputModes = ["text"],
             Skills = [timerControlSkill, alarmControlSkill, scheduledActionSkill],
-            Version = "1.0.0",
-            ProtocolVersion = "0.2.5"
+            Version = "1.0.0"
         };
 
         var instructions = """
@@ -203,23 +201,23 @@ public sealed class TimerAgent : ILuciaAgent
         if (!string.IsNullOrWhiteSpace(selfUrl))
         {
             // Explicit selfUrl takes precedence — used in mesh mode with Aspire service discovery
-            _agent.Url = selfUrl;
+            _agent.SetUrl(selfUrl);
         }
         else if (isStandalone)
         {
             // In standalone mode, plugin runs in-process — use relative path
-            _agent.Url = "/a2a/timer-agent";
+            _agent.SetUrl("/a2a/timer-agent");
         }
         else
         {
             var addressesFeature = _server?.Features?.Get<IServerAddressesFeature>();
             if (addressesFeature?.Addresses != null && addressesFeature.Addresses.Any())
             {
-                _agent.Url = addressesFeature.Addresses.First();
+                _agent.SetUrl(addressesFeature.Addresses.First());
             }
             else
             {
-                _agent.Url = "unknown";
+                _agent.SetUrl("unknown");
             }
         }
 

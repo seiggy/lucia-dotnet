@@ -31,7 +31,7 @@ namespace lucia.MusicAgent
             // Primary A2A endpoint — used by mesh mode (A2AHost) and standalone mode alike.
             // In standalone mode, AgentDiscoveryExtension separately maps the /a2a/music-agent
             // path from the agent card URL, so no mirror mapping is needed here.
-            app.MapA2ALazy(() => musicAgent.GetAIAgent(), path: "/music", agentCard: musicAgent.GetAgentCard(), taskManager => app.MapWellKnownAgentCard(taskManager, "/music"));
+            app.MapA2ALazy(() => musicAgent.GetAIAgent(), path: "/music", agentCard: musicAgent.GetAgentCard());
         }
     }
 }

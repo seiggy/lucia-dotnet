@@ -67,7 +67,7 @@ public sealed class GeneralAgent : ILuciaAgent
 
         _agent = new AgentCard
         {
-            Url = "/a2a/general-assistant",
+            SupportedInterfaces = [new AgentInterface { Url = "/a2a/general-assistant" }],
             Name = AgentId,
             Description = Tools.Count > 0
                 ? "Agent for general knowledge and web search in Home Assistant"
@@ -75,7 +75,6 @@ public sealed class GeneralAgent : ILuciaAgent
             Capabilities = new AgentCapabilities
             {
                 PushNotifications = false,
-                StateTransitionHistory = true,
                 Streaming = true,
             },
             DefaultInputModes = ["text"],

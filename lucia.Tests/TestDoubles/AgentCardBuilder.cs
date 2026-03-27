@@ -1,4 +1,5 @@
 using A2A;
+using lucia.Agents.Extensions;
 
 namespace lucia.Tests.TestDoubles;
 
@@ -50,15 +51,19 @@ public class AgentCardBuilder
         return this;
     }
     
-    public AgentCard Build() => new()
+    public AgentCard Build()
     {
-        Url = _url,
-        Name = _name,
-        Description = _description,
-        Version = _version,
-        Capabilities = _capabilities,
-        DefaultInputModes = ["text"],
-        DefaultOutputModes = ["text"],
-        Skills = _skills
-    };
+        var card = new AgentCard
+        {
+            Name = _name,
+            Description = _description,
+            Version = _version,
+            Capabilities = _capabilities,
+            DefaultInputModes = ["text"],
+            DefaultOutputModes = ["text"],
+            Skills = _skills
+        };
+        card.SetUrl(_url);
+        return card;
+    }
 }

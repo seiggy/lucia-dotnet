@@ -105,10 +105,10 @@ public sealed class RedisTaskStore : ITaskStore, ITaskIdIndex
         return JsonSerializer.Deserialize<TaskPushNotificationConfig>(json!.ToString(), _jsonOptions);
     }
 
-    public async Task<AgentTaskStatus> UpdateStatusAsync(
+    public async Task<A2A.TaskStatus> UpdateStatusAsync(
         string taskId, 
         TaskState status, 
-        AgentMessage? message = null, 
+        Message? message = null, 
         CancellationToken cancellationToken = default)
     {
         using var activity = _telemetrySource.ActivitySource.StartActivity();
@@ -126,11 +126,11 @@ public sealed class RedisTaskStore : ITaskStore, ITaskIdIndex
         // Append the message to History so the full conversation is persisted
         if (message is not null)
         {
-            task.History ??= new List<AgentMessage>();
+            task.History ??= new List<Message>();
             task.History.Add(message);
         }
 
-        var newStatus = new AgentTaskStatus
+        var newStatus = new A2A.TaskStatus
         {
             State = status,
             Message = message,
@@ -138,12 +138,12 @@ public sealed class RedisTaskStore : ITaskStore, ITaskIdIndex
         };
 
         task.Status = newStatus;
-        await SetTaskAsync(task, cancellationToken).ConfigureAwait(false);
+        await SaveTaskAsync(task.Id, task, cancellationToken).ConfigureAwait(false);
 
         return newStatus;
     }
 
-    public async Task SetTaskAsync(AgentTask task, CancellationToken cancellationToken = default)
+    public async Task SaveTaskAsync(string taskId, AgentTask task, CancellationToken cancellationToken = default)
     {
         using var activity = _telemetrySource.ActivitySource.StartActivity();
         activity?.SetTag("taskId", task.Id);
@@ -221,6 +221,38 @@ public sealed class RedisTaskStore : ITaskStore, ITaskIdIndex
 
         activity?.SetTag("count", configs.Count);
         return configs;
+    }
+
+    public async Task DeleteTaskAsync(string taskId, CancellationToken cancellationToken = default)
+    {
+        using var activity = _telemetrySource.ActivitySource.StartActivity();
+        activity?.SetTag("taskId", taskId);
+
+        var db = _redis.GetDatabase();
+        var key = GetTaskKey(taskId);
+        await db.KeyDeleteAsync(key).WaitAsync(cancellationToken).ConfigureAwait(false);
+        _ = db.SetRemoveAsync(TaskIdSetKey, taskId, CommandFlags.FireAndForget);
+    }
+
+    public async Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, CancellationToken cancellationToken = default)
+    {
+        using var activity = _telemetrySource.ActivitySource.StartActivity();
+
+        var db = _redis.GetDatabase();
+        var taskIdValues = await db.SetMembersAsync(TaskIdSetKey).WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        var tasks = new List<AgentTask>();
+        foreach (var taskIdValue in taskIdValues.Where(v => v.HasValue))
+        {
+            var task = await GetTaskAsync(taskIdValue.ToString(), cancellationToken).ConfigureAwait(false);
+            if (task is not null)
+            {
+                tasks.Add(task);
+            }
+        }
+
+        activity?.SetTag("count", tasks.Count);
+        return new ListTasksResponse { Tasks = tasks };
     }
 
     public async Task<IReadOnlyList<string>> GetAllTrackedTaskIdsAsync(CancellationToken cancellationToken = default)

@@ -33,7 +33,7 @@ public class RedisTaskStoreTests
         {
             Id = taskId,
             ContextId = "context-456",
-            Status = new AgentTaskStatus { State = TaskState.Working }
+            Status = new A2A.TaskStatus { State = TaskState.Working }
         };
         var json = JsonSerializer.Serialize(agentTask);
         
@@ -66,27 +66,27 @@ public class RedisTaskStoreTests
     }
 
     [Fact]
-    public async Task SetTaskAsync_PersistsTaskWithTtl()
+    public async Task SaveTaskAsync_PersistsTaskWithTtl()
     {
         // Arrange
         var agentTask = new AgentTask
         {
             Id = "task-789",
             ContextId = "context-abc",
-            Status = new AgentTaskStatus { State = TaskState.Submitted },
-            History = new List<AgentMessage>
+            Status = new A2A.TaskStatus { State = TaskState.Submitted },
+            History = new List<Message>
             {
                 new()
                 {
                     MessageId = "msg-1",
-                    Role = MessageRole.User,
-                    Parts = new List<Part> { new TextPart { Text = "Turn on lights" } }
+                    Role = A2A.Role.User,
+                    Parts = new List<Part> { new Part { Text = "Turn on lights" } }
                 }
             }
         };
 
         // Act
-        await _store.SetTaskAsync(agentTask);
+        await _store.SaveTaskAsync(agentTask.Id, agentTask);
 
         // Assert
         A.CallTo(() => _database.StringSetAsync(
@@ -115,18 +115,18 @@ public class RedisTaskStoreTests
         {
             Id = taskId,
             ContextId = "context-999",
-            Status = new AgentTaskStatus { State = TaskState.Working }
+            Status = new A2A.TaskStatus { State = TaskState.Working }
         };
         var existingJson = JsonSerializer.Serialize(existingTask);
         
         A.CallTo(() => _database.StringGetAsync($"lucia:task:{taskId}", A<CommandFlags>._))
             .Returns(new RedisValue(existingJson));
 
-        var message = new AgentMessage
+        var message = new Message
         {
             MessageId = "status-msg",
-            Role = MessageRole.Agent,
-            Parts = new List<Part> { new TextPart { Text = "Processing complete" } }
+            Role = A2A.Role.Agent,
+            Parts = new List<Part> { new Part { Text = "Processing complete" } }
         };
 
         // Act
@@ -257,14 +257,14 @@ public class RedisTaskStoreTests
     }
 
     [Fact]
-    public async Task SetTaskAsync_SerializesWithCamelCaseNaming()
+    public async Task SaveTaskAsync_SerializesWithCamelCaseNaming()
     {
         // Arrange
         var agentTask = new AgentTask
         {
             Id = "task-camel",
             ContextId = "context-camel",
-            Status = new AgentTaskStatus { State = TaskState.Working }
+            Status = new A2A.TaskStatus { State = TaskState.Working }
         };
 
         RedisValue capturedValue = default;
@@ -279,7 +279,7 @@ public class RedisTaskStoreTests
             .Returns(true);
 
         // Act
-        await _store.SetTaskAsync(agentTask);
+        await _store.SaveTaskAsync(agentTask.Id, agentTask);
 
         // Assert
         var json = capturedValue.ToString();
@@ -298,7 +298,7 @@ public class RedisTaskStoreTests
         {
             Id = taskId,
             ContextId = "context-ts",
-            Status = new AgentTaskStatus 
+            Status = new A2A.TaskStatus 
             { 
                 State = TaskState.Working,
                 Timestamp = DateTimeOffset.UtcNow.AddMinutes(-5)

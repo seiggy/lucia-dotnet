@@ -64,13 +64,12 @@ public sealed class ListsAgent : ILuciaAgent
 
         _agent = new AgentCard
         {
-            Url = "/a2a/lists-agent",
+            SupportedInterfaces = [new AgentInterface { Url = "/a2a/lists-agent" }],
             Name = AgentId,
             Description = "Agent for adding items to shopping and todo lists in Home Assistant",
             Capabilities = new AgentCapabilities
             {
                 PushNotifications = false,
-                StateTransitionHistory = true,
                 Streaming = true,
             },
             DefaultInputModes = ["text"],

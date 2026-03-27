@@ -1,3 +1,4 @@
+using lucia.Agents.Extensions;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using A2A;
@@ -21,8 +22,9 @@ public sealed class LocalAgentRegistry : IAgentRegistry
 
     public Task RegisterAgentAsync(AgentCard agent, CancellationToken cancellationToken = default)
     {
-        _agents.AddOrUpdate(agent.Url, agent, (_, _) => agent);
-        _logger.LogInformation("Agent {AgentId} ({AgentName}) registered successfully", agent.Url, agent.Name);
+        var agentUrl = agent.GetUrl() ?? agent.Name ?? throw new ArgumentException("Agent must have a URL or Name.");
+        _agents.AddOrUpdate(agentUrl, agent, (_, _) => agent);
+        _logger.LogInformation("Agent {AgentId} ({AgentName}) registered successfully", agentUrl, agent.Name);
         return Task.CompletedTask;
     }
 

@@ -15,7 +15,6 @@ public sealed class InMemoryTaskStore : ITaskStore, ITaskIdIndex, IDisposable
     private static readonly TimeSpan DefaultTaskTtl = TimeSpan.FromHours(24);
 
     private readonly ConcurrentDictionary<string, TimestampedEntry<AgentTask>> _tasks = new();
-    private readonly ConcurrentDictionary<string, TimestampedEntry<TaskPushNotificationConfig>> _notifications = new();
     private readonly ConcurrentDictionary<string, byte> _taskIdIndex = new();
 
     private readonly ILogger<InMemoryTaskStore> _logger;
@@ -43,87 +42,31 @@ public sealed class InMemoryTaskStore : ITaskStore, ITaskIdIndex, IDisposable
         return Task.FromResult<AgentTask?>(null);
     }
 
-    public Task SetTaskAsync(AgentTask task, CancellationToken cancellationToken = default)
+    public Task SaveTaskAsync(string taskId, AgentTask task, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(task);
 
-        _tasks[task.Id] = new TimestampedEntry<AgentTask>(task, DefaultTaskTtl);
-        _taskIdIndex[task.Id] = 0;
+        _tasks[taskId] = new TimestampedEntry<AgentTask>(task, DefaultTaskTtl);
+        _taskIdIndex[taskId] = 0;
 
         return Task.CompletedTask;
     }
 
-    public async Task<AgentTaskStatus> UpdateStatusAsync(
-        string taskId,
-        TaskState status,
-        AgentMessage? message = null,
-        CancellationToken cancellationToken = default)
+    public Task DeleteTaskAsync(string taskId, CancellationToken cancellationToken = default)
     {
-        var task = await GetTaskAsync(taskId, cancellationToken).ConfigureAwait(false);
-        if (task is null)
-        {
-            throw new A2AException(
-                $"Task with ID '{taskId}' not found",
-                A2AErrorCode.TaskNotFound);
-        }
-
-        if (message is not null)
-        {
-            task.History ??= new List<AgentMessage>();
-            task.History.Add(message);
-        }
-
-        var newStatus = new AgentTaskStatus
-        {
-            State = status,
-            Message = message,
-            Timestamp = DateTimeOffset.UtcNow
-        };
-
-        task.Status = newStatus;
-        await SetTaskAsync(task, cancellationToken).ConfigureAwait(false);
-
-        return newStatus;
-    }
-
-    public Task<TaskPushNotificationConfig?> GetPushNotificationAsync(
-        string taskId,
-        string notificationConfigId,
-        CancellationToken cancellationToken = default)
-    {
-        var key = $"{taskId}:{notificationConfigId}";
-        if (_notifications.TryGetValue(key, out var entry) && !entry.IsExpired)
-            return Task.FromResult<TaskPushNotificationConfig?>(entry.Value);
-
-        if (entry is not null)
-            _notifications.TryRemove(key, out _);
-
-        return Task.FromResult<TaskPushNotificationConfig?>(null);
-    }
-
-    public Task SetPushNotificationConfigAsync(
-        TaskPushNotificationConfig pushNotificationConfig,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(pushNotificationConfig);
-
-        var key = $"{pushNotificationConfig.TaskId}:default";
-        _notifications[key] = new TimestampedEntry<TaskPushNotificationConfig>(pushNotificationConfig, DefaultTaskTtl);
-
+        _tasks.TryRemove(taskId, out _);
+        _taskIdIndex.TryRemove(taskId, out _);
         return Task.CompletedTask;
     }
 
-    public Task<IEnumerable<TaskPushNotificationConfig>> GetPushNotificationsAsync(
-        string taskId,
-        CancellationToken cancellationToken = default)
+    public Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, CancellationToken cancellationToken = default)
     {
-        var prefix = $"{taskId}:";
-        var configs = _notifications
-            .Where(kvp => kvp.Key.StartsWith(prefix, StringComparison.Ordinal) && !kvp.Value.IsExpired)
-            .Select(kvp => kvp.Value.Value)
+        var tasks = _tasks.Values
+            .Where(e => !e.IsExpired)
+            .Select(e => e.Value)
             .ToList();
 
-        return Task.FromResult<IEnumerable<TaskPushNotificationConfig>>(configs);
+        return Task.FromResult(new ListTasksResponse { Tasks = tasks });
     }
 
     // ── ITaskIdIndex ────────────────────────────────────────────────────
@@ -162,20 +105,9 @@ public sealed class InMemoryTaskStore : ITaskStore, ITaskIdIndex, IDisposable
             }
         }
 
-        var notificationsRemoved = 0;
-        foreach (var kvp in _notifications)
+        if (tasksRemoved > 0)
         {
-            if (kvp.Value.IsExpired)
-            {
-                if (_notifications.TryRemove(kvp.Key, out _))
-                    notificationsRemoved++;
-            }
-        }
-
-        if (tasksRemoved > 0 || notificationsRemoved > 0)
-        {
-            _logger.LogDebug("Task store TTL cleanup: removed {TaskCount} tasks + {NotifCount} notifications",
-                tasksRemoved, notificationsRemoved);
+            _logger.LogDebug("Task store TTL cleanup: removed {TaskCount} tasks", tasksRemoved);
         }
     }
 }

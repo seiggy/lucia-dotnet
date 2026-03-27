@@ -176,25 +176,25 @@ public sealed class SqliteTaskArchiveStore : ITaskArchiveStore
     {
         var history = task.History ?? [];
         var agentIds = history
-            .Where(m => m.Role == MessageRole.Agent)
+            .Where(m => m.Role == Role.Agent)
             .Select(m => m.Extensions?.FirstOrDefault() ?? "unknown")
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         var userInput = history
-            .Where(m => m.Role == MessageRole.User)
-            .SelectMany(m => m.Parts?.OfType<TextPart>() ?? [])
+            .Where(m => m.Role == Role.User)
+            .SelectMany(m => m.Parts?.Where(p => p.ContentCase == PartContentCase.Text) ?? [])
             .FirstOrDefault()?.Text;
 
         var finalResponse = history
-            .Where(m => m.Role == MessageRole.Agent)
-            .SelectMany(m => m.Parts?.OfType<TextPart>() ?? [])
+            .Where(m => m.Role == Role.Agent)
+            .SelectMany(m => m.Parts?.Where(p => p.ContentCase == PartContentCase.Text) ?? [])
             .LastOrDefault()?.Text;
 
         var messages = history.Select(m => new ArchivedMessage
         {
             Role = m.Role.ToString(),
-            Text = string.Join(' ', m.Parts?.OfType<TextPart>().Select(p => p.Text) ?? []),
+            Text = string.Join(' ', m.Parts?.Where(p => p.ContentCase == PartContentCase.Text).Select(p => p.Text) ?? []),
             MessageId = m.MessageId,
         }).ToList();
 
@@ -208,7 +208,7 @@ public sealed class SqliteTaskArchiveStore : ITaskArchiveStore
             FinalResponse = finalResponse,
             MessageCount = history.Count,
             History = messages,
-            CreatedAt = task.Status.Timestamp.UtcDateTime,
+            CreatedAt = task.Status.Timestamp?.UtcDateTime ?? DateTime.UtcNow,
             ArchivedAt = DateTime.UtcNow,
         };
     }

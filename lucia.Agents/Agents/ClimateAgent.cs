@@ -78,13 +78,12 @@ public sealed class ClimateAgent : ILuciaAgent, ISkillConfigProvider
 
         _agent = new AgentCard
         {
-            Url = "/a2a/climate-agent",
+            SupportedInterfaces = [new AgentInterface { Url = "/a2a/climate-agent" }],
             Name = AgentId,
             Description = "Agent for controlling #climate, #HVAC, #thermostats, #temperature, and #fans in Home Assistant",
             Capabilities = new AgentCapabilities
             {
                 PushNotifications = false,
-                StateTransitionHistory = true,
                 Streaming = true,
             },
             DefaultInputModes = ["text"],

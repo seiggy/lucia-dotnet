@@ -1,3 +1,4 @@
+using lucia.Agents.Extensions;
 using A2A;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Orchestration.Models;
@@ -34,7 +35,7 @@ public sealed class RemoteAgentInvoker : IAgentInvoker
         _options = options.Value;
         _timeProvider = timeProvider ?? TimeProvider.System;
 
-        var baseUrl = new Uri(agentCard.Url ?? throw new ArgumentException("AgentCard.Url is required for remote invocation."));
+        var baseUrl = new Uri(agentCard.GetUrl() ?? throw new ArgumentException("AgentCard.Url is required for remote invocation."));
         _a2aClient = new A2AClient(baseUrl, httpClient);
     }
 
@@ -47,15 +48,15 @@ public sealed class RemoteAgentInvoker : IAgentInvoker
 
         try
         {
-            var sendParams = new MessageSendParams
+            var sendParams = new SendMessageRequest
             {
-                Message = new AgentMessage
+                Message = new Message
                 {
-                    Role = MessageRole.User,
+                    Role = Role.User,
                     MessageId = Guid.NewGuid().ToString("N"),
                     Parts =
                     [
-                        new TextPart { Text = ExtractText(message) }
+                        new Part { Text = ExtractText(message) }
                     ]
                 }
             };
@@ -66,8 +67,8 @@ public sealed class RemoteAgentInvoker : IAgentInvoker
 
             var (success, content, error, needsInput) = response switch
             {
-                AgentTask task => MapTaskToResult(task),
-                AgentMessage agentMessage => (true, ExtractAgentText(agentMessage) ?? string.Empty, (string?)null, false),
+                { Task: { } task } => MapTaskToResult(task),
+                { Message: { } agentMessage } => (true, ExtractAgentText(agentMessage) ?? string.Empty, (string?)null, false),
                 null => (false, string.Empty, (string?)"Remote agent returned no response.", false),
                 _ => (false, string.Empty, (string?)"Unsupported remote response type.", false)
             };
@@ -142,11 +143,11 @@ public sealed class RemoteAgentInvoker : IAgentInvoker
         return message.ToString();
     }
 
-    private static string? ExtractAgentText(AgentMessage? message)
+    private static string? ExtractAgentText(Message? message)
     {
         if (message?.Parts is { Count: > 0 })
         {
-            return string.Join(' ', message.Parts.OfType<TextPart>().Select(p => p.Text));
+            return string.Join(' ', message.Parts.Where(p => p.ContentCase == PartContentCase.Text).Select(p => p.Text));
         }
 
         return null;

@@ -198,13 +198,12 @@ public sealed class DynamicAgent : ILuciaAgent
 
         return new AgentCard
         {
-            Url = $"/a2a/{definition.Name}",
+            SupportedInterfaces = [new AgentInterface { Url = $"/a2a/{definition.Name}" }],
             Name = definition.Name,
             Description = definition.Description.Length == 0 ? $"User-defined agent: {definition.DisplayName ?? definition.Name}" : definition.Description,
             Capabilities = new AgentCapabilities
             {
                 PushNotifications = false,
-                StateTransitionHistory = true,
                 Streaming = true,
             },
             DefaultInputModes = ["text"],

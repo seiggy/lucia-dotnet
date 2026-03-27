@@ -1,3 +1,4 @@
+using lucia.Agents.Extensions;
 using System.Diagnostics;
 using A2A;
 using lucia.Agents.Abstractions;
@@ -184,7 +185,7 @@ public sealed class WorkflowFactory
                 // Local agent: invoke in-process via AIHostAgent with session persistence
                 invoker = new LocalAgentInvoker(key, agent, sessionStore, invokerLogger, _telemetrySource, _invokerOptions, _timeProvider);
             }
-            else if (card is not null && Uri.TryCreate(card.Url, UriKind.Absolute, out var cardUri)
+            else if (card is not null && Uri.TryCreate(card.GetUrl(), UriKind.Absolute, out var cardUri)
                      && (cardUri.Scheme == Uri.UriSchemeHttp || cardUri.Scheme == Uri.UriSchemeHttps))
             {
                 // Remote agent: route through A2AClient via HTTP with service discovery

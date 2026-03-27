@@ -17,15 +17,15 @@ public sealed class InMemoryTaskStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task SetTaskAsync_And_GetTaskAsync_RoundTrips()
+    public async Task SaveTaskAsync_And_GetTaskAsync_RoundTrips()
     {
         var task = new AgentTask
         {
             Id = "task-1",
-            Status = new AgentTaskStatus { State = TaskState.Submitted }
+            Status = new A2A.TaskStatus { State = TaskState.Submitted }
         };
 
-        await _store.SetTaskAsync(task);
+        await _store.SaveTaskAsync(task.Id, task);
 
         var result = await _store.GetTaskAsync("task-1");
 
@@ -43,25 +43,29 @@ public sealed class InMemoryTaskStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task UpdateStatusAsync_UpdatesStateAndAppendsMessage()
+    public async Task UpdateStatus_ViaLoadModifySave_UpdatesStateAndAppendsMessage()
     {
         var task = new AgentTask
         {
             Id = "task-2",
-            Status = new AgentTaskStatus { State = TaskState.Submitted }
+            Status = new A2A.TaskStatus { State = TaskState.Submitted }
         };
-        await _store.SetTaskAsync(task);
+        await _store.SaveTaskAsync(task.Id, task);
 
-        var message = new AgentMessage
+        var message = new Message
         {
-            Role = MessageRole.Agent,
+            Role = A2A.Role.Agent,
             MessageId = Guid.NewGuid().ToString("N"),
-            Parts = new List<Part> { new TextPart { Text = "Working on it" } }
+            Parts = new List<Part> { new Part { Text = "Working on it" } }
         };
 
-        var updatedStatus = await _store.UpdateStatusAsync("task-2", TaskState.Working, message);
-
-        Assert.Equal(TaskState.Working, updatedStatus.State);
+        // Load, modify status + history, save
+        var loaded = await _store.GetTaskAsync("task-2");
+        Assert.NotNull(loaded);
+        loaded.Status = new A2A.TaskStatus { State = TaskState.Working, Message = message };
+        loaded.History ??= [];
+        loaded.History.Add(message);
+        await _store.SaveTaskAsync(loaded.Id, loaded);
 
         var retrieved = await _store.GetTaskAsync("task-2");
         Assert.NotNull(retrieved);
@@ -71,49 +75,43 @@ public sealed class InMemoryTaskStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task UpdateStatusAsync_ThrowsForUnknownTask()
+    public async Task GetTaskAsync_ReturnsNull_ForNonexistentTask()
     {
-        await Assert.ThrowsAsync<A2AException>(
-            () => _store.UpdateStatusAsync("nonexistent", TaskState.Working));
+        var result = await _store.GetTaskAsync("nonexistent");
+        Assert.Null(result);
     }
 
     [Fact]
-    public async Task SetPushNotificationConfigAsync_And_GetPushNotificationAsync_RoundTrips()
+    public async Task DeleteTaskAsync_RemovesTask()
     {
-        var config = new TaskPushNotificationConfig { TaskId = "task-3" };
+        var task = new AgentTask
+        {
+            Id = "task-delete",
+            Status = new A2A.TaskStatus { State = TaskState.Submitted }
+        };
+        await _store.SaveTaskAsync(task.Id, task);
 
-        await _store.SetPushNotificationConfigAsync(config);
+        await _store.DeleteTaskAsync("task-delete");
 
-        var result = await _store.GetPushNotificationAsync("task-3", "default");
-
-        Assert.NotNull(result);
-        Assert.Equal("task-3", result.TaskId);
-    }
-
-    [Fact]
-    public async Task GetPushNotificationsAsync_ReturnsAllConfigsForTask()
-    {
-        var config = new TaskPushNotificationConfig { TaskId = "task-4" };
-        await _store.SetPushNotificationConfigAsync(config);
-
-        var results = await _store.GetPushNotificationsAsync("task-4");
-
-        Assert.Single(results);
+        var result = await _store.GetTaskAsync("task-delete");
+        Assert.Null(result);
     }
 
     [Fact]
     public async Task GetAllTrackedTaskIdsAsync_ReturnsAllStoredIds()
     {
-        await _store.SetTaskAsync(new AgentTask
+        var task1 = new AgentTask
         {
             Id = "tracked-1",
-            Status = new AgentTaskStatus { State = TaskState.Submitted }
-        });
-        await _store.SetTaskAsync(new AgentTask
+            Status = new A2A.TaskStatus { State = TaskState.Submitted }
+        };
+        await _store.SaveTaskAsync(task1.Id, task1);
+        var task2 = new AgentTask
         {
             Id = "tracked-2",
-            Status = new AgentTaskStatus { State = TaskState.Working }
-        });
+            Status = new A2A.TaskStatus { State = TaskState.Working }
+        };
+        await _store.SaveTaskAsync(task2.Id, task2);
 
         var ids = await _store.GetAllTrackedTaskIdsAsync();
 
@@ -124,11 +122,12 @@ public sealed class InMemoryTaskStoreTests : IDisposable
     [Fact]
     public async Task RemoveTaskIdAsync_RemovesFromIndex()
     {
-        await _store.SetTaskAsync(new AgentTask
+        var taskToRemove = new AgentTask
         {
             Id = "remove-me",
-            Status = new AgentTaskStatus { State = TaskState.Submitted }
-        });
+            Status = new A2A.TaskStatus { State = TaskState.Submitted }
+        };
+        await _store.SaveTaskAsync(taskToRemove.Id, taskToRemove);
 
         await _store.RemoveTaskIdAsync("remove-me");
 

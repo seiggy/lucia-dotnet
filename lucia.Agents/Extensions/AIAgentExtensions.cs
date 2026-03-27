@@ -1,5 +1,6 @@
 ﻿using A2A;
 using A2A.AspNetCore;
+using lucia.Agents.Hosting;
 using Microsoft.Agents.AI;
 using Microsoft.Agents.AI.Hosting;
 using Microsoft.AspNetCore.Builder;
@@ -15,12 +16,11 @@ namespace lucia.Agents.Extensions
     public static class AIAgentExtensions
     {
         /// <summary>
-        /// Core A2A setup: wires the AIAgent into a TaskManager with message handling,
-        /// and optionally registers the AgentCard query handler.
+        /// Core A2A setup: wires the AIAgent into an A2AServer with message handling,
+        /// and optionally registers the AgentCard endpoint.
         /// </summary>
-        private static ITaskManager MapA2ACore(
+        private static IA2ARequestHandler MapA2ACore(
             AIAgent agent,
-            ITaskManager? taskManager,
             ILoggerFactory? loggerFactory,
             AgentSessionStore? agentSessionStore,
             AgentCard? agentCard)
@@ -32,166 +32,29 @@ namespace lucia.Agents.Extensions
                 innerAgent: agent,
                 sessionStore: agentSessionStore ?? new NoopAgentSessionStore());
 
-            taskManager ??= new TaskManager();
-            taskManager.OnMessageReceived += OnMessageReceivedAsync;
-
-            if (agentCard is not null)
-            {
-                taskManager.OnAgentCardQuery += (context, query) =>
+            var handler = new DelegatingAgentHandler(
+                async (context, eventQueue, cancellationToken) =>
                 {
-                    if (string.IsNullOrEmpty(agentCard.Url))
-                    {
-                        var agentCardUrl = context.TrimEnd('/');
-                        if (!context.EndsWith("/v1/card", StringComparison.Ordinal))
-                        {
-                            agentCardUrl += "/v1/card";
-                        }
-                        agentCard.Url = agentCardUrl;
-                    }
-                    return Task.FromResult(agentCard);
-                };
-            }
+                    await HandleRequestAsync(hostAgent, agentCard, context, eventQueue, cancellationToken)
+                        .ConfigureAwait(false);
+                });
 
-            return taskManager;
-
-            async Task<A2AResponse> OnMessageReceivedAsync(MessageSendParams messageSendParams, CancellationToken cancellationToken)
-            {
-                var contextId = messageSendParams.Message.ContextId ?? Guid.NewGuid().ToString("N");
-                var session = await hostAgent.GetOrCreateSessionAsync(contextId, cancellationToken).ConfigureAwait(false);
-
-                // Tag chat messages with A2A contextId so the orchestrator can use it
-                // as a stable Redis session key for multi-turn conversation continuity
-                var chatMessages = messageSendParams.ToChatMessages();
-                foreach (var msg in chatMessages)
-                {
-                    msg.AdditionalProperties ??= new AdditionalPropertiesDictionary();
-                    msg.AdditionalProperties["a2a.contextId"] = contextId;
-                }
-
-                var response = await hostAgent.RunAsync(
-                    chatMessages,
-                    session: session,
-                    cancellationToken: cancellationToken).ConfigureAwait(false);
-
-                await hostAgent.SaveSessionAsync(contextId, session, cancellationToken).ConfigureAwait(false);
-
-                // Check if any response message signals that further user input is needed
-                var needsInput = response.Messages
-                    .Any(m => m.AdditionalProperties?.TryGetValue("lucia.needsInput", out var val) == true
-                              && val is true);
-
-                var parts = response.Messages.ToParts();
-                var responseId = response.ResponseId ?? Guid.NewGuid().ToString("N");
-
-                if (needsInput)
-                {
-                    // Return an AgentTask with InputRequired state so the caller
-                    // knows to keep the conversation open for user follow-up
-                    var taskId = Guid.NewGuid().ToString("N");
-                    var agentMessage = new AgentMessage
-                    {
-                        MessageId = responseId,
-                        ContextId = contextId,
-                        TaskId = taskId,
-                        Role = MessageRole.Agent,
-                        Parts = parts
-                    };
-
-                    return new AgentTask
-                    {
-                        Id = taskId,
-                        ContextId = contextId,
-                        Status = new AgentTaskStatus
-                        {
-                            State = TaskState.InputRequired,
-                            Message = agentMessage,
-                            Timestamp = DateTimeOffset.UtcNow
-                        },
-                        History = [agentMessage]
-                    };
-                }
-
-                // Agents that support push notifications or state history are expected
-                // to produce long-running tasks (e.g. timers, background jobs). Return
-                // an AgentTask with Working state so callers can track progress.
-                var hasLongRunningCapabilities = agentCard?.Capabilities is { } caps
-                    && (caps.PushNotifications == true || caps.StateTransitionHistory == true);
-
-                // Detect if the response contains tool call results — signals that the
-                // agent performed an action (created a timer, etc.) vs. just answering
-                var performedAction = response.Messages
-                    .Any(m => m.Contents.OfType<FunctionResultContent>().Any());
-
-                if (hasLongRunningCapabilities && performedAction)
-                {
-                    var taskId = Guid.NewGuid().ToString("N");
-                    var agentMessage = new AgentMessage
-                    {
-                        MessageId = responseId,
-                        ContextId = contextId,
-                        TaskId = taskId,
-                        Role = MessageRole.Agent,
-                        Parts = parts
-                    };
-
-                    return new AgentTask
-                    {
-                        Id = taskId,
-                        ContextId = contextId,
-                        Status = new AgentTaskStatus
-                        {
-                            State = TaskState.Working,
-                            Message = agentMessage,
-                            Timestamp = DateTimeOffset.UtcNow
-                        },
-                        History = [agentMessage]
-                    };
-                }
-
-                return new AgentMessage
-                {
-                    MessageId = responseId,
-                    ContextId = contextId,
-                    Role = MessageRole.Agent,
-                    Parts = parts
-                };
-            }
+            var logger = loggerFactory?.CreateLogger<A2AServer>();
+            return new A2AServer(handler, new InMemoryTaskStore(), new ChannelEventNotifier(),
+                logger!, new A2AServerOptions());
         }
 
         /// <summary>
-        /// Lazy variant of MapA2ACore that defers AIHostAgent creation until the first request,
+        /// Lazy variant that defers AIHostAgent creation until the first request,
         /// allowing agents to be initialized after endpoint mapping.
         /// </summary>
-        private static ITaskManager MapA2ACoreLazy(
+        private static IA2ARequestHandler MapA2ACoreLazy(
             Func<AIAgent> agentFactory,
-            ITaskManager? taskManager,
             ILoggerFactory? loggerFactory,
             AgentCard? agentCard)
         {
             AIHostAgent? hostAgent = null;
             object lockObj = new();
-
-            taskManager ??= new TaskManager();
-            taskManager.OnMessageReceived += OnMessageReceivedAsync;
-
-            if (agentCard is not null)
-            {
-                taskManager.OnAgentCardQuery += (context, query) =>
-                {
-                    if (string.IsNullOrEmpty(agentCard.Url))
-                    {
-                        var agentCardUrl = context.TrimEnd('/');
-                        if (!context.EndsWith("/v1/card", StringComparison.Ordinal))
-                        {
-                            agentCardUrl += "/v1/card";
-                        }
-                        agentCard.Url = agentCardUrl;
-                    }
-                    return Task.FromResult(agentCard);
-                };
-            }
-
-            return taskManager;
 
             AIHostAgent EnsureHostAgent()
             {
@@ -205,166 +68,138 @@ namespace lucia.Agents.Extensions
                 return hostAgent;
             }
 
-            async Task<A2AResponse> OnMessageReceivedAsync(MessageSendParams messageSendParams, CancellationToken cancellationToken)
+            var handler = new DelegatingAgentHandler(
+                async (context, eventQueue, cancellationToken) =>
+                {
+                    var resolved = EnsureHostAgent();
+                    await HandleRequestAsync(resolved, agentCard, context, eventQueue, cancellationToken)
+                        .ConfigureAwait(false);
+                });
+
+            var logger = loggerFactory?.CreateLogger<A2AServer>();
+            return new A2AServer(handler, new InMemoryTaskStore(), new ChannelEventNotifier(),
+                logger!, new A2AServerOptions());
+        }
+
+        /// <summary>
+        /// Shared request processing logic used by both eager and lazy agent wiring.
+        /// Processes an incoming A2A request through the AIHostAgent and writes
+        /// the appropriate response to the event queue.
+        /// </summary>
+        private static async Task HandleRequestAsync(
+            AIHostAgent hostAgent,
+            AgentCard? agentCard,
+            RequestContext context,
+            AgentEventQueue eventQueue,
+            CancellationToken cancellationToken)
+        {
+            var contextId = context.ContextId ?? Guid.NewGuid().ToString("N");
+            var session = await hostAgent.GetOrCreateSessionAsync(contextId, cancellationToken).ConfigureAwait(false);
+
+            // Convert the A2A message to chat messages
+            var chatMessages = new List<ChatMessage>();
+            if (context.Message?.Parts is not null)
             {
-                var resolved = EnsureHostAgent();
-                var contextId = messageSendParams.Message.ContextId ?? Guid.NewGuid().ToString("N");
-                var session = await resolved.GetOrCreateSessionAsync(contextId, cancellationToken).ConfigureAwait(false);
+                var chatMsg = context.Message.ToChatMessage();
+                chatMsg.AdditionalProperties ??= new AdditionalPropertiesDictionary();
+                chatMsg.AdditionalProperties["a2a.contextId"] = contextId;
+                chatMessages.Add(chatMsg);
+            }
 
-                var chatMessages = messageSendParams.ToChatMessages();
-                foreach (var msg in chatMessages)
-                {
-                    msg.AdditionalProperties ??= new AdditionalPropertiesDictionary();
-                    msg.AdditionalProperties["a2a.contextId"] = contextId;
-                }
+            var response = await hostAgent.RunAsync(
+                chatMessages,
+                session: session,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
 
-                var response = await resolved.RunAsync(
-                    chatMessages,
-                    session: session,
-                    cancellationToken: cancellationToken).ConfigureAwait(false);
+            await hostAgent.SaveSessionAsync(contextId, session, cancellationToken).ConfigureAwait(false);
 
-                await resolved.SaveSessionAsync(contextId, session, cancellationToken).ConfigureAwait(false);
+            // Check if any response message signals that further user input is needed
+            var needsInput = response.Messages
+                .Any(m => m.AdditionalProperties?.TryGetValue("lucia.needsInput", out var val) == true
+                          && val is true);
 
-                var needsInput = response.Messages
-                    .Any(m => m.AdditionalProperties?.TryGetValue("lucia.needsInput", out var val) == true
-                              && val is true);
+            var parts = response.Messages.ToParts();
+            var responseId = response.ResponseId ?? Guid.NewGuid().ToString("N");
 
-                var parts = response.Messages.ToParts();
-                var responseId = response.ResponseId ?? Guid.NewGuid().ToString("N");
-
-                if (needsInput)
-                {
-                    var taskId = Guid.NewGuid().ToString("N");
-                    var agentMessage = new AgentMessage
-                    {
-                        MessageId = responseId,
-                        ContextId = contextId,
-                        TaskId = taskId,
-                        Role = MessageRole.Agent,
-                        Parts = parts
-                    };
-
-                    return new AgentTask
-                    {
-                        Id = taskId,
-                        ContextId = contextId,
-                        Status = new AgentTaskStatus
-                        {
-                            State = TaskState.InputRequired,
-                            Message = agentMessage,
-                            Timestamp = DateTimeOffset.UtcNow
-                        },
-                        History = [agentMessage]
-                    };
-                }
-
-                var hasLongRunningCapabilities = agentCard?.Capabilities is { } caps
-                    && (caps.PushNotifications == true || caps.StateTransitionHistory == true);
-
-                var performedAction = response.Messages
-                    .Any(m => m.Contents.OfType<FunctionResultContent>().Any());
-
-                if (hasLongRunningCapabilities && performedAction)
-                {
-                    var taskId = Guid.NewGuid().ToString("N");
-                    var agentMessage = new AgentMessage
-                    {
-                        MessageId = responseId,
-                        ContextId = contextId,
-                        TaskId = taskId,
-                        Role = MessageRole.Agent,
-                        Parts = parts
-                    };
-
-                    return new AgentTask
-                    {
-                        Id = taskId,
-                        ContextId = contextId,
-                        Status = new AgentTaskStatus
-                        {
-                            State = TaskState.Working,
-                            Message = agentMessage,
-                            Timestamp = DateTimeOffset.UtcNow
-                        },
-                        History = [agentMessage]
-                    };
-                }
-
-                return new AgentMessage
+            if (needsInput)
+            {
+                var taskUpdater = new TaskUpdater(eventQueue, context.TaskId ?? Guid.NewGuid().ToString("N"), contextId);
+                var message = new Message
                 {
                     MessageId = responseId,
                     ContextId = contextId,
-                    Role = MessageRole.Agent,
+                    TaskId = taskUpdater.TaskId,
+                    Role = Role.Agent,
                     Parts = parts
                 };
+                await taskUpdater.RequireInputAsync(message, cancellationToken).ConfigureAwait(false);
+                await taskUpdater.SubmitAsync(cancellationToken).ConfigureAwait(false);
+                return;
             }
+
+            // Detect long-running capabilities and performed actions
+            var hasLongRunningCapabilities = agentCard?.Capabilities is { } caps
+                && caps.PushNotifications == true;
+
+            var performedAction = response.Messages
+                .Any(m => m.Contents.OfType<FunctionResultContent>().Any());
+
+            if (hasLongRunningCapabilities && performedAction)
+            {
+                var taskUpdater = new TaskUpdater(eventQueue, context.TaskId ?? Guid.NewGuid().ToString("N"), contextId);
+                var message = new Message
+                {
+                    MessageId = responseId,
+                    ContextId = contextId,
+                    TaskId = taskUpdater.TaskId,
+                    Role = Role.Agent,
+                    Parts = parts
+                };
+                await taskUpdater.StartWorkAsync(message, cancellationToken).ConfigureAwait(false);
+                await taskUpdater.SubmitAsync(cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            // Simple reply - no task tracking needed
+            var responder = new MessageResponder(eventQueue, contextId);
+            await responder.ReplyAsync(parts, cancellationToken).ConfigureAwait(false);
         }
 
         public static IEndpointConventionBuilder MapA2A(this IEndpointRouteBuilder endpoints, AIAgent agent, string path)
-        => endpoints.MapA2A(agent, path, agentCard: null, _ => { });
+        => endpoints.MapA2A(agent, path, agentCard: null);
 
-        public static IEndpointConventionBuilder MapA2A(this IEndpointRouteBuilder endpoints, AIAgent agent, string path, AgentCard agentCard)
-        => endpoints.MapA2A(agent, path, agentCard, _ => { });
+        public static IEndpointConventionBuilder MapA2A(this IEndpointRouteBuilder endpoints, AIAgent agent, string path, AgentCard? agentCard)
+        {
+            ArgumentNullException.ThrowIfNull(endpoints);
+            ArgumentNullException.ThrowIfNull(agent);
+
+            var loggerFactory = endpoints.ServiceProvider.GetRequiredService<ILoggerFactory>();
+            var agentSessionStore = endpoints.ServiceProvider.GetKeyedService<AgentSessionStore>(agent.Name);
+            var requestHandler = MapA2ACore(agent, loggerFactory, agentSessionStore, agentCard);
+
+            if (agentCard is not null)
+            {
+                return endpoints.MapHttpA2A(requestHandler, agentCard, path);
+            }
+
+            return A2ARouteBuilderExtensions.MapA2A(endpoints, requestHandler, path);
+        }
 
         public static IEndpointConventionBuilder MapA2ALazy(this IEndpointRouteBuilder endpoints, Func<AIAgent> agentFactory, string path, AgentCard agentCard)
-        => endpoints.MapA2ALazy(agentFactory, path, agentCard, _ => { });
-
-        /// <summary>
-        /// Maps an A2A endpoint with lazy agent resolution. The <paramref name="agentFactory"/>
-        /// is invoked on the first request, allowing the agent to be initialized after app startup.
-        /// </summary>
-        public static IEndpointConventionBuilder MapA2ALazy(this IEndpointRouteBuilder endpoints, Func<AIAgent> agentFactory, string path, AgentCard agentCard, Action<ITaskManager> configureTaskManager)
         {
             ArgumentNullException.ThrowIfNull(endpoints);
             ArgumentNullException.ThrowIfNull(agentFactory);
 
             var loggerFactory = endpoints.ServiceProvider.GetRequiredService<ILoggerFactory>();
-            var taskManager = MapA2ACoreLazy(agentFactory, taskManager: null, loggerFactory, agentCard);
-            var endpointConventionBuilder = endpoints.MapA2A(taskManager, path);
+            var requestHandler = MapA2ACoreLazy(agentFactory, loggerFactory, agentCard);
 
-            configureTaskManager(taskManager);
-
-            return endpointConventionBuilder;
+            return endpoints.MapHttpA2A(requestHandler, agentCard, path);
         }
 
-        public static IEndpointConventionBuilder MapA2A(this IEndpointRouteBuilder endpoints, AIAgent agent, string path, AgentCard? agentCard, Action<ITaskManager> configureTaskManager)
+        public static IEndpointConventionBuilder MapA2A(this IEndpointRouteBuilder endpoints, IA2ARequestHandler requestHandler, string path)
         {
-            ArgumentNullException.ThrowIfNull(endpoints);
-            ArgumentNullException.ThrowIfNull(agent);
-
-            var loggerFactory = endpoints.ServiceProvider.GetRequiredService<ILoggerFactory>();
-            var agentSessionStore = endpoints.ServiceProvider.GetKeyedService<AgentSessionStore>(agent.Name);
-            var taskManager = MapA2ACore(agent, taskManager: null, loggerFactory, agentSessionStore, agentCard);
-            var endpointConventionBuilder = endpoints.MapA2A(taskManager, path);
-
-            configureTaskManager(taskManager);
-
-            return endpointConventionBuilder;
+            return A2ARouteBuilderExtensions.MapA2A(endpoints, requestHandler, path);
         }
-
-        public static IEndpointConventionBuilder MapA2A(this IEndpointRouteBuilder endpoints, AIAgent agent, string path, Action<ITaskManager> configureTaskManager)
-        {
-            ArgumentNullException.ThrowIfNull(endpoints);
-            ArgumentNullException.ThrowIfNull(agent);
-
-            var loggerFactory = endpoints.ServiceProvider.GetRequiredService<ILoggerFactory>();
-            var agentSessionStore = endpoints.ServiceProvider.GetKeyedService<AgentSessionStore>(agent.Name);
-            var taskManager = MapA2ACore(agent, taskManager: null, loggerFactory, agentSessionStore, agentCard: null);
-            var endpointConventionBuilder = endpoints.MapA2A(taskManager, path);
-
-            configureTaskManager(taskManager);
-            return endpointConventionBuilder;
-        }
-
-        public static IEndpointConventionBuilder MapA2A(this IEndpointRouteBuilder endpoints, ITaskManager taskManager, string path)
-        {
-            // note: current SDK version registers multiple `.well-known/agent.json` handlers here.
-            // it makes app return HTTP 500, but will be fixed once new A2A SDK is released.
-            // see https://github.com/microsoft/agent-framework/issues/476 for details
-            A2ARouteBuilderExtensions.MapA2A(endpoints, taskManager, path);
-            return endpoints.MapHttpA2A(taskManager, path);
-        }
-
 
         // Below are helper methods that can be removed when the next version of Agent Framework releases
         internal static List<Part> ToParts(this IList<ChatMessage> chatMessages)
@@ -388,22 +223,6 @@ namespace lucia.Agents.Extensions
             }
 
             return parts;
-        }
-
-        internal static List<ChatMessage> ToChatMessages(this MessageSendParams messageSendParams)
-        {
-            if (messageSendParams is null)
-            {
-                return [];
-            }
-
-            var result = new List<ChatMessage>();
-            if (messageSendParams.Message?.Parts is not null)
-            {
-                result.Add(messageSendParams.Message.ToChatMessage());
-            }
-
-            return result;
         }
 
         internal static IList<ChatMessage> ToChatMessages(this AgentTask agentTask)
@@ -441,21 +260,6 @@ namespace lucia.Agents.Extensions
                 AdditionalProperties = artifact.Metadata.ToAdditionalProperties(),
                 RawRepresentation = artifact,
             };
-        }
-
-        internal static AdditionalPropertiesDictionary? ToAdditionalProperties(this Dictionary<string, JsonElement>? metadata)
-        {
-            if (metadata is not { Count: > 0 })
-            {
-                return null;
-            }
-
-            var additionalProperties = new AdditionalPropertiesDictionary();
-            foreach (var kvp in metadata)
-            {
-                additionalProperties[kvp.Key] = kvp.Value;
-            }
-            return additionalProperties;
         }
     }
 }

@@ -1,3 +1,4 @@
+using lucia.Agents.Extensions;
 using A2A;
 using lucia.Agents.Registry;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -43,7 +44,7 @@ public static class AgentRegistryApi
 
     private static bool IsOrchestrator(AgentCard card) =>
         string.Equals(card.Name, "orchestrator", StringComparison.OrdinalIgnoreCase)
-        || (card.Url?.EndsWith("/agent", StringComparison.OrdinalIgnoreCase) == true);
+        || (card.GetUrl()?.EndsWith("/agent", StringComparison.OrdinalIgnoreCase) == true);
 
     private static async Task<Results<
         Created,
@@ -108,7 +109,7 @@ public static class AgentRegistryApi
 
         await agentRegistry.RegisterAgentAsync(agentCard, cancellationToken).ConfigureAwait(false);
         logger.LogInformation("Agent {AgentName} registered successfully with URL {AgentUrl}",
-            agentCard.Name, agentCard.Url);
+            agentCard.Name, agentCard.GetUrl());
 
         return TypedResults.Created();
     }

@@ -1,3 +1,4 @@
+using lucia.Agents.Extensions;
 ﻿using A2A;
 
 namespace lucia.A2AHost.AgentRegistry;
@@ -24,11 +25,12 @@ public sealed class AgentRegistryClient(HttpClient httpClient, IConfiguration co
     internal async Task RegisterAgentAsync(AgentCard hostedAgent, CancellationToken cancellationToken)
     {
         EnsureAuthToken();
+        var agentUrl = hostedAgent.GetUrl() ?? hostedAgent.Name ?? "unknown";
         logger.LogInformation("Registering agent {AgentName} with URL {AgentUrl} at registry {RegistryBase}",
-            hostedAgent.Name, hostedAgent.Url, httpClient.BaseAddress);
+            hostedAgent.Name, agentUrl, httpClient.BaseAddress);
         var formData = new Dictionary<string, string>
         {
-            ["agentId"] = hostedAgent.Url
+            ["agentId"] = agentUrl
         };
         var form = new FormUrlEncodedContent(formData);
         try
@@ -43,13 +45,13 @@ public sealed class AgentRegistryClient(HttpClient httpClient, IConfiguration co
             {
                 var body = await response.Content.ReadAsStringAsync(cancellationToken);
                 logger.LogWarning("Agent registration returned {StatusCode} for {AgentUrl}. Response: {Body}",
-                    (int)response.StatusCode, hostedAgent.Url, body);
+                    (int)response.StatusCode, hostedAgent.GetUrl()!, body);
             }
         }
         catch (Exception e)
         {
             logger.LogError(e, "Error trying to register agent {AgentName} ({AgentUrl}) with the registry at {RegistryBase}",
-                hostedAgent.Name, hostedAgent.Url, httpClient.BaseAddress);
+                hostedAgent.Name, hostedAgent.GetUrl()!, httpClient.BaseAddress);
         }
     }
 
@@ -70,7 +72,7 @@ public sealed class AgentRegistryClient(HttpClient httpClient, IConfiguration co
             }
 
             var agents = await response.Content.ReadFromJsonAsync<List<AgentCard>>(cancellationToken);
-            return agents?.Any(a => string.Equals(a.Url, agentUrl, StringComparison.OrdinalIgnoreCase)) ?? false;
+            return agents?.Any(a => string.Equals(a.GetUrl(), agentUrl, StringComparison.OrdinalIgnoreCase)) ?? false;
         }
         catch (Exception e)
         {
@@ -82,21 +84,22 @@ public sealed class AgentRegistryClient(HttpClient httpClient, IConfiguration co
     internal async Task UnregisterAgentAsync(AgentCard hostedAgent, CancellationToken cancellationToken)
     {
         EnsureAuthToken();
+        var agentUrl = hostedAgent.GetUrl() ?? hostedAgent.Name ?? "unknown";
         logger.LogInformation("Unregistering agent {AgentName} with URL {AgentUrl}",
-            hostedAgent.Name, hostedAgent.Url);
+            hostedAgent.Name, agentUrl);
         try
         {
-            var response = await httpClient.DeleteAsync($"/agents/{Uri.EscapeDataString(hostedAgent.Url)}", cancellationToken);
+            var response = await httpClient.DeleteAsync($"/agents/{Uri.EscapeDataString(agentUrl)}", cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
                 logger.LogWarning("Agent unregistration returned {StatusCode} for {AgentUrl}",
-                    (int)response.StatusCode, hostedAgent.Url);
+                    (int)response.StatusCode, agentUrl);
             }
         }
         catch (Exception e)
         {
             logger.LogError(e, "Error trying to unregister agent {AgentUrl} from the registry. Check if it's online?",
-                hostedAgent.Url);
+                agentUrl);
         }
     }
 }

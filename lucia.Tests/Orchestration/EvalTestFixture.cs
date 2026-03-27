@@ -669,10 +669,10 @@ public sealed class EvalTestFixture : IAsyncLifetime
             generalAgent.GetAIAgent()
         ]);
 
-        var taskManager = new StubTaskManager();
+        var taskStore = A.Fake<ITaskStore>();
 
         var sessionManager = new SessionManager(
-            taskManager,
+            taskStore,
             _loggerFactory.CreateLogger<SessionManager>());
 
         // Configure mock resolver to return the router's chat client for the orchestrator

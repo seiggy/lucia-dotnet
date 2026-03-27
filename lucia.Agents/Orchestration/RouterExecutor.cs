@@ -261,17 +261,13 @@ public sealed class RouterExecutor : Executor
             if (_options.IncludeAgentCapabilities)
             {
                 var tags = new List<string>();
-                if (agent.Capabilities.PushNotifications)
+                if (agent.Capabilities?.PushNotifications == true)
                 {
                     tags.Add("push");
                 }
-                if (agent.Capabilities.Streaming)
+                if (agent.Capabilities?.Streaming == true)
                 {
                     tags.Add("streaming");
-                }
-                if (agent.Capabilities.StateTransitionHistory)
-                {
-                    tags.Add("state-history");
                 }
 
                 if (tags.Count > 0)
