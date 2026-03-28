@@ -1946,3 +1946,31 @@ See full document in `.squad/decisions/inbox/ripley-cascading-entity-spec.md` fo
 
 # Detailed Decision Documents
 
+
+---
+
+## 2026-03-28: Strategy Encoding Helper Extraction
+
+**Author:** Kane (Frontend Developer)  
+**Date:** 2026-03-28  
+**Status:** Implemented  
+**Decision Type:** Code Quality / Refactoring
+
+### Summary
+Extracted duplicated magic-number mapping logic from `lucia-dashboard/src/api.ts` into centralized type-safe structures and helper functions.
+
+### Changes
+- **Created `AutoAssignStrategy` type** — Enum-like type for strategy values (number)
+- **Created `STRATEGY_ENCODING` const** — Single source of truth for Strategy → number mapping
+- **Created `encodeStrategy()` helper** — Encapsulates encoding with type safety
+- **Refactored `previewAutoAssign()`** — Uses helper instead of inline encoding
+- **Refactored `applyAutoAssign()`** — Uses helper instead of inline encoding
+
+### Rationale
+Both API endpoints were duplicating the same magic-number encoding logic. Centralizing the mapping eliminates duplication, improves maintainability, and provides type safety for strategy values.
+
+### Impact
+- Single source of truth for strategy encoding reduces API call errors
+- Type-safe approach prevents strategy value mismatches
+- Future strategy changes require update in one location only
+
