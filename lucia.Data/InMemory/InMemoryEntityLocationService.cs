@@ -363,6 +363,81 @@ public sealed class InMemoryEntityLocationService : IEntityLocationService
         return floor;
     }
 
+    // ── Synchronous, cache-only fast-path lookups ───────────────────
+
+    /// <inheritdoc />
+    public LocationSnapshot GetSnapshot() => _snapshot;
+
+    /// <inheritdoc />
+    public bool IsCacheReady => Volatile.Read(ref _lastLoadedAtTicks) != 0;
+
+    /// <inheritdoc />
+    public IReadOnlyList<HomeAssistantEntity> ExactMatchEntities(string query, IReadOnlyList<string>? domainFilter = null)
+    {
+        var snap = _snapshot;
+        if (snap.Entities.IsEmpty)
+            return [];
+
+        var trimmed = query.Trim();
+
+        if (snap.EntityById.TryGetValue(trimmed, out var exactEntity))
+        {
+            if (domainFilter is null || domainFilter.Contains(exactEntity.Domain, StringComparer.OrdinalIgnoreCase))
+                return [exactEntity];
+            return [];
+        }
+
+        var matchedArea = ExactMatchArea(trimmed);
+        if (matchedArea is not null)
+        {
+            var areaEntities = new List<HomeAssistantEntity>();
+            foreach (var entity in snap.Entities)
+            {
+                if (string.Equals(entity.AreaId, matchedArea.AreaId, StringComparison.OrdinalIgnoreCase)
+                    && (domainFilter is null || domainFilter.Contains(entity.Domain, StringComparer.OrdinalIgnoreCase)))
+                {
+                    areaEntities.Add(entity);
+                }
+            }
+
+            if (areaEntities.Count > 0)
+                return areaEntities;
+        }
+
+        var results = new List<HomeAssistantEntity>();
+        foreach (var entity in snap.Entities)
+        {
+            if (string.Equals(entity.FriendlyName, trimmed, StringComparison.OrdinalIgnoreCase)
+                && (domainFilter is null || domainFilter.Contains(entity.Domain, StringComparer.OrdinalIgnoreCase)))
+            {
+                results.Add(entity);
+            }
+        }
+
+        return results;
+    }
+
+    /// <inheritdoc />
+    public AreaInfo? ExactMatchArea(string query)
+    {
+        var snap = _snapshot;
+        if (snap.Areas.IsEmpty)
+            return null;
+
+        var trimmed = query.Trim();
+
+        if (snap.AreaById.TryGetValue(trimmed, out var area))
+            return area;
+
+        foreach (var a in snap.Areas)
+        {
+            if (string.Equals(a.Name, trimmed, StringComparison.OrdinalIgnoreCase))
+                return a;
+        }
+
+        return null;
+    }
+
     // ── Visibility ──────────────────────────────────────────────────
 
     public Task<EntityVisibilityConfig> GetVisibilityConfigAsync(CancellationToken ct = default)
@@ -920,28 +995,4 @@ public sealed class InMemoryEntityLocationService : IEntityLocationService
     }
 
     // ── Private: Immutable snapshot ─────────────────────────────────
-
-    private sealed class LocationSnapshot(
-        ImmutableArray<FloorInfo> floors,
-        ImmutableArray<AreaInfo> areas,
-        ImmutableArray<HomeAssistantEntity> entities,
-        ImmutableDictionary<string, FloorInfo> floorById,
-        ImmutableDictionary<string, AreaInfo> areaById,
-        ImmutableDictionary<string, HomeAssistantEntity> entityById)
-    {
-        public static readonly LocationSnapshot Empty = new(
-            ImmutableArray<FloorInfo>.Empty,
-            ImmutableArray<AreaInfo>.Empty,
-            ImmutableArray<HomeAssistantEntity>.Empty,
-            ImmutableDictionary<string, FloorInfo>.Empty,
-            ImmutableDictionary<string, AreaInfo>.Empty,
-            ImmutableDictionary<string, HomeAssistantEntity>.Empty);
-
-        public ImmutableArray<FloorInfo> Floors { get; } = floors;
-        public ImmutableArray<AreaInfo> Areas { get; } = areas;
-        public ImmutableArray<HomeAssistantEntity> Entities { get; } = entities;
-        public ImmutableDictionary<string, FloorInfo> FloorById { get; } = floorById;
-        public ImmutableDictionary<string, AreaInfo> AreaById { get; } = areaById;
-        public ImmutableDictionary<string, HomeAssistantEntity> EntityById { get; } = entityById;
-    }
 }

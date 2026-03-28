@@ -1,0 +1,55 @@
+# Orchestrator Evaluation Dataset
+# Tests intent routing to the correct agent
+
+data:
+  - id: route_to_light
+    input: "Turn on the kitchen light"
+    expected: "light"
+    criteria:
+      - "Routes to LightAgent"
+      - "Does not route to ClimateAgent or other agents"
+
+  - id: route_to_climate
+    input: "Set the thermostat to 72 degrees"
+    expected: "climate"
+    criteria:
+      - "Routes to ClimateAgent"
+      - "Does not route to LightAgent"
+
+  - id: route_to_lists
+    input: "Add milk to the shopping list"
+    expected: "list"
+    criteria:
+      - "Routes to ListsAgent"
+
+  - id: route_to_scene
+    input: "Activate the movie scene"
+    expected: "scene"
+    criteria:
+      - "Routes to SceneAgent"
+
+  - id: route_to_general
+    input: "What is the weather like today?"
+    expected: "general"
+    criteria:
+      - "Routes to GeneralAgent"
+
+  - id: ambiguous_request
+    input: "Make it cozy in here"
+    expected: "climate"
+    criteria:
+      - "Infers comfort-related request"
+      - "Routes to ClimateAgent or SceneAgent"
+    metadata:
+      category: ambiguous
+      difficulty: hard
+
+  - id: multi_intent
+    input: "Turn off the lights and set the temperature to 68"
+    expected: "light"
+    criteria:
+      - "Recognizes multiple intents"
+      - "Routes to both LightAgent and ClimateAgent"
+    metadata:
+      category: multi-agent
+      difficulty: hard

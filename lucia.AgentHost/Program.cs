@@ -18,6 +18,7 @@ using lucia.Agents.Orchestration;
 using lucia.Agents.PluginFramework;
 using lucia.Agents.Training;
 using lucia.Agents.Services;
+using lucia.Agents.Services.EntityAssignment;
 using lucia.Data;
 using lucia.Data.Extensions;
 using lucia.Data.Sqlite;
@@ -27,6 +28,7 @@ using lucia.TimerAgent.ScheduledTasks;
 using lucia.Wyoming.Extensions;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.FeatureManagement;
 using OpenTelemetry.Trace;
 using Scalar.AspNetCore;
 
@@ -34,6 +36,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 builder.Services.AddAntiforgery();
+builder.Services.AddFeatureManagement();
 
 // Determine data provider backends
 var dataProviderOptions = new DataProviderOptions();
@@ -211,6 +214,7 @@ else
 }
 builder.Services.AddSingleton<ResponseTemplateRenderer>();
 builder.Services.AddSingleton<IDirectSkillExecutor, DirectSkillExecutor>();
+builder.Services.AddSingleton<ICascadingEntityResolver, CascadingEntityResolver>();
 builder.Services.AddSingleton<ContextReconstructor>();
 builder.Services.AddSingleton<ConversationTelemetry>();
 builder.Services.AddSingleton<CommandTraceChannel>();
@@ -223,6 +227,7 @@ else
     builder.Services.AddSingleton<ICommandTraceRepository, lucia.Data.Sqlite.SqliteCommandTraceRepository>();
 }
 builder.Services.AddSingleton<ConversationCommandProcessor>();
+builder.Services.AddSingleton<IPersonalityResponseRenderer, PersonalityResponseRenderer>();
 
 // Register span collector as an OTEL processor so captured Lucia.* spans
 // can be attached to conversation traces for the waterfall timeline.
@@ -311,6 +316,13 @@ builder.Services.AddHttpClient("ProviderModelCatalog", client =>
     client.Timeout = TimeSpan.FromSeconds(20);
 });
 builder.Services.AddSingleton<ProviderModelCatalogService>();
+
+// Entity auto-assignment rules + service
+builder.Services.AddSingleton<IEntityAssignmentRule, ExclusionPatternRule>();
+builder.Services.AddSingleton<IEntityAssignmentRule, PlatformExclusionRule>();
+builder.Services.AddSingleton<IEntityAssignmentRule, SwitchPositiveMatchRule>();
+builder.Services.AddSingleton<IEntityAssignmentRule, DomainMappingRule>();
+builder.Services.AddSingleton<IAutoAssignEntityService, AutoAssignEntityService>();
 
 // Skill optimizer job manager
 builder.Services.AddSingleton<SkillOptimizerJobManager>();

@@ -4,6 +4,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.Logging;
 using lucia.Agents.Abstractions;
+using lucia.Agents.Extensions;
 using lucia.Agents.Integration;
 using lucia.Agents.Services;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -86,24 +87,21 @@ public class MusicAgent : ILuciaAgent, ISkillConfigProvider
 
         _agent = new AgentCard
         {
-            Url = "pending", // Set to a non-empty placeholder; updated in InitializeAsync
             Name = AgentId,
             Description = "Agent that orchestrates #Music Assistant #playback on #speaker endpoints",
             DocumentationUrl = "https://github.com/seiggy/lucia-dotnet/",
             IconUrl = "https://github.com/seiggy/lucia-dotnet/blob/master/lucia.png?raw=true",
-            SupportsAuthenticatedExtendedCard = false,
             Capabilities = new AgentCapabilities
             {
                 PushNotifications = false,
-                StateTransitionHistory = false,
                 Streaming = true
             },
             DefaultInputModes = ["text"],
             DefaultOutputModes = ["text"],
             Skills = [musicControlSkill],
-            Version = "1.0.0",
-            ProtocolVersion = "0.2.5"
+            Version = "1.0.0"
         };
+        _agent.SetUrl("pending"); // Updated in InitializeAsync
 
         var instructions = """
             You are Lucia's dedicated Music Playback Agent for Satellite1 speakers powered by Home Assistant's Music Assistant integration.
@@ -172,23 +170,23 @@ public class MusicAgent : ILuciaAgent, ISkillConfigProvider
         if (!string.IsNullOrWhiteSpace(selfUrl))
         {
             // Explicit selfUrl takes precedence — used in mesh mode with Aspire service discovery
-            _agent.Url = selfUrl;
+            _agent.SetUrl(selfUrl);
         }
         else if (isStandalone)
         {
             // In standalone mode, plugin runs in-process — use relative path
-            _agent.Url = "/a2a/music-agent";
+            _agent.SetUrl("/a2a/music-agent");
         }
         else
         {
             var addressesFeature = _server.Features.Get<IServerAddressesFeature>();
             if (addressesFeature?.Addresses != null &&  addressesFeature.Addresses.Count != 0)
             {
-                _agent.Url = addressesFeature.Addresses.First();
+                _agent.SetUrl(addressesFeature.Addresses.First());
             }
             else
             {
-                _agent.Url = "unknown";
+                _agent.SetUrl("unknown");
             }
         }
         

@@ -68,13 +68,12 @@ public sealed class LightAgent : ILuciaAgent, ISkillConfigProvider
         // Create the agent card for registration
         _agent = new AgentCard
         {
-            Url = "/a2a/light-agent",
+            SupportedInterfaces = [new AgentInterface { Url = "/a2a/light-agent" }],
             Name = AgentId,
             Description = "Agent for controlling #lights and #lighting in Home Assistant",
             Capabilities = new AgentCapabilities
             {
                 PushNotifications = false,
-                StateTransitionHistory = true,
                 Streaming = true,
             },
             DefaultInputModes = ["text"],

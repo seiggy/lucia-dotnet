@@ -1,0 +1,37 @@
+namespace lucia.EvalHarness.Personality;
+
+/// <summary>
+/// Result of evaluating a single (scenario, profile, model) combination
+/// using LLM-as-Judge scoring.
+/// </summary>
+public sealed class PersonalityScenarioResult
+{
+    public required string ScenarioId { get; init; }
+    public required string ScenarioDescription { get; init; }
+    public required string Category { get; init; }
+    public required string ProfileId { get; init; }
+    public required string ProfileName { get; init; }
+    public required string ModelName { get; init; }
+    /// <summary>
+    /// Combined score from LLM judge (1–5 scale, average of personality + meaning).
+    /// </summary>
+    public required double Score { get; init; }
+    public required string LlmResponse { get; init; }
+    public required long DurationMs { get; init; }
+
+    /// <summary>
+    /// LLM judge scores for personality adherence and meaning preservation.
+    /// Null when the judge call failed entirely.
+    /// </summary>
+    public JudgeResult? JudgeResult { get; init; }
+
+    /// <summary>
+    /// Full conversation trace used for judge evaluation.
+    /// </summary>
+    public ConversationTrace? Trace { get; init; }
+
+    /// <summary>
+    /// Error message when the model-under-test or judge call fails.
+    /// </summary>
+    public string? ErrorMessage { get; init; }
+}

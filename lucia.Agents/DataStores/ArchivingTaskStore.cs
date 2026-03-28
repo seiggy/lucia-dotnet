@@ -35,36 +35,21 @@ public sealed class ArchivingTaskStore : ITaskStore
     public Task<AgentTask?> GetTaskAsync(string taskId, CancellationToken cancellationToken = default)
         => _inner.GetTaskAsync(taskId, cancellationToken);
 
-    public Task SetTaskAsync(AgentTask task, CancellationToken cancellationToken = default)
-        => _inner.SetTaskAsync(task, cancellationToken);
-
-    public async Task<AgentTaskStatus> UpdateStatusAsync(
-        string taskId,
-        TaskState status,
-        AgentMessage? message = null,
-        CancellationToken cancellationToken = default)
+    public async Task SaveTaskAsync(string taskId, AgentTask task, CancellationToken cancellationToken = default)
     {
-        var result = await _inner.UpdateStatusAsync(taskId, status, message, cancellationToken).ConfigureAwait(false);
+        await _inner.SaveTaskAsync(taskId, task, cancellationToken).ConfigureAwait(false);
 
-        if (TerminalStates.Contains(status))
+        if (TerminalStates.Contains(task.Status.State))
         {
             await TryArchiveAsync(taskId, cancellationToken).ConfigureAwait(false);
         }
-
-        return result;
     }
 
-    public Task<TaskPushNotificationConfig?> GetPushNotificationAsync(
-        string taskId, string notificationConfigId, CancellationToken cancellationToken = default)
-        => _inner.GetPushNotificationAsync(taskId, notificationConfigId, cancellationToken);
+    public Task DeleteTaskAsync(string taskId, CancellationToken cancellationToken = default)
+        => _inner.DeleteTaskAsync(taskId, cancellationToken);
 
-    public Task SetPushNotificationConfigAsync(
-        TaskPushNotificationConfig pushNotificationConfig, CancellationToken cancellationToken = default)
-        => _inner.SetPushNotificationConfigAsync(pushNotificationConfig, cancellationToken);
-
-    public Task<IEnumerable<TaskPushNotificationConfig>> GetPushNotificationsAsync(
-        string taskId, CancellationToken cancellationToken = default)
-        => _inner.GetPushNotificationsAsync(taskId, cancellationToken);
+    public Task<ListTasksResponse> ListTasksAsync(ListTasksRequest request, CancellationToken cancellationToken = default)
+        => _inner.ListTasksAsync(request, cancellationToken);
 
     private async Task TryArchiveAsync(string taskId, CancellationToken cancellationToken)
     {

@@ -111,15 +111,6 @@ public static class ServiceCollectionExtensions
         }
         builder.Services.AddSingleton<IPresenceDetectionService, PresenceDetectionService>();
 
-        // Register A2A TaskManager (T037)
-        builder.Services.AddSingleton<ITaskManager>(sp =>
-        {
-            var taskStore = sp.GetRequiredService<ITaskStore>();
-            var httpClientFactory = sp.GetRequiredService<IHttpClientFactory>();
-            var httpClient = httpClientFactory.CreateClient("task-callbacks");
-            return new TaskManager(httpClient, taskStore);
-        });
-
         builder.Services.Configure<RouterExecutorOptions>(
             builder.Configuration.GetSection("RouterExecutor")
         );

@@ -1,5 +1,6 @@
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration.UserConfiguration;
+using lucia.Agents.Models;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 
@@ -21,6 +22,8 @@ public static class EntityVisibilityApi
         group.MapPut("/agents", UpdateEntityAgentsAsync);
         group.MapDelete("/agents", ClearAllAgentFiltersAsync);
         group.MapGet("/available-agents", GetAvailableAgentsAsync);
+        group.MapPost("/auto-assign/preview", PreviewAutoAssignAsync);
+        group.MapPost("/auto-assign", ApplyAutoAssignAsync);
 
         return endpoints;
     }
@@ -125,6 +128,30 @@ public static class EntityVisibilityApi
             .ToList();
 
         return TypedResults.Ok(agents);
+    }
+
+    /// <summary>
+    /// Preview an auto-assign operation without applying changes.
+    /// </summary>
+    private static async Task<Ok<AutoAssignPreview>> PreviewAutoAssignAsync(
+        [FromServices] IAutoAssignEntityService autoAssignService,
+        [FromBody] AutoAssignRequest request,
+        CancellationToken ct)
+    {
+        var preview = await autoAssignService.PreviewAsync(request.Strategy, ct).ConfigureAwait(false);
+        return TypedResults.Ok(preview);
+    }
+
+    /// <summary>
+    /// Apply an auto-assign operation, persisting entity-to-agent visibility changes.
+    /// </summary>
+    private static async Task<Ok<AutoAssignResult>> ApplyAutoAssignAsync(
+        [FromServices] IAutoAssignEntityService autoAssignService,
+        [FromBody] AutoAssignRequest request,
+        CancellationToken ct)
+    {
+        var result = await autoAssignService.ApplyAsync(request.Strategy, ct).ConfigureAwait(false);
+        return TypedResults.Ok(result);
     }
 }
 

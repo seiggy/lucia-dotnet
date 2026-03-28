@@ -1,3 +1,4 @@
+using lucia.Agents.Extensions;
 using System.Diagnostics;
 using A2A;
 using lucia.Agents.Abstractions;
@@ -142,6 +143,14 @@ public sealed class WorkflowFactory
         }
 
         activity?.SetStatus(ActivityStatusCode.Ok);
+
+        // Diagnostic: log resolved AIAgent Ids/Names so key mismatches are visible
+        foreach (var agent in resolved)
+        {
+            _logger.LogInformation("Resolved AIAgent: Id={AgentId}, Name={AgentName}, Type={AgentType}",
+                agent.Id ?? "(null)", agent.Name ?? "(null)", agent.GetType().Name);
+        }
+
         return resolved.AsReadOnly();
     }
 
@@ -170,6 +179,24 @@ public sealed class WorkflowFactory
             .GroupBy(card => card.Name, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
 
+        // Diagnostic: log the resolved keys to surface mismatches between AIAgent keys and AgentCard names
+        _logger.LogInformation(
+            "CreateAgentInvokers: AIAgent keys=[{AgentKeys}], AgentCard names=[{CardKeys}]",
+            string.Join(", ", agentsByKey.Keys.OrderBy(k => k, StringComparer.Ordinal)),
+            string.Join(", ", cardsByKey.Keys.OrderBy(k => k, StringComparer.Ordinal)));
+
+        // Detect key mismatches: cards with no matching AIAgent key (potential RC4 pipeline Id drift)
+        foreach (var cardName in cardsByKey.Keys)
+        {
+            if (!agentsByKey.ContainsKey(cardName))
+            {
+                _logger.LogWarning(
+                    "AgentCard '{CardName}' has no matching AIAgent key — local invocation unavailable. " +
+                    "This may indicate the AIAgent.Id differs from the AgentCard.Name after the middleware pipeline.",
+                    cardName);
+            }
+        }
+
         var allKeys = new HashSet<string>(agentsByKey.Keys, StringComparer.OrdinalIgnoreCase);
         allKeys.UnionWith(cardsByKey.Keys);
 
@@ -184,7 +211,7 @@ public sealed class WorkflowFactory
                 // Local agent: invoke in-process via AIHostAgent with session persistence
                 invoker = new LocalAgentInvoker(key, agent, sessionStore, invokerLogger, _telemetrySource, _invokerOptions, _timeProvider);
             }
-            else if (card is not null && Uri.TryCreate(card.Url, UriKind.Absolute, out var cardUri)
+            else if (card is not null && Uri.TryCreate(card.GetUrl(), UriKind.Absolute, out var cardUri)
                      && (cardUri.Scheme == Uri.UriSchemeHttp || cardUri.Scheme == Uri.UriSchemeHttps))
             {
                 // Remote agent: route through A2AClient via HTTP with service discovery
@@ -193,12 +220,17 @@ public sealed class WorkflowFactory
             }
             else
             {
-                _logger.LogDebug("Skipping agent {AgentName}: no local match and no absolute URL.", key);
+                _logger.LogWarning(
+                    "Skipping agent '{AgentName}': no local AIAgent match and card URL '{CardUrl}' is not an absolute HTTP(S) URL.",
+                    key, card?.GetUrl() ?? "null");
                 continue;
             }
 
             invokers[key] = invoker;
         }
+
+        _logger.LogInformation("Created {InvokerCount} agent invokers: [{InvokerKeys}]",
+            invokers.Count, string.Join(", ", invokers.Keys.OrderBy(k => k, StringComparer.Ordinal)));
 
         return invokers;
     }

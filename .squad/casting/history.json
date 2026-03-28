@@ -1,0 +1,24 @@
+{
+  "universe_usage_history": [
+    {
+      "universe": "Alien",
+      "assignment_id": "lucia-dotnet-eval-2026-03-26",
+      "timestamp": "2026-03-26T16:57:00Z",
+      "agents_cast": 4,
+      "capacity_used": 4,
+      "capacity_total": 8
+    }
+  ],
+  "assignment_cast_snapshots": {
+    "lucia-dotnet-eval-2026-03-26": {
+      "universe": "Alien",
+      "timestamp": "2026-03-26T16:57:00Z",
+      "roster": {
+        "ripley": "Lead / Eval Architect",
+        "dallas": "Eval Engineer",
+        "ash": "Data Engineer",
+        "lambert": "QA / Eval Scenario Engineer"
+      }
+    }
+  }
+}

@@ -24,7 +24,7 @@ public sealed class SqliteConfigStoreWriter : IConfigStoreWriter
         bool isSensitive = false,
         CancellationToken cancellationToken = default)
     {
-        var section = key.Contains(':') ? key[..key.IndexOf(':')] : key;
+        var section = key.Contains(':') ? key[..key.LastIndexOf(':')] : key;
 
         using var connection = _connectionFactory.CreateConnection();
         using var cmd = connection.CreateCommand();

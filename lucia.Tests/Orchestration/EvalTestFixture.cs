@@ -5,6 +5,7 @@ using Azure.Identity;
 using FakeItEasy;
 using lucia.Agents.Agents;
 using lucia.Agents.Configuration;
+using lucia.Agents.Configuration.UserConfiguration;
 using lucia.Agents.Models;
 using lucia.Agents.Orchestration;
 using lucia.Agents.Registry;
@@ -119,11 +120,35 @@ public sealed class EvalTestFixture : IAsyncLifetime
         return monitor;
     }
 
+    private static IOptionsMonitor<ClimateControlSkillOptions> CreateClimateControlSkillOptionsMonitor()
+    {
+        var monitor = A.Fake<IOptionsMonitor<ClimateControlSkillOptions>>();
+        A.CallTo(() => monitor.CurrentValue).Returns(new ClimateControlSkillOptions());
+        return monitor;
+    }
+
+    private static IOptionsMonitor<FanControlSkillOptions> CreateFanControlSkillOptionsMonitor()
+    {
+        var monitor = A.Fake<IOptionsMonitor<FanControlSkillOptions>>();
+        A.CallTo(() => monitor.CurrentValue).Returns(new FanControlSkillOptions());
+        return monitor;
+    }
+
+    private static IOptionsMonitor<SceneControlSkillOptions> CreateSceneControlSkillOptionsMonitor()
+    {
+        var monitor = A.Fake<IOptionsMonitor<SceneControlSkillOptions>>();
+        A.CallTo(() => monitor.CurrentValue).Returns(new SceneControlSkillOptions());
+        return monitor;
+    }
+
     // --- Agent cards for registry (extracted once) ---
 
     private AgentCard _lightAgentCard = null!;
     private AgentCard _musicAgentCard = null!;
     private AgentCard _generalAgentCard = null!;
+    private AgentCard _climateAgentCard = null!;
+    private AgentCard _listsAgentCard = null!;
+    private AgentCard _sceneAgentCard = null!;
 
     public Task InitializeAsync()
     {
@@ -387,6 +412,154 @@ public sealed class EvalTestFixture : IAsyncLifetime
     }
 
     /// <summary>
+    /// Creates a real <see cref="ClimateAgent"/> backed by the given deployment,
+    /// fully initialized with its AI agent wired to the correct provider.
+    /// </summary>
+    public async Task<ClimateAgent> CreateClimateAgentAsync(
+        string deploymentName,
+        string? embeddingModelName = null)
+    {
+        var resolver = CreateAgentResolver(CreateBaseChatClient(deploymentName));
+        var embeddingResolver = ResolveEmbeddingProvider(embeddingModelName);
+        var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
+
+        var climateSkill = new ClimateControlSkill(
+            _haClient,
+            embeddingResolver,
+            _loggerFactory.CreateLogger<ClimateControlSkill>(),
+            _deviceCache,
+            _mockLocationService,
+            _entityMatcher,
+            CreateClimateControlSkillOptionsMonitor(),
+            configuration);
+
+        var fanSkill = new FanControlSkill(
+            _haClient,
+            embeddingResolver,
+            _deviceCache,
+            _mockLocationService,
+            _entityMatcher,
+            CreateFanControlSkillOptionsMonitor(),
+            _loggerFactory.CreateLogger<FanControlSkill>());
+
+        var agent = new ClimateAgent(resolver, _mockDefinitionRepo, climateSkill, fanSkill, _tracingFactory, _loggerFactory);
+        await agent.InitializeAsync();
+        return agent;
+    }
+
+    /// <summary>
+    /// Creates a real <see cref="ListsAgent"/> backed by the given deployment,
+    /// fully initialized with its AI agent wired to the correct provider.
+    /// </summary>
+    public async Task<ListsAgent> CreateListsAgentAsync(string deploymentName)
+    {
+        var resolver = CreateAgentResolver(CreateBaseChatClient(deploymentName));
+        var skill = new ListSkill(_haClient, _loggerFactory.CreateLogger<ListSkill>());
+        var agent = new ListsAgent(resolver, _mockDefinitionRepo, skill, _tracingFactory, _loggerFactory);
+        await agent.InitializeAsync();
+        return agent;
+    }
+
+    /// <summary>
+    /// Creates a real <see cref="SceneAgent"/> backed by the given deployment,
+    /// fully initialized with its AI agent wired to the correct provider.
+    /// </summary>
+    public async Task<SceneAgent> CreateSceneAgentAsync(string deploymentName)
+    {
+        var resolver = CreateAgentResolver(CreateBaseChatClient(deploymentName));
+        var skill = new SceneControlSkill(
+            _haClient,
+            _mockLocationService,
+            CreateSceneControlSkillOptionsMonitor(),
+            _loggerFactory.CreateLogger<SceneControlSkill>());
+        var agent = new SceneAgent(resolver, _mockDefinitionRepo, skill, _tracingFactory, _loggerFactory);
+        await agent.InitializeAsync();
+        return agent;
+    }
+
+    /// <summary>
+    /// Creates a real <see cref="GeneralAgent"/> backed by the given deployment,
+    /// fully initialized with its AI agent wired to the correct provider.
+    /// </summary>
+    public async Task<GeneralAgent> CreateGeneralAgentAsync(string deploymentName)
+    {
+        var resolver = CreateAgentResolver(CreateBaseChatClient(deploymentName));
+        var mcpRegistry = A.Fake<IMcpToolRegistry>();
+        var agent = new GeneralAgent(resolver, _mockDefinitionRepo, mcpRegistry, _tracingFactory, _loggerFactory);
+        await agent.InitializeAsync();
+        return agent;
+    }
+
+    /// <summary>
+    /// Creates a real <see cref="ClimateAgent"/> with a <see cref="ChatHistoryCapture"/>
+    /// that records intermediate tool calls for evaluation.
+    /// </summary>
+    public async Task<(ClimateAgent Agent, ChatHistoryCapture Capture)> CreateClimateAgentWithCaptureAsync(
+        string deploymentName,
+        string? embeddingModelName = null)
+    {
+        var capture = new ChatHistoryCapture(CreateBaseChatClient(deploymentName));
+        var resolver = CreateAgentResolver(capture);
+        var embeddingResolver = ResolveEmbeddingProvider(embeddingModelName);
+        var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
+
+        var climateSkill = new ClimateControlSkill(
+            _haClient,
+            embeddingResolver,
+            _loggerFactory.CreateLogger<ClimateControlSkill>(),
+            _deviceCache,
+            _mockLocationService,
+            _entityMatcher,
+            CreateClimateControlSkillOptionsMonitor(),
+            configuration);
+
+        var fanSkill = new FanControlSkill(
+            _haClient,
+            embeddingResolver,
+            _deviceCache,
+            _mockLocationService,
+            _entityMatcher,
+            CreateFanControlSkillOptionsMonitor(),
+            _loggerFactory.CreateLogger<FanControlSkill>());
+
+        var agent = new ClimateAgent(resolver, _mockDefinitionRepo, climateSkill, fanSkill, _tracingFactory, _loggerFactory);
+        await agent.InitializeAsync();
+        return (agent, capture);
+    }
+
+    /// <summary>
+    /// Creates a real <see cref="ListsAgent"/> with a <see cref="ChatHistoryCapture"/>
+    /// that records intermediate tool calls for evaluation.
+    /// </summary>
+    public async Task<(ListsAgent Agent, ChatHistoryCapture Capture)> CreateListsAgentWithCaptureAsync(string deploymentName)
+    {
+        var capture = new ChatHistoryCapture(CreateBaseChatClient(deploymentName));
+        var resolver = CreateAgentResolver(capture);
+        var skill = new ListSkill(_haClient, _loggerFactory.CreateLogger<ListSkill>());
+        var agent = new ListsAgent(resolver, _mockDefinitionRepo, skill, _tracingFactory, _loggerFactory);
+        await agent.InitializeAsync();
+        return (agent, capture);
+    }
+
+    /// <summary>
+    /// Creates a real <see cref="SceneAgent"/> with a <see cref="ChatHistoryCapture"/>
+    /// that records intermediate tool calls for evaluation.
+    /// </summary>
+    public async Task<(SceneAgent Agent, ChatHistoryCapture Capture)> CreateSceneAgentWithCaptureAsync(string deploymentName)
+    {
+        var capture = new ChatHistoryCapture(CreateBaseChatClient(deploymentName));
+        var resolver = CreateAgentResolver(capture);
+        var skill = new SceneControlSkill(
+            _haClient,
+            _mockLocationService,
+            CreateSceneControlSkillOptionsMonitor(),
+            _loggerFactory.CreateLogger<SceneControlSkill>());
+        var agent = new SceneAgent(resolver, _mockDefinitionRepo, skill, _tracingFactory, _loggerFactory);
+        await agent.InitializeAsync();
+        return (agent, capture);
+    }
+
+    /// <summary>
     /// Creates a real <see cref="LightAgent"/> with a <see cref="ChatHistoryCapture"/>
     /// that records intermediate tool calls for evaluation. The capture layer sits
     /// between the agent's tracing wrapper and the raw LLM client.
@@ -496,10 +669,10 @@ public sealed class EvalTestFixture : IAsyncLifetime
             generalAgent.GetAIAgent()
         ]);
 
-        var taskManager = new StubTaskManager();
+        var taskStore = A.Fake<ITaskStore>();
 
         var sessionManager = new SessionManager(
-            taskManager,
+            taskStore,
             _loggerFactory.CreateLogger<SessionManager>());
 
         // Configure mock resolver to return the router's chat client for the orchestrator
@@ -547,6 +720,8 @@ public sealed class EvalTestFixture : IAsyncLifetime
     /// </summary>
     private void ExtractAgentCards()
     {
+        var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
+
         // LightAgent card
         var lightSkill = new LightControlSkill(
             _haClient,
@@ -564,11 +739,46 @@ public sealed class EvalTestFixture : IAsyncLifetime
             _mockLocationService,
             CreateMusicPlaybackSkillOptionsMonitor(),
             musicConfig);
-        var musicAgent = new lucia.MusicAgent.MusicAgent(_mockChatClientResolver, _mockDefinitionRepo, musicSkill, _mockServer, new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(), _tracingFactory, _loggerFactory);
+        var musicAgent = new lucia.MusicAgent.MusicAgent(_mockChatClientResolver, _mockDefinitionRepo, musicSkill, _mockServer, configuration, _tracingFactory, _loggerFactory);
         _musicAgentCard = musicAgent.GetAgentCard();
 
         // GeneralAgent card
         var generalAgent = new GeneralAgent(_mockChatClientResolver, _mockDefinitionRepo, A.Fake<IMcpToolRegistry>(), _tracingFactory, _loggerFactory);
         _generalAgentCard = generalAgent.GetAgentCard();
+
+        // ClimateAgent card
+        var climateSkill = new ClimateControlSkill(
+            _haClient,
+            _embeddingResolver,
+            _loggerFactory.CreateLogger<ClimateControlSkill>(),
+            _deviceCache,
+            _mockLocationService,
+            _entityMatcher,
+            CreateClimateControlSkillOptionsMonitor(),
+            configuration);
+        var fanSkill = new FanControlSkill(
+            _haClient,
+            _embeddingResolver,
+            _deviceCache,
+            _mockLocationService,
+            _entityMatcher,
+            CreateFanControlSkillOptionsMonitor(),
+            _loggerFactory.CreateLogger<FanControlSkill>());
+        var climateAgent = new ClimateAgent(_mockChatClientResolver, _mockDefinitionRepo, climateSkill, fanSkill, _tracingFactory, _loggerFactory);
+        _climateAgentCard = climateAgent.GetAgentCard();
+
+        // ListsAgent card
+        var listSkill = new ListSkill(_haClient, _loggerFactory.CreateLogger<ListSkill>());
+        var listsAgent = new ListsAgent(_mockChatClientResolver, _mockDefinitionRepo, listSkill, _tracingFactory, _loggerFactory);
+        _listsAgentCard = listsAgent.GetAgentCard();
+
+        // SceneAgent card
+        var sceneSkill = new SceneControlSkill(
+            _haClient,
+            _mockLocationService,
+            CreateSceneControlSkillOptionsMonitor(),
+            _loggerFactory.CreateLogger<SceneControlSkill>());
+        var sceneAgent = new SceneAgent(_mockChatClientResolver, _mockDefinitionRepo, sceneSkill, _tracingFactory, _loggerFactory);
+        _sceneAgentCard = sceneAgent.GetAgentCard();
     }
 }

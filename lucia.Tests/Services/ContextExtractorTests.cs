@@ -1,4 +1,5 @@
 using lucia.Agents.Integration;
+using lucia.Agents.Extensions;
 
 namespace lucia.Tests.Services;
 
@@ -21,14 +22,14 @@ public sealed class ContextExtractorTests
     #region Helpers
 
     /// <summary>
-    /// Creates a test AgentMessage with text content
+    /// Creates a test Message with text content
     /// </summary>
-    private static AgentMessage CreateMessage(string text, MessageRole role = MessageRole.User, Dictionary<string, JsonElement>? metadata = null)
+    private static Message CreateMessage(string text, Role role = Role.User, Dictionary<string, JsonElement>? metadata = null)
     {
-        return new AgentMessage
+        return new Message
         {
             Role = role,
-            Parts = new() { new TextPart { Text = text } },
+            Parts = new() { new Part { Text = text } },
             Metadata = metadata,
             MessageId = Guid.NewGuid().ToString()
         };
@@ -48,28 +49,28 @@ public sealed class ContextExtractorTests
             {
                 Name = "light-agent",
                 Description = "Controls lighting and brightness #lighting #brightness #scenes",
-                Url = "http://light-agent",
+                SupportedInterfaces = [new AgentInterface { Url = "http://light-agent" }],
                 IconUrl = "http://light-agent/icon"
             },
             new AgentCard
             {
                 Name = "music-agent",
                 Description = "Manages music playback and audio #music #audio #playback",
-                Url = "http://music-agent",
+                SupportedInterfaces = [new AgentInterface { Url = "http://music-agent" }],
                 IconUrl = "http://music-agent/icon"
             },
             new AgentCard
             {
                 Name = "climate-agent",
                 Description = "Controls temperature and HVAC #climate #temperature #hvac",
-                Url = "http://climate-agent",
+                SupportedInterfaces = [new AgentInterface { Url = "http://climate-agent" }],
                 IconUrl = "http://climate-agent/icon"
             },
             new AgentCard
             {
                 Name = "security-agent",
                 Description = "Manages security and alarms #security #alarm #locks",
-                Url = "http://security-agent",
+                SupportedInterfaces = [new AgentInterface { Url = "http://security-agent" }],
                 IconUrl = "http://security-agent/icon"
             }
         };
@@ -693,14 +694,14 @@ public sealed class ContextExtractorTests
         var registry = await CreateMockAgentRegistry();
         var extractor = new ContextExtractor(registry);
 
-        var message = new AgentMessage
+        var message = new Message
         {
-            Role = MessageRole.User,
+            Role = Role.User,
             Parts = new()
             {
-                new TextPart { Text = "Turn on" },
-                new TextPart { Text = "the bedroom" },
-                new TextPart { Text = "lamp" }
+                new Part { Text = "Turn on" },
+                new Part { Text = "the bedroom" },
+                new Part { Text = "lamp" }
             },
             MessageId = Guid.NewGuid().ToString()
         };

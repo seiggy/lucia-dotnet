@@ -1,3 +1,4 @@
+using lucia.Agents.Extensions;
 using System.Text.Json;
 using A2A;
 using lucia.AgentHost.Extensions;
@@ -156,7 +157,8 @@ public static class TaskManagementApi
             return TypedResults.NotFound();
         }
 
-        await taskStore.UpdateStatusAsync(id, TaskState.Canceled, cancellationToken: ct).ConfigureAwait(false);
+        task.Status = new A2A.TaskStatus { State = TaskState.Canceled, Timestamp = DateTimeOffset.UtcNow };
+        await taskStore.SaveTaskAsync(id, task, ct).ConfigureAwait(false);
         return TypedResults.Ok();
     }
 
@@ -164,8 +166,8 @@ public static class TaskManagementApi
     {
         var history = task.History ?? [];
         var userInput = history
-            .Where(m => m.Role == MessageRole.User)
-            .SelectMany(m => m.Parts?.OfType<TextPart>() ?? [])
+            .Where(m => m.Role == Role.User)
+            .SelectMany(m => m.Parts?.Where(p => p.ContentCase == PartContentCase.Text) ?? [])
             .FirstOrDefault()?.Text;
 
         return new ActiveTaskSummary
@@ -175,7 +177,7 @@ public static class TaskManagementApi
             Status = task.Status.State.ToString(),
             MessageCount = history.Count,
             UserInput = userInput is { Length: > 200 } ? userInput[..200] + "…" : userInput,
-            LastUpdated = task.Status.Timestamp.UtcDateTime,
+            LastUpdated = task.Status.Timestamp?.UtcDateTime ?? DateTime.UtcNow,
         };
     }
 }

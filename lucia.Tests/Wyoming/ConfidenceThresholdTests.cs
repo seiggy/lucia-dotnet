@@ -1,7 +1,7 @@
 using lucia.Agents.Abstractions;
+using lucia.Tests.Helpers;
 using lucia.Wyoming.CommandRouting;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
 
 namespace lucia.Tests.Wyoming;
 
@@ -62,7 +62,7 @@ public sealed class ConfidenceThresholdTests
 
         return new CommandPatternRouter(
             matcher,
-            Options.Create(
+            new TestOptionsMonitor<CommandRoutingOptions>(
                 new CommandRoutingOptions
                 {
                     Enabled = true,

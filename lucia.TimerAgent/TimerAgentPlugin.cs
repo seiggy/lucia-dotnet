@@ -54,6 +54,6 @@ public sealed class TimerAgentPlugin : IAgentPlugin
         // Primary A2A endpoint — used by mesh mode (A2AHost) and standalone mode alike.
         // In standalone mode, AgentDiscoveryExtension separately maps the /a2a/timer-agent
         // path from the agent card URL, so no mirror mapping is needed here.
-        app.MapA2ALazy(() => timerAgent.GetAIAgent(), path: "/timers", agentCard: timerAgent.GetAgentCard(), taskManager => app.MapWellKnownAgentCard(taskManager, "/timers"));
+        app.MapA2ALazy(() => timerAgent.GetAIAgent(), path: "/timers", agentCard: timerAgent.GetAgentCard());
     }
 }

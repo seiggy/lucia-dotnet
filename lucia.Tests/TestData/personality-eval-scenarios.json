@@ -1,0 +1,613 @@
+[
+  {
+    "id": "personality-success-light-on",
+    "category": "success-preservation",
+    "description": "Light turned on should remain a success confirmation",
+    "skillId": "LightControlSkill",
+    "action": "toggle",
+    "agentResponse": "'Kitchen Light' turned on.",
+    "personalityPrompt": "You are a friendly, witty smart home assistant named Lucia.",
+    "personalityProfileIds": [
+      "pirate",
+      "hal9000",
+      "samuel-jackson",
+      "gen-alpha"
+    ],
+    "expectations": {
+      "mustContain": [
+        "kitchen",
+        "light",
+        "on"
+      ],
+      "mustNotContain": [
+        "can't",
+        "unable",
+        "sorry",
+        "AI",
+        "language model",
+        "I'm just",
+        "as an AI"
+      ],
+      "sentimentPreserved": "positive",
+      "maxLength": 500,
+      "isQuestion": false
+    }
+  },
+  {
+    "id": "personality-success-light-off",
+    "category": "success-preservation",
+    "description": "Light turned off must preserve the off state \u2014 not invert to on",
+    "skillId": "LightControlSkill",
+    "action": "toggle",
+    "agentResponse": "'Bedroom Light' turned off.",
+    "personalityPrompt": "You are a friendly, witty smart home assistant named Lucia.",
+    "personalityProfileIds": [
+      "pirate",
+      "hal9000",
+      "samuel-jackson",
+      "gen-alpha"
+    ],
+    "expectations": {
+      "mustContain": [
+        "bedroom",
+        "off"
+      ],
+      "mustNotContain": [
+        "can't",
+        "unable",
+        "sorry",
+        "turned on",
+        "switched on"
+      ],
+      "sentimentPreserved": "positive",
+      "maxLength": 500,
+      "isQuestion": false
+    }
+  },
+  {
+    "id": "personality-success-temperature-set",
+    "category": "success-preservation",
+    "description": "Temperature set confirmation must preserve the target value",
+    "skillId": "ClimateControlSkill",
+    "action": "set_temperature",
+    "agentResponse": "Living room thermostat set to 72\u00b0F.",
+    "personalityPrompt": "You are a friendly, witty smart home assistant named Lucia.",
+    "personalityProfileIds": [
+      "pirate",
+      "hal9000",
+      "samuel-jackson",
+      "gen-alpha"
+    ],
+    "expectations": {
+      "mustContain": [
+        "living room",
+        "72"
+      ],
+      "mustNotContain": [
+        "can't",
+        "unable",
+        "sorry",
+        "AI",
+        "language model"
+      ],
+      "sentimentPreserved": "positive",
+      "maxLength": 500,
+      "isQuestion": false
+    }
+  },
+  {
+    "id": "personality-success-scene-activated",
+    "category": "success-preservation",
+    "description": "Scene activation must preserve the scene name",
+    "skillId": "SceneControlSkill",
+    "action": "activate",
+    "agentResponse": "Scene 'Movie Night' activated.",
+    "personalityPrompt": "You are a friendly, witty smart home assistant named Lucia.",
+    "personalityProfileIds": [
+      "pirate",
+      "hal9000",
+      "samuel-jackson",
+      "gen-alpha"
+    ],
+    "expectations": {
+      "mustContain": [
+        "movie night"
+      ],
+      "mustNotContain": [
+        "can't",
+        "unable",
+        "sorry",
+        "AI",
+        "language model",
+        "not found"
+      ],
+      "sentimentPreserved": "positive",
+      "maxLength": 500,
+      "isQuestion": false
+    }
+  },
+  {
+    "id": "personality-success-music-playing",
+    "category": "success-preservation",
+    "description": "Music playback confirmation must preserve what is playing and where",
+    "skillId": "MusicPlaybackSkill",
+    "action": "play",
+    "agentResponse": "Now playing 'Jazz Vibes' on Living Room Speaker.",
+    "personalityPrompt": "You are a friendly, witty smart home assistant named Lucia.",
+    "personalityProfileIds": [
+      "pirate",
+      "hal9000",
+      "samuel-jackson",
+      "gen-alpha"
+    ],
+    "expectations": {
+      "mustContain": [
+        "jazz",
+        "living room"
+      ],
+      "mustNotContain": [
+        "can't",
+        "unable",
+        "sorry",
+        "AI",
+        "language model"
+      ],
+      "sentimentPreserved": "positive",
+      "maxLength": 500,
+      "isQuestion": false
+    }
+  },
+  {
+    "id": "personality-error-device-not-found",
+    "category": "error-preservation",
+    "description": "Device-not-found error must remain an error \u2014 not become a refusal",
+    "skillId": "LightControlSkill",
+    "action": "toggle",
+    "agentResponse": "I couldn't find a device matching 'patio heater'.",
+    "personalityPrompt": "You are a friendly, witty smart home assistant named Lucia.",
+    "personalityProfileIds": [
+      "pirate",
+      "hal9000",
+      "samuel-jackson",
+      "gen-alpha"
+    ],
+    "expectations": {
+      "mustContain": [
+        "patio heater"
+      ],
+      "mustNotContain": [
+        "I'm an AI",
+        "language model",
+        "I cannot",
+        "I don't have the ability",
+        "as an AI"
+      ],
+      "sentimentPreserved": "negative",
+      "maxLength": 500,
+      "isQuestion": false
+    }
+  },
+  {
+    "id": "personality-error-service-unavailable",
+    "category": "error-preservation",
+    "description": "Service unavailable error must be preserved \u2014 not turned into a refusal or success",
+    "skillId": "ClimateControlSkill",
+    "action": "set_temperature",
+    "agentResponse": "The climate service is currently unavailable. Please try again later.",
+    "personalityPrompt": "You are a friendly, witty smart home assistant named Lucia.",
+    "personalityProfileIds": [
+      "pirate",
+      "hal9000",
+      "samuel-jackson",
+      "gen-alpha"
+    ],
+    "expectations": {
+      "mustContain": [
+        "unavailable"
+      ],
+      "mustNotContain": [
+        "I'm an AI",
+        "language model",
+        "set to",
+        "temperature is now"
+      ],
+      "sentimentPreserved": "negative",
+      "maxLength": 500,
+      "isQuestion": false
+    }
+  },
+  {
+    "id": "personality-error-ambiguous-room",
+    "category": "error-preservation",
+    "description": "Ambiguous room error must preserve that multiple matches were found",
+    "skillId": "LightControlSkill",
+    "action": "toggle",
+    "agentResponse": "Multiple lights match 'lamp'. Did you mean: Living Room Lamp, Bedroom Lamp, or Office Lamp?",
+    "personalityPrompt": "You are a friendly, witty smart home assistant named Lucia.",
+    "personalityProfileIds": [
+      "pirate",
+      "hal9000",
+      "samuel-jackson",
+      "gen-alpha"
+    ],
+    "expectations": {
+      "mustContain": [
+        "living room",
+        "bedroom",
+        "office"
+      ],
+      "mustNotContain": [
+        "I'm an AI",
+        "language model",
+        "turned on",
+        "turned off"
+      ],
+      "sentimentPreserved": "neutral",
+      "maxLength": 500,
+      "isQuestion": true
+    }
+  },
+  {
+    "id": "personality-error-invalid-parameter",
+    "category": "error-preservation",
+    "description": "Invalid parameter error must preserve the invalid value",
+    "skillId": "ClimateControlSkill",
+    "action": "set_temperature",
+    "agentResponse": "Temperature value '150' is out of range. Valid range is 50-90\u00b0F.",
+    "personalityPrompt": "You are a friendly, witty smart home assistant named Lucia.",
+    "personalityProfileIds": [
+      "pirate",
+      "hal9000",
+      "samuel-jackson",
+      "gen-alpha"
+    ],
+    "expectations": {
+      "mustContain": [
+        "150",
+        "range"
+      ],
+      "mustNotContain": [
+        "I'm an AI",
+        "language model",
+        "set to 150"
+      ],
+      "sentimentPreserved": "negative",
+      "maxLength": 500,
+      "isQuestion": false
+    }
+  },
+  {
+    "id": "personality-error-player-not-found",
+    "category": "error-preservation",
+    "description": "Player not found error must stay an error \u2014 #1 refusal injection failure mode",
+    "skillId": "MusicPlaybackSkill",
+    "action": "play",
+    "agentResponse": "I couldn't find a media player called 'garage speaker'. Available players: Living Room Speaker, Bedroom Speaker.",
+    "personalityPrompt": "You are a friendly, witty smart home assistant named Lucia.",
+    "personalityProfileIds": [
+      "pirate",
+      "hal9000",
+      "samuel-jackson",
+      "gen-alpha"
+    ],
+    "expectations": {
+      "mustContain": [
+        "garage speaker"
+      ],
+      "mustNotContain": [
+        "I'm an AI",
+        "language model",
+        "I don't have the ability",
+        "as an AI",
+        "now playing"
+      ],
+      "sentimentPreserved": "negative",
+      "maxLength": 500,
+      "isQuestion": false
+    }
+  },
+  {
+    "id": "personality-clarification-which-room",
+    "category": "clarification-preservation",
+    "description": "Clarification question asking which room must remain a question",
+    "skillId": "LightControlSkill",
+    "action": "toggle",
+    "agentResponse": "Which room would you like me to turn the lights on in?",
+    "personalityPrompt": "You are a friendly, witty smart home assistant named Lucia.",
+    "personalityProfileIds": [
+      "pirate",
+      "hal9000",
+      "samuel-jackson",
+      "gen-alpha"
+    ],
+    "expectations": {
+      "mustContain": [
+        "room",
+        "light"
+      ],
+      "mustNotContain": [
+        "I'm an AI",
+        "language model",
+        "turned on",
+        "turned off",
+        "done"
+      ],
+      "sentimentPreserved": "neutral",
+      "maxLength": 500,
+      "isQuestion": true
+    }
+  },
+  {
+    "id": "personality-clarification-which-device",
+    "category": "clarification-preservation",
+    "description": "Clarification question asking which device must remain a question",
+    "skillId": "LightControlSkill",
+    "action": "toggle",
+    "agentResponse": "There are several lights in the bedroom. Which one: Bedside Lamp, Ceiling Light, or Reading Light?",
+    "personalityPrompt": "You are a friendly, witty smart home assistant named Lucia.",
+    "personalityProfileIds": [
+      "pirate",
+      "hal9000",
+      "samuel-jackson",
+      "gen-alpha"
+    ],
+    "expectations": {
+      "mustContain": [
+        "bedside",
+        "ceiling",
+        "reading"
+      ],
+      "mustNotContain": [
+        "I'm an AI",
+        "language model",
+        "turned on",
+        "done"
+      ],
+      "sentimentPreserved": "neutral",
+      "maxLength": 500,
+      "isQuestion": true
+    }
+  },
+  {
+    "id": "personality-clarification-what-temperature",
+    "category": "clarification-preservation",
+    "description": "Clarification question asking target temperature must remain a question",
+    "skillId": "ClimateControlSkill",
+    "action": "set_temperature",
+    "agentResponse": "What temperature would you like to set the living room thermostat to?",
+    "personalityPrompt": "You are a friendly, witty smart home assistant named Lucia.",
+    "personalityProfileIds": [
+      "pirate",
+      "hal9000",
+      "samuel-jackson",
+      "gen-alpha"
+    ],
+    "expectations": {
+      "mustContain": [
+        "temperature",
+        "living room"
+      ],
+      "mustNotContain": [
+        "I'm an AI",
+        "language model",
+        "set to",
+        "done"
+      ],
+      "sentimentPreserved": "neutral",
+      "maxLength": 500,
+      "isQuestion": true
+    }
+  },
+  {
+    "id": "personality-multi-agent-lights-music",
+    "category": "multi-agent-preservation",
+    "description": "Combined lights+music success must preserve both actions",
+    "skillId": "Orchestrator",
+    "action": "multi-agent",
+    "agentResponse": "Turned on the living room lights. Now playing 'Chill Beats' on Living Room Speaker.",
+    "personalityPrompt": "You are a friendly, witty smart home assistant named Lucia.",
+    "personalityProfileIds": [
+      "pirate",
+      "hal9000",
+      "samuel-jackson",
+      "gen-alpha"
+    ],
+    "expectations": {
+      "mustContain": [
+        "light",
+        "living room",
+        "chill beats"
+      ],
+      "mustNotContain": [
+        "can't",
+        "unable",
+        "sorry",
+        "AI",
+        "language model"
+      ],
+      "sentimentPreserved": "positive",
+      "maxLength": 600,
+      "isQuestion": false
+    }
+  },
+  {
+    "id": "personality-multi-agent-lights-climate",
+    "category": "multi-agent-preservation",
+    "description": "Combined lights+climate success must preserve both actions and values",
+    "skillId": "Orchestrator",
+    "action": "multi-agent",
+    "agentResponse": "Turned on the bedroom lights. Set bedroom thermostat to 68\u00b0F.",
+    "personalityPrompt": "You are a friendly, witty smart home assistant named Lucia.",
+    "personalityProfileIds": [
+      "pirate",
+      "hal9000",
+      "samuel-jackson",
+      "gen-alpha"
+    ],
+    "expectations": {
+      "mustContain": [
+        "bedroom",
+        "light",
+        "68"
+      ],
+      "mustNotContain": [
+        "can't",
+        "unable",
+        "sorry",
+        "AI",
+        "language model"
+      ],
+      "sentimentPreserved": "positive",
+      "maxLength": 600,
+      "isQuestion": false
+    }
+  },
+  {
+    "id": "personality-multi-agent-partial-failure",
+    "category": "multi-agent-preservation",
+    "description": "Mixed success/failure must preserve both the success and the failure details",
+    "skillId": "Orchestrator",
+    "action": "multi-agent",
+    "agentResponse": "Turned on the living room lights. However, I couldn't complete Music Agent: media player not found.",
+    "personalityPrompt": "You are a friendly, witty smart home assistant named Lucia.",
+    "personalityProfileIds": [
+      "pirate",
+      "hal9000",
+      "samuel-jackson",
+      "gen-alpha"
+    ],
+    "expectations": {
+      "mustContain": [
+        "light",
+        "living room"
+      ],
+      "mustNotContain": [
+        "I'm an AI",
+        "language model",
+        "all done",
+        "everything is set"
+      ],
+      "sentimentPreserved": "mixed",
+      "maxLength": 600,
+      "isQuestion": false
+    }
+  },
+  {
+    "id": "personality-voice-tag-with-ssml",
+    "category": "voice-tag",
+    "description": "When voice tags enabled, response may include paralinguistic tags but must stay valid",
+    "skillId": "LightControlSkill",
+    "action": "toggle",
+    "agentResponse": "'Kitchen Light' turned on.",
+    "personalityPrompt": "You are a friendly, witty smart home assistant named Lucia. Include paralinguistic voice tags like [laugh], [sigh] for personality.",
+    "voiceTagsEnabled": true,
+    "personalityProfileIds": [
+      "pirate",
+      "samuel-jackson"
+    ],
+    "expectations": {
+      "mustContain": [
+        "kitchen",
+        "light",
+        "on"
+      ],
+      "mustNotContain": [
+        "can't",
+        "unable",
+        "sorry",
+        "AI",
+        "language model"
+      ],
+      "sentimentPreserved": "positive",
+      "maxLength": 500,
+      "isQuestion": false
+    }
+  },
+  {
+    "id": "personality-voice-tag-without-ssml",
+    "category": "voice-tag",
+    "description": "When voice tags disabled, response must be plain text without markup",
+    "skillId": "LightControlSkill",
+    "action": "toggle",
+    "agentResponse": "'Living Room Light' turned off.",
+    "personalityPrompt": "You are a friendly, witty smart home assistant named Lucia.",
+    "voiceTagsEnabled": false,
+    "personalityProfileIds": [
+      "pirate",
+      "samuel-jackson"
+    ],
+    "expectations": {
+      "mustContain": [
+        "living room",
+        "off"
+      ],
+      "mustNotContain": [
+        "<speak>",
+        "</speak>",
+        "<break",
+        "<prosody",
+        "SSML",
+        "can't",
+        "unable"
+      ],
+      "sentimentPreserved": "positive",
+      "maxLength": 500,
+      "isQuestion": false
+    }
+  },
+  {
+    "id": "personality-brevity-simple-confirmation",
+    "category": "brevity",
+    "description": "Simple on/off confirmation must stay brief for TTS \u2014 not become a paragraph",
+    "skillId": "LightControlSkill",
+    "action": "toggle",
+    "agentResponse": "Done.",
+    "personalityPrompt": "You are a friendly, witty smart home assistant named Lucia.",
+    "personalityProfileIds": [
+      "pirate",
+      "hal9000",
+      "samuel-jackson",
+      "gen-alpha"
+    ],
+    "expectations": {
+      "mustContain": [],
+      "mustNotContain": [
+        "I'm an AI",
+        "language model",
+        "as an AI"
+      ],
+      "sentimentPreserved": "positive",
+      "maxLength": 200,
+      "isQuestion": false
+    }
+  },
+  {
+    "id": "personality-brevity-timer-set",
+    "category": "brevity",
+    "description": "Timer set confirmation must stay concise and preserve the duration",
+    "skillId": "TimerSkill",
+    "action": "set",
+    "agentResponse": "Timer set for 5 minutes.",
+    "personalityPrompt": "You are a friendly, witty smart home assistant named Lucia.",
+    "personalityProfileIds": [
+      "pirate",
+      "hal9000",
+      "samuel-jackson",
+      "gen-alpha"
+    ],
+    "expectations": {
+      "mustContain": [
+        "5",
+        "minute"
+      ],
+      "mustNotContain": [
+        "I'm an AI",
+        "language model",
+        "as an AI"
+      ],
+      "sentimentPreserved": "positive",
+      "maxLength": 200,
+      "isQuestion": false
+    }
+  }
+]

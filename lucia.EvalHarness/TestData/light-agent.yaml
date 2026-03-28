@@ -1,0 +1,194 @@
+# Light Agent Evaluation Scenarios
+# Each scenario defines: known HA state -> user prompt -> expected tool calls -> expected outcome
+# Entity IDs are real values from the HA snapshot
+
+scenarios:
+
+  # --- Control: Turn On ---
+  - id: turn_on_kitchen_light
+    description: "Turn on a light that is currently off"
+    category: control
+    initial_state:
+      light.kitchen_light:
+        state: "off"
+        attributes:
+          friendly_name: "Kitchen Light"
+    user_prompt: "Turn on the kitchen light"
+    expected_tool_calls:
+      - tool: ControlLights
+        arguments:
+          searchTerms: "contains:kitchen light"
+          state: "on"
+    response_must_contain:
+      - "kitchen"
+    expected_final_state:
+      light.kitchen_light:
+        state: "on"
+
+  # --- Control: Turn Off ---
+  - id: turn_off_bedroom_lights
+    description: "Turn off lights in the bedroom area (multiple lights)"
+    category: control
+    initial_state:
+      light.bedroom_ceiling_fan_white_light:
+        state: "on"
+        attributes:
+          friendly_name: "Bedroom Ceiling Fan White Light"
+          brightness: 200
+      light.bedroom_ceiling_fan_yellow_light:
+        state: "on"
+        attributes:
+          friendly_name: "Bedroom Ceiling Fan Yellow Light"
+          brightness: 150
+    user_prompt: "Turn off the bedroom lights"
+    expected_tool_calls:
+      - tool: ControlLights
+        arguments:
+          searchTerms: "contains:bedroom lights"
+          state: "off"
+    response_must_contain:
+      - "bedroom"
+    expected_final_state:
+      light.bedroom_ceiling_fan_white_light:
+        state: "off"
+      light.bedroom_ceiling_fan_yellow_light:
+        state: "off"
+
+  # --- Control: Dim ---
+  - id: dim_living_room_to_30
+    description: "Dim living room lights to a specific brightness"
+    category: control
+    initial_state:
+      light.living_room_floor_lamp:
+        state: "on"
+        attributes:
+          friendly_name: "Living Room Floor Lamp"
+          brightness: 255
+    user_prompt: "Dim the living room lights to 30 percent"
+    expected_tool_calls:
+      - tool: ControlLights
+        arguments:
+          searchTerms: "contains:living room lights"
+          state: "on"
+          brightness: "*"
+    response_must_contain:
+      - "30"
+
+  # --- Control: Color ---
+  - id: set_office_light_blue
+    description: "Change a light's color"
+    category: control
+    initial_state:
+      light.zacks_office_lamp:
+        state: "on"
+        attributes:
+          friendly_name: "Zack's Office Lamp"
+          brightness: 200
+    user_prompt: "Set the office light to blue"
+    expected_tool_calls:
+      - tool: ControlLights
+        arguments:
+          searchTerms: "contains:office light"
+          state: "on"
+          color: "contains:blue"
+
+  # --- Query: Get State (on) ---
+  - id: query_kitchen_state_on
+    description: "Ask about a light that is currently on"
+    category: query
+    initial_state:
+      light.kitchen_light:
+        state: "on"
+        attributes:
+          friendly_name: "Kitchen Light"
+          brightness: 204
+    user_prompt: "Is the kitchen light on or off?"
+    expected_tool_calls:
+      - tool: GetLightsState
+        arguments:
+          searchTerms: "contains:kitchen light"
+    response_must_contain:
+      - "on"
+
+  # --- Query: Get State (off) ---
+  - id: query_kitchen_state_off
+    description: "Ask about a light that is currently off"
+    category: query
+    initial_state:
+      light.kitchen_light:
+        state: "off"
+        attributes:
+          friendly_name: "Kitchen Light"
+    user_prompt: "Is the kitchen light on?"
+    expected_tool_calls:
+      - tool: GetLightsState
+        arguments:
+          searchTerms: "contains:kitchen light"
+    response_must_contain:
+      - "off"
+
+  # --- Query: Area Listing ---
+  - id: list_garage_lights
+    description: "Ask what lights exist in an area"
+    category: query
+    initial_state:
+      switch.garage_light:
+        state: "on"
+        attributes:
+          friendly_name: "Garage Light"
+    user_prompt: "What lights are in the garage?"
+    expected_tool_calls:
+      - tool: GetLightsState
+        arguments:
+          searchTerms: "contains:garage lights"
+
+  # --- STT Robustness ---
+  - id: stt_fuzzy_dim_kitchen
+    description: "Handle STT transcription errors (misspelled kitchen, dim)"
+    category: stt-robustness
+    initial_state:
+      light.kitchen_light:
+        state: "on"
+        attributes:
+          friendly_name: "Kitchen Light"
+          brightness: 255
+    user_prompt: "Dimm the kichen lite to fifdy percent"
+    expected_tool_calls:
+      - tool: ControlLights
+        arguments:
+          searchTerms: "*"
+          state: "on"
+          brightness: "*"
+
+  # --- Out of Domain ---
+  - id: out_of_domain_weather
+    description: "Reject non-lighting request"
+    category: out-of-domain
+    user_prompt: "What's the weather like today?"
+    expected_tool_calls: []
+    response_must_not_contain:
+      - "turn"
+      - "brightness"
+
+  - id: out_of_domain_thermostat
+    description: "Redirect climate request to correct agent"
+    category: out-of-domain
+    user_prompt: "Set the thermostat to 72 degrees"
+    expected_tool_calls: []
+
+  # --- Edge Case: Already On ---
+  - id: turn_on_already_on
+    description: "Turn on a light that is already on - agent should still call the tool"
+    category: edge-case
+    initial_state:
+      light.kitchen_light:
+        state: "on"
+        attributes:
+          friendly_name: "Kitchen Light"
+          brightness: 255
+    user_prompt: "Turn on the kitchen light"
+    expected_tool_calls:
+      - tool: ControlLights
+        arguments:
+          searchTerms: "contains:kitchen"
+          state: "on"

@@ -9,20 +9,20 @@ namespace lucia.Agents.Orchestration;
 /// <summary>
 /// Manages session lifecycle and task persistence for the orchestrator.
 /// Handles loading/saving sessions from the Redis cache and creating/updating
-/// durable agent tasks via the A2A task manager.
+/// durable agent tasks via the A2A task store.
 /// </summary>
 public sealed class SessionManager
 {
     private readonly ISessionCacheService? _sessionCache;
-    private readonly ITaskManager _taskManager;
+    private readonly ITaskStore _taskStore;
     private readonly ILogger<SessionManager> _logger;
 
     public SessionManager(
-        ITaskManager taskManager,
+        ITaskStore taskStore,
         ILogger<SessionManager> logger,
         ISessionCacheService? sessionCache = null)
     {
-        _taskManager = taskManager ?? throw new ArgumentNullException(nameof(taskManager));
+        _taskStore = taskStore ?? throw new ArgumentNullException(nameof(taskStore));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _sessionCache = sessionCache;
     }
@@ -58,8 +58,7 @@ public sealed class SessionManager
     {
         if (!string.IsNullOrWhiteSpace(taskId))
         {
-            var taskQueryParams = new TaskQueryParams { Id = taskId };
-            var existingTask = await _taskManager.GetTaskAsync(taskQueryParams, cancellationToken).ConfigureAwait(false);
+            var existingTask = await _taskStore.GetTaskAsync(taskId, cancellationToken).ConfigureAwait(false);
 
             if (existingTask is not null)
             {
@@ -69,33 +68,58 @@ public sealed class SessionManager
             }
 
             _logger.LogWarning("Task {TaskId} not found, creating new task", taskId);
-            return await _taskManager.CreateTaskAsync(sessionId, taskId, cancellationToken).ConfigureAwait(false);
         }
 
-        var agentTask = await _taskManager.CreateTaskAsync(sessionId, taskId: null, cancellationToken).ConfigureAwait(false);
+        var newTaskId = taskId ?? Guid.NewGuid().ToString("N");
+        var agentTask = new AgentTask
+        {
+            Id = newTaskId,
+            ContextId = sessionId ?? Guid.NewGuid().ToString("N"),
+            Status = new A2A.TaskStatus { State = TaskState.Submitted, Timestamp = DateTimeOffset.UtcNow }
+        };
+        await _taskStore.SaveTaskAsync(newTaskId, agentTask, cancellationToken).ConfigureAwait(false);
         _logger.LogInformation("Created new task {TaskId} with context {ContextId}",
             agentTask.Id, agentTask.ContextId);
         return agentTask;
     }
 
     /// <summary>
-    /// Delegates task status update to the underlying task manager.
+    /// Updates task status and persists the change to the task store.
     /// </summary>
-    public Task UpdateTaskStatusAsync(
+    public async Task UpdateTaskStatusAsync(
         string taskId,
         TaskState state,
-        AgentMessage? message,
+        Message? message,
         bool final,
         CancellationToken cancellationToken)
     {
         try
         {
-            return _taskManager.UpdateStatusAsync(taskId, state, message, final, cancellationToken);
+            var task = await _taskStore.GetTaskAsync(taskId, cancellationToken).ConfigureAwait(false);
+            if (task is null)
+            {
+                _logger.LogWarning("Cannot update status for task {TaskId}: not found.", taskId);
+                return;
+            }
+
+            if (message is not null)
+            {
+                task.History ??= [];
+                task.History.Add(message);
+            }
+
+            task.Status = new A2A.TaskStatus
+            {
+                State = state,
+                Message = message,
+                Timestamp = DateTimeOffset.UtcNow
+            };
+
+            await _taskStore.SaveTaskAsync(taskId, task, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception e)
         {
             _logger.LogError(e, "Error attempting to update the task status.");
-            return Task.CompletedTask;
         }
     }
 

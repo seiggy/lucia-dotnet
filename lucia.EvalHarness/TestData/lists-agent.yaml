@@ -1,0 +1,54 @@
+# Lists Agent Evaluation Dataset
+# Tests shopping list and todo management
+
+data:
+  - id: add_to_shopping
+    input: "Add milk to the shopping list"
+    expected: "milk"
+    expected_tools:
+      - ListSkill
+    criteria:
+      - "Adds milk to shopping list"
+      - "Confirms the addition"
+
+  - id: add_multiple_items
+    input: "Add eggs, bread, and butter to my shopping list"
+    expected: "eggs"
+    expected_tools:
+      - ListSkill
+    criteria:
+      - "Adds all three items"
+      - "Handles comma-separated list"
+
+  - id: show_list
+    input: "What's on my shopping list?"
+    expected: "list"
+    expected_tools:
+      - ListSkill
+    criteria:
+      - "Retrieves and displays current shopping list"
+
+  - id: remove_item
+    input: "Remove bread from the shopping list"
+    expected: "bread"
+    expected_tools:
+      - ListSkill
+    criteria:
+      - "Removes bread from the list"
+      - "Confirms removal"
+
+  - id: clear_list
+    input: "Clear the shopping list"
+    expected: "clear"
+    expected_tools:
+      - ListSkill
+    criteria:
+      - "Clears all items from the list"
+
+  - id: out_of_domain
+    input: "Turn on the lights"
+    expected_tools: []
+    criteria:
+      - "Recognizes this is not a list management request"
+    metadata:
+      category: out-of-domain

@@ -49,19 +49,19 @@ public sealed class TaskPersistenceMetricsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task SetTaskAsync_RecordsTaskSaveDurationMetric()
+    public async Task SaveTaskAsync_RecordsTaskSaveDurationMetric()
     {
         // Arrange
         var task = new AgentTask
         {
             Id = Guid.NewGuid().ToString(),
             ContextId = Guid.NewGuid().ToString(),
-            Status = new AgentTaskStatus { State = TaskState.Submitted },
-            History = new List<AgentMessage>()
+            Status = new A2A.TaskStatus { State = TaskState.Submitted },
+            History = new List<Message>()
         };
 
         // Act
-        await _taskStore!.SetTaskAsync(task);
+        await _taskStore!.SaveTaskAsync(task.Id, task);
 
         // Assert - Task saved successfully (metric recorded internally)
         var retrievedTask = await _taskStore.GetTaskAsync(task.Id);
@@ -77,21 +77,21 @@ public sealed class TaskPersistenceMetricsTests : IAsyncLifetime
         {
             Id = Guid.NewGuid().ToString(),
             ContextId = Guid.NewGuid().ToString(),
-            Status = new AgentTaskStatus { State = TaskState.Working },
-            History = new List<AgentMessage>
+            Status = new A2A.TaskStatus { State = TaskState.Working },
+            History = new List<Message>
             {
                 new()
                 {
-                    Role = MessageRole.User,
+                    Role = A2A.Role.User,
                     MessageId = Guid.NewGuid().ToString("N"),
                     TaskId = null,
                     ContextId = null,
-                    Parts = new List<Part> { new TextPart { Text = "Turn on lights" } }
+                    Parts = new List<Part> { new Part { Text = "Turn on lights" } }
                 }
             }
         };
 
-        await _taskStore!.SetTaskAsync(task);
+        await _taskStore!.SaveTaskAsync(task.Id, task);
 
         // Act - Load from cache (hit)
         var retrievedTask = await _taskStore.GetTaskAsync(task.Id);
@@ -123,14 +123,14 @@ public sealed class TaskPersistenceMetricsTests : IAsyncLifetime
             {
                 Id = $"task-{i}",
                 ContextId = Guid.NewGuid().ToString(),
-                Status = new AgentTaskStatus { State = TaskState.Submitted }
+                Status = new A2A.TaskStatus { State = TaskState.Submitted }
             });
         }
 
         // Act - Save all tasks
         foreach (var task in tasks)
         {
-            await _taskStore!.SetTaskAsync(task);
+            await _taskStore!.SaveTaskAsync(task.Id, task);
         }
 
         // Load some tasks (cache hits)
@@ -159,34 +159,34 @@ public sealed class TaskPersistenceMetricsTests : IAsyncLifetime
         {
             Id = Guid.NewGuid().ToString(),
             ContextId = Guid.NewGuid().ToString(),
-            Status = new AgentTaskStatus 
+            Status = new A2A.TaskStatus 
             { 
                 State = TaskState.Completed,
                 Timestamp = DateTimeOffset.UtcNow
             },
-            History = new List<AgentMessage>
+            History = new List<Message>
             {
                 new()
                 {
-                    Role = MessageRole.User,
+                    Role = A2A.Role.User,
                     MessageId = Guid.NewGuid().ToString("N"),
                     TaskId = null,
                     ContextId = null,
-                    Parts = new List<Part> { new TextPart { Text = "Test operation" } }
+                    Parts = new List<Part> { new Part { Text = "Test operation" } }
                 },
                 new()
                 {
-                    Role = MessageRole.Agent,
+                    Role = A2A.Role.Agent,
                     MessageId = Guid.NewGuid().ToString("N"),
                     TaskId = null,
                     ContextId = null,
-                    Parts = new List<Part> { new TextPart { Text = "Operation complete" } }
+                    Parts = new List<Part> { new Part { Text = "Operation complete" } }
                 }
             }
         };
 
         // Act - Perform save and load with labeled metrics
-        await _taskStore!.SetTaskAsync(task);
+        await _taskStore!.SaveTaskAsync(task.Id, task);
         await Task.Delay(100); // Small delay to ensure metrics are flushed
         var loaded = await _taskStore.GetTaskAsync(task.Id);
 

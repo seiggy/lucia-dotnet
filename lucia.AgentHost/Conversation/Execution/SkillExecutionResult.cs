@@ -25,6 +25,12 @@ public sealed record SkillExecutionResult
     /// <summary>Error message when <see cref="Success"/> is <c>false</c>.</summary>
     public string? Error { get; init; }
 
+    /// <summary>
+    /// Fast-path bail reason when the executor chose not to proceed.
+    /// Values: <c>cache_miss</c>, <c>no_exact_match</c>, <c>execution_error</c>.
+    /// </summary>
+    public string? BailReason { get; init; }
+
     /// <summary>Wall-clock duration of the skill execution.</summary>
     public TimeSpan ExecutionDuration { get; init; }
 
@@ -38,6 +44,17 @@ public sealed record SkillExecutionResult
         SkillId = skillId,
         Action = action,
         Error = error,
+        ExecutionDuration = duration,
+    };
+
+    /// <summary>Creates a failed result that signals a fast-path bail to the orchestrator.</summary>
+    public static SkillExecutionResult Bail(string skillId, string action, string bailReason, string error, TimeSpan duration) => new()
+    {
+        Success = false,
+        SkillId = skillId,
+        Action = action,
+        Error = error,
+        BailReason = bailReason,
         ExecutionDuration = duration,
     };
 }

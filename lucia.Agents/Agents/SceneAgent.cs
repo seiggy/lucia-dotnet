@@ -60,13 +60,12 @@ public sealed class SceneAgent : ILuciaAgent, ISkillConfigProvider
 
         _agent = new AgentCard
         {
-            Url = "/a2a/scene-agent",
+            SupportedInterfaces = [new AgentInterface { Url = "/a2a/scene-agent" }],
             Name = AgentId,
             Description = "Agent for activating #scenes in Home Assistant",
             Capabilities = new AgentCapabilities
             {
                 PushNotifications = false,
-                StateTransitionHistory = true,
                 Streaming = true,
             },
             DefaultInputModes = ["text"],

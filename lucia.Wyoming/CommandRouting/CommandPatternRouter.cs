@@ -9,24 +9,26 @@ namespace lucia.Wyoming.CommandRouting;
 public sealed class CommandPatternRouter : ICommandRouter
 {
     private readonly CommandPatternMatcher _matcher;
-    private readonly CommandRoutingOptions _options;
+    private readonly IOptionsMonitor<CommandRoutingOptions> _optionsMonitor;
     private readonly ILogger<CommandPatternRouter> _logger;
 
-    public bool FallbackToLlmEnabled => _options.FallbackToLlm;
+    public bool FallbackToLlmEnabled => _optionsMonitor.CurrentValue.FallbackToLlm;
 
     public CommandPatternRouter(
         CommandPatternMatcher matcher,
-        IOptions<CommandRoutingOptions> options,
+        IOptionsMonitor<CommandRoutingOptions> optionsMonitor,
         ILogger<CommandPatternRouter> logger)
     {
         _matcher = matcher;
-        _options = options.Value;
+        _optionsMonitor = optionsMonitor;
         _logger = logger;
     }
 
     public Task<CommandRouteResult> RouteAsync(string transcript, CancellationToken ct)
     {
-        if (!_options.Enabled)
+        var options = _optionsMonitor.CurrentValue;
+
+        if (!options.Enabled)
         {
             _logger.LogDebug("Command routing disabled");
             return Task.FromResult(CommandRouteResult.NoMatch(TimeSpan.Zero));
@@ -34,17 +36,17 @@ public sealed class CommandPatternRouter : ICommandRouter
 
         var result = _matcher.Match(transcript);
 
-        if (result.IsMatch && result.Confidence < _options.ConfidenceThreshold)
+        if (result.IsMatch && result.Confidence < options.ConfidenceThreshold)
         {
             _logger.LogDebug(
                 "Match for '{Transcript}' below global threshold ({Confidence:F2} < {Threshold:F2}), treating as no match",
                 transcript,
                 result.Confidence,
-                _options.ConfidenceThreshold);
+                options.ConfidenceThreshold);
             result = CommandRouteResult.NoMatch(result.MatchDuration);
         }
 
-        if (!result.IsMatch && !_options.FallbackToLlm)
+        if (!result.IsMatch && !options.FallbackToLlm)
         {
             _logger.LogDebug("No match and FallbackToLlm=false, returning no-match without LLM fallback");
         }

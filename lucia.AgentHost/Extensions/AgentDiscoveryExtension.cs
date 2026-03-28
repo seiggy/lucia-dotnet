@@ -14,15 +14,12 @@ public static class AgentDiscoveryExtension
     {
         try
         {
-            var taskManager = app.Services.GetRequiredService<ITaskManager>();
-
             // Map the orchestrator's A2A endpoint and well-known agent card
             var orchestratorAgent = app.Services.GetServices<ILuciaAgent>()
                 .OfType<OrchestratorAgent>()
                 .Single();
             var orchestratorCard = orchestratorAgent.GetAgentCard();
-            app.MapA2ALazy(() => orchestratorAgent.GetAIAgent(), path: "/agent", agentCard: orchestratorCard,
-                taskManager => app.MapWellKnownAgentCard(taskManager, "/agent"));
+            app.MapA2ALazy(() => orchestratorAgent.GetAIAgent(), path: "/agent", agentCard: orchestratorCard);
 
             // Map A2A endpoints for all other in-process agents with relative paths
             var agents = app.Services.GetServices<ILuciaAgent>();
@@ -33,10 +30,11 @@ public static class AgentDiscoveryExtension
                     continue; // Already mapped above with well-known card
 
                 var card = agent.GetAgentCard();
-                if (card.Url is not null && card.Url.StartsWith('/'))
+                var cardUrl = card.GetUrl();
+                if (cardUrl is not null && cardUrl.StartsWith('/'))
                 {
-                    app.MapA2ALazy(() => agent.GetAIAgent(), path: card.Url, agentCard: card);
-                    logger.LogInformation("Mapped in-process A2A endpoint at {Path} for agent {Name}", card.Url, card.Name);
+                    app.MapA2ALazy(() => agent.GetAIAgent(), path: cardUrl, agentCard: card);
+                    logger.LogInformation("Mapped in-process A2A endpoint at {Path} for agent {Name}", cardUrl, card.Name);
                 }
             }
         }
@@ -62,21 +60,15 @@ public static class AgentDiscoveryExtension
         }).WithName("GetAgents");
     }
 
-    public static IEndpointConventionBuilder MapAgentDiscoveryEndpoint(this IEndpointRouteBuilder endpoints, ITaskManager taskManager,
-        [StringSyntax("Route")] string agentDiscoveryPath, [StringSyntax("Route")] string agentHostPath)
+    public static IEndpointConventionBuilder MapAgentDiscoveryEndpoint(this IEndpointRouteBuilder endpoints, AgentCard agentCard,
+        [StringSyntax("Route")] string agentDiscoveryPath)
     {
         ArgumentNullException.ThrowIfNull(endpoints);
-        ArgumentNullException.ThrowIfNull(taskManager);
+        ArgumentNullException.ThrowIfNull(agentCard);
         ArgumentException.ThrowIfNullOrEmpty(agentDiscoveryPath);
 
         var routeGroup = endpoints.MapGroup("");
-
-        routeGroup.MapGet($"{agentDiscoveryPath}/.well-known/agent-card.json", async (HttpRequest request, CancellationToken cancellationToken) =>
-        {
-            var agentUrl = $"{request.Scheme}://{request.Host}{agentHostPath}";
-            var agentCard = await taskManager.OnAgentCardQuery(agentUrl, cancellationToken).ConfigureAwait(false);
-            return Results.Ok(agentCard);
-        });
+        A2ARouteBuilderExtensions.MapWellKnownAgentCard(routeGroup, agentCard, agentDiscoveryPath);
 
         return routeGroup;
     }

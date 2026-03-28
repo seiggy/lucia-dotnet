@@ -1,3 +1,4 @@
+using lucia.Agents.Extensions;
 using lucia.Agents.Abstractions;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 
@@ -35,8 +36,9 @@ public sealed class AgentRegistrationHealthCheck(
         {
             var card = agent.GetAgentCard();
             var name = card.Name ?? agent.GetType().Name;
+            var cardUrl = card.GetUrl();
 
-            if (string.IsNullOrWhiteSpace(card.Url) || card.Url == "unknown")
+            if (string.IsNullOrWhiteSpace(cardUrl) || cardUrl == "unknown")
             {
                 unregistered.Add(name);
                 registrationData[name] = "not_configured";
@@ -45,15 +47,15 @@ public sealed class AgentRegistrationHealthCheck(
 
             try
             {
-                var isRegistered = await registryClient.IsRegisteredAsync(card.Url, cancellationToken);
+                var isRegistered = await registryClient.IsRegisteredAsync(cardUrl, cancellationToken);
 
                 if (!isRegistered)
                 {
                     logger.LogWarning("Agent {AgentName} ({AgentUrl}) not found in registry, attempting re-registration",
-                        name, card.Url);
+                        name, cardUrl);
 
                     await registryClient.RegisterAgentAsync(card, cancellationToken);
-                    isRegistered = await registryClient.IsRegisteredAsync(card.Url, cancellationToken);
+                    isRegistered = await registryClient.IsRegisteredAsync(cardUrl, cancellationToken);
 
                     if (isRegistered)
                     {

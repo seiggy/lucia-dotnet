@@ -421,4 +421,138 @@ public abstract class AgentEvalTestBase
         }
     }
 
+    // ─── Extended assertion helpers ──────────────────────────────────────
+
+    /// <summary>
+    /// Asserts that the response does NOT contain any tool call to the named function.
+    /// Useful for out-of-domain tests where a specific tool must not be invoked.
+    /// </summary>
+    protected static void AssertToolNotCalled(ChatResponse response, string functionName)
+    {
+        var normalized = NormalizeFunctionName(functionName);
+
+        var toolCalls = GetToolCalls(response);
+        Assert.DoesNotContain(toolCalls, tc =>
+        {
+            var actualName = tc.Name is not null ? NormalizeFunctionName(tc.Name) : null;
+            return string.Equals(actualName, normalized, StringComparison.OrdinalIgnoreCase) ||
+                   (actualName is not null && actualName.EndsWith($".{normalized}", StringComparison.OrdinalIgnoreCase));
+        });
+    }
+
+    /// <summary>
+    /// Asserts that a specific tool was called with argument values matching
+    /// the supplied dictionary. Each expected argument is checked with
+    /// case-insensitive string comparison. Use <c>"*"</c> as a value to assert
+    /// presence without checking the value. Use <c>"contains:substring"</c> for
+    /// substring matching.
+    /// </summary>
+    protected static void AssertToolCalledWithArgs(
+        ChatResponse response,
+        string functionName,
+        Dictionary<string, string> expectedArgs)
+    {
+        var call = FindToolCall(response, functionName);
+        Assert.True(call is not null,
+            $"Expected tool '{functionName}' to be called but it was not. " +
+            $"Actual calls: {FormatToolCallSummary(GetToolCalls(response))}");
+
+        foreach (var (key, expected) in expectedArgs)
+        {
+            var actualValue = call.Arguments?
+                .FirstOrDefault(kvp => string.Equals(kvp.Key, key, StringComparison.OrdinalIgnoreCase))
+                .Value?.ToString();
+
+            Assert.True(actualValue is not null,
+                $"Tool '{functionName}' missing argument '{key}'. " +
+                $"Available: {FormatArgKeys(call.Arguments)}");
+
+            if (expected == "*")
+                continue;
+
+            if (expected.StartsWith("contains:", StringComparison.OrdinalIgnoreCase))
+            {
+                var substring = expected["contains:".Length..];
+                Assert.True(actualValue.Contains(substring, StringComparison.OrdinalIgnoreCase),
+                    $"Tool '{functionName}'.{key}: expected to contain '{substring}' but got '{actualValue}'");
+            }
+            else
+            {
+                Assert.True(string.Equals(actualValue, expected, StringComparison.OrdinalIgnoreCase),
+                    $"Tool '{functionName}'.{key}: expected '{expected}' but got '{actualValue}'");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Extracts the arguments dictionary from the first matching tool call.
+    /// Returns <c>null</c> if the tool was not called.
+    /// </summary>
+    protected static IDictionary<string, object?>? GetToolCallArguments(ChatResponse response, string functionName)
+    {
+        var call = FindToolCall(response, functionName);
+        return call?.Arguments;
+    }
+
+    /// <summary>
+    /// Asserts that a tool call's <c>searchTerms</c> or <c>entity</c> argument
+    /// contains the expected entity pattern (case-insensitive substring match).
+    /// Checks common argument names: <c>searchTerms</c>, <c>entity</c>, <c>entityId</c>, <c>area</c>.
+    /// </summary>
+    protected static void AssertEntityResolved(ChatResponse response, string expectedEntityPattern)
+    {
+        var toolCalls = GetToolCalls(response);
+        Assert.True(toolCalls.Count > 0, "No tool calls found — cannot verify entity resolution.");
+
+        var entityArgNames = new[] { "searchTerms", "entity", "entityId", "area" };
+
+        var found = toolCalls.Any(tc =>
+        {
+            if (tc.Arguments is null) return false;
+            return tc.Arguments.Any(kvp =>
+                entityArgNames.Any(name => string.Equals(kvp.Key, name, StringComparison.OrdinalIgnoreCase)) &&
+                (kvp.Value?.ToString()?.Contains(expectedEntityPattern, StringComparison.OrdinalIgnoreCase) ?? false));
+        });
+
+        Assert.True(found,
+            $"No tool call resolved entity matching '{expectedEntityPattern}'. " +
+            $"Tool calls: {FormatToolCallSummary(toolCalls)}");
+    }
+
+    /// <summary>
+    /// Returns all tool calls from the response with their names and arguments,
+    /// useful for diagnostic inspection in test output.
+    /// </summary>
+    protected static IReadOnlyList<(string Name, IDictionary<string, object?>? Arguments)> GetAllToolCalls(ChatResponse response)
+    {
+        return GetToolCalls(response)
+            .Select(tc => (Name: tc.Name ?? "<unknown>", Arguments: tc.Arguments))
+            .ToList();
+    }
+
+    // ─── Private helpers for assertions ───────────────────────────────
+
+    /// <summary>
+    /// Finds the first <see cref="FunctionCallContent"/> matching the given function name,
+    /// normalizing both the expected and actual names (strips Async suffix, case-insensitive).
+    /// </summary>
+    private static FunctionCallContent? FindToolCall(ChatResponse response, string functionName)
+    {
+        var normalized = NormalizeFunctionName(functionName);
+
+        return GetToolCalls(response).FirstOrDefault(tc =>
+        {
+            var actualName = tc.Name is not null ? NormalizeFunctionName(tc.Name) : null;
+            return string.Equals(actualName, normalized, StringComparison.OrdinalIgnoreCase) ||
+                   (actualName is not null && actualName.EndsWith($".{normalized}", StringComparison.OrdinalIgnoreCase));
+        });
+    }
+
+    private static string FormatArgKeys(IDictionary<string, object?>? args) =>
+        args is null ? "(none)" : string.Join(", ", args.Keys);
+
+    private static string FormatToolCallSummary(IReadOnlyList<FunctionCallContent> calls) =>
+        string.Join("; ", calls.Select(c =>
+            $"{c.Name}({FormatArgKeys(c.Arguments)})"));
+
 }

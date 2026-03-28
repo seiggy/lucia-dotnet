@@ -7,6 +7,9 @@
     <NoWarn>$(NoWarn);NU1510</NoWarn>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="lucia.EvalHarness" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="A2A" />
     <PackageReference Include="Aspire.Hosting.Testing" />
     <PackageReference Include="coverlet.collector">
@@ -44,6 +47,10 @@
   <ItemGroup>
     <Content Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="TestData\ha-snapshot.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="TestData\light-agent-traces.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="TestData\light-agent-user-issues.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="TestData\personality-eval-scenarios.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="TestData\personality-profiles.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="System.Net" />

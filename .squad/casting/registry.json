@@ -1,0 +1,76 @@
+{
+  "agents": {
+    "ripley": {
+      "persistent_name": "Ripley",
+      "universe": "Alien",
+      "role": "Lead / Eval Architect",
+      "created_at": "2026-03-26T16:57:00Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "dallas": {
+      "persistent_name": "Dallas",
+      "universe": "Alien",
+      "role": "Eval Engineer",
+      "created_at": "2026-03-26T16:57:00Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "ash": {
+      "persistent_name": "Ash",
+      "universe": "Alien",
+      "role": "Data Engineer",
+      "created_at": "2026-03-26T16:57:00Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "lambert": {
+      "persistent_name": "Lambert",
+      "universe": "Alien",
+      "role": "QA / Eval Scenario Engineer",
+      "created_at": "2026-03-26T16:57:00Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "kane": {
+      "persistent_name": "Kane",
+      "universe": "Alien",
+      "role": "Frontend Developer",
+      "created_at": "2026-03-26T17:10:00Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "parker": {
+      "persistent_name": "Parker",
+      "universe": "Alien",
+      "role": "Backend / Platform Engineer",
+      "created_at": "2026-03-26T17:10:00Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "brett": {
+      "persistent_name": "Brett",
+      "universe": "Alien",
+      "role": "Voice / Speech Engineer",
+      "created_at": "2026-03-26T17:10:00Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "hicks": {
+      "persistent_name": "Hicks",
+      "universe": "Alien",
+      "role": "DevOps / Infrastructure Engineer",
+      "created_at": "2026-03-26T17:10:00Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "bishop": {
+      "persistent_name": "Bishop",
+      "universe": "Alien",
+      "role": "HA Integration Engineer",
+      "created_at": "2026-03-26T17:10:00Z",
+      "legacy_named": false,
+      "status": "active"
+    }
+  }
+}

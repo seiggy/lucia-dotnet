@@ -23,6 +23,14 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
             return CommandRouteResult.NoMatch(Stopwatch.GetElapsedTime(startedAt));
         }
 
+        // Bail immediately when the transcript contains words that signal a complex
+        // intent the fast-path cannot safely handle (temporal scheduling, color
+        // control, or multi-step conjunctions). These ALWAYS fall to LLM.
+        if (ContainsBailSignalTokens(tokens))
+        {
+            return CommandRouteResult.NoMatch(Stopwatch.GetElapsedTime(startedAt));
+        }
+
         CommandPattern? matchedPattern = null;
         Dictionary<string, string>? capturedValues = null;
         string? bestTemplate = null;
@@ -537,6 +545,37 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
 
     private static Dictionary<string, string> CloneCaptures(Dictionary<string, string> captures) =>
         new(captures, StringComparer.OrdinalIgnoreCase);
+
+    // ── Bail signal detection ─────────────────────────────────────
+
+    /// <summary>
+    /// Tokens that signal the intent is too complex for the fast-path.
+    /// Temporal words, color names, and multi-step conjunctions all indicate
+    /// the user wants scheduling, color control, or chained actions that
+    /// only the LLM orchestrator can handle correctly.
+    /// </summary>
+    private static readonly HashSet<string> BailSignalTokens = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Temporal
+        "in", "at", "when", "after", "minutes", "minute",
+        "hours", "hour", "seconds", "second",
+        "tomorrow", "tonight", "later", "timer",
+        // Color
+        "red", "blue", "green", "warm", "cool", "color",
+        // Multi-step conjunctions
+        "and", "then", "also",
+    };
+
+    private static bool ContainsBailSignalTokens(IReadOnlyList<string> tokens)
+    {
+        foreach (var token in tokens)
+        {
+            if (BailSignalTokens.Contains(token))
+                return true;
+        }
+
+        return false;
+    }
 
     private enum SegmentKind
     {

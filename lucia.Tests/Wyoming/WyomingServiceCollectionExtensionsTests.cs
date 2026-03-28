@@ -100,7 +100,7 @@ public sealed class WyomingServiceCollectionExtensionsTests
         using var serviceProvider = builder.Services.BuildServiceProvider();
         var diarizationOptions = serviceProvider.GetRequiredService<IOptions<DiarizationOptions>>().Value;
         var voiceProfileOptions = serviceProvider.GetRequiredService<IOptions<VoiceProfileOptions>>().Value;
-        var commandRoutingOptions = serviceProvider.GetRequiredService<IOptions<CommandRoutingOptions>>().Value;
+        var commandRoutingOptions = serviceProvider.GetRequiredService<IOptionsMonitor<CommandRoutingOptions>>().CurrentValue;
 
         Assert.True(diarizationOptions.Enabled);
         Assert.Equal(0.7f, diarizationOptions.SpeakerThreshold);

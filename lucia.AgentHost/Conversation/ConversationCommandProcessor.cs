@@ -11,6 +11,7 @@ using lucia.Agents.Orchestration.Models;
 using lucia.Wyoming.CommandRouting;
 
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace lucia.AgentHost.Conversation;
 
@@ -23,6 +24,9 @@ public sealed partial class ConversationCommandProcessor
     private readonly ICommandRouter _commandRouter;
     private readonly IDirectSkillExecutor _skillExecutor;
     private readonly ResponseTemplateRenderer _templateRenderer;
+    private readonly IPersonalityResponseRenderer? _personalityRenderer;
+    private readonly IOptionsMonitor<CommandRoutingOptions> _routingOptions;
+    private readonly IOptionsMonitor<PersonalityPromptOptions> _personalityOptions;
     private readonly ContextReconstructor _contextReconstructor;
     private readonly ConversationTelemetry _telemetry;
     private readonly ICommandTraceRepository _traceRepository;
@@ -39,11 +43,17 @@ public sealed partial class ConversationCommandProcessor
         ICommandTraceRepository traceRepository,
         CommandTraceChannel traceChannel,
         IServiceProvider serviceProvider,
-        ILogger<ConversationCommandProcessor> logger)
+        ILogger<ConversationCommandProcessor> logger,
+        IOptionsMonitor<CommandRoutingOptions> routingOptions,
+        IOptionsMonitor<PersonalityPromptOptions> personalityOptions,
+        IPersonalityResponseRenderer? personalityRenderer = null)
     {
         _commandRouter = commandRouter;
         _skillExecutor = skillExecutor;
         _templateRenderer = templateRenderer;
+        _personalityRenderer = personalityRenderer;
+        _routingOptions = routingOptions;
+        _personalityOptions = personalityOptions;
         _contextReconstructor = contextReconstructor;
         _telemetry = telemetry;
         _traceRepository = traceRepository;
@@ -118,6 +128,10 @@ public sealed partial class ConversationCommandProcessor
             LogCommandExecutionFailed(pattern.SkillId, pattern.Action, executionResult.Error);
             _telemetry.RecordCommandError(pattern.SkillId, pattern.Action);
 
+            // Tag bail reason for observability when the fast-path explicitly deferred
+            if (executionResult.BailReason is not null)
+                activity?.SetTag("fast_path_bail_reason", executionResult.BailReason);
+
             // Fall back to LLM on skill execution failure; single trace records both the failed execution and LLM fallback
             return await HandleLlmFallbackAsync(originalText, request, routeResult, conversationId, activity, sw, ct, executionResult)
                 .ConfigureAwait(false);
@@ -128,6 +142,28 @@ public sealed partial class ConversationCommandProcessor
             .RenderWithTraceAsync(pattern.SkillId, pattern.Action, executionResult.Captures, ct)
             .ConfigureAwait(false);
         var responseText = renderResult.Text;
+
+        // Apply personality rewriting when enabled
+        var personalityOpts = _personalityOptions.CurrentValue;
+        if (personalityOpts.UsePersonalityResponses)
+        {
+            if (_personalityRenderer is not null)
+            {
+                LogPersonalityBranchEntered(pattern.SkillId, pattern.Action);
+                responseText = await _personalityRenderer
+                    .RenderAsync(pattern.SkillId, pattern.Action, responseText, executionResult.Captures,
+                        executionResult.ResponseText, ct)
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                LogPersonalityRendererMissing(pattern.SkillId, pattern.Action);
+            }
+        }
+        else
+        {
+            LogPersonalityBranchSkipped(pattern.SkillId, pattern.Action);
+        }
 
         sw.Stop();
         _telemetry.RecordCommandParsed(pattern.SkillId, pattern.Action, sw.Elapsed.TotalMilliseconds);
@@ -366,4 +402,16 @@ public sealed partial class ConversationCommandProcessor
     [LoggerMessage(Level = LogLevel.Information,
         Message = "LLM fallback completed in {ElapsedMs}ms")]
     private partial void LogLlmComplete(long elapsedMs);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Personality rendering enabled for {SkillId}/{Action} — entering personality branch")]
+    private partial void LogPersonalityBranchEntered(string skillId, string action);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "UsePersonalityResponses is enabled but IPersonalityResponseRenderer is not registered — using canned response for {SkillId}/{Action}")]
+    private partial void LogPersonalityRendererMissing(string skillId, string action);
+
+    [LoggerMessage(Level = LogLevel.Debug,
+        Message = "UsePersonalityResponses is disabled for {SkillId}/{Action} — using canned response")]
+    private partial void LogPersonalityBranchSkipped(string skillId, string action);
 }

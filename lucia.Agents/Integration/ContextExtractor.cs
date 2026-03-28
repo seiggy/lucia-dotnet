@@ -90,7 +90,7 @@ public sealed class ContextExtractor
     /// </summary>
     /// <param name="history">Message history to analyze</param>
     /// <returns>Extracted location or null</returns>
-    private static string? ExtractLocation(List<AgentMessage> history)
+    private static string? ExtractLocation(List<Message> history)
     {
         var combinedText = CombineMessageText(history);
         
@@ -126,9 +126,9 @@ public sealed class ContextExtractor
     /// <returns>Text content or empty string</returns>
     private static string GetTextFromPart(Part part)
     {
-        if (part is TextPart textPart)
+        if (part.ContentCase == PartContentCase.Text)
         {
-            return textPart.Text ?? string.Empty;
+            return part.Text ?? string.Empty;
         }
         return string.Empty;
     }
@@ -139,7 +139,7 @@ public sealed class ContextExtractor
     /// </summary>
     /// <param name="history">Message history to analyze</param>
     /// <returns>List of unique agent identifiers</returns>
-    private async Task<List<string>> ExtractPreviousAgentsAsync(List<AgentMessage> history)
+    private async Task<List<string>> ExtractPreviousAgentsAsync(List<Message> history)
     {
         var agents = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -239,7 +239,7 @@ public sealed class ContextExtractor
     /// <param name="history">Message history to analyze</param>
     /// <param name="domainAgentMap">Domain to agent mapping from the agent catalog</param>
     /// <returns>Extracted topic/domain or null</returns>
-    private static Task<string?> ExtractConversationTopicAsync(List<AgentMessage> history, IReadOnlyDictionary<string, List<string>> domainAgentMap)
+    private static Task<string?> ExtractConversationTopicAsync(List<Message> history, IReadOnlyDictionary<string, List<string>> domainAgentMap)
     {
         var combinedText = CombineMessageText(history);
         var keywords = ExtractKeywords(combinedText);
@@ -250,7 +250,7 @@ public sealed class ContextExtractor
     /// <summary>
     /// Combines all message parts into a single string for analysis.
     /// </summary>
-    private static string CombineMessageText(List<AgentMessage> history)
+    private static string CombineMessageText(List<Message> history)
     {
         var textParts = new List<string>();
         

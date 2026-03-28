@@ -6,6 +6,7 @@ using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
 
 namespace lucia.AgentHost.Apis;
 
@@ -100,7 +101,9 @@ public static class ConfigurationApi
 
     /// <summary>
     /// Gets all key-value pairs for a configuration section.
-    /// Falls back to live IConfiguration if no MongoDB entries exist for the section.
+    /// Reads directly from the config store using key-prefix matching so nested sections
+    /// (e.g. "Wyoming:CommandRouting") are found regardless of how the section column is stored.
+    /// Falls back to live IConfiguration if no entries exist in the store.
     /// Sensitive values are masked unless <c>showSecrets=true</c> is passed.
     /// </summary>
     private static async Task<Results<Ok<List<ConfigEntryDto>>, NotFound>> GetSectionAsync(
@@ -109,7 +112,9 @@ public static class ConfigurationApi
         IConfiguration configuration,
         [FromQuery] bool showSecrets = false)
     {
-        var entries = await configStore.GetEntriesBySectionAsync(section).ConfigureAwait(false);
+        // Use key-prefix matching instead of section-column lookup so nested sections
+        // like "Wyoming:CommandRouting" correctly find their DB entries.
+        var entries = await configStore.GetEntriesByKeyPrefixAsync(section + ":").ConfigureAwait(false);
 
         List<ConfigEntryDto> dtos;
 
@@ -185,11 +190,14 @@ public static class ConfigurationApi
 
     /// <summary>
     /// Updates configuration values for a section.
+    /// After writing to the store, forces an immediate configuration reload so
+    /// <c>IOptionsMonitor&lt;T&gt;</c> consumers reflect the changes without waiting for the poll interval.
     /// </summary>
     private static async Task<Results<Ok<int>, BadRequest<string>>> UpdateSectionAsync(
         string section,
         [FromBody] Dictionary<string, string?> values,
-        [FromServices] IConfigStoreWriter configStore)
+        [FromServices] IConfigStoreWriter configStore,
+        IConfiguration configuration)
     {
         if (values is null || values.Count == 0)
         {
@@ -207,6 +215,14 @@ public static class ConfigurationApi
                 updatedBy: "admin-ui",
                 isSensitive: IsSensitiveKey(fullKey)).ConfigureAwait(false);
             updateCount++;
+        }
+
+        // Force an immediate reload of all configuration providers (including the DB-backed
+        // provider) so IOptionsMonitor<T> consumers see the new values without waiting for
+        // the next 5-second poll cycle.
+        if (configuration is IConfigurationRoot configRoot)
+        {
+            configRoot.Reload();
         }
 
         return TypedResults.Ok(updateCount);
@@ -406,18 +422,31 @@ public static class ConfigurationApi
         },
         new()
         {
-            Section = "PersonalityPrompt",
-            Description = "Customize how Lucia responds with a personality prompt",
+            Section = "Wyoming:CommandRouting",
+            Description = "Voice command routing settings",
             Properties =
             [
+                new("Enabled", "boolean", "Enable fast-path command routing for voice commands", "true"),
+                new("ConfidenceThreshold", "number", "Minimum confidence to accept a pattern match (0.0-1.0)", "0.8"),
+                new("FallbackToLlm", "boolean", "Fall back to LLM orchestrator when fast-path cannot handle a command", "true")
+            ]
+        },
+        new()
+        {
+            Section = "PersonalityPrompt",
+            Description = "Personality response engine — rewrites canned responses through an LLM personality prompt",
+            Properties =
+            [
+                new("UsePersonalityResponses", "boolean",
+                    "Pass fast-path responses through the personality LLM prompt instead of returning canned template responses. " +
+                    "Adds one lightweight LLM round-trip (~200-500ms).", "false"),
                 new("Instructions", "textarea",
-                    "System prompt that defines Lucia's personality and communication style. " +
-                    "When set, agent responses are rewritten using this prompt before being returned to the user. " +
-                    "Leave empty to return raw agent responses.", ""),
+                    "System prompt that defines the assistant's personality and communication style. " +
+                    "Only used when UsePersonalityResponses is enabled.", ""),
                 new("ModelConnectionName", "model-select",
-                    "Model provider name for personality rewriting. " +
-                    "Leave empty to use the orchestrator's default model. " +
-                    "Set to a configured model provider name to use a different LLM for personality rewriting.", "")
+                    "Model provider name for personality rewriting. Leave empty to use the default model.", ""),
+                new("SupportVoiceTags", "boolean",
+                    "Include SSML voice tags (break, emphasis, prosody) in personality responses for text-to-speech rendering.", "false")
             ]
         },
         new()

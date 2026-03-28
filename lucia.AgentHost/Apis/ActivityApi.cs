@@ -1,3 +1,4 @@
+using lucia.Agents.Extensions;
 using System.Text.Json;
 using lucia.AgentHost.Conversation;
 using lucia.AgentHost.Models;
@@ -101,9 +102,9 @@ public static class ActivityApi
 
         foreach (var agent in agents)
         {
-            var agentId = agent.Name ?? agent.Url?.ToString() ?? "unknown";
-            var isRemote = !string.IsNullOrEmpty(agent.Url) &&
-                           Uri.TryCreate(agent.Url, UriKind.Absolute, out var agentUri) &&
+            var agentId = agent.Name ?? agent.GetUrl()?.ToString() ?? "unknown";
+            var isRemote = !string.IsNullOrEmpty(agent.GetUrl()) &&
+                           Uri.TryCreate(agent.GetUrl(), UriKind.Absolute, out var agentUri) &&
                            !agentUri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase);
 
             nodes.Add(new MeshNode

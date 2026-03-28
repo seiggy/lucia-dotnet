@@ -53,13 +53,12 @@ public sealed class OrchestratorAgent : AIAgent, ILuciaAgent
 
         _agentCard = new AgentCard
         {
-            Url = agentUrl,
+            SupportedInterfaces = [new AgentInterface { Url = agentUrl }],
             Name = "orchestrator",
             Description = "Intelligent #orchestrator that #routes requests to specialized agents based on intent and capabilities",
             Capabilities = new AgentCapabilities
             {
                 PushNotifications = false,
-                StateTransitionHistory = true,
                 Streaming = true
             },
             DefaultInputModes = ["text"],

@@ -81,20 +81,20 @@ public class LuciaEngine
             activity?.AddEvent(new ActivityEvent("SessionRehydrateEnd"));
             
             // Add user message to task history
-            var userMessage = new AgentMessage
+            var userMessage = new Message
             {
-                Role = MessageRole.User,
+                Role = Role.User,
                 MessageId = Guid.NewGuid().ToString("N"),
                 TaskId = agentTask.Id,
                 ContextId = agentTask.ContextId,
-                Parts = new List<Part> { new TextPart { Text = userRequest } }
+                Parts = new List<Part> { new Part { Text = userRequest } }
             };
             activity?.SetTag("agent.MessageId", userMessage.MessageId);
             activity?.SetTag("agent.TaskId", userMessage.TaskId);
             activity?.SetTag("agent.SessionId", sessionData?.SessionId);
             activity?.SetTag("agent.ContextId", agentTask.ContextId);
             
-            agentTask.History ??= new List<AgentMessage>();
+            agentTask.History ??= new List<Message>();
             agentTask.History.Add(userMessage);
 
             // 2. Agent resolution & task status update in parallel — they're independent
@@ -166,13 +166,13 @@ public class LuciaEngine
             }
 
             // Add assistant response to task history and update status
-            var assistantMessage = new AgentMessage
+            var assistantMessage = new Message
             {
-                Role = MessageRole.Agent,
+                Role = Role.Agent,
                 MessageId = Guid.NewGuid().ToString("N"),
                 TaskId = agentTask.Id,
                 ContextId = agentTask.ContextId,
-                Parts = new List<Part> { new TextPart { Text = finalText } }
+                Parts = new List<Part> { new Part { Text = finalText } }
             };
 
             agentTask.History.Add(assistantMessage);
@@ -219,13 +219,13 @@ public class LuciaEngine
                     var failedTaskId = taskId ?? Guid.NewGuid().ToString();
                     var failedContextId = sessionId ?? Guid.NewGuid().ToString();
 
-                    var errorMessage = new AgentMessage
+                    var errorMessage = new Message
                     {
-                        Role = MessageRole.Agent,
+                        Role = Role.Agent,
                         MessageId = Guid.NewGuid().ToString("N"),
                         TaskId = failedTaskId,
                         ContextId = failedContextId,
-                        Parts = new List<Part> { new TextPart { Text = errorResponse } }
+                        Parts = new List<Part> { new Part { Text = errorResponse } }
                     };
 
                     await _sessionManager.UpdateTaskStatusAsync(
@@ -262,13 +262,13 @@ public class LuciaEngine
 
     private async Task FailTaskAsync(AgentTask agentTask, string message, CancellationToken cancellationToken)
     {
-        var errorMessage = new AgentMessage
+        var errorMessage = new Message
         {
-            Role = MessageRole.Agent,
+            Role = Role.Agent,
             MessageId = Guid.NewGuid().ToString("N"),
             TaskId = agentTask.Id,
             ContextId = agentTask.ContextId,
-            Parts = new List<Part> { new TextPart { Text = message } }
+            Parts = new List<Part> { new Part { Text = message } }
         };
 
         await _sessionManager.UpdateTaskStatusAsync(
