@@ -2020,21 +2020,32 @@ export interface AutoAssignResult {
   excludedCount: number
 }
 
-export async function previewAutoAssign(strategy: 'none' | 'smart'): Promise<AutoAssignPreview> {
+type AutoAssignStrategy = 'none' | 'smart'
+
+const STRATEGY_ENCODING: Record<AutoAssignStrategy, number> = {
+  none: 0,
+  smart: 1,
+} as const
+
+function encodeStrategy(strategy: AutoAssignStrategy): number {
+  return STRATEGY_ENCODING[strategy]
+}
+
+export async function previewAutoAssign(strategy: AutoAssignStrategy): Promise<AutoAssignPreview> {
   const res = await fetch(`${BASE}/entity-location/visibility/auto-assign/preview`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ strategy: strategy === 'none' ? 0 : 1 }),
+    body: JSON.stringify({ strategy: encodeStrategy(strategy) }),
   })
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }
 
-export async function applyAutoAssign(strategy: 'none' | 'smart'): Promise<AutoAssignResult> {
+export async function applyAutoAssign(strategy: AutoAssignStrategy): Promise<AutoAssignResult> {
   const res = await fetch(`${BASE}/entity-location/visibility/auto-assign`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ strategy: strategy === 'none' ? 0 : 1 }),
+    body: JSON.stringify({ strategy: encodeStrategy(strategy) }),
   })
   if (!res.ok) throw new Error(await res.text())
   return res.json()
