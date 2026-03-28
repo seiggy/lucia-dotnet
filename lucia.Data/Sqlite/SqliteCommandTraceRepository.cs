@@ -126,9 +126,9 @@ public sealed class SqliteCommandTraceRepository : ICommandTraceRepository
         if (await reader.ReadAsync(ct).ConfigureAwait(false))
         {
             total = reader.GetInt64(0);
-            commandHandled = reader.GetInt64(1);
-            llmFallback = reader.GetInt64(2);
-            errors = reader.GetInt64(3);
+            commandHandled = reader.IsDBNull(1) ? 0 : reader.GetInt64(1);
+            llmFallback = reader.IsDBNull(2) ? 0 : reader.GetInt64(2);
+            errors = reader.IsDBNull(3) ? 0 : reader.GetInt64(3);
             avgDuration = reader.IsDBNull(4) ? 0 : Math.Round(reader.GetDouble(4), 2);
         }
 
