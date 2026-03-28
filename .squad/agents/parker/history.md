@@ -158,3 +158,15 @@ This means `Configure<T>(builder.Configuration.GetSection(...))` IS the DB-backe
 2. `ConfigurationApi.UpdateSectionAsync` — added `IConfigurationRoot.Reload()` call after writes to force immediate provider reload, eliminating the 5-second poll delay for dashboard-initiated changes.
 
 **Key insight:** The `section` column in both MongoDB and SQLite config stores only holds the text before the first `:` in the key. This is a display/query optimization but means `GetEntriesBySectionAsync` cannot find entries for nested sections. Use `GetEntriesByKeyPrefixAsync` instead when querying by section path.
+
+### 2025-07-19 — SQLite NULL Safety Audit (GitHub #107)
+
+**Bug:** `SqliteCommandTraceRepository.GetStatsAsync()` threw `InvalidOperationException` on empty `command_traces` table. `SUM(CASE ... THEN 1 ELSE 0 END)` returns NULL (not 0) in SQLite when the table has zero rows. The code called `reader.GetInt64()` on ordinals 1-3 without `IsDBNull` guards, while ordinal 4 (AVG) already had the guard.
+
+**Fix:** Added `reader.IsDBNull(N) ? 0 : reader.GetInt64(N)` for ordinals 1-3, consistent with the existing pattern on ordinal 4.
+
+**Full audit of all 12 other SQLite repository files:** No additional bugs found. Two files (`SqliteTraceRepository`, `SqliteTaskArchiveStore`) have similar aggregate stats methods but already use the safe `reader["col"] is DBNull ? 0 : Convert.ToInt32(...)` pattern. The remaining 10 files are CRUD-only with no aggregate queries.
+
+**Pattern to remember:** In SQLite, `COUNT(*)` returns 0 on empty tables but `SUM(...)`, `AVG(...)`, `MIN(...)`, `MAX(...)` return NULL. Always guard aggregate reads with `IsDBNull` or use `COALESCE()` in the SQL. Two safe patterns exist in this codebase:
+1. Ordinal-based: `reader.IsDBNull(N) ? 0 : reader.GetInt64(N)` (used in CommandTraceRepository)
+2. Name-based: `reader["col"] is DBNull ? 0 : Convert.ToInt32(reader["col"])` (used in TraceRepository, TaskArchiveStore)

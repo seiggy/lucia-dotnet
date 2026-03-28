@@ -18,6 +18,10 @@
 
 **Summary:** Created ClimateAgentEvalTests.cs with 8 scenarios covering tool accuracy, intent resolution, and task adherence. Pattern-compliant with existing eval test structure. See full document below.
 
+### 5. SQLite Aggregate NULL Handling Convention (Parker, 2026-03-28)
+
+**Summary:** All SQLite aggregate column reads (SUM, AVG, MIN, MAX) must be guarded with IsDBNull() checks. Bug fix for GitHub #107; audit confirmed no other vulnerabilities in SQLite repositories. See full document below.
+
 ## Governance
 
 - All meaningful changes require team consensus
@@ -1973,4 +1977,58 @@ Both API endpoints were duplicating the same magic-number encoding logic. Centra
 - Single source of truth for strategy encoding reduces API call errors
 - Type-safe approach prevents strategy value mismatches
 - Future strategy changes require update in one location only
+
+---
+
+# SQLite Aggregate NULL Handling Convention
+
+**Author:** Parker (Backend / Platform Engineer)  
+**Date:** 2026-03-28  
+**Status:** Informational  
+**Trigger:** GitHub #107 — `InvalidOperationException` in `SqliteCommandTraceRepository.GetStatsAsync()`
+
+## Context
+
+SQLite `SUM()`, `AVG()`, `MIN()`, `MAX()` return NULL on empty result sets, unlike `COUNT(*)` which returns 0. Calling `reader.GetInt64()` or `reader.GetDouble()` on NULL ordinals throws `InvalidOperationException`.
+
+## Decision
+
+All SQLite aggregate column reads MUST be guarded against NULL. Two equivalent patterns are acceptable:
+
+1. **Ordinal-based** (preferred for typed access):
+   ```csharp
+   reader.IsDBNull(N) ? 0 : reader.GetInt64(N)
+   ```
+
+2. **Name-based** (preferred for readability with many columns):
+   ```csharp
+   reader["col"] is DBNull ? 0 : Convert.ToInt32(reader["col"])
+   ```
+
+Both patterns already exist in the codebase. New aggregate queries should use whichever is consistent with the surrounding code.
+
+## Scope
+
+Applies to all files in `lucia.Data/Sqlite/`. Current audit shows only `SqliteCommandTraceRepository` was affected. The following repositories were already safe:
+- SqliteTraceRepository
+- SqliteTaskArchiveStore
+- SqliteSpeakerProfileStore
+- SqlitePresenceSensorRepository
+- SqliteModelPreferenceStore
+- SqliteApiKeyService
+- SqliteModelProviderRepository
+- SqliteAlarmClockRepository
+- SqlitePluginManagementRepository
+- SqliteScheduledTaskRepository
+- SqliteAgentDefinitionRepository
+- SqliteTranscriptStore
+
+## Rationale
+
+SQLite aggregate functions differ from relational databases in handling empty sets. This convention ensures consistent, safe handling across all SQLite data access layers and prevents runtime failures when query results are unexpectedly empty.
+
+### Impact
+- Prevents `InvalidOperationException` when aggregate queries return NULL
+- Establishes clear pattern for future SQLite aggregate code
+- Codebase-wide audit ensures no other vulnerabilities exist
 
