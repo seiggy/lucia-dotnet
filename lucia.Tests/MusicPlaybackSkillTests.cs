@@ -1,13 +1,15 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using FakeItEasy;
 using lucia.Agents.Abstractions;
-using Microsoft.Extensions.Logging.Abstractions;
-using lucia.HomeAssistant.Models;
-using lucia.HomeAssistant.Services;
 using lucia.Agents.Models;
 using lucia.Agents.Models.HomeAssistant;
+using lucia.Agents.Services;
 using lucia.Agents.Skills.Models;
+using lucia.HomeAssistant.Models;
+using lucia.HomeAssistant.Services;
 using lucia.MusicAgent;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace lucia.Tests;
@@ -124,6 +126,91 @@ public class MusicPlaybackSkillTests
                 A<IReadOnlyList<string>?>._,
                 A<CancellationToken>._))
             .Returns(Task.FromResult(searchResult));
+    }
+
+    [Fact]
+    public async Task FindPlayerAsync_UsesCascadingResolver_WhenAvailable()
+    {
+        var cascadingResolver = A.Fake<ICascadingEntityResolver>();
+        A.CallTo(() => cascadingResolver.Resolve(
+                A<string>._, A<string?>._, A<string?>._, A<IReadOnlyList<string>>._, A<CancellationToken>._))
+            .Returns(new CascadeResult
+            {
+                IsResolved = true,
+                ResolvedEntityIds = ["media_player.satellite1_kitchen"]
+            });
+
+        var snapshot = BuildSnapshotWithPlayer("media_player.satellite1_kitchen", "Satellite1 Kitchen");
+        A.CallTo(() => _locationService.GetSnapshot()).Returns(snapshot);
+
+        var skill = CreateSkillWithResolver(cascadingResolver);
+
+        var result = await skill.FindPlayerAsync("Kitchen Speaker");
+
+        Assert.Contains("Satellite1 Kitchen", result);
+        A.CallTo(() => _locationService.SearchHierarchyAsync(
+                A<string>._, A<HybridMatchOptions>._, A<IReadOnlyList<string>>._, A<CancellationToken>._))
+            .MustNotHaveHappened();
+    }
+
+    [Fact]
+    public async Task FindPlayerAsync_FallsBackToHierarchy_WhenCascadingResolverBails()
+    {
+        var cascadingResolver = A.Fake<ICascadingEntityResolver>();
+        A.CallTo(() => cascadingResolver.Resolve(
+                A<string>._, A<string?>._, A<string?>._, A<IReadOnlyList<string>>._, A<CancellationToken>._))
+            .Returns(new CascadeResult
+            {
+                IsResolved = false,
+                BailReason = BailReason.Ambiguous,
+                Explanation = "Multiple matches",
+                ResolvedEntityIds = []
+            });
+
+        var skill = CreateSkillWithResolver(cascadingResolver);
+
+        var result = await skill.FindPlayerAsync("Kitchen Speaker");
+
+        A.CallTo(() => _locationService.SearchHierarchyAsync(
+                A<string>._, A<HybridMatchOptions>._, A<IReadOnlyList<string>>._, A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    private MusicPlaybackSkill CreateSkillWithResolver(ICascadingEntityResolver resolver)
+    {
+        var musicConfig = A.Fake<IOptionsMonitor<MusicAssistantConfig>>();
+        A.CallTo(() => musicConfig.CurrentValue).Returns(new MusicAssistantConfig
+        {
+            IntegrationId = "DEMO"
+        });
+
+        var skillOptions = A.Fake<IOptionsMonitor<MusicPlaybackSkillOptions>>();
+        A.CallTo(() => skillOptions.CurrentValue).Returns(new MusicPlaybackSkillOptions());
+
+        return new MusicPlaybackSkill(
+            _homeAssistantClient,
+            NullLogger<MusicPlaybackSkill>.Instance,
+            _locationService,
+            skillOptions,
+            musicConfig,
+            resolver);
+    }
+
+    private static LocationSnapshot BuildSnapshotWithPlayer(string entityId, string friendlyName)
+    {
+        var entity = new HomeAssistantEntity
+        {
+            EntityId = entityId,
+            FriendlyName = friendlyName
+        };
+
+        return new LocationSnapshot(
+            ImmutableArray<FloorInfo>.Empty,
+            ImmutableArray<AreaInfo>.Empty,
+            ImmutableArray.Create(entity),
+            ImmutableDictionary<string, FloorInfo>.Empty,
+            ImmutableDictionary<string, AreaInfo>.Empty,
+            ImmutableDictionary<string, HomeAssistantEntity>.Empty.Add(entityId, entity));
     }
 
     private static JsonElement CreateLibraryResponseJson()

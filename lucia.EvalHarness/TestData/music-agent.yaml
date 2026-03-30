@@ -1,0 +1,238 @@
+# Music Agent Evaluation Scenarios
+# Each scenario defines: known HA state -> user prompt -> expected tool calls -> expected outcome
+# Entity IDs are real values from the HA snapshot
+
+scenarios:
+
+  # --- Control: Play Artist ---
+  - id: play_artist_kitchen
+    description: "Play an artist on a specific speaker"
+    category: control
+    initial_state:
+      media_player.zack_s_office_satellite1_media_player:
+        state: "idle"
+        attributes:
+          friendly_name: "Zack's Office Satellite1 Media Player"
+          volume_level: 0.5
+    user_prompt: "Play The Cure on the office speaker"
+    expected_tool_calls:
+      - tool: FindPlayer
+        arguments:
+          playerName: "contains:office"
+      - tool: PlayArtist
+        arguments:
+          artist: "contains:Cure"
+    response_must_contain:
+      - "Cure"
+
+  # --- Control: Play Album ---
+  - id: play_album_with_artist
+    description: "Play a specific album with artist disambiguation"
+    category: control
+    initial_state:
+      media_player.bedroom_satellite1_media_player:
+        state: "idle"
+        attributes:
+          friendly_name: "Bedroom Satellite1 Media Player"
+          volume_level: 0.4
+    user_prompt: "Play the album Random Access Memories by Daft Punk in the bedroom"
+    expected_tool_calls:
+      - tool: FindPlayer
+        arguments:
+          playerName: "contains:bedroom"
+      - tool: PlayAlbum
+        arguments:
+          album: "contains:Random Access Memories"
+          artist: "contains:Daft Punk"
+    response_must_contain:
+      - "Random Access Memories"
+
+  # --- Control: Play Song ---
+  - id: play_specific_song
+    description: "Play a specific song by artist"
+    category: control
+    initial_state:
+      media_player.zack_s_office_satellite1_media_player:
+        state: "idle"
+        attributes:
+          friendly_name: "Zack's Office Satellite1 Media Player"
+          volume_level: 0.6
+    user_prompt: "Play the song Shivers by Ed Sheeran in the office"
+    expected_tool_calls:
+      - tool: FindPlayer
+        arguments:
+          playerName: "contains:office"
+      - tool: PlaySong
+        arguments:
+          song: "contains:Shivers"
+          artist: "contains:Ed Sheeran"
+    response_must_contain:
+      - "Shivers"
+
+  # --- Control: Play Genre ---
+  - id: play_genre_jazz
+    description: "Play a genre mix on a speaker"
+    category: control
+    initial_state:
+      media_player.bedroom_satellite1_media_player:
+        state: "idle"
+        attributes:
+          friendly_name: "Bedroom Satellite1 Media Player"
+          volume_level: 0.3
+    user_prompt: "Play some jazz in the bedroom"
+    expected_tool_calls:
+      - tool: FindPlayer
+        arguments:
+          playerName: "contains:bedroom"
+      - tool: PlayGenre
+        arguments:
+          genre: "contains:jazz"
+
+  # --- Control: Shuffle ---
+  - id: shuffle_random_tracks
+    description: "Shuffle random tracks on a speaker"
+    category: control
+    initial_state:
+      media_player.zack_s_office_satellite1_media_player:
+        state: "idle"
+        attributes:
+          friendly_name: "Zack's Office Satellite1 Media Player"
+          volume_level: 0.5
+    user_prompt: "Just shuffle something on the office speaker"
+    expected_tool_calls:
+      - tool: FindPlayer
+        arguments:
+          playerName: "contains:office"
+      - tool: PlayShuffle
+        arguments:
+          playerName: "*"
+
+  # --- Control: Stop Music ---
+  - id: stop_music
+    description: "Stop music playback (tests stop on an idle player)"
+    category: control
+    initial_state:
+      media_player.bedroom_satellite1_media_player:
+        state: "idle"
+        attributes:
+          friendly_name: "Bedroom Satellite1 Media Player"
+          volume_level: 0.5
+    user_prompt: "Stop the music in the bedroom"
+    expected_tool_calls:
+      - tool: StopMusic
+        arguments:
+          playerName: "contains:bedroom"
+
+  # --- Control: Set Volume ---
+  - id: set_volume_50
+    description: "Set volume to a specific level"
+    category: control
+    initial_state:
+      media_player.zack_s_office_satellite1_media_player:
+        state: "idle"
+        attributes:
+          friendly_name: "Zack's Office Satellite1 Media Player"
+          volume_level: 0.3
+    user_prompt: "Set volume to 50% on the office speaker"
+    expected_tool_calls:
+      - tool: FindPlayer
+        arguments:
+          playerName: "contains:office"
+      - tool: SetVolume
+        arguments:
+          playerName: "*"
+          volumePercent: "*"
+
+  # --- Control: Volume Up ---
+  - id: volume_up
+    description: "Turn the volume up"
+    category: control
+    initial_state:
+      media_player.bedroom_satellite1_media_player:
+        state: "idle"
+        attributes:
+          friendly_name: "Bedroom Satellite1 Media Player"
+          volume_level: 0.4
+    user_prompt: "Turn up the volume on the bedroom speaker"
+    expected_tool_calls:
+      - tool: FindPlayer
+        arguments:
+          playerName: "contains:bedroom"
+      - tool: VolumeUp
+        arguments:
+          playerName: "*"
+
+  # --- Control: Volume Down ---
+  - id: volume_down
+    description: "Turn the volume down"
+    category: control
+    initial_state:
+      media_player.zack_s_office_satellite1_media_player:
+        state: "idle"
+        attributes:
+          friendly_name: "Zack's Office Satellite1 Media Player"
+          volume_level: 0.8
+    user_prompt: "Turn down the volume on the office speaker"
+    expected_tool_calls:
+      - tool: FindPlayer
+        arguments:
+          playerName: "contains:office"
+      - tool: VolumeDown
+        arguments:
+          playerName: "*"
+
+  # --- Control: Find Player ---
+  - id: find_player_by_name
+    description: "Find a player by name"
+    category: control
+    initial_state:
+      media_player.yamaha_speakers:
+        state: "off"
+        attributes:
+          friendly_name: "Yamaha Speakers"
+    user_prompt: "Find the Yamaha speakers"
+    expected_tool_calls:
+      - tool: FindPlayer
+        arguments:
+          playerName: "contains:Yamaha"
+
+  # --- STT Robustness ---
+  - id: stt_fuzzy_play_cure_kitchen
+    description: "Handle STT transcription errors (misspelled kitchen and speaker)"
+    category: stt-robustness
+    initial_state:
+      media_player.zack_s_office_satellite1_media_player:
+        state: "idle"
+        attributes:
+          friendly_name: "Zack's Office Satellite1 Media Player"
+          volume_level: 0.5
+    user_prompt: "play the cure on the kichen speeker"
+    expected_tool_calls:
+      - tool: FindPlayer
+        arguments:
+          playerName: "*"
+      - tool: PlayArtist
+        arguments:
+          artist: "contains:Cure"
+
+  # --- Out of Domain: Light request ---
+  - id: out_of_domain_lights
+    description: "Reject lighting request — not a music task"
+    category: out-of-domain
+    user_prompt: "Turn on the living room lights"
+    expected_tool_calls: []
+    response_must_not_contain:
+      - "play"
+      - "shuffle"
+      - "volume"
+
+  # --- Out of Domain: Climate request ---
+  - id: out_of_domain_climate
+    description: "Reject climate request — not a music task"
+    category: out-of-domain
+    user_prompt: "Set the thermostat to 72 degrees"
+    expected_tool_calls: []
+    response_must_not_contain:
+      - "play"
+      - "shuffle"
+      - "volume"

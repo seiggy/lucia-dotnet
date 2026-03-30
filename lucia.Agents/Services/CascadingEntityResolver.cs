@@ -86,27 +86,27 @@ public sealed class CascadingEntityResolver : ICascadingEntityResolver
                 "Entity location cache is empty; deferring to orchestrator");
         }
 
-        var resolvedArea = GroundLocation(intent, callerArea, speakerId, snapshot);
-        if (intent.ExplicitLocation is not null && resolvedArea is null)
+        var grounded = GroundLocation(intent, callerArea, speakerId, snapshot);
+        if (intent.ExplicitLocation is not null && grounded is null)
         {
             return Bail(
                 BailReason.NoMatch,
                 $"Explicit area '{intent.ExplicitLocation}' not found in cache");
         }
 
-        var candidates = FilterByDomain(intent, resolvedArea, domains, snapshot);
+        var candidates = FilterByDomain(intent, grounded, domains, snapshot);
         if (candidates.Count == 0)
         {
-            var locationLabel = resolvedArea?.Name ?? "(no area)";
+            var locationLabel = grounded?.DisplayName ?? "(no area)";
             return Bail(
                 BailReason.NoMatch,
                 $"No entities found for domains in {locationLabel}");
         }
 
         var candidateNames = intent.CandidateEntityNames;
-        if (IsAreaOnlyCommand(intent, candidateNames, resolvedArea))
+        if (IsAreaOnlyCommand(intent, candidateNames, grounded))
         {
-            return ResolveFromCandidates(candidates, resolvedArea);
+            return ResolveFromCandidates(candidates, grounded);
         }
 
         if (candidateNames.Count == 0)
@@ -124,19 +124,19 @@ public sealed class CascadingEntityResolver : ICascadingEntityResolver
                 "No entities matched query after cascading filters");
         }
 
-        if (resolvedArea is null && IsAmbiguousAcrossAreas(matches))
+        if (grounded is null && IsAmbiguousAcrossAreas(matches))
         {
             return Bail(
                 BailReason.Ambiguous,
                 "Multiple matching entities found across different areas");
         }
 
-        return ResolveFromCandidates(matches, resolvedArea);
+        return ResolveFromCandidates(matches, grounded);
     }
 
-    private static bool IsAreaOnlyCommand(QueryIntent intent, IReadOnlyList<string> candidateNames, AreaInfo? resolvedArea)
+    private static bool IsAreaOnlyCommand(QueryIntent intent, IReadOnlyList<string> candidateNames, GroundedLocation? grounded)
     {
-        if (resolvedArea is null)
+        if (grounded is null)
             return false;
 
         if (candidateNames.Count == 0)
@@ -149,7 +149,7 @@ public sealed class CascadingEntityResolver : ICascadingEntityResolver
 
     private static CascadeResult ResolveFromCandidates(
         IReadOnlyList<HomeAssistantEntity> entities,
-        AreaInfo? resolvedArea)
+        GroundedLocation? grounded)
     {
         var resolvedIds = entities
             .Select(e => e.EntityId)
@@ -159,12 +159,13 @@ public sealed class CascadingEntityResolver : ICascadingEntityResolver
         return new CascadeResult
         {
             IsResolved = true,
-            ResolvedArea = resolvedArea?.Name,
+            ResolvedArea = grounded?.SingleArea?.Name,
+            ResolvedFloor = grounded?.Floor?.Name,
             ResolvedEntityIds = resolvedIds
         };
     }
 
-    private AreaInfo? GroundLocation(QueryIntent intent, string? callerArea, string? speakerId, LocationSnapshot snapshot)
+    private GroundedLocation? GroundLocation(QueryIntent intent, string? callerArea, string? speakerId, LocationSnapshot snapshot)
     {
         // Stage 1: Try each candidate area name for exact name/alias match
         foreach (var candidate in intent.CandidateAreaNames)
@@ -172,7 +173,7 @@ public sealed class CascadingEntityResolver : ICascadingEntityResolver
             var area = _entityLocationService.ExactMatchArea(candidate);
             area ??= MatchAlias(candidate, snapshot);
             if (area is not null)
-                return area;
+                return new GroundedLocation([area]);
         }
 
         // Stage 2: Speaker-disambiguated contains match
@@ -190,27 +191,47 @@ public sealed class CascadingEntityResolver : ICascadingEntityResolver
             }
 
             if (containsMatches.Count == 1)
-                return containsMatches[0];
+                return new GroundedLocation([containsMatches[0]]);
 
             if (containsMatches.Count > 1 && !string.IsNullOrWhiteSpace(speakerId))
             {
                 var speakerMatch = containsMatches
                     .FirstOrDefault(a => a.Name.Contains(speakerId, StringComparison.OrdinalIgnoreCase));
                 if (speakerMatch is not null)
-                    return speakerMatch;
+                    return new GroundedLocation([speakerMatch]);
             }
 
-            // Multiple matches + no speaker disambiguation → return null (bail to LLM)
+            // Multiple matches + no speaker disambiguation → fall through to floor match
         }
 
-        // Only fall back to callerArea when the user did NOT name a location.
+        // Stage 2.5: Floor name/alias match
+        // If no area matched, try matching against floor names and aliases.
+        // A floor match returns ALL areas on that floor.
+        foreach (var candidate in intent.CandidateAreaNames)
+        {
+            foreach (var floor in snapshot.Floors)
+            {
+                if (string.Equals(floor.Name, candidate, StringComparison.OrdinalIgnoreCase)
+                    || floor.Aliases.Any(a => string.Equals(a, candidate, StringComparison.OrdinalIgnoreCase)))
+                {
+                    var floorAreas = snapshot.Areas
+                        .Where(a => string.Equals(a.FloorId, floor.FloorId, StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+                    if (floorAreas.Count > 0)
+                        return new GroundedLocation(floorAreas, floor);
+                }
+            }
+        }
+
+        // Stage 3: Only fall back to callerArea when the user did NOT name a location.
         // If they said "office lights" and nothing matched, that's ambiguous — bail
         // to the LLM for clarification rather than silently using the device's room.
         if (intent.ExplicitLocation is null && !string.IsNullOrWhiteSpace(callerArea))
         {
             var area = _entityLocationService.ExactMatchArea(callerArea);
             area ??= MatchAlias(callerArea, snapshot);
-            return area;
+            if (area is not null)
+                return new GroundedLocation([area]);
         }
 
         return null;
@@ -232,14 +253,23 @@ public sealed class CascadingEntityResolver : ICascadingEntityResolver
 
     private static IReadOnlyList<HomeAssistantEntity> FilterByDomain(
         QueryIntent intent,
-        AreaInfo? resolvedArea,
+        GroundedLocation? grounded,
         IReadOnlyList<string> domainFilter,
         LocationSnapshot snapshot)
     {
-        IEnumerable<HomeAssistantEntity> candidates = resolvedArea is not null
-            ? snapshot.Entities.Where(e =>
-                string.Equals(e.AreaId, resolvedArea.AreaId, StringComparison.OrdinalIgnoreCase))
-            : snapshot.Entities;
+        IEnumerable<HomeAssistantEntity> candidates;
+        if (grounded is not null)
+        {
+            var areaIds = new HashSet<string>(
+                grounded.Areas.Select(a => a.AreaId),
+                StringComparer.OrdinalIgnoreCase);
+            candidates = snapshot.Entities.Where(e =>
+                e.AreaId is not null && areaIds.Contains(e.AreaId));
+        }
+        else
+        {
+            candidates = snapshot.Entities;
+        }
 
         var filteredDomains = BuildDomainFilter(domainFilter, intent.DeviceType);
         if (filteredDomains.Count > 0)

@@ -12,6 +12,7 @@ using lucia.Agents.Skills;
 using lucia.EvalHarness.Configuration;
 using lucia.EvalHarness.Evaluation;
 using lucia.HomeAssistant.Services;
+using lucia.MusicAgent;
 using lucia.Tests.TestDoubles;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -178,6 +179,26 @@ public sealed class RealAgentFactory : IAsyncDisposable
     }
 
     /// <summary>
+    /// Creates a real <see cref="lucia.MusicAgent.MusicAgent"/> backed by the given Ollama model.
+    /// </summary>
+    public async Task<RealAgentInstance> CreateMusicAgentAsync(string modelName)
+    {
+        var (resolver, tracer) = CreateOllamaResolverWithTracer(modelName);
+        var skill = new MusicPlaybackSkill(
+            _haClient,
+            _loggerFactory.CreateLogger<MusicPlaybackSkill>(),
+            _locationService,
+            CreateOptionsMonitor<MusicPlaybackSkillOptions>(),
+            CreateOptionsMonitor<MusicAssistantConfig>());
+
+        var server = A.Fake<Microsoft.AspNetCore.Hosting.Server.IServer>();
+        var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
+        var agent = new lucia.MusicAgent.MusicAgent(resolver, _definitionRepo, skill, server, configuration, _tracingFactory, _loggerFactory);
+        await agent.InitializeAsync();
+        return new RealAgentInstance { AgentName = "MusicAgent", Agent = agent, DatasetFile = "TestData/music-agent.yaml", Tracer = tracer };
+    }
+
+    /// <summary>
     /// Creates a real <see cref="GeneralAgent"/> backed by the given Ollama model.
     /// </summary>
     public async Task<RealAgentInstance> CreateGeneralAgentAsync(string modelName)
@@ -236,6 +257,7 @@ public sealed class RealAgentFactory : IAsyncDisposable
             ["ListsAgent"] = CreateListsAgentAsync,
             ["SceneAgent"] = CreateSceneAgentAsync,
             ["GeneralAgent"] = CreateGeneralAgentAsync,
+            ["MusicAgent"] = CreateMusicAgentAsync,
         };
 
     // ─── Private Helpers ──────────────────────────────────────────────

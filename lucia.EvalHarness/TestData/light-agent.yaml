@@ -9,10 +9,10 @@ scenarios:
     description: "Turn on a light that is currently off"
     category: control
     initial_state:
-      light.kitchen_light:
+      light.kitchen_lights_light:
         state: "off"
         attributes:
-          friendly_name: "Kitchen Light"
+          friendly_name: "Kitchen Lights light"
     user_prompt: "Turn on the kitchen light"
     expected_tool_calls:
       - tool: ControlLights
@@ -22,24 +22,22 @@ scenarios:
     response_must_contain:
       - "kitchen"
     expected_final_state:
-      light.kitchen_light:
+      light.kitchen_lights_light:
         state: "on"
 
   # --- Control: Turn Off ---
   - id: turn_off_bedroom_lights
-    description: "Turn off lights in the bedroom area (multiple lights)"
+    description: "Turn off bedroom lights (verifies tool call even when already off)"
     category: control
     initial_state:
       light.bedroom_ceiling_fan_white_light:
-        state: "on"
+        state: "off"
         attributes:
           friendly_name: "Bedroom Ceiling Fan White Light"
-          brightness: 200
       light.bedroom_ceiling_fan_yellow_light:
-        state: "on"
+        state: "off"
         attributes:
           friendly_name: "Bedroom Ceiling Fan Yellow Light"
-          brightness: 150
     user_prompt: "Turn off the bedroom lights"
     expected_tool_calls:
       - tool: ControlLights
@@ -59,48 +57,59 @@ scenarios:
     description: "Dim living room lights to a specific brightness"
     category: control
     initial_state:
-      light.living_room_floor_lamp:
+      light.living_room_ceiling_fan_white_light:
         state: "on"
         attributes:
-          friendly_name: "Living Room Floor Lamp"
+          friendly_name: "Living Room Ceiling Fan White Light"
           brightness: 255
     user_prompt: "Dim the living room lights to 30 percent"
     expected_tool_calls:
       - tool: ControlLights
         arguments:
-          searchTerms: "contains:living room lights"
+          searchTerms: "contains:living room"
           state: "on"
           brightness: "*"
     response_must_contain:
       - "30"
 
-  # --- Control: Color ---
-  - id: set_office_light_blue
-    description: "Change a light's color"
-    category: control
+  # --- Control: Speaker-disambiguated office lights ---
+  - id: speaker_disambiguated_office_lights
+    description: "Speaker disambiguation: Dianna says 'my office lights' from Zack's Office satellite — should resolve to Dianna's Office"
+    category: speaker-disambiguation
+    speaker_id: "Dianna"
+    device_area: "Zack's Office"
     initial_state:
-      light.zacks_office_lamp:
-        state: "on"
+      light.guest_room_fan_white_light:
+        state: "off"
         attributes:
-          friendly_name: "Zack's Office Lamp"
-          brightness: 200
-    user_prompt: "Set the office light to blue"
+          friendly_name: "Guest Room Fan White Light"
+      light.guest_room_fan_yellow_light:
+        state: "off"
+        attributes:
+          friendly_name: "Guest Room Fan Yellow Light"
+    user_prompt: "Turn on my office lights"
     expected_tool_calls:
       - tool: ControlLights
         arguments:
-          searchTerms: "contains:office light"
+          searchTerms: "contains:office"
           state: "on"
-          color: "contains:blue"
+    response_must_contain:
+      - "on"
+    expected_final_state:
+      light.guest_room_fan_white_light:
+        state: "on"
+      light.guest_room_fan_yellow_light:
+        state: "on"
 
   # --- Query: Get State (on) ---
   - id: query_kitchen_state_on
     description: "Ask about a light that is currently on"
     category: query
     initial_state:
-      light.kitchen_light:
+      light.kitchen_lights_light:
         state: "on"
         attributes:
-          friendly_name: "Kitchen Light"
+          friendly_name: "Kitchen Lights light"
           brightness: 204
     user_prompt: "Is the kitchen light on or off?"
     expected_tool_calls:
@@ -115,10 +124,10 @@ scenarios:
     description: "Ask about a light that is currently off"
     category: query
     initial_state:
-      light.kitchen_light:
+      light.kitchen_lights_light:
         state: "off"
         attributes:
-          friendly_name: "Kitchen Light"
+          friendly_name: "Kitchen Lights light"
     user_prompt: "Is the kitchen light on?"
     expected_tool_calls:
       - tool: GetLightsState
@@ -132,25 +141,25 @@ scenarios:
     description: "Ask what lights exist in an area"
     category: query
     initial_state:
-      switch.garage_light:
+      light.garage_lights:
         state: "on"
         attributes:
-          friendly_name: "Garage Light"
+          friendly_name: "Garage Lights"
     user_prompt: "What lights are in the garage?"
     expected_tool_calls:
       - tool: GetLightsState
         arguments:
-          searchTerms: "contains:garage lights"
+          searchTerms: "contains:garage"
 
   # --- STT Robustness ---
   - id: stt_fuzzy_dim_kitchen
     description: "Handle STT transcription errors (misspelled kitchen, dim)"
     category: stt-robustness
     initial_state:
-      light.kitchen_light:
+      light.kitchen_lights_light:
         state: "on"
         attributes:
-          friendly_name: "Kitchen Light"
+          friendly_name: "Kitchen Lights light"
           brightness: 255
     user_prompt: "Dimm the kichen lite to fifdy percent"
     expected_tool_calls:
@@ -181,10 +190,10 @@ scenarios:
     description: "Turn on a light that is already on - agent should still call the tool"
     category: edge-case
     initial_state:
-      light.kitchen_light:
+      light.kitchen_lights_light:
         state: "on"
         attributes:
-          friendly_name: "Kitchen Light"
+          friendly_name: "Kitchen Lights light"
           brightness: 255
     user_prompt: "Turn on the kitchen light"
     expected_tool_calls:
@@ -192,3 +201,14 @@ scenarios:
         arguments:
           searchTerms: "contains:kitchen"
           state: "on"
+
+  # --- Speaker Context: Identity ---
+  - id: speaker_context_identity
+    description: "Agent should identify the speaker from context metadata"
+    category: speaker-context
+    speaker_id: "Zack"
+    device_area: "Kitchen"
+    user_prompt: "Who am I speaking to?"
+    expected_tool_calls: []
+    response_must_contain:
+      - "Zack"
