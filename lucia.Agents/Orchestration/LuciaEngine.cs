@@ -49,12 +49,14 @@ public class LuciaEngine
     /// <param name="userRequest">The user's request message</param>
     /// <param name="taskId">Optional task ID for conversation continuity</param>
     /// <param name="sessionId">Optional session ID for grouping related tasks</param>
+    /// <param name="speakerContext">Optional speaker and device context for personality prompt personalization</param>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>The orchestrated response from the agent system</returns>
     public async Task<OrchestratorResult> ProcessRequestAsync(
         string userRequest,
         string? taskId = null,
         string? sessionId = null,
+        SpeakerContext? speakerContext = null,
         CancellationToken cancellationToken = default)
     {
         var activity = _telemetrySource.ActivitySource.StartActivity();
@@ -149,7 +151,7 @@ public class LuciaEngine
             }
 
             var workflowResult = await _workflowFactory.BuildAndExecuteAsync(
-                invokers, historyAwareRequest, requestId, cancellationToken).ConfigureAwait(false);
+                invokers, historyAwareRequest, requestId, cancellationToken, speakerContext).ConfigureAwait(false);
 
             // 3. Post-processing
             var finalText = workflowResult?.Text ?? _aggregatorOptions.Value.DefaultFallbackMessage;

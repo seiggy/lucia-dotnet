@@ -26,18 +26,21 @@ public sealed class ResultAggregatorExecutor : Executor
     private readonly ResultAggregatorOptions _options;
     private readonly IChatClient? _personalityChatClient;
     private readonly string? _personalityInstructions;
+    private readonly SpeakerContext? _speakerContext;
 
     public ResultAggregatorExecutor(
         ILogger<ResultAggregatorExecutor> logger,
         IOptions<ResultAggregatorOptions> options,
         IChatClient? personalityChatClient = null,
-        string? personalityInstructions = null)
+        string? personalityInstructions = null,
+        SpeakerContext? speakerContext = null)
         : base(ExecutorId)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
         _personalityChatClient = personalityChatClient;
         _personalityInstructions = personalityInstructions;
+        _speakerContext = speakerContext;
     }
 
     protected override ProtocolBuilder ConfigureProtocol(ProtocolBuilder protocolBuilder)
@@ -125,6 +128,8 @@ public sealed class ResultAggregatorExecutor : Executor
         {
             _logger.LogDebug("Applying personality rewrite to aggregated response");
 
+            var contextBlock = BuildSpeakerContextBlock();
+
             var messages = new List<ChatMessage>
             {
                 new(ChatRole.System, _personalityInstructions),
@@ -133,6 +138,7 @@ public sealed class ResultAggregatorExecutor : Executor
                     "Keep the SAME meaning — if it's an error, keep it as an error. If it's a question, keep it as a question. " +
                     "If it reports success, keep the success. Preserve the original intent faithfully — do not add caveats or change the outcome. " +
                     "Just change the tone and style to match your personality. Be brief.\n\n" +
+                    $"{contextBlock}" +
                     $"Response to rephrase:\n{composedMessage}")
             };
 
@@ -157,6 +163,32 @@ public sealed class ResultAggregatorExecutor : Executor
             _logger.LogWarning(ex, "Personality rewrite failed, falling back to raw composed message");
             return composedMessage;
         }
+    }
+
+    /// <summary>
+    /// Builds a context block for the personality prompt so the LLM can reference
+    /// speaker identity and location metadata when rephrasing.
+    /// </summary>
+    private string BuildSpeakerContextBlock()
+    {
+        if (_speakerContext is null)
+            return string.Empty;
+
+        var parts = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(_speakerContext.SpeakerId))
+            parts.Add($"Speaker Name: {_speakerContext.SpeakerId}");
+
+        if (!string.IsNullOrWhiteSpace(_speakerContext.DeviceArea))
+            parts.Add($"Device Area: {_speakerContext.DeviceArea}");
+
+        if (!string.IsNullOrWhiteSpace(_speakerContext.Location))
+            parts.Add($"Location: {_speakerContext.Location}");
+
+        if (parts.Count == 0)
+            return string.Empty;
+
+        return string.Join("\n", parts) + "\n\n";
     }
 
     private IReadOnlyList<OrchestratorAgentResponse> OrderResponses(IEnumerable<OrchestratorAgentResponse> responses)
