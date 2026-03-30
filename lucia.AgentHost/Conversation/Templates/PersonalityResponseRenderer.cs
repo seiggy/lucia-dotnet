@@ -1,3 +1,4 @@
+using lucia.AgentHost.Conversation.Models;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Orchestration;
 
@@ -32,6 +33,7 @@ public sealed partial class PersonalityResponseRenderer : IPersonalityResponseRe
         string action,
         string cannedResponse,
         IReadOnlyDictionary<string, string> captures,
+        ConversationContext? context = null,
         string? skillResultText = null,
         CancellationToken ct = default)
     {
@@ -62,12 +64,15 @@ public sealed partial class PersonalityResponseRenderer : IPersonalityResponseRe
                 ? "Include paralinguistic voice tags in your response for improved personality, such as [laugh], [sigh], [cough]."
                 : "Do not include any markup or tags in your response. Plain text only.";
 
+            var contextBlock = BuildContextBlock(context);
+
             var messages = new List<ChatMessage>
             {
                 new(ChatRole.System, opts.Instructions),
                 new(ChatRole.User,
                     $"Rephrase this home automation action result in your voice. Be brief and natural. Aim for 10-15 seconds of speech.\n" +
                     $"{voiceTagInstruction}\n" +
+                    $"{contextBlock}" +
                     $"Action Requested: {actionDescription}\n" +
                     $"Result from System: {resultDescription}"),
             };
@@ -98,6 +103,32 @@ public sealed partial class PersonalityResponseRenderer : IPersonalityResponseRe
             LogPersonalityCallFailed(skillId, action, ex);
             return cannedResponse;
         }
+    }
+
+    /// <summary>
+    /// Builds the context block injected into the personality prompt so the LLM
+    /// can reference speaker identity, device area, and other session metadata.
+    /// </summary>
+    private static string BuildContextBlock(ConversationContext? context)
+    {
+        if (context is null)
+            return string.Empty;
+
+        var parts = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(context.SpeakerId))
+            parts.Add($"Speaker: {context.SpeakerId}");
+
+        if (!string.IsNullOrWhiteSpace(context.DeviceArea))
+            parts.Add($"Device Area: {context.DeviceArea}");
+
+        if (!string.IsNullOrWhiteSpace(context.Location))
+            parts.Add($"Location: {context.Location}");
+
+        if (parts.Count == 0)
+            return string.Empty;
+
+        return string.Join("\n", parts) + "\n";
     }
 
     private static string BuildActionDescription(

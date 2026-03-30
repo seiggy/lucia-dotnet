@@ -88,7 +88,7 @@ public sealed class PersonalityResponseTests : IDisposable
         Assert.Equal(ProcessingKind.CommandHandled, result.Kind);
         Assert.Equal("Turned on the kitchen.", result.Response!.Text);
         A.CallTo(() => _personalityRenderer.RenderAsync(
-                A<string>._, A<string>._, A<string>._, A<IReadOnlyDictionary<string, string>>._, A<string?>._, A<CancellationToken>._))
+                A<string>._, A<string>._, A<string>._, A<IReadOnlyDictionary<string, string>>._, A<ConversationContext?>._, A<string?>._, A<CancellationToken>._))
             .MustNotHaveHappened();
     }
 
@@ -118,6 +118,7 @@ public sealed class PersonalityResponseTests : IDisposable
                 "LightControlSkill", "toggle",
                 "Turned on the kitchen.",
                 A<IReadOnlyDictionary<string, string>>._,
+                A<ConversationContext?>._,
                 A<string?>._,
                 A<CancellationToken>._))
             .Returns("Sure thing! I've turned on the kitchen lights for you!");
@@ -155,7 +156,7 @@ public sealed class PersonalityResponseTests : IDisposable
 
         // Renderer falls back to original canned text on LLM failure
         A.CallTo(() => _personalityRenderer.RenderAsync(
-                A<string>._, A<string>._, A<string>._, A<IReadOnlyDictionary<string, string>>._, A<string?>._, A<CancellationToken>._))
+                A<string>._, A<string>._, A<string>._, A<IReadOnlyDictionary<string, string>>._, A<ConversationContext?>._, A<string?>._, A<CancellationToken>._))
             .Returns("Turned off the bedroom.");
 
         // Act

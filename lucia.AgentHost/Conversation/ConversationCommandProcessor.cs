@@ -152,7 +152,7 @@ public sealed partial class ConversationCommandProcessor
                 LogPersonalityBranchEntered(pattern.SkillId, pattern.Action);
                 responseText = await _personalityRenderer
                     .RenderAsync(pattern.SkillId, pattern.Action, responseText, executionResult.Captures,
-                        executionResult.ResponseText, ct)
+                        request.Context, executionResult.ResponseText, ct)
                     .ConfigureAwait(false);
             }
             else
@@ -217,8 +217,15 @@ public sealed partial class ConversationCommandProcessor
 
         var prompt = _contextReconstructor.Reconstruct(request);
 
+        var speakerContext = new SpeakerContext
+        {
+            SpeakerId = request.Context.SpeakerId,
+            DeviceArea = request.Context.DeviceArea,
+            Location = request.Context.Location,
+        };
+
         var result = await engine
-            .ProcessRequestAsync(prompt, sessionId: conversationId, cancellationToken: ct)
+            .ProcessRequestAsync(prompt, sessionId: conversationId, speakerContext: speakerContext, cancellationToken: ct)
             .ConfigureAwait(false);
 
         sw.Stop();

@@ -124,7 +124,7 @@ public sealed class OrchestratorAgent : AIAgent, ILuciaAgent
             userMessage.Text,
             taskId: null,
             sessionId: sessionId,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
         var responseMessage = new ChatMessage(ChatRole.Assistant, responseText.Text)
         {
@@ -160,7 +160,7 @@ public sealed class OrchestratorAgent : AIAgent, ILuciaAgent
             userMessage.Text,
             taskId: null,
             sessionId: streamSessionId,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
         var responseMessage = new ChatMessage(ChatRole.Assistant, responseText.Text)
         {

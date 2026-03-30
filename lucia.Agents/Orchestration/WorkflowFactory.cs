@@ -243,7 +243,8 @@ public sealed class WorkflowFactory
         Dictionary<string, IAgentInvoker> invokers,
         string historyAwareRequest,
         string? requestId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        SpeakerContext? speakerContext = null)
     {
         // Resolve the orchestrator's chat client per-request so model provider changes take effect
         var definition = await _definitionRepository.GetAgentDefinitionAsync("orchestrator", cancellationToken).ConfigureAwait(false);
@@ -280,7 +281,7 @@ public sealed class WorkflowFactory
         var aggregatorLogger = _loggerFactory.CreateLogger<ResultAggregatorExecutor>();
         var router = new RouterExecutor(chatClient, _agentRegistry, routerLogger, _telemetrySource, _routerOptions, _promptCache);
         var dispatch = new AgentDispatchExecutor(invokers, dispatchLogger, _routerOptions, chatClient, _observer);
-        var aggregator = new ResultAggregatorExecutor(aggregatorLogger, _aggregatorOptions, personalityChatClient, personalityInstructions);
+        var aggregator = new ResultAggregatorExecutor(aggregatorLogger, _aggregatorOptions, personalityChatClient, personalityInstructions, speakerContext);
 
         var chatMessage = new ChatMessage(ChatRole.User, historyAwareRequest);
         dispatch.SetUserMessage(chatMessage);
