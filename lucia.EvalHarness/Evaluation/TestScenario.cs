@@ -21,8 +21,9 @@ public sealed class TestScenario
 
     /// <summary>
     /// Optional speaker identity for voice-pipeline scenarios.
-    /// When set, prefixed to the user prompt as a speaker tag: "&lt;Dianna /&gt; turn on my office lights"
-    /// This mirrors how the Wyoming voice pipeline tags speaker identity.
+    /// When set, the scenario runner prefixes the user prompt with speaker metadata
+    /// using the same bracketed header format as <c>EvalRunner.BuildScenarioPrompt</c>,
+    /// mirroring how the Wyoming voice pipeline tags speaker identity.
     /// </summary>
     public string? SpeakerId { get; init; }
 

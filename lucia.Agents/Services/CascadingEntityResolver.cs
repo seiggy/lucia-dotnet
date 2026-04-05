@@ -91,7 +91,7 @@ public sealed class CascadingEntityResolver : ICascadingEntityResolver
         {
             return Bail(
                 BailReason.NoMatch,
-                $"Explicit area '{intent.ExplicitLocation}' not found in cache");
+                $"Explicit location '{intent.ExplicitLocation}' not found in cache");
         }
 
         var candidates = FilterByDomain(intent, grounded, domains, snapshot);

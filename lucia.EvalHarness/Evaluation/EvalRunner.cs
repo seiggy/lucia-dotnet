@@ -300,17 +300,39 @@ public sealed class EvalRunner
     {
         var sb = new System.Text.StringBuilder();
 
-        if (scenario.SpeakerId is not null || scenario.DeviceArea is not null)
+        if (scenario.SpeakerId is not null || scenario.DeviceArea is not null || scenario.Location is not null)
         {
             sb.Append('[');
+
+            var hasPreviousMetadata = false;
+
             if (scenario.SpeakerId is not null)
+            {
                 sb.Append($"Speaker: {scenario.SpeakerId}");
-            if (scenario.SpeakerId is not null && scenario.DeviceArea is not null)
-                sb.Append(" | ");
+                hasPreviousMetadata = true;
+            }
+
             if (scenario.DeviceArea is not null)
+            {
+                if (hasPreviousMetadata)
+                {
+                    sb.Append(" | ");
+                }
+
                 sb.Append($"Device Area: {scenario.DeviceArea}");
+                hasPreviousMetadata = true;
+            }
+
             if (scenario.Location is not null)
-                sb.Append($" | Location: {scenario.Location}");
+            {
+                if (hasPreviousMetadata)
+                {
+                    sb.Append(" | ");
+                }
+
+                sb.Append($"Location: {scenario.Location}");
+            }
+
             sb.AppendLine("]");
         }
 

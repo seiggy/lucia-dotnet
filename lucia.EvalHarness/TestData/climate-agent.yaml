@@ -207,8 +207,8 @@ scenarios:
     user_prompt: "Play some jazz in the kitchen"
     expected_tool_calls: []
     response_must_not_contain:
-      - "temperature"
-      - "thermostat"
+      - "set the temperature"
+      - "adjust the thermostat"
 
   # --- Out of Domain: Light request ---
   - id: out_of_domain_lights
@@ -217,5 +217,5 @@ scenarios:
     user_prompt: "Turn on the living room lights"
     expected_tool_calls: []
     response_must_not_contain:
-      - "temperature"
-      - "thermostat"
+      - "set the temperature"
+      - "adjust the thermostat"

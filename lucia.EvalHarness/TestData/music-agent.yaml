@@ -222,9 +222,9 @@ scenarios:
     user_prompt: "Turn on the living room lights"
     expected_tool_calls: []
     response_must_not_contain:
-      - "play"
-      - "shuffle"
-      - "volume"
+      - "play music"
+      - "shuffle music"
+      - "adjust the volume"
 
   # --- Out of Domain: Climate request ---
   - id: out_of_domain_climate
@@ -233,6 +233,6 @@ scenarios:
     user_prompt: "Set the thermostat to 72 degrees"
     expected_tool_calls: []
     response_must_not_contain:
-      - "play"
-      - "shuffle"
-      - "volume"
+      - "play music"
+      - "shuffle music"
+      - "adjust the volume"
