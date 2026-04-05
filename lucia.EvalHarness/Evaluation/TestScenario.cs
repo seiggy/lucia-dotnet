@@ -20,6 +20,25 @@ public sealed class TestScenario
     public string? Category { get; init; }
 
     /// <summary>
+    /// Optional speaker identity for voice-pipeline scenarios.
+    /// When set, the scenario runner prefixes the user prompt with speaker metadata
+    /// using the same bracketed header format as <c>EvalRunner.BuildScenarioPrompt</c>,
+    /// mirroring how the Wyoming voice pipeline tags speaker identity.
+    /// </summary>
+    public string? SpeakerId { get; init; }
+
+    /// <summary>
+    /// Optional device area context (e.g., "Zack's Office").
+    /// When set, included in the system prompt context block.
+    /// </summary>
+    public string? DeviceArea { get; init; }
+
+    /// <summary>
+    /// Optional device location context (e.g., "Home").
+    /// </summary>
+    public string? Location { get; init; }
+
+    /// <summary>
     /// Initial entity states to load before running the scenario.
     /// Keys are entity IDs, values define the state + attributes.
     /// </summary>

@@ -296,6 +296,50 @@ public sealed class EvalRunner
         }).ToList();
     }
 
+    private static string BuildScenarioPrompt(TestScenario scenario)
+    {
+        var sb = new System.Text.StringBuilder();
+
+        if (scenario.SpeakerId is not null || scenario.DeviceArea is not null || scenario.Location is not null)
+        {
+            sb.Append('[');
+
+            var hasPreviousMetadata = false;
+
+            if (scenario.SpeakerId is not null)
+            {
+                sb.Append($"Speaker: {scenario.SpeakerId}");
+                hasPreviousMetadata = true;
+            }
+
+            if (scenario.DeviceArea is not null)
+            {
+                if (hasPreviousMetadata)
+                {
+                    sb.Append(" | ");
+                }
+
+                sb.Append($"Device Area: {scenario.DeviceArea}");
+                hasPreviousMetadata = true;
+            }
+
+            if (scenario.Location is not null)
+            {
+                if (hasPreviousMetadata)
+                {
+                    sb.Append(" | ");
+                }
+
+                sb.Append($"Location: {scenario.Location}");
+            }
+
+            sb.AppendLine("]");
+        }
+
+        sb.Append(scenario.UserPrompt);
+        return sb.ToString();
+    }
+
     // ─── Scenario-Based Evaluation ────────────────────────────────────
 
     /// <summary>
@@ -340,10 +384,11 @@ public sealed class EvalRunner
                 await ScenarioValidator.SetupInitialStateAsync(haClient, scenario);
 
                 // Build an AgentEval TestCase from the scenario
+                var promptText = BuildScenarioPrompt(scenario);
                 var testCase = new TestCase
                 {
                     Name = scenario.Id,
-                    Input = scenario.UserPrompt,
+                    Input = promptText,
                     ExpectedOutputContains = scenario.ResponseMustContain.FirstOrDefault()
                 };
 
@@ -366,7 +411,7 @@ public sealed class EvalRunner
                     Passed = validation.Passed,
                     Score = validation.Score,
                     Latency = perf.TotalDuration,
-                    Input = scenario.UserPrompt,
+                    Input = promptText,
                     AgentOutput = evalResult.ActualOutput,
                     ToolCalls = CaptureToolCalls(evalResult.ToolUsage),
                     ConversationHistory = conversation,

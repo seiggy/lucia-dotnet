@@ -1,0 +1,221 @@
+# Climate Agent Evaluation Scenarios
+# Each scenario defines: known HA state -> user prompt -> expected tool calls -> expected outcome
+# Entity IDs are plausible climate entities (no climate entities in current HA snapshot)
+
+scenarios:
+
+  # --- Control: Set Temperature ---
+  - id: set_temperature_72
+    description: "Set thermostat to 72 degrees"
+    category: control
+    initial_state:
+      climate.living_room_thermostat:
+        state: "heat"
+        attributes:
+          friendly_name: "Living Room Thermostat"
+          temperature: 68
+          current_temperature: 67
+          hvac_modes: ["off", "heat", "cool", "auto"]
+    user_prompt: "Set the thermostat to 72 degrees"
+    expected_tool_calls:
+      - tool: SetClimateTemperature
+        arguments:
+          entityId: "contains:thermostat"
+          temperature: "*"
+    response_must_contain:
+      - "72"
+
+  # --- Control: Set Temperature (bedroom) ---
+  - id: set_bedroom_temp_70
+    description: "Set bedroom thermostat to 70 degrees"
+    category: control
+    initial_state:
+      climate.bedroom_thermostat:
+        state: "cool"
+        attributes:
+          friendly_name: "Bedroom Thermostat"
+          temperature: 74
+          current_temperature: 75
+          hvac_modes: ["off", "heat", "cool", "auto"]
+    user_prompt: "Set the bedroom thermostat to 70"
+    expected_tool_calls:
+      - tool: SetClimateTemperature
+        arguments:
+          entityId: "contains:bedroom"
+          temperature: "*"
+    response_must_contain:
+      - "70"
+
+  # --- STT Robustness: Misspelled temperature command ---
+  - id: stt_set_thermometer_72
+    description: "Handle STT transcription errors (thermometer instead of thermostat)"
+    category: stt-robustness
+    initial_state:
+      climate.living_room_thermostat:
+        state: "heat"
+        attributes:
+          friendly_name: "Living Room Thermostat"
+          temperature: 68
+          current_temperature: 67
+          hvac_modes: ["off", "heat", "cool", "auto"]
+    user_prompt: "set thermometer to seventy two"
+    expected_tool_calls:
+      - tool: SetClimateTemperature
+        arguments:
+          entityId: "*"
+          temperature: "*"
+
+  # --- Query: Get Current Temperature ---
+  - id: query_living_room_temp
+    description: "Ask about the current temperature"
+    category: query
+    initial_state:
+      climate.living_room_thermostat:
+        state: "heat"
+        attributes:
+          friendly_name: "Living Room Thermostat"
+          temperature: 72
+          current_temperature: 69
+          hvac_modes: ["off", "heat", "cool", "auto"]
+    user_prompt: "What's the temperature in the living room?"
+    expected_tool_calls:
+      - tool: GetClimateState
+        arguments:
+          searchTerms: "contains:living room"
+    response_must_contain:
+      - "69"
+
+  # --- Query: Get HVAC State ---
+  - id: query_thermostat_state
+    description: "Ask what mode the thermostat is in"
+    category: query
+    initial_state:
+      climate.living_room_thermostat:
+        state: "cool"
+        attributes:
+          friendly_name: "Living Room Thermostat"
+          temperature: 72
+          current_temperature: 74
+          hvac_modes: ["off", "heat", "cool", "auto"]
+    user_prompt: "What mode is the thermostat set to?"
+    expected_tool_calls:
+      - tool: GetClimateState
+        arguments:
+          entityId: "contains:thermostat"
+
+  # --- Control: Set HVAC Mode (heat) ---
+  - id: set_hvac_mode_heat
+    description: "Switch thermostat to heat mode"
+    category: control
+    initial_state:
+      climate.living_room_thermostat:
+        state: "cool"
+        attributes:
+          friendly_name: "Living Room Thermostat"
+          temperature: 72
+          current_temperature: 68
+          hvac_modes: ["off", "heat", "cool", "auto"]
+    user_prompt: "Switch the thermostat to heat mode"
+    expected_tool_calls:
+      - tool: SetHvacMode
+        arguments:
+          entityId: "contains:thermostat"
+          hvacMode: "contains:heat"
+
+  # --- Control: Set HVAC Mode (off) ---
+  - id: set_hvac_mode_off
+    description: "Turn off the thermostat"
+    category: control
+    initial_state:
+      climate.living_room_thermostat:
+        state: "heat"
+        attributes:
+          friendly_name: "Living Room Thermostat"
+          temperature: 72
+          current_temperature: 71
+          hvac_modes: ["off", "heat", "cool", "auto"]
+    user_prompt: "Turn off the thermostat"
+    expected_tool_calls:
+      - tool: SetHvacMode
+        arguments:
+          entityId: "contains:thermostat"
+          hvacMode: "contains:off"
+
+  # --- Control: Set HVAC Mode (cool) ---
+  - id: set_hvac_mode_cool
+    description: "Switch thermostat to cooling mode"
+    category: control
+    initial_state:
+      climate.living_room_thermostat:
+        state: "heat"
+        attributes:
+          friendly_name: "Living Room Thermostat"
+          temperature: 72
+          current_temperature: 76
+          hvac_modes: ["off", "heat", "cool", "auto"]
+    user_prompt: "Put the thermostat on cool"
+    expected_tool_calls:
+      - tool: SetHvacMode
+        arguments:
+          entityId: "contains:thermostat"
+          hvacMode: "contains:cool"
+
+  # --- Comfort Adjustment: I'm cold ---
+  - id: comfort_im_cold
+    description: "User says they're cold — agent should raise temperature"
+    category: control
+    initial_state:
+      climate.living_room_thermostat:
+        state: "heat"
+        attributes:
+          friendly_name: "Living Room Thermostat"
+          temperature: 66
+          current_temperature: 65
+          hvac_modes: ["off", "heat", "cool", "auto"]
+    user_prompt: "I'm cold"
+    expected_tool_calls:
+      - tool: SetClimateTemperature
+        arguments:
+          entityId: "*"
+          temperature: "*"
+
+  # --- Control: Set Fan Speed ---
+  - id: set_fan_speed_high
+    description: "Set the fan speed to high"
+    category: control
+    initial_state:
+      climate.living_room_thermostat:
+        state: "cool"
+        attributes:
+          friendly_name: "Living Room Thermostat"
+          temperature: 72
+          current_temperature: 76
+          fan_mode: "low"
+          fan_modes: ["low", "medium", "high", "auto"]
+          hvac_modes: ["off", "heat", "cool", "auto"]
+    user_prompt: "Set the fan to high"
+    expected_tool_calls:
+      - tool: SetFanSpeed
+        arguments:
+          entityId: "*"
+          speed: "contains:high"
+
+  # --- Out of Domain: Music request ---
+  - id: out_of_domain_music
+    description: "Reject music request — not a climate task"
+    category: out-of-domain
+    user_prompt: "Play some jazz in the kitchen"
+    expected_tool_calls: []
+    response_must_not_contain:
+      - "set the temperature"
+      - "adjust the thermostat"
+
+  # --- Out of Domain: Light request ---
+  - id: out_of_domain_lights
+    description: "Reject lighting request — not a climate task"
+    category: out-of-domain
+    user_prompt: "Turn on the living room lights"
+    expected_tool_calls: []
+    response_must_not_contain:
+      - "set the temperature"
+      - "adjust the thermostat"

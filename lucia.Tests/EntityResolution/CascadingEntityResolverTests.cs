@@ -220,12 +220,153 @@ public sealed class CascadingEntityResolverTests
         Assert.Contains("light.zack_light", result.ResolvedEntityIds);
     }
 
+    // ── Floor-level resolution ─────────────────────────────────
+
+    [Fact]
+    public void Resolve_UpstairsLights_FloorName_ExpandsToAllAreasOnFloor()
+    {
+        // Arrange — "Upstairs" floor with two areas
+        var upstairs = CreateFloor("upstairs", "Upstairs");
+        var bedroom = CreateArea("bedroom", "Bedroom", floorId: "upstairs");
+        var bathroom = CreateArea("bathroom", "Bathroom", floorId: "upstairs");
+        var kitchen = CreateArea("kitchen", "Kitchen");
+        var entities = new[]
+        {
+            CreateEntity("light.bedroom_ceiling", "Bedroom Ceiling", "bedroom"),
+            CreateEntity("light.bathroom_vanity", "Bathroom Vanity", "bathroom"),
+            CreateEntity("light.kitchen_main", "Kitchen Main", "kitchen")
+        };
+        var locationService = SetupLocationService(
+            areas: [bedroom, bathroom, kitchen], entities: entities, floors: [upstairs]);
+
+        var resolver = new CascadingEntityResolver(locationService);
+
+        // Act
+        var result = resolver.Resolve(
+            "turn on the upstairs lights",
+            callerArea: null,
+            speakerId: null,
+            domains: ["light", "switch"]);
+
+        // Assert — both upstairs area lights, not kitchen
+        Assert.True(result.IsResolved);
+        Assert.Equal("Upstairs", result.ResolvedFloor);
+        Assert.Null(result.ResolvedArea);
+        Assert.Equal(2, result.ResolvedEntityIds.Count);
+        Assert.Contains("light.bedroom_ceiling", result.ResolvedEntityIds);
+        Assert.Contains("light.bathroom_vanity", result.ResolvedEntityIds);
+        Assert.DoesNotContain("light.kitchen_main", result.ResolvedEntityIds);
+    }
+
+    [Fact]
+    public void Resolve_DownstairsLights_FloorAlias_ExpandsToAllAreasOnFloor()
+    {
+        // Arrange — floor with alias "downstairs"
+        var ground = CreateFloor("ground_floor", "Ground Floor", aliases: ["downstairs"]);
+        var living = CreateArea("living_room", "Living Room", floorId: "ground_floor");
+        var dining = CreateArea("dining_room", "Dining Room", floorId: "ground_floor");
+        var entities = new[]
+        {
+            CreateEntity("light.living_lamp", "Living Lamp", "living_room"),
+            CreateEntity("light.dining_chandelier", "Dining Chandelier", "dining_room")
+        };
+        var locationService = SetupLocationService(
+            areas: [living, dining], entities: entities, floors: [ground]);
+
+        var resolver = new CascadingEntityResolver(locationService);
+
+        // Act
+        var result = resolver.Resolve(
+            "turn on the downstairs lights",
+            callerArea: null,
+            speakerId: null,
+            domains: ["light", "switch"]);
+
+        // Assert
+        Assert.True(result.IsResolved);
+        Assert.Equal("Ground Floor", result.ResolvedFloor);
+        Assert.Equal(2, result.ResolvedEntityIds.Count);
+        Assert.Contains("light.living_lamp", result.ResolvedEntityIds);
+        Assert.Contains("light.dining_chandelier", result.ResolvedEntityIds);
+    }
+
+    [Fact]
+    public void Resolve_BedroomLights_AreaPreferredOverFloor()
+    {
+        // Arrange — "Bedroom" is both an area name and a floor name
+        var bedroomFloor = CreateFloor("bedroom_floor", "Bedroom");
+        var bedroom = CreateArea("bedroom", "Bedroom");
+        var hallway = CreateArea("hallway", "Hallway", floorId: "bedroom_floor");
+        var entities = new[]
+        {
+            CreateEntity("light.bedroom_ceiling", "Bedroom Ceiling", "bedroom"),
+            CreateEntity("light.hallway_sconce", "Hallway Sconce", "hallway")
+        };
+        var locationService = SetupLocationService(
+            areas: [bedroom, hallway], entities: entities, floors: [bedroomFloor]);
+
+        var resolver = new CascadingEntityResolver(locationService);
+
+        // Act
+        var result = resolver.Resolve(
+            "turn on the bedroom lights",
+            callerArea: null,
+            speakerId: null,
+            domains: ["light", "switch"]);
+
+        // Assert — area match wins over floor match
+        Assert.True(result.IsResolved);
+        Assert.Equal("Bedroom", result.ResolvedArea);
+        Assert.Null(result.ResolvedFloor);
+        Assert.Single(result.ResolvedEntityIds);
+        Assert.Contains("light.bedroom_ceiling", result.ResolvedEntityIds);
+    }
+
+    [Fact]
+    public void Resolve_AtticLights_FloorWithNoAreas_FallsToCallerArea()
+    {
+        // Arrange — "Attic" floor exists but has zero areas assigned
+        var attic = CreateFloor("attic", "Attic");
+        var kitchen = CreateArea("kitchen", "Kitchen");
+        var entities = new[]
+        {
+            CreateEntity("light.kitchen_main", "Kitchen Main", "kitchen")
+        };
+        var locationService = SetupLocationService(
+            areas: [kitchen], entities: entities, floors: [attic]);
+
+        var resolver = new CascadingEntityResolver(locationService);
+
+        // Act — explicit location "attic" won't match any area or populated floor
+        var result = resolver.Resolve(
+            "turn on the attic lights",
+            callerArea: null,
+            speakerId: null,
+            domains: ["light", "switch"]);
+
+        // Assert — bails because explicit location didn't resolve
+        Assert.False(result.IsResolved);
+        Assert.Equal(BailReason.NoMatch, result.BailReason);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────
 
-    private static AreaInfo CreateArea(string areaId, string name, string[]? aliases = null) => new()
+    private static FloorInfo CreateFloor(string floorId, string name, string[]? aliases = null) => new()
+    {
+        FloorId = floorId,
+        Name = name,
+        Aliases = aliases ?? [],
+        PhoneticKeys = StringSimilarity.BuildPhoneticKeys(name),
+        AliasPhoneticKeys = (aliases ?? [])
+            .Select(StringSimilarity.BuildPhoneticKeys)
+            .ToList()
+    };
+
+    private static AreaInfo CreateArea(string areaId, string name, string[]? aliases = null, string? floorId = null) => new()
     {
         AreaId = areaId,
         Name = name,
+        FloorId = floorId,
         Aliases = aliases ?? [],
         PhoneticKeys = StringSimilarity.BuildPhoneticKeys(name),
         AliasPhoneticKeys = (aliases ?? [])
@@ -244,16 +385,17 @@ public sealed class CascadingEntityResolverTests
     };
 
     private static IEntityLocationService SetupLocationService(
-        AreaInfo[] areas, HomeAssistantEntity[] entities)
+        AreaInfo[] areas, HomeAssistantEntity[] entities, FloorInfo[]? floors = null)
     {
+        var floorArray = floors ?? [];
         var locationService = A.Fake<IEntityLocationService>();
         A.CallTo(() => locationService.IsCacheReady).Returns(true);
 
         var snapshot = new LocationSnapshot(
-            ImmutableArray<FloorInfo>.Empty,
+            [.. floorArray],
             [.. areas],
             [.. entities],
-            ImmutableDictionary<string, FloorInfo>.Empty,
+            floorArray.ToImmutableDictionary(f => f.FloorId, StringComparer.OrdinalIgnoreCase),
             areas.ToImmutableDictionary(a => a.AreaId, StringComparer.OrdinalIgnoreCase),
             entities.ToImmutableDictionary(e => e.EntityId, StringComparer.OrdinalIgnoreCase));
 

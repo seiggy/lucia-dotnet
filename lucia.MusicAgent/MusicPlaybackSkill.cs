@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Text.Json;
 using lucia.Agents.Abstractions;
+using lucia.Agents.Services;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using lucia.Agents.Models;
@@ -32,19 +33,22 @@ public class MusicPlaybackSkill : IOptimizableSkill
     private readonly IEntityLocationService _locationService;
     private readonly IOptionsMonitor<MusicPlaybackSkillOptions> _options;
     private readonly IOptionsMonitor<MusicAssistantConfig> _config;
+    private readonly ICascadingEntityResolver? _cascadingResolver;
 
     public MusicPlaybackSkill(
         IHomeAssistantClient homeAssistantClient,
         ILogger<MusicPlaybackSkill> logger,
         IEntityLocationService locationService,
         IOptionsMonitor<MusicPlaybackSkillOptions> options,
-        IOptionsMonitor<MusicAssistantConfig> config)
+        IOptionsMonitor<MusicAssistantConfig> config,
+        ICascadingEntityResolver? cascadingResolver = null)
     {
         _homeAssistantClient = homeAssistantClient;
         _logger = logger;
         _locationService = locationService;
         _options = options;
         _config = config;
+        _cascadingResolver = cascadingResolver;
     }
 
     // ── IOptimizableSkill ─────────────────────────────────────────
@@ -435,14 +439,38 @@ public class MusicPlaybackSkill : IOptimizableSkill
                 .FirstOrDefault(e => e.IncludeForAgent is null || e.IncludeForAgent.Contains(AgentId));
         }
 
+        // Prefer cascading resolver when available — deterministic, <50ms, no embedding needed
+        if (_cascadingResolver is not null)
+        {
+            var cascadeResult = _cascadingResolver.Resolve(
+                playerName, callerArea: null, speakerId: null, EntityDomains, cancellationToken);
+
+            if (cascadeResult.IsResolved && cascadeResult.ResolvedEntityIds.Count > 0)
+            {
+                var snapshot = _locationService.GetSnapshot();
+                foreach (var entityId in cascadeResult.ResolvedEntityIds)
+                {
+                    if (snapshot.EntityById.TryGetValue(entityId, out var entity)
+                        && (entity.IncludeForAgent is null || entity.IncludeForAgent.Contains(AgentId)))
+                    {
+                        return entity;
+                    }
+                }
+            }
+
+            // Cascading resolver bailed — fall through to SearchHierarchyAsync
+            _logger.LogDebug(
+                "Cascading resolver bailed for player '{PlayerName}': {Reason}. Falling back to hierarchy search.",
+                playerName, cascadeResult.Explanation);
+        }
+
+        // Fallback: use the older SearchHierarchyAsync
         var matchOptions = GetCurrentMatchOptions();
         var result = await _locationService.SearchHierarchyAsync(
             playerName, matchOptions, EntityDomains, cancellationToken).ConfigureAwait(false);
 
-        var entity = result.ResolvedEntities
+        return result.ResolvedEntities
             .FirstOrDefault(e => e.IncludeForAgent is null || e.IncludeForAgent.Contains(AgentId));
-
-        return entity;
     }
 
     private async Task<IReadOnlyList<string>> GetRandomTrackUrisAsync(string? configEntryId, int trackSeedCount, CancellationToken cancellationToken = default)

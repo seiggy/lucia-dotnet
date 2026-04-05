@@ -315,6 +315,13 @@ internal sealed class SnapshotEntityLocationService : IEntityLocationService
         };
     }
 
+    /// <summary>
+    /// Bidirectional substring match: either the text contains the query,
+    /// or the query contains the text. This allows area names like "Living Room"
+    /// to match queries like "living room lights" where the query embeds the area name.
+    /// </summary>
     private static bool MatchesQuery(string? text, string query) =>
-        text is not null && text.Contains(query, StringComparison.OrdinalIgnoreCase);
+        text is not null &&
+        (text.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+         query.Contains(text, StringComparison.OrdinalIgnoreCase));
 }
