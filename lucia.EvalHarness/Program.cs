@@ -27,13 +27,33 @@ configRoot.GetSection("Harness").Bind(config);
 // ─── Initialize Services ─────────────────────────────────────────────
 using var httpClient = new HttpClient();
 var discovery = new OllamaModelDiscovery(httpClient, config.Ollama);
+var backendDiscovery = new BackendModelDiscovery(httpClient);
 var gpuEnv = new GpuEnvironment(config, discovery);
+
+// ─── Resolve Backends ────────────────────────────────────────────────
+var effectiveBackends = config.GetEffectiveBackends();
 
 // ─── GPU Detection ───────────────────────────────────────────────────
 var gpuInfo = await gpuEnv.DetectAsync();
 
-// ─── Ollama Connectivity Check ───────────────────────────────────────
-var ollamaAvailable = await discovery.IsAvailableAsync();
+// ─── Backend Connectivity Check ──────────────────────────────────────
+var anyBackendAvailable = false;
+foreach (var backend in effectiveBackends)
+{
+    var available = await backendDiscovery.IsAvailableAsync(backend);
+    if (available)
+    {
+        anyBackendAvailable = true;
+        AnsiConsole.MarkupLine($"[green]✓[/] Backend [bold]{Markup.Escape(backend.Name)}[/] ({Markup.Escape(backend.Endpoint)}) — online");
+    }
+    else
+    {
+        AnsiConsole.MarkupLine($"[red]✗[/] Backend [bold]{Markup.Escape(backend.Name)}[/] ({Markup.Escape(backend.Endpoint)}) — unreachable");
+    }
+}
+
+// Legacy Ollama check for WelcomeScreen compat
+var ollamaAvailable = anyBackendAvailable;
 
 // ─── Welcome Screen ──────────────────────────────────────────────────
 await WelcomeScreen.RenderAsync(config, gpuInfo, ollamaAvailable);
@@ -43,26 +63,48 @@ if (!ollamaAvailable)
     return 1;
 }
 
-// ─── Model Discovery ─────────────────────────────────────────────────
-IReadOnlyList<OllamaModelInfo> models;
-await AnsiConsole.Status()
-    .Spinner(Spinner.Known.Dots)
-    .StartAsync("Discovering Ollama models...", async ctx =>
-    {
-        await Task.CompletedTask;
-    });
+// ─── Backend Selection ───────────────────────────────────────────────
+var selectedBackends = BackendSelector.Select(effectiveBackends);
+if (selectedBackends.Count == 0) return 0;
 
-models = await discovery.ListModelsAsync();
-
-if (models.Count == 0)
+// ─── Model Discovery (union across all selected backends) ────────────
+var allDiscoveredModels = new Dictionary<string, DiscoveredModel>(StringComparer.OrdinalIgnoreCase);
+foreach (var backend in selectedBackends)
 {
-    AnsiConsole.MarkupLine("[red]No models found on Ollama. Pull a model first:[/]");
+    var backendModels = await backendDiscovery.ListModelsAsync(backend);
+    foreach (var m in backendModels)
+    {
+        allDiscoveredModels.TryAdd(m.Name, m);
+    }
+}
+
+// Also discover via legacy Ollama path for backward compat
+IReadOnlyList<OllamaModelInfo> models = [];
+try { models = await discovery.ListModelsAsync(); } catch { /* swallow */ }
+foreach (var m in models)
+{
+    allDiscoveredModels.TryAdd(m.Name, new DiscoveredModel
+    {
+        Name = m.Name, Size = m.Size,
+        ParameterSize = m.ParameterSize, QuantizationLevel = m.QuantizationLevel
+    });
+}
+
+if (allDiscoveredModels.Count == 0)
+{
+    AnsiConsole.MarkupLine("[red]No models found on any backend. Pull a model first:[/]");
     AnsiConsole.MarkupLine("[dim]  ollama pull llama3.2[/]");
     return 1;
 }
 
-// ─── Interactive Selection ───────────────────────────────────────────
-var selectedModels = ModelSelector.Select(models);
+// ─── Interactive Model Selection ─────────────────────────────────────
+var discoveredList = allDiscoveredModels.Values
+    .Select(d => new OllamaModelInfo
+    {
+        Name = d.Name, Size = d.Size,
+        ParameterSize = d.ParameterSize, QuantizationLevel = d.QuantizationLevel
+    }).ToList();
+var selectedModels = ModelSelector.Select(discoveredList);
 if (selectedModels.Count == 0) return 0;
 
 // ─── Eval Type Selection ──────────────────────────────────────────────
@@ -180,29 +222,39 @@ var testScope = TestSuiteSelector.Select();
 // Standard agent eval uses scenario datasets, so tracing is auto-enabled to prevent
 // false "0 tool calls" results when the tracer is absent.
 var enableTraces = true;
-AnsiConsole.MarkupLine("[yellow]\u2139 Conversation tracing auto-enabled (required for scenario tool call validation)[/]");
+AnsiConsole.MarkupLine("[yellow]ℹ Conversation tracing auto-enabled (required for scenario tool call validation)[/]");
 AnsiConsole.WriteLine();
 
 // ─── Parameter Profile Selection ─────────────────────────────────────
 var selectedProfiles = ParameterSelector.SelectMultiple(config.GetAllProfiles());
 foreach (var p in selectedProfiles)
-    AnsiConsole.MarkupLine($"[green]\u2713[/] Profile: [bold]{Markup.Escape(p.Name)}[/] ({Markup.Escape(p.ToSummary())})");
+    AnsiConsole.MarkupLine($"[green]✓[/] Profile: [bold]{Markup.Escape(p.Name)}[/] ({Markup.Escape(p.ToSummary())})");
 AnsiConsole.WriteLine();
 
-await using var agentFactory = new RealAgentFactory(config.Ollama.Endpoint, haSnapshotPath, loggerFactory);
-agentFactory.EnableTracing = enableTraces;
-
+// ─── Create Per-Backend Factories ────────────────────────────────────
+var backendFactories = new List<(lucia.EvalHarness.Configuration.InferenceBackend, RealAgentFactory)>();
+var disposableFactories = new List<RealAgentFactory>();
+foreach (var backend in selectedBackends)
+{
+    var factory = new RealAgentFactory(backend, haSnapshotPath, loggerFactory);
+    factory.EnableTracing = enableTraces;
+    backendFactories.Add((backend, factory));
+    disposableFactories.Add(factory);
+}
 
 var runner = new EvalRunner(config, judgeChatClient);
 
 // ─── Run Evaluations ─────────────────────────────────────────────────
 AnsiConsole.Write(new Rule("[bold]Running Evaluations[/]").LeftJustified());
-AnsiConsole.MarkupLine("[dim]Constructing real lucia agents with Ollama backends + HA snapshot data...[/]");
+var backendLabel = selectedBackends.Count > 1
+    ? string.Join(" + ", selectedBackends.Select(b => b.Name))
+    : selectedBackends[0].Name;
+AnsiConsole.MarkupLine($"[dim]Constructing real lucia agents with {Markup.Escape(backendLabel)} backend(s) + HA snapshot data...[/]");
 AnsiConsole.WriteLine();
 
 var result = await EvalProgressDisplay.RunWithProgressAsync(
     runner,
-    agentFactory,
+    backendFactories,
     selectedModels,
     selectedAgents,
     datasetFile => LoadTestCases(datasetFile),
@@ -254,14 +306,16 @@ AnsiConsole.WriteLine();
 AnsiConsole.MarkupLine("[dim]Evaluation complete.[/]");
 
 // ─── Parameter Sweep (optional) ─────────────────────────────────────
-var sweepSelection = ParameterSweepSelector.Select(models, selectedAgents);
+// Sweep uses the first backend (primary) for consistency
+var primaryFactory = backendFactories[0].Item2;
+var sweepSelection = ParameterSweepSelector.Select(discoveredList, selectedAgents);
 if (sweepSelection is not null)
 {
     AnsiConsole.WriteLine();
     AnsiConsole.Write(new Rule("[bold]Parameter Sweep[/]").LeftJustified());
     AnsiConsole.WriteLine();
 
-    var sweepRunner = new lucia.EvalHarness.Evaluation.ParameterSweepRunner(runner, agentFactory);
+    var sweepRunner = new lucia.EvalHarness.Evaluation.ParameterSweepRunner(runner, primaryFactory);
     var sweepResult = await sweepRunner.RunAsync(
         sweepSelection.BaselineModel,
         sweepSelection.TargetModels,
@@ -275,7 +329,7 @@ if (sweepSelection is not null)
     AnsiConsole.Write(new Rule("[bold]Sweep Reports[/]").LeftJustified());
     foreach (var file in sweepFiles)
     {
-        AnsiConsole.MarkupLine($"  [green]\u2713[/] {Markup.Escape(file)}");
+        AnsiConsole.MarkupLine($"  [green]✓[/] {Markup.Escape(file)}");
     }
 }
 
@@ -319,9 +373,12 @@ if (judgeChatClient is not NoOpChatClient &&
             .Where(m => m.ModelName == targetModel)
             .ToList();
 
+        // Strip backend tag from model name for agent construction
+        var rawModel = lucia.EvalHarness.Tui.BackendComparisonRenderer.ExtractBaseModel(targetModel);
+
         foreach (var agentResult in result.AgentResults)
         {
-            var agentInstance = await agentFactory.AgentFactories[agentResult.AgentName](targetModel);
+            var agentInstance = await primaryFactory.AgentFactories[agentResult.AgentName](rawModel);
             var systemPrompt = ExtractInstructions(agentInstance.Agent);
 
             try
@@ -333,7 +390,7 @@ if (judgeChatClient is not NoOpChatClient &&
             }
             catch (Exception ex)
             {
-                AnsiConsole.MarkupLine($"[yellow]\u26a0[/] Optimization failed for {agentResult.AgentName}: {Markup.Escape(ex.Message)}");
+                AnsiConsole.MarkupLine($"[yellow]⚠[/] Optimization failed for {agentResult.AgentName}: {Markup.Escape(ex.Message)}");
             }
         }
     }
@@ -347,13 +404,17 @@ if (judgeChatClient is not NoOpChatClient &&
         AnsiConsole.Write(new Rule("[bold]Optimization Reports[/]").LeftJustified());
         foreach (var file in optFiles)
         {
-            AnsiConsole.MarkupLine($"  [green]\u2713[/] {Markup.Escape(file)}");
+            AnsiConsole.MarkupLine($"  [green]✓[/] {Markup.Escape(file)}");
         }
     }
 }
 
 AnsiConsole.WriteLine();
 AnsiConsole.MarkupLine("[dim]All done.[/]");
+
+// ─── Cleanup ─────────────────────────────────────────────────────────
+foreach (var f in disposableFactories)
+    await f.DisposeAsync();
 
 return 0;
 

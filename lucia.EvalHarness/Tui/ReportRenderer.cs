@@ -23,6 +23,7 @@ public static class ReportRenderer
         RenderPerformanceMatrix(result);
         RenderDetailedAgentReports(result);
         ProfileComparisonRenderer.RenderTui(result);
+        BackendComparisonRenderer.RenderTui(result);
         RenderWinnerRecommendation(result);
     }
 

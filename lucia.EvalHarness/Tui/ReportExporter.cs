@@ -134,6 +134,9 @@ public static class ReportExporter
         // ── Profile comparison (when multiple profiles evaluated) ────
         ProfileComparisonRenderer.AppendMarkdown(sb, result);
 
+        // ── Backend comparison (when multiple backends evaluated) ────
+        BackendComparisonRenderer.AppendMarkdown(sb, result);
+
         // ── Recommendations ─────────────────────────────────────────
         sb.AppendLine("## Recommendations");
         sb.AppendLine();
