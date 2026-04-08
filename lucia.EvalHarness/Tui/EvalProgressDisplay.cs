@@ -74,7 +74,7 @@ public static class EvalProgressDisplay
                                     : $"  {Markup.Escape(displayModel)}";
                                 var modelTask = ctx.AddTask(displayLabel, maxValue: 1);
 
-                                var backendSuffix = multiBackend ? $" [{Markup.Escape(backend.Name)}]" : "";
+                                var backendSuffix = multiBackend ? $" ({Markup.Escape(backend.Name)})" : "";
                                 AnsiConsole.MarkupLine(
                                     $"[dim]  Constructing {Markup.Escape(agentName)} with {Markup.Escape(model)}" +
                                     (multiProfile ? $" ({Markup.Escape(profile.Name)})" : "") +
