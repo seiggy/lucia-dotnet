@@ -1,6 +1,9 @@
 # Climate Agent Evaluation Scenarios
 # Each scenario defines: known HA state -> user prompt -> expected tool calls -> expected outcome
 # Entity IDs are plausible climate entities (no climate entities in current HA snapshot)
+#
+# The ClimateAgent uses a two-step tool calling pattern: Find device first, then
+# call the action tool with the resolved entity ID. Scenarios expect both steps.
 
 scenarios:
 
@@ -18,9 +21,12 @@ scenarios:
           hvac_modes: ["off", "heat", "cool", "auto"]
     user_prompt: "Set the thermostat to 72 degrees"
     expected_tool_calls:
+      - tool: FindClimateDevice
+        arguments:
+          searchTerm: "contains:thermostat"
       - tool: SetClimateTemperature
         arguments:
-          entityId: "contains:thermostat"
+          entityId: "*"
           temperature: "*"
     response_must_contain:
       - "72"
@@ -39,9 +45,12 @@ scenarios:
           hvac_modes: ["off", "heat", "cool", "auto"]
     user_prompt: "Set the bedroom thermostat to 70"
     expected_tool_calls:
+      - tool: FindClimateDevice
+        arguments:
+          searchTerm: "contains:bedroom"
       - tool: SetClimateTemperature
         arguments:
-          entityId: "contains:bedroom"
+          entityId: "*"
           temperature: "*"
     response_must_contain:
       - "70"
@@ -60,6 +69,9 @@ scenarios:
           hvac_modes: ["off", "heat", "cool", "auto"]
     user_prompt: "set thermometer to seventy two"
     expected_tool_calls:
+      - tool: FindClimateDevice
+        arguments:
+          searchTerm: "*"
       - tool: SetClimateTemperature
         arguments:
           entityId: "*"
@@ -79,9 +91,12 @@ scenarios:
           hvac_modes: ["off", "heat", "cool", "auto"]
     user_prompt: "What's the temperature in the living room?"
     expected_tool_calls:
+      - tool: FindClimateDevicesByArea
+        arguments:
+          area: "contains:living room"
       - tool: GetClimateState
         arguments:
-          entityId: "contains:living room"
+          entityId: "*"
     response_must_contain:
       - "69"
 
@@ -99,9 +114,12 @@ scenarios:
           hvac_modes: ["off", "heat", "cool", "auto"]
     user_prompt: "What mode is the thermostat set to?"
     expected_tool_calls:
+      - tool: FindClimateDevice
+        arguments:
+          searchTerm: "contains:thermostat"
       - tool: GetClimateState
         arguments:
-          entityId: "contains:thermostat"
+          entityId: "*"
 
   # --- Control: Set HVAC Mode (heat) ---
   - id: set_hvac_mode_heat
@@ -117,9 +135,12 @@ scenarios:
           hvac_modes: ["off", "heat", "cool", "auto"]
     user_prompt: "Switch the thermostat to heat mode"
     expected_tool_calls:
+      - tool: FindClimateDevice
+        arguments:
+          searchTerm: "contains:thermostat"
       - tool: SetClimateHvacMode
         arguments:
-          entityId: "contains:thermostat"
+          entityId: "*"
           hvacMode: "contains:heat"
 
   # --- Control: Set HVAC Mode (off) ---
@@ -136,9 +157,12 @@ scenarios:
           hvac_modes: ["off", "heat", "cool", "auto"]
     user_prompt: "Turn off the thermostat"
     expected_tool_calls:
+      - tool: FindClimateDevice
+        arguments:
+          searchTerm: "contains:thermostat"
       - tool: SetClimateHvacMode
         arguments:
-          entityId: "contains:thermostat"
+          entityId: "*"
           hvacMode: "contains:off"
 
   # --- Control: Set HVAC Mode (cool) ---
@@ -155,9 +179,12 @@ scenarios:
           hvac_modes: ["off", "heat", "cool", "auto"]
     user_prompt: "Put the thermostat on cool"
     expected_tool_calls:
+      - tool: FindClimateDevice
+        arguments:
+          searchTerm: "contains:thermostat"
       - tool: SetClimateHvacMode
         arguments:
-          entityId: "contains:thermostat"
+          entityId: "*"
           hvacMode: "contains:cool"
 
   # --- Comfort Adjustment: I'm cold ---
@@ -174,6 +201,8 @@ scenarios:
           hvac_modes: ["off", "heat", "cool", "auto"]
     user_prompt: "I'm cold"
     expected_tool_calls:
+      - tool: GetComfortAdjustment
+        arguments: {}
       - tool: SetClimateTemperature
         arguments:
           entityId: "*"
