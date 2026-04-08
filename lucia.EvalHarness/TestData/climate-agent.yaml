@@ -81,7 +81,7 @@ scenarios:
     expected_tool_calls:
       - tool: GetClimateState
         arguments:
-          searchTerms: "contains:living room"
+          entityId: "contains:living room"
     response_must_contain:
       - "69"
 
@@ -117,7 +117,7 @@ scenarios:
           hvac_modes: ["off", "heat", "cool", "auto"]
     user_prompt: "Switch the thermostat to heat mode"
     expected_tool_calls:
-      - tool: SetHvacMode
+      - tool: SetClimateHvacMode
         arguments:
           entityId: "contains:thermostat"
           hvacMode: "contains:heat"
@@ -136,7 +136,7 @@ scenarios:
           hvac_modes: ["off", "heat", "cool", "auto"]
     user_prompt: "Turn off the thermostat"
     expected_tool_calls:
-      - tool: SetHvacMode
+      - tool: SetClimateHvacMode
         arguments:
           entityId: "contains:thermostat"
           hvacMode: "contains:off"
@@ -155,7 +155,7 @@ scenarios:
           hvac_modes: ["off", "heat", "cool", "auto"]
     user_prompt: "Put the thermostat on cool"
     expected_tool_calls:
-      - tool: SetHvacMode
+      - tool: SetClimateHvacMode
         arguments:
           entityId: "contains:thermostat"
           hvacMode: "contains:cool"
@@ -195,10 +195,10 @@ scenarios:
           hvac_modes: ["off", "heat", "cool", "auto"]
     user_prompt: "Set the fan to high"
     expected_tool_calls:
-      - tool: SetFanSpeed
+      - tool: SetClimateFanMode
         arguments:
           entityId: "*"
-          speed: "contains:high"
+          fanMode: "contains:high"
 
   # --- Out of Domain: Music request ---
   - id: out_of_domain_music
