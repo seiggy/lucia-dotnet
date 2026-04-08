@@ -107,6 +107,10 @@ public sealed class LightAgent : ILuciaAgent, ISkillConfigProvider
                    The ControlLights tool does not support "toggle" as a state value — you must
                    resolve it to "on" or "off". When the current state is unknown, default to "on".
 
+                ## Speaker context
+                6. When speaker context is provided (e.g., [Speaker: Zack]), use the speaker's name in responses when relevant.
+                   If asked who is speaking, reflect the speaker's identity from the context metadata.
+
                 ## Response format
                 * Keep responses short and informative. Examples: "Done — kitchen lights turned on at 50%.", "The living room light is on at 80% brightness."
                 * Do not offer additional assistance or suggestions.
