@@ -21,7 +21,7 @@ public static class BackendSelector
         AnsiConsole.WriteLine();
 
         var choices = backends.ToDictionary(
-            b => $"{b.Name} ({b.Endpoint}) [{b.Type}]",
+            b => Markup.Escape($"{b.Name} ({b.Endpoint}) [{b.Type}]"),
             b => b);
 
         var selected = AnsiConsole.Prompt(
