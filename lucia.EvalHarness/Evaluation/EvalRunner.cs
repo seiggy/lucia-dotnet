@@ -356,6 +356,16 @@ public sealed class EvalRunner
         Action<string>? onProgress = null,
         CancellationToken ct = default)
     {
+        // Scenario evaluation requires conversation tracing for tool call validation.
+        // Without a tracer, the conversation list is empty and every scenario reports
+        // "Expected N tool call(s) but only got 0" — a silent false-failure.
+        if (agentInstance.Tracer is null && scenarios.Any(s => s.ExpectedToolCalls.Count > 0))
+        {
+            throw new InvalidOperationException(
+                "Scenario evaluation requires conversation tracing (RealAgentFactory.EnableTracing = true) " +
+                "to validate tool calls. Enable tracing before creating agent instances.");
+        }
+
         var harness = new MAFEvaluationHarness(verbose: false);
         var options = new EvaluationOptions
         {

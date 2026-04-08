@@ -176,8 +176,11 @@ if (selectedAgents.Count == 0) return 0;
 
 var testScope = TestSuiteSelector.Select();
 
-var enableTraces = AnsiConsole.Confirm(
-    "[cornflowerblue]Enable conversation traces?[/] (writes full input/tool calls/output per test case)", defaultValue: false);
+// Scenario-based evaluation requires conversation tracing for tool call validation.
+// Standard agent eval uses scenario datasets, so tracing is auto-enabled to prevent
+// false "0 tool calls" results when the tracer is absent.
+var enableTraces = true;
+AnsiConsole.MarkupLine("[yellow]\u2139 Conversation tracing auto-enabled (required for scenario tool call validation)[/]");
 AnsiConsole.WriteLine();
 
 // ─── Parameter Profile Selection ─────────────────────────────────────
