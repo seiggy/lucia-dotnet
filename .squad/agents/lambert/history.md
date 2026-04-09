@@ -117,3 +117,59 @@
 - 5 test files × 1 class each (one class per file rule) across 5 behavioral categories.
 - 10 tests run immediately (happy-path + existing telemetry), 13 skipped pending full implementation.
 - Skip messages reference specific pending work ("by Parker/Dallas") so activation is self-documenting.
+
+### 2025-10-13: Orchestrator Routing Coverage Expansion
+
+**Bug-Driven Eval Design Is Most Effective**
+- Real failure case ("turn off the lights in Zack's Office" → climate-agent @ 85%) became the regression test anchor
+- Cross-domain confusion tests (light vs climate) are now explicitly asserted with `DoesNotContain` checks
+- Room-specific light requests are separated into their own test category to catch similar mis-routings
+
+**YAML Metadata Enables Dataset Slicing**
+- Each scenario now has `metadata.category` (basic, room-specific, cross-domain, multi-agent, ambiguous, stt-variant)
+- Each scenario has `metadata.difficulty` (easy, medium, hard)
+- This allows filtering eval runs to specific failure modes or complexity levels
+- Pattern matches light-agent.yaml and climate-agent.yaml metadata structure
+
+**Negative Assertions Are Critical for Routing**
+- Positive assertion: `Assert.Contains("light", observer.RoutingDecision.AgentId)`
+- Negative assertion: `Assert.DoesNotContain("climate", observer.RoutingDecision.AgentId)`
+- Both are required to prove the router chose the RIGHT agent and REJECTED wrong agents
+- Without negative assertions, a multi-agent routing (light + climate) would pass a light-only test
+
+**OrchestratorEvalObserver Is Perfectly Designed**
+- Captures `RoutingDecision` (agent ID, confidence, reasoning, additional agents)
+- Captures `AgentResponses` (per-agent execution results)
+- Captures `AggregatedResponse` (final composed response)
+- No changes needed — the observer was already comprehensive
+
+**Multi-Agent Routing Uses AdditionalAgents Array**
+- Primary agent goes in `RoutingDecision.AgentId`
+- Secondary agents go in `RoutingDecision.AdditionalAgents`
+- Test pattern: Combine both into `allAgents` list and assert ALL expected agents are present
+- This pattern already existed in `RouteMultiAgent_LightAndMusic_RoutesToBoth`
+
+**Coverage Gap: STT Variants and Ambiguous Cases**
+- Only 4 STT variant scenarios added (lites, lamp, AC, temp)
+- Only 4 ambiguous scenarios added (cozy, mood, goodnight, romantic)
+- These are the hardest categories to get right — need more iteration
+- Consider adding phonetic confusion tests (lights/lights, too/two, for/four)
+
+**Test File Organization Follows Existing Pattern**
+- All orchestrator tests in ONE file: `OrchestratorEvalTests.cs`
+- Tests grouped by comment sections: Basic Routing, Cross-Domain, Scene Agent, Lists Agent, etc.
+- Each test method follows EXACT pattern from existing tests (traits, observer, reporting, assertions)
+- One class per file rule maintained
+
+**Dataset Expansion: 7 → 41 Scenarios (486% growth)**
+- Original: 7 scenarios (1 per agent type + 2 edge cases)
+- Expanded: 41 scenarios across 6 categories
+- Critical regression test explicitly documented with note field
+- All scenarios follow the same structure for consistency
+
+**File Paths for Orchestrator Tests**
+- YAML dataset: `lucia.EvalHarness/TestData/orchestrator.yaml`
+- Test class: `lucia.Tests/Orchestration/OrchestratorEvalTests.cs`
+- Observer: `lucia.Tests/Orchestration/OrchestratorEvalObserver.cs` (no changes needed)
+- Base class: `lucia.Tests/Orchestration/AgentEvalTestBase.cs` (no changes needed)
+

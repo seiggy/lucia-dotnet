@@ -129,4 +129,33 @@
 **Build verification:**
 - `dotnet build lucia.EvalHarness/lucia.EvalHarness.csproj --no-restore -v minimal` — 0 warnings, 0 errors
 
+### 2025-10-13: Agent Registry Bug in EvalTestFixture
+
+**What I found:**
+- Critical bug: `EvalTestFixture.CreateRouterExecutor()` and `CreateLuciaOrchestratorAsync()` only registered 3 agent cards (light, music, general) in the mock `IAgentRegistry`, despite extracting 6 cards total in `ExtractAgentCards()`.
+- Missing cards: `_climateAgentCard`, `_listsAgentCard`, `_sceneAgentCard` were extracted but never passed to the router/orchestrator.
+- This caused routing eval tests to have an incomplete view of the agent catalog — the router LLM couldn't see climate, lists, or scene as routing targets.
+- **Real-world impact:** A "turn off the lights in Zack's Office" request was routed to climate-agent at 85% confidence. Routing tests were never catching these cross-domain routing bugs because the missing agents weren't available as targets.
+
+**What I fixed:**
+1. `CreateRouterExecutor()` (line 612): Changed `allAgents` list to include all 6 cards:
+   ```csharp
+   var allAgents = new List<AgentCard>
+   {
+       _lightAgentCard, _musicAgentCard, _generalAgentCard,
+       _climateAgentCard, _listsAgentCard, _sceneAgentCard
+   };
+   ```
+2. `CreateLuciaOrchestratorAsync()` (line 642): Changed `allCards` list to include all 6 cards with same format.
+3. Added TODO comment for future work: Building real agent instances for climate, lists, and scene agents. Currently only light, music, and general agents have instances built. For routing-only tests, the cards are sufficient, but full-pipeline execution tests that invoke agents will need instances.
+
+**Key pattern — Agent registry vs. agent provider:**
+- `IAgentRegistry.GetAllAgentsAsync()` returns `AgentCard` collection — used by the router to build the catalog LLM sees
+- `EvalAgentProvider` holds actual `AIAgent` instances — used by the invoker to execute selected agents
+- **For routing tests:** Only the registry matters — the router decision is based on card metadata
+- **For full-pipeline tests:** Both registry and provider must align — agents in the catalog must have corresponding instances
+
+**Build verification:**
+- `dotnet build lucia.Tests/lucia.Tests.csproj --no-restore` — 0 warnings, 0 errors
+
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
