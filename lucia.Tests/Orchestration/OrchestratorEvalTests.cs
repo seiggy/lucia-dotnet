@@ -236,4 +236,399 @@ public sealed class OrchestratorEvalTests : AgentEvalTestBase
         Assert.NotNull(observer.AggregatedResponse);
         AssertNoUnacceptableMetrics(result);
     }
+
+    // ─── Cross-Domain Confusion Tests (CRITICAL - the actual bug) ──
+
+    [Trait("Evaluator", "IntentResolution")]
+    [SkippableTheory]
+    [MemberData(nameof(ModelIds))]
+    public async Task RouteToLightAgent_RoomLightRequest_DoesNotRouteToClimate(string modelId, string embeddingModelId)
+    {
+        var observer = new OrchestratorEvalObserver();
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer, embeddingModelId);
+        var reportingConfig = CreateReportingConfig(
+            includeTextEvaluators: true,
+            includeToolEvaluators: false,
+            new A2AToolCallEvaluator());
+
+        var (_, result) = await RunOrchestratorAndEvaluateAsync(
+            modelId,
+            orchestrator,
+            observer,
+            "Turn off the lights in Zack's Office",
+            reportingConfig,
+            "Orchestrator.RouteToLightAgent_RoomLightRequest_DoesNotRouteToClimate",
+            expectedAgentIds: ["light"]);
+
+        Assert.NotNull(observer.RoutingDecision);
+        Assert.Contains("light", observer.RoutingDecision.AgentId, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("climate", observer.RoutingDecision.AgentId, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEmpty(observer.AgentResponses);
+        Assert.NotNull(observer.AggregatedResponse);
+        AssertNoUnacceptableMetrics(result);
+    }
+
+    [Trait("Evaluator", "IntentResolution")]
+    [SkippableTheory]
+    [MemberData(nameof(ModelIds))]
+    public async Task RouteToLightAgent_BrightnessRequest_DoesNotRouteToClimate(string modelId, string embeddingModelId)
+    {
+        var observer = new OrchestratorEvalObserver();
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer, embeddingModelId);
+        var reportingConfig = CreateReportingConfig(
+            includeTextEvaluators: true,
+            includeToolEvaluators: false,
+            new A2AToolCallEvaluator());
+
+        var (_, result) = await RunOrchestratorAndEvaluateAsync(
+            modelId,
+            orchestrator,
+            observer,
+            "Make the living room brighter",
+            reportingConfig,
+            "Orchestrator.RouteToLightAgent_BrightnessRequest_DoesNotRouteToClimate",
+            expectedAgentIds: ["light"]);
+
+        Assert.NotNull(observer.RoutingDecision);
+        Assert.Contains("light", observer.RoutingDecision.AgentId, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("climate", observer.RoutingDecision.AgentId, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEmpty(observer.AgentResponses);
+        Assert.NotNull(observer.AggregatedResponse);
+        AssertNoUnacceptableMetrics(result);
+    }
+
+    [Trait("Evaluator", "IntentResolution")]
+    [SkippableTheory]
+    [MemberData(nameof(ModelIds))]
+    public async Task RouteToClimateAgent_TemperatureRequest_DoesNotRouteToLight(string modelId, string embeddingModelId)
+    {
+        var observer = new OrchestratorEvalObserver();
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer, embeddingModelId);
+        var reportingConfig = CreateReportingConfig(
+            includeTextEvaluators: true,
+            includeToolEvaluators: false,
+            new A2AToolCallEvaluator());
+
+        var (_, result) = await RunOrchestratorAndEvaluateAsync(
+            modelId,
+            orchestrator,
+            observer,
+            "Set the thermostat to 72 degrees",
+            reportingConfig,
+            "Orchestrator.RouteToClimateAgent_TemperatureRequest_DoesNotRouteToLight",
+            expectedAgentIds: ["climate"]);
+
+        Assert.NotNull(observer.RoutingDecision);
+        Assert.Contains("climate", observer.RoutingDecision.AgentId, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("light", observer.RoutingDecision.AgentId, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEmpty(observer.AgentResponses);
+        Assert.NotNull(observer.AggregatedResponse);
+        AssertNoUnacceptableMetrics(result);
+    }
+
+    [Trait("Evaluator", "IntentResolution")]
+    [SkippableTheory]
+    [MemberData(nameof(ModelIds))]
+    public async Task RouteToClimateAgent_WarmerRequest_DoesNotRouteToLight(string modelId, string embeddingModelId)
+    {
+        var observer = new OrchestratorEvalObserver();
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer, embeddingModelId);
+        var reportingConfig = CreateReportingConfig(
+            includeTextEvaluators: true,
+            includeToolEvaluators: false,
+            new A2AToolCallEvaluator());
+
+        var (_, result) = await RunOrchestratorAndEvaluateAsync(
+            modelId,
+            orchestrator,
+            observer,
+            "Make it warmer in here",
+            reportingConfig,
+            "Orchestrator.RouteToClimateAgent_WarmerRequest_DoesNotRouteToLight",
+            expectedAgentIds: ["climate"]);
+
+        Assert.NotNull(observer.RoutingDecision);
+        Assert.Contains("climate", observer.RoutingDecision.AgentId, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("light", observer.RoutingDecision.AgentId, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEmpty(observer.AgentResponses);
+        Assert.NotNull(observer.AggregatedResponse);
+        AssertNoUnacceptableMetrics(result);
+    }
+
+    // ─── Scene Agent Tests ──────────────────────────────────────────
+
+    [Trait("Evaluator", "IntentResolution")]
+    [SkippableTheory]
+    [MemberData(nameof(ModelIds))]
+    public async Task RouteToSceneAgent_ActivateScene_ReturnsSceneAgentId(string modelId, string embeddingModelId)
+    {
+        var observer = new OrchestratorEvalObserver();
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer, embeddingModelId);
+        var reportingConfig = CreateReportingConfig(
+            includeTextEvaluators: true,
+            includeToolEvaluators: false,
+            new A2AToolCallEvaluator());
+
+        var (_, result) = await RunOrchestratorAndEvaluateAsync(
+            modelId,
+            orchestrator,
+            observer,
+            "Activate the movie scene",
+            reportingConfig,
+            "Orchestrator.RouteToSceneAgent_ActivateScene",
+            expectedAgentIds: ["scene"]);
+
+        Assert.NotNull(observer.RoutingDecision);
+        Assert.Contains("scene", observer.RoutingDecision.AgentId, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEmpty(observer.AgentResponses);
+        Assert.NotNull(observer.AggregatedResponse);
+        AssertNoUnacceptableMetrics(result);
+    }
+
+    [Trait("Evaluator", "IntentResolution")]
+    [SkippableTheory]
+    [MemberData(nameof(ModelIds))]
+    public async Task RouteToSceneAgent_GoodNightScene_ReturnsSceneAgentId(string modelId, string embeddingModelId)
+    {
+        var observer = new OrchestratorEvalObserver();
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer, embeddingModelId);
+        var reportingConfig = CreateReportingConfig(
+            includeTextEvaluators: true,
+            includeToolEvaluators: false,
+            new A2AToolCallEvaluator());
+
+        var (_, result) = await RunOrchestratorAndEvaluateAsync(
+            modelId,
+            orchestrator,
+            observer,
+            "Turn on the goodnight scene",
+            reportingConfig,
+            "Orchestrator.RouteToSceneAgent_GoodNightScene",
+            expectedAgentIds: ["scene"]);
+
+        Assert.NotNull(observer.RoutingDecision);
+        Assert.Contains("scene", observer.RoutingDecision.AgentId, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEmpty(observer.AgentResponses);
+        Assert.NotNull(observer.AggregatedResponse);
+        AssertNoUnacceptableMetrics(result);
+    }
+
+    // ─── Lists Agent Tests ──────────────────────────────────────────
+
+    [Trait("Evaluator", "IntentResolution")]
+    [SkippableTheory]
+    [MemberData(nameof(ModelIds))]
+    public async Task RouteToListsAgent_ShoppingList_ReturnsListsAgentId(string modelId, string embeddingModelId)
+    {
+        var observer = new OrchestratorEvalObserver();
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer, embeddingModelId);
+        var reportingConfig = CreateReportingConfig(
+            includeTextEvaluators: true,
+            includeToolEvaluators: false,
+            new A2AToolCallEvaluator());
+
+        var (_, result) = await RunOrchestratorAndEvaluateAsync(
+            modelId,
+            orchestrator,
+            observer,
+            "Add milk to the shopping list",
+            reportingConfig,
+            "Orchestrator.RouteToListsAgent_ShoppingList",
+            expectedAgentIds: ["list"]);
+
+        Assert.NotNull(observer.RoutingDecision);
+        Assert.Contains("list", observer.RoutingDecision.AgentId, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEmpty(observer.AgentResponses);
+        Assert.NotNull(observer.AggregatedResponse);
+        AssertNoUnacceptableMetrics(result);
+    }
+
+    [Trait("Evaluator", "IntentResolution")]
+    [SkippableTheory]
+    [MemberData(nameof(ModelIds))]
+    public async Task RouteToListsAgent_TodoList_ReturnsListsAgentId(string modelId, string embeddingModelId)
+    {
+        var observer = new OrchestratorEvalObserver();
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer, embeddingModelId);
+        var reportingConfig = CreateReportingConfig(
+            includeTextEvaluators: true,
+            includeToolEvaluators: false,
+            new A2AToolCallEvaluator());
+
+        var (_, result) = await RunOrchestratorAndEvaluateAsync(
+            modelId,
+            orchestrator,
+            observer,
+            "What's on my todo list?",
+            reportingConfig,
+            "Orchestrator.RouteToListsAgent_TodoList",
+            expectedAgentIds: ["list"]);
+
+        Assert.NotNull(observer.RoutingDecision);
+        Assert.Contains("list", observer.RoutingDecision.AgentId, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEmpty(observer.AgentResponses);
+        Assert.NotNull(observer.AggregatedResponse);
+        AssertNoUnacceptableMetrics(result);
+    }
+
+    // ─── Climate Agent Tests ────────────────────────────────────────
+
+    [Trait("Evaluator", "IntentResolution")]
+    [SkippableTheory]
+    [MemberData(nameof(ModelIds))]
+    public async Task RouteToClimateAgent_FanRequest_ReturnsClimateAgentId(string modelId, string embeddingModelId)
+    {
+        var observer = new OrchestratorEvalObserver();
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer, embeddingModelId);
+        var reportingConfig = CreateReportingConfig(
+            includeTextEvaluators: true,
+            includeToolEvaluators: false,
+            new A2AToolCallEvaluator());
+
+        var (_, result) = await RunOrchestratorAndEvaluateAsync(
+            modelId,
+            orchestrator,
+            observer,
+            "Turn on the bedroom fan",
+            reportingConfig,
+            "Orchestrator.RouteToClimateAgent_FanRequest",
+            expectedAgentIds: ["climate"]);
+
+        Assert.NotNull(observer.RoutingDecision);
+        Assert.Contains("climate", observer.RoutingDecision.AgentId, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEmpty(observer.AgentResponses);
+        Assert.NotNull(observer.AggregatedResponse);
+        AssertNoUnacceptableMetrics(result);
+    }
+
+    [Trait("Evaluator", "IntentResolution")]
+    [SkippableTheory]
+    [MemberData(nameof(ModelIds))]
+    public async Task RouteToClimateAgent_HVACMode_ReturnsClimateAgentId(string modelId, string embeddingModelId)
+    {
+        var observer = new OrchestratorEvalObserver();
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer, embeddingModelId);
+        var reportingConfig = CreateReportingConfig(
+            includeTextEvaluators: true,
+            includeToolEvaluators: false,
+            new A2AToolCallEvaluator());
+
+        var (_, result) = await RunOrchestratorAndEvaluateAsync(
+            modelId,
+            orchestrator,
+            observer,
+            "Switch the HVAC to cool mode",
+            reportingConfig,
+            "Orchestrator.RouteToClimateAgent_HVACMode",
+            expectedAgentIds: ["climate"]);
+
+        Assert.NotNull(observer.RoutingDecision);
+        Assert.Contains("climate", observer.RoutingDecision.AgentId, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEmpty(observer.AgentResponses);
+        Assert.NotNull(observer.AggregatedResponse);
+        AssertNoUnacceptableMetrics(result);
+    }
+
+    // ─── Multi-Agent Tests ──────────────────────────────────────────
+
+    [Trait("Evaluator", "IntentResolution")]
+    [SkippableTheory]
+    [MemberData(nameof(ModelIds))]
+    public async Task RouteMultiAgent_LightAndClimate_RoutesToBoth(string modelId, string embeddingModelId)
+    {
+        var observer = new OrchestratorEvalObserver();
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer, embeddingModelId);
+        var reportingConfig = CreateReportingConfig(
+            includeTextEvaluators: true,
+            includeToolEvaluators: false,
+            new A2AToolCallEvaluator());
+
+        var (_, result) = await RunOrchestratorAndEvaluateAsync(
+            modelId,
+            orchestrator,
+            observer,
+            "Turn off the lights and lower the temperature to 65",
+            reportingConfig,
+            "Orchestrator.RouteMultiAgent_LightAndClimate",
+            expectedAgentIds: ["light", "climate"]);
+
+        Assert.NotNull(observer.RoutingDecision);
+
+        var allAgents = new List<string> { observer.RoutingDecision.AgentId };
+        if (observer.RoutingDecision.AdditionalAgents is not null)
+        {
+            allAgents.AddRange(observer.RoutingDecision.AdditionalAgents);
+        }
+
+        var allAgentsText = string.Join(", ", allAgents);
+        Assert.True(
+            allAgents.Any(a => a.Contains("light", StringComparison.OrdinalIgnoreCase)) &&
+            allAgents.Any(a => a.Contains("climate", StringComparison.OrdinalIgnoreCase)),
+            $"Expected both light and climate agents in routing result. Got: {allAgentsText}");
+
+        Assert.True(observer.AgentResponses.Count >= 2,
+            $"Expected at least 2 agent responses for multi-agent dispatch, got {observer.AgentResponses.Count}");
+        Assert.NotNull(observer.AggregatedResponse);
+        AssertNoUnacceptableMetrics(result);
+    }
+
+    // ─── Room-Specific Light Tests ──────────────────────────────────
+
+    [Trait("Evaluator", "IntentResolution")]
+    [SkippableTheory]
+    [MemberData(nameof(ModelIds))]
+    public async Task RouteToLightAgent_BedroomLights_ReturnsLightAgentId(string modelId, string embeddingModelId)
+    {
+        var observer = new OrchestratorEvalObserver();
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer, embeddingModelId);
+        var reportingConfig = CreateReportingConfig(
+            includeTextEvaluators: true,
+            includeToolEvaluators: false,
+            new A2AToolCallEvaluator());
+
+        var (_, result) = await RunOrchestratorAndEvaluateAsync(
+            modelId,
+            orchestrator,
+            observer,
+            "Turn on the bedroom lights",
+            reportingConfig,
+            "Orchestrator.RouteToLightAgent_BedroomLights",
+            expectedAgentIds: ["light"]);
+
+        Assert.NotNull(observer.RoutingDecision);
+        Assert.Contains("light", observer.RoutingDecision.AgentId, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("climate", observer.RoutingDecision.AgentId, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEmpty(observer.AgentResponses);
+        Assert.NotNull(observer.AggregatedResponse);
+        AssertNoUnacceptableMetrics(result);
+    }
+
+    [Trait("Evaluator", "IntentResolution")]
+    [SkippableTheory]
+    [MemberData(nameof(ModelIds))]
+    public async Task RouteToLightAgent_KitchenWarmWhite_ReturnsLightAgentId(string modelId, string embeddingModelId)
+    {
+        var observer = new OrchestratorEvalObserver();
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer, embeddingModelId);
+        var reportingConfig = CreateReportingConfig(
+            includeTextEvaluators: true,
+            includeToolEvaluators: false,
+            new A2AToolCallEvaluator());
+
+        var (_, result) = await RunOrchestratorAndEvaluateAsync(
+            modelId,
+            orchestrator,
+            observer,
+            "Set the kitchen lights to warm white",
+            reportingConfig,
+            "Orchestrator.RouteToLightAgent_KitchenWarmWhite",
+            expectedAgentIds: ["light"]);
+
+        Assert.NotNull(observer.RoutingDecision);
+        Assert.Contains("light", observer.RoutingDecision.AgentId, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("climate", observer.RoutingDecision.AgentId, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEmpty(observer.AgentResponses);
+        Assert.NotNull(observer.AggregatedResponse);
+        AssertNoUnacceptableMetrics(result);
+    }
 }

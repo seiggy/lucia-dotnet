@@ -2,39 +2,314 @@
 # Tests intent routing to the correct agent
 
 data:
-  - id: route_to_light
+  # ─── Per-Agent Basic Routing ─────────────────────────────────────
+  
+  - id: route_to_light_basic
     input: "Turn on the kitchen light"
     expected: "light"
     criteria:
       - "Routes to LightAgent"
       - "Does not route to ClimateAgent or other agents"
+    metadata:
+      category: basic
+      difficulty: easy
 
-  - id: route_to_climate
+  - id: route_to_light_color
+    input: "Set the living room lights to blue"
+    expected: "light"
+    criteria:
+      - "Routes to LightAgent"
+      - "Recognizes color change request"
+    metadata:
+      category: basic
+      difficulty: easy
+
+  - id: route_to_light_brightness
+    input: "Dim the bedroom lights to 50%"
+    expected: "light"
+    criteria:
+      - "Routes to LightAgent"
+      - "Recognizes brightness adjustment"
+    metadata:
+      category: basic
+      difficulty: easy
+
+  - id: route_to_climate_basic
     input: "Set the thermostat to 72 degrees"
     expected: "climate"
     criteria:
       - "Routes to ClimateAgent"
       - "Does not route to LightAgent"
+    metadata:
+      category: basic
+      difficulty: easy
 
-  - id: route_to_lists
-    input: "Add milk to the shopping list"
-    expected: "list"
+  - id: route_to_climate_hvac_mode
+    input: "Switch the HVAC to cool mode"
+    expected: "climate"
     criteria:
-      - "Routes to ListsAgent"
+      - "Routes to ClimateAgent"
+      - "Recognizes HVAC mode change"
+    metadata:
+      category: basic
+      difficulty: easy
 
-  - id: route_to_scene
+  - id: route_to_climate_fan
+    input: "Turn on the bedroom fan"
+    expected: "climate"
+    criteria:
+      - "Routes to ClimateAgent"
+      - "Recognizes fan control request"
+    metadata:
+      category: basic
+      difficulty: easy
+
+  - id: route_to_scene_activate
     input: "Activate the movie scene"
     expected: "scene"
     criteria:
       - "Routes to SceneAgent"
+    metadata:
+      category: basic
+      difficulty: easy
 
-  - id: route_to_general
+  - id: route_to_scene_bedtime
+    input: "Turn on the goodnight scene"
+    expected: "scene"
+    criteria:
+      - "Routes to SceneAgent"
+      - "Recognizes bedtime/nighttime scene"
+    metadata:
+      category: basic
+      difficulty: easy
+
+  - id: route_to_lists_shopping
+    input: "Add milk to the shopping list"
+    expected: "list"
+    criteria:
+      - "Routes to ListsAgent"
+    metadata:
+      category: basic
+      difficulty: easy
+
+  - id: route_to_lists_todo
+    input: "What's on my todo list?"
+    expected: "list"
+    criteria:
+      - "Routes to ListsAgent"
+      - "Recognizes todo list query"
+    metadata:
+      category: basic
+      difficulty: easy
+
+  - id: route_to_music_play
+    input: "Play some jazz music"
+    expected: "music"
+    criteria:
+      - "Routes to MusicAgent"
+    metadata:
+      category: basic
+      difficulty: easy
+
+  - id: route_to_music_volume
+    input: "Turn up the music volume"
+    expected: "music"
+    criteria:
+      - "Routes to MusicAgent"
+      - "Recognizes volume adjustment"
+    metadata:
+      category: basic
+      difficulty: easy
+
+  - id: route_to_general_weather
     input: "What is the weather like today?"
     expected: "general"
     criteria:
       - "Routes to GeneralAgent"
+    metadata:
+      category: basic
+      difficulty: easy
 
-  - id: ambiguous_request
+  - id: route_to_general_time
+    input: "What time is it?"
+    expected: "general"
+    criteria:
+      - "Routes to GeneralAgent"
+      - "Recognizes time query"
+    metadata:
+      category: basic
+      difficulty: easy
+
+  # ─── Room-Specific Light Requests (THE BUG!) ─────────────────────
+  
+  - id: room_light_zacks_office
+    input: "Turn off the lights in Zack's Office"
+    expected: "light"
+    criteria:
+      - "Routes to LightAgent"
+      - "Does NOT route to ClimateAgent"
+      - "Recognizes room-specific light request"
+    metadata:
+      category: room-specific
+      difficulty: medium
+      note: "Critical regression test - was incorrectly routed to climate-agent"
+
+  - id: room_light_bedroom_on
+    input: "Turn on the bedroom lights"
+    expected: "light"
+    criteria:
+      - "Routes to LightAgent"
+      - "Does NOT route to ClimateAgent"
+    metadata:
+      category: room-specific
+      difficulty: medium
+
+  - id: room_light_living_room_dim
+    input: "Dim the living room lights to 50%"
+    expected: "light"
+    criteria:
+      - "Routes to LightAgent"
+      - "Does NOT route to ClimateAgent"
+      - "Recognizes brightness control"
+    metadata:
+      category: room-specific
+      difficulty: medium
+
+  - id: room_light_kitchen_warm
+    input: "Set the kitchen lights to warm white"
+    expected: "light"
+    criteria:
+      - "Routes to LightAgent"
+      - "Does NOT route to ClimateAgent"
+      - "Recognizes color temperature request"
+    metadata:
+      category: room-specific
+      difficulty: medium
+
+  - id: room_light_bathroom_bright
+    input: "Make the bathroom lights brighter"
+    expected: "light"
+    criteria:
+      - "Routes to LightAgent"
+      - "Does NOT route to ClimateAgent"
+    metadata:
+      category: room-specific
+      difficulty: medium
+
+  # ─── Cross-Domain Confusion (negative tests) ──────────────────────
+  
+  - id: cross_domain_warmer_climate
+    input: "Make it warmer in here"
+    expected: "climate"
+    criteria:
+      - "Routes to ClimateAgent"
+      - "Does NOT route to LightAgent"
+      - "Temperature request, not light-related"
+    metadata:
+      category: cross-domain
+      difficulty: medium
+
+  - id: cross_domain_brighter_light
+    input: "Make the room brighter"
+    expected: "light"
+    criteria:
+      - "Routes to LightAgent"
+      - "Does NOT route to ClimateAgent"
+      - "Brightness is lighting, not climate"
+    metadata:
+      category: cross-domain
+      difficulty: medium
+
+  - id: cross_domain_too_hot
+    input: "It's too hot in here"
+    expected: "climate"
+    criteria:
+      - "Routes to ClimateAgent"
+      - "Does NOT route to LightAgent"
+      - "Temperature complaint"
+    metadata:
+      category: cross-domain
+      difficulty: medium
+
+  - id: cross_domain_too_bright
+    input: "It's too bright"
+    expected: "light"
+    criteria:
+      - "Routes to LightAgent"
+      - "Does NOT route to ClimateAgent"
+      - "Brightness complaint"
+    metadata:
+      category: cross-domain
+      difficulty: medium
+
+  - id: cross_domain_ac_request
+    input: "Set the AC to 72"
+    expected: "climate"
+    criteria:
+      - "Routes to ClimateAgent"
+      - "Does NOT route to LightAgent"
+      - "AC is HVAC equipment"
+    metadata:
+      category: cross-domain
+      difficulty: easy
+
+  - id: cross_domain_lamp_request
+    input: "Turn off the desk lamp"
+    expected: "light"
+    criteria:
+      - "Routes to LightAgent"
+      - "Does NOT route to ClimateAgent"
+      - "Lamp is a light fixture"
+    metadata:
+      category: cross-domain
+      difficulty: easy
+
+  # ─── Multi-Agent Routing ──────────────────────────────────────────
+  
+  - id: multi_agent_light_and_climate
+    input: "Turn off the lights and set the temperature to 68"
+    expected: "light"
+    criteria:
+      - "Recognizes multiple intents"
+      - "Routes to both LightAgent and ClimateAgent"
+    metadata:
+      category: multi-agent
+      difficulty: hard
+
+  - id: multi_agent_music_and_light
+    input: "Play music and dim the lights"
+    expected: "music"
+    criteria:
+      - "Routes to both MusicAgent and LightAgent"
+      - "Recognizes compound request"
+    metadata:
+      category: multi-agent
+      difficulty: hard
+
+  - id: multi_agent_scene_and_climate
+    input: "Activate movie scene and lower the temperature"
+    expected: "scene"
+    criteria:
+      - "Routes to SceneAgent and ClimateAgent"
+      - "Recognizes multiple domains"
+    metadata:
+      category: multi-agent
+      difficulty: hard
+
+  - id: multi_agent_bedroom_shutdown
+    input: "Turn off everything in the bedroom"
+    expected: "light"
+    criteria:
+      - "Recognizes broad shutdown request"
+      - "May route to multiple agents or prefer LightAgent"
+    metadata:
+      category: multi-agent
+      difficulty: hard
+      note: "Ambiguous - could be light, climate, or multi-agent"
+
+  # ─── Ambiguous/Edge Cases ─────────────────────────────────────────
+  
+  - id: ambiguous_cozy
     input: "Make it cozy in here"
     expected: "climate"
     criteria:
@@ -44,12 +319,117 @@ data:
       category: ambiguous
       difficulty: hard
 
-  - id: multi_intent
-    input: "Turn off the lights and set the temperature to 68"
+  - id: ambiguous_mood
+    input: "Set the mood for dinner"
+    expected: "scene"
+    criteria:
+      - "Could be scene or light"
+      - "Prefers SceneAgent for mood setting"
+    metadata:
+      category: ambiguous
+      difficulty: hard
+
+  - id: ambiguous_goodnight
+    input: "Goodnight"
+    expected: "scene"
+    criteria:
+      - "Recognizes bedtime routine"
+      - "Routes to SceneAgent"
+    metadata:
+      category: ambiguous
+      difficulty: medium
+
+  - id: ambiguous_romantic
+    input: "Make it romantic"
+    expected: "scene"
+    criteria:
+      - "Could be scene or light"
+      - "Prefers SceneAgent for atmosphere"
+    metadata:
+      category: ambiguous
+      difficulty: hard
+
+  # ─── STT Variants (speech-to-text misrecognitions) ───────────────
+  
+  - id: stt_lites_misspelling
+    input: "Turn off the lites in the kitchen"
     expected: "light"
     criteria:
-      - "Recognizes multiple intents"
-      - "Routes to both LightAgent and ClimateAgent"
+      - "Routes to LightAgent"
+      - "Handles common misspelling"
     metadata:
-      category: multi-agent
-      difficulty: hard
+      category: stt-variant
+      difficulty: medium
+
+  - id: stt_lamp_synonym
+    input: "Dim the bedroom lamp"
+    expected: "light"
+    criteria:
+      - "Routes to LightAgent"
+      - "Recognizes lamp as light fixture"
+    metadata:
+      category: stt-variant
+      difficulty: easy
+
+  - id: stt_ac_abbreviation
+    input: "Set the AC to 70"
+    expected: "climate"
+    criteria:
+      - "Routes to ClimateAgent"
+      - "Recognizes AC as air conditioning"
+    metadata:
+      category: stt-variant
+      difficulty: easy
+
+  - id: stt_temp_abbreviation
+    input: "Lower the temp to 65"
+    expected: "climate"
+    criteria:
+      - "Routes to ClimateAgent"
+      - "Recognizes temp as temperature"
+    metadata:
+      category: stt-variant
+      difficulty: easy
+
+  # ─── Additional Edge Cases ────────────────────────────────────────
+  
+  - id: edge_all_lights_off
+    input: "Turn off all the lights"
+    expected: "light"
+    criteria:
+      - "Routes to LightAgent"
+      - "Does NOT route to ClimateAgent"
+      - "Handles 'all lights' request"
+    metadata:
+      category: basic
+      difficulty: easy
+
+  - id: edge_specific_entity
+    input: "Turn on light.office_desk"
+    expected: "light"
+    criteria:
+      - "Routes to LightAgent"
+      - "Recognizes entity ID format"
+    metadata:
+      category: basic
+      difficulty: medium
+
+  - id: edge_help_request
+    input: "What can you do?"
+    expected: "general"
+    criteria:
+      - "Routes to GeneralAgent"
+      - "Recognizes capabilities query"
+    metadata:
+      category: basic
+      difficulty: easy
+
+  - id: edge_list_check
+    input: "Check my shopping list"
+    expected: "list"
+    criteria:
+      - "Routes to ListsAgent"
+      - "Recognizes list query"
+    metadata:
+      category: basic
+      difficulty: easy

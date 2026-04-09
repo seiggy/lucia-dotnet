@@ -614,7 +614,15 @@ public sealed class EvalTestFixture : IAsyncLifetime
         var chatClient = CreateRawChatClient(deploymentName);
         var mockRegistry = A.Fake<IAgentRegistry>();
 
-        var allAgents = new List<AgentCard> { _lightAgentCard, _musicAgentCard, _generalAgentCard };
+        var allAgents = new List<AgentCard>
+        {
+            _lightAgentCard,
+            _musicAgentCard,
+            _generalAgentCard,
+            _climateAgentCard,
+            _listsAgentCard,
+            _sceneAgentCard
+        };
 
         A.CallTo(() => mockRegistry.GetAllAgentsAsync(A<CancellationToken>.Ignored))
             .Returns(allAgents.AsReadOnly());
@@ -647,7 +655,15 @@ public sealed class EvalTestFixture : IAsyncLifetime
         var routerChatClient = CreateRawChatClient(deploymentName);
         var mockRegistry = A.Fake<IAgentRegistry>();
 
-        var allCards = new List<AgentCard> { _lightAgentCard, _musicAgentCard, _generalAgentCard };
+        var allCards = new List<AgentCard>
+        {
+            _lightAgentCard,
+            _musicAgentCard,
+            _generalAgentCard,
+            _climateAgentCard,
+            _listsAgentCard,
+            _sceneAgentCard
+        };
 
         A.CallTo(() => mockRegistry.GetAllAgentsAsync(A<CancellationToken>.Ignored))
             .Returns(allCards.AsReadOnly());
@@ -662,6 +678,9 @@ public sealed class EvalTestFixture : IAsyncLifetime
         var generalAgent = new GeneralAgent(generalResolver, _mockDefinitionRepo, A.Fake<IMcpToolRegistry>(), _tracingFactory, _loggerFactory);
         await generalAgent.InitializeAsync();
 
+        // TODO: Build real agent instances for climate, lists, and scene agents.
+        // For routing-only tests, the cards in the registry are sufficient.
+        // For full-pipeline tests that execute agents, instances are needed.
         var agentProvider = new EvalAgentProvider(
         [
             lightAgent.GetAIAgent(),
@@ -680,11 +699,17 @@ public sealed class EvalTestFixture : IAsyncLifetime
         A.CallTo(() => orchestratorResolver.ResolveAsync(A<string?>._, A<CancellationToken>._))
             .Returns(routerChatClient);
 
+        // Return null for AgentSessionStore so WorkflowFactory falls back to NoopAgentSessionStore.
+        // A default FakeItEasy IServiceProvider returns a Castle proxy that cannot be cast to the concrete type.
+        var serviceProvider = A.Fake<IServiceProvider>();
+        A.CallTo(() => serviceProvider.GetService(typeof(Microsoft.Agents.AI.Hosting.AgentSessionStore)))
+            .Returns(null);
+
         var workflowFactory = new WorkflowFactory(
             orchestratorResolver,
             _mockDefinitionRepo,
             mockRegistry,
-            A.Fake<IServiceProvider>(),
+            serviceProvider,
             _loggerFactory,
             Options.Create(new RouterExecutorOptions()),
             Options.Create(new AgentInvokerOptions()),
