@@ -186,10 +186,11 @@ public sealed class OrchestratorEvalTests : AgentEvalTestBase
     {
         var observer = new OrchestratorEvalObserver();
         var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer, embeddingModelId);
+        // No A2AToolCallEvaluator — ambiguous tests have no expected agent IDs,
+        // so the evaluator would fail with "No A2AToolCallEvaluatorContext was provided."
         var reportingConfig = CreateReportingConfig(
             includeTextEvaluators: true,
-            includeToolEvaluators: false,
-            new A2AToolCallEvaluator());
+            includeToolEvaluators: false);
 
         var (_, result) = await RunOrchestratorAndEvaluateAsync(
             modelId,

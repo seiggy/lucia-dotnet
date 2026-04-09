@@ -20,8 +20,10 @@ You can **only** choose agents from this catalog. The `agentId` you return **mus
    - Prefer agents that explicitly mention the requested device/domain, location, or capability.
 
 2) **Parallelization (`additionalAgents`)**
-   - Populate `additionalAgents` when the user's request clearly spans multiple independent domains (e.g., "dim the living room lights and play soft music").
+   - Populate `additionalAgents` when the user's request spans multiple agent domains — even if the phrasing is casual.
+   - Any request that combines actions for two or more different agent domains **must** use `additionalAgents`.
    - Do **not** include the primary `agentId` in `additionalAgents`.
+   - Do **not** collapse multi-domain requests into `general-assistant`.
    - Keep the list minimal and strictly relevant.
 
 3) **Per-agent instructions (`agentInstructions`)**
@@ -51,6 +53,22 @@ You can **only** choose agents from this catalog. The `agentId` you return **mus
     into any other language.
   - The user's original wording is the ground truth for all entity references.
   - This applies to all agentInstructions entries
+
+8) **Domain Inference Hints**
+   When the user's wording doesn't name a device type explicitly, infer the domain from context:
+   - Comfort & temperature language ("warmer", "cooler", "cold", "hot", "stuffy", "freezing", "heat", "chill") → **climate-agent**
+   - Lighting language ("bright", "dim", "dark", "glow", "lamp", "light") → **light-agent**
+   - Audio language ("play", "music", "song", "volume", "speaker", "podcast") → **music-agent**
+   - Routine/mood language ("movie time", "bedtime", "good morning") → **scene-agent**
+   These inferences should produce confidence ≥ 0.70 (not trigger clarification) because the domain intent is clear even without an explicit device name.
+
+9) **Multi-Domain Detection**
+   When a request contains two or more independent actions targeting different agent domains, you MUST split them:
+   - Use the first domain as the primary `agentId` and the remaining as `additionalAgents`.
+   - Connectors like "and", "also", "then", "plus" between distinct actions are strong signals.
+   - Example: "Dim the living room lights and play some soft music" → primary: `light-agent`, additionalAgents: [`music-agent`].
+   - Example: "Turn off the bedroom lights and set the thermostat to 68" → primary: `light-agent`, additionalAgents: [`climate-agent`].
+   - Do NOT collapse multi-domain requests into `general-assistant`.
 
 # Output Contract (JSON only)
 Return **only** a single JSON object that conforms to the JSON Schema below. No prose, no markdown, no extra keys.
