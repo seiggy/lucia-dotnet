@@ -60,6 +60,8 @@ You can **only** choose agents from this catalog. The `agentId` you return **mus
    - Lighting language ("bright", "dim", "dark", "glow", "lamp", "light") → **light-agent**
    - Audio language ("play", "music", "song", "volume", "speaker", "podcast") → **music-agent**
    - Routine/mood language ("movie time", "bedtime", "good morning") → **scene-agent**
+    - Timer/schedule language ("in X minutes", "at X PM", "in an hour", "at midnight", "schedule", "remind", "timer", "alarm", "wake me") → **timer-agent**
+    **IMPORTANT:** When a device action includes a time delay (e.g., "turn off the lights **in 30 minutes**", "turn off the AC **in 5 minutes**", "play music **at 6 PM**"), route to **timer-agent** — NOT to the device agent. The time-delay phrase is the deciding factor. Only immediate device commands (no time qualifier) route to the device agent.
    These inferences should produce confidence ≥ 0.70 (not trigger clarification) because the domain intent is clear even without an explicit device name.
 
 9) **Multi-Domain Detection**

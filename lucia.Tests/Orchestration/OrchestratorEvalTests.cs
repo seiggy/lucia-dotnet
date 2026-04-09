@@ -632,4 +632,121 @@ public sealed class OrchestratorEvalTests : AgentEvalTestBase
         Assert.NotNull(observer.AggregatedResponse);
         AssertNoUnacceptableMetrics(result);
     }
+
+    // ─── Timer Agent Tests ──────────────────────────────────────────
+
+    [Trait("Evaluator", "IntentResolution")]
+    [SkippableTheory]
+    [MemberData(nameof(ModelIds))]
+    public async Task RouteToTimerAgent_SetTimer_ReturnsTimerAgentId(string modelId, string embeddingModelId)
+    {
+        var observer = new OrchestratorEvalObserver();
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer, embeddingModelId);
+        var reportingConfig = CreateReportingConfig(
+            includeTextEvaluators: true,
+            includeToolEvaluators: false,
+            new A2AToolCallEvaluator());
+
+        var (_, result) = await RunOrchestratorAndEvaluateAsync(
+            modelId,
+            orchestrator,
+            observer,
+            "Set a 5 minute timer",
+            reportingConfig,
+            "Orchestrator.RouteToTimerAgent_SetTimer",
+            expectedAgentIds: ["timer"]);
+
+        Assert.NotNull(observer.RoutingDecision);
+        Assert.Contains("timer", observer.RoutingDecision.AgentId, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEmpty(observer.AgentResponses);
+        Assert.NotNull(observer.AggregatedResponse);
+        AssertNoUnacceptableMetrics(result);
+    }
+
+    [Trait("Evaluator", "IntentResolution")]
+    [SkippableTheory]
+    [MemberData(nameof(ModelIds))]
+    public async Task RouteToTimerAgent_ScheduledAction_ReturnsTimerAgentId(string modelId, string embeddingModelId)
+    {
+        var observer = new OrchestratorEvalObserver();
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer, embeddingModelId);
+        var reportingConfig = CreateReportingConfig(
+            includeTextEvaluators: true,
+            includeToolEvaluators: false,
+            new A2AToolCallEvaluator());
+
+        var (_, result) = await RunOrchestratorAndEvaluateAsync(
+            modelId,
+            orchestrator,
+            observer,
+            "Turn off the office AC in 5 minutes",
+            reportingConfig,
+            "Orchestrator.RouteToTimerAgent_ScheduledAction",
+            expectedAgentIds: ["timer"]);
+
+        Assert.NotNull(observer.RoutingDecision);
+        Assert.Contains("timer", observer.RoutingDecision.AgentId, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("climate", observer.RoutingDecision.AgentId, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("general", observer.RoutingDecision.AgentId, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEmpty(observer.AgentResponses);
+        Assert.NotNull(observer.AggregatedResponse);
+        AssertNoUnacceptableMetrics(result);
+    }
+
+    [Trait("Evaluator", "IntentResolution")]
+    [SkippableTheory]
+    [MemberData(nameof(ModelIds))]
+    public async Task RouteToTimerAgent_DelayedLightAction_DoesNotRouteToLight(string modelId, string embeddingModelId)
+    {
+        var observer = new OrchestratorEvalObserver();
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer, embeddingModelId);
+        var reportingConfig = CreateReportingConfig(
+            includeTextEvaluators: true,
+            includeToolEvaluators: false,
+            new A2AToolCallEvaluator());
+
+        var (_, result) = await RunOrchestratorAndEvaluateAsync(
+            modelId,
+            orchestrator,
+            observer,
+            "Turn off the lights in 30 minutes",
+            reportingConfig,
+            "Orchestrator.RouteToTimerAgent_DelayedLightAction",
+            expectedAgentIds: ["timer"]);
+
+        Assert.NotNull(observer.RoutingDecision);
+        Assert.Contains("timer", observer.RoutingDecision.AgentId, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("light", observer.RoutingDecision.AgentId, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEmpty(observer.AgentResponses);
+        Assert.NotNull(observer.AggregatedResponse);
+        AssertNoUnacceptableMetrics(result);
+    }
+
+    [Trait("Evaluator", "IntentResolution")]
+    [SkippableTheory]
+    [MemberData(nameof(ModelIds))]
+    public async Task RouteToTimerAgent_AlarmRequest_ReturnsTimerAgentId(string modelId, string embeddingModelId)
+    {
+        var observer = new OrchestratorEvalObserver();
+        var orchestrator = await Fixture.CreateLuciaOrchestratorAsync(modelId, observer, embeddingModelId);
+        var reportingConfig = CreateReportingConfig(
+            includeTextEvaluators: true,
+            includeToolEvaluators: false,
+            new A2AToolCallEvaluator());
+
+        var (_, result) = await RunOrchestratorAndEvaluateAsync(
+            modelId,
+            orchestrator,
+            observer,
+            "Set an alarm for 7 AM",
+            reportingConfig,
+            "Orchestrator.RouteToTimerAgent_AlarmRequest",
+            expectedAgentIds: ["timer"]);
+
+        Assert.NotNull(observer.RoutingDecision);
+        Assert.Contains("timer", observer.RoutingDecision.AgentId, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEmpty(observer.AgentResponses);
+        Assert.NotNull(observer.AggregatedResponse);
+        AssertNoUnacceptableMetrics(result);
+    }
 }

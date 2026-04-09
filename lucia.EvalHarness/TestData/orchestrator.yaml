@@ -433,3 +433,177 @@ data:
     metadata:
       category: basic
       difficulty: easy
+
+  # ─── Timer Agent: Basic Timer Routing ─────────────────────────────
+
+  - id: route_to_timer_set_5min
+    input: "Set a 5 minute timer"
+    expected: "timer"
+    criteria:
+      - "Routes to TimerAgent"
+      - "Recognizes basic timer request"
+    metadata:
+      category: timer
+      difficulty: easy
+
+  - id: route_to_timer_set_10min
+    input: "Set a timer for 10 minutes"
+    expected: "timer"
+    criteria:
+      - "Routes to TimerAgent"
+      - "Recognizes timer duration request"
+    metadata:
+      category: timer
+      difficulty: easy
+
+  - id: route_to_timer_cancel
+    input: "Cancel the timer"
+    expected: "timer"
+    criteria:
+      - "Routes to TimerAgent"
+      - "Recognizes timer cancellation"
+    metadata:
+      category: timer
+      difficulty: easy
+
+  # ─── Timer Agent: Scheduled Actions (THE FAILURE CASE!) ──────────
+
+  - id: route_to_timer_scheduled_ac_off
+    input: "Turn off the office AC in 5 minutes"
+    expected: "timer"
+    criteria:
+      - "Routes to TimerAgent"
+      - "Does NOT route to ClimateAgent or GeneralAssistant"
+      - "Recognizes time-delayed device action as scheduled action"
+    metadata:
+      category: scheduled-action
+      difficulty: hard
+      note: "Critical regression test - was incorrectly routed to general-assistant at 0% confidence"
+
+  - id: route_to_timer_scheduled_lights_off
+    input: "Turn off the lights in 30 minutes"
+    expected: "timer"
+    criteria:
+      - "Routes to TimerAgent"
+      - "Does NOT route to LightAgent"
+      - "Recognizes time-delayed light action as scheduled action"
+    metadata:
+      category: scheduled-action
+      difficulty: hard
+      note: "'in 30 minutes' makes this a scheduled action, not an immediate light command"
+
+  - id: route_to_timer_scheduled_lock_doors
+    input: "Lock the doors at 11 PM"
+    expected: "timer"
+    criteria:
+      - "Routes to TimerAgent"
+      - "Recognizes time-scheduled lock action"
+    metadata:
+      category: scheduled-action
+      difficulty: medium
+
+  - id: route_to_timer_scheduled_play_music
+    input: "Play jazz at 6 PM"
+    expected: "timer"
+    criteria:
+      - "Routes to TimerAgent"
+      - "Does NOT route to MusicAgent"
+      - "Recognizes time-scheduled music action"
+    metadata:
+      category: scheduled-action
+      difficulty: hard
+      note: "'at 6 PM' makes this a scheduled action, not an immediate music command"
+
+  # ─── Timer Agent: Alarms & Reminders ──────────────────────────────
+
+  - id: route_to_timer_alarm_7am
+    input: "Set an alarm for 7 AM"
+    expected: "timer"
+    criteria:
+      - "Routes to TimerAgent"
+      - "Recognizes alarm request"
+    metadata:
+      category: alarm
+      difficulty: easy
+
+  - id: route_to_timer_wake_up
+    input: "Wake me up at 6:30 AM"
+    expected: "timer"
+    criteria:
+      - "Routes to TimerAgent"
+      - "Recognizes wake-up request as alarm"
+    metadata:
+      category: alarm
+      difficulty: easy
+
+  - id: route_to_timer_reminder
+    input: "Remind me to check the oven in 15 minutes"
+    expected: "timer"
+    criteria:
+      - "Routes to TimerAgent"
+      - "Recognizes reminder request"
+    metadata:
+      category: alarm
+      difficulty: medium
+
+  # ─── Cross-Domain Timer Confusion (CRITICAL) ─────────────────────
+
+  - id: cross_domain_timer_vs_light
+    input: "Turn off the lights in 30 minutes"
+    expected: "timer"
+    criteria:
+      - "Routes to TimerAgent"
+      - "Does NOT route to LightAgent"
+      - "Time delay makes this a scheduled action, not immediate light control"
+    metadata:
+      category: cross-domain-timer
+      difficulty: hard
+      note: "Immediate: 'Turn off the lights' → light. Delayed: 'Turn off the lights in 30 minutes' → timer"
+
+  - id: cross_domain_timer_vs_climate
+    input: "Turn off the office AC in 5 minutes"
+    expected: "timer"
+    criteria:
+      - "Routes to TimerAgent"
+      - "Does NOT route to ClimateAgent"
+      - "Time delay makes this a scheduled action, not immediate climate control"
+    metadata:
+      category: cross-domain-timer
+      difficulty: hard
+      note: "Immediate: 'Turn off the AC' → climate. Delayed: 'Turn off the AC in 5 minutes' → timer"
+
+  - id: cross_domain_timer_vs_music
+    input: "Play music at 6 PM"
+    expected: "timer"
+    criteria:
+      - "Routes to TimerAgent"
+      - "Does NOT route to MusicAgent"
+      - "Scheduled time makes this a scheduled action, not immediate music playback"
+    metadata:
+      category: cross-domain-timer
+      difficulty: hard
+      note: "Immediate: 'Play music' → music. Scheduled: 'Play music at 6 PM' → timer"
+
+  - id: cross_domain_immediate_light_off
+    input: "Turn off the lights"
+    expected: "light"
+    criteria:
+      - "Routes to LightAgent"
+      - "Does NOT route to TimerAgent"
+      - "No time delay means immediate action"
+    metadata:
+      category: cross-domain-timer
+      difficulty: easy
+      note: "Contrast with 'Turn off the lights in 30 minutes' which routes to timer"
+
+  - id: cross_domain_immediate_ac_off
+    input: "Turn off the AC"
+    expected: "climate"
+    criteria:
+      - "Routes to ClimateAgent"
+      - "Does NOT route to TimerAgent"
+      - "No time delay means immediate action"
+    metadata:
+      category: cross-domain-timer
+      difficulty: easy
+      note: "Contrast with 'Turn off the AC in 5 minutes' which routes to timer"

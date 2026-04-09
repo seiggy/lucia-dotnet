@@ -173,3 +173,33 @@
 - Observer: `lucia.Tests/Orchestration/OrchestratorEvalObserver.cs` (no changes needed)
 - Base class: `lucia.Tests/Orchestration/AgentEvalTestBase.cs` (no changes needed)
 
+### 2025-07-24: Timer Agent Eval Coverage — Scheduled Action Routing Bug
+
+**Real Failures Drive the Best Eval Scenarios**
+- "Turn off the office AC in 5 minutes" routed to general-assistant at 0% confidence — the model couldn't even produce routing JSON
+- Root cause: the router had no domain inference hints for timer/schedule language
+- Cross-domain confusion (time-delayed device actions vs immediate device actions) is a distinct failure category needing dedicated tests
+
+**Domain Inference Hints Are the Router's First Line of Defense**
+- Added timer/schedule language patterns to Rule 8 in RouterExecutorOptions.cs
+- Critical distinction: "in X minutes" / "at X PM" → timer-agent, NOT the device agent
+- Without this hint, the router sees "AC" and routes to climate, ignoring the time delay qualifier
+- The IMPORTANT callout in the prompt makes the time-delay-wins rule explicit
+
+**Cross-Domain Timer vs Device Is Harder Than Light vs Climate**
+- Light vs climate confusion: both are immediate device actions, just wrong domain
+- Timer vs device: the SAME words ("turn off the lights") route differently based on a time qualifier
+- This requires the model to understand temporal modifiers as routing signals, not just device nouns
+- 5 cross-domain-timer scenarios added including both delayed (→timer) and immediate (→device) contrasts
+
+**YAML Dataset Grew to 59 Scenarios (44% growth from 41)**
+- 3 basic timer, 4 scheduled-action, 3 alarm, 5 cross-domain-timer = 15 new scenarios
+- Each scheduled-action scenario has a matching immediate-action scenario for contrast
+- metadata categories: timer, scheduled-action, alarm, cross-domain-timer
+
+**4 New Test Methods in OrchestratorEvalTests.cs**
+- RouteToTimerAgent_SetTimer — basic timer routing
+- RouteToTimerAgent_ScheduledAction — the actual failure case with negative climate/general assertions
+- RouteToTimerAgent_DelayedLightAction — cross-domain with negative light assertion
+- RouteToTimerAgent_AlarmRequest — alarm routing
+
