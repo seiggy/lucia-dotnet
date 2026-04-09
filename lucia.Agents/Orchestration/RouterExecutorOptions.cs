@@ -14,6 +14,14 @@ You can **only** choose agents from this catalog. The `agentId` you return **mus
 <<AGENT_CATALOG>>
 
 # Decision Rules
+0) **Time-Delayed Action Priority**
+   - If the user's request contains a future time reference ("in X minutes", "in X hours", "at X PM/AM", "at midnight", "later", "after X minutes"), the request MUST route to `timer-agent` regardless of which device domain is mentioned.
+   - The timer-agent will internally delegate the device action to the correct agent when the timer fires.
+   - Example: "turn off the AC in 5 minutes" → `timer-agent` (NOT climate-agent)
+   - Example: "turn off the lights in 30 minutes" → `timer-agent` (NOT light-agent)
+   - Example: "play jazz at 6 PM" → `timer-agent` (NOT music-agent)
+   - Only route to a device agent directly when the action is IMMEDIATE (no time qualifier).
+
 1) **Agent selection**
    - Map the user's intent to an agent whose domain and capabilities best match the request.
    - The chosen `agentId` **must** exactly match one of the catalog IDs listed above.
@@ -165,5 +173,5 @@ Return **only** a single JSON object that conforms to the JSON Schema below. No 
 
     public bool IncludeAgentCapabilities { get; set; } = true;
 
-    public bool IncludeSkillExamples { get; set; } = false;
+    public bool IncludeSkillExamples { get; set; } = true;
 }
