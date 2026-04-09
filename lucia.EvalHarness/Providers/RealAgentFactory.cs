@@ -68,6 +68,13 @@ public sealed class RealAgentFactory : IAsyncDisposable
     public IHomeAssistantClient HomeAssistantClient => _haClient;
 
     /// <summary>
+    /// The entity location service used by skills for entity/area resolution.
+    /// Exposed so scenario runners can register dynamic entities from
+    /// <see cref="ScenarioValidator.SetupInitialStateAsync"/>.
+    /// </summary>
+    public IEntityLocationService EntityLocationService => _locationService;
+
+    /// <summary>
     /// When true, agents are constructed with a <see cref="ConversationTracer"/>
     /// in the chat client pipeline to capture full conversation history.
     /// </summary>
@@ -147,8 +154,10 @@ public sealed class RealAgentFactory : IAsyncDisposable
         var similarity = new EmbeddingSimilarityService();
         var entityMatcher = new HybridEntityMatcher(
             similarity, _loggerFactory.CreateLogger<HybridEntityMatcher>());
-        var embeddingResolver = A.Fake<IEmbeddingProviderResolver>();
+        var embeddingResolver = CreateFakeEmbeddingResolver();
         var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
+
+        var climateOptions = CreateOptionsMonitor(new ClimateControlSkillOptions { CacheRefreshMinutes = 0 });
 
         var climateSkill = new ClimateControlSkill(
             _haClient,
@@ -157,8 +166,10 @@ public sealed class RealAgentFactory : IAsyncDisposable
             _deviceCache,
             _locationService,
             entityMatcher,
-            CreateOptionsMonitor<ClimateControlSkillOptions>(),
+            climateOptions,
             configuration);
+
+        var fanOptions = CreateOptionsMonitor(new FanControlSkillOptions { CacheRefreshMinutes = 0 });
 
         var fanSkill = new FanControlSkill(
             _haClient,
@@ -166,7 +177,7 @@ public sealed class RealAgentFactory : IAsyncDisposable
             _deviceCache,
             _locationService,
             entityMatcher,
-            CreateOptionsMonitor<FanControlSkillOptions>(),
+            fanOptions,
             _loggerFactory.CreateLogger<FanControlSkill>());
 
         var agent = new ClimateAgent(resolver, _definitionRepo, climateSkill, fanSkill, _tracingFactory, _loggerFactory);
@@ -325,6 +336,22 @@ public sealed class RealAgentFactory : IAsyncDisposable
         var monitor = A.Fake<IOptionsMonitor<T>>();
         A.CallTo(() => monitor.CurrentValue).Returns(new T());
         return monitor;
+    }
+
+    private static IOptionsMonitor<T> CreateOptionsMonitor<T>(T value) where T : class
+    {
+        var monitor = A.Fake<IOptionsMonitor<T>>();
+        A.CallTo(() => monitor.CurrentValue).Returns(value);
+        return monitor;
+    }
+
+    private static IEmbeddingProviderResolver CreateFakeEmbeddingResolver()
+    {
+        var generator = new FakeEmbeddingGenerator();
+        var resolver = A.Fake<IEmbeddingProviderResolver>();
+        A.CallTo(() => resolver.ResolveAsync(A<string?>._, A<CancellationToken>._))
+            .Returns(Task.FromResult<IEmbeddingGenerator<string, Embedding<float>>?>(generator));
+        return resolver;
     }
 
     public ValueTask DisposeAsync()

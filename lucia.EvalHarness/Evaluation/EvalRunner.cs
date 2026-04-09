@@ -2,6 +2,7 @@ using AgentEval.Core;
 using AgentEval.MAF;
 using AgentEval.Metrics.Agentic;
 using AgentEval.Models;
+using lucia.Agents.Abstractions;
 using lucia.EvalHarness.Configuration;
 using lucia.EvalHarness.Providers;
 using lucia.HomeAssistant.Services;
@@ -352,6 +353,7 @@ public sealed class EvalRunner
         RealAgentInstance agentInstance,
         IReadOnlyList<TestScenario> scenarios,
         IHomeAssistantClient haClient,
+        IEntityLocationService? locationService = null,
         ModelParameterProfile? parameterProfile = null,
         Action<string>? onProgress = null,
         CancellationToken ct = default)
@@ -391,7 +393,7 @@ public sealed class EvalRunner
             try
             {
                 // Set up known HA state
-                await ScenarioValidator.SetupInitialStateAsync(haClient, scenario);
+                await ScenarioValidator.SetupInitialStateAsync(haClient, scenario, locationService);
 
                 // Build an AgentEval TestCase from the scenario
                 var promptText = BuildScenarioPrompt(scenario);

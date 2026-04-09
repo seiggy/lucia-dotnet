@@ -98,6 +98,7 @@ public static class EvalProgressDisplay
                                         agentInstance,
                                         scenarioList,
                                         agentFactory.HomeAssistantClient,
+                                        agentFactory.EntityLocationService,
                                         parameterProfile: profile,
                                         onProgress: _ => modelTask.Increment(1),
                                         ct: ct);
