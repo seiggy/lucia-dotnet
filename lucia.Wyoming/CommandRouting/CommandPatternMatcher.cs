@@ -594,8 +594,8 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
 
     /// <summary>
     /// Device keywords that indicate a non-light entity. When these appear in a
-    /// captured <c>{entity}</c> or <c>{area}</c> value inside a LightControlSkill
-    /// match, the fast-path bails so the LLM can route to the correct skill.
+    /// captured <c>{entity}</c> value inside a LightControlSkill match, the
+    /// fast-path bails so the LLM can route to the correct skill.
     /// </summary>
     private static readonly HashSet<string> NonLightDeviceTokens = new(StringComparer.OrdinalIgnoreCase)
     {
