@@ -156,6 +156,34 @@ public sealed class CommandPatternMatcherTests
         Assert.True(result.MatchDuration > TimeSpan.Zero);
     }
 
+    // ── Temporal bail signal tests ───────────────────────────────
+
+    [Theory]
+    [InlineData("turn on the lights at 7pm")]
+    [InlineData("turn on the lights at 10am")]
+    [InlineData("turn off lights in 5 minutes")]
+    [InlineData("turn on lights in 30min")]
+    public void TemporalReference_BailsToLLM(string transcript)
+    {
+        var matcher = CreateMatcher(LightPattern);
+
+        var result = matcher.Match(transcript);
+
+        Assert.False(result.IsMatch, $"'{transcript}' should bail due to temporal reference");
+    }
+
+    [Theory]
+    [InlineData("turn on lights in the kitchen")]
+    [InlineData("turn on lights in the bedroom")]
+    public void SpatialPreposition_DoesNotBail(string transcript)
+    {
+        var matcher = CreateMatcher(LightPattern);
+
+        var result = matcher.Match(transcript);
+
+        Assert.True(result.IsMatch, $"'{transcript}' should NOT bail — 'in' is spatial, not temporal");
+    }
+
     // ── Non-light device bail tests ──────────────────────────────
 
     [Theory]

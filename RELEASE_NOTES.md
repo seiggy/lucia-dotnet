@@ -1,3 +1,43 @@
+# Release Notes - 1.2.2
+
+**Release Date:** April 2026  
+**Code Name:** "Guardrail"
+
+---
+
+## 🛡️ Overview
+
+"Guardrail" is a targeted bugfix release addressing three user-reported issues: dashboard navigation, UI scroll jitter, and the fast-path pattern matcher incorrectly claiming non-light device commands. The pattern matcher now correctly bails to the LLM for fans, ACs, TVs, locks, and other non-light devices, and the temporal bail-signal logic was refined to stop false-positiving on spatial prepositions like "in the kitchen."
+
+## 🐛 Bug Fixes
+
+### Dashboard Navigation (#113)
+- **"Back to Traces" link** now navigates to `/traces` instead of `/` (which is the Activity page). Reported by @paulglavin.
+
+### Entity Checkbox Scroll (#113)
+- **BulkActionBar layout shift** — clicking entity checkboxes no longer causes the page to scroll. The bulk action bar now collapses via CSS (`h-0 invisible overflow-hidden`) instead of unmounting from the DOM, eliminating the layout shift that occurred when transitioning between 0 and 1+ selected items.
+
+### Fast-Path Pattern Matcher — Non-Light Device Bail
+- Commands like "turn office fan on", "turn off the AC", "turn on the TV" no longer match `LightControlSkill`. A new **non-light device token set** (fan, ac, tv, lock, door, speaker, vacuum, etc.) causes the pattern matcher to reject the match and defer to the LLM orchestrator.
+- **Temporal preposition fix** — "in" and "at" no longer unconditionally trigger bail signals. They now only bail when followed by a number, duration word, or digit-prefixed time token (e.g., "7pm", "10am", "30min"), not when used as spatial prepositions ("lights on in the kitchen"). This fixes a pre-existing false positive in area-based light commands.
+
+## 🧪 Tests
+
+- 16 new `CommandPatternMatcherTests`: temporal bail (4 cases), spatial preposition pass-through (2 cases), fan bail (4 cases), other non-light devices (6 cases)
+- All 31 pattern matcher tests passing
+- 278/279 Wyoming test suite passing (1 pre-existing DI registration test unrelated to this release)
+
+## 📁 Files Changed
+
+| File | Change |
+|------|--------|
+| `lucia-dashboard/src/pages/TraceDetailPage.tsx` | Fix `navigate('/')` → `navigate('/traces')` |
+| `lucia-dashboard/src/pages/EntityLocationPage.tsx` | BulkActionBar CSS collapse instead of unmount |
+| `lucia.Wyoming/CommandRouting/CommandPatternMatcher.cs` | Non-light device bail + temporal preposition bigram check |
+| `lucia.Tests/Wyoming/CommandPatternMatcherTests.cs` | 10 new test cases |
+
+---
+
 # Release Notes - 1.2.1
 
 **Release Date:** April 2026  

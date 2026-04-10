@@ -622,12 +622,12 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
             if (BailSignalTokens.Contains(token))
                 return true;
 
-            // "in"/"at" only bail when followed by a number or duration word,
-            // e.g. "in 5 minutes" or "at 7 pm", not "in the kitchen".
+            // "in"/"at" only bail when followed by a number, duration word, or
+            // combined time token like "7pm"/"10am", not "in the kitchen".
             if (TemporalPrepositions.Contains(token) && i + 1 < tokens.Count)
             {
                 var next = tokens[i + 1];
-                if (int.TryParse(next, out _) || DurationFollowers.Contains(next))
+                if (int.TryParse(next, out _) || DurationFollowers.Contains(next) || StartsWithDigit(next))
                     return true;
             }
         }
@@ -654,6 +654,13 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
 
         return false;
     }
+
+    /// <summary>
+    /// Returns <c>true</c> when the token begins with a digit, catching combined
+    /// time tokens like "7pm", "10am", "5min" that <see cref="int.TryParse"/> misses.
+    /// </summary>
+    private static bool StartsWithDigit(string token) =>
+        token.Length > 0 && char.IsAsciiDigit(token[0]);
 
     private enum SegmentKind
     {
