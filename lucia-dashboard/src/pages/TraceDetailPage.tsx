@@ -121,7 +121,7 @@ export default function TraceDetailPage() {
       {/* Back button + actions */}
       <div className="flex items-center gap-3">
         <button
-          onClick={() => navigate('/')}
+          onClick={() => navigate('/traces')}
           className="flex items-center gap-1.5 text-sm text-amber transition-colors hover:text-amber-glow"
         >
           <ArrowLeft className="h-4 w-4" /> Back to Traces

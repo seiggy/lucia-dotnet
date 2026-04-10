@@ -54,6 +54,15 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
                     continue;
                 }
 
+                // If a light-control pattern matched but the captured entity
+                // contains a non-light device keyword (fan, ac, heater, etc.),
+                // skip it — the LLM should handle non-light devices. This does
+                // not screen the area capture.
+                if (pattern.SkillId == "LightControlSkill" && CapturesContainNonLightDevice(captures))
+                {
+                    continue;
+                }
+
                 matchedPattern = pattern;
                 capturedValues = captures;
                 bestTemplate = template;
@@ -556,9 +565,9 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
     /// </summary>
     private static readonly HashSet<string> BailSignalTokens = new(StringComparer.OrdinalIgnoreCase)
     {
-        // Temporal
-        "in", "at", "when", "after", "minutes", "minute",
-        "hours", "hour", "seconds", "second",
+        // Temporal (unambiguous — always bail)
+        "when", "after",
+        "minutes", "minute", "hours", "hour", "seconds", "second",
         "tomorrow", "tonight", "later", "timer",
         // Color
         "red", "blue", "green", "warm", "cool", "color",
@@ -566,16 +575,110 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
         "and", "then", "also",
     };
 
+    /// <summary>
+    /// Temporal prepositions that only signal scheduling when followed by a
+    /// number or duration word. "in the kitchen" is a location; "in 5 minutes"
+    /// is a time delay. We check the next token to disambiguate.
+    /// </summary>
+    private static readonly HashSet<string> TemporalPrepositions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "in", "at",
+    };
+
+    private static readonly HashSet<string> DurationFollowers = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "minutes", "minute", "min", "mins",
+        "hours", "hour", "hr", "hrs",
+        "seconds", "second", "sec", "secs",
+    };
+
+    /// <summary>
+    /// Device keywords that indicate a non-light entity. When these appear in a
+    /// captured <c>{entity}</c> value inside a LightControlSkill match, the
+    /// fast-path bails so the LLM can route to the correct skill.
+    /// </summary>
+    private static readonly HashSet<string> NonLightDeviceTokens = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "fan", "fans",
+        "ac", "aircon",
+        "heater", "heating",
+        "thermostat",
+        "blinds", "blind", "shades", "shade", "curtain", "curtains",
+        "lock", "locks",
+        "door", "garage",
+        "speaker", "speakers",
+        "tv", "television",
+        "camera", "cameras",
+        "vacuum",
+        "humidifier", "dehumidifier",
+        "purifier",
+    };
+
     private static bool ContainsBailSignalTokens(IReadOnlyList<string> tokens)
     {
-        foreach (var token in tokens)
+        for (var i = 0; i < tokens.Count; i++)
         {
+            var token = tokens[i];
+
             if (BailSignalTokens.Contains(token))
                 return true;
+
+            // "in"/"at" only bail when followed by a number, duration word, or
+            // combined time token like "7pm"/"10am", not "in the kitchen".
+            if (TemporalPrepositions.Contains(token) && i + 1 < tokens.Count)
+            {
+                var next = tokens[i + 1];
+                if (int.TryParse(next, out _) || DurationFollowers.Contains(next) || StartsWithDigit(next))
+                    return true;
+            }
         }
 
         return false;
     }
+
+    /// <summary>
+    /// Tokens that identify a light entity in a capture value.  When a capture
+    /// contains both a non-light device token AND a light token (e.g. "garage
+    /// lights", "fan light"), the light token wins and the match is kept.
+    /// </summary>
+    private static readonly HashSet<string> LightIdentifyingTokens = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "light", "lights", "lamp", "lamps",
+    };
+
+    /// <summary>
+    /// Returns <c>true</c> when the <c>{entity}</c> capture contains a token that
+    /// identifies a non-light device, UNLESS a light-identifying word is also present.
+    /// "garage" bails, but "garage lights" does not. Area captures are skipped because
+    /// areas are locations (e.g. "lights on in the garage"), not devices.
+    /// </summary>
+    private static bool CapturesContainNonLightDevice(Dictionary<string, string> captures)
+    {
+        // Only inspect the "entity" capture — area/action captures are not device identifiers.
+        if (!captures.TryGetValue("entity", out var entityValue))
+            return false;
+
+        var words = entityValue.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var hasNonLight = false;
+        var hasLight = false;
+
+        foreach (var word in words)
+        {
+            if (NonLightDeviceTokens.Contains(word))
+                hasNonLight = true;
+            if (LightIdentifyingTokens.Contains(word))
+                hasLight = true;
+        }
+
+        return hasNonLight && !hasLight;
+    }
+
+    /// <summary>
+    /// Returns <c>true</c> when the token begins with a digit, catching combined
+    /// time tokens like "7pm", "10am", "5min" that <see cref="int.TryParse"/> misses.
+    /// </summary>
+    private static bool StartsWithDigit(string token) =>
+        token.Length > 0 && char.IsAsciiDigit(token[0]);
 
     private enum SegmentKind
     {

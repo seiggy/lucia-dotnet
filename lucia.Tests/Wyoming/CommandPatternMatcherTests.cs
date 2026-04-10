@@ -155,6 +155,86 @@ public sealed class CommandPatternMatcherTests
 
         Assert.True(result.MatchDuration > TimeSpan.Zero);
     }
+
+    // Temporal bail signal tests
+
+    [Theory]
+    [InlineData("turn on the lights at 7pm")]
+    [InlineData("turn on the lights at 10am")]
+    [InlineData("turn off lights in 5 minutes")]
+    [InlineData("turn on lights in 30min")]
+    public void TemporalReference_BailsToLLM(string transcript)
+    {
+        var matcher = CreateMatcher(LightPattern);
+
+        var result = matcher.Match(transcript);
+
+        Assert.False(result.IsMatch, $"'{transcript}' should bail due to temporal reference");
+    }
+
+    [Theory]
+    [InlineData("turn on lights in the kitchen")]
+    [InlineData("turn on lights in the bedroom")]
+    public void SpatialPreposition_DoesNotBail(string transcript)
+    {
+        var matcher = CreateMatcher(LightPattern);
+
+        var result = matcher.Match(transcript);
+
+        Assert.True(result.IsMatch, $"'{transcript}' should NOT bail — 'in' is spatial, not temporal");
+    }
+
+    // Non-light device bail tests
+
+    [Theory]
+    [InlineData("turn office fan on")]
+    [InlineData("turn on the fan")]
+    [InlineData("turn off bedroom fan")]
+    [InlineData("fans off")]
+    public void NonLightDevice_Fan_DoesNotMatchLightPattern(string transcript)
+    {
+        var matcher = CreateMatcher(LightPattern);
+
+        var result = matcher.Match(transcript);
+
+        Assert.False(result.IsMatch, $"'{transcript}' should NOT match LightControlSkill");
+    }
+
+    [Theory]
+    [InlineData("turn off the ac")]
+    [InlineData("turn on the tv")]
+    [InlineData("lock the door")]
+    [InlineData("turn on the speaker")]
+    [InlineData("turn off the vacuum")]
+    [InlineData("turn off the garage")]
+    public void NonLightDevice_OtherDevices_DoNotMatchLightPattern(string transcript)
+    {
+        var matcher = CreateMatcher(LightPattern);
+
+        var result = matcher.Match(transcript);
+
+        Assert.False(result.IsMatch, $"'{transcript}' should NOT match LightControlSkill");
+    }
+
+    // Light-word exception: "garage lights" and "fan light" should still match
+
+    [Theory]
+    [InlineData("turn on the lights")]
+    [InlineData("turn off kitchen lights")]
+    [InlineData("turn on the bedroom light")]
+    [InlineData("lights on in the kitchen")]
+    [InlineData("lights on in the garage")]
+    [InlineData("turn on the garage lights")]
+    [InlineData("turn off the garage light")]
+    [InlineData("turn on the fan light")]
+    public void LightDevice_StillMatchesLightPattern(string transcript)
+    {
+        var matcher = CreateMatcher(LightPattern);
+
+        var result = matcher.Match(transcript);
+
+        Assert.True(result.IsMatch, $"'{transcript}' should still match LightControlSkill");
+    }
 }
 
 file sealed class TestPatternProvider(CommandPattern[] patterns) : ICommandPatternProvider
