@@ -605,10 +605,10 @@ export default function EntityLocationPage() {
 
     return (
       <div
-        className={`flex items-center gap-3 rounded-xl border px-4 py-2.5 transition-all duration-150 ${
+        className={`flex items-center gap-3 rounded-xl transition-all duration-150 ${
           count > 0
-            ? 'border-amber/30 bg-amber/5 opacity-100'
-            : 'pointer-events-none invisible h-0 overflow-hidden border-transparent py-0 opacity-0'
+            ? 'border border-amber/30 bg-amber/5 px-4 py-2.5 opacity-100'
+            : 'pointer-events-none invisible h-0 overflow-hidden border-0 px-0 py-0 opacity-0'
         }`}
       >
         <span className="text-sm font-medium text-amber">{count} selected</span>

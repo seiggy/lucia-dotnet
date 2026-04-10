@@ -156,7 +156,7 @@ public sealed class CommandPatternMatcherTests
         Assert.True(result.MatchDuration > TimeSpan.Zero);
     }
 
-    // ── Temporal bail signal tests ───────────────────────────────
+    // Temporal bail signal tests
 
     [Theory]
     [InlineData("turn on the lights at 7pm")]
@@ -184,7 +184,7 @@ public sealed class CommandPatternMatcherTests
         Assert.True(result.IsMatch, $"'{transcript}' should NOT bail — 'in' is spatial, not temporal");
     }
 
-    // ── Non-light device bail tests ──────────────────────────────
+    // Non-light device bail tests
 
     [Theory]
     [InlineData("turn office fan on")]
@@ -216,11 +216,17 @@ public sealed class CommandPatternMatcherTests
         Assert.False(result.IsMatch, $"'{transcript}' should NOT match LightControlSkill");
     }
 
+    // Light-word exception: "garage lights" and "fan light" should still match
+
     [Theory]
     [InlineData("turn on the lights")]
     [InlineData("turn off kitchen lights")]
     [InlineData("turn on the bedroom light")]
     [InlineData("lights on in the kitchen")]
+    [InlineData("lights on in the garage")]
+    [InlineData("turn on the garage lights")]
+    [InlineData("turn off the garage light")]
+    [InlineData("turn on the fan light")]
     public void LightDevice_StillMatchesLightPattern(string transcript)
     {
         var matcher = CreateMatcher(LightPattern);

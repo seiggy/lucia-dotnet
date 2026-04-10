@@ -636,23 +636,40 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
     }
 
     /// <summary>
-    /// Returns <c>true</c> when any captured value (entity, area, etc.) contains a
-    /// token that identifies a non-light device. This prevents the light fast-path
-    /// from swallowing commands meant for fans, ACs, locks, and similar devices.
+    /// Tokens that identify a light entity in a capture value.  When a capture
+    /// contains both a non-light device token AND a light token (e.g. "garage
+    /// lights", "fan light"), the light token wins and the match is kept.
+    /// </summary>
+    private static readonly HashSet<string> LightIdentifyingTokens = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "light", "lights", "lamp", "lamps",
+    };
+
+    /// <summary>
+    /// Returns <c>true</c> when the <c>{entity}</c> capture contains a token that
+    /// identifies a non-light device, UNLESS a light-identifying word is also present.
+    /// "garage" bails, but "garage lights" does not. Area captures are skipped because
+    /// areas are locations (e.g. "lights on in the garage"), not devices.
     /// </summary>
     private static bool CapturesContainNonLightDevice(Dictionary<string, string> captures)
     {
-        foreach (var (_, value) in captures)
+        // Only inspect the "entity" capture — area/action captures are not device identifiers.
+        if (!captures.TryGetValue("entity", out var entityValue))
+            return false;
+
+        var words = entityValue.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var hasNonLight = false;
+        var hasLight = false;
+
+        foreach (var word in words)
         {
-            var words = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            foreach (var word in words)
-            {
-                if (NonLightDeviceTokens.Contains(word))
-                    return true;
-            }
+            if (NonLightDeviceTokens.Contains(word))
+                hasNonLight = true;
+            if (LightIdentifyingTokens.Contains(word))
+                hasLight = true;
         }
 
-        return false;
+        return hasNonLight && !hasLight;
     }
 
     /// <summary>

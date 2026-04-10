@@ -23,8 +23,8 @@
 
 ## 🧪 Tests
 
-- 16 new `CommandPatternMatcherTests`: temporal bail (4 cases), spatial preposition pass-through (2 cases), fan bail (4 cases), other non-light devices (6 cases)
-- All 31 pattern matcher tests passing
+- 20 new `CommandPatternMatcherTests`: temporal bail (4), spatial pass-through (2), fan bail (4), other non-light devices (6), light-word exception regressions (4)
+- All 35 pattern matcher tests passing
 - 278/279 Wyoming test suite passing (1 pre-existing DI registration test unrelated to this release)
 
 ## 📁 Files Changed
