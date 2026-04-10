@@ -54,6 +54,14 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
                     continue;
                 }
 
+                // If a light-control pattern matched but the captured entity/area
+                // contains a non-light device keyword (fan, ac, heater, etc.),
+                // skip it — the LLM should handle non-light devices.
+                if (pattern.SkillId == "LightControlSkill" && CapturesContainNonLightDevice(captures))
+                {
+                    continue;
+                }
+
                 matchedPattern = pattern;
                 capturedValues = captures;
                 bestTemplate = template;
@@ -556,9 +564,9 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
     /// </summary>
     private static readonly HashSet<string> BailSignalTokens = new(StringComparer.OrdinalIgnoreCase)
     {
-        // Temporal
-        "in", "at", "when", "after", "minutes", "minute",
-        "hours", "hour", "seconds", "second",
+        // Temporal (unambiguous — always bail)
+        "when", "after",
+        "minutes", "minute", "hours", "hour", "seconds", "second",
         "tomorrow", "tonight", "later", "timer",
         // Color
         "red", "blue", "green", "warm", "cool", "color",
@@ -566,12 +574,82 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
         "and", "then", "also",
     };
 
+    /// <summary>
+    /// Temporal prepositions that only signal scheduling when followed by a
+    /// number or duration word. "in the kitchen" is a location; "in 5 minutes"
+    /// is a time delay. We check the next token to disambiguate.
+    /// </summary>
+    private static readonly HashSet<string> TemporalPrepositions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "in", "at",
+    };
+
+    private static readonly HashSet<string> DurationFollowers = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "minutes", "minute", "min", "mins",
+        "hours", "hour", "hr", "hrs",
+        "seconds", "second", "sec", "secs",
+    };
+
+    /// <summary>
+    /// Device keywords that indicate a non-light entity. When these appear in a
+    /// captured <c>{entity}</c> or <c>{area}</c> value inside a LightControlSkill
+    /// match, the fast-path bails so the LLM can route to the correct skill.
+    /// </summary>
+    private static readonly HashSet<string> NonLightDeviceTokens = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "fan", "fans",
+        "ac", "aircon",
+        "heater", "heating",
+        "thermostat",
+        "blinds", "blind", "shades", "shade", "curtain", "curtains",
+        "lock", "locks",
+        "door", "garage",
+        "speaker", "speakers",
+        "tv", "television",
+        "camera", "cameras",
+        "vacuum",
+        "humidifier", "dehumidifier",
+        "purifier",
+    };
+
     private static bool ContainsBailSignalTokens(IReadOnlyList<string> tokens)
     {
-        foreach (var token in tokens)
+        for (var i = 0; i < tokens.Count; i++)
         {
+            var token = tokens[i];
+
             if (BailSignalTokens.Contains(token))
                 return true;
+
+            // "in"/"at" only bail when followed by a number or duration word,
+            // e.g. "in 5 minutes" or "at 7 pm", not "in the kitchen".
+            if (TemporalPrepositions.Contains(token) && i + 1 < tokens.Count)
+            {
+                var next = tokens[i + 1];
+                if (int.TryParse(next, out _) || DurationFollowers.Contains(next))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Returns <c>true</c> when any captured value (entity, area, etc.) contains a
+    /// token that identifies a non-light device. This prevents the light fast-path
+    /// from swallowing commands meant for fans, ACs, locks, and similar devices.
+    /// </summary>
+    private static bool CapturesContainNonLightDevice(Dictionary<string, string> captures)
+    {
+        foreach (var (_, value) in captures)
+        {
+            var words = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            foreach (var word in words)
+            {
+                if (NonLightDeviceTokens.Contains(word))
+                    return true;
+            }
         }
 
         return false;

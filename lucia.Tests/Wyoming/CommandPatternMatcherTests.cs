@@ -155,6 +155,52 @@ public sealed class CommandPatternMatcherTests
 
         Assert.True(result.MatchDuration > TimeSpan.Zero);
     }
+
+    // ── Non-light device bail tests ──────────────────────────────
+
+    [Theory]
+    [InlineData("turn office fan on")]
+    [InlineData("turn on the fan")]
+    [InlineData("turn off bedroom fan")]
+    [InlineData("fans off")]
+    public void NonLightDevice_Fan_DoesNotMatchLightPattern(string transcript)
+    {
+        var matcher = CreateMatcher(LightPattern);
+
+        var result = matcher.Match(transcript);
+
+        Assert.False(result.IsMatch, $"'{transcript}' should NOT match LightControlSkill");
+    }
+
+    [Theory]
+    [InlineData("turn off the ac")]
+    [InlineData("turn on the tv")]
+    [InlineData("lock the door")]
+    [InlineData("turn on the speaker")]
+    [InlineData("turn off the vacuum")]
+    [InlineData("turn off the garage")]
+    public void NonLightDevice_OtherDevices_DoNotMatchLightPattern(string transcript)
+    {
+        var matcher = CreateMatcher(LightPattern);
+
+        var result = matcher.Match(transcript);
+
+        Assert.False(result.IsMatch, $"'{transcript}' should NOT match LightControlSkill");
+    }
+
+    [Theory]
+    [InlineData("turn on the lights")]
+    [InlineData("turn off kitchen lights")]
+    [InlineData("turn on the bedroom light")]
+    [InlineData("lights on in the kitchen")]
+    public void LightDevice_StillMatchesLightPattern(string transcript)
+    {
+        var matcher = CreateMatcher(LightPattern);
+
+        var result = matcher.Match(transcript);
+
+        Assert.True(result.IsMatch, $"'{transcript}' should still match LightControlSkill");
+    }
 }
 
 file sealed class TestPatternProvider(CommandPattern[] patterns) : ICommandPatternProvider
