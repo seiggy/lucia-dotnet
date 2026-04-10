@@ -1,0 +1,13 @@
+{
+  "model": "gemma3:1b",
+  "agent": "ClimateAgent",
+  "timestamp": "2026-03-30T15:49:47.1769156+00:00",
+  "summary": {
+    "total_tests": 0,
+    "passed": 0,
+    "failed": 0,
+    "overall_score": 0,
+    "mean_latency_ms": 0
+  },
+  "test_cases": []
+}

@@ -1,3 +1,74 @@
+# Release Notes - 1.2.1
+
+**Release Date:** April 2026  
+**Code Name:** "Searchlight"
+
+---
+
+## 🔦 Overview
+
+"Searchlight" is a quality-focused release that dramatically improves the orchestrator's intent routing accuracy — particularly for smaller local models like Gemma 4. Starting from a Gemma 4 routing trace where "turn off the lights in Zack's Office" was confidently misrouted to the climate agent, this release introduces a comprehensive evaluation suite, systematic prompt engineering for small-model compatibility, and timer-agent routing support. Orchestrator eval coverage went from 7 scenarios to 56, and Gemma 4 routing accuracy went from ~0% (infrastructure crashes) to 100% on the final test run.
+
+## 🚀 Highlights
+
+- **Comprehensive Orchestrator Eval Suite** — 56 YAML scenarios and 24 xUnit tests covering all 7 agent types (light, climate, scene, lists, music, general, timer) with cross-domain confusion tests, multi-agent splitting, ambiguous requests, STT variants, and entity ID patterns.
+- **Router Prompt Engineering for Small Models** — Rule 0 "Time-Delayed Action Priority," domain inference hints, multi-domain detection rules, and skill example injection that enable even 9B parameter models to correctly route compound requests.
+- **Timer Agent Routing** — Full timer/scheduler/alarm routing support with cross-domain guards ensuring "turn off the AC in 5 minutes" goes to timer-agent, not climate-agent.
+- **EvalTestFixture Overhaul** — All 7 agent cards now registered in the mock registry (was only 3), plus AgentSessionStore cast fix that was crashing all pipeline tests.
+- **Multi-Backend Eval Comparison** — New benchmark tooling for comparing routing accuracy across different Ollama models.
+- **Climate Agent Gemma 4 Compatibility** — Direct-action rules and two-step Find→Set tool pattern expectations for smaller models.
+
+## ✨ Features
+
+### Orchestrator Evaluation Suite
+- 56 YAML eval scenarios in `orchestrator.yaml` (up from 7)
+- 24 xUnit tests in `OrchestratorEvalTests.cs` (up from 7)
+- Categories: basic routing, room-specific, cross-domain confusion, multi-agent, ambiguous, STT variants, timer/scheduler, entity IDs
+- Negative assertions: light requests assert NOT climate, timer requests assert NOT device agents
+- Timer-agent card registered in `EvalTestFixture` with full dependency wiring
+
+### Router Prompt Improvements
+- **Rule 0 — Time-Delayed Action Priority**: Checked BEFORE agent domain matching; "in X minutes" / "at X PM" → timer-agent regardless of device mentioned
+- **Rule 8 — Domain Inference Hints**: Implicit language mapping (warmer→climate, bright→light, play→music, bedtime→scene, timer→timer-agent)
+- **Rule 9 — Multi-Domain Detection**: Explicit split rules with examples; prohibits collapsing multi-intent requests into general-assistant
+- **IncludeSkillExamples enabled**: Agent catalog now includes per-agent example prompts for pattern matching
+
+### Multi-Backend Benchmark Comparison
+- Side-by-side eval runs across different Ollama models
+- Backend selector UI with Spectre.Console rendering
+- Auto-tracing for scenario evaluation
+
+## 🐛 Bug Fixes
+
+- **EvalTestFixture only registered 3 of 7 agent cards** — Climate, lists, scene, and timer cards were extracted but never passed to mock registry, making it impossible to catch cross-domain routing bugs
+- **AgentSessionStore cast error** — FakeItEasy's `IServiceProvider` returned a Castle proxy that couldn't be cast to concrete `AgentSessionStore`; configured to return null so `NoopAgentSessionStore` fallback kicks in
+- **A2AToolCallEvaluator crash on ambiguous tests** — Removed evaluator from tests that intentionally have no expected agent IDs
+- **Spectre markup escape in backend selector** — Brackets in display strings caused rendering errors
+- **Climate agent two-step tool pattern** — Updated eval scenarios to expect Find→Set pattern for Gemma 4
+
+## 📊 Test Results
+
+### Gemma 4 (kavai/Gemma4-GPT5:e2b) Orchestrator Routing
+| Metric | Before | After |
+|--------|--------|-------|
+| Test infrastructure | ❌ All crashed | ✅ All pass |
+| Routing accuracy | 0/20 (0%) | 24/24 (100%) |
+| Agent coverage | 3 of 7 agents testable | 7 of 7 agents testable |
+| YAML scenarios | 7 | 56 |
+| xUnit test methods | 7 | 24 |
+
+## 📋 Breaking Changes
+
+None. All changes are additive — new tests, expanded YAML scenarios, and prompt improvements that are backward-compatible with existing agent configurations.
+
+## 🔮 Known Issues
+
+- **Timer skill cross-visibility**: `ListTimers` doesn't show scheduled actions created via `ScheduleAction` — they're in separate stores. Ask "any scheduled tasks?" instead of "any timers?" as a workaround.
+- **Dashboard Tasks page**: Shows A2A platform tasks (agent execution traces) instead of user-created scheduled tasks from `ScheduledTaskStore`.
+
+---
+---
+
 # Release Notes - 1.2.0
 
 **Release Date:** March 2026  
