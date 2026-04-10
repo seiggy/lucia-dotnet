@@ -602,10 +602,15 @@ export default function EntityLocationPage() {
 
   function BulkActionBar() {
     const count = selectedEntityIds.size
-    if (count === 0) return null
 
     return (
-      <div className="flex items-center gap-3 rounded-xl border border-amber/30 bg-amber/5 px-4 py-2.5">
+      <div
+        className={`flex items-center gap-3 rounded-xl border px-4 py-2.5 transition-all duration-150 ${
+          count > 0
+            ? 'border-amber/30 bg-amber/5 opacity-100'
+            : 'pointer-events-none invisible h-0 overflow-hidden border-transparent py-0 opacity-0'
+        }`}
+      >
         <span className="text-sm font-medium text-amber">{count} selected</span>
         <div className="h-4 w-px bg-stone/60" />
 
