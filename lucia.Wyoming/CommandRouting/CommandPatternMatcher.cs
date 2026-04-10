@@ -54,9 +54,10 @@ public sealed class CommandPatternMatcher(CommandPatternRegistry registry)
                     continue;
                 }
 
-                // If a light-control pattern matched but the captured entity/area
+                // If a light-control pattern matched but the captured entity
                 // contains a non-light device keyword (fan, ac, heater, etc.),
-                // skip it — the LLM should handle non-light devices.
+                // skip it — the LLM should handle non-light devices. This does
+                // not screen the area capture.
                 if (pattern.SkillId == "LightControlSkill" && CapturesContainNonLightDevice(captures))
                 {
                     continue;
