@@ -14,6 +14,8 @@ using lucia.Agents.Services;
 using lucia.HomeAssistant.Configuration;
 using lucia.HomeAssistant.Services;
 using lucia.MusicAgent;
+using lucia.TimerAgent;
+using lucia.TimerAgent.ScheduledTasks;
 using lucia.Tests.TestDoubles;
 using Microsoft.Agents.AI;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -149,6 +151,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
     private AgentCard _climateAgentCard = null!;
     private AgentCard _listsAgentCard = null!;
     private AgentCard _sceneAgentCard = null!;
+    private AgentCard _timerAgentCard = null!;
 
     public Task InitializeAsync()
     {
@@ -614,7 +617,16 @@ public sealed class EvalTestFixture : IAsyncLifetime
         var chatClient = CreateRawChatClient(deploymentName);
         var mockRegistry = A.Fake<IAgentRegistry>();
 
-        var allAgents = new List<AgentCard> { _lightAgentCard, _musicAgentCard, _generalAgentCard };
+        var allAgents = new List<AgentCard>
+        {
+            _lightAgentCard,
+            _musicAgentCard,
+            _generalAgentCard,
+            _climateAgentCard,
+            _listsAgentCard,
+            _sceneAgentCard,
+            _timerAgentCard
+        };
 
         A.CallTo(() => mockRegistry.GetAllAgentsAsync(A<CancellationToken>.Ignored))
             .Returns(allAgents.AsReadOnly());
@@ -647,7 +659,16 @@ public sealed class EvalTestFixture : IAsyncLifetime
         var routerChatClient = CreateRawChatClient(deploymentName);
         var mockRegistry = A.Fake<IAgentRegistry>();
 
-        var allCards = new List<AgentCard> { _lightAgentCard, _musicAgentCard, _generalAgentCard };
+        var allCards = new List<AgentCard>
+        {
+            _lightAgentCard,
+            _musicAgentCard,
+            _generalAgentCard,
+            _climateAgentCard,
+            _listsAgentCard,
+            _sceneAgentCard,
+            _timerAgentCard
+        };
 
         A.CallTo(() => mockRegistry.GetAllAgentsAsync(A<CancellationToken>.Ignored))
             .Returns(allCards.AsReadOnly());
@@ -662,6 +683,9 @@ public sealed class EvalTestFixture : IAsyncLifetime
         var generalAgent = new GeneralAgent(generalResolver, _mockDefinitionRepo, A.Fake<IMcpToolRegistry>(), _tracingFactory, _loggerFactory);
         await generalAgent.InitializeAsync();
 
+        // TODO: Build real agent instances for climate, lists, and scene agents.
+        // For routing-only tests, the cards in the registry are sufficient.
+        // For full-pipeline tests that execute agents, instances are needed.
         var agentProvider = new EvalAgentProvider(
         [
             lightAgent.GetAIAgent(),
@@ -680,11 +704,17 @@ public sealed class EvalTestFixture : IAsyncLifetime
         A.CallTo(() => orchestratorResolver.ResolveAsync(A<string?>._, A<CancellationToken>._))
             .Returns(routerChatClient);
 
+        // Return null for AgentSessionStore so WorkflowFactory falls back to NoopAgentSessionStore.
+        // A default FakeItEasy IServiceProvider returns a Castle proxy that cannot be cast to the concrete type.
+        var serviceProvider = A.Fake<IServiceProvider>();
+        A.CallTo(() => serviceProvider.GetService(typeof(Microsoft.Agents.AI.Hosting.AgentSessionStore)))
+            .Returns(null);
+
         var workflowFactory = new WorkflowFactory(
             orchestratorResolver,
             _mockDefinitionRepo,
             mockRegistry,
-            A.Fake<IServiceProvider>(),
+            serviceProvider,
             _loggerFactory,
             Options.Create(new RouterExecutorOptions()),
             Options.Create(new AgentInvokerOptions()),
@@ -780,5 +810,35 @@ public sealed class EvalTestFixture : IAsyncLifetime
             _loggerFactory.CreateLogger<SceneControlSkill>());
         var sceneAgent = new SceneAgent(_mockChatClientResolver, _mockDefinitionRepo, sceneSkill, _tracingFactory, _loggerFactory);
         _sceneAgentCard = sceneAgent.GetAgentCard();
+
+        // TimerAgent card
+        var taskStore = new ScheduledTaskStore();
+        var mockTaskRepo = A.Fake<IScheduledTaskRepository>();
+        var mockAlarmRepo = A.Fake<IAlarmClockRepository>();
+        var timeProvider = TimeProvider.System;
+        var cronService = new CronScheduleService(timeProvider, _loggerFactory.CreateLogger<CronScheduleService>());
+        var timerSkill = new TimerSkill(
+            _mockLocationService,
+            taskStore,
+            mockTaskRepo,
+            timeProvider,
+            _loggerFactory.CreateLogger<TimerSkill>());
+        var alarmSkill = new AlarmSkill(
+            mockAlarmRepo,
+            taskStore,
+            mockTaskRepo,
+            cronService,
+            _mockLocationService,
+            timeProvider,
+            _loggerFactory.CreateLogger<AlarmSkill>());
+        var schedulerSkill = new SchedulerSkill(
+            taskStore,
+            mockTaskRepo,
+            timeProvider,
+            _loggerFactory.CreateLogger<SchedulerSkill>());
+        var timerAgent = new lucia.TimerAgent.TimerAgent(
+            _mockChatClientResolver, _mockDefinitionRepo, timerSkill, alarmSkill, schedulerSkill,
+            _mockServer, configuration, _tracingFactory, _loggerFactory);
+        _timerAgentCard = timerAgent.GetAgentCard();
     }
 }

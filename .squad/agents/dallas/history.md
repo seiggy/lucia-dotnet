@@ -105,4 +105,57 @@
 - `dotnet build lucia-dotnet.slnx -v minimal` — 0 warnings, 0 errors
 - `dotnet test --filter PersonalityResponse` — 4/4 tests passed
 
+### 2025-07-15: Climate Scenario Entity Resolution Fix
+
+**What I found:**
+- Climate eval scenarios all failed with "No climate devices available in the system" from `FindClimateDeviceAsync`.
+- **Root cause 1:** `IEmbeddingProviderResolver` was faked to return null. `ClimateControlSkill.InitializeAsync` and `RefreshCacheAsync` both short-circuit when `_embeddingService is null`, so `_cachedDevices` was never populated.
+- **Root cause 2:** `SnapshotEntityLocationService` was built only from the static HA snapshot file (which has zero climate entities). Even if the cache populated, the fallback search path through `SearchHierarchyAsync` would find nothing.
+- **Root cause 3:** `FakeHomeAssistantClient.CallServiceAsync` had no climate service handlers, so `SetClimateTemperature` calls wouldn't update entity state for validation.
+
+**What I fixed:**
+1. `SnapshotEntityLocationService.RegisterEntity()` — new method for dynamic entity registration from YAML scenario `initial_state`
+2. `FakeEmbeddingGenerator` — new TestDouble returning constant vectors so `RefreshCacheAsync` completes and populates `_cachedDevices` from `FakeHomeAssistantClient`
+3. `RealAgentFactory.CreateClimateAgentAsync` — wired fake embedding resolver, set `CacheRefreshMinutes=0` so cache refreshes on every search (picks up entities injected after init)
+4. `ScenarioValidator.SetupInitialStateAsync` — extended with optional `IEntityLocationService` param; registers scenario entities in both HA client and location service
+5. `FakeHomeAssistantClient` — added climate.set_temperature, climate.set_hvac_mode, climate.set_fan_mode handlers
+6. Threaded `EntityLocationService` through EvalRunner, ParameterSweepRunner, EvalProgressDisplay
+
+**Key pattern — ClimateControlSkill search fallback:**
+- Primary path: `_entityMatcher.FindMatchesAsync` using embeddings against `_cachedDevices`
+- Fallback path: `_locationService.SearchHierarchyAsync` (substring match) intersected with `_cachedDevices`
+- In eval with constant-value embeddings, primary path returns nothing → fallback kicks in → works via substring matching
+
+**Build verification:**
+- `dotnet build lucia.EvalHarness/lucia.EvalHarness.csproj --no-restore -v minimal` — 0 warnings, 0 errors
+
+### 2025-10-13: Agent Registry Bug in EvalTestFixture
+
+**What I found:**
+- Critical bug: `EvalTestFixture.CreateRouterExecutor()` and `CreateLuciaOrchestratorAsync()` only registered 3 agent cards (light, music, general) in the mock `IAgentRegistry`, despite extracting 6 cards total in `ExtractAgentCards()`.
+- Missing cards: `_climateAgentCard`, `_listsAgentCard`, `_sceneAgentCard` were extracted but never passed to the router/orchestrator.
+- This caused routing eval tests to have an incomplete view of the agent catalog — the router LLM couldn't see climate, lists, or scene as routing targets.
+- **Real-world impact:** A "turn off the lights in Zack's Office" request was routed to climate-agent at 85% confidence. Routing tests were never catching these cross-domain routing bugs because the missing agents weren't available as targets.
+
+**What I fixed:**
+1. `CreateRouterExecutor()` (line 612): Changed `allAgents` list to include all 6 cards:
+   ```csharp
+   var allAgents = new List<AgentCard>
+   {
+       _lightAgentCard, _musicAgentCard, _generalAgentCard,
+       _climateAgentCard, _listsAgentCard, _sceneAgentCard
+   };
+   ```
+2. `CreateLuciaOrchestratorAsync()` (line 642): Changed `allCards` list to include all 6 cards with same format.
+3. Added TODO comment for future work: Building real agent instances for climate, lists, and scene agents. Currently only light, music, and general agents have instances built. For routing-only tests, the cards are sufficient, but full-pipeline execution tests that invoke agents will need instances.
+
+**Key pattern — Agent registry vs. agent provider:**
+- `IAgentRegistry.GetAllAgentsAsync()` returns `AgentCard` collection — used by the router to build the catalog LLM sees
+- `EvalAgentProvider` holds actual `AIAgent` instances — used by the invoker to execute selected agents
+- **For routing tests:** Only the registry matters — the router decision is based on card metadata
+- **For full-pipeline tests:** Both registry and provider must align — agents in the catalog must have corresponding instances
+
+**Build verification:**
+- `dotnet build lucia.Tests/lucia.Tests.csproj --no-restore` — 0 warnings, 0 errors
+
 <!-- Append new learnings below. Each entry is something lasting about the project. -->

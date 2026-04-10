@@ -149,6 +149,11 @@ public sealed class ClimateAgent : ILuciaAgent, ISkillConfigProvider
                 For example, if the user says "I'm cold" and they're in the living room,
                 find and adjust the climate device that serves the living room.
 
+                ## Speaker Context
+                When speaker context is provided (e.g., [Speaker: Zack]), use the speaker's name
+                in responses when relevant. If asked who is speaking, reflect the speaker's identity
+                from the context metadata.
+
                 ## Fan Direction Guidance
                 - Forward (counter-clockwise): Creates a wind-chill effect, good for summer cooling
                 - Reverse (clockwise): Pushes warm air down from ceiling, good for winter heating

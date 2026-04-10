@@ -2,6 +2,7 @@ using AgentEval.Core;
 using AgentEval.MAF;
 using AgentEval.Metrics.Agentic;
 using AgentEval.Models;
+using lucia.Agents.Abstractions;
 using lucia.EvalHarness.Configuration;
 using lucia.EvalHarness.Providers;
 using lucia.HomeAssistant.Services;
@@ -352,10 +353,21 @@ public sealed class EvalRunner
         RealAgentInstance agentInstance,
         IReadOnlyList<TestScenario> scenarios,
         IHomeAssistantClient haClient,
+        IEntityLocationService? locationService = null,
         ModelParameterProfile? parameterProfile = null,
         Action<string>? onProgress = null,
         CancellationToken ct = default)
     {
+        // Scenario evaluation requires conversation tracing for tool call validation.
+        // Without a tracer, the conversation list is empty and every scenario reports
+        // "Expected N tool call(s) but only got 0" — a silent false-failure.
+        if (agentInstance.Tracer is null && scenarios.Any(s => s.ExpectedToolCalls.Count > 0))
+        {
+            throw new InvalidOperationException(
+                "Scenario evaluation requires conversation tracing (RealAgentFactory.EnableTracing = true) " +
+                "to validate tool calls. Enable tracing before creating agent instances.");
+        }
+
         var harness = new MAFEvaluationHarness(verbose: false);
         var options = new EvaluationOptions
         {
@@ -381,7 +393,7 @@ public sealed class EvalRunner
             try
             {
                 // Set up known HA state
-                await ScenarioValidator.SetupInitialStateAsync(haClient, scenario);
+                await ScenarioValidator.SetupInitialStateAsync(haClient, scenario, locationService);
 
                 // Build an AgentEval TestCase from the scenario
                 var promptText = BuildScenarioPrompt(scenario);

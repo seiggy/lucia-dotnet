@@ -13,11 +13,12 @@ public static class EvalProgressDisplay
     /// <summary>
     /// Runs evaluations with a live progress display showing per-model, per-agent progress.
     /// When multiple parameter profiles are provided, each model is evaluated once per profile.
-    /// Results use a composite display name (<c>model@profile</c>) so reports can compare profiles.
+    /// When multiple backends are provided, each model is evaluated once per backend and the
+    /// result model name is tagged as <c>model@backend</c> for comparison reporting.
     /// </summary>
     public static async Task<EvalRunResult> RunWithProgressAsync(
         EvalRunner runner,
-        RealAgentFactory agentFactory,
+        IReadOnlyList<(InferenceBackend Backend, RealAgentFactory Factory)> backendFactories,
         IReadOnlyList<string> selectedModels,
         IReadOnlyList<string> selectedAgentNames,
         Func<string, IReadOnlyList<AgentEval.Models.TestCase>> testCaseLoader,
@@ -29,10 +30,10 @@ public static class EvalProgressDisplay
             ? parameterProfiles
             : [ModelParameterProfile.Default];
         var multiProfile = profiles.Count > 1;
+        var multiBackend = backendFactories.Count > 1;
 
         var agentResults = new List<AgentEvalResult>();
         var startedAt = DateTimeOffset.UtcNow;
-        var factories = agentFactory.AgentFactories;
 
         await AnsiConsole.Progress()
             .AutoClear(false)
@@ -47,75 +48,83 @@ public static class EvalProgressDisplay
             {
                 foreach (var agentName in selectedAgentNames)
                 {
-                    if (!factories.TryGetValue(agentName, out var createAgent))
-                        continue;
-
-                    var totalTasks = selectedModels.Count * profiles.Count;
+                    var totalTasks = selectedModels.Count * profiles.Count * backendFactories.Count;
                     var agentTask = ctx.AddTask(
                         $"[bold]{Markup.Escape(agentName)}[/]",
                         maxValue: totalTasks);
 
                     var modelResults = new List<ModelEvalResult>();
 
-                    foreach (var profile in profiles)
+                    foreach (var (backend, agentFactory) in backendFactories)
                     {
-                        // Apply this profile to the factory for agent construction
-                        agentFactory.ParameterProfile = profile;
+                        if (!agentFactory.AgentFactories.TryGetValue(agentName, out var createAgent))
+                            continue;
 
-                        foreach (var model in selectedModels)
+                        foreach (var profile in profiles)
                         {
-                            var displayLabel = multiProfile
-                                ? $"  {Markup.Escape(model)} @ {Markup.Escape(profile.Name)}"
-                                : $"  {Markup.Escape(model)}";
-                            var modelTask = ctx.AddTask(displayLabel, maxValue: 1);
+                            agentFactory.ParameterProfile = profile;
 
-                            AnsiConsole.MarkupLine(
-                                $"[dim]  Constructing {Markup.Escape(agentName)} with {Markup.Escape(model)}" +
-                                (multiProfile ? $" ({Markup.Escape(profile.Name)})" : "") + "...[/]");
-
-                            var agentInstance = await createAgent(model);
-
-                            var scenarios = ScenarioLoader.LoadFromFile(agentInstance.DatasetFile);
-
-                            ModelEvalResult result;
-                            if (scenarios.Count > 0)
+                            foreach (var model in selectedModels)
                             {
-                                var scenarioList = maxCasesPerAgent.HasValue
-                                    ? scenarios.Take(maxCasesPerAgent.Value).ToList()
-                                    : scenarios.ToList();
+                                // Tag model name with backend when comparing multiple backends
+                                var displayModel = multiBackend ? $"{model}@{backend.Name}" : model;
 
-                                modelTask.MaxValue = scenarioList.Count;
+                                var displayLabel = multiProfile
+                                    ? $"  {Markup.Escape(displayModel)} @ {Markup.Escape(profile.Name)}"
+                                    : $"  {Markup.Escape(displayModel)}";
+                                var modelTask = ctx.AddTask(displayLabel, maxValue: 1);
 
-                                result = await runner.EvaluateScenariosAsync(
-                                    model,
-                                    agentInstance,
-                                    scenarioList,
-                                    agentFactory.HomeAssistantClient,
-                                    parameterProfile: profile,
-                                    onProgress: _ => modelTask.Increment(1),
-                                    ct: ct);
+                                var backendSuffix = multiBackend ? $" ({Markup.Escape(backend.Name)})" : "";
+                                AnsiConsole.MarkupLine(
+                                    $"[dim]  Constructing {Markup.Escape(agentName)} with {Markup.Escape(model)}" +
+                                    (multiProfile ? $" ({Markup.Escape(profile.Name)})" : "") +
+                                    backendSuffix + "...[/]");
+
+                                var agentInstance = await createAgent(model);
+
+                                var scenarios = ScenarioLoader.LoadFromFile(agentInstance.DatasetFile);
+
+                                ModelEvalResult result;
+                                if (scenarios.Count > 0)
+                                {
+                                    var scenarioList = maxCasesPerAgent.HasValue
+                                        ? scenarios.Take(maxCasesPerAgent.Value).ToList()
+                                        : scenarios.ToList();
+
+                                    modelTask.MaxValue = scenarioList.Count;
+
+                                    result = await runner.EvaluateScenariosAsync(
+                                        displayModel,
+                                        agentInstance,
+                                        scenarioList,
+                                        agentFactory.HomeAssistantClient,
+                                        agentFactory.EntityLocationService,
+                                        parameterProfile: profile,
+                                        onProgress: _ => modelTask.Increment(1),
+                                        ct: ct);
+                                }
+                                else
+                                {
+                                    var allCases = testCaseLoader(agentInstance.DatasetFile);
+                                    var cases = maxCasesPerAgent.HasValue
+                                        ? allCases.Take(maxCasesPerAgent.Value).ToList()
+                                        : allCases.ToList();
+
+                                    modelTask.MaxValue = cases.Count;
+
+                                    result = await runner.EvaluateRealAgentAsync(
+                                        displayModel,
+                                        agentInstance,
+                                        cases,
+                                        parameterProfile: profile,
+                                        onProgress: _ => modelTask.Increment(1),
+                                        ct: ct);
+                                }
+
+                                modelTask.Value = modelTask.MaxValue;
+                                agentTask.Increment(1);
+                                modelResults.Add(result);
                             }
-                            else
-                            {
-                                var allCases = testCaseLoader(agentInstance.DatasetFile);
-                                var cases = maxCasesPerAgent.HasValue
-                                    ? allCases.Take(maxCasesPerAgent.Value).ToList()
-                                    : allCases.ToList();
-
-                                modelTask.MaxValue = cases.Count;
-
-                                result = await runner.EvaluateRealAgentAsync(
-                                    model,
-                                    agentInstance,
-                                    cases,
-                                    parameterProfile: profile,
-                                    onProgress: _ => modelTask.Increment(1),
-                                    ct: ct);
-                            }
-
-                            modelTask.Value = modelTask.MaxValue;
-                            agentTask.Increment(1);
-                            modelResults.Add(result);
                         }
                     }
 
@@ -135,5 +144,27 @@ public static class EvalProgressDisplay
             CompletedAt = DateTimeOffset.UtcNow,
             AgentResults = agentResults
         };
+    }
+
+    /// <summary>
+    /// Single-backend overload for backward compatibility.
+    /// </summary>
+    public static Task<EvalRunResult> RunWithProgressAsync(
+        EvalRunner runner,
+        RealAgentFactory agentFactory,
+        IReadOnlyList<string> selectedModels,
+        IReadOnlyList<string> selectedAgentNames,
+        Func<string, IReadOnlyList<AgentEval.Models.TestCase>> testCaseLoader,
+        int? maxCasesPerAgent,
+        IReadOnlyList<ModelParameterProfile>? parameterProfiles = null,
+        CancellationToken ct = default)
+    {
+        var backendFactories = new List<(InferenceBackend, RealAgentFactory)>
+        {
+            (agentFactory.Backend, agentFactory)
+        };
+        return RunWithProgressAsync(
+            runner, backendFactories, selectedModels, selectedAgentNames,
+            testCaseLoader, maxCasesPerAgent, parameterProfiles, ct);
     }
 }

@@ -258,6 +258,34 @@ internal sealed class SnapshotEntityLocationService : IEntityLocationService
             IsGenerationRunning = false
         });
 
+    // ── Dynamic Registration ─────────────────────────────────────
+
+    /// <summary>
+    /// Registers a dynamically created entity so it becomes discoverable by
+    /// <see cref="SearchHierarchyAsync"/>, <see cref="SearchEntitiesAsync"/>,
+    /// and other lookup methods. Used by eval scenarios to inject entities
+    /// that are not present in the static HA snapshot file.
+    /// </summary>
+    public void RegisterEntity(string entityId, string? friendlyName = null, string? areaId = null)
+    {
+        // Avoid duplicates
+        if (_entities.Any(e => string.Equals(e.EntityId, entityId, StringComparison.OrdinalIgnoreCase)))
+            return;
+
+        _entities.Add(new HomeAssistantEntity
+        {
+            EntityId = entityId,
+            FriendlyName = friendlyName ?? entityId,
+            AreaId = areaId
+        });
+
+        if (areaId is not null)
+            _entityToArea[entityId] = areaId;
+
+        // Ensure LastLoadedAt is set so IsCacheReady returns true
+        LastLoadedAt ??= DateTimeOffset.UtcNow;
+    }
+
     // ── Private helpers ───────────────────────────────────────────
 
     private HierarchicalSearchResult SearchHierarchySync(string query, IReadOnlyList<string>? domainFilter)

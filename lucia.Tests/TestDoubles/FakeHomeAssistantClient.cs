@@ -137,6 +137,21 @@ internal sealed class FakeHomeAssistantClient : IHomeAssistantClient
                 case "media_player.shuffle_set":
                     entity.Attributes["shuffle"] = true;
                     break;
+
+                case "climate.set_temperature":
+                    if (request!.TryGetValue("temperature", out var temp))
+                        entity.Attributes["temperature"] = temp;
+                    break;
+
+                case "climate.set_hvac_mode":
+                    if (request!.TryGetValue("hvac_mode", out var mode))
+                        entity.State = mode?.ToString() ?? entity.State;
+                    break;
+
+                case "climate.set_fan_mode":
+                    if (request!.TryGetValue("fan_mode", out var fan))
+                        entity.Attributes["fan_mode"] = fan;
+                    break;
             }
         }
 

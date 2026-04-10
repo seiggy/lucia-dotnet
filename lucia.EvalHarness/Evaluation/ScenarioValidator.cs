@@ -1,4 +1,5 @@
 using System.Text;
+using lucia.Agents.Abstractions;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
 using lucia.Tests.TestDoubles;
@@ -30,11 +31,15 @@ public static class ScenarioValidator
 {
     /// <summary>
     /// Sets up the FakeHomeAssistantClient with the scenario's initial entity states.
+    /// When an <see cref="IEntityLocationService"/> is provided (backed by
+    /// <see cref="SnapshotEntityLocationService"/>), entities are also registered
+    /// there so that Find-style tools can discover them.
     /// Call this before running the agent.
     /// </summary>
     public static async Task SetupInitialStateAsync(
         IHomeAssistantClient haClient,
-        TestScenario scenario)
+        TestScenario scenario,
+        IEntityLocationService? locationService = null)
     {
         foreach (var (entityId, setup) in scenario.InitialState)
         {
@@ -42,6 +47,16 @@ public static class ScenarioValidator
                 entityId,
                 setup.State,
                 setup.Attributes);
+
+            // Register in the location service so entity/area search tools can find it
+            if (locationService is SnapshotEntityLocationService snapshotService)
+            {
+                var friendlyName = setup.Attributes?.TryGetValue("friendly_name", out var fn) == true
+                    ? fn?.ToString()
+                    : null;
+
+                snapshotService.RegisterEntity(entityId, friendlyName);
+            }
         }
     }
 

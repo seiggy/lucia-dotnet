@@ -178,6 +178,7 @@ public sealed class ParameterSweepRunner
                 result = await _evalRunner.EvaluateScenariosAsync(
                     modelName, agentInstance, scenarioList,
                     _agentFactory.HomeAssistantClient,
+                    _agentFactory.EntityLocationService,
                     parameterProfile: profile, ct: ct);
             }
             else

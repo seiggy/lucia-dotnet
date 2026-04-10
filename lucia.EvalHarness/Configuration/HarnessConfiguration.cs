@@ -11,6 +11,12 @@ public sealed class HarnessConfiguration
     public AzureOpenAIJudgeSettings AzureOpenAI { get; set; } = new();
 
     /// <summary>
+    /// Named inference backends for multi-backend comparison.
+    /// When empty, a single backend is synthesized from <see cref="Ollama"/> settings.
+    /// </summary>
+    public List<InferenceBackend> Backends { get; set; } = [];
+
+    /// <summary>
     /// Directory path for evaluation report output.
     /// Defaults to <c>%TEMP%/lucia-eval-reports</c> when empty.
     /// </summary>
@@ -28,6 +34,26 @@ public sealed class HarnessConfiguration
     /// Custom profiles defined here are merged with built-ins.
     /// </summary>
     public Dictionary<string, ModelParameterProfile> ParameterProfiles { get; set; } = [];
+
+    /// <summary>
+    /// Returns the resolved list of backends. If <see cref="Backends"/> is empty,
+    /// falls back to a single Ollama backend from <see cref="Ollama"/> settings.
+    /// </summary>
+    public IReadOnlyList<InferenceBackend> GetEffectiveBackends()
+    {
+        if (Backends is { Count: > 0 })
+            return Backends;
+
+        return
+        [
+            new InferenceBackend
+            {
+                Name = "Ollama",
+                Endpoint = Ollama.Endpoint,
+                Type = InferenceBackendType.Ollama
+            }
+        ];
+    }
 
     /// <summary>
     /// Returns all available parameter profiles (built-in + custom).

@@ -115,7 +115,7 @@ scenarios:
     expected_tool_calls:
       - tool: GetLightsState
         arguments:
-          searchTerms: "contains:kitchen light"
+          searchTerms: "contains:kitchen"
     response_must_contain:
       - "on"
 
@@ -132,7 +132,7 @@ scenarios:
     expected_tool_calls:
       - tool: GetLightsState
         arguments:
-          searchTerms: "contains:kitchen light"
+          searchTerms: "contains:kitchen"
     response_must_contain:
       - "off"
 

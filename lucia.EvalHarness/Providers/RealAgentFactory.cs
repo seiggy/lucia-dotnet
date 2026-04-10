@@ -18,7 +18,6 @@ using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using OllamaSharp;
 
 namespace lucia.EvalHarness.Providers;
 
@@ -42,14 +41,14 @@ public sealed class RealAgentInstance
 }
 
 /// <summary>
-/// Constructs real lucia agent instances backed by Ollama models.
+/// Constructs real lucia agent instances backed by inference backends.
 /// Mirrors the <c>EvalTestFixture</c> construction pattern: real skills, real tools,
 /// real system prompts — only the <see cref="IChatClientResolver"/> is faked to return
-/// an Ollama-backed <see cref="IChatClient"/> instead of Azure OpenAI.
+/// a backend-specific <see cref="IChatClient"/> instead of Azure OpenAI.
 /// </summary>
 public sealed class RealAgentFactory : IAsyncDisposable
 {
-    private readonly string _ollamaEndpoint;
+    private readonly InferenceBackend _backend;
     private readonly IHomeAssistantClient _haClient;
     private readonly IEntityLocationService _locationService;
     private readonly ILoggerFactory _loggerFactory;
@@ -58,10 +57,22 @@ public sealed class RealAgentFactory : IAsyncDisposable
     private readonly TracingChatClientFactory _tracingFactory;
 
     /// <summary>
+    /// The inference backend this factory targets.
+    /// </summary>
+    public InferenceBackend Backend => _backend;
+
+    /// <summary>
     /// The Home Assistant client used by skills. Exposed so scenario runners
     /// can set up initial state and validate final state.
     /// </summary>
     public IHomeAssistantClient HomeAssistantClient => _haClient;
+
+    /// <summary>
+    /// The entity location service used by skills for entity/area resolution.
+    /// Exposed so scenario runners can register dynamic entities from
+    /// <see cref="ScenarioValidator.SetupInitialStateAsync"/>.
+    /// </summary>
+    public IEntityLocationService EntityLocationService => _locationService;
 
     /// <summary>
     /// When true, agents are constructed with a <see cref="ConversationTracer"/>
@@ -71,14 +82,17 @@ public sealed class RealAgentFactory : IAsyncDisposable
 
     /// <summary>
     /// The parameter profile to use for model inference. Applied to all
-    /// <see cref="OllamaApiClient"/> instances created by this factory.
+    /// chat client instances created by this factory.
     /// Defaults to <see cref="ModelParameterProfile.Default"/>.
     /// </summary>
     public ModelParameterProfile ParameterProfile { get; set; } = ModelParameterProfile.Default;
 
-    public RealAgentFactory(string ollamaEndpoint, string haSnapshotPath, ILoggerFactory loggerFactory)
+    /// <summary>
+    /// Creates a factory backed by the specified inference backend.
+    /// </summary>
+    public RealAgentFactory(InferenceBackend backend, string haSnapshotPath, ILoggerFactory loggerFactory)
     {
-        _ollamaEndpoint = ollamaEndpoint.TrimEnd('/');
+        _backend = backend;
         _loggerFactory = loggerFactory;
 
         // Load HA snapshot for skill entity resolution
@@ -96,6 +110,23 @@ public sealed class RealAgentFactory : IAsyncDisposable
         _deviceCache = CreateNullDeviceCache();
         _tracingFactory = new TracingChatClientFactory(
             A.Fake<lucia.Agents.Training.ITraceRepository>(), _loggerFactory);
+    }
+
+    /// <summary>
+    /// Backward-compatible constructor: wraps a raw Ollama endpoint into an
+    /// <see cref="InferenceBackend"/> with <see cref="InferenceBackendType.Ollama"/>.
+    /// </summary>
+    public RealAgentFactory(string ollamaEndpoint, string haSnapshotPath, ILoggerFactory loggerFactory)
+        : this(
+            new InferenceBackend
+            {
+                Name = "Ollama",
+                Endpoint = ollamaEndpoint,
+                Type = InferenceBackendType.Ollama
+            },
+            haSnapshotPath,
+            loggerFactory)
+    {
     }
 
     /// <summary>
@@ -123,8 +154,10 @@ public sealed class RealAgentFactory : IAsyncDisposable
         var similarity = new EmbeddingSimilarityService();
         var entityMatcher = new HybridEntityMatcher(
             similarity, _loggerFactory.CreateLogger<HybridEntityMatcher>());
-        var embeddingResolver = A.Fake<IEmbeddingProviderResolver>();
+        var embeddingResolver = CreateFakeEmbeddingResolver();
         var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
+
+        var climateOptions = CreateOptionsMonitor(new ClimateControlSkillOptions { CacheRefreshMinutes = 0 });
 
         var climateSkill = new ClimateControlSkill(
             _haClient,
@@ -133,8 +166,10 @@ public sealed class RealAgentFactory : IAsyncDisposable
             _deviceCache,
             _locationService,
             entityMatcher,
-            CreateOptionsMonitor<ClimateControlSkillOptions>(),
+            climateOptions,
             configuration);
+
+        var fanOptions = CreateOptionsMonitor(new FanControlSkillOptions { CacheRefreshMinutes = 0 });
 
         var fanSkill = new FanControlSkill(
             _haClient,
@@ -142,7 +177,7 @@ public sealed class RealAgentFactory : IAsyncDisposable
             _deviceCache,
             _locationService,
             entityMatcher,
-            CreateOptionsMonitor<FanControlSkillOptions>(),
+            fanOptions,
             _loggerFactory.CreateLogger<FanControlSkill>());
 
         var agent = new ClimateAgent(resolver, _definitionRepo, climateSkill, fanSkill, _tracingFactory, _loggerFactory);
@@ -263,14 +298,14 @@ public sealed class RealAgentFactory : IAsyncDisposable
     // ─── Private Helpers ──────────────────────────────────────────────
 
     /// <summary>
-    /// Creates a faked <see cref="IChatClientResolver"/> that returns an Ollama
+    /// Creates a faked <see cref="IChatClientResolver"/> that returns a backend-specific
     /// <see cref="IChatClient"/> for the specified model, regardless of connection name.
     /// When <see cref="EnableTracing"/> is true, wraps the client with a
     /// <see cref="ConversationTracer"/> to capture full conversation history.
     /// </summary>
     private (IChatClientResolver Resolver, ConversationTracer? Tracer) CreateOllamaResolverWithTracer(string modelName)
     {
-        IChatClient chatClient = CreateOllamaChatClient(modelName);
+        IChatClient chatClient = BackendChatClientFactory.CreateChatClient(_backend, modelName, ParameterProfile);
         ConversationTracer? tracer = null;
 
         if (EnableTracing)
@@ -288,15 +323,6 @@ public sealed class RealAgentFactory : IAsyncDisposable
         return (resolver, tracer);
     }
 
-    private IChatClient CreateOllamaChatClient(string modelName)
-    {
-        var uri = new Uri(_ollamaEndpoint);
-        var ollamaClient = new OllamaApiClient(uri, modelName);
-
-        // Wrap with parameter-injecting client that applies the profile
-        return new ParameterInjectingChatClient(ollamaClient, ParameterProfile);
-    }
-
     private static IDeviceCacheService CreateNullDeviceCache()
     {
         var fake = A.Fake<IDeviceCacheService>();
@@ -310,6 +336,22 @@ public sealed class RealAgentFactory : IAsyncDisposable
         var monitor = A.Fake<IOptionsMonitor<T>>();
         A.CallTo(() => monitor.CurrentValue).Returns(new T());
         return monitor;
+    }
+
+    private static IOptionsMonitor<T> CreateOptionsMonitor<T>(T value) where T : class
+    {
+        var monitor = A.Fake<IOptionsMonitor<T>>();
+        A.CallTo(() => monitor.CurrentValue).Returns(value);
+        return monitor;
+    }
+
+    private static IEmbeddingProviderResolver CreateFakeEmbeddingResolver()
+    {
+        var generator = new FakeEmbeddingGenerator();
+        var resolver = A.Fake<IEmbeddingProviderResolver>();
+        A.CallTo(() => resolver.ResolveAsync(A<string?>._, A<CancellationToken>._))
+            .Returns(Task.FromResult<IEmbeddingGenerator<string, Embedding<float>>?>(generator));
+        return resolver;
     }
 
     public ValueTask DisposeAsync()

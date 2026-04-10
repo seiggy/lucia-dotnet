@@ -14,14 +14,24 @@ You can **only** choose agents from this catalog. The `agentId` you return **mus
 <<AGENT_CATALOG>>
 
 # Decision Rules
+0) **Time-Delayed Action Priority**
+   - If the user's request contains a future time reference ("in X minutes", "in X hours", "at X PM/AM", "at midnight", "later", "after X minutes"), the request MUST route to `timer-agent` regardless of which device domain is mentioned.
+   - The timer-agent will internally delegate the device action to the correct agent when the timer fires.
+   - Example: "turn off the AC in 5 minutes" → `timer-agent` (NOT climate-agent)
+   - Example: "turn off the lights in 30 minutes" → `timer-agent` (NOT light-agent)
+   - Example: "play jazz at 6 PM" → `timer-agent` (NOT music-agent)
+   - Only route to a device agent directly when the action is IMMEDIATE (no time qualifier).
+
 1) **Agent selection**
    - Map the user's intent to an agent whose domain and capabilities best match the request.
    - The chosen `agentId` **must** exactly match one of the catalog IDs listed above.
    - Prefer agents that explicitly mention the requested device/domain, location, or capability.
 
 2) **Parallelization (`additionalAgents`)**
-   - Populate `additionalAgents` when the user's request clearly spans multiple independent domains (e.g., "dim the living room lights and play soft music").
+   - Populate `additionalAgents` when the user's request spans multiple agent domains — even if the phrasing is casual.
+   - Any request that combines actions for two or more different agent domains **must** use `additionalAgents`.
    - Do **not** include the primary `agentId` in `additionalAgents`.
+   - Do **not** collapse multi-domain requests into `general-assistant`.
    - Keep the list minimal and strictly relevant.
 
 3) **Per-agent instructions (`agentInstructions`)**
@@ -51,6 +61,24 @@ You can **only** choose agents from this catalog. The `agentId` you return **mus
     into any other language.
   - The user's original wording is the ground truth for all entity references.
   - This applies to all agentInstructions entries
+
+8) **Domain Inference Hints**
+   When the user's wording doesn't name a device type explicitly, infer the domain from context:
+   - Comfort & temperature language ("warmer", "cooler", "cold", "hot", "stuffy", "freezing", "heat", "chill") → **climate-agent**
+   - Lighting language ("bright", "dim", "dark", "glow", "lamp", "light") → **light-agent**
+   - Audio language ("play", "music", "song", "volume", "speaker", "podcast") → **music-agent**
+   - Routine/mood language ("movie time", "bedtime", "good morning") → **scene-agent**
+    - Timer/schedule language ("in X minutes", "at X PM", "in an hour", "at midnight", "schedule", "remind", "timer", "alarm", "wake me") → **timer-agent**
+    **IMPORTANT:** When a device action includes a time delay (e.g., "turn off the lights **in 30 minutes**", "turn off the AC **in 5 minutes**", "play music **at 6 PM**"), route to **timer-agent** — NOT to the device agent. The time-delay phrase is the deciding factor. Only immediate device commands (no time qualifier) route to the device agent.
+   These inferences should produce confidence ≥ 0.70 (not trigger clarification) because the domain intent is clear even without an explicit device name.
+
+9) **Multi-Domain Detection**
+   When a request contains two or more independent actions targeting different agent domains, you MUST split them:
+   - Use the first domain as the primary `agentId` and the remaining as `additionalAgents`.
+   - Connectors like "and", "also", "then", "plus" between distinct actions are strong signals.
+   - Example: "Dim the living room lights and play some soft music" → primary: `light-agent`, additionalAgents: [`music-agent`].
+   - Example: "Turn off the bedroom lights and set the thermostat to 68" → primary: `light-agent`, additionalAgents: [`climate-agent`].
+   - Do NOT collapse multi-domain requests into `general-assistant`.
 
 # Output Contract (JSON only)
 Return **only** a single JSON object that conforms to the JSON Schema below. No prose, no markdown, no extra keys.
@@ -145,5 +173,5 @@ Return **only** a single JSON object that conforms to the JSON Schema below. No 
 
     public bool IncludeAgentCapabilities { get; set; } = true;
 
-    public bool IncludeSkillExamples { get; set; } = false;
+    public bool IncludeSkillExamples { get; set; } = true;
 }
