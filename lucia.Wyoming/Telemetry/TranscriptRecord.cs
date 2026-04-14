@@ -39,6 +39,9 @@ public sealed record TranscriptRecord
     public float? RouteConfidence { get; init; }
     public bool CommandFiltered { get; init; }
 
+    // Audio processing path — "raw" or "enhanced" (GTCRN A/B flag)
+    public string AudioSource { get; init; } = "raw";
+
     // Pipeline timing
     public required PipelineStageTiming[] Stages { get; init; }
 

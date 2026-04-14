@@ -32,6 +32,17 @@
 - **`_utteranceAudioBuffer` vs `_rawUtteranceAudioBuffer`**: When GTCRN enhancement is active, enhanced frames go to `_utteranceAudioBuffer` and raw frames go to `_rawUtteranceAudioBuffer`. Both are plain `List<float>` — no synchronization needed since they're only written during the audio processing loop and read after audio-stop.
 - **HybridSttSession re-transcription**: Creating a fresh `ISttSession`, feeding complete audio via `AcceptAudioChunk`, then calling `GetFinalResultAsync` is the correct pattern for single-pass offline transcription of a complete clip. No progressive updates needed.
 
+### 2026-07-23: Idle CPU Investigation (requested by Zack)
+
+**Investigation Complete — No smoking gun found**
+- All ONNX/sherpa models are singleton + eagerly loaded, but no idle polling loops exist in voice code
+- WyomingServer accept loop has proper 250ms retry delay on failure — not a tight spin
+- SSE endpoints are event-driven (BackgroundTaskApi) or 750ms polled (EntityLocationCacheApi) — benign
+- Biggest idle CPU suspects are the 5-second config pollers: `SqliteConfigurationProvider` hits DB every tick, `MongoConfigurationProvider` queries Mongo every tick
+- `TaskArchivalService` does O(n) task sweep every 5 minutes unconditionally
+- Redis/Mongo drivers use default keepalive — no aggressive heartbeats found
+- Full findings written to `.squad/decisions/inbox/brett-cpu-investigation.md`
+
 ### 2026-04-14: Enhanced Clip STT Pipeline Implementation (w/ Lambert QA)
 
 **Implementation Complete**
@@ -50,3 +61,13 @@
 **Decisions Merged**
 - Decision #9: Feature-flagged Enhanced Clip STT Pipeline (status: Implemented, flag OFF by default)
 - Decision #10: Enhanced Clip Pipeline Test Strategy (status: Implemented, 9 tests all green)
+
+### Enhanced Clip A/B Telemetry (requested by Zack)
+
+**Implementation Complete**
+- Added 4 OpenTelemetry span tags on `wyoming.process_transcript` activity: `wyoming.stt.audio_source`, `wyoming.stt.enhanced_clip.enabled`, `wyoming.stt.enhanced_clip.sample_count`, `wyoming.stt.enhanced_clip.retranscription_ms`
+- Added `enhanced_retranscription` PipelineStageTiming entry alongside existing `stt`, `diarization`, `enhancement` stages
+- Added structured Info-level logs distinguishing enhanced vs raw path per utterance
+- Fixed `SpanCollectorProcessor` case-sensitive prefix filter (`"Lucia."` → case-insensitive) — Wyoming spans (`lucia.Wyoming.Session`) were silently excluded from the dashboard trace store
+- `TranscriptRecord.AudioSource` already existed; now consistently set to `"enhanced_clip"` or `"raw"` matching span tag values
+- Build clean, 297/298 Wyoming tests pass (1 pre-existing DI registration failure)
