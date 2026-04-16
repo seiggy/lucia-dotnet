@@ -16,6 +16,7 @@ public sealed class InMemoryDeviceCacheService : IDeviceCacheService
     private readonly ConcurrentDictionary<string, CacheEntry<List<MusicPlayerEntity>>> _players = new();
     private readonly ConcurrentDictionary<string, CacheEntry<List<ClimateEntity>>> _climateDevices = new();
     private readonly ConcurrentDictionary<string, CacheEntry<List<FanEntity>>> _fans = new();
+    private readonly ConcurrentDictionary<string, CacheEntry<List<SensorEntity>>> _sensors = new();
     private readonly ConcurrentDictionary<string, CacheEntry<Embedding<float>>> _embeddings = new();
     private readonly ConcurrentDictionary<string, CacheEntry<Dictionary<string, Embedding<float>>>> _areaEmbeddings = new();
 
@@ -67,6 +68,17 @@ public sealed class InMemoryDeviceCacheService : IDeviceCacheService
     public Task SetCachedFansAsync(List<FanEntity> fans, TimeSpan ttl, CancellationToken cancellationToken = default)
     {
         _fans["fans"] = new CacheEntry<List<FanEntity>>(fans, ttl);
+        return Task.CompletedTask;
+    }
+
+    // ── Sensors ─────────────────────────────────────────────────────────
+
+    public Task<List<SensorEntity>?> GetCachedSensorsAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(GetOrExpire(_sensors, "sensors"));
+
+    public Task SetCachedSensorsAsync(List<SensorEntity> sensors, TimeSpan ttl, CancellationToken cancellationToken = default)
+    {
+        _sensors["sensors"] = new CacheEntry<List<SensorEntity>>(sensors, ttl);
         return Task.CompletedTask;
     }
 

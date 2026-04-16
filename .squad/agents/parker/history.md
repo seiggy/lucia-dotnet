@@ -26,6 +26,11 @@
 
 <!-- Append new learnings below. -->
 
+### 2026-05-18 — PR #116 Cleanup for Merge
+
+Cherry-picking PR #116 onto current `master` required stripping accidental repo artifacts before the branch could build cleanly. The safe cleanup set was: remove tracked `.onnx` model binaries, remove the backup Vite config file, drop the malformed `lucia-dashboard/obj` path entry, and discard the duplicate `lucia.EvalHarness/Tui/HtmlReportGenerator.cs` because `master` already has `lucia.EvalHarness.Reports.HtmlReportGenerator` and both names break the build when present together.
+
+
 ### 2025-07-17 — Conversation API Pipeline Audit
 
 Completed full code audit of the Conversation API pipeline at Zack's request. Key findings:

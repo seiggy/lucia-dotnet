@@ -293,6 +293,7 @@ workspaces/
 .tools/
 .tmp-tools/
 # Downloaded STT/TTS/KWS model files (large binaries)
+*.onnx
 lucia.AgentHost/Models/stt/
 lucia.AgentHost/Models/tts/
 lucia.AgentHost/Models/kws/
