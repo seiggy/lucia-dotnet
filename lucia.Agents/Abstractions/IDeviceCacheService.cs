@@ -23,6 +23,9 @@ public interface IDeviceCacheService
     Task<List<FanEntity>?> GetCachedFansAsync(CancellationToken cancellationToken = default);
     Task SetCachedFansAsync(List<FanEntity> fans, TimeSpan ttl, CancellationToken cancellationToken = default);
 
+    Task<List<SensorEntity>?> GetCachedSensorsAsync(CancellationToken cancellationToken = default);
+    Task SetCachedSensorsAsync(List<SensorEntity> sensors, TimeSpan ttl, CancellationToken cancellationToken = default);
+
     Task<Dictionary<string, Embedding<float>>?> GetAreaEmbeddingsAsync(CancellationToken cancellationToken = default);
     Task SetAreaEmbeddingsAsync(Dictionary<string, Embedding<float>> areaEmbeddings, TimeSpan ttl, CancellationToken cancellationToken = default);
 }

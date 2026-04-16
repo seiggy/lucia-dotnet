@@ -159,6 +159,9 @@ public static class ServiceCollectionExtensions
         builder.Services.Configure<SceneControlSkillOptions>(
             builder.Configuration.GetSection(SceneControlSkillOptions.SectionName));
 
+        builder.Services.Configure<SensorControlSkillOptions>(
+            builder.Configuration.GetSection(SensorControlSkillOptions.SectionName));
+
         // Register agent skills and agents
         builder.Services.AddSingleton<LightControlSkill>();
         builder.Services.AddSingleton<IOptimizableSkill>(sp => sp.GetRequiredService<LightControlSkill>());
@@ -176,6 +179,10 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IOptimizableSkill>(sp => sp.GetRequiredService<SceneControlSkill>());
         builder.Services.AddSingleton<SceneAgent>();
         builder.Services.AddSingleton<ILuciaAgent>(sp => sp.GetRequiredService<SceneAgent>());
+        builder.Services.AddSingleton<SensorControlSkill>();
+        builder.Services.AddSingleton<IOptimizableSkill>(sp => sp.GetRequiredService<SensorControlSkill>());
+        builder.Services.AddSingleton<SensorAgent>();
+        builder.Services.AddSingleton<ILuciaAgent>(sp => sp.GetRequiredService<SensorAgent>());
 
         builder.Services.AddSingleton<ListSkill>();
         builder.Services.AddSingleton<ListsAgent>();
