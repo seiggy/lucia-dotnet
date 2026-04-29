@@ -16,6 +16,7 @@ public interface ICascadingEntityResolver
     /// <param name="callerArea">Device area from ConversationContext.DeviceArea (may be null)</param>
     /// <param name="speakerId">Speaker identity from ConversationContext (may be null)</param>
     /// <param name="domains">Domain filter based on agent/skill (e.g., ["light", "switch"])</param>
+    /// <param name="callerAgentId">Agent ID of the caller — filters entities by IncludeForAgent allowlist (null = unrestricted only)</param>
     /// <param name="ct">Cancellation token</param>
     /// <returns>Resolution result indicating success or bail reason</returns>
     CascadeResult Resolve(
@@ -23,5 +24,6 @@ public interface ICascadingEntityResolver
         string? callerArea,
         string? speakerId,
         IReadOnlyList<string> domains,
+        string? callerAgentId = null,
         CancellationToken ct = default);
 }

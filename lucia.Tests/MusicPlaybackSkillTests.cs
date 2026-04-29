@@ -133,7 +133,7 @@ public class MusicPlaybackSkillTests
     {
         var cascadingResolver = A.Fake<ICascadingEntityResolver>();
         A.CallTo(() => cascadingResolver.Resolve(
-                A<string>._, A<string?>._, A<string?>._, A<IReadOnlyList<string>>._, A<CancellationToken>._))
+                A<string>._, A<string?>._, A<string?>._, A<IReadOnlyList<string>>._, A<string?>._, A<CancellationToken>._))
             .Returns(new CascadeResult
             {
                 IsResolved = true,
@@ -158,7 +158,7 @@ public class MusicPlaybackSkillTests
     {
         var cascadingResolver = A.Fake<ICascadingEntityResolver>();
         A.CallTo(() => cascadingResolver.Resolve(
-                A<string>._, A<string?>._, A<string?>._, A<IReadOnlyList<string>>._, A<CancellationToken>._))
+                A<string>._, A<string?>._, A<string?>._, A<IReadOnlyList<string>>._, A<string?>._, A<CancellationToken>._))
             .Returns(new CascadeResult
             {
                 IsResolved = false,

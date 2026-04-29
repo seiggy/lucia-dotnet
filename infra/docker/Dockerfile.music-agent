@@ -53,6 +53,9 @@ RUN dotnet restore "./lucia.A2AHost/lucia.A2AHost.csproj" \
 # Copy source and publish both projects
 COPY . .
 
+# Remove global.json — the SDK image determines the version in containers
+RUN rm -f global.json
+
 RUN dotnet publish "./lucia.A2AHost/lucia.A2AHost.csproj" \
     -c $BUILD_CONFIGURATION \
     -o /app/host-publish \
