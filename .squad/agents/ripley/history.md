@@ -378,3 +378,22 @@ The current orchestration (WorkflowFactory + Custom Executors) is the proper MAF
 - Telemetry: cascade.resolution.duration_ms, cascade.bail.count (by BailReason), llm.fallback.rate
 
 **Full specification written to:** `.squad/decisions/inbox/ripley-cascading-entity-spec.md`
+
+### 2025-07-23: CPU Idle Optimization Review
+
+**Config Pollers Architecture:**
+- Both `SqliteConfigurationProvider` and `MongoConfigurationProvider` extend `ConfigurationProvider` and use `System.Threading.Timer` for polling
+- They are created by `SqliteConfigurationSource` / `MongoConfigurationSource` which implement `IConfigurationSource`
+- `ConfigurationApi.UpdateSectionAsync` calls `configRoot.Reload()` after writes — so the poll is only for external change detection
+- The 5s default was overly aggressive; 30s is appropriate since API writes already get instant reload
+- Mongo provider had a race condition using `volatile bool` instead of `Interlocked.CompareExchange` — SQLite provider had it right
+
+**ONNX Runtime Thread Pool Patterns:**
+- Multiple ORT engines loaded as singletons: GTCRN (1 session), Granite (1-3 sessions), Sherpa STT/Hybrid/Diarization (1 session each via sherpa-onnx wrappers)
+- ORT's native thread pool uses spin-wait by default, keeping cores warm even when idle
+- `ORT_THREADPOOL_SPIN_CONTROL=0` disables spin-wait with minimal latency impact (~1-5ms on wake)
+- GTCRN and Diarization already use `NumThreads = 2`; STT engines default to `NumThreads = 4` which is excessive for multiple concurrent sessions
+- `SessionOptions` are immutable post-creation — can't dynamically reduce threads on idle sessions
+- Lazy loading models was rejected because `ModelStartupValidator` explicitly warm-starts and first voice command latency matters
+
+**Decision written to:** `.squad/decisions/inbox/ripley-cpu-fix-plan.md`

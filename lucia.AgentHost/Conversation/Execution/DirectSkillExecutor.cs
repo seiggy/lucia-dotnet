@@ -148,7 +148,7 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
 
         var state = captures.GetValueOrDefault("action", "on");
         var resolvedIds = useCascadingResolver
-            ? ResolveEntitiesWithCascade(route, context, LightDomains, requireSingle: false, ct)
+            ? ResolveEntitiesWithCascade(route, context, LightDomains, requireSingle: false, "light-agent", ct)
             : ResolveSearchTermsToEntityIds(BuildSearchTerms(route, context), LightDomains);
 
         return await collector.RecordAsync(
@@ -171,7 +171,7 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
         }
 
         var resolvedIds = useCascadingResolver
-            ? ResolveEntitiesWithCascade(route, context, LightDomains, requireSingle: false, ct)
+            ? ResolveEntitiesWithCascade(route, context, LightDomains, requireSingle: false, "light-agent", ct)
             : ResolveSearchTermsToEntityIds(BuildSearchTerms(route, context), LightDomains);
 
         return await collector.RecordAsync(
@@ -194,7 +194,7 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
         }
 
         var entityId = useCascadingResolver
-            ? ResolveSingleEntityWithCascade(route, context, ClimateDomains, ct)
+            ? ResolveSingleEntityWithCascade(route, context, ClimateDomains, "climate-agent", ct)
             : ResolveEntityIdFromCache(route, ClimateDomains);
 
         return await collector.RecordAsync(
@@ -211,7 +211,7 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
 
         var direction = captures.GetValueOrDefault("action", "warmer");
         var entityId = useCascadingResolver
-            ? ResolveSingleEntityWithCascade(route, context, ClimateDomains, ct)
+            ? ResolveSingleEntityWithCascade(route, context, ClimateDomains, "climate-agent", ct)
             : ResolveEntityIdFromCache(route, ClimateDomains);
 
         var stateInfo = await collector.RecordAsync(
@@ -250,7 +250,7 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
     {
         var skill = _serviceProvider.GetRequiredService<SceneControlSkill>();
         var entityId = useCascadingResolver
-            ? ResolveSingleEntityWithCascade(route, context, SceneDomains, ct)
+            ? ResolveSingleEntityWithCascade(route, context, SceneDomains, "scene-agent", ct)
             : ResolveEntityIdFromCache(route, SceneDomains, captureKey: "scene");
 
         return await collector.RecordAsync(
@@ -266,6 +266,7 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
         ConversationContext context,
         IReadOnlyList<string> domains,
         bool requireSingle,
+        string? callerAgentId,
         CancellationToken ct)
     {
         var query = ResolveCascadeQuery(route);
@@ -274,6 +275,7 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
             context.DeviceArea,
             context.SpeakerId,
             domains,
+            callerAgentId,
             ct);
 
         if (!result.IsResolved)
@@ -304,9 +306,10 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
         CommandRouteResult route,
         ConversationContext context,
         IReadOnlyList<string> domains,
+        string? callerAgentId,
         CancellationToken ct)
     {
-        var resolvedIds = ResolveEntitiesWithCascade(route, context, domains, requireSingle: true, ct);
+        var resolvedIds = ResolveEntitiesWithCascade(route, context, domains, requireSingle: true, callerAgentId, ct);
         return resolvedIds[0];
     }
 

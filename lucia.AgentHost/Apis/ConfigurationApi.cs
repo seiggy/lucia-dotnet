@@ -471,6 +471,22 @@ public static class ConfigurationApi
                     "When set, enables browsing and downloading ONNX speech models from Hugging Face. " +
                     "Generate a token at https://huggingface.co/settings/tokens", "", true)
             ]
+        },
+        new()
+        {
+            Section = "Wyoming:Models:SpeechEnhancement",
+            Description = "GTCRN speech enhancement — denoises audio before STT and speaker verification",
+            Properties =
+            [
+                new("Enabled", "boolean", "Enable GTCRN speech enhancement on incoming audio frames", "true"),
+                new("ActiveModel", "string", "Active GTCRN model variant (e.g. 'gtcrn_simple')", "gtcrn_simple"),
+                new("ModelBasePath", "string", "Path to speech enhancement model files", "./models/speech-enhancement"),
+                new("AutoDownloadDefault", "boolean", "Auto-download default model on startup if missing", "true"),
+                new("UseEnhancedClipForStt", "boolean",
+                    "A/B flag: re-transcribe the complete GTCRN-enhanced utterance clip through a fresh STT session " +
+                    "after end-of-speech, and use enhanced audio for speaker verification. " +
+                    "When off (default), STT and speaker verification use raw audio.", "false")
+            ]
         }
     ];
 

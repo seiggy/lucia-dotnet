@@ -203,3 +203,36 @@
 - RouteToTimerAgent_DelayedLightAction — cross-domain with negative light assertion
 - RouteToTimerAgent_AlarmRequest — alarm routing
 
+### 2026-04-14: Enhanced Clip Pipeline Tests (GTCRN Feature Flag)
+
+**Integration Tests Are the Right Level for WyomingSession**
+- WyomingSession has no public methods besides `RunAsync()` — all behavior is observable only through the Wyoming protocol (TCP events)
+- The test infrastructure (TCP listener, event writer/parser, DI container) is heavy but necessary
+- Extracted a reusable `RunPipelineAndGetTranscriptAsync` helper that encapsulates the full wake→audio→stop→transcript flow
+- Pattern follows existing WyomingSessionIntegrationTests exactly
+
+**Feature Flag Testing Requires Distinguishable Audio**
+- The `ConfigurableEnhancerSession` uses a transform function (e.g., 2x amplitude) to produce audio that is measurably different from raw
+- Speaker verification tests assert on max sample amplitude: raw ~0.25 vs enhanced ~0.5
+- Transcript tests use different text per STT session ("raw transcript" vs "enhanced transcript") to prove which path executed
+- `QueuedSttEngine` dequeues sessions in order — first for streaming, second for re-transcription
+
+**Edge Cases Are Already Handled by Existing Guards**
+- No enhancer → `_currentEnhancerSession` is null → raw path runs, `_rawUtteranceAudioBuffer` stays empty → re-transcription guard `_rawUtteranceAudioBuffer.Count > 0` prevents re-transcription
+- Empty enhancer buffer → `enhancedBuffer.Length > 0` check skips `AppendUtteranceAudio` → `utteranceAudio` is empty → re-transcription guard `utteranceAudio.Length > 0` prevents re-transcription
+- Enhancer not ready → `TryCreateEnhancerSession` returns early → same as no enhancer
+
+**9 Tests Across 3 Categories**
+- 3 flag-OFF tests: raw transcript used, raw audio for speaker verification, enhancer still called for clip storage
+- 3 flag-ON tests: enhanced re-transcription, enhanced speaker verification, non-empty enhanced clip fed correctly
+- 3 edge cases: no enhancer fallback, empty buffer fallback, not-ready fallback
+- File: `lucia.Tests/Wyoming/EnhancedClipPipelineTests.cs`
+
+**Test Suite Complete & Merged**
+- 9 tests total across 3 categories (flag-OFF, flag-ON, edge cases)
+- All 288 tests pass (including 9 new)
+- Integration test pattern follows existing WyomingSessionIntegrationTests
+- Extracted reusable `RunPipelineAndGetTranscriptAsync` helper for full pipeline flow
+- Decisions merged: Decision #10: Enhanced Clip Pipeline Test Strategy (status: Implemented)
+- Orchestration log: `.squad/orchestration-log/2026-04-14T20-45-02Z-lambert.md`
+

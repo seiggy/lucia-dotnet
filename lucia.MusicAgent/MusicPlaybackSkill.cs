@@ -404,7 +404,7 @@ public class MusicPlaybackSkill : IOptimizableSkill
             var payload = new ServiceCallRequest()
             {
                 ["media_id"] = tracks,
-                ["enqueue"] = clearQueue ? "replace" : "next",
+                ["enqueue"] = clearQueue ? "play" : "next",
                 ["media_type"] = "track",
             };
             payload.EntityId = player.EntityId;
@@ -443,7 +443,7 @@ public class MusicPlaybackSkill : IOptimizableSkill
         if (_cascadingResolver is not null)
         {
             var cascadeResult = _cascadingResolver.Resolve(
-                playerName, callerArea: null, speakerId: null, EntityDomains, cancellationToken);
+                playerName, callerArea: null, speakerId: null, EntityDomains, callerAgentId: AgentId, cancellationToken);
 
             if (cascadeResult.IsResolved && cascadeResult.ResolvedEntityIds.Count > 0)
             {

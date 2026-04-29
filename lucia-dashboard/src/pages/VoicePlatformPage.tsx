@@ -183,7 +183,7 @@ export default function VoicePlatformPage() {
 
   // Monitor tab state
   const [sessions, setSessions] = useState<Map<string, { remoteEndPoint: string; state: string; rmsLevel: number; voiceCount: number }>>(new Map())
-  const [transcriptLog, setTranscriptLog] = useState<Array<{ timestamp: string; sessionId: string; text: string; confidence: number; speakerName?: string; isFinal: boolean }>>([])
+  const [transcriptLog, setTranscriptLog] = useState<Array<{ timestamp: string; sessionId: string; text: string; confidence: number; speakerName?: string; audioSource?: string; isFinal: boolean }>>([])
   const [sseConnected, setSseConnected] = useState(false)
   const [transcriptHistory, setTranscriptHistory] = useState<TranscriptRecord[]>([])
 
@@ -258,6 +258,7 @@ export default function VoicePlatformPage() {
               text: data.text,
               confidence: data.confidence,
               speakerName: data.speakerName,
+              audioSource: data.audioSource,
               isFinal: false,
             }
             return updated
@@ -270,6 +271,7 @@ export default function VoicePlatformPage() {
           text: data.text,
           confidence: data.confidence,
           speakerName: data.speakerName,
+          audioSource: data.audioSource,
           isFinal: data.isFinal,
         }]
       })
@@ -1483,6 +1485,11 @@ export default function VoicePlatformPage() {
                   <div key={i} className={`flex gap-2 ${entry.isFinal ? '' : 'italic opacity-60'}`}>
                     <span className="shrink-0 text-dust">{new Date(entry.timestamp).toLocaleTimeString()}</span>
                     <span className="shrink-0 text-amber">[{entry.sessionId.slice(0, 8)}]</span>
+                    {entry.isFinal && entry.audioSource && (
+                      <span className={`shrink-0 rounded px-1 text-[10px] font-bold uppercase ${entry.audioSource === 'enhanced' ? 'bg-emerald-900/60 text-emerald-400' : 'bg-stone-800/60 text-stone-400'}`}>
+                        {entry.audioSource === 'enhanced' ? 'Enhanced' : 'Raw'}
+                      </span>
+                    )}
                     {entry.speakerName && <span className="shrink-0 text-sage">{entry.speakerName}:</span>}
                     <span className={entry.isFinal ? 'text-light' : 'text-dust'}>{entry.text}</span>
                     <span className="shrink-0 text-dust">({(entry.confidence * 100).toFixed(0)}%)</span>
@@ -1782,6 +1789,11 @@ function TranscriptHistoryEntry({ record }: { record: TranscriptRecord }) {
     <div className="border-b border-stone/30 pb-1">
       <button type="button" onClick={() => setExpanded(!expanded)} className="w-full text-left flex gap-2 text-xs py-1 hover:bg-charcoal/50 rounded px-1">
         <span className="shrink-0 text-dust">{new Date(record.timestamp).toLocaleTimeString()}</span>
+        {record.audioSource && (
+          <span className={`shrink-0 rounded px-1 text-[10px] font-bold uppercase ${record.audioSource === 'enhanced' ? 'bg-emerald-900/60 text-emerald-400' : 'bg-stone-800/60 text-stone-400'}`}>
+            {record.audioSource === 'enhanced' ? 'Enhanced' : 'Raw'}
+          </span>
+        )}
         {record.speakerName && <span className="shrink-0 text-sage">{record.speakerName}</span>}
         <span className="truncate text-light">{record.text || '(empty)'}</span>
         <span className="shrink-0 text-dust">({(record.confidence * 100).toFixed(0)}%)</span>
@@ -1791,6 +1803,7 @@ function TranscriptHistoryEntry({ record }: { record: TranscriptRecord }) {
           <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-dust">
             <span>Audio Duration</span><span className="text-light">{record.audioDurationMs.toFixed(0)}ms</span>
             <span>Sample Rate</span><span className="text-light">{record.sampleRate}Hz</span>
+            <span>Audio Source</span><span className={record.audioSource === 'enhanced' ? 'text-emerald-400' : 'text-light'}>{record.audioSource === 'enhanced' ? 'GTCRN Enhanced' : 'Raw'}</span>
             <span>STT Model</span><span className="text-light truncate">{record.sttModelId}</span>
             <span>VAD</span><span className="text-light">{record.vadActive ? (record.vadModelId ?? 'active') : 'inactive'}</span>
             <span>Diarization</span><span className="text-light">{record.diarizationActive ? (record.diarizationModelId ?? 'active') : 'inactive'}</span>

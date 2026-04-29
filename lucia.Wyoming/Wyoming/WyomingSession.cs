@@ -43,11 +43,13 @@ public sealed class WyomingSession : IDisposable
     private ModelManager? _modelManager;
     private ISpeechEnhancer? _speechEnhancer;
     private ISpeechEnhancerSession? _currentEnhancerSession;
+    private IOptionsMonitor<SpeechEnhancementOptions>? _speechEnhancementOptions;
     private readonly SessionEventBus? _eventBus;
     private DateTimeOffset _lastAudioLevelEvent;
     private long _enhancementTotalMs;
     private long _sttFinalizationMs;
     private long _diarizationMs;
+    private long _enhancedClipRetranscriptionMs;
     private long _audioStreamStartedAt;
     private bool _disposed;
 
@@ -873,6 +875,7 @@ public sealed class WyomingSession : IDisposable
         _transcriptStore = services.GetService<ITranscriptStore>();
         _modelManager = services.GetService<ModelManager>();
         _speechEnhancer = services.GetService<ISpeechEnhancer>();
+        _speechEnhancementOptions = services.GetService<IOptionsMonitor<SpeechEnhancementOptions>>();
     }
 
     private async Task ProcessTranscriptAsync(
@@ -893,6 +896,58 @@ public sealed class WyomingSession : IDisposable
                 .ConfigureAwait(false);
             return;
         }
+
+        // Enhanced clip re-transcription: when enabled, feed the complete GTCRN-enhanced
+        // utterance clip to a fresh STT session instead of using the raw-audio result.
+        // The raw path feeds GTCRN per-frame into STT which causes buffer discontinuities;
+        // waiting for the full enhanced clip avoids that while benefiting from denoising.
+        var enhancedClipEnabled = _speechEnhancementOptions?.CurrentValue.UseEnhancedClipForStt == true;
+        var usedEnhancedClip = false;
+
+        if (enhancedClipEnabled
+            && utteranceAudio.Length > 0
+            && _rawUtteranceAudioBuffer.Count > 0)
+        {
+            var rawTranscript = transcript;
+            var enhancedResult = await ReTranscribeEnhancedClipAsync(utteranceAudio, ct)
+                .ConfigureAwait(false);
+            if (enhancedResult is not null && !string.IsNullOrWhiteSpace(enhancedResult.Text))
+            {
+                usedEnhancedClip = true;
+                _enhancedClipRetranscriptionMs = enhancedResult.DurationMs;
+                _logger.LogInformation(
+                    "Session {SessionId} enhanced clip STT: \"{EnhancedText}\" (confidence={Confidence:F2}, {EnhancedMs}ms) vs raw: \"{RawText}\" ({RawMs}ms)",
+                    Id, enhancedResult.Text, enhancedResult.Confidence,
+                    enhancedResult.DurationMs, rawTranscript, _sttFinalizationMs);
+                _logger.LogInformation(
+                    "Session {SessionId} using GTCRN-enhanced clip for STT ({SampleCount} samples, {DurationMs}ms retranscription)",
+                    Id, utteranceAudio.Length, enhancedResult.DurationMs);
+                transcript = enhancedResult.Text;
+                originalConfidence = enhancedResult.Confidence;
+            }
+        }
+
+        if (!usedEnhancedClip)
+        {
+            _logger.LogInformation(
+                "Session {SessionId} using raw audio for STT (UseEnhancedClipForStt={Enabled})",
+                Id, enhancedClipEnabled);
+        }
+
+        // Tag the current span for A/B observability
+        var currentActivity = Activity.Current;
+        if (currentActivity is not null)
+        {
+            currentActivity.SetTag("wyoming.stt.audio_source", usedEnhancedClip ? "enhanced_clip" : "raw");
+            currentActivity.SetTag("wyoming.stt.enhanced_clip.enabled", enhancedClipEnabled);
+            if (usedEnhancedClip)
+            {
+                currentActivity.SetTag("wyoming.stt.enhanced_clip.sample_count", utteranceAudio.Length);
+                currentActivity.SetTag("wyoming.stt.enhanced_clip.retranscription_ms", _enhancedClipRetranscriptionMs);
+            }
+        }
+
+        var audioSource = usedEnhancedClip ? "enhanced_clip" : "raw";
 
         // Identify speaker
         SpeakerIdentification? speaker;
@@ -941,6 +996,7 @@ public sealed class WyomingSession : IDisposable
             Confidence = originalConfidence,
             SpeakerId = speaker?.ProfileId,
             SpeakerName = speaker?.Name,
+            AudioSource = audioSource,
             IsFinal = true,
         });
 
@@ -948,7 +1004,64 @@ public sealed class WyomingSession : IDisposable
         _ = Task.Run(() => TrySaveTranscriptRecordAsync(
             transcript, originalConfidence, utteranceAudio,
             speaker, route: null, responseText: taggedTranscript,
-            commandFiltered: false, CancellationToken.None), CancellationToken.None);
+            commandFiltered: false, audioSource, CancellationToken.None), CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Re-transcribes a complete GTCRN-enhanced utterance clip through a fresh STT session.
+    /// Called when <see cref="SpeechEnhancementOptions.UseEnhancedClipForStt"/> is enabled.
+    /// The full enhanced clip avoids per-frame discontinuities that degrade streaming STT.
+    /// </summary>
+    private async Task<EnhancedClipSttResult?> ReTranscribeEnhancedClipAsync(
+        float[] enhancedClip,
+        CancellationToken ct)
+    {
+        try
+        {
+            var engines = _serviceProvider.GetServices<ISttEngine>().ToArray();
+            var engine = engines
+                    .OfType<HybridSttEngine>()
+                    .FirstOrDefault(static e => IsSttEngineReady(e)) as ISttEngine
+                ?? engines.FirstOrDefault(static e => IsSttEngineReady(e));
+
+            if (engine is null)
+            {
+                _logger.LogDebug(
+                    "No STT engine available for enhanced clip re-transcription in session {SessionId}", Id);
+                return null;
+            }
+
+            using var session = engine.CreateSession();
+            var sw = Stopwatch.StartNew();
+            session.AcceptAudioChunk(enhancedClip, _utteranceSampleRate);
+            var result = await session.GetFinalResultAsync().ConfigureAwait(false);
+            sw.Stop();
+
+            return new EnhancedClipSttResult
+            {
+                Text = result.Text,
+                Confidence = result.Confidence,
+                DurationMs = sw.ElapsedMilliseconds,
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Enhanced clip re-transcription failed for session {SessionId}, falling back to raw STT result",
+                Id);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Result of re-transcribing a GTCRN-enhanced utterance clip, with timing metadata.
+    /// </summary>
+    private sealed class EnhancedClipSttResult
+    {
+        public required string Text { get; init; }
+        public float Confidence { get; init; }
+        public long DurationMs { get; init; }
     }
 
     /// <summary>
@@ -976,6 +1089,7 @@ public sealed class WyomingSession : IDisposable
         CommandRouteResult? route,
         string? responseText,
         bool commandFiltered,
+        string audioSource,
         CancellationToken ct)
     {
         if (_transcriptStore is null)
@@ -998,6 +1112,11 @@ public sealed class WyomingSession : IDisposable
             if (_speechEnhancer?.IsReady == true)
             {
                 stages.Add(new PipelineStageTiming { Name = "enhancement", DurationMs = _enhancementTotalMs });
+            }
+
+            if (_enhancedClipRetranscriptionMs > 0)
+            {
+                stages.Add(new PipelineStageTiming { Name = "enhanced_retranscription", DurationMs = _enhancedClipRetranscriptionMs });
             }
 
             var record = new TranscriptRecord
@@ -1027,6 +1146,7 @@ public sealed class WyomingSession : IDisposable
                 MatchedSkill = route?.MatchedPattern?.SkillId,
                 RouteConfidence = route?.Confidence,
                 CommandFiltered = commandFiltered,
+                AudioSource = audioSource,
                 Stages = stages.ToArray(),
                 ResponseText = responseText,
             };
@@ -1054,11 +1174,13 @@ public sealed class WyomingSession : IDisposable
             var sampleRate = _utteranceSampleRate > 0 ? _utteranceSampleRate : 16_000;
             var threshold = _voiceProfileOptions?.CurrentValue.SpeakerVerificationThreshold ?? 0.7f;
 
-            // Use raw (unenhanced) audio for speaker verification when available.
-            // Speech enhancement alters spectral characteristics that the embedding
-            // model relies on, causing low similarity between enhanced live audio
-            // and raw enrollment audio.
-            var verificationAudio = _rawUtteranceAudioBuffer.Count > 0
+            // Speaker verification audio selection:
+            // - Default: use raw (unenhanced) audio — enhancement alters spectral
+            //   characteristics the embedding model relies on.
+            // - Enhanced clip path (UseEnhancedClipForStt): use the GTCRN-enhanced
+            //   utterance audio, matching enhanced enrollment profiles.
+            var useEnhancedClip = _speechEnhancementOptions?.CurrentValue.UseEnhancedClipForStt == true;
+            var verificationAudio = !useEnhancedClip && _rawUtteranceAudioBuffer.Count > 0
                 ? _rawUtteranceAudioBuffer.ToArray()
                 : utteranceAudio;
 
@@ -1066,8 +1188,9 @@ public sealed class WyomingSession : IDisposable
             var profiles = await _profileStore.GetEnrolledProfilesAsync(ct).ConfigureAwait(false);
 
             _logger.LogDebug(
-                "Session {SessionId} speaker verification: {ProfileCount} enrolled profiles, threshold={Threshold:F2}, embedding dim={EmbeddingDim}, audio samples={SampleCount} (raw={IsRaw})",
-                Id, profiles.Count, threshold, embedding.Vector.Length, verificationAudio.Length, _rawUtteranceAudioBuffer.Count > 0);
+                "Session {SessionId} speaker verification: {ProfileCount} enrolled profiles, threshold={Threshold:F2}, embedding dim={EmbeddingDim}, audio samples={SampleCount} (source={AudioSource})",
+                Id, profiles.Count, threshold, embedding.Vector.Length, verificationAudio.Length,
+                useEnhancedClip ? "enhanced" : (_rawUtteranceAudioBuffer.Count > 0 ? "raw" : "utterance"));
 
             var speaker = _diarizationEngine.IdentifySpeaker(embedding, profiles, threshold);
 
@@ -1241,6 +1364,7 @@ public sealed class WyomingSession : IDisposable
         _enhancementTotalMs = 0;
         _sttFinalizationMs = 0;
         _diarizationMs = 0;
+        _enhancedClipRetranscriptionMs = 0;
     }
 
     private static float[] ConvertAudioChunkToMonoSamples(byte[] payload, AudioFormat audioFormat)

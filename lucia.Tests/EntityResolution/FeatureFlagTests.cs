@@ -29,7 +29,7 @@ public sealed class FeatureFlagTests
         // Arrange — feature flag ON; cascade bails so we can verify it was called
         var cascadeResolver = A.Fake<ICascadingEntityResolver>();
         A.CallTo(() => cascadeResolver.Resolve(
-            A<string>._, A<string?>._, A<string?>._, A<IReadOnlyList<string>>._, A<CancellationToken>._))
+            A<string>._, A<string?>._, A<string?>._, A<IReadOnlyList<string>>._, A<string?>._, A<CancellationToken>._))
             .Returns(new CascadeResult
             {
                 IsResolved = false,
@@ -46,7 +46,7 @@ public sealed class FeatureFlagTests
 
         // Assert — CascadingEntityResolver was called
         A.CallTo(() => cascadeResolver.Resolve(
-            A<string>._, A<string?>._, A<string?>._, A<IReadOnlyList<string>>._, A<CancellationToken>._))
+            A<string>._, A<string?>._, A<string?>._, A<IReadOnlyList<string>>._, A<string?>._, A<CancellationToken>._))
             .MustHaveHappenedOnceExactly();
     }
 
@@ -71,7 +71,7 @@ public sealed class FeatureFlagTests
         Assert.False(result.Success);
         Assert.Equal("cache_miss", result.BailReason);
         A.CallTo(() => cascadeResolver.Resolve(
-            A<string>._, A<string?>._, A<string?>._, A<IReadOnlyList<string>>._, A<CancellationToken>._))
+            A<string>._, A<string?>._, A<string?>._, A<IReadOnlyList<string>>._, A<string?>._, A<CancellationToken>._))
             .MustNotHaveHappened();
     }
 
@@ -83,7 +83,7 @@ public sealed class FeatureFlagTests
         // Arrange — cascade returns bail with Ambiguous
         var cascadeResolver = A.Fake<ICascadingEntityResolver>();
         A.CallTo(() => cascadeResolver.Resolve(
-            A<string>._, A<string?>._, A<string?>._, A<IReadOnlyList<string>>._, A<CancellationToken>._))
+            A<string>._, A<string?>._, A<string?>._, A<IReadOnlyList<string>>._, A<string?>._, A<CancellationToken>._))
             .Returns(new CascadeResult
             {
                 IsResolved = false,
@@ -111,7 +111,7 @@ public sealed class FeatureFlagTests
         // Arrange — cascade returns CacheNotReady
         var cascadeResolver = A.Fake<ICascadingEntityResolver>();
         A.CallTo(() => cascadeResolver.Resolve(
-            A<string>._, A<string?>._, A<string?>._, A<IReadOnlyList<string>>._, A<CancellationToken>._))
+            A<string>._, A<string?>._, A<string?>._, A<IReadOnlyList<string>>._, A<string?>._, A<CancellationToken>._))
             .Returns(new CascadeResult
             {
                 IsResolved = false,

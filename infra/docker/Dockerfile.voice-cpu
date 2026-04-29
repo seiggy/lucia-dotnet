@@ -125,6 +125,9 @@ RUN RID=$(case "$TARGETARCH" in\
 # Copy entire source tree
 COPY . .
 
+# Remove global.json — the SDK image determines the version in containers
+RUN rm -f global.json
+
 # Navigate to project directory and build
 WORKDIR "/src"
 
@@ -182,7 +185,8 @@ LABEL version="1.0.0"
 ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false \
     DOTNET_RUNNING_IN_CONTAINER=true \
     ASPNETCORE_URLS=http://+:8080;https://+:8081 \
-    COMPlus_EnableDiagnostics=0
+    COMPlus_EnableDiagnostics=0 \
+    ORT_THREADPOOL_SPIN_CONTROL=0
 
 # Copy published application from publish stage
 COPY --from=publish --chown=appuser:appuser /app/publish .

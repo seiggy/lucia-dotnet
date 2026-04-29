@@ -45,6 +45,7 @@ public sealed class CascadingEntityResolver : ICascadingEntityResolver
         string? callerArea,
         string? speakerId,
         IReadOnlyList<string> domains,
+        string? callerAgentId = null,
         CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
@@ -94,7 +95,7 @@ public sealed class CascadingEntityResolver : ICascadingEntityResolver
                 $"Explicit location '{intent.ExplicitLocation}' not found in cache");
         }
 
-        var candidates = FilterByDomain(intent, grounded, domains, snapshot);
+        var candidates = FilterByDomain(intent, grounded, domains, snapshot, callerAgentId);
         if (candidates.Count == 0)
         {
             var locationLabel = grounded?.DisplayName ?? "(no area)";
@@ -255,7 +256,8 @@ public sealed class CascadingEntityResolver : ICascadingEntityResolver
         QueryIntent intent,
         GroundedLocation? grounded,
         IReadOnlyList<string> domainFilter,
-        LocationSnapshot snapshot)
+        LocationSnapshot snapshot,
+        string? callerAgentId)
     {
         IEnumerable<HomeAssistantEntity> candidates;
         if (grounded is not null)
@@ -277,7 +279,11 @@ public sealed class CascadingEntityResolver : ICascadingEntityResolver
             candidates = candidates.Where(e => filteredDomains.Contains(e.Domain));
         }
 
-        candidates = candidates.Where(e => e.IncludeForAgent is null || e.IncludeForAgent.Count > 0);
+        // Filter by agent allowlist: only include entities that are either unrestricted
+        // (IncludeForAgent is null) or explicitly assigned to the calling agent.
+        candidates = candidates.Where(e =>
+            e.IncludeForAgent is null ||
+            (callerAgentId is not null && e.IncludeForAgent.Contains(callerAgentId)));
 
         return candidates.ToList();
     }

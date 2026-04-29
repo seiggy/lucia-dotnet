@@ -179,6 +179,7 @@ services:
 
       # Wyoming voice platform (models are pre-loaded in the image)
       - Wyoming__Models__HybridStt__Enabled=true
+      - ORT_THREADPOOL_SPIN_CONTROL=0
     
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]

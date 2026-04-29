@@ -100,6 +100,9 @@ RUN RID=$(case "$TARGETARCH" in\
 # Copy entire source tree
 COPY . .
 
+# Remove global.json — the SDK image determines the version in containers
+RUN rm -f global.json
+
 # Navigate to project directory and build
 WORKDIR "/src"
 

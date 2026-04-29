@@ -1809,6 +1809,7 @@ export interface SessionTranscriptEvent {
   confidence: number
   speakerId?: string
   speakerName?: string
+  audioSource?: string
   isFinal: boolean
 }
 
@@ -1872,6 +1873,7 @@ export interface TranscriptRecord {
   matchedSkill?: string
   routeConfidence?: number
   commandFiltered: boolean
+  audioSource?: string
   stages: PipelineStageTiming[]
   responseText?: string
 }

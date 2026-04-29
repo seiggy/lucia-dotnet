@@ -20,7 +20,7 @@ public sealed class SpanCollectorProcessor : BaseProcessor<Activity>, ISpanColle
     public override void OnEnd(Activity data)
     {
         // Only capture spans from our custom Lucia.* activity sources
-        if (data.Source.Name is null || !data.Source.Name.StartsWith(LuciaSourcePrefix, StringComparison.Ordinal))
+        if (data.Source.Name is null || !data.Source.Name.StartsWith(LuciaSourcePrefix, StringComparison.OrdinalIgnoreCase))
             return;
 
         var traceId = data.TraceId.ToString();

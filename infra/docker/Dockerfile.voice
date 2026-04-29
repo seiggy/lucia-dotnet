@@ -130,6 +130,9 @@ RUN RID=$(case "$TARGETARCH" in\
 # Copy entire source tree
 COPY . .
 
+# Remove global.json — the SDK image determines the version in containers
+RUN rm -f global.json
+
 # Navigate to project directory and build
 WORKDIR "/src"
 
@@ -188,7 +191,8 @@ ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false \
     ASPNETCORE_URLS=http://+:8080;https://+:8081 \
     COMPlus_EnableDiagnostics=0 \
     NVIDIA_VISIBLE_DEVICES=all \
-    NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    ORT_THREADPOOL_SPIN_CONTROL=0
 
 # Copy published application from publish stage
 COPY --from=publish --chown=appuser:appuser /app/publish .
