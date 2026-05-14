@@ -352,6 +352,10 @@ docker compose up -d
 
 ## Troubleshooting
 
+### MongoDB crash-loop on Linux kernel 6.19+
+
+If you see `Linux kernel versions 6.19 and newer has a known incompatibility` in `docker logs lucia-mongo`, the workaround is already built into compose via `GLIBC_TUNABLES=glibc.pthread.rseq=1` on the `lucia-mongo` service. If you're on a custom compose file, copy that env var across. See upstream: [SERVER-121912](https://jira.mongodb.org/browse/SERVER-121912).
+
 ### Services Won't Start
 
 ```bash

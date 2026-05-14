@@ -52,6 +52,18 @@ WORKDIR /app
 # UID 1100 for non-privileged access
 RUN useradd -m -u 1100 appuser
 
+# Create model and plugin directories with appuser ownership
+# /app/models: Writable storage for HuggingFace model downloads (STT, VAD, wake-word, speech-enhancement, speaker-embedding)
+# /app/plugins: Plugin directory (read-only at runtime, but declared for volume mount consistency)
+RUN mkdir -p /app/models/stt \
+              /app/models/vad \
+              /app/models/kws \
+              /app/models/speech-enhancement \
+              /app/models/speaker-embedding \
+              /app/plugins \
+    && chown -R appuser:appuser /app/models /app/plugins \
+    && chmod 775 /app/models /app/plugins
+
 # Expose ports for ASP.NET Core
 # 8080: HTTP (user-facing)
 # 8081: HTTPS (user-facing, with certificate)
@@ -175,6 +187,11 @@ COPY --from=build --chown=appuser:appuser /src/plugins ./plugins
 
 # PluginDirectory default is {AppContext.BaseDirectory}/plugins = /app/plugins
 ENV PluginDirectory=/app/plugins
+
+# Volume declarations for persistent storage
+# /app/models: Writable model cache (HuggingFace downloads, dynamic model switches)
+# /app/plugins: Plugin directory (future-proofing for runtime plugin management)
+VOLUME ["/app/models", "/app/plugins"]
 
 # Switch to non-root user for runtime security
 USER appuser

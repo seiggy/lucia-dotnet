@@ -101,8 +101,8 @@ services:
   # MongoDB Service - Trace Capture and Configuration Storage
   # ========================================================================
   lucia-mongo:
-    # Use official MongoDB 8.0 image
-    image: mongo:8.0
+    # Use official MongoDB 8.0.5 image (pinned for reproducible builds)
+    image: mongo:8.0.5
     
     container_name: lucia-mongo
     
@@ -117,6 +117,12 @@ services:
     # Volume for persistent data storage
     volumes:
       - lucia-mongo-data:/data/db
+    
+    # Workaround for SERVER-121912: MongoDB 8.0.x crashes on Linux kernel 6.19+
+    # due to TCMalloc/rseq ABI mismatch. Forces glibc to enable pthread rseq.
+    # Remove once TCMalloc upstream patch lands and MongoDB rebases.
+    environment:
+      - GLIBC_TUNABLES=glibc.pthread.rseq=1
     
     # Health check for automatic restart
     healthcheck:
@@ -185,6 +191,11 @@ services:
     ports:
       - "7233:8080"
     
+    # Volume mounts
+    volumes:
+      # Model storage: Writable by appuser (1100:1100), persists across container recreation
+      - lucia-models:/app/models
+    
     # All user configuration (LLM keys, Home Assistant connection, etc.) is handled
     # by the setup wizard on first launch and stored in MongoDB. No .env file needed.
     environment:
@@ -207,7 +218,7 @@ services:
     
     # Health check for automatic restart
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -290,6 +301,11 @@ volumes:
   
   # MongoDB persistent data
   lucia-mongo-data:
+    driver: local
+  
+  # Lucia model storage (writable by appuser, persists across container recreations)
+  # Stores STT, VAD, wake-word, speech-enhancement, and speaker-embedding ONNX models
+  lucia-models:
     driver: local
   
   # Uncomment for Home Assistant persistent data
