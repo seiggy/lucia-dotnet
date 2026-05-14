@@ -21,4 +21,11 @@
 
 ## Learnings
 
+### 2026-03-28: Docker Stack Hardening (PR #120, #119, #122)
+- The **Dockerfile.ha pattern** (mkdir+chown+VOLUME) is the reference for any future production image — bake ownership into the image, not a runtime sidecar.
+- **read_only: true + named volume mount** = correct security posture — the volume mount makes the specific path writable while keeping the rest of the FS read-only. Don't lift the read_only flag entirely.
+- **mongo:8.0 + GLIBC_TUNABLES workaround** for kernel 6.19+ until upstream TCMalloc fix — server-side env var only, not needed on .NET driver side.
+- **aspnet:10.0 ships curl, not wget** — always match healthcheck commands to what's actually installed in the base image.
+- **Compose validation**: `docker compose config` catches YAML syntax errors early before full build.
+
 <!-- Append new learnings below. -->

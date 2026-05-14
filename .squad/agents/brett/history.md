@@ -28,6 +28,15 @@
 
 <!-- Append new learnings below. -->
 
+### 2026-03-28: /app/models Subdirectory Audit (issue #120)
+**Audit Complete — Ready for Hicks to implement**
+- All five Wyoming model subdirs are writable at runtime: stt, vad, kws, speech-enhancement, speaker-embedding
+- Each subdir has pre-baked models (copied at build time) but also supports runtime model downloads via ModelDownloader + HuggingFaceModelDownloader
+- HF CLI uses `--cache-dir /app/models/{subdir}` — no separate `~/.cache/huggingface/` writes to worry about
+- Tmpfs config (256MB /tmp) is sufficient for ONNX temp files; no disk writes during inference
+- Plugins dir is read-only in voice images (pre-copied at build); can declare as VOLUME for consistency
+- Full audit written to `.squad/decisions/inbox/brett-app-models-audit.md`
+
 - **Enhanced clip re-transcription pattern**: Feeding GTCRN per-frame into STT causes buffer discontinuities from overlap-add lag. The fix is to accumulate the full enhanced clip, then re-transcribe in a fresh STT session after VAD end-of-speech. Feature-flagged via `SpeechEnhancementOptions.UseEnhancedClipForStt` (default off). The same flag also gates speaker verification audio source selection — enhanced vs raw.
 - **`_utteranceAudioBuffer` vs `_rawUtteranceAudioBuffer`**: When GTCRN enhancement is active, enhanced frames go to `_utteranceAudioBuffer` and raw frames go to `_rawUtteranceAudioBuffer`. Both are plain `List<float>` — no synchronization needed since they're only written during the audio processing loop and read after audio-stop.
 - **HybridSttSession re-transcription**: Creating a fresh `ISttSession`, feeding complete audio via `AcceptAudioChunk`, then calling `GetFinalResultAsync` is the correct pattern for single-pass offline transcription of a complete clip. No progressive updates needed.
