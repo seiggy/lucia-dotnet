@@ -63,9 +63,9 @@ COPY lucia-dashboard/ ./
 RUN npm run build
 
 # ============================================================================
-# Stage 1: Base Runtime Image (NVIDIA CUDA 12.8 + cuDNN 9 for GPU ONNX)
+# Stage 1: Base Runtime Image (NVIDIA CUDA 12.6 + cuDNN 9 for GPU ONNX)
 # ============================================================================
-FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04 AS base
+FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04 AS base
 
 # Install .NET ASP.NET 10.0 runtime + curl for healthcheck
 # + python3 + huggingface-hub[cli] (pinned) for runtime HF model downloads via the `hf` CLI
