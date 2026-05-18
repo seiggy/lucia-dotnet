@@ -288,41 +288,6 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
         }
     }
 
-    private sealed record LightCacheDto(string EntityId, string FriendlyName, int SupportedColorModes, string? Area);
-
-    private sealed record PlayerCacheDto(string EntityId, string FriendlyName, string? ConfigEntryId, bool IsSatellite);
-
-    private sealed record ClimateCacheDto(
-        string EntityId,
-        string FriendlyName,
-        string? Area,
-        List<string> HvacModes,
-        List<string> FanModes,
-        List<string> SwingModes,
-        List<string> PresetModes,
-        double? MinTemp,
-        double? MaxTemp,
-        double? MinHumidity,
-        double? MaxHumidity,
-        int SupportedFeatures);
-
-    private sealed record FanCacheDto(
-        string EntityId,
-        string FriendlyName,
-        string? Area,
-        int PercentageStep,
-        List<string> PresetModes,
-        string? ModeSelectEntityId,
-        int SupportedFeatures);
-
-    private sealed record SensorCacheDto(
-        string EntityId,
-        string FriendlyName,
-        string? Area,
-        string? DeviceClass,
-        string? UnitOfMeasurement,
-        string? StateClass);
-
     public async Task<List<ClimateEntity>?> GetCachedClimateDevicesAsync(CancellationToken cancellationToken = default)
     {
         using var activity = ActivitySource.StartActivity("GetCachedClimateDevices");

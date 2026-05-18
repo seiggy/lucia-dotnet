@@ -25,6 +25,11 @@ namespace lucia.Agents.Skills;
 /// </summary>
 public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, ICommandPatternProvider
 {
+    private const string SensorSearchErrorMessage = "Unable to query sensor data. Please try again.";
+    private const string AreaSensorSearchErrorMessage = "Unable to query sensors for that area. Please try again.";
+    private const string SensorStateErrorMessage = "Unable to retrieve sensor data. Please try again.";
+    private const string BinarySensorStateErrorMessage = "Unable to retrieve binary sensor data. Please try again.";
+
     private readonly IHomeAssistantClient _homeAssistantClient;
     private readonly IEmbeddingProviderResolver _embeddingResolver;
     private IEmbeddingGenerator<string, Embedding<float>>? _embeddingService;
@@ -135,7 +140,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
             return;
         }
 
-        await RefreshCacheAsync(cancellationToken).ConfigureAwait(false);
+        await RefreshCacheAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
         _logger.LogInformation("SensorControlSkill initialized with {SensorCount} sensor entities", _cachedSensors.Length);
     }
 
@@ -147,6 +152,13 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
     {
         _embeddingService = await _embeddingResolver.ResolveAsync(providerName, cancellationToken).ConfigureAwait(false);
         _logger.LogInformation("SensorControlSkill: embedding provider updated to '{Provider}'", providerName ?? "system-default");
+    }
+
+    public async Task InvalidateEmbeddingCacheAsync(CancellationToken cancellationToken = default)
+    {
+        _cachedSensors = [];
+        Volatile.Write(ref _lastCacheUpdateTicks, DateTime.MinValue.Ticks);
+        await RefreshCacheAsync(forceRefresh: true, cancellationToken).ConfigureAwait(false);
     }
 
     [Description("Find a sensor by name or description using natural language. Works for both regular sensors (temperature, humidity, etc.) and binary sensors (motion, door, etc.).")]
@@ -258,7 +270,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
         {
             _logger.LogError(ex, "Error finding sensor for search term: {SearchTerm}", searchTerm);
             SensorSearchFailures.Add(1);
-            return $"Error searching for sensor: {ex.Message}";
+            return SensorSearchErrorMessage;
         }
         finally
         {
@@ -316,7 +328,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error finding sensors in area: {AreaName}", areaName);
-            return $"Error searching for sensors in area: {ex.Message}";
+            return AreaSensorSearchErrorMessage;
         }
     }
 
@@ -339,7 +351,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting sensor state for {EntityId}", entityId);
-            return $"Error getting state for '{entityId}': {ex.Message}";
+            return SensorStateErrorMessage;
         }
     }
 
@@ -378,7 +390,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error getting binary sensor state for {EntityId}", entityId);
-            return $"Error getting state for '{entityId}': {ex.Message}";
+            return BinarySensorStateErrorMessage;
         }
     }
 
@@ -443,8 +455,26 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error finding sensors in area: {AreaName}", areaName);
-            return $"Error searching for sensors in area: {ex.Message}";
+            return AreaSensorSearchErrorMessage;
         }
+    }
+
+    private bool IsTrackedSensorEntity(string entityId)
+    {
+        var separatorIndex = entityId.IndexOf('.');
+        if (separatorIndex <= 0)
+        {
+            return false;
+        }
+
+        var entityDomain = entityId[..separatorIndex];
+        return _options.CurrentValue.EntityDomains.Any(domain =>
+            entityDomain.Equals(NormalizeDomain(domain), StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string NormalizeDomain(string domain)
+    {
+        return domain.Trim().TrimEnd('.');
     }
 
     private static string FormatSensorState(HomeAssistantState state, SensorEntity? device)
@@ -483,7 +513,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
         return sb.ToString();
     }
 
-    private async Task RefreshCacheAsync(CancellationToken cancellationToken = default)
+    private async Task RefreshCacheAsync(bool forceRefresh = false, CancellationToken cancellationToken = default)
     {
         if (_embeddingService is null)
         {
@@ -495,37 +525,42 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
         var start = Stopwatch.GetTimestamp();
         try
         {
-            // Try Redis cache first (device data only — areas come from IEntityLocationService)
-            var cached = await _deviceCache.GetCachedSensorsAsync(cancellationToken).ConfigureAwait(false);
-            if (cached is not null)
+            if (!forceRefresh)
             {
-                var allEmbeddingsFound = true;
-                foreach (var sensor in cached)
+                // Try Redis cache first (device data only — areas come from IEntityLocationService)
+                var cached = await _deviceCache.GetCachedSensorsAsync(cancellationToken).ConfigureAwait(false);
+                if (cached is not null)
                 {
-                    var embedding = await _deviceCache.GetEmbeddingAsync($"sensor:{sensor.EntityId}", cancellationToken).ConfigureAwait(false);
-                    if (embedding is not null)
-                    {
-                        sensor.NameEmbedding = embedding;
-                    }
-                    else
-                    {
-                        allEmbeddingsFound = false;
-                        break;
-                    }
-                }
-
-                if (allEmbeddingsFound)
-                {
+                    var allEmbeddingsFound = true;
                     foreach (var sensor in cached)
                     {
-                        if (sensor.PhoneticKeys.Length == 0)
-                            sensor.PhoneticKeys = StringSimilarity.BuildPhoneticKeys(sensor.FriendlyName);
+                        var embedding = await _deviceCache.GetEmbeddingAsync($"sensor:{sensor.EntityId}", cancellationToken).ConfigureAwait(false);
+                        if (embedding is not null)
+                        {
+                            sensor.NameEmbedding = embedding;
+                        }
+                        else
+                        {
+                            allEmbeddingsFound = false;
+                            break;
+                        }
                     }
 
-                    _cachedSensors = [.. cached];
-                    Volatile.Write(ref _lastCacheUpdateTicks, DateTime.UtcNow.Ticks);
-                    _logger.LogInformation("Loaded {Count} sensors from Redis cache", cached.Count);
-                    return;
+                    if (allEmbeddingsFound)
+                    {
+                        foreach (var sensor in cached)
+                        {
+                            if (sensor.PhoneticKeys.Length == 0)
+                            {
+                                sensor.PhoneticKeys = StringSimilarity.BuildPhoneticKeys(sensor.FriendlyName);
+                            }
+                        }
+
+                        _cachedSensors = [.. cached];
+                        Volatile.Write(ref _lastCacheUpdateTicks, DateTime.UtcNow.Ticks);
+                        _logger.LogInformation("Loaded {Count} sensors from Redis cache", cached.Count);
+                        return;
+                    }
                 }
             }
 
@@ -534,8 +569,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
             var allStates = await _homeAssistantClient.GetAllEntityStatesAsync(cancellationToken).ConfigureAwait(false);
 
             var sensorEntities = allStates
-                .Where(s => s.EntityId.StartsWith("sensor.", StringComparison.OrdinalIgnoreCase)
-                         || s.EntityId.StartsWith("binary_sensor.", StringComparison.OrdinalIgnoreCase))
+                .Where(state => IsTrackedSensorEntity(state.EntityId))
                 .ToList();
 
             var newSensors = new List<SensorEntity>();
@@ -607,7 +641,7 @@ public sealed class SensorControlSkill : IAgentSkill, IOptimizableSkill, IComman
             try
             {
                 if (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastCacheUpdateTicks), DateTimeKind.Utc) > cacheRefreshInterval)
-                    await RefreshCacheAsync(cancellationToken).ConfigureAwait(false);
+                    await RefreshCacheAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
             }
             finally
             {

@@ -202,6 +202,7 @@ public sealed class SensorAgent : ILuciaAgent, ISkillConfigProvider
         if (!string.Equals(_lastEmbeddingProviderName, newEmbeddingName, StringComparison.Ordinal))
         {
             await _sensorSkill.UpdateEmbeddingProviderAsync(newEmbeddingName, cancellationToken).ConfigureAwait(false);
+            await _sensorSkill.InvalidateEmbeddingCacheAsync(cancellationToken).ConfigureAwait(false);
             _lastEmbeddingProviderName = newEmbeddingName;
         }
     }
