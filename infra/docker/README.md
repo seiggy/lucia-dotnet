@@ -105,6 +105,7 @@ See [DEPLOYMENT-OPENWEBUI.md](DEPLOYMENT-OPENWEBUI.md) for the shared capabiliti
 
 - `lucia-redis-data` — Persistent Redis data store
 - `lucia-mongo-data` — Persistent MongoDB data store
+- `lucia-models` — Writable storage for STT/VAD/wake-word/speech-enhancement/speaker-embedding ONNX models — populated at runtime via HuggingFace CLI
 
 ## Deployment Modes
 

@@ -170,3 +170,7 @@ This means `Configure<T>(builder.Configuration.GetSection(...))` IS the DB-backe
 **Pattern to remember:** In SQLite, `COUNT(*)` returns 0 on empty tables but `SUM(...)`, `AVG(...)`, `MIN(...)`, `MAX(...)` return NULL. Always guard aggregate reads with `IsDBNull` or use `COALESCE()` in the SQL. Two safe patterns exist in this codebase:
 1. Ordinal-based: `reader.IsDBNull(N) ? 0 : reader.GetInt64(N)` (used in CommandTraceRepository)
 2. Name-based: `reader["col"] is DBNull ? 0 : Convert.ToInt32(reader["col"])` (used in TraceRepository, TaskArchiveStore)
+
+### 2025-10-13 — MongoDB Linux kernel 6.19+ Compatibility (Issue #122 Clearance)
+
+Completed environment variable isolation audit for #122 (Linux kernel 6.19+ `mongod` crash). Confirmed `GLIBC_TUNABLES=glibc.pthread.rseq=1` is a **server-side glibc tuning only**; has zero impact on MongoDB.Driver or connection strings. Verified no driver-level config changes required, healthcheck unaffected, test suite uses mocks/Aspire test framework (no direct env var dependency). Recommended pinning MongoDB image to `8.0.5` for reproducible deployments + documenting the env var as a TCMalloc kernel 6.19+ safety net. **Green light given to Hicks to add env var to `lucia-mongo` service only.**

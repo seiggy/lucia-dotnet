@@ -15,6 +15,13 @@
         "roslyn-mcp"
       ],
       "rollForward": false
+    },
+    "editorconfig-tool": {
+      "version": "0.15.0",
+      "commands": [
+        "editorconfig"
+      ],
+      "rollForward": false
     }
   }
 }

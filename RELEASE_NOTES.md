@@ -7,9 +7,14 @@
 
 ## 🛡️ Overview
 
-"Guardrail" is a targeted bugfix release addressing three user-reported issues: dashboard navigation, UI scroll jitter, and the fast-path pattern matcher incorrectly claiming non-light device commands. The pattern matcher now correctly bails to the LLM for fans, ACs, TVs, locks, and other non-light devices, and the temporal bail-signal logic was refined to stop false-positiving on spatial prepositions like "in the kitchen."
+"Guardrail" is a targeted bugfix release addressing three user-reported issues: dashboard navigation, UI scroll jitter, Docker stack hardening (issues #120, #119, #122), and the fast-path pattern matcher incorrectly claiming non-light device commands. The pattern matcher now correctly bails to the LLM for fans, ACs, TVs, locks, and other non-light devices, and the temporal bail-signal logic was refined to stop false-positiving on spatial prepositions like "in the kitchen."
 
 ## 🐛 Bug Fixes
+
+### Docker Stack Hardening (#120, #119, #122)
+- **fix(docker):** Bake `appuser` ownership into `/app/models` in production Dockerfiles + add named `lucia-models` volume so model downloads survive container recreation. Fixes #120.
+- **fix(docker):** Compose healthcheck now uses `curl` (matches Dockerfile) instead of `wget` (not installed in aspnet runtime image). Fixes #119.
+- **fix(docker):** Pin `mongo:8.0.5` and add `GLIBC_TUNABLES=glibc.pthread.rseq=1` env var to work around SERVER-121912 (MongoDB crash on Linux kernel 6.19+). Fixes #122.
 
 ### Dashboard Navigation (#113)
 - **"Back to Traces" link** now navigates to `/traces` instead of `/` (which is the Activity page). Reported by @paulglavin.

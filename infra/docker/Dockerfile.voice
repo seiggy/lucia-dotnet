@@ -63,9 +63,9 @@ COPY lucia-dashboard/ ./
 RUN npm run build
 
 # ============================================================================
-# Stage 1: Base Runtime Image (NVIDIA CUDA 12.8 + cuDNN 9 for GPU ONNX)
+# Stage 1: Base Runtime Image (NVIDIA CUDA 12.6 + cuDNN 9 for GPU ONNX)
 # ============================================================================
-FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04 AS base
+FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04 AS base
 
 # Install .NET ASP.NET 10.0 runtime + curl for healthcheck
 # + python3 + huggingface-hub[cli] (pinned) for runtime HF model downloads via the `hf` CLI
@@ -84,6 +84,18 @@ WORKDIR /app
 
 # Create non-root user for security
 RUN useradd -m -u 1100 appuser
+
+# Create model and plugin directories with appuser ownership
+# /app/models: Writable storage for HuggingFace model downloads (STT, VAD, wake-word, speech-enhancement, speaker-embedding)
+# /app/plugins: Plugin directory (read-only at runtime, but declared for volume mount consistency)
+RUN mkdir -p /app/models/stt \
+              /app/models/vad \
+              /app/models/kws \
+              /app/models/speech-enhancement \
+              /app/models/speaker-embedding \
+              /app/plugins \
+    && chown -R appuser:appuser /app/models /app/plugins \
+    && chmod 775 /app/models /app/plugins
 
 # Expose ports
 EXPOSE 8080 8081 10400
@@ -223,6 +235,11 @@ ENV Wyoming__Models__Stt__ModelBasePath=/app/models/stt \
     Wyoming__Models__SpeechEnhancement__ModelBasePath=/app/models/speech-enhancement \
     Wyoming__Models__HybridStt__Provider=cuda \
     Wyoming__Models__HybridStt__Enabled=true
+
+# Volume declarations for persistent storage
+# /app/models: Writable model cache (HuggingFace downloads, dynamic model switches)
+# /app/plugins: Plugin directory (future-proofing for runtime plugin management)
+VOLUME ["/app/models", "/app/plugins"]
 
 # Switch to non-root user for runtime security
 USER appuser

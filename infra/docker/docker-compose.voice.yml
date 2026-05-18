@@ -87,7 +87,8 @@ services:
   # MongoDB Service - Trace Capture and Configuration Storage
   # ========================================================================
   lucia-mongo:
-    image: mongo:8.0
+    # Use official MongoDB 8.0.5 image (pinned for reproducible builds)
+    image: mongo:8.0.5
     
     container_name: lucia-mongo
     
@@ -99,6 +100,12 @@ services:
     
     volumes:
       - lucia-mongo-data:/data/db
+    
+    # Workaround for SERVER-121912: MongoDB 8.0.x crashes on Linux kernel 6.19+
+    # due to TCMalloc/rseq ABI mismatch. Forces glibc to enable pthread rseq.
+    # Remove once TCMalloc upstream patch lands and MongoDB rebases.
+    environment:
+      - GLIBC_TUNABLES=glibc.pthread.rseq=1
     
     healthcheck:
       test: ["CMD", "mongosh", "--eval", "db.runCommand('ping').ok"]
@@ -159,6 +166,11 @@ services:
       - "7233:8080"
       - "10400:10400"
     
+    # Volume mounts
+    volumes:
+      # Model storage: Writable by appuser (1100:1100), persists across container recreation
+      - lucia-models:/app/models
+    
     environment:
       # ASP.NET Core configuration
       - ASPNETCORE_ENVIRONMENT=Production
@@ -182,7 +194,7 @@ services:
       - ORT_THREADPOOL_SPIN_CONTROL=0
     
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -233,4 +245,9 @@ volumes:
     driver: local
   
   lucia-mongo-data:
+    driver: local
+  
+  # Lucia model storage (writable by appuser, persists across container recreations)
+  # Stores STT, VAD, wake-word, speech-enhancement, and speaker-embedding ONNX models
+  lucia-models:
     driver: local
