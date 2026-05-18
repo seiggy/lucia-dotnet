@@ -17,6 +17,7 @@ export default defineConfig({
     tailwindcss(),
   ],
   server: {
+    host: true, // listen on 0.0.0.0
     proxy: {
       // API routes — prefix-matched
       '/api': proxyOpts,

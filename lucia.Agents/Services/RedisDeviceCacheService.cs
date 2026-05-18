@@ -21,6 +21,7 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
     private const string PlayersKey = "lucia:cache:players";
     private const string ClimateDevicesKey = "lucia:cache:climate-devices";
     private const string FansKey = "lucia:cache:fans";
+    private const string SensorsKey = "lucia:cache:sensors";
     private const string EmbeddingKeyPrefix = "lucia:cache:embed:";
     private const string AreaEmbeddingsKey = "lucia:cache:area-embeds";
 
@@ -287,33 +288,6 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
         }
     }
 
-    private sealed record LightCacheDto(string EntityId, string FriendlyName, int SupportedColorModes, string? Area);
-
-    private sealed record PlayerCacheDto(string EntityId, string FriendlyName, string? ConfigEntryId, bool IsSatellite);
-
-    private sealed record ClimateCacheDto(
-        string EntityId,
-        string FriendlyName,
-        string? Area,
-        List<string> HvacModes,
-        List<string> FanModes,
-        List<string> SwingModes,
-        List<string> PresetModes,
-        double? MinTemp,
-        double? MaxTemp,
-        double? MinHumidity,
-        double? MaxHumidity,
-        int SupportedFeatures);
-
-    private sealed record FanCacheDto(
-        string EntityId,
-        string FriendlyName,
-        string? Area,
-        int PercentageStep,
-        List<string> PresetModes,
-        string? ModeSelectEntityId,
-        int SupportedFeatures);
-
     public async Task<List<ClimateEntity>?> GetCachedClimateDevicesAsync(CancellationToken cancellationToken = default)
     {
         using var activity = ActivitySource.StartActivity("GetCachedClimateDevices");
@@ -461,6 +435,76 @@ public sealed class RedisDeviceCacheService : IDeviceCacheService
         catch (RedisException ex)
         {
             _logger.LogWarning(ex, "Redis error setting cached fans");
+        }
+        finally
+        {
+            OperationDuration.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+        }
+    }
+
+    public async Task<List<SensorEntity>?> GetCachedSensorsAsync(CancellationToken cancellationToken = default)
+    {
+        using var activity = ActivitySource.StartActivity("GetCachedSensors");
+        var start = Stopwatch.GetTimestamp();
+
+        try
+        {
+            var db = _redis.GetDatabase();
+            var value = await db.StringGetAsync(SensorsKey).ConfigureAwait(false);
+
+            if (value.IsNullOrEmpty)
+            {
+                CacheMisses.Add(1);
+                return null;
+            }
+
+            CacheHits.Add(1);
+            var dtos = JsonSerializer.Deserialize<List<SensorCacheDto>>((string)value!);
+            if (dtos is null) return null;
+
+            return dtos.Select(d => new SensorEntity
+            {
+                EntityId = d.EntityId,
+                FriendlyName = d.FriendlyName,
+                Area = d.Area,
+                DeviceClass = d.DeviceClass,
+                UnitOfMeasurement = d.UnitOfMeasurement,
+                StateClass = d.StateClass
+            }).ToList();
+        }
+        catch (RedisException ex)
+        {
+            _logger.LogWarning(ex, "Redis error retrieving cached sensors");
+            return null;
+        }
+        finally
+        {
+            OperationDuration.Record(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+        }
+    }
+
+    public async Task SetCachedSensorsAsync(List<SensorEntity> sensors, TimeSpan ttl, CancellationToken cancellationToken = default)
+    {
+        using var activity = ActivitySource.StartActivity("SetCachedSensors");
+        var start = Stopwatch.GetTimestamp();
+
+        try
+        {
+            var dtos = sensors.Select(s => new SensorCacheDto(
+                s.EntityId,
+                s.FriendlyName,
+                s.Area,
+                s.DeviceClass,
+                s.UnitOfMeasurement,
+                s.StateClass)).ToList();
+
+            var json = JsonSerializer.Serialize(dtos);
+            var db = _redis.GetDatabase();
+            await db.StringSetAsync(SensorsKey, json, ttl).ConfigureAwait(false);
+        }
+        catch (RedisException ex)
+        {
+            _logger.LogWarning(ex, "Redis error setting cached sensors");
         }
         finally
         {
