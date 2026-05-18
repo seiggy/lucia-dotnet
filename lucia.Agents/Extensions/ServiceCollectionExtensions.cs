@@ -151,6 +151,8 @@ public static class ServiceCollectionExtensions
         // Skill options (hot-reloaded from MongoDB configuration)
         builder.Services.Configure<LightControlSkillOptions>(
             builder.Configuration.GetSection(LightControlSkillOptions.SectionName));
+        builder.Services.Configure<SecurityControlSkillOptions>(
+            builder.Configuration.GetSection(SecurityControlSkillOptions.SectionName));
         builder.Services.Configure<ClimateControlSkillOptions>(
             builder.Configuration.GetSection(ClimateControlSkillOptions.SectionName));
         builder.Services.Configure<FanControlSkillOptions>(
@@ -167,6 +169,10 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IOptimizableSkill>(sp => sp.GetRequiredService<LightControlSkill>());
         builder.Services.AddSingleton<LightAgent>();
         builder.Services.AddSingleton<ILuciaAgent>(sp => sp.GetRequiredService<LightAgent>());
+        builder.Services.AddSingleton<SecurityControlSkill>();
+        builder.Services.AddSingleton<IOptimizableSkill>(sp => sp.GetRequiredService<SecurityControlSkill>());
+        builder.Services.AddSingleton<SecurityAgent>();
+        builder.Services.AddSingleton<ILuciaAgent>(sp => sp.GetRequiredService<SecurityAgent>());
         builder.Services.AddSingleton<GeneralAgent>();
         builder.Services.AddSingleton<ILuciaAgent>(sp => sp.GetRequiredService<GeneralAgent>());
         builder.Services.AddSingleton<ClimateControlSkill>();

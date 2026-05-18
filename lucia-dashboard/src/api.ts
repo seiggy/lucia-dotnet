@@ -741,9 +741,10 @@ export async function createAgentDefinition(definition: Partial<AgentDefinition>
   return res.json();
 }
 
+/** Applies a partial update to an existing agent definition. */
 export async function updateAgentDefinition(id: string, definition: Partial<AgentDefinition>): Promise<AgentDefinition> {
   const res = await fetch(`${BASE}/agent-definitions/${id}`, {
-    method: 'PUT',
+    method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(definition),
   });
@@ -1003,9 +1004,18 @@ export interface EntityLocationInfo {
   domain: string
   aliases: string[]
   areaId: string | null
+  areaName?: string | null
+  floorName?: string | null
   platform: string | null
   embeddingGenerated?: boolean
   includeForAgent: string[] | null
+}
+
+export interface PaginatedEntityQueryResponse {
+  items: EntityLocationInfo[]
+  totalCount: number
+  page: number
+  pageSize: number
 }
 
 export async function fetchEntityLocationSummary(): Promise<EntityLocationSummary> {
@@ -1039,6 +1049,29 @@ export async function fetchEntityLocationEntities(domain?: string, agent?: strin
   const qs = params.toString();
   const res = await fetch(`${BASE}/entity-location/entities${qs ? `?${qs}` : ''}`);
   if (!res.ok) throw new Error(`Failed to fetch entities: ${res.statusText}`);
+  return res.json();
+}
+
+/**
+ * Fetches a paginated entity list with server-side filters.
+ */
+export async function fetchPaginatedEntities(options: {
+  nameFilter?: string
+  locationFilter?: string
+  domain?: string
+  agent?: string
+  page?: number
+  pageSize?: number
+}): Promise<PaginatedEntityQueryResponse> {
+  const params = new URLSearchParams();
+  if (options.nameFilter) params.set('nameFilter', options.nameFilter);
+  if (options.locationFilter) params.set('locationFilter', options.locationFilter);
+  if (options.domain) params.set('domain', options.domain);
+  if (options.agent) params.set('agent', options.agent);
+  params.set('page', String(options.page ?? 1));
+  params.set('pageSize', String(options.pageSize ?? 100));
+  const res = await fetch(`${BASE}/entities?${params.toString()}`);
+  if (!res.ok) throw new Error(`Failed to fetch paginated entities: ${res.statusText}`);
   return res.json();
 }
 

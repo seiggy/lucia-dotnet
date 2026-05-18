@@ -29,8 +29,11 @@ public static class AgentDefinitionApi
         group.MapPost("/", CreateDefinitionAsync)
             .WithSummary("Create a new agent definition")
             .WithDescription("Creates a user-defined agent. Names that conflict with built-in agents are rejected.");
-        group.MapPut("/{id}", UpdateDefinitionAsync)
-            .WithSummary("Update an agent definition")
+        group.MapPut("/{id}", ReplaceDefinitionAsync)
+            .WithSummary("Replace an agent definition")
+            .WithDescription("Fully replaces an existing definition using the route ID while preserving system-managed fields.");
+        group.MapPatch("/{id}", PatchDefinitionAsync)
+            .WithSummary("Patch an agent definition")
             .WithDescription("Merges provided fields into the existing definition. Null fields are ignored.");
         group.MapDelete("/{id}", DeleteDefinitionAsync)
             .WithSummary("Delete an agent definition")
@@ -91,13 +94,49 @@ public static class AgentDefinitionApi
         return TypedResults.Created($"/api/agent-definitions/{definition.Id}", definition);
     }
 
-    private static async Task<Results<Ok<AgentDefinition>, NotFound>> UpdateDefinitionAsync(
+    private static async Task<Results<Ok<AgentDefinition>, NotFound>> ReplaceDefinitionAsync(
         string id,
         [FromBody] AgentDefinition definition,
         [FromServices] IAgentDefinitionRepository repository)
     {
         var existing = await repository.GetAgentDefinitionAsync(id).ConfigureAwait(false);
-        if (existing is null) return TypedResults.NotFound();
+        if (existing is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        var replacement = new AgentDefinition
+        {
+            Id = id,
+            Name = definition.Name,
+            DisplayName = definition.DisplayName,
+            Description = definition.Description,
+            Instructions = definition.Instructions,
+            Tools = definition.Tools,
+            ModelConnectionName = definition.ModelConnectionName,
+            EmbeddingProviderName = definition.EmbeddingProviderName,
+            Enabled = definition.Enabled,
+            IsBuiltIn = existing.IsBuiltIn,
+            IsRemote = existing.IsRemote,
+            IsOrchestrator = existing.IsOrchestrator,
+            CreatedAt = existing.CreatedAt,
+            UpdatedAt = DateTime.UtcNow,
+        };
+
+        await repository.UpsertAgentDefinitionAsync(replacement).ConfigureAwait(false);
+        return TypedResults.Ok(replacement);
+    }
+
+    private static async Task<Results<Ok<AgentDefinition>, NotFound>> PatchDefinitionAsync(
+        string id,
+        [FromBody] AgentDefinition definition,
+        [FromServices] IAgentDefinitionRepository repository)
+    {
+        var existing = await repository.GetAgentDefinitionAsync(id).ConfigureAwait(false);
+        if (existing is null)
+        {
+            return TypedResults.NotFound();
+        }
 
         // Merge incoming fields — only overwrite when the client sent a non-null value.
         // String properties deserialise to null when absent from the JSON payload.
@@ -116,7 +155,9 @@ public static class AgentDefinitionApi
         // indistinguishable from an explicit []; the frontend always sends
         // this field so the merge is correct in practice.
         if (definition.Tools is not null)
+        {
             existing.Tools = definition.Tools;
+        }
 
         existing.UpdatedAt = DateTime.UtcNow;
 

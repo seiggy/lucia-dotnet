@@ -1,6 +1,8 @@
 using A2A;
 using lucia.Agents.Abstractions;
 using lucia.Agents.DataStores;
+using lucia.Agents.Services;
+using lucia.Data.PostgreSQL;
 using lucia.Data.Sqlite;
 using lucia.Wyoming.Diarization;
 using lucia.Wyoming.Models;
@@ -15,7 +17,7 @@ using InMemoryTaskStore = lucia.Data.InMemory.InMemoryTaskStore;
 namespace lucia.Data.Extensions;
 
 /// <summary>
-/// Extension methods for registering lightweight (InMemory/SQLite) data providers.
+/// Extension methods for registering lightweight and relational data providers.
 /// </summary>
 public static class ServiceCollectionExtensions
 {
@@ -47,6 +49,8 @@ public static class ServiceCollectionExtensions
 
         // Entity location service (in-memory, no Redis needed)
         builder.Services.AddSingleton<IEntityLocationService, lucia.Data.InMemory.InMemoryEntityLocationService>();
+        builder.Services.AddSingleton<IMemoryStore, lucia.Data.InMemory.InMemoryMemoryStore>();
+        AddMemorySupportServices(builder.Services);
 
         return builder;
     }
@@ -82,7 +86,47 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<ISpeakerProfileStore, SqliteSpeakerProfileStore>();
         builder.Services.AddSingleton<ITranscriptStore, SqliteTranscriptStore>();
         builder.Services.AddSingleton<IModelPreferenceStore, SqliteModelPreferenceStore>();
+        builder.Services.AddSingleton<IMemoryStore, SqliteMemoryStore>();
+        AddMemorySupportServices(builder.Services);
 
         return builder;
+    }
+
+    /// <summary>
+    /// Registers PostgreSQL repository implementations.
+    /// </summary>
+    public static IHostApplicationBuilder AddPostgresStoreProviders(
+        this IHostApplicationBuilder builder)
+    {
+        var options = new DataProviderOptions();
+        builder.Configuration.GetSection(DataProviderOptions.SectionName).Bind(options);
+
+        builder.Services.TryAddSingleton(new PostgresConnectionFactory(options.PostgresConnectionString));
+
+        builder.Services.AddSingleton<PostgresMigrationRunner>();
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<PostgresMigrationRunner>());
+
+        builder.Services.AddSingleton<IConfigStoreWriter, PostgresConfigStoreWriter>();
+        builder.Services.AddSingleton<IModelProviderRepository, PostgresModelProviderRepository>();
+        builder.Services.AddSingleton<IAgentDefinitionRepository, PostgresAgentDefinitionRepository>();
+        builder.Services.AddSingleton<IPresenceSensorRepository, PostgresPresenceSensorRepository>();
+        builder.Services.AddSingleton<IPluginManagementRepository, PostgresPluginManagementRepository>();
+        builder.Services.AddSingleton<IApiKeyService, PostgresApiKeyService>();
+
+        builder.Services.AddSingleton<ITaskArchiveStore, PostgresTaskArchiveStore>();
+
+        builder.Services.AddSingleton<ISpeakerProfileStore, PostgresSpeakerProfileStore>();
+        builder.Services.AddSingleton<ITranscriptStore, PostgresTranscriptStore>();
+        builder.Services.AddSingleton<IModelPreferenceStore, PostgresModelPreferenceStore>();
+        builder.Services.TryAddSingleton<IMemoryStore, lucia.Data.InMemory.InMemoryMemoryStore>();
+        AddMemorySupportServices(builder.Services);
+
+        return builder;
+    }
+
+    private static void AddMemorySupportServices(IServiceCollection services)
+    {
+        services.TryAddSingleton<ChatHistoryProvider>();
+        services.TryAddSingleton<UserContextProvider>();
     }
 }

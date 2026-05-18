@@ -23,6 +23,7 @@ namespace lucia.Agents.Orchestration;
 public sealed class RouterExecutor : Executor
 {
     public const string ExecutorId = "RouterExecutor";
+    private const string OriginalUserTextPropertyName = "lucia.originalUserText";
     private readonly AgentsTelemetrySource _telemetrySource;
 
     /// <summary>
@@ -81,10 +82,11 @@ public sealed class RouterExecutor : Executor
             _logger.LogWarning("RouterExecutor invoked with no registered agents; falling back.");
             activity?.SetTag("router.result", "fallback");
             activity?.SetTag("router.reason", "no_agents");
-            return CreateFallbackResult("No registered agents available for routing.");
+            return CreateFallbackResult("No registered agents available for routing.", TryGetOriginalUserText(message) ?? ExtractUserText(message));
         }
 
         var userRequest = ExtractUserText(message);
+        var originalUserText = TryGetOriginalUserText(message) ?? userRequest;
         activity?.SetTag("router.agent_count", availableAgents.Count);
 
         // Check prompt cache for a cached routing decision
@@ -111,6 +113,7 @@ public sealed class RouterExecutor : Executor
                             cached.IsExactMatch, cached.SimilarityScore, cached.RoutingDecision.AgentId,
                             cached.RoutingDecision.AgentInstructions?.Count > 0);
                         activity?.SetTag("router.cache", "hit");
+                        cached.RoutingDecision.OriginalUserText = originalUserText;
                         activity?.SetTag("router.cache.exact", cached.IsExactMatch);
                         activity?.SetTag("router.cache.similarity", cached.SimilarityScore);
                         activity?.SetTag("router.agent_id", cached.RoutingDecision.AgentId);
@@ -159,17 +162,18 @@ public sealed class RouterExecutor : Executor
         {
             var reason = lastError?.Message ?? "Unknown structured output failure.";
             return CreateFallbackResult(string.Format(CultureInfo.InvariantCulture,
-                "Routing model failed after {0} attempts: {1}", _options.MaxAttempts, reason));
+                "Routing model failed after {0} attempts: {1}", _options.MaxAttempts, reason), originalUserText);
         }
 
         if (!IsKnownAgent(parsed.AgentId, availableAgents))
         {
             _logger.LogWarning("RouterExecutor returned unknown agent '{AgentId}'. Falling back.", parsed.AgentId);
             return CreateFallbackResult(string.Format(CultureInfo.InvariantCulture,
-                "Model suggested unknown agent '{0}'.", parsed.AgentId));
+                "Model suggested unknown agent '{0}'.", parsed.AgentId), originalUserText);
         }
 
         NormalizeAdditionalAgents(parsed, availableAgents);
+        parsed.OriginalUserText = originalUserText;
 
         // Attach the router system prompt for trace capture
         var systemMessage = chatMessages.FirstOrDefault(m => m.Role == ChatRole.System);
@@ -192,7 +196,7 @@ public sealed class RouterExecutor : Executor
                 "RouterExecutor confidence {Confidence} was below threshold {Threshold}. Returning clarification.",
                 parsed.Confidence,
                 _options.ConfidenceThreshold);
-            return CreateClarificationResult(parsed, availableAgents, userRequest);
+            return CreateClarificationResult(parsed, availableAgents, userRequest, originalUserText);
         }
 
         // Cache the routing decision for future lookups
@@ -373,6 +377,19 @@ public sealed class RouterExecutor : Executor
         return message.Text ?? string.Empty;
     }
 
+    private static string? TryGetOriginalUserText(ChatMessage message)
+    {
+        if (message.AdditionalProperties is not null
+            && message.AdditionalProperties.TryGetValue(OriginalUserTextPropertyName, out var originalUserText)
+            && originalUserText is string value
+            && !string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+
+        return null;
+    }
+
     private static bool IsKnownAgent(string agentId, IReadOnlyList<AgentCard> agents)
     {
         return agents.Any(agent => string.Equals(agent.Name, agentId, StringComparison.OrdinalIgnoreCase));
@@ -396,7 +413,7 @@ public sealed class RouterExecutor : Executor
         result.AdditionalAgents = filtered.Count > 0 ? filtered : null;
     }
 
-    private AgentChoiceResult CreateClarificationResult(AgentChoiceResult original, IReadOnlyList<AgentCard> agents, string userRequest)
+    private AgentChoiceResult CreateClarificationResult(AgentChoiceResult original, IReadOnlyList<AgentCard> agents, string userRequest, string originalUserText)
     {
         var options = _options.ClarificationPromptTemplate ?? RouterExecutorOptions.DefaultClarificationPromptTemplate;
         var candidates = string.Join(", ", agents.Select(a => a.Name));
@@ -407,11 +424,12 @@ public sealed class RouterExecutor : Executor
             AgentId = _options.ClarificationAgentId ?? RouterExecutorOptions.DefaultClarificationAgentId,
             Confidence = original.Confidence,
             Reasoning = reasoning,
+            OriginalUserText = originalUserText,
             AdditionalAgents = null
         };
     }
 
-    private AgentChoiceResult CreateFallbackResult(string reason)
+    private AgentChoiceResult CreateFallbackResult(string reason, string? originalUserText = null)
     {
         var template = _options.FallbackReasonTemplate ?? RouterExecutorOptions.DefaultFallbackReasonTemplate;
         var reasoning = string.Format(CultureInfo.InvariantCulture, template, reason);
@@ -421,6 +439,7 @@ public sealed class RouterExecutor : Executor
             AgentId = _options.FallbackAgentId ?? RouterExecutorOptions.DefaultFallbackAgentId,
             Confidence = 0,
             Reasoning = reasoning,
+            OriginalUserText = originalUserText,
             AdditionalAgents = null
         };
     }

@@ -1,0 +1,24 @@
+using lucia.Agents.Services;
+using lucia.Data.InMemory;
+
+namespace lucia.Tests.Services;
+
+public sealed class ChatHistoryProviderTests
+{
+    [Fact]
+    public async Task AppendTurnAsync_StoresLatestTurnsUnderChatHistoryPrefix()
+    {
+        var store = new InMemoryMemoryStore();
+        var provider = new ChatHistoryProvider(store);
+
+        await provider.AppendTurnAsync("user-1", "Hello", "Hi there");
+        await provider.AppendTurnAsync("user-1", "What do I like?", "You like jazz.");
+
+        var history = await provider.GetRecentHistoryAsync("user-1", maxTurns: 1);
+        var memories = await store.SearchAsync("user-1", "chat_history:");
+
+        Assert.Single(history);
+        Assert.Contains("What do I like?", history[0]);
+        Assert.Contains("chat_history:", memories[0].Key);
+    }
+}

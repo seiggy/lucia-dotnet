@@ -244,7 +244,8 @@ public sealed class WorkflowFactory
         string historyAwareRequest,
         string? requestId,
         CancellationToken cancellationToken,
-        SpeakerContext? speakerContext = null)
+        SpeakerContext? speakerContext = null,
+        string? originalUserText = null)
     {
         // Resolve the orchestrator's chat client per-request so model provider changes take effect
         var definition = await _definitionRepository.GetAgentDefinitionAsync("orchestrator", cancellationToken).ConfigureAwait(false);
@@ -284,7 +285,15 @@ public sealed class WorkflowFactory
         var aggregator = new ResultAggregatorExecutor(aggregatorLogger, _aggregatorOptions, personalityChatClient, personalityInstructions, speakerContext);
 
         var chatMessage = new ChatMessage(ChatRole.User, historyAwareRequest);
-        dispatch.SetUserMessage(chatMessage);
+        if (!string.IsNullOrWhiteSpace(originalUserText))
+        {
+            chatMessage.AdditionalProperties = new AdditionalPropertiesDictionary
+            {
+                ["lucia.originalUserText"] = originalUserText
+            };
+        }
+
+        dispatch.SetUserMessage(chatMessage, originalUserText);
         dispatch.SetRequestId(requestId);
 
         var builder = new WorkflowBuilder(router)

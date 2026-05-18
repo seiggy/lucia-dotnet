@@ -6,6 +6,7 @@ using lucia.AgentHost.Conversation.Execution;
 using lucia.AgentHost.Conversation.Templates;
 using lucia.Agents.CommandTracing;
 using lucia.AgentHost.Conversation.Tracing;
+using lucia.Agents.DataStores;
 using lucia.AgentHost.Extensions;
 using lucia.AgentHost.PluginFramework;
 using lucia.AgentHost.Services;
@@ -21,6 +22,7 @@ using lucia.Agents.Services;
 using lucia.Agents.Services.EntityAssignment;
 using lucia.Data;
 using lucia.Data.Extensions;
+using lucia.Data.InMemory;
 using lucia.Data.Sqlite;
 using lucia.MusicAgent;
 using lucia.TimerAgent;
@@ -28,6 +30,7 @@ using lucia.TimerAgent.ScheduledTasks;
 using lucia.Wyoming.Extensions;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.FeatureManagement;
 using OpenTelemetry.Trace;
 using Scalar.AspNetCore;
@@ -57,6 +60,7 @@ if (useMongo)
 
     // MongoDB for configuration (shared across services)
     builder.AddMongoDBClient(connectionName: "luciaconfig");
+    builder.Services.AddSingleton<IMemoryStore, MongoMemoryStore>();
 
     // MongoDB for task archive
     builder.AddMongoDBClient(connectionName: "luciatasks");
@@ -90,6 +94,10 @@ if (!useRedis)
     builder.AddInMemoryCacheProviders();
 if (!useMongo)
     builder.AddSqliteStoreProviders();
+
+builder.Services.TryAddSingleton<IMemoryStore, InMemoryMemoryStore>();
+builder.Services.TryAddSingleton<ChatHistoryProvider>();
+builder.Services.TryAddSingleton<UserContextProvider>();
 
 // Deployment mode: "standalone" (default) embeds plugin agents in-process,
 // "mesh" expects external A2A agent containers to register over the network.
@@ -409,6 +417,7 @@ app.MapDatasetExportApi();
 app.MapConfigurationApi();
 app.MapPromptCacheApi();
 app.MapEntityLocationCacheApi();
+app.MapEntitiesApi();
 app.MapEntityVisibilityApi();
 app.MapMatcherDebugApi();
 app.MapTaskManagementApi();
@@ -419,6 +428,7 @@ app.MapActivityApi();
 app.MapAlarmClockApi();
 app.MapResponseTemplateApi();
 app.MapConversationApi();
+app.MapMemoryApi();
 app.MapCommandTraceApi();
 app.MapListsApi();
 app.MapPresenceApi();

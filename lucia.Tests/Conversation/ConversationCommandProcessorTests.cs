@@ -128,6 +128,7 @@ public sealed class ConversationCommandProcessorTests : IDisposable
         Assert.Equal(ProcessingKind.LlmFallback, result.Kind);
         Assert.NotNull(result.LlmPrompt);
         Assert.Contains("tell me a joke", result.LlmPrompt!);
+        Assert.Equal("tell me a joke", result.OriginalUserText);
     }
 
     [Fact]
@@ -162,6 +163,7 @@ public sealed class ConversationCommandProcessorTests : IDisposable
         Assert.Equal(ProcessingKind.LlmFallback, result.Kind);
         Assert.NotNull(result.LlmPrompt);
         Assert.Contains("turn on the lights", result.LlmPrompt!);
+        Assert.Equal("turn on the lights", result.OriginalUserText);
     }
 
     [Fact]

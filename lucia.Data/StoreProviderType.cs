@@ -9,5 +9,8 @@ public enum StoreProviderType
     MongoDB,
 
     /// <summary>SQLite embedded database (no external dependencies).</summary>
-    SQLite
+    SQLite,
+
+    /// <summary>PostgreSQL relational database (external PostgreSQL server).</summary>
+    PostgreSQL
 }

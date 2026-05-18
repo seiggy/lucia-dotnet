@@ -12,7 +12,7 @@ public sealed class SqliteMigrationRunner : IHostedService
     private readonly SqliteConnectionFactory _connectionFactory;
     private readonly ILogger<SqliteMigrationRunner> _logger;
 
-    private const int CurrentSchemaVersion = 1;
+    private const int CurrentSchemaVersion = 2;
 
     public SqliteMigrationRunner(SqliteConnectionFactory connectionFactory, ILogger<SqliteMigrationRunner> logger)
     {
@@ -35,7 +35,15 @@ public sealed class SqliteMigrationRunner : IHostedService
                 _logger.LogInformation("Running SQLite migrations from version {Current} to {Target}...",
                     currentVersion, CurrentSchemaVersion);
 
-                if (currentVersion < 1) ApplyVersion1(connection);
+                if (currentVersion < 1)
+                {
+                    ApplyVersion1(connection);
+                }
+
+                if (currentVersion < 2)
+                {
+                    ApplyVersion2(connection);
+                }
 
                 SetSchemaVersion(connection, CurrentSchemaVersion);
                 transaction.Commit();
@@ -277,6 +285,24 @@ public sealed class SqliteMigrationRunner : IHostedService
             CREATE INDEX IF NOT EXISTS idx_command_traces_timestamp ON command_traces(timestamp DESC);
             CREATE INDEX IF NOT EXISTS idx_command_traces_outcome ON command_traces(outcome);
             CREATE INDEX IF NOT EXISTS idx_command_traces_skill ON command_traces(skill_id);
+            """;
+        cmd.ExecuteNonQuery();
+    }
+
+    private static void ApplyVersion2(SqliteConnection connection)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            CREATE TABLE IF NOT EXISTS user_memories (
+                user_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                value TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT,
+                PRIMARY KEY(user_id, key)
+            );
+            CREATE INDEX IF NOT EXISTS idx_user_memories_user_id ON user_memories(user_id);
+            CREATE INDEX IF NOT EXISTS idx_user_memories_expires_at ON user_memories(expires_at);
             """;
         cmd.ExecuteNonQuery();
     }

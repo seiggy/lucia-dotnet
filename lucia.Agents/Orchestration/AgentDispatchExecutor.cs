@@ -15,6 +15,7 @@ namespace lucia.Agents.Orchestration;
 public sealed class AgentDispatchExecutor : Executor
 {
     private static readonly ActivitySource DispatchActivitySource = new("Lucia.AgentDispatch", "1.0.0");
+    private const string OriginalUserTextPropertyName = "lucia.originalUserText";
     private const string ClarificationSystemPrompt =
         """
         You are a friendly home assistant. The system couldn't confidently determine which 
@@ -35,6 +36,7 @@ public sealed class AgentDispatchExecutor : Executor
     private readonly IOrchestratorObserver? _observer;
     private readonly string _clarificationAgentId;
     private ChatMessage? _userMessage;
+    private string? _originalUserText;
     private string? _requestId;
 
     /// <summary>
@@ -65,12 +67,16 @@ public sealed class AgentDispatchExecutor : Executor
         => protocolBuilder.ConfigureRoutes(rb => rb.AddHandler<AgentChoiceResult, List<OrchestratorAgentResponse>>(HandleAsync));
 
     /// <summary>
-    /// Sets the user message for subsequent agent invocations
+    /// Sets the user message for subsequent agent invocations.
     /// </summary>
-    /// <param name="message">The user's chat message</param>
-    public void SetUserMessage(ChatMessage message)
+    /// <param name="message">The user's chat message.</param>
+    /// <param name="originalUserText">The raw user utterance before prompt reconstruction.</param>
+    public void SetUserMessage(ChatMessage message, string? originalUserText = null)
     {
         _userMessage = message;
+        _originalUserText = string.IsNullOrWhiteSpace(originalUserText)
+            ? TryGetOriginalUserText(message) ?? ExtractMessageText(message)
+            : originalUserText;
     }
 
     /// <summary>
@@ -228,14 +234,57 @@ public sealed class AgentDispatchExecutor : Executor
 
             if (match is not null && !string.IsNullOrWhiteSpace(match.Instruction))
             {
+                var originalUserText = ResolveOriginalUserText(agentChoice, fallback);
+                var instruction = string.IsNullOrWhiteSpace(originalUserText)
+                    ? match.Instruction
+                    : $"[Original request: \"{originalUserText}\"]\n{match.Instruction}";
+
                 _logger.LogInformation("Dispatching tailored instruction to '{AgentId}': {Instruction}",
-                    agentId, match.Instruction);
-                return new ChatMessage(ChatRole.User, match.Instruction);
+                    agentId, instruction);
+                return new ChatMessage(ChatRole.User, instruction);
             }
         }
 
         _logger.LogInformation("No tailored instruction for '{AgentId}', using full user message.", agentId);
         return fallback;
+    }
+
+    private string? ResolveOriginalUserText(AgentChoiceResult agentChoice, ChatMessage fallback)
+    {
+        return !string.IsNullOrWhiteSpace(agentChoice.OriginalUserText)
+            ? agentChoice.OriginalUserText
+            : _originalUserText ?? TryGetOriginalUserText(fallback);
+    }
+
+    private static string? TryGetOriginalUserText(ChatMessage message)
+    {
+        if (message.AdditionalProperties is not null
+            && message.AdditionalProperties.TryGetValue(OriginalUserTextPropertyName, out var originalUserText)
+            && originalUserText is string value
+            && !string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+
+        return null;
+    }
+
+    private static string ExtractMessageText(ChatMessage message)
+    {
+        if (message.Contents is { Count: > 0 })
+        {
+            var textParts = message.Contents
+                .OfType<TextContent>()
+                .Select(content => content.Text)
+                .Where(text => !string.IsNullOrWhiteSpace(text));
+            var combined = string.Join(" ", textParts).Trim();
+            if (!string.IsNullOrEmpty(combined))
+            {
+                return combined;
+            }
+        }
+
+        return message.Text ?? string.Empty;
     }
 
     private async ValueTask<OrchestratorAgentResponse> InvokeAgentAsync(
