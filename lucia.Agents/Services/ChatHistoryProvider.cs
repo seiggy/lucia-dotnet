@@ -14,6 +14,8 @@ public sealed class ChatHistoryProvider
     /// </summary>
     public const string ChatHistoryKeyPrefix = "chat_history:";
 
+    private static readonly TimeSpan ChatHistoryTtl = TimeSpan.FromDays(7);
+
     private readonly IMemoryStore _memoryStore;
 
     /// <summary>
@@ -37,7 +39,7 @@ public sealed class ChatHistoryProvider
         var key = $"{ChatHistoryKeyPrefix}{DateTime.UtcNow.Ticks:D19}:{Guid.NewGuid():N}";
         var value = $"User: {Sanitize(userMessage)}{Environment.NewLine}Assistant: {Sanitize(assistantResponse)}";
 
-        await _memoryStore.StoreAsync(userId, key, value, ct: ct).ConfigureAwait(false);
+        await _memoryStore.StoreAsync(userId, key, value, ChatHistoryTtl, ct).ConfigureAwait(false);
     }
 
     /// <summary>

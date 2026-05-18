@@ -19,6 +19,7 @@
   <ItemGroup Label="A2A Protocol">
     <PackageVersion Include="A2A" Version="1.0.0-preview" />
     <PackageVersion Include="A2A.AspNetCore" Version="1.0.0-preview" />
+    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.3.3" />
     <PackageVersion Include="Npgsql" Version="10.0.2" />
   </ItemGroup>
   <!-- ── .NET Aspire Hosting (AppHost orchestration) ──────────── -->

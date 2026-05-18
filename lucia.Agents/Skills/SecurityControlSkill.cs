@@ -269,10 +269,11 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
     /// <summary>
     /// Locks one or more doors.
     /// </summary>
-    [Description("Lock one or more Home Assistant lock entities by area and optional entity name.")]
+    [Description("Lock one or more Home Assistant lock entities by area and optional entity name. Provide a code only when the user supplied one.")]
     public async Task<string> LockDoor(
         [Description("Optional area name that contains the door lock, such as 'front porch' or 'garage'.")] string? area,
-        [Description("Optional lock name, such as 'front door' or 'garage entry'.")] string? entityName)
+        [Description("Optional lock name, such as 'front door' or 'garage entry'.")] string? entityName,
+        [Description("Optional lock code required by some locks.")] string? code = null)
     {
         if (string.IsNullOrWhiteSpace(area) && string.IsNullOrWhiteSpace(entityName))
         {
@@ -283,6 +284,7 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
         activity?.SetTag("security.operation", "lock_door");
         activity?.SetTag("security.area", area);
         activity?.SetTag("security.entity_name", entityName);
+        activity?.SetTag("security.has_code", !string.IsNullOrWhiteSpace(code));
         LockRequests.Add(1, [new KeyValuePair<string, object?>("action", "lock")]);
         var start = Stopwatch.GetTimestamp();
 
@@ -295,11 +297,12 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
                 return BuildNoMatchResponse("locks", area, entityName);
             }
 
+            var resolvedCode = ResolveLockCode(code);
             LogLockOperationStarted(_logger, "lock", BuildTarget(area, entityName), locks.Count);
 
             foreach (var lockEntity in locks)
             {
-                var request = CreateSecurityRequest(lockEntity.EntityId, null);
+                var request = CreateSecurityRequest(lockEntity.EntityId, resolvedCode);
                 await _homeAssistantClient.CallServiceAsync("lock", "lock", request: request).ConfigureAwait(false);
             }
 
@@ -350,7 +353,7 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
                 return BuildNoMatchResponse("locks", area, entityName);
             }
 
-            var resolvedCode = ResolveCode(code);
+            var resolvedCode = ResolveLockCode(code);
             LogLockOperationStarted(_logger, "unlock", BuildTarget(area, entityName), locks.Count);
 
             foreach (var lockEntity in locks)
@@ -544,6 +547,13 @@ public sealed partial class SecurityControlSkill : IAgentSkill, IOptimizableSkil
         return string.IsNullOrWhiteSpace(_options.CurrentValue.DefaultAlarmCode)
             ? null
             : _options.CurrentValue.DefaultAlarmCode!.Trim();
+    }
+
+    private static string? ResolveLockCode(string? code)
+    {
+        return string.IsNullOrWhiteSpace(code)
+            ? null
+            : code.Trim();
     }
 
     private async Task<IReadOnlyList<HomeAssistantEntity>> ResolveEntitiesAsync(

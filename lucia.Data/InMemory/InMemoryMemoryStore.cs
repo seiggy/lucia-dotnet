@@ -48,7 +48,6 @@ public sealed class InMemoryMemoryStore : IMemoryStore
         if (IsExpired(entry, DateTime.UtcNow))
         {
             userStore.TryRemove(key, out _);
-            RemoveEmptyUserStore(userId, userStore);
             return Task.FromResult<string?>(null);
         }
 
@@ -66,7 +65,7 @@ public sealed class InMemoryMemoryStore : IMemoryStore
         }
 
         var now = DateTime.UtcNow;
-        var entries = GetActiveEntries(userId, userStore, now);
+        var entries = GetActiveEntries(userStore, now);
         if (!string.IsNullOrWhiteSpace(query))
         {
             entries = entries
@@ -92,7 +91,6 @@ public sealed class InMemoryMemoryStore : IMemoryStore
         if (_userMemories.TryGetValue(userId, out var userStore))
         {
             userStore.TryRemove(key, out _);
-            RemoveEmptyUserStore(userId, userStore);
         }
 
         return Task.CompletedTask;
@@ -108,7 +106,7 @@ public sealed class InMemoryMemoryStore : IMemoryStore
             return Task.FromResult<IReadOnlyList<MemoryEntry>>([]);
         }
 
-        IReadOnlyList<MemoryEntry> results = GetActiveEntries(userId, userStore, DateTime.UtcNow)
+        IReadOnlyList<MemoryEntry> results = GetActiveEntries(userStore, DateTime.UtcNow)
             .OrderByDescending(entry => entry.CreatedAt)
             .ToList();
 
@@ -120,7 +118,7 @@ public sealed class InMemoryMemoryStore : IMemoryStore
         return entry.ExpiresAt.HasValue && entry.ExpiresAt.Value <= now;
     }
 
-    private List<MemoryEntry> GetActiveEntries(string userId, ConcurrentDictionary<string, MemoryEntry> userStore, DateTime now)
+    private static List<MemoryEntry> GetActiveEntries(ConcurrentDictionary<string, MemoryEntry> userStore, DateTime now)
     {
         var activeEntries = new List<MemoryEntry>();
 
@@ -135,15 +133,6 @@ public sealed class InMemoryMemoryStore : IMemoryStore
             activeEntries.Add(pair.Value);
         }
 
-        RemoveEmptyUserStore(userId, userStore);
         return activeEntries;
-    }
-
-    private void RemoveEmptyUserStore(string userId, ConcurrentDictionary<string, MemoryEntry> userStore)
-    {
-        if (userStore.IsEmpty)
-        {
-            _userMemories.TryRemove(userId, out _);
-        }
     }
 }

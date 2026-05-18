@@ -101,7 +101,17 @@ public static class ServiceCollectionExtensions
         var options = new DataProviderOptions();
         builder.Configuration.GetSection(DataProviderOptions.SectionName).Bind(options);
 
-        builder.Services.TryAddSingleton(new PostgresConnectionFactory(options.PostgresConnectionString));
+        builder.Services.TryAddSingleton<PostgresConnectionFactory>(sp =>
+        {
+            var configuration = sp.GetRequiredService<IConfiguration>();
+            var connectionString = options.PostgresConnectionString;
+            if (string.IsNullOrWhiteSpace(connectionString))
+            {
+                connectionString = configuration.GetConnectionString("luciadb") ?? string.Empty;
+            }
+
+            return new PostgresConnectionFactory(connectionString);
+        });
 
         builder.Services.AddSingleton<PostgresMigrationRunner>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<PostgresMigrationRunner>());
@@ -118,7 +128,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<ISpeakerProfileStore, PostgresSpeakerProfileStore>();
         builder.Services.AddSingleton<ITranscriptStore, PostgresTranscriptStore>();
         builder.Services.AddSingleton<IModelPreferenceStore, PostgresModelPreferenceStore>();
-        builder.Services.TryAddSingleton<IMemoryStore, lucia.Data.InMemory.InMemoryMemoryStore>();
+        builder.Services.AddSingleton<IMemoryStore, PostgresMemoryStore>();
         AddMemorySupportServices(builder.Services);
 
         return builder;

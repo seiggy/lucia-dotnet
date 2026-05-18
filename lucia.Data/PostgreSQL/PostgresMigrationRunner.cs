@@ -9,7 +9,7 @@ namespace lucia.Data.PostgreSQL;
 /// </summary>
 public sealed partial class PostgresMigrationRunner : IHostedService
 {
-    private const int CurrentSchemaVersion = 1;
+    private const int CurrentSchemaVersion = 2;
 
     private readonly PostgresConnectionFactory _connectionFactory;
     private readonly ILogger<PostgresMigrationRunner> _logger;
@@ -29,8 +29,8 @@ public sealed partial class PostgresMigrationRunner : IHostedService
 
         try
         {
-            await EnsureSchemaVersionTableAsync(connection, cancellationToken).ConfigureAwait(false);
-            var currentVersion = await GetSchemaVersionAsync(connection, cancellationToken).ConfigureAwait(false);
+            await EnsureSchemaVersionTableAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+            var currentVersion = await GetSchemaVersionAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
 
             if (currentVersion < CurrentSchemaVersion)
             {
@@ -38,10 +38,15 @@ public sealed partial class PostgresMigrationRunner : IHostedService
 
                 if (currentVersion < 1)
                 {
-                    await ApplyVersion1Async(connection, cancellationToken).ConfigureAwait(false);
+                    await ApplyVersion1Async(connection, transaction, cancellationToken).ConfigureAwait(false);
                 }
 
-                await SetSchemaVersionAsync(connection, CurrentSchemaVersion, cancellationToken).ConfigureAwait(false);
+                if (currentVersion < 2)
+                {
+                    await ApplyVersion2Async(connection, transaction, cancellationToken).ConfigureAwait(false);
+                }
+
+                await SetSchemaVersionAsync(connection, transaction, CurrentSchemaVersion, cancellationToken).ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
                 LogMigrationCompleted(_logger, CurrentSchemaVersion);
@@ -77,9 +82,10 @@ public sealed partial class PostgresMigrationRunner : IHostedService
     [LoggerMessage(EventId = 4, Level = LogLevel.Error, Message = "PostgreSQL migration failed.")]
     private static partial void LogMigrationFailed(ILogger logger, Exception exception);
 
-    private static async Task EnsureSchemaVersionTableAsync(NpgsqlConnection connection, CancellationToken cancellationToken)
+    private static async Task EnsureSchemaVersionTableAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, CancellationToken cancellationToken)
     {
         await using var cmd = connection.CreateCommand();
+        cmd.Transaction = transaction;
         cmd.CommandText = """
             CREATE TABLE IF NOT EXISTS schema_version (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -91,18 +97,20 @@ public sealed partial class PostgresMigrationRunner : IHostedService
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task<int> GetSchemaVersionAsync(NpgsqlConnection connection, CancellationToken cancellationToken)
+    private static async Task<int> GetSchemaVersionAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, CancellationToken cancellationToken)
     {
         await using var cmd = connection.CreateCommand();
+        cmd.Transaction = transaction;
         cmd.CommandText = "SELECT version FROM schema_version WHERE id = 1;";
 
         var result = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
         return result is null or DBNull ? 0 : Convert.ToInt32(result);
     }
 
-    private static async Task SetSchemaVersionAsync(NpgsqlConnection connection, int version, CancellationToken cancellationToken)
+    private static async Task SetSchemaVersionAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, int version, CancellationToken cancellationToken)
     {
         await using var cmd = connection.CreateCommand();
+        cmd.Transaction = transaction;
         cmd.CommandText = """
             INSERT INTO schema_version (id, version) VALUES (1, @version)
             ON CONFLICT (id) DO UPDATE SET version = EXCLUDED.version, applied_at = CURRENT_TIMESTAMP;
@@ -112,9 +120,10 @@ public sealed partial class PostgresMigrationRunner : IHostedService
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task ApplyVersion1Async(NpgsqlConnection connection, CancellationToken cancellationToken)
+    private static async Task ApplyVersion1Async(NpgsqlConnection connection, NpgsqlTransaction transaction, CancellationToken cancellationToken)
     {
         await using var cmd = connection.CreateCommand();
+        cmd.Transaction = transaction;
         cmd.CommandText = """
             CREATE TABLE IF NOT EXISTS configuration (
                 key TEXT PRIMARY KEY,
@@ -277,6 +286,26 @@ public sealed partial class PostgresMigrationRunner : IHostedService
             CREATE INDEX IF NOT EXISTS idx_command_traces_timestamp ON command_traces(timestamp DESC);
             CREATE INDEX IF NOT EXISTS idx_command_traces_outcome ON command_traces(outcome);
             CREATE INDEX IF NOT EXISTS idx_command_traces_skill ON command_traces(skill_id);
+            """;
+
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task ApplyVersion2Async(NpgsqlConnection connection, NpgsqlTransaction transaction, CancellationToken cancellationToken)
+    {
+        await using var cmd = connection.CreateCommand();
+        cmd.Transaction = transaction;
+        cmd.CommandText = """
+            CREATE TABLE IF NOT EXISTS user_memories (
+                user_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                value TEXT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL,
+                expires_at TIMESTAMPTZ,
+                PRIMARY KEY (user_id, key)
+            );
+            CREATE INDEX IF NOT EXISTS idx_user_memories_user_id ON user_memories(user_id);
+            CREATE INDEX IF NOT EXISTS idx_user_memories_expires_at ON user_memories(expires_at);
             """;
 
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);

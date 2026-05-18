@@ -45,7 +45,11 @@ builder.Services.AddFeatureManagement();
 var dataProviderOptions = new DataProviderOptions();
 builder.Configuration.GetSection(DataProviderOptions.SectionName).Bind(dataProviderOptions);
 var useRedis = dataProviderOptions.Cache == CacheProviderType.Redis;
-var useMongo = dataProviderOptions.Store == StoreProviderType.MongoDB;
+var storeProvider = builder.Configuration[$"{DataProviderOptions.SectionName}:Store"]
+    ?? dataProviderOptions.Store.ToString();
+var useMongo = storeProvider.Equals("MongoDB", StringComparison.OrdinalIgnoreCase);
+var usePostgres = storeProvider.Equals("PostgreSQL", StringComparison.OrdinalIgnoreCase);
+var useSqlite = !useMongo && !usePostgres;
 
 if (useRedis)
 {
@@ -68,7 +72,7 @@ if (useMongo)
     // Add MongoDB configuration as highest-priority source (overrides appsettings)
     builder.Configuration.AddMongoConfiguration("luciaconfig");
 }
-else
+else if (useSqlite)
 {
     // SQLite configuration provider (replaces MongoDB config source)
     var sqliteFactory = new SqliteConnectionFactory(dataProviderOptions.SqlitePath);
@@ -91,9 +95,18 @@ builder.AddLuciaAgents();
 
 // Register lightweight data providers when not using Redis/MongoDB
 if (!useRedis)
+{
     builder.AddInMemoryCacheProviders();
-if (!useMongo)
+}
+
+if (usePostgres)
+{
+    builder.AddPostgresStoreProviders();
+}
+else if (useSqlite)
+{
     builder.AddSqliteStoreProviders();
+}
 
 builder.Services.TryAddSingleton<IMemoryStore, InMemoryMemoryStore>();
 builder.Services.TryAddSingleton<ChatHistoryProvider>();
@@ -120,7 +133,7 @@ if (isStandalone)
     timerPlugin.ConfigureAgentHost(builder);
     builder.Services.AddSingleton<IAgentPlugin>(timerPlugin);
 
-    if (!useMongo)
+    if (useSqlite)
     {
         builder.Services.AddSingleton<IScheduledTaskRepository, SqliteScheduledTaskRepository>();
         builder.Services.AddSingleton<IAlarmClockRepository, SqliteAlarmClockRepository>();
@@ -355,7 +368,7 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 
 // When using SQLite, run schema migrations before any data access (seed, config load, etc.)
-if (!useMongo)
+if (useSqlite)
 {
     await using var migrationScope = app.Services.CreateAsyncScope();
     var migrationRunner = migrationScope.ServiceProvider.GetRequiredService<lucia.Data.Sqlite.SqliteMigrationRunner>();

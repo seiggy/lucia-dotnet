@@ -10,6 +10,9 @@ namespace lucia.Agents.Services;
 /// </summary>
 public sealed class UserContextProvider
 {
+    private const int MaxMemories = 50;
+    private const int MaxCharacters = 4000;
+
     private readonly IMemoryStore _memoryStore;
 
     /// <summary>
@@ -34,6 +37,7 @@ public sealed class UserContextProvider
         var relevantMemories = memories
             .Where(entry => !entry.Key.StartsWith(ChatHistoryProvider.ChatHistoryKeyPrefix, StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(entry => entry.CreatedAt)
+            .Take(MaxMemories)
             .ToList();
 
         if (relevantMemories.Count == 0)
@@ -43,14 +47,22 @@ public sealed class UserContextProvider
 
         var builder = new StringBuilder();
         builder.AppendLine("USER MEMORY CONTEXT:");
+        var totalCharacters = 0;
+
         foreach (var memory in relevantMemories)
         {
-            builder.Append("- ");
-            builder.Append(memory.Key);
-            builder.Append(": ");
-            builder.AppendLine(memory.Value);
+            var line = $"- {memory.Key}: {memory.Value}";
+            if (totalCharacters + line.Length > MaxCharacters)
+            {
+                break;
+            }
+
+            builder.AppendLine(line);
+            totalCharacters += line.Length;
         }
 
-        return builder.ToString().TrimEnd();
+        return builder.Length == "USER MEMORY CONTEXT:".Length + Environment.NewLine.Length
+            ? string.Empty
+            : builder.ToString().TrimEnd();
     }
 }

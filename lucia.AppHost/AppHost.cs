@@ -6,6 +6,7 @@ var cacheProvider = dataProviderConfig["Cache"] ?? "Redis";
 var storeProvider = dataProviderConfig["Store"] ?? "MongoDB";
 var useRedis = cacheProvider.Equals("Redis", StringComparison.OrdinalIgnoreCase);
 var useMongo = storeProvider.Equals("MongoDB", StringComparison.OrdinalIgnoreCase);
+var usePostgres = storeProvider.Equals("PostgreSQL", StringComparison.OrdinalIgnoreCase);
 
 IResourceBuilder<IResourceWithConnectionString>? redis = null;
 if (useRedis)
@@ -32,6 +33,19 @@ if (useMongo)
     tracesDb = mongodb.AddDatabase("luciatraces");
     configDb = mongodb.AddDatabase("luciaconfig");
     tasksDb = mongodb.AddDatabase("luciatasks");
+}
+
+IResourceBuilder<PostgresServerResource>? postgres = null;
+IResourceBuilder<PostgresDatabaseResource>? postgresDb = null;
+if (usePostgres)
+{
+    postgres = builder.AddPostgres("postgres")
+        .WithDataVolume()
+        .WithLifetime(ContainerLifetime.Persistent)
+        .WithPgAdmin()
+        .WithContainerName("postgres");
+
+    postgresDb = postgres.AddDatabase("luciadb");
 }
 
 // Internal service-to-service authentication token.
@@ -75,6 +89,8 @@ if (tasksDb is not null)
     registryApi.WithReference(tasksDb);
 if (mongodb is not null)
     registryApi.WaitFor(mongodb);
+if (postgresDb is not null)
+    registryApi.WithReference(postgresDb).WaitFor(postgres!);
 
 // Pass DataProvider config as environment variables
 registryApi.WithEnvironment("DataProvider__Cache", cacheProvider);

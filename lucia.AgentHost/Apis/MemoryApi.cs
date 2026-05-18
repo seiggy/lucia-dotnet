@@ -71,6 +71,11 @@ public static class MemoryApi
             return TypedResults.BadRequest(ttlError);
         }
 
+        if (ttl.HasValue && ttl.Value <= TimeSpan.Zero)
+        {
+            return TypedResults.BadRequest("TTL must be positive.");
+        }
+
         await memoryStore.StoreAsync(userId, key, value!, ttl, ct).ConfigureAwait(false);
         var storedMemory = (await memoryStore.GetAllAsync(userId, ct).ConfigureAwait(false))
             .First(entry => string.Equals(entry.Key, key, StringComparison.OrdinalIgnoreCase));
