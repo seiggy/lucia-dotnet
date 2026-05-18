@@ -9,9 +9,9 @@
        ══════════════════════════════════════════════════════════════ -->
   <PropertyGroup Label="Version Variables">
     <MicrosoftAgentsVersion>1.0.0-rc2</MicrosoftAgentsVersion>
-    <MicrosoftExtensionsAIVersion>10.4.1</MicrosoftExtensionsAIVersion>
-    <MicrosoftExtensionsVersion>10.0.5</MicrosoftExtensionsVersion>
-    <MicrosoftExtensionsConfigVersion>10.0.5</MicrosoftExtensionsConfigVersion>
+    <MicrosoftExtensionsAIVersion>10.5.0</MicrosoftExtensionsAIVersion>
+    <MicrosoftExtensionsVersion>10.0.7</MicrosoftExtensionsVersion>
+    <MicrosoftExtensionsConfigVersion>10.0.7</MicrosoftExtensionsConfigVersion>
     <OpenTelemetryVersion>1.15.3</OpenTelemetryVersion>
     <XunitVersion>2.9.3</XunitVersion>
   </PropertyGroup>
@@ -19,23 +19,24 @@
   <ItemGroup Label="A2A Protocol">
     <PackageVersion Include="A2A" Version="1.0.0-preview" />
     <PackageVersion Include="A2A.AspNetCore" Version="1.0.0-preview" />
+    <PackageVersion Include="Npgsql" Version="10.0.2" />
   </ItemGroup>
   <!-- ── .NET Aspire Hosting (AppHost orchestration) ──────────── -->
   <ItemGroup Label="Aspire Hosting">
     <PackageVersion Include="Aspire.Hosting.Azure.AIFoundry" Version="13.1.3-preview.1.26166.8" />
-    <PackageVersion Include="Aspire.Hosting.Azure.CognitiveServices" Version="13.2.0" />
-    <PackageVersion Include="Aspire.Hosting.JavaScript" Version="13.2.0" />
-    <PackageVersion Include="Aspire.Hosting.MongoDB" Version="13.2.0" />
-    <PackageVersion Include="Aspire.Hosting.OpenAI" Version="13.2.0" />
-    <PackageVersion Include="Aspire.Hosting.Redis" Version="13.2.0" />
+    <PackageVersion Include="Aspire.Hosting.Azure.CognitiveServices" Version="13.3.3" />
+    <PackageVersion Include="Aspire.Hosting.JavaScript" Version="13.3.3" />
+    <PackageVersion Include="Aspire.Hosting.MongoDB" Version="13.3.3" />
+    <PackageVersion Include="Aspire.Hosting.OpenAI" Version="13.3.3" />
+    <PackageVersion Include="Aspire.Hosting.Redis" Version="13.3.3" />
     <PackageVersion Include="Aspire.Hosting.Testing" Version="13.2.0" />
   </ItemGroup>
   <!-- ── .NET Aspire Client Integrations (service projects) ───── -->
   <ItemGroup Label="Aspire Client Integrations">
-    <PackageVersion Include="Aspire.Azure.AI.OpenAI" Version="13.2.0-preview.1.26170.3" />
-    <PackageVersion Include="Aspire.MongoDB.Driver" Version="13.2.0" />
+    <PackageVersion Include="Aspire.Azure.AI.OpenAI" Version="13.3.3-preview.1.26264.13" />
+    <PackageVersion Include="Aspire.MongoDB.Driver" Version="13.3.3" />
     <PackageVersion Include="Aspire.MongoDB.Driver.v3" Version="9.5.2" />
-    <PackageVersion Include="Aspire.StackExchange.Redis" Version="13.2.0" />
+    <PackageVersion Include="Aspire.StackExchange.Redis" Version="13.3.3" />
   </ItemGroup>
   <!-- ── Microsoft Agent Framework ────────────────────────────── -->
   <ItemGroup Label="Microsoft Agent Framework">
@@ -87,7 +88,7 @@
   </ItemGroup>
   <!-- ── Azure SDK ────────────────────────────────────────────── -->
   <ItemGroup Label="Azure">
-    <PackageVersion Include="Azure.Identity" Version="1.19.0" />
+    <PackageVersion Include="Azure.Identity" Version="1.21.0" />
   </ItemGroup>
   <!-- ── OpenTelemetry ────────────────────────────────────────── -->
   <ItemGroup Label="OpenTelemetry">
@@ -139,7 +140,6 @@
   <ItemGroup Label="Evaluation Harness">
     <PackageVersion Include="AgentEval" Version="0.6.0-beta" />
   </ItemGroup>
-
   <ItemGroup Label="ML and AI">
     <PackageVersion Include="Anthropic" Version="12.9.0" />
     <PackageVersion Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.23.0" />
@@ -151,7 +151,6 @@
     <PackageVersion Include="OllamaSharp" Version="5.4.25" />
     <PackageVersion Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
   </ItemGroup>
-
   <ItemGroup Label="Misc">
     <PackageVersion Include="Cronos" Version="0.11.1" />
     <PackageVersion Include="Makaretu.Dns.Multicast" Version="0.27.0" />
