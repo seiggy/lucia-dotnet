@@ -152,7 +152,7 @@ else
         builder.Services.AddSingleton<IScheduledTaskRepository, MongoScheduledTaskRepository>();
         builder.Services.AddSingleton<IAlarmClockRepository, MongoAlarmClockRepository>();
     }
-    else
+    else if (useSqlite)
     {
         builder.Services.AddSingleton<IScheduledTaskRepository, SqliteScheduledTaskRepository>();
         builder.Services.AddSingleton<IAlarmClockRepository, SqliteAlarmClockRepository>();
@@ -208,7 +208,7 @@ if (useMongo)
 {
     builder.Services.AddSingleton<ITraceRepository, MongoTraceRepository>();
 }
-else
+else if (useSqlite)
 {
     builder.Services.AddSingleton<ITraceRepository, lucia.Data.Sqlite.SqliteTraceRepository>();
 }
@@ -229,6 +229,10 @@ if (useMongo)
 {
     builder.Services.AddSingleton<IResponseTemplateRepository, MongoResponseTemplateRepository>();
 }
+else if (usePostgres)
+{
+    builder.Services.AddSingleton<IResponseTemplateRepository, InMemoryResponseTemplateRepository>();
+}
 else
 {
     builder.Services.AddSingleton<IResponseTemplateRepository, SqliteResponseTemplateRepository>();
@@ -243,7 +247,7 @@ if (useMongo)
 {
     builder.Services.AddSingleton<ICommandTraceRepository, MongoCommandTraceRepository>();
 }
-else
+else if (useSqlite)
 {
     builder.Services.AddSingleton<ICommandTraceRepository, lucia.Data.Sqlite.SqliteCommandTraceRepository>();
 }

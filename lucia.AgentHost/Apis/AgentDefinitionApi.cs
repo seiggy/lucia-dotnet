@@ -129,7 +129,7 @@ public static class AgentDefinitionApi
 
     private static async Task<Results<Ok<AgentDefinition>, NotFound>> PatchDefinitionAsync(
         string id,
-        [FromBody] AgentDefinition definition,
+        [FromBody] PatchAgentDefinitionRequest request,
         [FromServices] IAgentDefinitionRepository repository)
     {
         var existing = await repository.GetAgentDefinitionAsync(id).ConfigureAwait(false);
@@ -138,25 +138,44 @@ public static class AgentDefinitionApi
             return TypedResults.NotFound();
         }
 
-        // Merge incoming fields — only overwrite when the client sent a non-null value.
-        // String properties deserialise to null when absent from the JSON payload.
-        existing.Name = definition.Name ?? existing.Name;
-        existing.DisplayName = definition.DisplayName ?? existing.DisplayName;
-        existing.Description = definition.Description ?? existing.Description;
-        existing.Instructions = definition.Instructions ?? existing.Instructions;
-        existing.ModelConnectionName = definition.ModelConnectionName ?? existing.ModelConnectionName;
-        existing.EmbeddingProviderName = definition.EmbeddingProviderName ?? existing.EmbeddingProviderName;
-
-        // Bool — always present when the frontend submits the form
-        existing.Enabled = definition.Enabled;
-
-        // Collections: null ⇒ "not sent", empty list ⇒ intentional clear.
-        // The property initialiser is [] so an omitted JSON field is
-        // indistinguishable from an explicit []; the frontend always sends
-        // this field so the merge is correct in practice.
-        if (definition.Tools is not null)
+        if (request.Name is not null)
         {
-            existing.Tools = definition.Tools;
+            existing.Name = request.Name;
+        }
+
+        if (request.DisplayName is not null)
+        {
+            existing.DisplayName = request.DisplayName;
+        }
+
+        if (request.Description is not null)
+        {
+            existing.Description = request.Description;
+        }
+
+        if (request.Instructions is not null)
+        {
+            existing.Instructions = request.Instructions;
+        }
+
+        if (request.ModelConnectionName is not null)
+        {
+            existing.ModelConnectionName = request.ModelConnectionName;
+        }
+
+        if (request.EmbeddingProviderName is not null)
+        {
+            existing.EmbeddingProviderName = request.EmbeddingProviderName;
+        }
+
+        if (request.Enabled.HasValue)
+        {
+            existing.Enabled = request.Enabled.Value;
+        }
+
+        if (request.Tools is not null)
+        {
+            existing.Tools = request.Tools;
         }
 
         existing.UpdatedAt = DateTime.UtcNow;

@@ -1,4 +1,5 @@
 using System.Linq;
+using System.Security.Claims;
 using System.Text.Json;
 
 using lucia.Agents.Abstractions;
@@ -31,21 +32,33 @@ public static class MemoryApi
         return endpoints;
     }
 
-    private static async Task<Ok<IReadOnlyList<MemoryEntry>>> GetAllAsync(
+    private static async Task<Results<Ok<IReadOnlyList<MemoryEntry>>, ForbidHttpResult>> GetAllAsync(
+        HttpContext context,
         [FromRoute] string userId,
         [FromServices] IMemoryStore memoryStore,
         CancellationToken ct)
     {
+        if (!IsAuthorizedForUser(context, userId))
+        {
+            return TypedResults.Forbid();
+        }
+
         var memories = await memoryStore.GetAllAsync(userId, ct).ConfigureAwait(false);
         return TypedResults.Ok(memories);
     }
 
-    private static async Task<Results<Ok<MemoryEntry>, NotFound>> GetAsync(
+    private static async Task<Results<Ok<MemoryEntry>, NotFound, ForbidHttpResult>> GetAsync(
+        HttpContext context,
         [FromRoute] string userId,
         [FromRoute] string key,
         [FromServices] IMemoryStore memoryStore,
         CancellationToken ct)
     {
+        if (!IsAuthorizedForUser(context, userId))
+        {
+            return TypedResults.Forbid();
+        }
+
         var memory = (await memoryStore.GetAllAsync(userId, ct).ConfigureAwait(false))
             .FirstOrDefault(entry => string.Equals(entry.Key, key, StringComparison.OrdinalIgnoreCase));
 
@@ -54,13 +67,19 @@ public static class MemoryApi
             : TypedResults.Ok(memory);
     }
 
-    private static async Task<Results<Ok<MemoryEntry>, BadRequest<string>>> PutAsync(
+    private static async Task<Results<Ok<MemoryEntry>, BadRequest<string>, ForbidHttpResult>> PutAsync(
+        HttpContext context,
         [FromRoute] string userId,
         [FromRoute] string key,
         [FromBody] JsonElement body,
         [FromServices] IMemoryStore memoryStore,
         CancellationToken ct)
     {
+        if (!IsAuthorizedForUser(context, userId))
+        {
+            return TypedResults.Forbid();
+        }
+
         if (!TryReadValue(body, out var value))
         {
             return TypedResults.BadRequest("A non-empty 'value' field is required.");
@@ -83,14 +102,28 @@ public static class MemoryApi
         return TypedResults.Ok(storedMemory);
     }
 
-    private static async Task<Ok<object>> DeleteAsync(
+    private static async Task<Results<Ok<object>, ForbidHttpResult>> DeleteAsync(
+        HttpContext context,
         [FromRoute] string userId,
         [FromRoute] string key,
         [FromServices] IMemoryStore memoryStore,
         CancellationToken ct)
     {
+        if (!IsAuthorizedForUser(context, userId))
+        {
+            return TypedResults.Forbid();
+        }
+
         await memoryStore.DeleteAsync(userId, key, ct).ConfigureAwait(false);
         return TypedResults.Ok<object>(new { deleted = true });
+    }
+
+    private static bool IsAuthorizedForUser(HttpContext context, string userId)
+    {
+        var authenticatedUserId = context.User.FindFirst("sub")?.Value
+            ?? context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        return authenticatedUserId is null || string.Equals(authenticatedUserId, userId, StringComparison.Ordinal);
     }
 
     private static bool TryReadValue(JsonElement body, out string? value)

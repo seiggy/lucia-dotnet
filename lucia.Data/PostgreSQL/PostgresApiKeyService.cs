@@ -189,53 +189,57 @@ public sealed partial class PostgresApiKeyService : IApiKeyService
 
     public async Task<bool> RevokeKeyAsync(string keyId, CancellationToken cancellationToken = default)
     {
-        var activeCount = await GetActiveKeyCountAsync(cancellationToken).ConfigureAwait(false);
+        var revokedAt = DateTime.UtcNow;
 
         await using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken).ConfigureAwait(false);
-        await using (var checkCmd = connection.CreateCommand())
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            UPDATE api_keys
+            SET is_revoked = TRUE, revoked_at = @revokedAt
+            WHERE id = @id
+              AND is_revoked = FALSE
+              AND (
+                  SELECT COUNT(*)
+                  FROM api_keys
+                  WHERE is_revoked = FALSE
+                    AND (expires_at IS NULL OR expires_at > @now)
+              ) > 1
+            RETURNING name, key_prefix;
+            """;
+        cmd.Parameters.AddWithValue("id", keyId);
+        cmd.Parameters.AddWithValue("now", revokedAt);
+        cmd.Parameters.AddWithValue("revokedAt", revokedAt);
+
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
-            checkCmd.CommandText = "SELECT is_revoked FROM api_keys WHERE id = @id;";
-            checkCmd.Parameters.AddWithValue("id", keyId);
-            var result = await checkCmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-
-            if (result is null)
-            {
-                return false;
-            }
-
-            if (result is bool isRevoked && isRevoked)
-            {
-                return false;
-            }
+            LogRevokedKey(_logger, reader.GetString(0), reader.GetString(1));
+            return true;
         }
 
+        await reader.DisposeAsync().ConfigureAwait(false);
+
+        await using var checkCmd = connection.CreateCommand();
+        checkCmd.CommandText = "SELECT is_revoked FROM api_keys WHERE id = @id;";
+        checkCmd.Parameters.AddWithValue("id", keyId);
+        var result = await checkCmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+        if (result is null)
+        {
+            return false;
+        }
+
+        if (result is bool isRevoked && isRevoked)
+        {
+            return false;
+        }
+
+        var activeCount = await GetActiveKeyCountAsync(cancellationToken).ConfigureAwait(false);
         if (activeCount <= 1)
         {
             throw new InvalidOperationException("Cannot revoke the last active API key. Create a new key first.");
         }
 
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
-            UPDATE api_keys SET is_revoked = TRUE, revoked_at = @revokedAt
-            WHERE id = @id AND is_revoked = FALSE;
-            """;
-        cmd.Parameters.AddWithValue("id", keyId);
-        cmd.Parameters.AddWithValue("revokedAt", DateTime.UtcNow);
-
-        var affected = await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        if (affected > 0)
-        {
-            await using var nameCmd = connection.CreateCommand();
-            nameCmd.CommandText = "SELECT name, key_prefix FROM api_keys WHERE id = @id;";
-            nameCmd.Parameters.AddWithValue("id", keyId);
-            await using var reader = await nameCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            {
-                LogRevokedKey(_logger, reader.GetString(0), reader.GetString(1));
-            }
-        }
-
-        return affected > 0;
+        return false;
     }
 
     public async Task<ApiKeyCreateResponse> RegenerateKeyAsync(string keyId, CancellationToken cancellationToken = default)

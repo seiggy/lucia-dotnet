@@ -57,7 +57,7 @@ public sealed class AgentDefinitionApiTests
             .Invokes(call => persisted = call.GetArgument<AgentDefinition>(0))
             .Returns(Task.CompletedTask);
 
-        await InvokeHandlerAsync("ReplaceDefinitionAsync", "route-id", replacementRequest, repository);
+        await InvokeReplaceHandlerAsync("ReplaceDefinitionAsync", "route-id", replacementRequest, repository);
 
         Assert.NotNull(persisted);
         Assert.Equal("route-id", persisted.Id);
@@ -101,11 +101,9 @@ public sealed class AgentDefinitionApiTests
             [
                 new AgentToolReference { ServerId = "server-a", ToolName = "tool-a" },
             ]);
-        var patchRequest = new AgentDefinition
+        var patchRequest = new PatchAgentDefinitionRequest
         {
-            Enabled = false,
             DisplayName = "Patched Display",
-            Tools = null!,
         };
         AgentDefinition? persisted = null;
 
@@ -115,7 +113,7 @@ public sealed class AgentDefinitionApiTests
             .Invokes(call => persisted = call.GetArgument<AgentDefinition>(0))
             .Returns(Task.CompletedTask);
 
-        await InvokeHandlerAsync("PatchDefinitionAsync", "route-id", patchRequest, repository);
+        await InvokePatchHandlerAsync("route-id", patchRequest, repository);
 
         Assert.NotNull(persisted);
         Assert.Same(existing, persisted);
@@ -125,7 +123,7 @@ public sealed class AgentDefinitionApiTests
         Assert.Equal("Existing instructions", persisted.Instructions);
         Assert.Equal("existing-model", persisted.ModelConnectionName);
         Assert.Equal("existing-embedding", persisted.EmbeddingProviderName);
-        Assert.False(persisted.Enabled);
+        Assert.True(persisted.Enabled);
         Assert.Single(persisted.Tools);
         Assert.Equal("server-a", persisted.Tools[0].ServerId);
         Assert.True(persisted.IsBuiltIn);
@@ -133,13 +131,65 @@ public sealed class AgentDefinitionApiTests
         Assert.True(persisted.UpdatedAt >= new DateTime(2024, 2, 3, 3, 4, 5, DateTimeKind.Utc));
     }
 
-    private static async Task InvokeHandlerAsync(string methodName, string id, AgentDefinition definition, IAgentDefinitionRepository repository)
+    [Fact]
+    public async Task PatchDefinitionAsync_UpdatesEnabledWhenExplicitlyProvided()
+    {
+        var repository = A.Fake<IAgentDefinitionRepository>();
+        var existing = CreateDefinition(
+            id: "existing-id",
+            name: "existing-name",
+            displayName: "Existing Display",
+            description: "Existing description",
+            instructions: "Existing instructions",
+            enabled: true,
+            modelConnectionName: "existing-model",
+            embeddingProviderName: "existing-embedding",
+            isBuiltIn: true,
+            isRemote: false,
+            isOrchestrator: false,
+            createdAt: new DateTime(2024, 2, 2, 3, 4, 5, DateTimeKind.Utc),
+            updatedAt: new DateTime(2024, 2, 3, 3, 4, 5, DateTimeKind.Utc),
+            tools:
+            [
+                new AgentToolReference { ServerId = "server-a", ToolName = "tool-a" },
+            ]);
+        var patchRequest = new PatchAgentDefinitionRequest
+        {
+            Enabled = false,
+        };
+        AgentDefinition? persisted = null;
+
+        A.CallTo(() => repository.GetAgentDefinitionAsync("route-id", A<CancellationToken>._))
+            .Returns(existing);
+        A.CallTo(() => repository.UpsertAgentDefinitionAsync(A<AgentDefinition>._, A<CancellationToken>._))
+            .Invokes(call => persisted = call.GetArgument<AgentDefinition>(0))
+            .Returns(Task.CompletedTask);
+
+        await InvokePatchHandlerAsync("route-id", patchRequest, repository);
+
+        Assert.NotNull(persisted);
+        Assert.False(persisted.Enabled);
+    }
+
+    private static async Task InvokeReplaceHandlerAsync(string methodName, string id, AgentDefinition definition, IAgentDefinitionRepository repository)
     {
         var method = typeof(AgentDefinitionApi).GetMethod(methodName, BindingFlags.NonPublic | BindingFlags.Static);
 
         Assert.NotNull(method);
 
         var task = method.Invoke(null, [id, definition, repository]) as Task;
+
+        Assert.NotNull(task);
+        await task.ConfigureAwait(false);
+    }
+
+    private static async Task InvokePatchHandlerAsync(string id, PatchAgentDefinitionRequest request, IAgentDefinitionRepository repository)
+    {
+        var method = typeof(AgentDefinitionApi).GetMethod("PatchDefinitionAsync", BindingFlags.NonPublic | BindingFlags.Static);
+
+        Assert.NotNull(method);
+
+        var task = method.Invoke(null, [id, request, repository]) as Task;
 
         Assert.NotNull(task);
         await task.ConfigureAwait(false);

@@ -1,9 +1,13 @@
 using A2A;
 using lucia.Agents.Abstractions;
+using lucia.Agents.CommandTracing;
 using lucia.Agents.DataStores;
 using lucia.Agents.Services;
+using lucia.Agents.Training;
+using lucia.Data.InMemory;
 using lucia.Data.PostgreSQL;
 using lucia.Data.Sqlite;
+using lucia.TimerAgent.ScheduledTasks;
 using lucia.Wyoming.Diarization;
 using lucia.Wyoming.Models;
 using lucia.Wyoming.Telemetry;
@@ -124,6 +128,10 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IApiKeyService, PostgresApiKeyService>();
 
         builder.Services.AddSingleton<ITaskArchiveStore, PostgresTaskArchiveStore>();
+        builder.Services.AddSingleton<ITraceRepository, InMemoryTraceRepository>();
+        builder.Services.AddSingleton<ICommandTraceRepository, InMemoryCommandTraceRepository>();
+        builder.Services.AddSingleton<IScheduledTaskRepository, InMemoryScheduledTaskRepository>();
+        builder.Services.AddSingleton<IAlarmClockRepository, InMemoryAlarmClockRepository>();
 
         builder.Services.AddSingleton<ISpeakerProfileStore, PostgresSpeakerProfileStore>();
         builder.Services.AddSingleton<ITranscriptStore, PostgresTranscriptStore>();
