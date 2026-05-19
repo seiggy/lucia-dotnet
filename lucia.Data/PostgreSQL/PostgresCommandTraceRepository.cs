@@ -140,6 +140,8 @@ public sealed class PostgresCommandTraceRepository : ICommandTraceRepository
             avgDuration = reader.IsDBNull(4) ? 0 : Math.Round(reader.GetDouble(4), 2);
         }
 
+        await reader.CloseAsync().ConfigureAwait(false);
+
         await using var skillCmd = connection.CreateCommand();
         skillCmd.CommandText = """
             SELECT skill_id, COUNT(*) AS cnt
