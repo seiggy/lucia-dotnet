@@ -80,7 +80,7 @@ public static class AgentDefinitionApi
         {
             "orchestrator", "light-agent", "climate-agent",
             "general-assistant", "music-agent", "timer-agent",
-            "lists-agent", "scene-agent"
+            "lists-agent", "scene-agent", "security-agent"
         };
 
         if (builtInNames.Contains(definition.Name))

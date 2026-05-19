@@ -130,7 +130,11 @@ public sealed class MongoMemoryStore : IMemoryStore
                 new CreateIndexOptions { Unique = true, Name = "idx_user_memory_key" }),
             new CreateIndexModel<BsonDocument>(
                 Builders<BsonDocument>.IndexKeys.Ascending("expires_at"),
-                new CreateIndexOptions { Name = "idx_user_memory_expires_at" }),
+                new CreateIndexOptions
+                {
+                    Name = "idx_user_memory_expires_at",
+                    ExpireAfter = TimeSpan.Zero // TTL index: MongoDB deletes docs when expires_at < now
+                }),
         ]);
     }
 

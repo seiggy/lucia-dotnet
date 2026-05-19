@@ -96,6 +96,9 @@ public sealed class PostgresConfigurationProvider : ConfigurationProvider, IDisp
             var maxUpdatedAt = checkReader.GetString(1);
             var currentVersion = currentCount ^ maxUpdatedAt.GetHashCode();
 
+            // Close the first reader before issuing a second query on the same connection
+            await checkReader.CloseAsync().ConfigureAwait(false);
+
             if (currentVersion != _lastLoadRowVersion)
             {
                 await using var cmd = connection.CreateCommand();

@@ -126,9 +126,9 @@ public static class EntitiesApi
     private static EntityQueryItem CreateItem(IEntityLocationService locationService, HomeAssistantEntity entity)
     {
         var area = locationService.GetAreaForEntity(entity.EntityId);
-        var floor = area?.FloorId is null
+        var floor = area is null
             ? null
-            : locationService.GetFloorForArea(area.FloorId);
+            : locationService.GetFloorForArea(area.AreaId);
 
         return new EntityQueryItem
         {
@@ -155,9 +155,9 @@ public static class EntitiesApi
         string locationFilter)
     {
         var area = locationService.GetAreaForEntity(entity.EntityId);
-        var floor = area?.FloorId is null
+        var floor = area is null
             ? null
-            : locationService.GetFloorForArea(area.FloorId);
+            : locationService.GetFloorForArea(area.AreaId);
 
         return ContainsIgnoreCase(entity.AreaId, locationFilter)
             || ContainsIgnoreCase(area?.Name, locationFilter)
