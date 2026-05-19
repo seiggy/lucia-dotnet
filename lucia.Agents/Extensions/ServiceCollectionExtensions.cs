@@ -70,7 +70,7 @@ public static class ServiceCollectionExtensions
         var cacheProvider = builder.Configuration["DataProvider:Cache"] ?? "Redis";
         var storeProvider = builder.Configuration["DataProvider:Store"] ?? "MongoDB";
         var useRedis = !cacheProvider.Equals("InMemory", StringComparison.OrdinalIgnoreCase);
-        var useMongo = !storeProvider.Equals("SQLite", StringComparison.OrdinalIgnoreCase);
+        var useMongo = storeProvider.Equals("MongoDB", StringComparison.OrdinalIgnoreCase);
 
         if (useRedis)
         {
