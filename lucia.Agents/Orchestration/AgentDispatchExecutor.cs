@@ -329,7 +329,7 @@ public sealed class AgentDispatchExecutor : Executor
             ExecutionTimeMs = 0
         };
 
-    private static IReadOnlyList<string> BuildExecutionOrder(AgentChoiceResult choice)
+    private IReadOnlyList<string> BuildExecutionOrder(AgentChoiceResult choice)
     {
         var ordered = new List<string>();
         if (!string.IsNullOrWhiteSpace(choice.AgentId))
@@ -337,14 +337,34 @@ public sealed class AgentDispatchExecutor : Executor
             ordered.Add(choice.AgentId);
         }
 
-        if (choice.AdditionalAgents is { Count: > 0 })
+        if (choice.AdditionalAgents is not { Count: > 0 })
         {
-            foreach (var agentId in choice.AdditionalAgents)
+            return ordered;
+        }
+
+        // Guard: Only fan-out to additional agents when per-agent instructions are present.
+        // Without instructions, additional agents receive the full undirected prompt and produce
+        // incoherent responses (see GitHub issue #114). This also protects against LLM
+        // hallucination of extra agents on high-confidence single-domain requests.
+        if (choice.AgentInstructions is null or { Count: 0 })
+        {
+            _logger.LogWarning(
+                "Ignoring {Count} additionalAgents — no agentInstructions provided. Primary agent: {AgentId}",
+                choice.AdditionalAgents.Count, choice.AgentId);
+            return ordered;
+        }
+
+        var instructedAgents = new HashSet<string>(
+            choice.AgentInstructions.Select(i => i.AgentId),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var agentId in choice.AdditionalAgents)
+        {
+            if (!string.IsNullOrWhiteSpace(agentId)
+                && !ordered.Contains(agentId, StringComparer.OrdinalIgnoreCase)
+                && instructedAgents.Contains(agentId))
             {
-                if (!string.IsNullOrWhiteSpace(agentId) && !ordered.Contains(agentId, StringComparer.OrdinalIgnoreCase))
-                {
-                    ordered.Add(agentId);
-                }
+                ordered.Add(agentId);
             }
         }
 
