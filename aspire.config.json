@@ -1,0 +1,8 @@
+{
+  "appHost": {
+    "path": "lucia.AppHost/lucia.AppHost.csproj"
+  },
+  "features": {
+    "defaultWatchEnabled": "true"
+  }
+}

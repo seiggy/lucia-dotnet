@@ -120,6 +120,14 @@ public static class MemoryApi
 
     private static bool IsAuthorizedForUser(HttpContext context, string userId)
     {
+        // API key and internal-service authenticated callers are trusted (service-to-service)
+        // and may access any user's memories on behalf of the voice pipeline.
+        var authMethod = context.User.FindFirst("auth_method")?.Value;
+        if (authMethod is "api_key" or "internal_token")
+        {
+            return true;
+        }
+
         var authenticatedUserId = context.User.FindFirst("sub")?.Value
             ?? context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 

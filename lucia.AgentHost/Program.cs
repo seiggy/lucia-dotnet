@@ -389,6 +389,13 @@ if (useSqlite)
     var migrationRunner = migrationScope.ServiceProvider.GetRequiredService<lucia.Data.Sqlite.SqliteMigrationRunner>();
     await migrationRunner.StartAsync(CancellationToken.None).ConfigureAwait(false);
 }
+else if (usePostgres)
+{
+    // Run PostgreSQL migrations synchronously before seeding, same as SQLite.
+    await using var migrationScope = app.Services.CreateAsyncScope();
+    var migrationRunner = migrationScope.ServiceProvider.GetRequiredService<PostgresMigrationRunner>();
+    await migrationRunner.StartAsync(CancellationToken.None).ConfigureAwait(false);
+}
 
 // Headless seed: run before app accepts requests so env-based setup is in the config store
 // before OnboardingMiddleware or config provider are first read

@@ -53,7 +53,8 @@ public static class ServiceCollectionExtensions
 
         // Entity location service (in-memory, no Redis needed)
         builder.Services.AddSingleton<IEntityLocationService, lucia.Data.InMemory.InMemoryEntityLocationService>();
-        builder.Services.AddSingleton<IMemoryStore, lucia.Data.InMemory.InMemoryMemoryStore>();
+        // Only register in-memory IMemoryStore if no durable store has been registered yet
+        builder.Services.TryAddSingleton<IMemoryStore, lucia.Data.InMemory.InMemoryMemoryStore>();
         AddMemorySupportServices(builder.Services);
 
         return builder;
