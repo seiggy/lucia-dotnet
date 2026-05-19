@@ -23,6 +23,7 @@ using lucia.Agents.Services.EntityAssignment;
 using lucia.Data;
 using lucia.Data.Extensions;
 using lucia.Data.InMemory;
+using lucia.Data.PostgreSQL;
 using lucia.Data.Sqlite;
 using lucia.MusicAgent;
 using lucia.TimerAgent;
@@ -71,6 +72,16 @@ if (useMongo)
 
     // Add MongoDB configuration as highest-priority source (overrides appsettings)
     builder.Configuration.AddMongoConfiguration("luciaconfig");
+}
+else if (usePostgres)
+{
+    // PostgreSQL configuration provider (replaces MongoDB config source)
+    var connStr = dataProviderOptions.PostgresConnectionString;
+    if (string.IsNullOrWhiteSpace(connStr))
+        connStr = builder.Configuration.GetConnectionString("luciadb") ?? "";
+    var pgFactory = new PostgresConnectionFactory(connStr);
+    builder.Services.AddSingleton(pgFactory);
+    builder.Configuration.AddPostgresConfiguration(pgFactory);
 }
 else if (useSqlite)
 {
