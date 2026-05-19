@@ -64,16 +64,20 @@ public sealed class ContextReconstructor
     /// </summary>
     public async Task<string> ReconstructAsync(ConversationRequest request, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(request.Context.UserId))
+        // Use voiceprint-identified speaker as effective identity when no auth-based UserId is present.
+        // The Wyoming voice pipeline identifies users by enrolled voice profiles, not traditional auth.
+        var effectiveUserId = request.Context.UserId ?? request.Context.SpeakerId;
+
+        if (string.IsNullOrWhiteSpace(effectiveUserId))
         {
             return Reconstruct(request);
         }
 
         var userContextTask = _userContextProvider is not null
-            ? _userContextProvider.GetUserContextAsync(request.Context.UserId, ct)
+            ? _userContextProvider.GetUserContextAsync(effectiveUserId, ct)
             : Task.FromResult(string.Empty);
         var historyTask = _chatHistoryProvider is not null
-            ? _chatHistoryProvider.GetRecentHistoryAsync(request.Context.UserId, ct: ct)
+            ? _chatHistoryProvider.GetRecentHistoryAsync(effectiveUserId, ct: ct)
             : Task.FromResult<IReadOnlyList<string>>([]);
 
         await Task.WhenAll(userContextTask, historyTask).ConfigureAwait(false);

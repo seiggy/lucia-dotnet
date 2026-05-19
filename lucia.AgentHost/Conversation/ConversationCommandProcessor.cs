@@ -257,8 +257,14 @@ public sealed partial class ConversationCommandProcessor
         CancellationToken ct)
     {
         if (_chatHistoryProvider is null
-            || string.IsNullOrWhiteSpace(request.Context.UserId)
             || string.IsNullOrWhiteSpace(assistantResponse))
+        {
+            return;
+        }
+
+        // Use voiceprint-identified speaker as effective identity when no auth-based UserId exists.
+        var effectiveUserId = request.Context.UserId ?? request.Context.SpeakerId;
+        if (string.IsNullOrWhiteSpace(effectiveUserId))
         {
             return;
         }
@@ -266,12 +272,12 @@ public sealed partial class ConversationCommandProcessor
         try
         {
             await _chatHistoryProvider
-                .AppendTurnAsync(request.Context.UserId, request.Text, assistantResponse, ct)
+                .AppendTurnAsync(effectiveUserId, request.Text, assistantResponse, ct)
                 .ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to append chat history for user {UserId}", request.Context.UserId);
+            _logger.LogWarning(ex, "Failed to append chat history for user {UserId}", effectiveUserId);
         }
     }
 

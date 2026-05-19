@@ -30,6 +30,8 @@ public sealed record ConversationContext
     /// <summary>
     /// Speaker name identified by the Wyoming voice platform's speaker verification.
     /// Populated server-side by stripping the <c>&lt;Name /&gt;</c> tag from the transcript.
+    /// Used as the effective user identity for per-user memories and chat history when
+    /// <see cref="UserId"/> is not available (voice pipeline has no traditional auth).
     /// </summary>
     [JsonPropertyName("speakerId")]
     public string? SpeakerId { get; init; }
