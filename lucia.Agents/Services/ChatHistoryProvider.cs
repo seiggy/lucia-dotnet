@@ -52,9 +52,9 @@ public sealed class ChatHistoryProvider
             return [];
         }
 
-        var memories = await _memoryStore.GetAllAsync(userId, ct).ConfigureAwait(false);
+        // Use SearchAsync with prefix query and limit to avoid loading all user memories
+        var memories = await _memoryStore.SearchAsync(userId, ChatHistoryKeyPrefix, maxTurns, ct).ConfigureAwait(false);
         return memories
-            .Where(entry => entry.Key.StartsWith(ChatHistoryKeyPrefix, StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(entry => entry.CreatedAt)
             .Take(maxTurns)
             .OrderBy(entry => entry.CreatedAt)

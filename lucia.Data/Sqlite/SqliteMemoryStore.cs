@@ -148,7 +148,8 @@ public sealed class SqliteMemoryStore : IMemoryStore
             SELECT key, value, created_at, expires_at
             FROM user_memories
             WHERE user_id = @userId AND (expires_at IS NULL OR expires_at > @now)
-            ORDER BY created_at DESC;
+            ORDER BY created_at DESC
+            LIMIT 200;
             """;
         cmd.Parameters.AddWithValue("@userId", userId);
         cmd.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));

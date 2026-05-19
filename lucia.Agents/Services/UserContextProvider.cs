@@ -33,10 +33,9 @@ public sealed class UserContextProvider
             return string.Empty;
         }
 
-        var memories = await _memoryStore.GetAllAsync(userId, ct).ConfigureAwait(false);
+        var memories = await _memoryStore.SearchAsync(userId, null, MaxMemories, ct).ConfigureAwait(false);
         var relevantMemories = memories
             .Where(entry => !entry.Key.StartsWith(ChatHistoryProvider.ChatHistoryKeyPrefix, StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(entry => entry.CreatedAt)
             .Take(MaxMemories)
             .ToList();
 

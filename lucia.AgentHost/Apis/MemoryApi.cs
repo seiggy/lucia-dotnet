@@ -163,6 +163,12 @@ public static class MemoryApi
                 return false;
             }
 
+            if (!double.IsFinite(ttlSeconds) || ttlSeconds > 31_536_000) // max 1 year in seconds
+            {
+                error = "The optional 'ttlSeconds' value is out of range (max 31536000).";
+                return false;
+            }
+
             ttl = TimeSpan.FromSeconds(ttlSeconds);
         }
 
