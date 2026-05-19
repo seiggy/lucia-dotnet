@@ -1,6 +1,7 @@
 using System.Text.Json;
 using lucia.Wyoming.Telemetry;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace lucia.Data.Sqlite;
 
@@ -17,7 +18,8 @@ public sealed class SqliteTranscriptStore : ITranscriptStore
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
     };
 
-    public SqliteTranscriptStore(SqliteConnectionFactory connectionFactory)
+    public SqliteTranscriptStore(
+        [FromKeyedServices(SqliteDbNames.Config)] SqliteConnectionFactory connectionFactory)
     {
         _connectionFactory = connectionFactory;
     }

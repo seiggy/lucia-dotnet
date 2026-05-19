@@ -5,6 +5,7 @@ using System.Text.Json;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Auth;
 
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 using Npgsql;
@@ -20,7 +21,9 @@ public sealed partial class PostgresApiKeyService : IApiKeyService
     private readonly PostgresConnectionFactory _connectionFactory;
     private readonly ILogger<PostgresApiKeyService> _logger;
 
-    public PostgresApiKeyService(PostgresConnectionFactory connectionFactory, ILogger<PostgresApiKeyService> logger)
+    public PostgresApiKeyService(
+        [FromKeyedServices(PostgresDbNames.Config)] PostgresConnectionFactory connectionFactory,
+        ILogger<PostgresApiKeyService> logger)
     {
         _connectionFactory = connectionFactory;
         _logger = logger;

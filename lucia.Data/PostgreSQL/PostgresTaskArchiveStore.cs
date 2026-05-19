@@ -7,6 +7,8 @@ using lucia.Agents.Models;
 using lucia.Agents.Services;
 using lucia.Agents.Training.Models;
 
+using Microsoft.Extensions.DependencyInjection;
+
 using Npgsql;
 using NpgsqlTypes;
 
@@ -25,7 +27,7 @@ public sealed class PostgresTaskArchiveStore : ITaskArchiveStore
 
     private readonly PostgresConnectionFactory _connectionFactory;
 
-    public PostgresTaskArchiveStore(PostgresConnectionFactory connectionFactory)
+    public PostgresTaskArchiveStore([FromKeyedServices(PostgresDbNames.Tasks)] PostgresConnectionFactory connectionFactory)
     {
         _connectionFactory = connectionFactory;
     }

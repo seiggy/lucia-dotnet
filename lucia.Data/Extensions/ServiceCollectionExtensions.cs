@@ -61,7 +61,8 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Registers SQLite repository implementations (replacing MongoDB).
+    /// Registers SQLite repository implementations with three keyed connection factories
+    /// mirroring the MongoDB/PostgreSQL three-database pattern (luciaconfig, luciatraces, luciatasks).
     /// </summary>
     public static IHostApplicationBuilder AddSqliteStoreProviders(
         this IHostApplicationBuilder builder)
@@ -69,75 +70,118 @@ public static class ServiceCollectionExtensions
         var options = new DataProviderOptions();
         builder.Configuration.GetSection(DataProviderOptions.SectionName).Bind(options);
 
-        // SQLite connection factory (skip if already registered by the host)
-        builder.Services.TryAddSingleton(new SqliteConnectionFactory(options.SqlitePath));
+        // Derive three database file paths from the configured base path.
+        // e.g. "./data/lucia.db" → "./data/lucia-config.db", "./data/lucia-traces.db", "./data/lucia-tasks.db"
+        var basePath = options.SqlitePath;
+        var dir = Path.GetDirectoryName(basePath) ?? ".";
+        var name = Path.GetFileNameWithoutExtension(basePath);
+        var ext = Path.GetExtension(basePath);
+
+        var configPath = Path.Combine(dir, $"{name}-config{ext}");
+        var tracesPath = Path.Combine(dir, $"{name}-traces{ext}");
+        var tasksPath = Path.Combine(dir, $"{name}-tasks{ext}");
+
+        // Register three keyed SqliteConnectionFactory instances.
+        builder.Services.AddKeyedSingleton<SqliteConnectionFactory>(SqliteDbNames.Config, (_, _) =>
+            new SqliteConnectionFactory(configPath));
+        builder.Services.AddKeyedSingleton<SqliteConnectionFactory>(SqliteDbNames.Traces, (_, _) =>
+            new SqliteConnectionFactory(tracesPath));
+        builder.Services.AddKeyedSingleton<SqliteConnectionFactory>(SqliteDbNames.Tasks, (_, _) =>
+            new SqliteConnectionFactory(tasksPath));
+
+        // Non-keyed factory for backward compat (migration runner, config provider).
+        builder.Services.TryAddSingleton<SqliteConnectionFactory>(sp =>
+            sp.GetRequiredKeyedService<SqliteConnectionFactory>(SqliteDbNames.Config));
 
         // Schema migration (registered as itself for direct resolution + as IHostedService)
         builder.Services.AddSingleton<SqliteMigrationRunner>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<SqliteMigrationRunner>());
 
-        // Config repositories
+        // luciaconfig repositories
         builder.Services.AddSingleton<IConfigStoreWriter, SqliteConfigStoreWriter>();
         builder.Services.AddSingleton<IModelProviderRepository, SqliteModelProviderRepository>();
         builder.Services.AddSingleton<IAgentDefinitionRepository, SqliteAgentDefinitionRepository>();
         builder.Services.AddSingleton<IPresenceSensorRepository, SqlitePresenceSensorRepository>();
         builder.Services.AddSingleton<IPluginManagementRepository, SqlitePluginManagementRepository>();
         builder.Services.AddSingleton<IApiKeyService, SqliteApiKeyService>();
-
-        // Data repositories
-        builder.Services.AddSingleton<ITaskArchiveStore, SqliteTaskArchiveStore>();
-
-        // Wyoming stores
         builder.Services.AddSingleton<ISpeakerProfileStore, SqliteSpeakerProfileStore>();
         builder.Services.AddSingleton<ITranscriptStore, SqliteTranscriptStore>();
         builder.Services.AddSingleton<IModelPreferenceStore, SqliteModelPreferenceStore>();
         builder.Services.AddSingleton<IMemoryStore, SqliteMemoryStore>();
+
+        // luciatraces repositories
+        builder.Services.AddSingleton<ITraceRepository, SqliteTraceRepository>();
+        builder.Services.AddSingleton<ICommandTraceRepository, SqliteCommandTraceRepository>();
+
+        // luciatasks repositories
+        builder.Services.AddSingleton<ITaskArchiveStore, SqliteTaskArchiveStore>();
+        builder.Services.AddSingleton<IScheduledTaskRepository, SqliteScheduledTaskRepository>();
+        builder.Services.AddSingleton<IAlarmClockRepository, SqliteAlarmClockRepository>();
+
         AddMemorySupportServices(builder.Services);
 
         return builder;
     }
 
     /// <summary>
-    /// Registers PostgreSQL repository implementations.
+    /// Registers PostgreSQL repository implementations with three keyed connection factories
+    /// mirroring the MongoDB three-database pattern (luciaconfig, luciatraces, luciatasks).
     /// </summary>
     public static IHostApplicationBuilder AddPostgresStoreProviders(
         this IHostApplicationBuilder builder)
     {
-        var options = new DataProviderOptions();
-        builder.Configuration.GetSection(DataProviderOptions.SectionName).Bind(options);
-
-        builder.Services.TryAddSingleton<PostgresConnectionFactory>(sp =>
+        // Register three keyed PostgresConnectionFactory instances (one per database).
+        // Connection strings come from Aspire-injected ConnectionStrings section.
+        builder.Services.AddKeyedSingleton<PostgresConnectionFactory>(PostgresDbNames.Config, (sp, _) =>
         {
-            var configuration = sp.GetRequiredService<IConfiguration>();
-            var connectionString = options.PostgresConnectionString;
-            if (string.IsNullOrWhiteSpace(connectionString))
-            {
-                connectionString = configuration.GetConnectionString("luciadb") ?? string.Empty;
-            }
-
-            return new PostgresConnectionFactory(connectionString);
+            var config = sp.GetRequiredService<IConfiguration>();
+            var connStr = config.GetConnectionString(PostgresDbNames.Config) ?? string.Empty;
+            return new PostgresConnectionFactory(connStr);
         });
+
+        builder.Services.AddKeyedSingleton<PostgresConnectionFactory>(PostgresDbNames.Traces, (sp, _) =>
+        {
+            var config = sp.GetRequiredService<IConfiguration>();
+            var connStr = config.GetConnectionString(PostgresDbNames.Traces) ?? string.Empty;
+            return new PostgresConnectionFactory(connStr);
+        });
+
+        builder.Services.AddKeyedSingleton<PostgresConnectionFactory>(PostgresDbNames.Tasks, (sp, _) =>
+        {
+            var config = sp.GetRequiredService<IConfiguration>();
+            var connStr = config.GetConnectionString(PostgresDbNames.Tasks) ?? string.Empty;
+            return new PostgresConnectionFactory(connStr);
+        });
+
+        // Also register a non-keyed factory pointing at config DB for backward compat
+        // (used by PostgresMigrationRunner and PostgresConfigurationProvider).
+        builder.Services.TryAddSingleton<PostgresConnectionFactory>(sp =>
+            sp.GetRequiredKeyedService<PostgresConnectionFactory>(PostgresDbNames.Config));
 
         builder.Services.AddSingleton<PostgresMigrationRunner>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<PostgresMigrationRunner>());
 
+        // luciaconfig repositories
         builder.Services.AddSingleton<IConfigStoreWriter, PostgresConfigStoreWriter>();
         builder.Services.AddSingleton<IModelProviderRepository, PostgresModelProviderRepository>();
         builder.Services.AddSingleton<IAgentDefinitionRepository, PostgresAgentDefinitionRepository>();
         builder.Services.AddSingleton<IPresenceSensorRepository, PostgresPresenceSensorRepository>();
         builder.Services.AddSingleton<IPluginManagementRepository, PostgresPluginManagementRepository>();
         builder.Services.AddSingleton<IApiKeyService, PostgresApiKeyService>();
-
-        builder.Services.AddSingleton<ITaskArchiveStore, PostgresTaskArchiveStore>();
-        builder.Services.AddSingleton<ITraceRepository, InMemoryTraceRepository>();
-        builder.Services.AddSingleton<ICommandTraceRepository, InMemoryCommandTraceRepository>();
-        builder.Services.AddSingleton<IScheduledTaskRepository, InMemoryScheduledTaskRepository>();
-        builder.Services.AddSingleton<IAlarmClockRepository, InMemoryAlarmClockRepository>();
-
         builder.Services.AddSingleton<ISpeakerProfileStore, PostgresSpeakerProfileStore>();
         builder.Services.AddSingleton<ITranscriptStore, PostgresTranscriptStore>();
         builder.Services.AddSingleton<IModelPreferenceStore, PostgresModelPreferenceStore>();
         builder.Services.AddSingleton<IMemoryStore, PostgresMemoryStore>();
+
+        // luciatraces repositories
+        builder.Services.AddSingleton<ITraceRepository, PostgresTraceRepository>();
+        builder.Services.AddSingleton<ICommandTraceRepository, PostgresCommandTraceRepository>();
+
+        // luciatasks repositories
+        builder.Services.AddSingleton<ITaskArchiveStore, PostgresTaskArchiveStore>();
+        builder.Services.AddSingleton<IScheduledTaskRepository, PostgresScheduledTaskRepository>();
+        builder.Services.AddSingleton<IAlarmClockRepository, PostgresAlarmClockRepository>();
+
         AddMemorySupportServices(builder.Services);
 
         return builder;

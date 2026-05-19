@@ -1,28 +1,54 @@
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace lucia.Data.Sqlite;
 
 /// <summary>
-/// Creates SQLite tables on startup and tracks schema versions for future migrations.
+/// Creates SQLite tables on startup across all three databases and tracks schema versions.
+/// Runs migrations on luciaconfig, luciatraces, and luciatasks databases independently.
 /// </summary>
 public sealed class SqliteMigrationRunner : IHostedService
 {
-    private readonly SqliteConnectionFactory _connectionFactory;
+    private const int ConfigSchemaVersion = 2;
+    private const int TracesSchemaVersion = 1;
+    private const int TasksSchemaVersion = 1;
+
+    private readonly SqliteConnectionFactory _configFactory;
+    private readonly SqliteConnectionFactory _tracesFactory;
+    private readonly SqliteConnectionFactory _tasksFactory;
     private readonly ILogger<SqliteMigrationRunner> _logger;
 
-    private const int CurrentSchemaVersion = 2;
-
-    public SqliteMigrationRunner(SqliteConnectionFactory connectionFactory, ILogger<SqliteMigrationRunner> logger)
+    public SqliteMigrationRunner(
+        [FromKeyedServices(SqliteDbNames.Config)] SqliteConnectionFactory configFactory,
+        [FromKeyedServices(SqliteDbNames.Traces)] SqliteConnectionFactory tracesFactory,
+        [FromKeyedServices(SqliteDbNames.Tasks)] SqliteConnectionFactory tasksFactory,
+        ILogger<SqliteMigrationRunner> logger)
     {
-        _connectionFactory = connectionFactory;
+        _configFactory = configFactory;
+        _tracesFactory = tracesFactory;
+        _tasksFactory = tasksFactory;
         _logger = logger;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        using var connection = _connectionFactory.CreateConnection();
+        MigrateDatabase(_configFactory, "config", ConfigSchemaVersion, ApplyConfigV1, ApplyConfigV2);
+        MigrateDatabase(_tracesFactory, "traces", TracesSchemaVersion, ApplyTracesV1);
+        MigrateDatabase(_tasksFactory, "tasks", TasksSchemaVersion, ApplyTasksV1);
+        return Task.CompletedTask;
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    private void MigrateDatabase(
+        SqliteConnectionFactory factory,
+        string dbLabel,
+        int targetVersion,
+        params ReadOnlySpan<Action<SqliteConnection>> migrations)
+    {
+        using var connection = factory.CreateConnection();
         using var transaction = connection.BeginTransaction();
 
         try
@@ -30,43 +56,33 @@ public sealed class SqliteMigrationRunner : IHostedService
             EnsureSchemaVersionTable(connection);
             var currentVersion = GetSchemaVersion(connection);
 
-            if (currentVersion < CurrentSchemaVersion)
+            if (currentVersion < targetVersion)
             {
-                _logger.LogInformation("Running SQLite migrations from version {Current} to {Target}...",
-                    currentVersion, CurrentSchemaVersion);
+                _logger.LogInformation("Running SQLite [{DbLabel}] migrations from version {Current} to {Target}...",
+                    dbLabel, currentVersion, targetVersion);
 
-                if (currentVersion < 1)
+                for (var v = currentVersion; v < targetVersion && v < migrations.Length; v++)
                 {
-                    ApplyVersion1(connection);
+                    migrations[v](connection);
                 }
 
-                if (currentVersion < 2)
-                {
-                    ApplyVersion2(connection);
-                }
-
-                SetSchemaVersion(connection, CurrentSchemaVersion);
+                SetSchemaVersion(connection, targetVersion);
                 transaction.Commit();
-
-                _logger.LogInformation("SQLite schema migrated to version {Version}.", CurrentSchemaVersion);
+                _logger.LogInformation("SQLite [{DbLabel}] schema migrated to version {Version}.", dbLabel, targetVersion);
             }
             else
             {
                 transaction.Commit();
-                _logger.LogDebug("SQLite schema is up to date at version {Version}.", currentVersion);
+                _logger.LogDebug("SQLite [{DbLabel}] schema is up to date at version {Version}.", dbLabel, currentVersion);
             }
         }
         catch (Exception ex)
         {
             transaction.Rollback();
-            _logger.LogError(ex, "SQLite migration failed.");
+            _logger.LogError(ex, "SQLite [{DbLabel}] migration failed.", dbLabel);
             throw;
         }
-
-        return Task.CompletedTask;
     }
-
-    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     private static void EnsureSchemaVersionTable(SqliteConnection connection)
     {
@@ -100,11 +116,12 @@ public sealed class SqliteMigrationRunner : IHostedService
         cmd.ExecuteNonQuery();
     }
 
-    private static void ApplyVersion1(SqliteConnection connection)
+    // ── luciaconfig database migrations ──────────────────────────────────────
+
+    private static void ApplyConfigV1(SqliteConnection connection)
     {
         using var cmd = connection.CreateCommand();
         cmd.CommandText = """
-            -- luciaconfig: configuration
             CREATE TABLE IF NOT EXISTS configuration (
                 key TEXT PRIMARY KEY,
                 value TEXT,
@@ -114,7 +131,6 @@ public sealed class SqliteMigrationRunner : IHostedService
                 is_sensitive INTEGER NOT NULL DEFAULT 0
             );
 
-            -- luciaconfig: api_keys
             CREATE TABLE IF NOT EXISTS api_keys (
                 id TEXT PRIMARY KEY,
                 key_hash TEXT NOT NULL UNIQUE,
@@ -130,14 +146,12 @@ public sealed class SqliteMigrationRunner : IHostedService
             CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
             CREATE INDEX IF NOT EXISTS idx_api_keys_revoked ON api_keys(is_revoked);
 
-            -- luciaconfig: model_providers
             CREATE TABLE IF NOT EXISTS model_providers (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL UNIQUE,
                 data TEXT NOT NULL
             );
 
-            -- luciaconfig: agent_definitions
             CREATE TABLE IF NOT EXISTS agent_definitions (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL UNIQUE,
@@ -145,7 +159,6 @@ public sealed class SqliteMigrationRunner : IHostedService
                 data TEXT NOT NULL
             );
 
-            -- luciaconfig: mcp_tool_servers
             CREATE TABLE IF NOT EXISTS mcp_tool_servers (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL UNIQUE,
@@ -153,7 +166,6 @@ public sealed class SqliteMigrationRunner : IHostedService
                 data TEXT NOT NULL
             );
 
-            -- luciaconfig: response_templates
             CREATE TABLE IF NOT EXISTS response_templates (
                 id TEXT PRIMARY KEY,
                 skill_id TEXT NOT NULL,
@@ -162,7 +174,6 @@ public sealed class SqliteMigrationRunner : IHostedService
                 UNIQUE(skill_id, action)
             );
 
-            -- luciaconfig: presence_sensor_mappings
             CREATE TABLE IF NOT EXISTS presence_sensor_mappings (
                 id TEXT PRIMARY KEY,
                 area_id TEXT,
@@ -171,25 +182,72 @@ public sealed class SqliteMigrationRunner : IHostedService
             );
             CREATE INDEX IF NOT EXISTS idx_presence_area ON presence_sensor_mappings(area_id);
 
-            -- luciaconfig: presence_config
             CREATE TABLE IF NOT EXISTS presence_config (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
 
-            -- luciaconfig: plugin_repositories
             CREATE TABLE IF NOT EXISTS plugin_repositories (
                 id TEXT PRIMARY KEY,
                 data TEXT NOT NULL
             );
 
-            -- luciaconfig: installed_plugins
             CREATE TABLE IF NOT EXISTS installed_plugins (
                 id TEXT PRIMARY KEY,
                 data TEXT NOT NULL
             );
 
-            -- luciatraces: conversation_traces
+            CREATE TABLE IF NOT EXISTS voice_transcripts (
+                id TEXT PRIMARY KEY,
+                session_id TEXT,
+                timestamp TEXT NOT NULL,
+                speaker_id TEXT,
+                data TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_transcripts_session ON voice_transcripts(session_id);
+            CREATE INDEX IF NOT EXISTS idx_transcripts_time ON voice_transcripts(timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_transcripts_speaker ON voice_transcripts(speaker_id);
+
+            CREATE TABLE IF NOT EXISTS speaker_profiles (
+                id TEXT PRIMARY KEY,
+                is_provisional INTEGER NOT NULL DEFAULT 1,
+                last_seen_at TEXT,
+                data TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_profiles_provisional ON speaker_profiles(is_provisional, last_seen_at);
+
+            CREATE TABLE IF NOT EXISTS model_preferences (
+                id TEXT PRIMARY KEY,
+                data TEXT NOT NULL
+            );
+            """;
+        cmd.ExecuteNonQuery();
+    }
+
+    private static void ApplyConfigV2(SqliteConnection connection)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            CREATE TABLE IF NOT EXISTS user_memories (
+                user_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                value TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT,
+                PRIMARY KEY(user_id, key)
+            );
+            CREATE INDEX IF NOT EXISTS idx_user_memories_user_id ON user_memories(user_id);
+            CREATE INDEX IF NOT EXISTS idx_user_memories_expires_at ON user_memories(expires_at);
+            """;
+        cmd.ExecuteNonQuery();
+    }
+
+    // ── luciatraces database migrations ──────────────────────────────────────
+
+    private static void ApplyTracesV1(SqliteConnection connection)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
             CREATE TABLE IF NOT EXISTS conversation_traces (
                 id TEXT PRIMARY KEY,
                 session_id TEXT,
@@ -203,75 +261,11 @@ public sealed class SqliteMigrationRunner : IHostedService
             CREATE INDEX IF NOT EXISTS idx_traces_session ON conversation_traces(session_id);
             CREATE INDEX IF NOT EXISTS idx_traces_label ON conversation_traces(label_status);
 
-            -- luciatraces: dataset_exports
             CREATE TABLE IF NOT EXISTS dataset_exports (
                 id TEXT PRIMARY KEY,
                 data TEXT NOT NULL
             );
 
-            -- luciatasks: scheduled_tasks
-            CREATE TABLE IF NOT EXISTS scheduled_tasks (
-                id TEXT PRIMARY KEY,
-                status TEXT NOT NULL,
-                fire_at TEXT,
-                task_type TEXT,
-                data TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_scheduled_status ON scheduled_tasks(status, fire_at);
-
-            -- luciatasks: alarm_clocks
-            CREATE TABLE IF NOT EXISTS alarm_clocks (
-                id TEXT PRIMARY KEY,
-                is_enabled INTEGER NOT NULL DEFAULT 1,
-                next_fire_at TEXT,
-                data TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_alarms_enabled ON alarm_clocks(is_enabled, next_fire_at);
-
-            -- luciatasks: alarm_sounds
-            CREATE TABLE IF NOT EXISTS alarm_sounds (
-                id TEXT PRIMARY KEY,
-                is_default INTEGER NOT NULL DEFAULT 0,
-                data TEXT NOT NULL
-            );
-
-            -- luciatasks: archived_tasks
-            CREATE TABLE IF NOT EXISTS archived_tasks (
-                id TEXT PRIMARY KEY,
-                archived_at TEXT NOT NULL DEFAULT (datetime('now')),
-                final_state TEXT,
-                data TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_archived_at ON archived_tasks(archived_at DESC);
-
-            -- luciawyoming: voice_transcripts
-            CREATE TABLE IF NOT EXISTS voice_transcripts (
-                id TEXT PRIMARY KEY,
-                session_id TEXT,
-                timestamp TEXT NOT NULL,
-                speaker_id TEXT,
-                data TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_transcripts_session ON voice_transcripts(session_id);
-            CREATE INDEX IF NOT EXISTS idx_transcripts_time ON voice_transcripts(timestamp DESC);
-            CREATE INDEX IF NOT EXISTS idx_transcripts_speaker ON voice_transcripts(speaker_id);
-
-            -- luciawyoming: speaker_profiles
-            CREATE TABLE IF NOT EXISTS speaker_profiles (
-                id TEXT PRIMARY KEY,
-                is_provisional INTEGER NOT NULL DEFAULT 1,
-                last_seen_at TEXT,
-                data TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_profiles_provisional ON speaker_profiles(is_provisional, last_seen_at);
-
-            -- luciawyoming: model_preferences
-            CREATE TABLE IF NOT EXISTS model_preferences (
-                id TEXT PRIMARY KEY,
-                data TEXT NOT NULL
-            );
-
-            -- command traces (conversation shortcut pipeline)
             CREATE TABLE IF NOT EXISTS command_traces (
                 id TEXT PRIMARY KEY,
                 timestamp TEXT NOT NULL,
@@ -289,21 +283,44 @@ public sealed class SqliteMigrationRunner : IHostedService
         cmd.ExecuteNonQuery();
     }
 
-    private static void ApplyVersion2(SqliteConnection connection)
+    // ── luciatasks database migrations ───────────────────────────────────────
+
+    private static void ApplyTasksV1(SqliteConnection connection)
     {
         using var cmd = connection.CreateCommand();
         cmd.CommandText = """
-            CREATE TABLE IF NOT EXISTS user_memories (
-                user_id TEXT NOT NULL,
-                key TEXT NOT NULL,
-                value TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                expires_at TEXT,
-                PRIMARY KEY(user_id, key)
+            CREATE TABLE IF NOT EXISTS scheduled_tasks (
+                id TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                fire_at TEXT,
+                task_type TEXT,
+                data TEXT NOT NULL
             );
-            CREATE INDEX IF NOT EXISTS idx_user_memories_user_id ON user_memories(user_id);
-            CREATE INDEX IF NOT EXISTS idx_user_memories_expires_at ON user_memories(expires_at);
+            CREATE INDEX IF NOT EXISTS idx_scheduled_status ON scheduled_tasks(status, fire_at);
+
+            CREATE TABLE IF NOT EXISTS alarm_clocks (
+                id TEXT PRIMARY KEY,
+                is_enabled INTEGER NOT NULL DEFAULT 1,
+                next_fire_at TEXT,
+                data TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_alarms_enabled ON alarm_clocks(is_enabled, next_fire_at);
+
+            CREATE TABLE IF NOT EXISTS alarm_sounds (
+                id TEXT PRIMARY KEY,
+                is_default INTEGER NOT NULL DEFAULT 0,
+                data TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS archived_tasks (
+                id TEXT PRIMARY KEY,
+                archived_at TEXT NOT NULL DEFAULT (datetime('now')),
+                final_state TEXT,
+                data TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_archived_at ON archived_tasks(archived_at DESC);
             """;
         cmd.ExecuteNonQuery();
     }
 }
+

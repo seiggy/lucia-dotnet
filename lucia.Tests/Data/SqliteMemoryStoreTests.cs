@@ -15,7 +15,7 @@ public sealed class SqliteMemoryStoreTests : IDisposable
         _dbPath = Path.Combine(AppContext.BaseDirectory, $"memory-store-{Guid.NewGuid():N}.db");
         _connectionFactory = new SqliteConnectionFactory(_dbPath);
 
-        var runner = new SqliteMigrationRunner(_connectionFactory, A.Fake<ILogger<SqliteMigrationRunner>>());
+        var runner = new SqliteMigrationRunner(_connectionFactory, _connectionFactory, _connectionFactory, A.Fake<ILogger<SqliteMigrationRunner>>());
         runner.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
 
         _store = new SqliteMemoryStore(_connectionFactory);

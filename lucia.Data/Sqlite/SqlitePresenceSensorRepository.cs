@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Models.HomeAssistant;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace lucia.Data.Sqlite;
 
@@ -22,7 +23,8 @@ public sealed class SqlitePresenceSensorRepository : IPresenceSensorRepository
         Converters = { new JsonStringEnumConverter() }
     };
 
-    public SqlitePresenceSensorRepository(SqliteConnectionFactory connectionFactory)
+    public SqlitePresenceSensorRepository(
+        [FromKeyedServices(SqliteDbNames.Config)] SqliteConnectionFactory connectionFactory)
     {
         _connectionFactory = connectionFactory;
     }

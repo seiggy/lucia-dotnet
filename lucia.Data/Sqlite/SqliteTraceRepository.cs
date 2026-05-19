@@ -2,6 +2,7 @@ using System.Text.Json;
 using lucia.Agents.Training;
 using lucia.Agents.Training.Models;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace lucia.Data.Sqlite;
 
@@ -18,7 +19,8 @@ public sealed class SqliteTraceRepository : ITraceRepository
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
     };
 
-    public SqliteTraceRepository(SqliteConnectionFactory connectionFactory)
+    public SqliteTraceRepository(
+        [FromKeyedServices(SqliteDbNames.Traces)] SqliteConnectionFactory connectionFactory)
     {
         _connectionFactory = connectionFactory;
     }

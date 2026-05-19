@@ -62,15 +62,14 @@ if (useMongo)
 }
 else if (usePostgres)
 {
-    // PostgreSQL configuration provider
-    var connStr = dataProviderOptions.PostgresConnectionString;
+    // PostgreSQL configuration provider uses the luciaconfig database.
+    var connStr = builder.Configuration.GetConnectionString(PostgresDbNames.Config)
+        ?? dataProviderOptions.PostgresConnectionString;
     if (string.IsNullOrWhiteSpace(connStr))
         connStr = builder.Configuration.GetConnectionString("luciadb") ?? "";
     var pgFactory = new PostgresConnectionFactory(connStr);
     builder.Services.AddSingleton(pgFactory);
     builder.Configuration.AddPostgresConfiguration(pgFactory);
-
-    builder.Services.AddSingleton<lucia.Agents.Training.ITraceRepository, lucia.Data.InMemory.InMemoryTraceRepository>();
 }
 else
 {

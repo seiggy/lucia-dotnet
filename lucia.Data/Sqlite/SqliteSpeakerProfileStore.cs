@@ -1,6 +1,7 @@
 using System.Text.Json;
 using lucia.Wyoming.Diarization;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace lucia.Data.Sqlite;
 
@@ -17,7 +18,8 @@ public sealed class SqliteSpeakerProfileStore : ISpeakerProfileStore
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
     };
 
-    public SqliteSpeakerProfileStore(SqliteConnectionFactory connectionFactory)
+    public SqliteSpeakerProfileStore(
+        [FromKeyedServices(SqliteDbNames.Config)] SqliteConnectionFactory connectionFactory)
     {
         _connectionFactory = connectionFactory;
     }

@@ -1,6 +1,8 @@
 using lucia.Agents.Abstractions;
 using lucia.Agents.Models;
 
+using Microsoft.Extensions.DependencyInjection;
+
 using Npgsql;
 
 namespace lucia.Data.PostgreSQL;
@@ -15,7 +17,7 @@ public sealed class PostgresMemoryStore : IMemoryStore
     /// <summary>
     /// Initializes a new instance of the <see cref="PostgresMemoryStore"/> class.
     /// </summary>
-    public PostgresMemoryStore(PostgresConnectionFactory connectionFactory)
+    public PostgresMemoryStore([FromKeyedServices(PostgresDbNames.Config)] PostgresConnectionFactory connectionFactory)
     {
         _connectionFactory = connectionFactory;
     }

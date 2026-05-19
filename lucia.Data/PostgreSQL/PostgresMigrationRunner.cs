@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Npgsql;
@@ -5,26 +6,49 @@ using Npgsql;
 namespace lucia.Data.PostgreSQL;
 
 /// <summary>
-/// Creates PostgreSQL tables on startup and tracks schema versions for future migrations.
+/// Creates PostgreSQL tables on startup across all three databases and tracks schema versions.
+/// Runs migrations on luciaconfig, luciatraces, and luciatasks databases independently.
 /// </summary>
 public sealed partial class PostgresMigrationRunner : IHostedService
 {
-    private const int CurrentSchemaVersion = 2;
+    private const int ConfigSchemaVersion = 2;
+    private const int TracesSchemaVersion = 1;
+    private const int TasksSchemaVersion = 1;
 
-    private readonly PostgresConnectionFactory _connectionFactory;
+    private readonly PostgresConnectionFactory _configFactory;
+    private readonly PostgresConnectionFactory _tracesFactory;
+    private readonly PostgresConnectionFactory _tasksFactory;
     private readonly ILogger<PostgresMigrationRunner> _logger;
 
     public PostgresMigrationRunner(
-        PostgresConnectionFactory connectionFactory,
+        [FromKeyedServices(PostgresDbNames.Config)] PostgresConnectionFactory configFactory,
+        [FromKeyedServices(PostgresDbNames.Traces)] PostgresConnectionFactory tracesFactory,
+        [FromKeyedServices(PostgresDbNames.Tasks)] PostgresConnectionFactory tasksFactory,
         ILogger<PostgresMigrationRunner> logger)
     {
-        _connectionFactory = connectionFactory;
+        _configFactory = configFactory;
+        _tracesFactory = tracesFactory;
+        _tasksFactory = tasksFactory;
         _logger = logger;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        await using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken).ConfigureAwait(false);
+        await MigrateDatabaseAsync(_configFactory, "config", ConfigSchemaVersion, [ApplyConfigV1Async, ApplyConfigV2Async], cancellationToken).ConfigureAwait(false);
+        await MigrateDatabaseAsync(_tracesFactory, "traces", TracesSchemaVersion, [ApplyTracesV1Async], cancellationToken).ConfigureAwait(false);
+        await MigrateDatabaseAsync(_tasksFactory, "tasks", TasksSchemaVersion, [ApplyTasksV1Async], cancellationToken).ConfigureAwait(false);
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    private async Task MigrateDatabaseAsync(
+        PostgresConnectionFactory factory,
+        string dbLabel,
+        int targetVersion,
+        Func<NpgsqlConnection, NpgsqlTransaction, CancellationToken, Task>[] migrations,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = await factory.CreateConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
         try
@@ -32,55 +56,44 @@ public sealed partial class PostgresMigrationRunner : IHostedService
             await EnsureSchemaVersionTableAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
             var currentVersion = await GetSchemaVersionAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
 
-            if (currentVersion < CurrentSchemaVersion)
+            if (currentVersion < targetVersion)
             {
-                LogRunningMigrations(_logger, currentVersion, CurrentSchemaVersion);
+                LogRunningMigrations(_logger, dbLabel, currentVersion, targetVersion);
 
-                if (currentVersion < 1)
+                for (var v = currentVersion; v < targetVersion && v < migrations.Length; v++)
                 {
-                    await ApplyVersion1Async(connection, transaction, cancellationToken).ConfigureAwait(false);
+                    await migrations[v](connection, transaction, cancellationToken).ConfigureAwait(false);
                 }
 
-                if (currentVersion < 2)
-                {
-                    await ApplyVersion2Async(connection, transaction, cancellationToken).ConfigureAwait(false);
-                }
-
-                await SetSchemaVersionAsync(connection, transaction, CurrentSchemaVersion, cancellationToken).ConfigureAwait(false);
+                await SetSchemaVersionAsync(connection, transaction, targetVersion, cancellationToken).ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-
-                LogMigrationCompleted(_logger, CurrentSchemaVersion);
+                LogMigrationCompleted(_logger, dbLabel, targetVersion);
             }
             else
             {
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-                LogSchemaCurrent(_logger, currentVersion);
+                LogSchemaCurrent(_logger, dbLabel, currentVersion);
             }
         }
         catch (Exception ex)
         {
             await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
-            LogMigrationFailed(_logger, ex);
+            LogMigrationFailed(_logger, dbLabel, ex);
             throw;
         }
     }
 
-    public Task StopAsync(CancellationToken cancellationToken)
-    {
-        return Task.CompletedTask;
-    }
+    [LoggerMessage(EventId = 1, Level = LogLevel.Information, Message = "Running PostgreSQL [{DbLabel}] migrations from version {CurrentVersion} to {TargetVersion}...")]
+    private static partial void LogRunningMigrations(ILogger logger, string dbLabel, int currentVersion, int targetVersion);
 
-    [LoggerMessage(EventId = 1, Level = LogLevel.Information, Message = "Running PostgreSQL migrations from version {CurrentVersion} to {TargetVersion}...")]
-    private static partial void LogRunningMigrations(ILogger logger, int currentVersion, int targetVersion);
+    [LoggerMessage(EventId = 2, Level = LogLevel.Information, Message = "PostgreSQL [{DbLabel}] schema migrated to version {Version}.")]
+    private static partial void LogMigrationCompleted(ILogger logger, string dbLabel, int version);
 
-    [LoggerMessage(EventId = 2, Level = LogLevel.Information, Message = "PostgreSQL schema migrated to version {Version}.")]
-    private static partial void LogMigrationCompleted(ILogger logger, int version);
+    [LoggerMessage(EventId = 3, Level = LogLevel.Debug, Message = "PostgreSQL [{DbLabel}] schema is up to date at version {Version}.")]
+    private static partial void LogSchemaCurrent(ILogger logger, string dbLabel, int version);
 
-    [LoggerMessage(EventId = 3, Level = LogLevel.Debug, Message = "PostgreSQL schema is up to date at version {Version}.")]
-    private static partial void LogSchemaCurrent(ILogger logger, int version);
-
-    [LoggerMessage(EventId = 4, Level = LogLevel.Error, Message = "PostgreSQL migration failed.")]
-    private static partial void LogMigrationFailed(ILogger logger, Exception exception);
+    [LoggerMessage(EventId = 4, Level = LogLevel.Error, Message = "PostgreSQL [{DbLabel}] migration failed.")]
+    private static partial void LogMigrationFailed(ILogger logger, string dbLabel, Exception exception);
 
     private static async Task EnsureSchemaVersionTableAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, CancellationToken cancellationToken)
     {
@@ -93,7 +106,6 @@ public sealed partial class PostgresMigrationRunner : IHostedService
                 applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             """;
-
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -102,7 +114,6 @@ public sealed partial class PostgresMigrationRunner : IHostedService
         await using var cmd = connection.CreateCommand();
         cmd.Transaction = transaction;
         cmd.CommandText = "SELECT version FROM schema_version WHERE id = 1;";
-
         var result = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
         return result is null or DBNull ? 0 : Convert.ToInt32(result);
     }
@@ -116,11 +127,12 @@ public sealed partial class PostgresMigrationRunner : IHostedService
             ON CONFLICT (id) DO UPDATE SET version = EXCLUDED.version, applied_at = CURRENT_TIMESTAMP;
             """;
         cmd.Parameters.AddWithValue("version", version);
-
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task ApplyVersion1Async(NpgsqlConnection connection, NpgsqlTransaction transaction, CancellationToken cancellationToken)
+    // ── luciaconfig database migrations ──────────────────────────────────────
+
+    private static async Task ApplyConfigV1Async(NpgsqlConnection connection, NpgsqlTransaction transaction, CancellationToken cancellationToken)
     {
         await using var cmd = connection.CreateCommand();
         cmd.Transaction = transaction;
@@ -200,6 +212,59 @@ public sealed partial class PostgresMigrationRunner : IHostedService
                 data JSONB NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS voice_transcripts (
+                id TEXT PRIMARY KEY,
+                session_id TEXT,
+                timestamp TIMESTAMPTZ NOT NULL,
+                speaker_id TEXT,
+                data JSONB NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_transcripts_session ON voice_transcripts(session_id);
+            CREATE INDEX IF NOT EXISTS idx_transcripts_time ON voice_transcripts(timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_transcripts_speaker ON voice_transcripts(speaker_id);
+
+            CREATE TABLE IF NOT EXISTS speaker_profiles (
+                id TEXT PRIMARY KEY,
+                is_provisional BOOLEAN NOT NULL DEFAULT TRUE,
+                last_seen_at TIMESTAMPTZ,
+                data JSONB NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_profiles_provisional ON speaker_profiles(is_provisional, last_seen_at);
+
+            CREATE TABLE IF NOT EXISTS model_preferences (
+                id TEXT PRIMARY KEY,
+                data JSONB NOT NULL
+            );
+            """;
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task ApplyConfigV2Async(NpgsqlConnection connection, NpgsqlTransaction transaction, CancellationToken cancellationToken)
+    {
+        await using var cmd = connection.CreateCommand();
+        cmd.Transaction = transaction;
+        cmd.CommandText = """
+            CREATE TABLE IF NOT EXISTS user_memories (
+                user_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                value TEXT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL,
+                expires_at TIMESTAMPTZ,
+                PRIMARY KEY (user_id, key)
+            );
+            CREATE INDEX IF NOT EXISTS idx_user_memories_user_id ON user_memories(user_id);
+            CREATE INDEX IF NOT EXISTS idx_user_memories_expires_at ON user_memories(expires_at);
+            """;
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    // ── luciatraces database migrations ──────────────────────────────────────
+
+    private static async Task ApplyTracesV1Async(NpgsqlConnection connection, NpgsqlTransaction transaction, CancellationToken cancellationToken)
+    {
+        await using var cmd = connection.CreateCommand();
+        cmd.Transaction = transaction;
+        cmd.CommandText = """
             CREATE TABLE IF NOT EXISTS conversation_traces (
                 id TEXT PRIMARY KEY,
                 session_id TEXT,
@@ -218,6 +283,30 @@ public sealed partial class PostgresMigrationRunner : IHostedService
                 data JSONB NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS command_traces (
+                id TEXT PRIMARY KEY,
+                timestamp TIMESTAMPTZ NOT NULL,
+                clean_text TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                skill_id TEXT,
+                confidence DOUBLE PRECISION NOT NULL DEFAULT 0,
+                total_duration_ms DOUBLE PRECISION NOT NULL DEFAULT 0,
+                data JSONB NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_command_traces_timestamp ON command_traces(timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_command_traces_outcome ON command_traces(outcome);
+            CREATE INDEX IF NOT EXISTS idx_command_traces_skill ON command_traces(skill_id);
+            """;
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    // ── luciatasks database migrations ───────────────────────────────────────
+
+    private static async Task ApplyTasksV1Async(NpgsqlConnection connection, NpgsqlTransaction transaction, CancellationToken cancellationToken)
+    {
+        await using var cmd = connection.CreateCommand();
+        cmd.Transaction = transaction;
+        cmd.CommandText = """
             CREATE TABLE IF NOT EXISTS scheduled_tasks (
                 id TEXT PRIMARY KEY,
                 status TEXT NOT NULL,
@@ -248,66 +337,8 @@ public sealed partial class PostgresMigrationRunner : IHostedService
                 data JSONB NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_archived_at ON archived_tasks(archived_at DESC);
-
-            CREATE TABLE IF NOT EXISTS voice_transcripts (
-                id TEXT PRIMARY KEY,
-                session_id TEXT,
-                timestamp TIMESTAMPTZ NOT NULL,
-                speaker_id TEXT,
-                data JSONB NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_transcripts_session ON voice_transcripts(session_id);
-            CREATE INDEX IF NOT EXISTS idx_transcripts_time ON voice_transcripts(timestamp DESC);
-            CREATE INDEX IF NOT EXISTS idx_transcripts_speaker ON voice_transcripts(speaker_id);
-
-            CREATE TABLE IF NOT EXISTS speaker_profiles (
-                id TEXT PRIMARY KEY,
-                is_provisional BOOLEAN NOT NULL DEFAULT TRUE,
-                last_seen_at TIMESTAMPTZ,
-                data JSONB NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_profiles_provisional ON speaker_profiles(is_provisional, last_seen_at);
-
-            CREATE TABLE IF NOT EXISTS model_preferences (
-                id TEXT PRIMARY KEY,
-                data JSONB NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS command_traces (
-                id TEXT PRIMARY KEY,
-                timestamp TIMESTAMPTZ NOT NULL,
-                clean_text TEXT NOT NULL,
-                outcome TEXT NOT NULL,
-                skill_id TEXT,
-                confidence DOUBLE PRECISION NOT NULL DEFAULT 0,
-                total_duration_ms DOUBLE PRECISION NOT NULL DEFAULT 0,
-                data JSONB NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_command_traces_timestamp ON command_traces(timestamp DESC);
-            CREATE INDEX IF NOT EXISTS idx_command_traces_outcome ON command_traces(outcome);
-            CREATE INDEX IF NOT EXISTS idx_command_traces_skill ON command_traces(skill_id);
             """;
-
-        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-    }
-
-    private static async Task ApplyVersion2Async(NpgsqlConnection connection, NpgsqlTransaction transaction, CancellationToken cancellationToken)
-    {
-        await using var cmd = connection.CreateCommand();
-        cmd.Transaction = transaction;
-        cmd.CommandText = """
-            CREATE TABLE IF NOT EXISTS user_memories (
-                user_id TEXT NOT NULL,
-                key TEXT NOT NULL,
-                value TEXT NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL,
-                expires_at TIMESTAMPTZ,
-                PRIMARY KEY (user_id, key)
-            );
-            CREATE INDEX IF NOT EXISTS idx_user_memories_user_id ON user_memories(user_id);
-            CREATE INDEX IF NOT EXISTS idx_user_memories_expires_at ON user_memories(expires_at);
-            """;
-
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 }
+

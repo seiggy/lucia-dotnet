@@ -1,6 +1,7 @@
 using System.Text.Json;
 using lucia.TimerAgent.ScheduledTasks;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace lucia.Data.Sqlite;
 
@@ -17,7 +18,8 @@ public sealed class SqliteScheduledTaskRepository : IScheduledTaskRepository
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
     };
 
-    public SqliteScheduledTaskRepository(SqliteConnectionFactory connectionFactory)
+    public SqliteScheduledTaskRepository(
+        [FromKeyedServices(SqliteDbNames.Tasks)] SqliteConnectionFactory connectionFactory)
     {
         _connectionFactory = connectionFactory;
     }

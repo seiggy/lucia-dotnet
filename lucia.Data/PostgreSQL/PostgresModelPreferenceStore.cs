@@ -2,6 +2,7 @@ using System.Text.Json;
 
 using lucia.Wyoming.Models;
 
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 using Npgsql;
@@ -23,7 +24,9 @@ public sealed partial class PostgresModelPreferenceStore : IModelPreferenceStore
     private readonly PostgresConnectionFactory _connectionFactory;
     private readonly ILogger<PostgresModelPreferenceStore> _logger;
 
-    public PostgresModelPreferenceStore(PostgresConnectionFactory connectionFactory, ILogger<PostgresModelPreferenceStore> logger)
+    public PostgresModelPreferenceStore(
+        [FromKeyedServices(PostgresDbNames.Config)] PostgresConnectionFactory connectionFactory,
+        ILogger<PostgresModelPreferenceStore> logger)
     {
         _connectionFactory = connectionFactory;
         _logger = logger;

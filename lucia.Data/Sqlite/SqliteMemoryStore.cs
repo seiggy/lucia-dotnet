@@ -5,6 +5,7 @@ using lucia.Agents.Abstractions;
 using lucia.Agents.Models;
 
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace lucia.Data.Sqlite;
 
@@ -18,7 +19,8 @@ public sealed class SqliteMemoryStore : IMemoryStore
     /// <summary>
     /// Initializes a new instance of the <see cref="SqliteMemoryStore"/> class.
     /// </summary>
-    public SqliteMemoryStore(SqliteConnectionFactory connectionFactory)
+    public SqliteMemoryStore(
+        [FromKeyedServices(SqliteDbNames.Config)] SqliteConnectionFactory connectionFactory)
     {
         _connectionFactory = connectionFactory;
     }

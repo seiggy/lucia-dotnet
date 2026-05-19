@@ -5,6 +5,7 @@ using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration.UserConfiguration;
 using lucia.Agents.Mcp;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace lucia.Data.Sqlite;
 
@@ -23,7 +24,8 @@ public sealed class SqliteAgentDefinitionRepository : IAgentDefinitionRepository
         Converters = { new JsonStringEnumConverter() }
     };
 
-    public SqliteAgentDefinitionRepository(SqliteConnectionFactory connectionFactory)
+    public SqliteAgentDefinitionRepository(
+        [FromKeyedServices(SqliteDbNames.Config)] SqliteConnectionFactory connectionFactory)
     {
         _connectionFactory = connectionFactory;
     }

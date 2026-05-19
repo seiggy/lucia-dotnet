@@ -4,6 +4,8 @@ using System.Text.Json.Serialization;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Models.HomeAssistant;
 
+using Microsoft.Extensions.DependencyInjection;
+
 using Npgsql;
 using NpgsqlTypes;
 
@@ -24,7 +26,7 @@ public sealed class PostgresPresenceSensorRepository : IPresenceSensorRepository
 
     private readonly PostgresConnectionFactory _connectionFactory;
 
-    public PostgresPresenceSensorRepository(PostgresConnectionFactory connectionFactory)
+    public PostgresPresenceSensorRepository([FromKeyedServices(PostgresDbNames.Config)] PostgresConnectionFactory connectionFactory)
     {
         _connectionFactory = connectionFactory;
     }

@@ -1,5 +1,6 @@
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration.UserConfiguration;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 
 namespace lucia.Data.PostgreSQL;
@@ -12,7 +13,7 @@ public sealed class PostgresConfigStoreWriter : IConfigStoreWriter
 {
     private readonly PostgresConnectionFactory _connectionFactory;
 
-    public PostgresConfigStoreWriter(PostgresConnectionFactory connectionFactory)
+    public PostgresConfigStoreWriter([FromKeyedServices(PostgresDbNames.Config)] PostgresConnectionFactory connectionFactory)
     {
         _connectionFactory = connectionFactory;
     }

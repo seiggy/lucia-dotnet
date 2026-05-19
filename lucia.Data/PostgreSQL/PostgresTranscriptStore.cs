@@ -2,6 +2,8 @@ using System.Text.Json;
 
 using lucia.Wyoming.Telemetry;
 
+using Microsoft.Extensions.DependencyInjection;
+
 using Npgsql;
 using NpgsqlTypes;
 
@@ -20,7 +22,7 @@ public sealed class PostgresTranscriptStore : ITranscriptStore
 
     private readonly PostgresConnectionFactory _connectionFactory;
 
-    public PostgresTranscriptStore(PostgresConnectionFactory connectionFactory)
+    public PostgresTranscriptStore([FromKeyedServices(PostgresDbNames.Config)] PostgresConnectionFactory connectionFactory)
     {
         _connectionFactory = connectionFactory;
     }

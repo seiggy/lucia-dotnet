@@ -75,8 +75,10 @@ if (useMongo)
 }
 else if (usePostgres)
 {
-    // PostgreSQL configuration provider (replaces MongoDB config source)
-    var connStr = dataProviderOptions.PostgresConnectionString;
+    // PostgreSQL configuration provider uses the luciaconfig database.
+    // Connection string comes from Aspire-injected ConnectionStrings section.
+    var connStr = builder.Configuration.GetConnectionString(PostgresDbNames.Config)
+        ?? dataProviderOptions.PostgresConnectionString;
     if (string.IsNullOrWhiteSpace(connStr))
         connStr = builder.Configuration.GetConnectionString("luciadb") ?? "";
     var pgFactory = new PostgresConnectionFactory(connStr);

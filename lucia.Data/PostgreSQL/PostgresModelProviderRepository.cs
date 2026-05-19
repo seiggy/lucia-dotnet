@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration.UserConfiguration;
 
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 using Npgsql;
@@ -28,7 +29,7 @@ public sealed partial class PostgresModelProviderRepository : IModelProviderRepo
     private readonly ILogger<PostgresModelProviderRepository> _logger;
 
     public PostgresModelProviderRepository(
-        PostgresConnectionFactory connectionFactory,
+        [FromKeyedServices(PostgresDbNames.Config)] PostgresConnectionFactory connectionFactory,
         ILogger<PostgresModelProviderRepository> logger)
     {
         _connectionFactory = connectionFactory;

@@ -5,6 +5,7 @@ using System.Text.Json;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Auth;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace lucia.Data.Sqlite;
@@ -18,7 +19,9 @@ public sealed class SqliteApiKeyService : IApiKeyService
     private readonly SqliteConnectionFactory _connectionFactory;
     private readonly ILogger<SqliteApiKeyService> _logger;
 
-    public SqliteApiKeyService(SqliteConnectionFactory connectionFactory, ILogger<SqliteApiKeyService> logger)
+    public SqliteApiKeyService(
+        [FromKeyedServices(SqliteDbNames.Config)] SqliteConnectionFactory connectionFactory,
+        ILogger<SqliteApiKeyService> logger)
     {
         _connectionFactory = connectionFactory;
         _logger = logger;

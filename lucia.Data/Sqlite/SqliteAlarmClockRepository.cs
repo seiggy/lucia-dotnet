@@ -1,6 +1,7 @@
 using System.Text.Json;
 using lucia.TimerAgent.ScheduledTasks;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace lucia.Data.Sqlite;
 
@@ -17,7 +18,8 @@ public sealed class SqliteAlarmClockRepository : IAlarmClockRepository
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
     };
 
-    public SqliteAlarmClockRepository(SqliteConnectionFactory connectionFactory)
+    public SqliteAlarmClockRepository(
+        [FromKeyedServices(SqliteDbNames.Tasks)] SqliteConnectionFactory connectionFactory)
     {
         _connectionFactory = connectionFactory;
     }

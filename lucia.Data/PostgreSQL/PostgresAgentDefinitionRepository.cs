@@ -5,6 +5,8 @@ using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration.UserConfiguration;
 using lucia.Agents.Mcp;
 
+using Microsoft.Extensions.DependencyInjection;
+
 using Npgsql;
 using NpgsqlTypes;
 
@@ -25,7 +27,7 @@ public sealed class PostgresAgentDefinitionRepository : IAgentDefinitionReposito
 
     private readonly PostgresConnectionFactory _connectionFactory;
 
-    public PostgresAgentDefinitionRepository(PostgresConnectionFactory connectionFactory)
+    public PostgresAgentDefinitionRepository([FromKeyedServices(PostgresDbNames.Config)] PostgresConnectionFactory connectionFactory)
     {
         _connectionFactory = connectionFactory;
     }

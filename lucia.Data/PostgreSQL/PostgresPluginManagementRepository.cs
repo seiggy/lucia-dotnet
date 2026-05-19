@@ -4,6 +4,8 @@ using System.Text.Json.Serialization;
 using lucia.Agents.Abstractions;
 using lucia.Agents.PluginFramework;
 
+using Microsoft.Extensions.DependencyInjection;
+
 using Npgsql;
 using NpgsqlTypes;
 
@@ -24,7 +26,7 @@ public sealed class PostgresPluginManagementRepository : IPluginManagementReposi
 
     private readonly PostgresConnectionFactory _connectionFactory;
 
-    public PostgresPluginManagementRepository(PostgresConnectionFactory connectionFactory)
+    public PostgresPluginManagementRepository([FromKeyedServices(PostgresDbNames.Config)] PostgresConnectionFactory connectionFactory)
     {
         _connectionFactory = connectionFactory;
     }

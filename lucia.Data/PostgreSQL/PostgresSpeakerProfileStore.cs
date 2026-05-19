@@ -2,6 +2,8 @@ using System.Text.Json;
 
 using lucia.Wyoming.Diarization;
 
+using Microsoft.Extensions.DependencyInjection;
+
 using Npgsql;
 using NpgsqlTypes;
 
@@ -20,7 +22,7 @@ public sealed class PostgresSpeakerProfileStore : ISpeakerProfileStore
 
     private readonly PostgresConnectionFactory _connectionFactory;
 
-    public PostgresSpeakerProfileStore(PostgresConnectionFactory connectionFactory)
+    public PostgresSpeakerProfileStore([FromKeyedServices(PostgresDbNames.Config)] PostgresConnectionFactory connectionFactory)
     {
         _connectionFactory = connectionFactory;
     }
