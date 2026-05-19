@@ -7,6 +7,7 @@ using lucia.Agents.Extensions;
 using lucia.Agents.Services;
 using lucia.Data;
 using lucia.Data.Extensions;
+using lucia.Data.PostgreSQL;
 using lucia.Data.Sqlite;
 using lucia.HomeAssistant.Configuration;
 using lucia.HomeAssistant.Services;
@@ -31,6 +32,7 @@ var dataProviderOptions = new DataProviderOptions();
 builder.Configuration.GetSection(DataProviderOptions.SectionName).Bind(dataProviderOptions);
 var useRedis = dataProviderOptions.Cache == CacheProviderType.Redis;
 var useMongo = dataProviderOptions.Store == StoreProviderType.MongoDB;
+var usePostgres = dataProviderOptions.Store == StoreProviderType.PostgreSQL;
 
 if (useRedis)
 {
@@ -58,6 +60,18 @@ if (useMongo)
     // Add MongoDB configuration as highest-priority source (overrides appsettings)
     builder.Configuration.AddMongoConfiguration("luciaconfig");
 }
+else if (usePostgres)
+{
+    // PostgreSQL configuration provider
+    var connStr = dataProviderOptions.PostgresConnectionString;
+    if (string.IsNullOrWhiteSpace(connStr))
+        connStr = builder.Configuration.GetConnectionString("luciadb") ?? "";
+    var pgFactory = new PostgresConnectionFactory(connStr);
+    builder.Services.AddSingleton(pgFactory);
+    builder.Configuration.AddPostgresConfiguration(pgFactory);
+
+    builder.Services.AddSingleton<lucia.Agents.Training.ITraceRepository, lucia.Data.InMemory.InMemoryTraceRepository>();
+}
 else
 {
     // SQLite configuration provider (replaces MongoDB config source)
@@ -80,12 +94,13 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 });
 
 // Chat and embedding clients are resolved at runtime from the Model Provider system
-// (MongoDB-backed) via IChatClientResolver and IEmbeddingProviderResolver.
+// via IChatClientResolver and IEmbeddingProviderResolver.
 if (useMongo)
 {
     builder.Services.AddSingleton<IModelProviderRepository, MongoModelProviderRepository>();
     builder.Services.AddSingleton<IAgentDefinitionRepository, MongoAgentDefinitionRepository>();
 }
+// PostgreSQL and SQLite model/agent repos are registered by AddPostgresStoreProviders()/AddSqliteStoreProviders()
 builder.Services.AddSingleton<IModelProviderResolver, ModelProviderResolver>();
 builder.Services.AddSingleton<IEmbeddingProviderResolver, EmbeddingProviderResolver>();
 builder.Services.AddSingleton<IChatClientResolver, ChatClientResolver>();
@@ -139,7 +154,12 @@ PluginLoader.LoadAgentPlugins(builder, pluginDir);
 if (!useRedis)
     builder.AddInMemoryCacheProviders();
 if (!useMongo)
-    builder.AddSqliteStoreProviders();
+{
+    if (usePostgres)
+        builder.AddPostgresStoreProviders();
+    else
+        builder.AddSqliteStoreProviders();
+}
 
 builder.Services.AddHostedService<AgentHostService>();
 builder.Services.AddProblemDetails();

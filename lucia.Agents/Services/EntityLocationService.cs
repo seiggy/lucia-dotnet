@@ -290,15 +290,30 @@ public sealed class EntityLocationService : IEntityLocationService
     {
         await EnsureFreshAsync(ct).ConfigureAwait(false);
 
-        var embeddingService = await _embeddingResolver.ResolveAsync(ct: ct).ConfigureAwait(false);
-        if (embeddingService is null)
-            return [];
-
         var candidates = (IReadOnlyList<HomeAssistantEntity>)_snapshot.Entities;
         if (domainFilter is { Count: > 0 })
         {
             var filterSet = domainFilter.ToHashSet(StringComparer.OrdinalIgnoreCase);
             candidates = _snapshot.Entities.Where(e => filterSet.Contains(e.Domain)).ToList();
+        }
+
+        var embeddingService = await _embeddingResolver.ResolveAsync(ct: ct).ConfigureAwait(false);
+        if (embeddingService is null)
+        {
+            // Fallback: substring match on FriendlyName and EntityId when no embedding provider
+            var substringMatches = candidates
+                .Where(e =>
+                    (e.FriendlyName is not null && e.FriendlyName.Contains(query, StringComparison.OrdinalIgnoreCase))
+                    || e.EntityId.Contains(query, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(e => e.FriendlyName, StringComparer.OrdinalIgnoreCase)
+                .Select(e => new EntityMatchResult<HomeAssistantEntity>
+                {
+                    Entity = e,
+                    HybridScore = 1.0,
+                    EmbeddingSimilarity = 0.0
+                })
+                .ToList();
+            return substringMatches;
         }
 
         return await _entityMatcher.FindMatchesAsync(
