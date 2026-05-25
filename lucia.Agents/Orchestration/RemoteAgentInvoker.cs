@@ -91,7 +91,19 @@ public sealed class RemoteAgentInvoker : IAgentInvoker
                 AgentId = AgentId,
                 Content = string.Empty,
                 Success = false,
-                ErrorMessage = $"Agent execution timed out after {_options.Timeout.TotalMilliseconds:F0}ms.",
+                ErrorMessage = AgentFailureMessageFormatter.FormatTimeout(_options.Timeout),
+                ExecutionTimeMs = ElapsedMs(startTimestamp)
+            };
+        }
+        catch (OperationCanceledException oce)
+        {
+            _logger.LogWarning(oce, "Remote agent {AgentId} execution was interrupted by request cancellation.", AgentId);
+            return new OrchestratorAgentResponse
+            {
+                AgentId = AgentId,
+                Content = string.Empty,
+                Success = false,
+                ErrorMessage = AgentFailureMessageFormatter.FormatCanceled(),
                 ExecutionTimeMs = ElapsedMs(startTimestamp)
             };
         }

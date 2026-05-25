@@ -51,18 +51,18 @@ public sealed class ResultAggregatorExecutor : Executor
         ArgumentNullException.ThrowIfNull(responses);
         ArgumentNullException.ThrowIfNull(context);
 
-        await context.AddEventAsync(new ExecutorInvokedEvent(this.Id, responses), cancellationToken).ConfigureAwait(false);
+        await context.AddEventAsync(new ExecutorInvokedEvent(this.Id, responses), CancellationToken.None).ConfigureAwait(false);
 
         // Order responses by agent priority and build summary
         var ordered = OrderResponses(responses);
         var summary = await BuildSummaryAsync(ordered, cancellationToken).ConfigureAwait(false);
 
-        await context.AddEventAsync(new ExecutorCompletedEvent(this.Id, summary), cancellationToken).ConfigureAwait(false);
+        await context.AddEventAsync(new ExecutorCompletedEvent(this.Id, summary), CancellationToken.None).ConfigureAwait(false);
 
         if (summary.FailedAgents.Count > 0)
         {
             var reason = BuildFailureReason(summary);
-            await context.AddEventAsync(new ExecutorFailedEvent(this.Id, new InvalidOperationException(reason)), cancellationToken).ConfigureAwait(false);
+            await context.AddEventAsync(new ExecutorFailedEvent(this.Id, new InvalidOperationException(reason)), CancellationToken.None).ConfigureAwait(false);
             _logger.LogWarning("Result aggregation encountered failures: {Reason}", reason);
         }
         else
@@ -234,7 +234,7 @@ public sealed class ResultAggregatorExecutor : Executor
                     CultureInfo.InvariantCulture,
                     "However, I couldn't complete {0}: {1}.",
                     FormatAgentName(failure.AgentId),
-                    failure.Error);
+                    TrimTrailingSentencePunctuation(failure.Error));
             }
             else
             {
@@ -303,4 +303,7 @@ public sealed class ResultAggregatorExecutor : Executor
 
         return string.Join("; ", parts);
     }
+
+    private static string TrimTrailingSentencePunctuation(string error)
+        => error.TrimEnd(' ', '.', '!', '?');
 }
