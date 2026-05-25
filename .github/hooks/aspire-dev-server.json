@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "powershell": "aspire start --project lucia.AppHost",
+        "bash": "aspire start --project lucia.AppHost",
+        "cwd": ".",
+        "timeoutSec": 30
+      }
+    ],
+    "sessionEnd": [
+      {
+        "type": "command",
+        "powershell": "aspire stop",
+        "bash": "aspire stop",
+        "cwd": ".",
+        "timeoutSec": 10
+      }
+    ]
+  }
+}

@@ -10,6 +10,7 @@ public class AgentChoiceResultBuilder
     private string _agentId = "test-agent";
     private double _confidence = 0.9;
     private string _reasoning = "Test reasoning";
+    private string? _originalUserText;
     private List<string>? _additionalAgents;
     
     public AgentChoiceResultBuilder WithAgentId(string agentId)
@@ -35,12 +36,19 @@ public class AgentChoiceResultBuilder
         _additionalAgents = agents.ToList();
         return this;
     }
+
+    public AgentChoiceResultBuilder WithOriginalUserText(string originalUserText)
+    {
+        _originalUserText = originalUserText;
+        return this;
+    }
     
     public AgentChoiceResult Build() => new()
     {
         AgentId = _agentId,
         Confidence = _confidence,
         Reasoning = _reasoning,
+        OriginalUserText = _originalUserText,
         AdditionalAgents = _additionalAgents
     };
 }

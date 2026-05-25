@@ -4,7 +4,8 @@ import {
   fetchEntityLocationEmbeddingProgress,
   fetchEntityLocationFloors,
   fetchEntityLocationAreas,
-  fetchEntityLocationEntities,
+  fetchAvailableDomains,
+  fetchPaginatedEntities,
   searchEntityLocation,
   connectEntityLocationEmbeddingProgressStream,
   invalidateEntityLocationCache,
@@ -52,6 +53,8 @@ interface EntityLocationInfo {
   domain: string
   aliases: string[]
   areaId: string | null
+  areaName?: string | null
+  floorName?: string | null
   platform: string | null
   embeddingGenerated?: boolean
   includeForAgent: string[] | null
@@ -104,9 +107,13 @@ export default function EntityLocationPage() {
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [searchDomain, setSearchDomain] = useState('')
+  const [nameFilter, setNameFilter] = useState('')
+  const [locationFilter, setLocationFilter] = useState('')
   const [domainFilter, setDomainFilter] = useState('')
-  const [entityPage, setEntityPage] = useState(0)
-  const entityPageSize = 50
+  const [availableDomains, setAvailableDomains] = useState<string[]>([])
+  const [entityPage, setEntityPage] = useState(1)
+  const [entityPageSize, setEntityPageSize] = useState(100)
+  const [totalEntityCount, setTotalEntityCount] = useState(0)
   const [embeddingActionKey, setEmbeddingActionKey] = useState<string | null>(null)
   const [embeddingProgress, setEmbeddingProgress] = useState<EntityLocationEmbeddingProgress | null>(null)
 
@@ -193,52 +200,90 @@ export default function EntityLocationPage() {
     }
   }, [])
 
-  /** Load entities with specific domain/agent filters, bypassing stale state */
-  const loadEntitiesFiltered = useCallback(async (domain: string, agentName: string) => {
+  const loadAvailableDomains = useCallback(async () => {
+    try {
+      const domains = await fetchAvailableDomains()
+      setAvailableDomains(domains)
+    } catch {
+      // Domain list is helpful but non-fatal.
+    }
+  }, [])
+
+  const loadEntitiesPage = useCallback(async (options?: {
+    page?: number
+    pageSize?: number
+    domain?: string
+    nameFilter?: string
+    locationFilter?: string
+    agent?: string
+  }) => {
+    const nextPage = options?.page ?? entityPage
+    const nextPageSize = options?.pageSize ?? entityPageSize
+    const nextDomainFilter = options?.domain ?? domainFilter
+    const nextNameFilter = options?.nameFilter ?? nameFilter
+    const nextLocationFilter = options?.locationFilter ?? locationFilter
+    const nextAgent = options?.agent ?? impersonateAgent
+
     setLoading(true)
     setError(null)
     try {
-      const result = await fetchEntityLocationEntities(domain || undefined, agentName || undefined)
-      setEntities(result)
-      setEntityPage(0)
+      const result = await fetchPaginatedEntities({
+        page: nextPage,
+        pageSize: nextPageSize,
+        domain: nextDomainFilter || undefined,
+        nameFilter: nextNameFilter || undefined,
+        locationFilter: nextLocationFilter || undefined,
+        agent: nextAgent || undefined,
+      })
+      setEntities(result.items)
+      setTotalEntityCount(result.totalCount)
+      setEntityPage(result.page)
+      setEntityPageSize(result.pageSize)
       setSelectedEntityIds(new Set())
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [domainFilter, entityPage, entityPageSize, impersonateAgent, locationFilter, nameFilter])
 
-  const loadTab = useCallback(async (tab: Tab) => {
-    if (tab === 'search') return
+  async function loadTab(tab: Tab) {
+    if (tab === 'search') {
+      return
+    }
+
+    if (tab === 'entities') {
+      await loadEntitiesPage({ page: 1 })
+      return
+    }
+
     setLoading(true)
     setError(null)
     try {
-      if (tab === 'floors') setFloors(await fetchEntityLocationFloors())
-      else if (tab === 'areas') setAreas(await fetchEntityLocationAreas())
-      else if (tab === 'entities') {
-        const result = await fetchEntityLocationEntities(domainFilter || undefined, impersonateAgent || undefined)
-        setEntities(result)
-        setEntityPage(0)
-        setSelectedEntityIds(new Set())
+      if (tab === 'floors') {
+        setFloors(await fetchEntityLocationFloors())
+      } else if (tab === 'areas') {
+        setAreas(await fetchEntityLocationAreas())
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data')
     } finally {
       setLoading(false)
     }
-  }, [domainFilter, impersonateAgent])
+  }
 
   useEffect(() => {
     loadSummary()
     loadEmbeddingProgress()
     loadVisibility()
-    loadTab('floors')
-  }, [loadSummary, loadEmbeddingProgress, loadVisibility, loadTab])
+    loadAvailableDomains()
+  }, [loadSummary, loadEmbeddingProgress, loadVisibility, loadAvailableDomains])
 
   useEffect(() => {
-    if (activeTab !== 'search') loadTab(activeTab)
-  }, [activeTab, loadTab])
+    if (activeTab !== 'search') {
+      void loadTab(activeTab)
+    }
+  }, [activeTab])
 
   useEffect(() => {
     const source = connectEntityLocationEmbeddingProgressStream(
@@ -271,7 +316,48 @@ export default function EntityLocationPage() {
     if (wasRunning && !embeddingProgress.isGenerationRunning && activeTab === 'entities') {
       void loadTab('entities')
     }
-  }, [embeddingProgress, activeTab, loadTab])
+  }, [embeddingProgress, activeTab])
+
+  function handleApplyEntityFilters() {
+    void loadEntitiesPage({
+      page: 1,
+      pageSize: entityPageSize,
+      domain: domainFilter,
+      nameFilter,
+      locationFilter,
+      agent: impersonateAgent,
+    })
+  }
+
+  function handleResetEntityFilters() {
+    setNameFilter('')
+    setLocationFilter('')
+    setDomainFilter('')
+    setImpersonateAgent('')
+    setEntityPage(1)
+    setSelectedEntityIds(new Set())
+    void loadEntitiesPage({
+      page: 1,
+      pageSize: entityPageSize,
+      domain: '',
+      nameFilter: '',
+      locationFilter: '',
+      agent: '',
+    })
+  }
+
+  function handleEntityPageChange(nextPage: number) {
+    if (nextPage < 1 || nextPage > entityPageCount || nextPage === entityPage) {
+      return
+    }
+
+    void loadEntitiesPage({ page: nextPage })
+  }
+
+  function handleEntityPageSizeChange(nextPageSize: number) {
+    setEntityPageSize(nextPageSize)
+    void loadEntitiesPage({ page: 1, pageSize: nextPageSize })
+  }
 
   async function handleInvalidate() {
     if (!confirm('Invalidate and reload all location data from Home Assistant?')) return
@@ -279,7 +365,7 @@ export default function EntityLocationPage() {
     setError(null)
     try {
       await invalidateEntityLocationCache()
-      await Promise.all([loadSummary(), loadEmbeddingProgress(), loadVisibility()])
+      await Promise.all([loadSummary(), loadEmbeddingProgress(), loadVisibility(), loadAvailableDomains()])
       await loadTab(activeTab)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to invalidate cache')
@@ -323,9 +409,14 @@ export default function EntityLocationPage() {
     setError(null)
     try {
       await removeEntityFromCache(entityId)
-      setEntities(prev => prev.filter(e => e.entityId !== entityId))
       setSearchResults(prev => prev.filter(e => e.entityId !== entityId))
       await loadSummary()
+      if (activeTab === 'entities') {
+        const nextPage = visibleEntities.length === 1 && entityPage > 1 ? entityPage - 1 : entityPage
+        await loadEntitiesPage({ page: nextPage })
+      } else {
+        setEntities(prev => prev.filter(e => e.entityId !== entityId))
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to remove entity')
     } finally {
@@ -367,10 +458,12 @@ export default function EntityLocationPage() {
         }
         return next
       })
-      // Update in-memory entity list
       setEntities(prev => prev.map(e =>
         e.entityId === entityId ? { ...e, includeForAgent: agents } : e
       ))
+      if (activeTab === 'entities' && impersonateAgent) {
+        await loadEntitiesPage({ page: entityPage })
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update agent visibility')
     }
@@ -399,6 +492,9 @@ export default function EntityLocationPage() {
       ))
       setSelectedEntityIds(new Set())
       setBulkAgentDropdownOpen(false)
+      if (activeTab === 'entities' && impersonateAgent) {
+        await loadEntitiesPage({ page: entityPage })
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to bulk-assign agents')
     }
@@ -410,6 +506,9 @@ export default function EntityLocationPage() {
       await clearAllAgentFilters()
       setEntityAgentMap({})
       setEntities(prev => prev.map(e => ({ ...e, includeForAgent: null })))
+      if (activeTab === 'entities' && impersonateAgent) {
+        await loadEntitiesPage({ page: entityPage })
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to clear agent filters')
     }
@@ -484,11 +583,11 @@ export default function EntityLocationPage() {
 
   // ── Derived state ──────────────────────────────────────────────
 
-  // Entities are already filtered by agent on the server when impersonating
+  // Entities are already filtered by the server for name, location, domain, and agent visibility.
   const visibleEntities = entities
 
-  const entityPageCount = Math.max(1, Math.ceil(visibleEntities.length / entityPageSize))
-  const pagedEntities = visibleEntities.slice(entityPage * entityPageSize, (entityPage + 1) * entityPageSize)
+  const entityPageCount = Math.max(1, Math.ceil(totalEntityCount / entityPageSize))
+  const pagedEntities = visibleEntities
   const hasFilters = Object.keys(entityAgentMap).length > 0
 
   const tabs: { id: Tab; label: string; icon: typeof Layers }[] = [
@@ -781,7 +880,14 @@ export default function EntityLocationPage() {
                 <td className="px-4 py-3 font-mono text-xs text-fog">{e.entityId}</td>
                 <td className="px-4 py-3 text-light">{e.friendlyName}</td>
                 <td className="px-4 py-3"><Badge>{e.domain}</Badge></td>
-                <td className="px-4 py-3 text-fog">{e.areaId ?? '—'}</td>
+                <td className="px-4 py-3 text-fog">
+                  <div className="flex flex-col gap-0.5">
+                    <span>{e.areaName ?? e.areaId ?? '—'}</span>
+                    {e.floorName && (
+                      <span className="text-xs text-dust">{e.floorName}</span>
+                    )}
+                  </div>
+                </td>
                 <td className="px-4 py-3">
                   {e.embeddingGenerated
                     ? <Badge color="sage">Generated</Badge>
@@ -1094,77 +1200,110 @@ export default function EntityLocationPage() {
       {/* Entities tab */}
       {activeTab === 'entities' && (
         <>
-          {/* Domain quick-filter pills */}
-          {!loading && entities.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-xs font-medium text-dust">Domains:</span>
-              {Array.from(new Set(entities.map(e => e.domain))).sort().map(domain => (
-                <button
-                  key={domain}
-                  onClick={() => {
-                    setDomainFilter(prev => prev === domain ? '' : domain)
-                    setEntityPage(0)
-                  }}
-                  className={`rounded-md px-2 py-0.5 text-xs font-medium transition-colors ${
-                    domainFilter === domain
-                      ? 'bg-amber/15 text-amber'
-                      : 'bg-stone/30 text-dust hover:bg-stone/50 hover:text-fog'
-                  }`}
-                >
-                  {domain}
-                </button>
-              ))}
-              {domainFilter && (
-                <button
-                  onClick={() => { setDomainFilter(''); setEntityPage(0) }}
-                  className="rounded-md px-2 py-0.5 text-xs text-dust hover:text-fog"
-                >
-                  ✕ clear
-                </button>
-              )}
+          <div className="glass-panel rounded-2xl border border-stone/70 p-4">
+            <div className="grid gap-3 xl:grid-cols-4">
+              <div className="relative xl:col-span-2">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-dust" />
+                <input
+                  type="text"
+                  placeholder="Filter by entity name or alias"
+                  value={nameFilter}
+                  onChange={(e) => setNameFilter(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleApplyEntityFilters() }}
+                  className="w-full rounded-xl border border-stone bg-basalt pl-10 pr-3 py-2.5 text-sm text-fog placeholder:text-dust/50 focus:border-amber focus:outline-none"
+                />
+              </div>
+              <div className="relative xl:col-span-2">
+                <MapPin className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-dust" />
+                <input
+                  type="text"
+                  placeholder="Filter by area or floor"
+                  value={locationFilter}
+                  onChange={(e) => setLocationFilter(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleApplyEntityFilters() }}
+                  className="w-full rounded-xl border border-stone bg-basalt pl-10 pr-3 py-2.5 text-sm text-fog placeholder:text-dust/50 focus:border-amber focus:outline-none"
+                />
+              </div>
+              <select
+                value={domainFilter}
+                onChange={(e) => setDomainFilter(e.target.value)}
+                className="rounded-xl border border-stone bg-basalt px-3 py-2.5 text-sm text-fog focus:border-amber focus:outline-none"
+              >
+                <option value="">All domains</option>
+                {availableDomains.map(domain => (
+                  <option key={domain} value={domain}>{domain}</option>
+                ))}
+              </select>
+              <select
+                value={impersonateAgent}
+                onChange={(e) => setImpersonateAgent(e.target.value)}
+                className="rounded-xl border border-stone bg-basalt px-3 py-2.5 text-sm text-fog focus:border-amber focus:outline-none"
+              >
+                <option value="">All Agents</option>
+                {availableAgents.map(a => (
+                  <option key={a.name} value={a.name}>
+                    {a.name}{a.domains.length > 0 ? ` (${a.domains.join(', ')})` : ''}
+                  </option>
+                ))}
+              </select>
             </div>
-          )}
 
-          <div className="flex items-center gap-3">
-            <input
-              type="text"
-              placeholder="Filter by domain (e.g., light, climate)"
-              value={domainFilter}
-              onChange={(e) => setDomainFilter(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') loadTab('entities') }}
-              className="rounded-lg border border-stone bg-basalt px-3 py-2 text-sm text-fog placeholder:text-dust/50 focus:border-amber focus:outline-none"
-            />
-            <select
-              value={impersonateAgent}
-              onChange={(e) => {
-                const agentName = e.target.value
-                setImpersonateAgent(agentName)
-                setEntityPage(0)
-                const agent = availableAgents.find(a => a.name === agentName)
-                const newDomain = agent && agent.domains.length > 0 ? agent.domains.join(',') : ''
-                setDomainFilter(newDomain)
-                loadEntitiesFiltered(newDomain, agentName)
-              }}
-              className="rounded-lg border border-stone bg-basalt px-3 py-2 text-sm text-fog focus:border-amber focus:outline-none"
-            >
-              <option value="">All Agents</option>
-              {availableAgents.map(a => (
-                <option key={a.name} value={a.name}>
-                  {a.name}{a.domains.length > 0 ? ` (${a.domains.join(', ')})` : ''}
-                </option>
-              ))}
-            </select>
-            {impersonateAgent && (
-              <span className="rounded-md bg-sky-400/15 px-2 py-1 text-xs font-medium text-sky-400">
-                👁 {impersonateAgent} view — {visibleEntities.length} entities
-              </span>
+            {availableDomains.length > 0 && (
+              <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                <span className="text-xs font-medium uppercase tracking-[0.18em] text-dust">Domain pulse</span>
+                {availableDomains.map(domain => (
+                  <button
+                    key={domain}
+                    onClick={() => setDomainFilter(prev => prev === domain ? '' : domain)}
+                    className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                      domainFilter === domain
+                        ? 'border-amber bg-amber/15 text-amber'
+                        : 'border-stone/70 bg-basalt text-dust hover:border-fog hover:text-fog'
+                    }`}
+                  >
+                    {domain}
+                  </button>
+                ))}
+              </div>
             )}
-            <button
-              onClick={() => loadTab('entities')}
-              className="rounded-lg border border-stone bg-basalt px-3 py-2 text-sm font-medium text-fog hover:bg-stone/40"
-            >
-              Filter
-            </button>
+
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={handleApplyEntityFilters}
+                  className="inline-flex items-center gap-2 rounded-xl border border-amber/50 bg-amber/10 px-4 py-2 text-sm font-medium text-amber transition-colors hover:bg-amber/15"
+                >
+                  <Search className="h-4 w-4" />
+                  Apply filters
+                </button>
+                <button
+                  onClick={handleResetEntityFilters}
+                  className="inline-flex items-center gap-2 rounded-xl border border-stone bg-basalt px-4 py-2 text-sm font-medium text-fog transition-colors hover:bg-stone/40"
+                >
+                  <X className="h-4 w-4" />
+                  Reset
+                </button>
+                {impersonateAgent && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-sky-400/15 px-3 py-1 text-xs font-medium text-sky-400">
+                    <Eye className="h-3.5 w-3.5" />
+                    {impersonateAgent} view
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 text-xs text-dust">
+                <span className="uppercase tracking-[0.18em]">Page size</span>
+                <select
+                  value={entityPageSize}
+                  onChange={(e) => handleEntityPageSizeChange(Number(e.target.value))}
+                  className="rounded-lg border border-stone bg-basalt px-3 py-2 text-sm text-fog focus:border-amber focus:outline-none"
+                >
+                  {[25, 50, 100, 250].map(size => (
+                    <option key={size} value={size}>{size}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
           </div>
 
           <BulkActionBar />
@@ -1174,46 +1313,45 @@ export default function EntityLocationPage() {
           ) : (
             <>
               <EntityTable entityList={pagedEntities} showSelect />
-              {entityPageCount > 1 && (
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-dust">
-                    Showing {entityPage * entityPageSize + 1}–{Math.min((entityPage + 1) * entityPageSize, visibleEntities.length)} of {visibleEntities.length}
-                  </span>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <span className="text-xs text-dust">
+                  Showing {totalEntityCount === 0 ? 0 : (entityPage - 1) * entityPageSize + 1}–{Math.min(entityPage * entityPageSize, totalEntityCount)} of {totalEntityCount}
+                </span>
+                {entityPageCount > 1 && (
                   <div className="flex items-center gap-1">
                     <button
-                      onClick={() => setEntityPage(p => Math.max(0, p - 1))}
-                      disabled={entityPage === 0}
+                      onClick={() => handleEntityPageChange(entityPage - 1)}
+                      disabled={entityPage === 1}
                       className="rounded-lg border border-stone bg-basalt p-1.5 text-fog hover:bg-stone/40 disabled:opacity-30"
                     >
                       <ChevronLeft className="h-4 w-4" />
                     </button>
-                    {Array.from({ length: entityPageCount }, (_, i) => (
-                      <button
-                        key={i}
-                        onClick={() => setEntityPage(i)}
-                        className={`min-w-[2rem] rounded-lg border px-2 py-1 text-xs font-medium ${
-                          i === entityPage
-                            ? 'border-amber bg-amber/15 text-amber'
-                            : 'border-stone bg-basalt text-dust hover:bg-stone/40'
-                        }`}
-                      >
-                        {i + 1}
-                      </button>
-                    )).slice(
-                      Math.max(0, entityPage - 2),
-                      Math.min(entityPageCount, entityPage + 3)
-                    )}
-                    {entityPage + 3 < entityPageCount && <span className="px-1 text-xs text-dust">…</span>}
+                    {Array.from({ length: entityPageCount }, (_, index) => index + 1)
+                      .slice(Math.max(0, entityPage - 3), Math.min(entityPageCount, entityPage + 2))
+                      .map(pageNumber => (
+                        <button
+                          key={pageNumber}
+                          onClick={() => handleEntityPageChange(pageNumber)}
+                          className={`min-w-[2rem] rounded-lg border px-2 py-1 text-xs font-medium ${
+                            pageNumber === entityPage
+                              ? 'border-amber bg-amber/15 text-amber'
+                              : 'border-stone bg-basalt text-dust hover:bg-stone/40'
+                          }`}
+                        >
+                          {pageNumber}
+                        </button>
+                      ))}
+                    {entityPage + 2 < entityPageCount && <span className="px-1 text-xs text-dust">…</span>}
                     <button
-                      onClick={() => setEntityPage(p => Math.min(entityPageCount - 1, p + 1))}
-                      disabled={entityPage >= entityPageCount - 1}
+                      onClick={() => handleEntityPageChange(entityPage + 1)}
+                      disabled={entityPage >= entityPageCount}
                       className="rounded-lg border border-stone bg-basalt p-1.5 text-fog hover:bg-stone/40 disabled:opacity-30"
                     >
                       <ChevronRight className="h-4 w-4" />
                     </button>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </>
           )}
         </>

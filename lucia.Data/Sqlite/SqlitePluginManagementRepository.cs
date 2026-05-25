@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using lucia.Agents.Abstractions;
 using lucia.Agents.PluginFramework;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace lucia.Data.Sqlite;
 
@@ -22,7 +23,8 @@ public sealed class SqlitePluginManagementRepository : IPluginManagementReposito
         Converters = { new JsonStringEnumConverter() }
     };
 
-    public SqlitePluginManagementRepository(SqliteConnectionFactory connectionFactory)
+    public SqlitePluginManagementRepository(
+        [FromKeyedServices(SqliteDbNames.Config)] SqliteConnectionFactory connectionFactory)
     {
         _connectionFactory = connectionFactory;
     }

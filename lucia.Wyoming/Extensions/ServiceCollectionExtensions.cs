@@ -85,7 +85,7 @@ public static class ServiceCollectionExtensions
         // Determine data provider mode from configuration
         var storeProvider = builder.Configuration["DataProvider:Store"] ?? "MongoDB";
         var cacheProvider = builder.Configuration["DataProvider:Cache"] ?? "Redis";
-        var useMongo = !storeProvider.Equals("SQLite", StringComparison.OrdinalIgnoreCase);
+        var useMongo = storeProvider.Equals("MongoDB", StringComparison.OrdinalIgnoreCase);
         var useRedis = !cacheProvider.Equals("InMemory", StringComparison.OrdinalIgnoreCase);
 
         if (useMongo)
@@ -109,7 +109,8 @@ public static class ServiceCollectionExtensions
         }
         else
         {
-            // SQLite stores may be registered by AddSqliteStoreProviders; fall back to in-memory
+            // PostgreSQL/SQLite stores are registered by AddPostgresStoreProviders()/AddSqliteStoreProviders();
+            // TryAddSingleton ensures in-memory fallback only if those haven't registered first
             builder.Services.TryAddSingleton<ISpeakerProfileStore, InMemorySpeakerProfileStore>();
             builder.Services.TryAddSingleton<ITranscriptStore, InMemoryTranscriptStore>();
             builder.Services.TryAddSingleton<IModelPreferenceStore, InMemoryModelPreferenceStore>();

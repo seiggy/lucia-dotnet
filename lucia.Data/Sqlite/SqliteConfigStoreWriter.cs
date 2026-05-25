@@ -1,6 +1,7 @@
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration.UserConfiguration;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace lucia.Data.Sqlite;
 
@@ -12,7 +13,8 @@ public sealed class SqliteConfigStoreWriter : IConfigStoreWriter
 {
     private readonly SqliteConnectionFactory _connectionFactory;
 
-    public SqliteConfigStoreWriter(SqliteConnectionFactory connectionFactory)
+    public SqliteConfigStoreWriter(
+        [FromKeyedServices(SqliteDbNames.Config)] SqliteConnectionFactory connectionFactory)
     {
         _connectionFactory = connectionFactory;
     }

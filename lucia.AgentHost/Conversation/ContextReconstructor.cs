@@ -1,4 +1,5 @@
 using lucia.AgentHost.Conversation.Models;
+using lucia.Agents.Services;
 
 namespace lucia.AgentHost.Conversation;
 
@@ -33,6 +34,18 @@ public sealed class ContextReconstructor
         The user is requesting assistance with their Home Assistant-controlled smart home. Use the entity IDs above to reference specific devices when delegating to specialized agents. Consider the current time and device states when planning actions.
         """;
 
+    private readonly UserContextProvider? _userContextProvider;
+    private readonly ChatHistoryProvider? _chatHistoryProvider;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ContextReconstructor"/> class.
+    /// </summary>
+    public ContextReconstructor(UserContextProvider? userContextProvider = null, ChatHistoryProvider? chatHistoryProvider = null)
+    {
+        _userContextProvider = userContextProvider;
+        _chatHistoryProvider = chatHistoryProvider;
+    }
+
     /// <summary>
     /// Reconstructs a full prompt string from the structured request for LLM consumption.
     /// </summary>
@@ -42,6 +55,40 @@ public sealed class ContextReconstructor
     /// ready to be passed to <c>LuciaEngine.ProcessRequestAsync</c>.
     /// </returns>
     public string Reconstruct(ConversationRequest request)
+    {
+        return BuildPrompt(request, string.Empty, []);
+    }
+
+    /// <summary>
+    /// Reconstructs a full prompt string enriched with stored user context and recent chat history.
+    /// </summary>
+    public async Task<string> ReconstructAsync(ConversationRequest request, CancellationToken ct = default)
+    {
+        // Use voiceprint-identified speaker as effective identity when no auth-based UserId is present.
+        // The Wyoming voice pipeline identifies users by enrolled voice profiles, not traditional auth.
+        var effectiveUserId = request.Context.UserId ?? request.Context.SpeakerId;
+
+        if (string.IsNullOrWhiteSpace(effectiveUserId))
+        {
+            return Reconstruct(request);
+        }
+
+        var userContextTask = _userContextProvider is not null
+            ? _userContextProvider.GetUserContextAsync(effectiveUserId, ct)
+            : Task.FromResult(string.Empty);
+        var historyTask = _chatHistoryProvider is not null
+            ? _chatHistoryProvider.GetRecentHistoryAsync(effectiveUserId, ct: ct)
+            : Task.FromResult<IReadOnlyList<string>>([]);
+
+        await Task.WhenAll(userContextTask, historyTask).ConfigureAwait(false);
+
+        return BuildPrompt(
+            request,
+            await userContextTask.ConfigureAwait(false),
+            await historyTask.ConfigureAwait(false));
+    }
+
+    private static string BuildPrompt(ConversationRequest request, string userContext, IReadOnlyList<string> recentHistory)
     {
         var template = request.PromptOverride ?? DefaultTemplate;
 
@@ -57,7 +104,18 @@ public sealed class ContextReconstructor
         var speakerLine = context.SpeakerId is not null
             ? $"\n[Speaker: {context.SpeakerId}]"
             : string.Empty;
+        var promptSections = new List<string> { $"{prompt}{speakerLine}" };
 
-        return $"{prompt}{speakerLine}\n\nUser: {request.Text}";
+        if (!string.IsNullOrWhiteSpace(userContext))
+        {
+            promptSections.Add(userContext);
+        }
+
+        if (recentHistory.Count > 0)
+        {
+            promptSections.Add($"RECENT CHAT HISTORY:\n{string.Join("\n\n", recentHistory)}");
+        }
+
+        return $"{string.Join("\n\n", promptSections)}\n\nUser: {request.Text}";
     }
 }

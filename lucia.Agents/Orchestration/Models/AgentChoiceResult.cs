@@ -40,6 +40,12 @@ public sealed class AgentChoiceResult
     public List<AgentInstruction>? AgentInstructions { get; set; }
 
     /// <summary>
+    /// The original user text before any prompt reconstruction or translation.
+    /// </summary>
+    [JsonPropertyName("originalUserText")]
+    public string? OriginalUserText { get; set; }
+
+    /// <summary>
     /// The system prompt used by the router to make this decision.
     /// Only populated for in-process tracing; excluded from JSON serialization.
     /// </summary>

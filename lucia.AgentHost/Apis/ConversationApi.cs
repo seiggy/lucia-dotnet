@@ -129,6 +129,7 @@ public static class ConversationApi
                 .ProcessRequestAsync(
                     result.LlmPrompt,
                     sessionId: result.ConversationId,
+                    originalUserText: result.OriginalUserText,
                     cancellationToken: ct)
                 .ConfigureAwait(false);
 
@@ -142,7 +143,8 @@ public static class ConversationApi
         }
         catch (OperationCanceledException)
         {
-            // Client disconnected — nothing to send
+            // Client disconnected; stop streaming without surfacing an error.
+            return;
         }
         catch (Exception ex)
         {

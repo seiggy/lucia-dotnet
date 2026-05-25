@@ -110,6 +110,7 @@ public class AgentChoiceResultTests : TestBase
             .WithAgentId("test-agent")
             .WithConfidence(0.9)
             .WithReasoning("Test reasoning")
+            .WithOriginalUserText("schalte den keller ein")
             .Build();
 
         // Act
@@ -119,7 +120,9 @@ public class AgentChoiceResultTests : TestBase
         Assert.Contains("\"agentId\":", json);
         Assert.Contains("\"confidence\":", json);
         Assert.Contains("\"reasoning\":", json);
+        Assert.Contains("\"originalUserText\":", json);
         Assert.DoesNotContain("AgentId", json);
         Assert.DoesNotContain("Confidence", json);
+        Assert.DoesNotContain("OriginalUserText", json);
     }
 }

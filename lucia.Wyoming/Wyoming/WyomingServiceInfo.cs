@@ -22,6 +22,9 @@ public sealed class WyomingServiceInfo
 
     public InfoEvent BuildInfoEvent()
     {
+        var hostname = Environment.MachineName.ToLowerInvariant();
+        var serviceName = $"lucia-{hostname}";
+
         var sherpaAttribution = new Attribution
         {
             Name = "k2-fsa",
@@ -33,8 +36,8 @@ public sealed class WyomingServiceInfo
             Asr = _sttEngines.Any(static e => e.IsReady)
                 ? [new AsrInfo
                 {
-                    Name = "sherpa-onnx",
-                    Description = "Sherpa-ONNX Streaming ASR",
+                    Name = serviceName,
+                    Description = "Lucia Wyoming STT (Sherpa-ONNX)",
                     Version = "1.11.1",
                     Languages = ["en"],
                     Installed = true,
@@ -57,8 +60,8 @@ public sealed class WyomingServiceInfo
             Wake = _wakeWordDetector?.IsReady == true
                 ? [new WakeInfo
                 {
-                    Name = "sherpa-kws",
-                    Description = "Sherpa-ONNX Keyword Spotter",
+                    Name = serviceName,
+                    Description = "Lucia Wyoming Wake Word (Sherpa-ONNX KWS)",
                     Version = "1.11.1",
                     Languages = ["en"],
                     Installed = true,

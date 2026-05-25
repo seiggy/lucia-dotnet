@@ -25,6 +25,11 @@ public sealed record ProcessingResult
     /// <summary>Conversation ID for session continuity.</summary>
     public string? ConversationId { get; init; }
 
+    /// <summary>
+    /// The raw user text before any context reconstruction.
+    /// </summary>
+    public string? OriginalUserText { get; init; }
+
     /// <summary>Command was parsed and executed; return instant JSON.</summary>
     public static ProcessingResult CommandHandled(ConversationResponse response) => new()
     {
@@ -42,11 +47,12 @@ public sealed record ProcessingResult
     };
 
     /// <summary>LLM fallback needed but engine unavailable; API should stream.</summary>
-    public static ProcessingResult LlmFallback(string? conversationId, string prompt) => new()
+    public static ProcessingResult LlmFallback(string? conversationId, string prompt, string? originalUserText = null) => new()
     {
         Kind = ProcessingKind.LlmFallback,
         ConversationId = conversationId,
         LlmPrompt = prompt,
+        OriginalUserText = originalUserText,
     };
 }
 

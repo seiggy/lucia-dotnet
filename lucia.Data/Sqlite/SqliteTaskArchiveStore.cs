@@ -5,6 +5,7 @@ using lucia.Agents.Models;
 using lucia.Agents.Services;
 using lucia.Agents.Training.Models;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace lucia.Data.Sqlite;
 
@@ -21,7 +22,8 @@ public sealed class SqliteTaskArchiveStore : ITaskArchiveStore
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
     };
 
-    public SqliteTaskArchiveStore(SqliteConnectionFactory connectionFactory)
+    public SqliteTaskArchiveStore(
+        [FromKeyedServices(SqliteDbNames.Tasks)] SqliteConnectionFactory connectionFactory)
     {
         _connectionFactory = connectionFactory;
     }

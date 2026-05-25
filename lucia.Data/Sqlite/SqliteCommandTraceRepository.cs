@@ -5,6 +5,7 @@ using lucia.Agents.CommandTracing;
 using lucia.Agents.Training.Models;
 
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace lucia.Data.Sqlite;
 
@@ -23,7 +24,8 @@ public sealed class SqliteCommandTraceRepository : ICommandTraceRepository
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
     };
 
-    public SqliteCommandTraceRepository(SqliteConnectionFactory connectionFactory)
+    public SqliteCommandTraceRepository(
+        [FromKeyedServices(SqliteDbNames.Traces)] SqliteConnectionFactory connectionFactory)
     {
         _connectionFactory = connectionFactory;
     }

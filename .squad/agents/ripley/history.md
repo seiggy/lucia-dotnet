@@ -25,6 +25,10 @@
 
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
 
+### 2026-05-18: Embedding Provider Changes Require Cache Rebuild
+
+When an agent changes embedding providers, any cached entity embeddings must be regenerated immediately. Reusing cached vectors produced by provider A with query embeddings produced by provider B creates vector-space drift and breaks hybrid matching quality in subtle ways.
+
 ### 2025-10-13: Eval Expansion Architecture
 
 **Standard Eval Suite Pattern:**

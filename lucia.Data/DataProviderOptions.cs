@@ -24,4 +24,9 @@ public sealed class DataProviderOptions
     /// SQLite database file path. Only used when Store is SQLite.
     /// </summary>
     public string SqlitePath { get; set; } = "./data/lucia.db";
+
+    /// <summary>
+    /// PostgreSQL connection string. Only used when Store is PostgreSQL.
+    /// </summary>
+    public string PostgresConnectionString { get; set; } = string.Empty;
 }

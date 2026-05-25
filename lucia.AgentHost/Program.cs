@@ -6,6 +6,7 @@ using lucia.AgentHost.Conversation.Execution;
 using lucia.AgentHost.Conversation.Templates;
 using lucia.Agents.CommandTracing;
 using lucia.AgentHost.Conversation.Tracing;
+using lucia.Agents.DataStores;
 using lucia.AgentHost.Extensions;
 using lucia.AgentHost.PluginFramework;
 using lucia.AgentHost.Services;
@@ -21,6 +22,8 @@ using lucia.Agents.Services;
 using lucia.Agents.Services.EntityAssignment;
 using lucia.Data;
 using lucia.Data.Extensions;
+using lucia.Data.InMemory;
+using lucia.Data.PostgreSQL;
 using lucia.Data.Sqlite;
 using lucia.MusicAgent;
 using lucia.TimerAgent;
@@ -28,6 +31,7 @@ using lucia.TimerAgent.ScheduledTasks;
 using lucia.Wyoming.Extensions;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.FeatureManagement;
 using OpenTelemetry.Trace;
 using Scalar.AspNetCore;
@@ -42,7 +46,11 @@ builder.Services.AddFeatureManagement();
 var dataProviderOptions = new DataProviderOptions();
 builder.Configuration.GetSection(DataProviderOptions.SectionName).Bind(dataProviderOptions);
 var useRedis = dataProviderOptions.Cache == CacheProviderType.Redis;
-var useMongo = dataProviderOptions.Store == StoreProviderType.MongoDB;
+var storeProvider = builder.Configuration[$"{DataProviderOptions.SectionName}:Store"]
+    ?? dataProviderOptions.Store.ToString();
+var useMongo = storeProvider.Equals("MongoDB", StringComparison.OrdinalIgnoreCase);
+var usePostgres = storeProvider.Equals("PostgreSQL", StringComparison.OrdinalIgnoreCase);
+var useSqlite = !useMongo && !usePostgres;
 
 if (useRedis)
 {
@@ -57,6 +65,7 @@ if (useMongo)
 
     // MongoDB for configuration (shared across services)
     builder.AddMongoDBClient(connectionName: "luciaconfig");
+    builder.Services.AddSingleton<IMemoryStore, MongoMemoryStore>();
 
     // MongoDB for task archive
     builder.AddMongoDBClient(connectionName: "luciatasks");
@@ -64,7 +73,19 @@ if (useMongo)
     // Add MongoDB configuration as highest-priority source (overrides appsettings)
     builder.Configuration.AddMongoConfiguration("luciaconfig");
 }
-else
+else if (usePostgres)
+{
+    // PostgreSQL configuration provider uses the luciaconfig database.
+    // Connection string comes from Aspire-injected ConnectionStrings section.
+    var connStr = builder.Configuration.GetConnectionString(PostgresDbNames.Config)
+        ?? dataProviderOptions.PostgresConnectionString;
+    if (string.IsNullOrWhiteSpace(connStr))
+        connStr = builder.Configuration.GetConnectionString("luciadb") ?? "";
+    var pgFactory = new PostgresConnectionFactory(connStr);
+    builder.Services.AddSingleton(pgFactory);
+    builder.Configuration.AddPostgresConfiguration(pgFactory);
+}
+else if (useSqlite)
 {
     // SQLite configuration provider (replaces MongoDB config source)
     var sqliteFactory = new SqliteConnectionFactory(dataProviderOptions.SqlitePath);
@@ -87,9 +108,22 @@ builder.AddLuciaAgents();
 
 // Register lightweight data providers when not using Redis/MongoDB
 if (!useRedis)
+{
     builder.AddInMemoryCacheProviders();
-if (!useMongo)
+}
+
+if (usePostgres)
+{
+    builder.AddPostgresStoreProviders();
+}
+else if (useSqlite)
+{
     builder.AddSqliteStoreProviders();
+}
+
+builder.Services.TryAddSingleton<IMemoryStore, InMemoryMemoryStore>();
+builder.Services.TryAddSingleton<ChatHistoryProvider>();
+builder.Services.TryAddSingleton<UserContextProvider>();
 
 // Deployment mode: "standalone" (default) embeds plugin agents in-process,
 // "mesh" expects external A2A agent containers to register over the network.
@@ -112,7 +146,7 @@ if (isStandalone)
     timerPlugin.ConfigureAgentHost(builder);
     builder.Services.AddSingleton<IAgentPlugin>(timerPlugin);
 
-    if (!useMongo)
+    if (useSqlite)
     {
         builder.Services.AddSingleton<IScheduledTaskRepository, SqliteScheduledTaskRepository>();
         builder.Services.AddSingleton<IAlarmClockRepository, SqliteAlarmClockRepository>();
@@ -131,7 +165,7 @@ else
         builder.Services.AddSingleton<IScheduledTaskRepository, MongoScheduledTaskRepository>();
         builder.Services.AddSingleton<IAlarmClockRepository, MongoAlarmClockRepository>();
     }
-    else
+    else if (useSqlite)
     {
         builder.Services.AddSingleton<IScheduledTaskRepository, SqliteScheduledTaskRepository>();
         builder.Services.AddSingleton<IAlarmClockRepository, SqliteAlarmClockRepository>();
@@ -187,7 +221,7 @@ if (useMongo)
 {
     builder.Services.AddSingleton<ITraceRepository, MongoTraceRepository>();
 }
-else
+else if (useSqlite)
 {
     builder.Services.AddSingleton<ITraceRepository, lucia.Data.Sqlite.SqliteTraceRepository>();
 }
@@ -208,6 +242,10 @@ if (useMongo)
 {
     builder.Services.AddSingleton<IResponseTemplateRepository, MongoResponseTemplateRepository>();
 }
+else if (usePostgres)
+{
+    builder.Services.AddSingleton<IResponseTemplateRepository, PostgresResponseTemplateRepository>();
+}
 else
 {
     builder.Services.AddSingleton<IResponseTemplateRepository, SqliteResponseTemplateRepository>();
@@ -222,7 +260,7 @@ if (useMongo)
 {
     builder.Services.AddSingleton<ICommandTraceRepository, MongoCommandTraceRepository>();
 }
-else
+else if (useSqlite)
 {
     builder.Services.AddSingleton<ICommandTraceRepository, lucia.Data.Sqlite.SqliteCommandTraceRepository>();
 }
@@ -347,10 +385,17 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 
 // When using SQLite, run schema migrations before any data access (seed, config load, etc.)
-if (!useMongo)
+if (useSqlite)
 {
     await using var migrationScope = app.Services.CreateAsyncScope();
     var migrationRunner = migrationScope.ServiceProvider.GetRequiredService<lucia.Data.Sqlite.SqliteMigrationRunner>();
+    await migrationRunner.StartAsync(CancellationToken.None).ConfigureAwait(false);
+}
+else if (usePostgres)
+{
+    // Run PostgreSQL migrations synchronously before seeding, same as SQLite.
+    await using var migrationScope = app.Services.CreateAsyncScope();
+    var migrationRunner = migrationScope.ServiceProvider.GetRequiredService<PostgresMigrationRunner>();
     await migrationRunner.StartAsync(CancellationToken.None).ConfigureAwait(false);
 }
 
@@ -409,6 +454,7 @@ app.MapDatasetExportApi();
 app.MapConfigurationApi();
 app.MapPromptCacheApi();
 app.MapEntityLocationCacheApi();
+app.MapEntitiesApi();
 app.MapEntityVisibilityApi();
 app.MapMatcherDebugApi();
 app.MapTaskManagementApi();
@@ -419,6 +465,7 @@ app.MapActivityApi();
 app.MapAlarmClockApi();
 app.MapResponseTemplateApi();
 app.MapConversationApi();
+app.MapMemoryApi();
 app.MapCommandTraceApi();
 app.MapListsApi();
 app.MapPresenceApi();

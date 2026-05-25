@@ -8,6 +8,7 @@ using lucia.AgentHost.Conversation.Tracing;
 using lucia.Agents.CommandTracing;
 using lucia.Agents.Orchestration;
 using lucia.Agents.Orchestration.Models;
+using lucia.Agents.Services;
 using lucia.Wyoming.CommandRouting;
 
 using Microsoft.Extensions.Logging;
@@ -33,6 +34,7 @@ public sealed partial class ConversationCommandProcessor
     private readonly CommandTraceChannel _traceChannel;
     private readonly ILogger<ConversationCommandProcessor> _logger;
     private readonly IServiceProvider _serviceProvider;
+    private readonly ChatHistoryProvider? _chatHistoryProvider;
 
     public ConversationCommandProcessor(
         ICommandRouter commandRouter,
@@ -46,7 +48,8 @@ public sealed partial class ConversationCommandProcessor
         ILogger<ConversationCommandProcessor> logger,
         IOptionsMonitor<CommandRoutingOptions> routingOptions,
         IOptionsMonitor<PersonalityPromptOptions> personalityOptions,
-        IPersonalityResponseRenderer? personalityRenderer = null)
+        IPersonalityResponseRenderer? personalityRenderer = null,
+        ChatHistoryProvider? chatHistoryProvider = null)
     {
         _commandRouter = commandRouter;
         _skillExecutor = skillExecutor;
@@ -60,6 +63,7 @@ public sealed partial class ConversationCommandProcessor
         _traceChannel = traceChannel;
         _serviceProvider = serviceProvider;
         _logger = logger;
+        _chatHistoryProvider = chatHistoryProvider;
     }
 
     /// <summary>
@@ -182,6 +186,7 @@ public sealed partial class ConversationCommandProcessor
         // Record successful trace
         await SaveCommandTraceAsync(originalText, request, routeResult, executionResult, responseText, sw, CommandTraceOutcome.CommandHandled, templateRender: renderResult.TraceData)
             .ConfigureAwait(false);
+        await AppendConversationHistoryAsync(request, responseText, ct).ConfigureAwait(false);
 
         return ProcessingResult.CommandHandled(
             ConversationResponse.FromCommand(responseText, commandDetail, conversationId));
@@ -201,21 +206,21 @@ public sealed partial class ConversationCommandProcessor
 
         LogLlmFallback(request.Text);
 
+        var prompt = await _contextReconstructor.ReconstructAsync(request, ct).ConfigureAwait(false);
         var engine = _serviceProvider.GetService(typeof(LuciaEngine)) as LuciaEngine;
         if (engine is null)
         {
             _logger.LogError("LuciaEngine not available for LLM fallback");
             sw.Stop();
 
-            await SaveLlmFallbackTraceAsync(originalText, request, routeResult, sw, null, CommandTraceOutcome.LlmFallback, failedExecution)
+            await SaveLlmFallbackTraceAsync(originalText, request, routeResult, sw, prompt, CommandTraceOutcome.LlmFallback, failedExecution)
                 .ConfigureAwait(false);
 
             return ProcessingResult.LlmFallback(
                 conversationId,
-                _contextReconstructor.Reconstruct(request));
+                prompt,
+                request.Text);
         }
-
-        var prompt = _contextReconstructor.Reconstruct(request);
 
         var speakerContext = new SpeakerContext
         {
@@ -225,7 +230,12 @@ public sealed partial class ConversationCommandProcessor
         };
 
         var result = await engine
-            .ProcessRequestAsync(prompt, sessionId: conversationId, speakerContext: speakerContext, cancellationToken: ct)
+            .ProcessRequestAsync(
+                prompt,
+                sessionId: conversationId,
+                speakerContext: speakerContext,
+                originalUserText: request.Text,
+                cancellationToken: ct)
             .ConfigureAwait(false);
 
         sw.Stop();
@@ -235,9 +245,40 @@ public sealed partial class ConversationCommandProcessor
 
         await SaveLlmFallbackTraceAsync(originalText, request, routeResult, sw, prompt, CommandTraceOutcome.LlmCompleted, failedExecution)
             .ConfigureAwait(false);
+        await AppendConversationHistoryAsync(request, result.Text, ct).ConfigureAwait(false);
 
         return ProcessingResult.LlmCompleted(
             ConversationResponse.FromLlm(result.Text, conversationId, result.NeedsInput));
+    }
+
+    private async Task AppendConversationHistoryAsync(
+        ConversationRequest request,
+        string assistantResponse,
+        CancellationToken ct)
+    {
+        if (_chatHistoryProvider is null
+            || string.IsNullOrWhiteSpace(assistantResponse))
+        {
+            return;
+        }
+
+        // Use voiceprint-identified speaker as effective identity when no auth-based UserId exists.
+        var effectiveUserId = request.Context.UserId ?? request.Context.SpeakerId;
+        if (string.IsNullOrWhiteSpace(effectiveUserId))
+        {
+            return;
+        }
+
+        try
+        {
+            await _chatHistoryProvider
+                .AppendTurnAsync(effectiveUserId, request.Text, assistantResponse, ct)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to append chat history for user {UserId}", effectiveUserId);
+        }
     }
 
     private async Task SaveCommandTraceAsync(

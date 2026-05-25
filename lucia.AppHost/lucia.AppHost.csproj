@@ -1,4 +1,4 @@
-<Project Sdk="Aspire.AppHost.Sdk/13.2.0">
+<Project Sdk="Aspire.AppHost.Sdk/13.3.3">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <PreviewFeatures>enable</PreviewFeatures>
@@ -10,6 +10,7 @@
     <PackageReference Include="Aspire.Hosting.OpenAI" />
     <PackageReference Include="Aspire.Hosting.MongoDB" />
     <PackageReference Include="Aspire.Hosting.JavaScript" />
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" />
     <PackageReference Include="Aspire.Hosting.Redis" />
     <PackageReference Include="CommunityToolkit.Aspire.Hosting.JavaScript.Extensions" />
     <PackageReference Include="Scalar.Aspire" />

@@ -6,6 +6,7 @@ var cacheProvider = dataProviderConfig["Cache"] ?? "Redis";
 var storeProvider = dataProviderConfig["Store"] ?? "MongoDB";
 var useRedis = cacheProvider.Equals("Redis", StringComparison.OrdinalIgnoreCase);
 var useMongo = storeProvider.Equals("MongoDB", StringComparison.OrdinalIgnoreCase);
+var usePostgres = storeProvider.Equals("PostgreSQL", StringComparison.OrdinalIgnoreCase);
 
 IResourceBuilder<IResourceWithConnectionString>? redis = null;
 if (useRedis)
@@ -32,6 +33,21 @@ if (useMongo)
     tracesDb = mongodb.AddDatabase("luciatraces");
     configDb = mongodb.AddDatabase("luciaconfig");
     tasksDb = mongodb.AddDatabase("luciatasks");
+}
+
+IResourceBuilder<PostgresServerResource>? postgres = null;
+IResourceBuilder<PostgresDatabaseResource>? pgtracesDb = null, pgconfigDb = null, pgtasksDb = null;
+if (usePostgres)
+{
+    postgres = builder.AddPostgres("postgres")
+        .WithDataVolume()
+        .WithLifetime(ContainerLifetime.Persistent)
+        .WithPgAdmin()
+        .WithContainerName("postgres");
+
+    pgtracesDb = postgres.AddDatabase("luciatraces");
+    pgconfigDb = postgres.AddDatabase("luciaconfig");
+    pgtasksDb = postgres.AddDatabase("luciatasks");
 }
 
 // Internal service-to-service authentication token.
@@ -75,6 +91,13 @@ if (tasksDb is not null)
     registryApi.WithReference(tasksDb);
 if (mongodb is not null)
     registryApi.WaitFor(mongodb);
+if (postgres is not null && pgtracesDb is not null && pgconfigDb is not null && pgtasksDb is not null)
+    registryApi
+    .WithEnvironment("DataProvider__Store", "PostgreSQL")
+    .WithReference(pgtracesDb)
+    .WithReference(pgconfigDb)
+    .WithReference(pgtasksDb)
+    .WaitFor(postgres!);
 
 // Pass DataProvider config as environment variables
 registryApi.WithEnvironment("DataProvider__Cache", cacheProvider);
@@ -82,28 +105,6 @@ registryApi.WithEnvironment("DataProvider__Store", storeProvider);
 
 var currentDirectory = Environment.CurrentDirectory;
 var sep = Path.DirectorySeparatorChar.ToString();
-//
-// var timerAgent = builder.AddProject<Projects.lucia_A2AHost>("timer-agent")
-//     .WithEnvironment("PluginDirectory", $"{currentDirectory}{sep}plugins{sep}timer-agent")
-//     .WithEnvironment("InternalAuth__Token", internalToken)
-//     .WithReference(redis)
-//     .WaitFor(redis)
-//     .WithReference(registryApi)
-//     .WaitFor(registryApi)
-//     .WithReference(tracesDb)
-//     .WithReference(configDb)
-//     .WithReference(tasksDb)
-//     .WaitFor(mongodb)
-//     .WithHttpHealthCheck("/health")
-//     .WithExternalHttpEndpoints();
-// Aspire service discovery uses the resource name as hostname — no port needed
-//timerAgent.WithEnvironment("services__selfUrl", "http://timer-agent/timers");
-
-// AgentHost needs service discovery for A2A agents so it can fetch their agent
-// cards during registration. WithReference only adds endpoint resolution — it
-// does NOT create a startup dependency (that's WaitFor), so no circular dependency.
-// registryApi
-//     .WithReference(timerAgent);
 
 builder.AddViteApp("lucia-dashboard", "../lucia-dashboard")
     .WithReference(registryApi)

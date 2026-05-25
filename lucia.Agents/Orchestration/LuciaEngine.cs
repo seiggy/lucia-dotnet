@@ -57,6 +57,7 @@ public class LuciaEngine
         string? taskId = null,
         string? sessionId = null,
         SpeakerContext? speakerContext = null,
+        string? originalUserText = null,
         CancellationToken cancellationToken = default)
     {
         var activity = _telemetrySource.ActivitySource.StartActivity();
@@ -151,7 +152,12 @@ public class LuciaEngine
             }
 
             var workflowResult = await _workflowFactory.BuildAndExecuteAsync(
-                invokers, historyAwareRequest, requestId, cancellationToken, speakerContext).ConfigureAwait(false);
+                invokers,
+                historyAwareRequest,
+                requestId,
+                cancellationToken,
+                speakerContext,
+                originalUserText ?? userRequest).ConfigureAwait(false);
 
             // 3. Post-processing
             var finalText = workflowResult?.Text ?? _aggregatorOptions.Value.DefaultFallbackMessage;

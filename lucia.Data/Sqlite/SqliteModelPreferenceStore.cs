@@ -1,6 +1,7 @@
 using System.Text.Json;
 using lucia.Wyoming.Models;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace lucia.Data.Sqlite;
@@ -19,7 +20,9 @@ public sealed class SqliteModelPreferenceStore : IModelPreferenceStore
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
     };
 
-    public SqliteModelPreferenceStore(SqliteConnectionFactory connectionFactory, ILogger<SqliteModelPreferenceStore> logger)
+    public SqliteModelPreferenceStore(
+        [FromKeyedServices(SqliteDbNames.Config)] SqliteConnectionFactory connectionFactory,
+        ILogger<SqliteModelPreferenceStore> logger)
     {
         _connectionFactory = connectionFactory;
         _logger = logger;

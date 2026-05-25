@@ -15,6 +15,11 @@ namespace lucia.AgentHost.Apis;
 /// </summary>
 public static class AgentDefinitionApi
 {
+    private const string DescriptionField = "description";
+    private const string InstructionsField = "instructions";
+    private const string ModelConnectionNameField = "modelconnectionname";
+    private const string EmbeddingProviderNameField = "embeddingprovidername";
+
     public static IEndpointRouteBuilder MapAgentDefinitionApi(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/agent-definitions")
@@ -29,9 +34,12 @@ public static class AgentDefinitionApi
         group.MapPost("/", CreateDefinitionAsync)
             .WithSummary("Create a new agent definition")
             .WithDescription("Creates a user-defined agent. Names that conflict with built-in agents are rejected.");
-        group.MapPut("/{id}", UpdateDefinitionAsync)
-            .WithSummary("Update an agent definition")
-            .WithDescription("Merges provided fields into the existing definition. Null fields are ignored.");
+        group.MapPut("/{id}", ReplaceDefinitionAsync)
+            .WithSummary("Replace an agent definition")
+            .WithDescription("Fully replaces an existing definition using the route ID while preserving system-managed fields.");
+        group.MapPatch("/{id}", PatchDefinitionAsync)
+            .WithSummary("Patch an agent definition")
+            .WithDescription("Merges provided fields into the existing definition. Use clearFields to explicitly clear nullable fields.");
         group.MapDelete("/{id}", DeleteDefinitionAsync)
             .WithSummary("Delete an agent definition")
             .WithDescription("Deletes the definition and unregisters the agent from the in-memory registry.");
@@ -77,7 +85,7 @@ public static class AgentDefinitionApi
         {
             "orchestrator", "light-agent", "climate-agent",
             "general-assistant", "music-agent", "timer-agent",
-            "lists-agent", "scene-agent"
+            "lists-agent", "scene-agent", "security-agent"
         };
 
         if (builtInNames.Contains(definition.Name))
@@ -91,32 +99,111 @@ public static class AgentDefinitionApi
         return TypedResults.Created($"/api/agent-definitions/{definition.Id}", definition);
     }
 
-    private static async Task<Results<Ok<AgentDefinition>, NotFound>> UpdateDefinitionAsync(
+    private static async Task<Results<Ok<AgentDefinition>, NotFound>> ReplaceDefinitionAsync(
         string id,
         [FromBody] AgentDefinition definition,
         [FromServices] IAgentDefinitionRepository repository)
     {
         var existing = await repository.GetAgentDefinitionAsync(id).ConfigureAwait(false);
-        if (existing is null) return TypedResults.NotFound();
+        if (existing is null)
+        {
+            return TypedResults.NotFound();
+        }
 
-        // Merge incoming fields — only overwrite when the client sent a non-null value.
-        // String properties deserialise to null when absent from the JSON payload.
-        existing.Name = definition.Name ?? existing.Name;
-        existing.DisplayName = definition.DisplayName ?? existing.DisplayName;
-        existing.Description = definition.Description ?? existing.Description;
-        existing.Instructions = definition.Instructions ?? existing.Instructions;
-        existing.ModelConnectionName = definition.ModelConnectionName ?? existing.ModelConnectionName;
-        existing.EmbeddingProviderName = definition.EmbeddingProviderName ?? existing.EmbeddingProviderName;
+        var replacement = new AgentDefinition
+        {
+            Id = id,
+            Name = definition.Name,
+            DisplayName = definition.DisplayName,
+            Description = definition.Description,
+            Instructions = definition.Instructions,
+            Tools = definition.Tools,
+            ModelConnectionName = definition.ModelConnectionName,
+            EmbeddingProviderName = definition.EmbeddingProviderName,
+            Enabled = definition.Enabled,
+            IsBuiltIn = existing.IsBuiltIn,
+            IsRemote = existing.IsRemote,
+            IsOrchestrator = existing.IsOrchestrator,
+            CreatedAt = existing.CreatedAt,
+            UpdatedAt = DateTime.UtcNow,
+        };
 
-        // Bool — always present when the frontend submits the form
-        existing.Enabled = definition.Enabled;
+        await repository.UpsertAgentDefinitionAsync(replacement).ConfigureAwait(false);
+        return TypedResults.Ok(replacement);
+    }
 
-        // Collections: null ⇒ "not sent", empty list ⇒ intentional clear.
-        // The property initialiser is [] so an omitted JSON field is
-        // indistinguishable from an explicit []; the frontend always sends
-        // this field so the merge is correct in practice.
-        if (definition.Tools is not null)
-            existing.Tools = definition.Tools;
+    private static async Task<Results<Ok<AgentDefinition>, NotFound>> PatchDefinitionAsync(
+        string id,
+        [FromBody] PatchAgentDefinitionRequest request,
+        [FromServices] IAgentDefinitionRepository repository)
+    {
+        var existing = await repository.GetAgentDefinitionAsync(id).ConfigureAwait(false);
+        if (existing is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        if (request.Name is not null)
+        {
+            existing.Name = request.Name;
+        }
+
+        if (request.DisplayName is not null)
+        {
+            existing.DisplayName = request.DisplayName;
+        }
+
+        if (request.Description is not null)
+        {
+            existing.Description = request.Description;
+        }
+
+        if (request.Instructions is not null)
+        {
+            existing.Instructions = request.Instructions;
+        }
+
+        if (request.ModelConnectionName is not null)
+        {
+            existing.ModelConnectionName = request.ModelConnectionName;
+        }
+
+        if (request.EmbeddingProviderName is not null)
+        {
+            existing.EmbeddingProviderName = request.EmbeddingProviderName;
+        }
+
+        if (request.Enabled.HasValue)
+        {
+            existing.Enabled = request.Enabled.Value;
+        }
+
+        if (request.Tools is not null)
+        {
+            existing.Tools = request.Tools;
+        }
+
+        if (request.ClearFields is { Length: > 0 })
+        {
+            foreach (var field in request.ClearFields)
+            {
+                switch (field.ToLowerInvariant())
+                {
+                    case DescriptionField:
+                        existing.Description = null!;
+                        break;
+                    case InstructionsField:
+                        existing.Instructions = null!;
+                        break;
+                    case ModelConnectionNameField:
+                        existing.ModelConnectionName = null;
+                        break;
+                    case EmbeddingProviderNameField:
+                        existing.EmbeddingProviderName = null;
+                        break;
+                }
+            }
+        }
 
         existing.UpdatedAt = DateTime.UtcNow;
 

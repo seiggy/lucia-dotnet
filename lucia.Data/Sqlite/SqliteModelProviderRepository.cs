@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration.UserConfiguration;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace lucia.Data.Sqlite;
@@ -25,7 +26,7 @@ public sealed class SqliteModelProviderRepository : IModelProviderRepository
     };
 
     public SqliteModelProviderRepository(
-        SqliteConnectionFactory connectionFactory,
+        [FromKeyedServices(SqliteDbNames.Config)] SqliteConnectionFactory connectionFactory,
         ILogger<SqliteModelProviderRepository> logger)
     {
         _connectionFactory = connectionFactory;

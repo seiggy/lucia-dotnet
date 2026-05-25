@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react'
 import type { SkillConfigSectionData } from '../api'
 import { updateSkillConfig, fetchAvailableDomains } from '../api'
-import { Save, Plus, X, ChevronDown } from 'lucide-react'
+import { Save, Plus, X, ChevronDown, AlertCircle } from 'lucide-react'
 
 interface SkillConfigEditorProps {
   agentId: string
@@ -30,11 +30,19 @@ const SkillConfigEditor = forwardRef<SkillConfigEditorHandle, SkillConfigEditorP
   const [dirtyKeys, setDirtyKeys] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState<string | null>(null)
   const [savedSection, setSavedSection] = useState<string | null>(null)
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [availableDomains, setAvailableDomains] = useState<string[]>([])
 
   useEffect(() => {
     fetchAvailableDomains().then(setAvailableDomains).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    if (Object.keys(errors).length === 0) {
+      setSaveError(null)
+    }
+  }, [errors])
 
   const updateValue = useCallback((section: string, key: string, value: unknown) => {
     setEditedValues((prev) => ({
@@ -42,6 +50,15 @@ const SkillConfigEditor = forwardRef<SkillConfigEditorHandle, SkillConfigEditorP
       [section]: { ...prev[section], [key]: value },
     }))
     setDirtyKeys((prev) => new Set(prev).add(section))
+    setErrors((prev) => {
+      if (!prev[section]) {
+        return prev
+      }
+
+      const next = { ...prev }
+      delete next[section]
+      return next
+    })
     setSavedSection(null)
   }, [])
 
@@ -55,10 +72,23 @@ const SkillConfigEditor = forwardRef<SkillConfigEditorHandle, SkillConfigEditorP
           next.delete(section)
           return next
         })
+        setErrors((prev) => {
+          if (!prev[section]) {
+            return prev
+          }
+
+          const next = { ...prev }
+          delete next[section]
+          return next
+        })
         setSavedSection(section)
         onSaved?.()
       } catch (e) {
+        const errorMessage = getErrorMessage(e)
         console.error('Failed to save skill config:', e)
+        setSavedSection(null)
+        setErrors((prev) => ({ ...prev, [section]: errorMessage }))
+        setSaveError('Some skill configuration sections failed to save. Review the highlighted sections and try again.')
       } finally {
         setSaving(null)
       }
@@ -68,14 +98,52 @@ const SkillConfigEditor = forwardRef<SkillConfigEditorHandle, SkillConfigEditorP
 
   useImperativeHandle(ref, () => ({
     saveAll: async () => {
+      const successfulSections = new Set<string>()
+      const nextErrors: Record<string, string> = {}
+
+      setSavedSection(null)
+      setSaveError(null)
+
       for (const section of sections) {
         if (!dirtyKeys.has(section.sectionName)) continue
         const values = editedValues[section.sectionName]
-        if (values) {
+        if (!values) continue
+
+        setSaving(section.sectionName)
+        try {
           await updateSkillConfig(agentId, section.sectionName, values)
+          successfulSections.add(section.sectionName)
+          setSavedSection(section.sectionName)
+        } catch (e) {
+          console.error(`Failed to save skill config section "${section.sectionName}":`, e)
+          nextErrors[section.sectionName] = getErrorMessage(e)
         }
       }
-      setDirtyKeys(new Set())
+
+      setSaving(null)
+      setDirtyKeys((prev) => {
+        const next = new Set(prev)
+        for (const sectionName of successfulSections) {
+          next.delete(sectionName)
+        }
+        return next
+      })
+      setErrors((prev) => {
+        const next = { ...prev, ...nextErrors }
+        for (const sectionName of successfulSections) {
+          delete next[sectionName]
+        }
+        return next
+      })
+
+      const failedSections = sections.filter((section) => nextErrors[section.sectionName])
+      if (failedSections.length > 0) {
+        const failedLabels = failedSections.map((section) => section.displayName).join(', ')
+        const message = `Failed to save ${failedLabels}. Review the highlighted sections and try again.`
+        setSaveError(message)
+        throw new Error(message)
+      }
+
       onSaved?.()
     },
   }), [agentId, sections, editedValues, dirtyKeys, onSaved])
@@ -85,6 +153,12 @@ const SkillConfigEditor = forwardRef<SkillConfigEditorHandle, SkillConfigEditorP
   return (
     <div className="space-y-4">
       <h3 className="text-sm font-semibold text-light">Skill Configuration</h3>
+      {saveError ? (
+        <div className="flex items-start gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{saveError}</span>
+        </div>
+      ) : null}
       {sections.map((section) => (
         <div
           key={section.sectionName}
@@ -108,6 +182,13 @@ const SkillConfigEditor = forwardRef<SkillConfigEditorHandle, SkillConfigEditorP
             </button>
           </div>
 
+          {errors[section.sectionName] ? (
+            <div className="flex items-start gap-2 rounded-lg border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-xs text-rose-100">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{errors[section.sectionName]}</span>
+            </div>
+          ) : null}
+
           {section.schema.map((prop) => (
             <FieldEditor
               key={prop.name}
@@ -126,6 +207,14 @@ const SkillConfigEditor = forwardRef<SkillConfigEditorHandle, SkillConfigEditorP
 })
 
 export default SkillConfigEditor
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message
+  }
+
+  return 'Failed to save skill config.'
+}
 
 function FieldEditor({
   name,
