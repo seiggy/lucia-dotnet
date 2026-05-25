@@ -1,8 +1,6 @@
 using System.Net;
-using System.Net.Http.Json;
 using System.Text;
 using lucia.HomeAssistant.Configuration;
-using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
 using lucia.Tests.Helpers;
 using Microsoft.Extensions.Logging.Abstractions;

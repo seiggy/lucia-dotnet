@@ -285,7 +285,7 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
         _logger.GetRequest(Path);
         try
         {
-            var response = await _httpClient.GetAsync(Path, cancellationToken);
+            using var response = await _httpClient.GetAsync(Path, cancellationToken);
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
                 var todoEntityId = await GetShoppingListTodoEntityIdAsync(cancellationToken);
