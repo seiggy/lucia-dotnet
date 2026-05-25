@@ -33,6 +33,12 @@
 
 <!-- Append new learnings below. -->
 
+### 2026-05-25 — Shopping list fallback for todo-backed Home Assistant lists
+
+- `HomeAssistantClient.GetShoppingListItemsAsync()` now treats `404 /api/shopping_list` as a signal to fall back to the todo platform instead of failing the AgentHost shopping list endpoint.
+- The fallback prefers `todo.shopping_list`, then a todo entity whose id or `friendly_name` normalizes to `shopping list`, and finally the lone todo entity when only one exists.
+- Todo fallback items must be mapped from `summary`/`uid`/`status` to Lucia's `ShoppingListItem` shape (`name`/`id`/`complete`), and this behavior is covered by regression tests.
+
 ### 2026-03-27 — Cache Architecture Investigation
 
 **Context:** Zack reported the system "feels frail" and suspected entity caching wasn't being used effectively.

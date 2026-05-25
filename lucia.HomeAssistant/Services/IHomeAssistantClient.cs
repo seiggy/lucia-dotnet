@@ -155,7 +155,7 @@ public interface IHomeAssistantClient
 
     // ── Shopping List ─────────────────────────────────────────────────
 
-    /// <summary>Returns items from the Home Assistant shopping list (GET /api/shopping_list).</summary>
+    /// <summary>Returns shopping list items, falling back to a todo-backed shopping list when HA omits /api/shopping_list.</summary>
     Task<ShoppingListItem[]> GetShoppingListItemsAsync(CancellationToken cancellationToken = default);
 
     // ── Todo Lists ───────────────────────────────────────────────────

@@ -38,6 +38,12 @@ public static partial class HomeAssistantClientLogMessages
     public static partial void DeserializationFailed(this ILogger logger, Exception ex, string method, string endpoint);
 
     [LoggerMessage(
+        EventId = 1005,
+        Level = LogLevel.Information,
+        Message = "Shopping list endpoint unavailable; falling back to todo entity {EntityId}")]
+    public static partial void ShoppingListFallbackToTodo(this ILogger logger, string entityId);
+
+    [LoggerMessage(
         EventId = 1010,
         Level = LogLevel.Debug,
         Message = "Opening WebSocket connection to {Endpoint}")]

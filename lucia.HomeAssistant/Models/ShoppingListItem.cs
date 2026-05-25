@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 namespace lucia.HomeAssistant.Models;
 
 /// <summary>
-/// Item from the Home Assistant shopping list (GET /api/shopping_list).
+/// Item from the Home Assistant shopping list, including todo-backed fallback responses.
 /// </summary>
 public sealed class ShoppingListItem
 {
