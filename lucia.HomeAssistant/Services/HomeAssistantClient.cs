@@ -373,9 +373,22 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
             return true;
         }
 
-        return state.Attributes.TryGetValue("friendly_name", out var value)
-            && value is string friendlyName
-            && MatchesShoppingListName(friendlyName);
+        if (state.Attributes.TryGetValue("friendly_name", out var value))
+        {
+            var friendlyName = value switch
+            {
+                string s => s,
+                System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.String } je => je.GetString(),
+                _ => null
+            };
+
+            if (friendlyName is not null && MatchesShoppingListName(friendlyName))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool MatchesShoppingListName(string value)

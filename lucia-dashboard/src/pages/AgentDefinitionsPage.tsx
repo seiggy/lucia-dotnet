@@ -553,7 +553,9 @@ function AgentForm({
                               ? 'bg-yellow-900/50 text-amber'
                               : 'bg-basalt text-dust'
                       }`}>
-                        {status?.state ?? (isLoadingTools ? 'Connecting' : 'Disconnected')}
+                        {isLoadingTools && (!status?.state || status.state === 'Disconnected')
+                          ? 'Connecting'
+                          : (status?.state ?? 'Disconnected')}
                       </span>
                     </div>
                     {tools.length > 0 ? (

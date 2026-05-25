@@ -308,9 +308,10 @@ The `Dockerfile.agenthost-jetson` and `docker-compose.jetson.yml` are optimized 
 - Network access to LLM provider (OpenAI, Ollama, etc.)
 - Home Assistant instance (remote or local)
 
-### Configuration
+### Post-Start Configuration
 
 After starting services, open `http://localhost:7233` and complete the setup wizard to:
+
 1. Connect your LLM provider (OpenAI, Ollama, etc.)
 2. Connect your Home Assistant instance
 3. Configure home automation preferences

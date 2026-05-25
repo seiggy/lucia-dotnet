@@ -25,7 +25,7 @@
     <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Condition="'$(ExcludeSpeech)' != 'true'" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(ExcludeSpeech)' != 'true' and '$(CpuOnly)' != 'true'">
+  <ItemGroup Condition="'$(ExcludeSpeech)' != 'true' and '$(CpuOnly)' != 'true' and $([MSBuild]::IsOSPlatform('Linux'))">
     <PackageReference Include="Microsoft.ML.OnnxRuntime.Gpu.Linux" />
   </ItemGroup>
 
