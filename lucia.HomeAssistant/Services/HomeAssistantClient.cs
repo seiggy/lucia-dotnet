@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Net.WebSockets;
 using System.Text;
@@ -278,7 +279,38 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
     /// <inheritdoc />
     public async Task<ShoppingListItem[]> GetShoppingListItemsAsync(CancellationToken cancellationToken = default)
     {
-        return await GetArrayAsync<ShoppingListItem>("/api/shopping_list", cancellationToken);
+        const string Path = "/api/shopping_list";
+
+        EnsureHttpClientConfigured();
+        _logger.GetRequest(Path);
+        try
+        {
+            using var response = await _httpClient.GetAsync(Path, cancellationToken);
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                var todoEntityId = await GetShoppingListTodoEntityIdAsync(cancellationToken);
+                if (!string.IsNullOrWhiteSpace(todoEntityId))
+                {
+                    _logger.ShoppingListFallbackToTodo(todoEntityId);
+                    var todoItems = await GetTodoItemsAsync(todoEntityId, cancellationToken);
+                    return todoItems.Select(MapTodoItemToShoppingListItem).ToArray();
+                }
+            }
+
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<ShoppingListItem[]>(HomeAssistantJsonOptions.Default, cancellationToken)
+                ?? [];
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.HttpRequestFailed(ex, "GET", Path);
+            throw;
+        }
+        catch (JsonException ex)
+        {
+            _logger.DeserializationFailed(ex, "GET", Path);
+            throw;
+        }
     }
 
     // ── Todo Lists ──────────────────────────────────────────────────
@@ -304,6 +336,75 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
         if (root.TryGetProperty(entityId, out var entityEl) && entityEl.TryGetProperty("items", out var itemsEl))
             return JsonSerializer.Deserialize<TodoItem[]>(itemsEl.GetRawText(), HomeAssistantJsonOptions.Default) ?? [];
         return [];
+    }
+
+    private async Task<string?> GetShoppingListTodoEntityIdAsync(CancellationToken cancellationToken)
+    {
+        var todoStates = await GetStatesAsync(cancellationToken);
+        var todoEntityIds = todoStates
+            .Where(state => state.EntityId.StartsWith("todo.", StringComparison.OrdinalIgnoreCase))
+            .Select(state => state.EntityId)
+            .ToArray();
+
+        var exactMatch = todoEntityIds.FirstOrDefault(id => string.Equals(id, "todo.shopping_list", StringComparison.OrdinalIgnoreCase));
+        if (!string.IsNullOrWhiteSpace(exactMatch))
+        {
+            return exactMatch;
+        }
+
+        var namedMatch = todoStates.FirstOrDefault(IsShoppingListTodoEntity);
+        if (namedMatch is not null)
+        {
+            return namedMatch.EntityId;
+        }
+
+        return todoEntityIds.Length == 1 ? todoEntityIds[0] : null;
+    }
+
+    private static bool IsShoppingListTodoEntity(HomeAssistantState state)
+    {
+        if (!state.EntityId.StartsWith("todo.", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (MatchesShoppingListName(state.EntityId["todo.".Length..]))
+        {
+            return true;
+        }
+
+        if (state.Attributes.TryGetValue("friendly_name", out var value))
+        {
+            var friendlyName = value switch
+            {
+                string s => s,
+                System.Text.Json.JsonElement { ValueKind: System.Text.Json.JsonValueKind.String } je => je.GetString(),
+                _ => null
+            };
+
+            if (friendlyName is not null && MatchesShoppingListName(friendlyName))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool MatchesShoppingListName(string value)
+    {
+        var normalized = new string(value.Where(char.IsLetterOrDigit).ToArray());
+        return normalized.Equals("shoppinglist", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static ShoppingListItem MapTodoItemToShoppingListItem(TodoItem item)
+    {
+        return new ShoppingListItem
+        {
+            Id = item.Uid,
+            Name = item.Summary,
+            Complete = string.Equals(item.Status, "completed", StringComparison.OrdinalIgnoreCase)
+        };
     }
 
     // ── Templates ───────────────────────────────────────────────────

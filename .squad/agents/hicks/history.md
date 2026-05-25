@@ -28,4 +28,11 @@
 - **aspnet:10.0 ships curl, not wget** — always match healthcheck commands to what's actually installed in the base image.
 - **Compose validation**: `docker compose config` catches YAML syntax errors early before full build.
 
+### 2026-03-29: Jetson Nano ARM64 Support (Jetson Dockerfile + Compose)
+- **ARM64 base images** use `-arm64v8` tag suffix; `mcr.microsoft.com/dotnet/aspnet:10.0-noble-arm64v8` is the recommended minimal base.
+- **ExcludeSpeech=true** MSBuild property gates speech pipeline dependencies (ONNX Runtime, Wyoming); passed at restore, build, and publish stages.
+- **No asset stage for Jetson** — removed assets/node-build pattern when no voice models are needed; simplifies build significantly.
+- **Jetson resource constraints**: Tighter memory/CPU limits in docker-compose (Redis 128MB, MongoDB 256MB, AgentHost 512MB) for typical 4GB RAM boards.
+- **Separate compose file pattern** (`docker-compose.jetson.yml`) keeps standard and Jetson deployments independent, reducing config complexity.
+
 <!-- Append new learnings below. -->

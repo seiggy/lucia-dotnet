@@ -473,6 +473,8 @@ app.MapSkillOptimizerApi();
 app.MapPluginRepositoryApi();
 app.MapPluginStoreApi();
 app.MapInstalledPluginApi();
+#if !EXCLUDE_SPEECH
+// ARM/Jetson builds exclude the Wyoming voice surface along with its ONNX-backed services.
 app.MapBackgroundTaskEndpoints();
 app.MapWyomingModelEndpoints();
 app.MapWyomingStatusEndpoints();
@@ -481,6 +483,7 @@ app.MapTranscriptHistoryEndpoints();
 app.MapVoiceConfigEndpoints();
 app.MapOnboardingEndpoints();
 app.MapVoiceClipEndpoints();
+#endif
 app.MapSystemApi();
 app.MapDefaultEndpoints();
 

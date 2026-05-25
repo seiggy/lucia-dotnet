@@ -9,4 +9,8 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(ExcludeSpeech)' == 'true'">
+    <DefineConstants>$(DefineConstants);EXCLUDE_SPEECH</DefineConstants>
+  </PropertyGroup>
+
 </Project>
