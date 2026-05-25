@@ -10,6 +10,7 @@ import {
   fetchMcpServers,
   discoverMcpTools,
   fetchMcpServerStatuses,
+  connectMcpServer,
   fetchModelProviders,
   fetchSkillConfig,
   type SkillConfigSectionData,
@@ -20,6 +21,46 @@ import type { SkillConfigEditorHandle } from '../components/SkillConfigEditor'
 import type { McpToolServerDefinition, McpServerStatus } from '../types'
 
 type FormMode = 'list' | 'create' | 'edit'
+
+function getMcpToolStatusMessage({
+  server,
+  status,
+  isLoading,
+  errorMessage,
+}: {
+  server: McpToolServerDefinition
+  status?: McpServerStatus
+  isLoading: boolean
+  errorMessage?: string
+}) {
+  if (!server.enabled) {
+    return 'Server disabled'
+  }
+
+  if (isLoading) {
+    return 'Loading MCP tools…'
+  }
+
+  if (errorMessage) {
+    return `MCP tools unavailable: ${errorMessage}`
+  }
+
+  if (status?.state === 'Connected') {
+    return 'No tools found'
+  }
+
+  if (status?.state === 'Connecting') {
+    return 'Connecting to MCP server…'
+  }
+
+  if (status?.state === 'Error') {
+    return status.errorMessage
+      ? `MCP tools unavailable: ${status.errorMessage}`
+      : 'MCP tools unavailable'
+  }
+
+  return 'MCP tools unavailable until the server connects'
+}
 
 export default function AgentDefinitionsPage() {
   const [definitions, setDefinitions] = useState<AgentDefinition[]>([])
@@ -225,35 +266,73 @@ function AgentForm({
   const [mcpServers, setMcpServers] = useState<McpToolServerDefinition[]>([])
   const [serverStatuses, setServerStatuses] = useState<Record<string, McpServerStatus>>({})
   const [serverTools, setServerTools] = useState<Record<string, McpToolInfo[]>>({})
+  const [serverToolErrors, setServerToolErrors] = useState<Record<string, string>>({})
+  const [loadingServerIds, setLoadingServerIds] = useState<Record<string, boolean>>({})
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [skillConfigSections, setSkillConfigSections] = useState<SkillConfigSectionData[]>([])
   const skillConfigRef = useRef<SkillConfigEditorHandle>(null)
 
   useEffect(() => {
+    let isCancelled = false
+
     const load = async () => {
       try {
         const [servers, statuses] = await Promise.all([
           fetchMcpServers(),
           fetchMcpServerStatuses(),
         ])
+
+        if (isCancelled) {
+          return
+        }
+
         setMcpServers(servers)
         setServerStatuses(statuses)
+        setServerTools({})
+        setServerToolErrors({})
 
-        // Auto-discover tools from connected servers
-        for (const server of servers) {
-          const status = statuses[server.id]
-          if (status?.state === 'Connected') {
-            try {
-              const tools = await discoverMcpTools(server.id)
-              setServerTools(prev => ({ ...prev, [server.id]: tools }))
-            } catch {
-              // Ignore discovery failures for individual servers
-            }
-          }
+        const enabledServers = servers.filter(server => server.enabled)
+        if (enabledServers.length === 0) {
+          return
         }
+
+        setLoadingServerIds(
+          Object.fromEntries(enabledServers.map(server => [server.id, true]))
+        )
+
+        const nextTools: Record<string, McpToolInfo[]> = {}
+        const nextErrors: Record<string, string> = {}
+
+        await Promise.all(enabledServers.map(async server => {
+          try {
+            if (statuses[server.id]?.state !== 'Connected') {
+              await connectMcpServer(server.id)
+            }
+
+            nextTools[server.id] = await discoverMcpTools(server.id)
+          } catch (err) {
+            nextErrors[server.id] = err instanceof Error
+              ? err.message
+              : 'Unable to load tools from this MCP server'
+          }
+        }))
+
+        const refreshedStatuses = await fetchMcpServerStatuses().catch(() => statuses)
+
+        if (isCancelled) {
+          return
+        }
+
+        setServerStatuses(refreshedStatuses)
+        setServerTools(nextTools)
+        setServerToolErrors(nextErrors)
       } catch {
         // Non-critical: tool picker won't be populated
+      } finally {
+        if (!isCancelled) {
+          setLoadingServerIds({})
+        }
       }
     }
     load()
@@ -263,6 +342,10 @@ function AgentForm({
       fetchSkillConfig(definition.name)
         .then(setSkillConfigSections)
         .catch(() => setSkillConfigSections([]))
+    }
+
+    return () => {
+      isCancelled = true
     }
   }, [definition?.name])
 
@@ -455,22 +538,28 @@ function AgentForm({
               {mcpServers.map(server => {
                 const status = serverStatuses[server.id]
                 const tools = serverTools[server.id] ?? []
+                const toolError = serverToolErrors[server.id]
+                const isLoadingTools = loadingServerIds[server.id] === true
                 return (
                   <div key={server.id} className="rounded border border-stone bg-basalt p-3">
-                    <div className="flex items-center gap-2 mb-2">
+                    <div className="mb-2 flex items-center gap-2">
                       <h3 className="text-sm font-medium">{server.name}</h3>
                       <span className={`rounded px-1.5 py-0.5 text-xs ${
                         status?.state === 'Connected'
                           ? 'bg-green-900/50 text-sage'
-                          : 'bg-basalt text-dust'
+                          : status?.state === 'Error'
+                            ? 'bg-ember/15 text-rose'
+                            : status?.state === 'Connecting'
+                              ? 'bg-yellow-900/50 text-amber'
+                              : 'bg-basalt text-dust'
                       }`}>
-                        {status?.state ?? 'Disconnected'}
+                        {status?.state ?? (isLoadingTools ? 'Connecting' : 'Disconnected')}
                       </span>
                     </div>
                     {tools.length > 0 ? (
                       <div className="grid gap-1">
                         {tools.map(tool => (
-                          <label key={tool.toolName} className="flex items-center gap-2 cursor-pointer rounded px-2 py-1 hover:bg-basalt">
+                          <label key={tool.toolName} className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-basalt">
                             <input
                               type="checkbox"
                               checked={isToolSelected(server.id, tool.toolName)}
@@ -478,13 +567,18 @@ function AgentForm({
                               className="h-3.5 w-3.5"
                             />
                             <code className="text-xs font-mono text-amber">{tool.toolName}</code>
-                            <span className="text-xs text-dust truncate">{tool.description || ''}</span>
+                            <span className="truncate text-xs text-dust">{tool.description || ''}</span>
                           </label>
                         ))}
                       </div>
                     ) : (
                       <p className="text-xs text-dust">
-                        {status?.state === 'Connected' ? 'No tools found' : 'Server not connected'}
+                        {getMcpToolStatusMessage({
+                          server,
+                          status,
+                          isLoading: isLoadingTools,
+                          errorMessage: toolError,
+                        })}
                       </p>
                     )}
                   </div>
