@@ -1,0 +1,276 @@
+# Lucia Agent Host - Docker Compose Configuration for Jetson Nano
+#
+# Optimized for ARM64 Jetson Nano with limited resources (4GB RAM typical).
+# Uses the Dockerfile.agenthost-jetson build with no speech pipeline.
+#
+# Services:
+#   - lucia: Agent Host API (no voice pipeline)
+#   - lucia-redis: Task persistence and session state
+#   - lucia-mongo: Trace capture and configuration storage
+#
+# Resource constraints are tighter than standard deployment:
+#   - Redis: 128MB max (instead of 256MB)
+#   - MongoDB: 256MB max (instead of 512MB)
+#   - AgentHost: CPU ≤ 1.5, Memory ≤ 512MB (instead of 2 CPU, 1GB)
+#
+# Usage:
+#   docker compose -f docker-compose.jetson.yml up -d
+#   docker compose -f docker-compose.jetson.yml logs -f lucia
+
+services:
+
+  # ========================================================================
+  # Redis Service - Task Persistence and Session State
+  # ========================================================================
+  lucia-redis:
+    # Use official Redis 8.2 image with alpine for minimal size
+    image: redis:8.2-alpine
+    
+    container_name: lucia-redis-jetson
+    
+    # Network configuration
+    networks:
+      - lucia-network
+    
+    # Port exposure (only on localhost for security)
+    ports:
+      - "127.0.0.1:6379:6379"
+    
+    # Command to enable persistence
+    # AOF (Append-Only File) enabled for durability
+    # maxmemory policy for automatic eviction (reduced for Jetson)
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+      --loglevel notice
+    
+    # Volume for persistent data storage
+    volumes:
+      - lucia-redis-data:/data
+    
+    # Health check for automatic restart
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "PING"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    
+    # Resource limits (tighter for Jetson)
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+        reservations:
+          cpus: '0.25'
+          memory: 64M
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "lucia-redis-jetson"
+    
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    
+    # Read-only filesystem except for /data
+    read_only: true
+    tmpfs:
+      - /tmp
+
+
+  # ========================================================================
+  # MongoDB Service - Trace Capture and Configuration Storage
+  # ========================================================================
+  lucia-mongo:
+    # Use official MongoDB 8.0.5 image (pinned for reproducible builds)
+    image: mongo:8.0.5
+    
+    container_name: lucia-mongo-jetson
+    
+    # Network configuration
+    networks:
+      - lucia-network
+    
+    # Port exposure (only on localhost for security)
+    ports:
+      - "127.0.0.1:27017:27017"
+    
+    # Volume for persistent data storage
+    volumes:
+      - lucia-mongo-data:/data/db
+    
+    # Workaround for SERVER-121912: MongoDB 8.0.x crashes on Linux kernel 6.19+
+    # due to TCMalloc/rseq ABI mismatch. Forces glibc to enable pthread rseq.
+    # Remove once TCMalloc upstream patch lands and MongoDB rebases.
+    environment:
+      - GLIBC_TUNABLES=glibc.pthread.rseq=1
+    
+    # Health check for automatic restart
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.runCommand('ping').ok"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    # Resource limits (tighter for Jetson)
+    deploy:
+      resources:
+        limits:
+          cpus: '0.75'
+          memory: 256M
+        reservations:
+          cpus: '0.5'
+          memory: 128M
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "lucia-mongo-jetson"
+    
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+
+
+  # ========================================================================
+  # Lucia Agent Host Service - Main Application (Jetson Nano ARM64 Build)
+  # ========================================================================
+  lucia:
+    # Build from local Dockerfile.agenthost-jetson for ARM64
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.agenthost-jetson
+      args:
+        BUILD_CONFIGURATION: Release
+        BUILD_TARGET_FRAMEWORK: net10.0
+      cache_from:
+        - lucia:jetson
+
+    image: lucia:jetson
+
+    container_name: lucia-jetson
+
+    # Depends on Redis and MongoDB being healthy
+    depends_on:
+      lucia-redis:
+        condition: service_healthy
+      lucia-mongo:
+        condition: service_healthy
+    
+    # Network configuration
+    networks:
+      - lucia-network
+    
+    # Port exposure (HTTP only — HTTPS handled by reverse proxy in production)
+    ports:
+      - "7233:8080"
+    
+    # Volume mounts (no model storage — no speech pipeline on Jetson)
+    # Only plugin directory for future extensibility
+    volumes:
+      - lucia-plugins:/app/plugins
+    
+    # All user configuration (LLM keys, Home Assistant connection, etc.) is handled
+    # by the setup wizard on first launch and stored in MongoDB. No .env file needed.
+    environment:
+      # ASP.NET Core configuration
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      
+      # MongoDB connection strings (infrastructure — not user-configurable)
+      - ConnectionStrings__luciatraces=mongodb://lucia-mongo:27017/luciatraces
+      - ConnectionStrings__luciaconfig=mongodb://lucia-mongo:27017/luciaconfig
+      - ConnectionStrings__luciatasks=mongodb://lucia-mongo:27017/luciatasks
+      
+      # Redis connection string
+      - ConnectionStrings__redis=lucia-redis:6379
+      
+      # .NET Runtime
+      - DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
+      - DOTNET_RUNNING_IN_CONTAINER=true
+      - COMPlus_EnableDiagnostics=0
+    
+    # Health check for automatic restart
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    # Resource limits (reduced for Jetson Nano's 4GB RAM)
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 512M
+        reservations:
+          cpus: '1'
+          memory: 256M
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+        tag: "lucia-jetson"
+    
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    
+    # Read-only filesystem for security
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/bin
+
+
+# ============================================================================
+# Networks
+# ============================================================================
+networks:
+  lucia-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
+
+
+# ============================================================================
+# Volumes
+# ============================================================================
+volumes:
+  # Redis persistent data
+  lucia-redis-data:
+    driver: local
+  
+  # MongoDB persistent data
+  lucia-mongo-data:
+    driver: local
+  
+  # Plugin storage (for future extensibility)
+  lucia-plugins:
+    driver: local

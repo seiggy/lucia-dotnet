@@ -258,6 +258,65 @@ The `docker-compose.yml` includes security hardening by default:
 
 **For remote access**, use a reverse proxy (nginx, Caddy) with authentication, a VPN, or Cloudflare Tunnel. Do not bind to `0.0.0.0` without authentication.
 
+## Jetson Nano ARM64 Deployment
+
+For deployment on NVIDIA Jetson Nano (ARM64/aarch64) or other ARM64 boards **without speech pipeline**:
+
+### Build for Jetson
+
+```bash
+# Build ARM64 image without speech pipeline
+docker build -f infra/docker/Dockerfile.agenthost-jetson -t lucia:jetson .
+
+# Or cross-compile from non-ARM host
+docker buildx build -f infra/docker/Dockerfile.agenthost-jetson --platform linux/arm64 -t lucia:jetson .
+```
+
+### Deploy with Jetson Compose
+
+```bash
+# Start all services with resource limits optimized for 4GB RAM
+docker compose -f docker-compose.jetson.yml up -d
+
+# View logs
+docker compose -f docker-compose.jetson.yml logs -f lucia
+
+# Stop
+docker compose -f docker-compose.jetson.yml down
+```
+
+### Key Differences
+
+The `Dockerfile.agenthost-jetson` and `docker-compose.jetson.yml` are optimized for resource-constrained Jetson Nano:
+
+| Feature | Standard | Jetson |
+| --- | --- | --- |
+| **Base Image** | `mcr.microsoft.com/dotnet/aspnet:10.0` | `mcr.microsoft.com/dotnet/aspnet:10.0-noble-arm64v8` |
+| **Architecture** | x64 | ARM64 (aarch64) |
+| **Speech Pipeline** | ✅ Enabled (Wyoming + ONNX) | ❌ Disabled (ExcludeSpeech=true) |
+| **Model Storage** | ~585MB voice models | None |
+| **Redis Max Memory** | 256MB | 128MB |
+| **MongoDB Max Memory** | 512MB | 256MB |
+| **AgentHost CPU/Memory** | 2 CPU / 1GB | 1.5 CPU / 512MB |
+| **Total RAM Needed** | ~2.5GB | ~1.5GB |
+
+### Prerequisites
+
+- NVIDIA Jetson Nano or similar ARM64 board
+- Docker & Docker Compose installed
+- At least 2GB free disk space for images and volumes
+- Network access to LLM provider (OpenAI, Ollama, etc.)
+- Home Assistant instance (remote or local)
+
+### Configuration
+
+After starting services, open `http://localhost:7233` and complete the setup wizard to:
+1. Connect your LLM provider (OpenAI, Ollama, etc.)
+2. Connect your Home Assistant instance
+3. Configure home automation preferences
+
+All settings persist to MongoDB across restarts.
+
 ## Next Steps
 
 1. **Deploy** — Follow [DEPLOYMENT.md](DEPLOYMENT.md) for the full walkthrough
