@@ -171,6 +171,51 @@ public sealed class AgentDefinitionApiTests
         Assert.False(persisted.Enabled);
     }
 
+    [Fact]
+    public async Task PatchDefinitionAsync_ClearsNullableFieldsListedInClearFields()
+    {
+        var repository = A.Fake<IAgentDefinitionRepository>();
+        var existing = CreateDefinition(
+            id: "existing-id",
+            name: "existing-name",
+            displayName: "Existing Display",
+            description: "Existing description",
+            instructions: "Existing instructions",
+            enabled: true,
+            modelConnectionName: "existing-model",
+            embeddingProviderName: "existing-embedding",
+            isBuiltIn: true,
+            isRemote: false,
+            isOrchestrator: false,
+            createdAt: new DateTime(2024, 2, 2, 3, 4, 5, DateTimeKind.Utc),
+            updatedAt: new DateTime(2024, 2, 3, 3, 4, 5, DateTimeKind.Utc),
+            tools:
+            [
+                new AgentToolReference { ServerId = "server-a", ToolName = "tool-a" },
+            ]);
+        var patchRequest = new PatchAgentDefinitionRequest
+        {
+            DisplayName = "Patched Display",
+            ClearFields = [nameof(AgentDefinition.ModelConnectionName), nameof(AgentDefinition.Description)],
+        };
+        AgentDefinition? persisted = null;
+
+        A.CallTo(() => repository.GetAgentDefinitionAsync("route-id", A<CancellationToken>._))
+            .Returns(existing);
+        A.CallTo(() => repository.UpsertAgentDefinitionAsync(A<AgentDefinition>._, A<CancellationToken>._))
+            .Invokes(call => persisted = call.GetArgument<AgentDefinition>(0))
+            .Returns(Task.CompletedTask);
+
+        await InvokePatchHandlerAsync("route-id", patchRequest, repository);
+
+        Assert.NotNull(persisted);
+        Assert.Equal("Patched Display", persisted.DisplayName);
+        Assert.Null(persisted.ModelConnectionName);
+        Assert.Null(persisted.Description);
+        Assert.Equal("Existing instructions", persisted.Instructions);
+        Assert.Equal("existing-embedding", persisted.EmbeddingProviderName);
+    }
+
     private static async Task InvokeReplaceHandlerAsync(string methodName, string id, AgentDefinition definition, IAgentDefinitionRepository repository)
     {
         var method = typeof(AgentDefinitionApi).GetMethod(methodName, BindingFlags.NonPublic | BindingFlags.Static);

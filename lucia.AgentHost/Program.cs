@@ -244,7 +244,7 @@ if (useMongo)
 }
 else if (usePostgres)
 {
-    builder.Services.AddSingleton<IResponseTemplateRepository, InMemoryResponseTemplateRepository>();
+    builder.Services.AddSingleton<IResponseTemplateRepository, PostgresResponseTemplateRepository>();
 }
 else
 {

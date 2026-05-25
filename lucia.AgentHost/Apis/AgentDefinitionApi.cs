@@ -15,6 +15,11 @@ namespace lucia.AgentHost.Apis;
 /// </summary>
 public static class AgentDefinitionApi
 {
+    private const string DescriptionField = "description";
+    private const string InstructionsField = "instructions";
+    private const string ModelConnectionNameField = "modelconnectionname";
+    private const string EmbeddingProviderNameField = "embeddingprovidername";
+
     public static IEndpointRouteBuilder MapAgentDefinitionApi(this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/agent-definitions")
@@ -34,7 +39,7 @@ public static class AgentDefinitionApi
             .WithDescription("Fully replaces an existing definition using the route ID while preserving system-managed fields.");
         group.MapPatch("/{id}", PatchDefinitionAsync)
             .WithSummary("Patch an agent definition")
-            .WithDescription("Merges provided fields into the existing definition. Null fields are ignored.");
+            .WithDescription("Merges provided fields into the existing definition. Use clearFields to explicitly clear nullable fields.");
         group.MapDelete("/{id}", DeleteDefinitionAsync)
             .WithSummary("Delete an agent definition")
             .WithDescription("Deletes the definition and unregisters the agent from the in-memory registry.");
@@ -176,6 +181,28 @@ public static class AgentDefinitionApi
         if (request.Tools is not null)
         {
             existing.Tools = request.Tools;
+        }
+
+        if (request.ClearFields is { Length: > 0 })
+        {
+            foreach (var field in request.ClearFields)
+            {
+                switch (field.ToLowerInvariant())
+                {
+                    case DescriptionField:
+                        existing.Description = null!;
+                        break;
+                    case InstructionsField:
+                        existing.Instructions = null!;
+                        break;
+                    case ModelConnectionNameField:
+                        existing.ModelConnectionName = null;
+                        break;
+                    case EmbeddingProviderNameField:
+                        existing.EmbeddingProviderName = null;
+                        break;
+                }
+            }
         }
 
         existing.UpdatedAt = DateTime.UtcNow;

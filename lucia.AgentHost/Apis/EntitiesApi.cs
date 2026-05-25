@@ -93,6 +93,22 @@ public static class EntitiesApi
             entities = matches
                 .Select(match => match.Entity)
                 .DistinctBy(entity => entity.EntityId, StringComparer.OrdinalIgnoreCase);
+
+            if (!entities.Any())
+            {
+                var allEntities = await locationService.GetEntitiesAsync(ct).ConfigureAwait(false);
+                if (domainFilter is { Count: > 0 })
+                {
+                    allEntities = allEntities
+                        .Where(entity => domainFilter.Contains(entity.Domain, StringComparer.OrdinalIgnoreCase))
+                        .ToList();
+                }
+
+                entities = allEntities.Where(entity =>
+                    entity.EntityId.Contains(trimmedNameFilter, StringComparison.OrdinalIgnoreCase)
+                    || entity.FriendlyName.Contains(trimmedNameFilter, StringComparison.OrdinalIgnoreCase)
+                    || entity.Aliases.Any(alias => alias.Contains(trimmedNameFilter, StringComparison.OrdinalIgnoreCase)));
+            }
         }
         else
         {
@@ -102,11 +118,11 @@ public static class EntitiesApi
             {
                 entities = entities.Where(entity => domainFilter.Contains(entity.Domain, StringComparer.OrdinalIgnoreCase));
             }
-
-            entities = entities
-                .OrderBy(entity => entity.FriendlyName, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(entity => entity.EntityId, StringComparer.OrdinalIgnoreCase);
         }
+
+        entities = entities
+            .OrderBy(entity => entity.FriendlyName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(entity => entity.EntityId, StringComparer.OrdinalIgnoreCase);
 
         if (!string.IsNullOrWhiteSpace(trimmedLocationFilter))
         {

@@ -48,7 +48,7 @@ public sealed class EntitiesApiTests
             .Returns(kitchenArea);
         A.CallTo(() => locationService.GetAreaForEntity("light.office_lamp"))
             .Returns(officeArea);
-        A.CallTo(() => locationService.GetFloorForArea("main-floor"))
+        A.CallTo(() => locationService.GetFloorForArea("kitchen"))
             .Returns(mainFloor);
 
         var response = await InvokeGetEntitiesAsync(
@@ -97,13 +97,44 @@ public sealed class EntitiesApiTests
         A.CallTo(() => locationService.GetEntitiesAsync(A<CancellationToken>._)).MustNotHaveHappened();
     }
 
-    private static HomeAssistantEntity CreateEntity(string entityId, string friendlyName, string? areaId)
+    [Fact]
+    public async Task GetEntitiesAsync_FallsBackToSubstringMatchingWhenSearchReturnsNoResults()
+    {
+        var locationService = A.Fake<IEntityLocationService>();
+        var matchingEntity = CreateEntity("light.office_lamp", "Desk Lamp", "office", ["Reading Light"]);
+        var otherEntity = CreateEntity("switch.office_fan", "Office Fan", "office");
+
+        A.CallTo(() => locationService.SearchEntitiesAsync(
+                "reading",
+                A<IReadOnlyList<string>?>.That.Matches(filter => HasSingleDomainFilter(filter, "light")),
+                null,
+                A<CancellationToken>._))
+            .Returns([]);
+        A.CallTo(() => locationService.GetEntitiesAsync(A<CancellationToken>._))
+            .Returns([matchingEntity, otherEntity]);
+
+        var response = await InvokeGetEntitiesAsync(
+            locationService,
+            nameFilter: "reading",
+            domain: "light");
+
+        Assert.Single(response.Items);
+        Assert.Equal("light.office_lamp", response.Items[0].EntityId);
+        A.CallTo(() => locationService.GetEntitiesAsync(A<CancellationToken>._)).MustHaveHappenedOnceExactly();
+    }
+
+    private static HomeAssistantEntity CreateEntity(
+        string entityId,
+        string friendlyName,
+        string? areaId,
+        IReadOnlyList<string>? aliases = null)
     {
         return new HomeAssistantEntity
         {
             EntityId = entityId,
             FriendlyName = friendlyName,
             AreaId = areaId,
+            Aliases = aliases ?? [],
             Platform = "test",
         };
     }

@@ -5,6 +5,7 @@ namespace lucia.AgentHost.Apis;
 /// <summary>
 /// Partial update payload for agent definitions.
 /// Null properties indicate the client did not send that field.
+/// Use <see cref="ClearFields"/> to explicitly clear nullable string fields.
 /// </summary>
 public sealed record PatchAgentDefinitionRequest
 {
@@ -23,4 +24,6 @@ public sealed record PatchAgentDefinitionRequest
     public string? EmbeddingProviderName { get; init; }
 
     public bool? Enabled { get; init; }
+
+    public string[]? ClearFields { get; init; }
 }
