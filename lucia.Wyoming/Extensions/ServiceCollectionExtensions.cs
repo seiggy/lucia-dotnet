@@ -28,6 +28,23 @@ public static class ServiceCollectionExtensions
     public static IHostApplicationBuilder AddWyomingServer(
         this IHostApplicationBuilder builder)
     {
+        builder.Services.Configure<CommandRoutingOptions>(
+            builder.Configuration.GetSection(CommandRoutingOptions.SectionName));
+
+        builder.Services.AddSingleton<CommandPatternRegistry>(sp =>
+        {
+            var providers = sp.GetServices<ICommandPatternProvider>()
+                .Concat(sp.GetServices<IOptimizableSkill>().OfType<ICommandPatternProvider>())
+                .Distinct()
+                .ToArray();
+
+            return new CommandPatternRegistry(providers);
+        });
+        builder.Services.AddSingleton<CommandPatternMatcher>();
+        builder.Services.AddSingleton<ICommandRouter, CommandPatternRouter>();
+        builder.Services.AddSingleton<SkillDispatcher>();
+
+#if !EXCLUDE_SPEECH
         builder.Services.Configure<WyomingOptions>(
             builder.Configuration.GetSection(WyomingOptions.SectionName));
         builder.Services.Configure<SttOptions>(
@@ -48,8 +65,6 @@ public static class ServiceCollectionExtensions
             builder.Configuration.GetSection(HybridSttOptions.SectionName));
         builder.Services.Configure<VoiceProfileOptions>(
             builder.Configuration.GetSection(VoiceProfileOptions.SectionName));
-        builder.Services.Configure<CommandRoutingOptions>(
-            builder.Configuration.GetSection(CommandRoutingOptions.SectionName));
 
         builder.Services.Configure<HuggingFaceOptions>(
             builder.Configuration.GetSection(HuggingFaceOptions.SectionName));
@@ -121,19 +136,6 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<UnknownSpeakerTracker>();
         builder.Services.AddHostedService<ProvisionalProfileCleanupService>();
 
-        builder.Services.AddSingleton<CommandPatternRegistry>(sp =>
-        {
-            var providers = sp.GetServices<ICommandPatternProvider>()
-                .Concat(sp.GetServices<IOptimizableSkill>().OfType<ICommandPatternProvider>())
-                .Distinct()
-                .ToArray();
-
-            return new CommandPatternRegistry(providers);
-        });
-        builder.Services.AddSingleton<CommandPatternMatcher>();
-        builder.Services.AddSingleton<ICommandRouter, CommandPatternRouter>();
-        builder.Services.AddSingleton<SkillDispatcher>();
-
         builder.Services.AddSingleton<AudioQualityAnalyzer>();
         builder.Services.AddSingleton<VoiceOnboardingService>();
 
@@ -146,6 +148,9 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<WyomingServiceInfo>();
         builder.Services.AddHostedService<WyomingServer>();
         builder.Services.AddHostedService<ZeroconfAdvertiser>();
+#else
+        // Jetson/ARM builds keep command routing but exclude the ONNX-backed voice pipeline.
+#endif
 
         return builder;
     }
