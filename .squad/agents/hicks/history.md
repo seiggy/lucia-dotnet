@@ -35,4 +35,17 @@
 - **Jetson resource constraints**: Tighter memory/CPU limits in docker-compose (Redis 128MB, MongoDB 256MB, AgentHost 512MB) for typical 4GB RAM boards.
 - **Separate compose file pattern** (`docker-compose.jetson.yml`) keeps standard and Jetson deployments independent, reducing config complexity.
 
+### 2026-05-29: Whole-Solution Infra & Build Review
+- **squad-* workflows are wired to a phantom branch model.** They trigger on `main`/`dev`/`preview`/`insider`, but the only remote branch is `origin/master` (the default). Verified with `git branch -r`. None of squad-ci/release/preview/insider-release/promote ever fire on the branch that ships.
+- **squad-ci/release/preview/insider-release are untouched scaffolding** — they `echo "No build commands configured"` instead of running `dotnet test`. No real CI/release gate exists via the squad suite.
+- **squad-promote.yml reads the version from `node -e "require('./package.json').version"`** but there is NO root `package.json` (only `lucia-dashboard/`). The promote workflow fails on every run. .NET repos need a .NET version source, not a Node manifest.
+- **asset.lock has no checksums and uses mutable refs** (`huggingface.co/.../resolve/main/...`, `raw.githubusercontent.com/.../main/...`). Content can change without the lock hash changing → reproducibility/supply-chain gap. CI does content-address the asset *image* via `sha-<hash>` though, which is solid.
+- **validate-infrastructure swallows lint failures with `|| true`** (hadolint, yamllint, systemd-analyze) — false green. It also only lints 5 of 10 Dockerfiles (misses jetson/voice/voice-cpu/voice-rocm/assets) and only validates `docker-compose.yml` of 4 compose files.
+- **Dev/prod drift in Aspire AppHost**: AppHost pins Mongo `7.0` while compose deploys `8.0.5`; appsettings.json sets `Store=PostgreSQL` while compose ships MongoDB. Worth re-checking on any data-layer task.
+- Action pinning across all workflows uses mutable major tags (`@v6`/`@v4`), not SHAs — only Trivy (`@v0.35.0`) is version-pinned.
+- Positive: the `aspnet:10.0 ships curl` learning held up; compose hardening (read_only/tmpfs/cap_drop/no-new-privileges) and the `sha-<hash>` asset-image pattern are reference-quality.
+
 <!-- Append new learnings below. -->
+
+- Participated in 2026-05-29 health review
+

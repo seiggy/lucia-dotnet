@@ -33,6 +33,16 @@
 
 <!-- Append new learnings below. -->
 
+### 2026-05-29 — HA integration health review (whole-solution review)
+
+- **WebSocket calls have no internal timeout.** `HomeAssistantClient.SendWebSocketCommandAsync` (registry/area/floor/expose/media) relies solely on the caller's `CancellationToken`, and several public methods default it to `None`. `EntityLocationService` fires three registry WS calls in parallel on a 30s warm-up/poll loop — a stalled HA hangs cache refresh indefinitely. Top risk.
+- **Captive HttpClient.** `IHomeAssistantClient` is a transient typed `HttpClient`, but `EntityLocationService` and `PresenceDetectionService` are registered as singletons (`lucia.Agents/Extensions/ServiceCollectionExtensions.cs:95,112`), capturing one client for the app lifetime → handler never rotates. Combined with `EnsureHttpClientConfigured` doing a non-atomic `Remove`+add of the `Authorization` header on every call (`HomeAssistantClient.cs:62-64`), concurrent REST use on the shared instance can momentarily drop auth → intermittent 401s.
+- **Two divergent `AddHttpClient<IHomeAssistantClient>` registrations** exist — one in `lucia.HomeAssistant/Extensions` (always sets BaseAddress + Authorization, even empty token) and one in `lucia.Agents/Extensions` (guards for empty config). Behavioral drift across hosts.
+- **Python SSE is fully buffered, not streamed.** `fast_conversation.send_conversation` posts non-streaming and `_parse_sse_response` walks `response.text`, so LLM-fallback answers wait for full completion before returning — negates streaming latency benefit.
+- **Missing `services.yaml`** for the registered `lucia.send_message` service; dev scripts (`test_a2a_local.py`, `test_catalog_simple.py`) ship in the component root rather than `tests/`.
+- Component is otherwise solid: versioned config-entry migration (v1→v2), TTL-bounded `ConversationTracker`, graceful ChatLog-API absence handling. C# REST helpers have uniform `HttpRequestException`/`JsonException` handling and disciplined `using` disposal.
+- Report: `session-state/.../files/review-ha.md`.
+
 ### 2026-05-25 — Shopping list fallback for todo-backed Home Assistant lists
 
 - `HomeAssistantClient.GetShoppingListItemsAsync()` now treats `404 /api/shopping_list` as a signal to fall back to the todo platform instead of failing the AgentHost shopping list endpoint.
@@ -63,3 +73,6 @@
 - `PromptCachingChatClient` only caches tool-call plans, never text responses. Tool results rounds always bypass cache. Tools always execute fresh.
 - `InMemoryPromptCacheService` lacks OTel metric instrumentation (counters, histograms) that the Redis implementation has — observability blind spot in non-Redis deployments.
 - Report delivered to `.squad/decisions/inbox/bishop-prompt-cache-investigation.md`.
+
+- Participated in 2026-05-29 health review
+

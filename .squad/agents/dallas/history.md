@@ -158,4 +158,24 @@
 **Build verification:**
 - `dotnet build lucia.Tests/lucia.Tests.csproj --no-restore` — 0 warnings, 0 errors
 
+### 2026-05-29: EvalHarness Health Review (whole-solution review)
+
+**Scope:** Read-only review of `lucia.EvalHarness/` for eval correctness, determinism, scoring, and resource health. Findings written to session `review-eval.md`. No code changed.
+
+**Durable observations about the eval framework:**
+- **Determinism is not actually achieved.** `Seed` is `null` in all built-in profiles (`ModelParameterProfile.Default/Precise/Creative`), in `ParameterSweepConfig.GenerateCombinations()`, and is never defaulted. Even "precise" runs are stochastic.
+- **Inference knobs are injected wrong.** `ParameterInjectingChatClient` writes `seed`/`num_predict`/`repeat_penalty` into `ChatOptions.AdditionalProperties` (untyped string keys). M.E.AI → OllamaSharp/OpenAI adapters map the *typed* properties (`ChatOptions.Seed`, `MaxOutputTokens`, `FrequencyPenalty`), so these knobs likely never reach the backend. Needs end-to-end verification with a request capture. Also uses `??=` so agent-set Temperature/TopP win over the eval profile.
+- **Parameter sweep is statistically invalid as written:** each combination evaluated once against unseeded output, then `OrderByDescending(AverageScore).First()` picks the winner — best-of-N noise.
+- **Resource leak:** `RealAgentFactory` creates a new `OllamaApiClient`/`OpenAIClient`-backed `IChatClient` per `CreateXAgentAsync`; `DisposeAsync` only disposes `_haClient`. Sweeps recreate agents per (model × combo × agent) → hundreds of undisposed HttpClients.
+- **No LLM-call timeouts anywhere** (no `CancellationTokenSource`/`CancelAfter`); a hung local model stalls the whole run.
+- **Silent constant scores:** `NoOpChatClient` returns `{"score":50}` when judge unconfigured and feeds `task_completion` → OverallScore + `avgScore>=70` gate. Judge/model failures return hard `0` (PersonalityJudge/PersonalityEvalRunner), conflating infra failure with real scores.
+- **Scenario path duplicates metrics:** `EvaluateScenariosAsync` sets all four sub-scores to the same aggregate scenario score (EvalRunner.cs:455-459) — the per-dimension breakdown is fabricated for scenario agents.
+- **Pass criteria inconsistent/hardcoded:** TestCase mode `avgScore >= 70` (magic number) vs scenario mode `issues.Count == 0`.
+- **`num_ctx` never set** — Ollama default 2048 can truncate long agent prompts/tool defs and cause false tool-selection failures.
+
+**Things that are correct (don't re-flag):** ScenarioValidator `Async`-suffix normalization (lines 142-145, 270-275); tracing-required guard in EvaluateScenariosAsync (364-369); defensive judge JSON parse+clamp; per-test exception isolation; clean `InferenceBackend`/`BackendChatClientFactory` abstraction.
+
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
+
+- Participated in 2026-05-29 health review
+

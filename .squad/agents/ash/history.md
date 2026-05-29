@@ -136,3 +136,21 @@
 - Add entity resolution quality signal — low-quality matches should not produce `commandHandled`
 
 **Deliverable:** `.squad/decisions/inbox/ash-conversation-issues.md`
+
+### 2026-05-29: Data Layer Health Review (whole-solution review)
+
+**What I Reviewed:** `lucia.Data/` three-database pattern (InMemory/SQLite/PostgreSQL) plus `MongoMemoryStore` — reader/connection lifetime, query correctness, indexing, migrations, TTL.
+
+**Key Learnings about the data layer:**
+1. The two flagged commit bugs are genuinely fixed and sound. Npgsql has no MARS, so Postgres repos MUST close a reader before reusing the connection — `PostgresCommandTraceRepository.GetStatsAsync` and `PostgresConfigurationProvider.PollForChanges` now call `CloseAsync`. The SQLite twins can keep two readers open on one connection because Microsoft.Data.Sqlite supports it. This asymmetry is intentional and correct — do not "fix" the SQLite versions to match Postgres.
+2. Memory stores cap `GetAllAsync` at 200; `InMemoryCommandTraceRepository` is FIFO-capped at 500. Bounded result sets are an established convention.
+3. Biggest latent risk: SQLite stores timestamps as ISO-8601 strings and compares them lexically. Correct only while every value is UTC. `SqliteScheduledTaskRepository` stores `DateTimeOffset.ToString("O")` (offset-bearing) and compares it in `PurgeCompletedAsync` — a non-UTC offset silently corrupts purge results. Postgres uses native `timestamptz` and is safe. New SQLite time columns should normalize to UTC or use epoch integers.
+4. `SqliteApiKeyService.ValidateKeyAsync` writes `last_used_at` via fire-and-forget `Task.Run` on every auth — a write on the hot path against single-writer SQLite (`Cache=Shared`, `busy_timeout=5000`). Scaling/contention risk.
+5. Free-text search uses `ILIKE '%x%'` over JSONB/`data::text` (archive + command traces) — unindexed full scans on the tables most likely to grow.
+6. Conventions confirmed: 100% parameterized SQL, versioned transactional migrations (`CREATE TABLE IF NOT EXISTS` + rollback, run per-DB), keyed connection factories isolate config/traces/tasks, `MongoMemoryStore` uses a real TTL index while SQL stores emulate TTL with explicit delete sweeps + `expires_at > now` predicates.
+7. Minor: both config providers seed `_lastLoadRowVersion` with `COUNT(*)` in `Load()` but compute `count ^ MAX(updated_at).GetHashCode()` in the poll, causing one phantom reload on first tick.
+
+**Deliverable:** `review-data.md` in the session files folder.
+
+- Participated in 2026-05-29 health review
+

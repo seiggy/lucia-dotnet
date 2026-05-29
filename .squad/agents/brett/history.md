@@ -80,3 +80,17 @@
 - Fixed `SpanCollectorProcessor` case-sensitive prefix filter (`"Lucia."` → case-insensitive) — Wyoming spans (`lucia.Wyoming.Session`) were silently excluded from the dashboard trace store
 - `TranscriptRecord.AudioSource` already existed; now consistently set to `"enhanced_clip"` or `"raw"` matching span tag values
 - Build clean, 297/298 Wyoming tests pass (1 pre-existing DI registration failure)
+
+### 2026-05-29: Voice Pipeline Health Review (whole-solution review, requested by Zack)
+
+**Review complete — findings at `review-voice.md` (session files). No code modified.**
+- **Unbounded utterance buffers (High):** `_utteranceAudioBuffer`/`_rawUtteranceAudioBuffer` (List<float>) accumulate per chunk and only clear on audio-stop. Per-event payload is capped but cumulative growth is not → OOM risk if a client never sends audio-stop. Needs a max-utterance duration/sample guard.
+- **STT semaphore scope (High):** `WyomingServer.RunSessionAsync` holds `_sttConcurrency` (default 4) for the WHOLE session lifetime, not just STT. With `MaxWakeWordStreams=30` accepted, connections beyond 4 sit blocked on WaitAsync after being counted → sockets never read, clients silently hang. Should gate connections separately from STT burst, or acquire the slot only around finalization.
+- **Telemetry race (Medium):** fire-and-forget `TrySaveTranscriptRecordAsync` reads `_sttFinalizationMs`/`_diarizationMs`/etc. which `ResetUtteranceAudio()` zeroes right after — stage timings can persist as 0ms. Snapshot timings into locals before Task.Run.
+- **EXCLUDE_SPEECH is correctly wired** (Directory.Build.props maps `ExcludeSpeech=true`→`DefineConstants;EXCLUDE_SPEECH`; csproj does `Compile Remove` of Sherpa*/Gtcrn*/WyomingServer/WyomingSession; DI guarded by `#if !EXCLUDE_SPEECH`). BUT no CI job builds with `ExcludeSpeech=true`, so the ARM/Jetson variant can regress unnoticed — recommend adding a build-matrix job.
+- **Hostname advertising inconsistency (Medium):** `lucia-{hostname}` is applied only in `WyomingServiceInfo.BuildInfoEvent`; mDNS (`ZeroconfAdvertiser`) still advertises `_options.ServiceName` ("lucia-wyoming"). Discovery name and protocol name diverge.
+- **GTCRN per-frame allocations (Medium):** `GtcrnStreamingSession.Process` allocates List + several arrays/tensors per 256-sample hop — sustained GC pressure on the enhancement hot path.
+- Confirmed good: parser bounds-checking + ArrayPool + partial-frame handling, writer SemaphoreSlim serialization, idempotent session Dispose, GtcrnStreamingSession does NOT dispose the shared InferenceSession.
+
+- Participated in 2026-05-29 health review
+
