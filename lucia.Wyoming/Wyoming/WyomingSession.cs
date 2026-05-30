@@ -1000,11 +1000,20 @@ public sealed class WyomingSession : IDisposable
             IsFinal = true,
         });
 
+        // Snapshot timings before fire-and-forget: ResetUtteranceAudio() zeroes these fields
+        // as soon as ProcessTranscriptAsync returns, so the background task must capture stable copies.
+        long snapshotSttMs = _sttFinalizationMs;
+        long snapshotDiarizationMs = _diarizationMs;
+        long snapshotEnhancementMs = _enhancementTotalMs;
+        long snapshotRetranscriptionMs = _enhancedClipRetranscriptionMs;
+
         // Storage is fire-and-forget — don't block the connection teardown
         _ = Task.Run(() => TrySaveTranscriptRecordAsync(
             transcript, originalConfidence, utteranceAudio,
             speaker, route: null, responseText: taggedTranscript,
-            commandFiltered: false, audioSource, CancellationToken.None), CancellationToken.None);
+            commandFiltered: false, audioSource,
+            snapshotSttMs, snapshotDiarizationMs, snapshotEnhancementMs, snapshotRetranscriptionMs,
+            CancellationToken.None), CancellationToken.None);
     }
 
     /// <summary>
@@ -1090,6 +1099,10 @@ public sealed class WyomingSession : IDisposable
         string? responseText,
         bool commandFiltered,
         string audioSource,
+        long sttFinalizationMs,
+        long diarizationMs,
+        long enhancementTotalMs,
+        long enhancedClipRetranscriptionMs,
         CancellationToken ct)
     {
         if (_transcriptStore is null)
@@ -1101,22 +1114,22 @@ public sealed class WyomingSession : IDisposable
         {
             var stages = new List<PipelineStageTiming>
             {
-                new() { Name = "stt", DurationMs = _sttFinalizationMs },
+                new() { Name = "stt", DurationMs = sttFinalizationMs },
             };
 
             if (_diarizationEngine?.IsReady == true)
             {
-                stages.Add(new PipelineStageTiming { Name = "diarization", DurationMs = _diarizationMs });
+                stages.Add(new PipelineStageTiming { Name = "diarization", DurationMs = diarizationMs });
             }
 
             if (_speechEnhancer?.IsReady == true)
             {
-                stages.Add(new PipelineStageTiming { Name = "enhancement", DurationMs = _enhancementTotalMs });
+                stages.Add(new PipelineStageTiming { Name = "enhancement", DurationMs = enhancementTotalMs });
             }
 
-            if (_enhancedClipRetranscriptionMs > 0)
+            if (enhancedClipRetranscriptionMs > 0)
             {
-                stages.Add(new PipelineStageTiming { Name = "enhanced_retranscription", DurationMs = _enhancedClipRetranscriptionMs });
+                stages.Add(new PipelineStageTiming { Name = "enhanced_retranscription", DurationMs = enhancedClipRetranscriptionMs });
             }
 
             var record = new TranscriptRecord
