@@ -11,6 +11,28 @@
 - **Orchestration:** RouterExecutor pattern with multi-agent routing, WorkflowFactory with custom executors
 - **Evaluation:** lucia.EvalHarness (TUI + reports), lucia.Tests/Orchestration/ (xUnit eval tests)
 
+## Learnings
+
+### 2026-05-30: GitHub Issue Inbox Re-triage (50 issues, all incorrectly bulk-labeled `squad:lambert`)
+
+All 50 open `squad`-labeled issues were found carrying `squad:lambert` after a bad bulk-triage. Correct labels applied by domain routing:
+
+| Member    | Count | Issues |
+|-----------|-------|--------|
+| parker    | 17    | #176 #175 #174 #173 #172 #171 #170 #169 #168 #167 #166 #165 #158 #154 #153 #145 #140 |
+| hicks     | 11    | #181 #164 #162 #161 #159 #155 #151 #147 #142 #138 #135 |
+| brett     | 6     | #183 #182 #180 #179 #178 #177 |
+| lambert   | 4     | #144 #148 #152 #156 (correctly kept) |
+| dallas    | 4     | #134 #137 #141 #150 |
+| kane      | 3     | #136 #139 #143 |
+| bishop    | 3     | #149 #157 #160 |
+| ripley    | 1     | #146 |
+| ash       | 1     | #163 |
+
+**Root cause:** Bulk triage without reading domain map; lambert's narrow scope (writing test scenarios, assertions, skill unit tests, provider-free coverage) was applied to all issues indiscriminately. 46 of 50 issues were wrong.
+
+---
+
 ## Durable Learnings (Condensed)
 
 ### 2026-05-29: Whole-Solution Health Review — Systemic Intent-Enforcement Gaps
