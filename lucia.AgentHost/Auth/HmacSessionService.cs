@@ -17,11 +17,11 @@ namespace lucia.AgentHost.Auth;
 /// </para>
 /// </summary>
 /// <remarks>
-/// <b>Multi-instance note:</b> key generation uses a read-then-write strategy against the shared
-/// config store. On first boot with multiple simultaneously-starting instances there is a narrow
-/// race where two instances could each write a different key. After the first restart all instances
-/// will read the same persisted key. For strict multi-instance safety, pre-provision
-/// <c>Auth:SessionSigningKey</c> as an environment variable or secret before deploying.
+/// <b>Multi-instance note:</b> key generation uses a read–write–reconcile strategy. After writing a
+/// newly generated key, the service re-reads the store; if another instance already wrote a different
+/// key, the service adopts the persisted value so all instances converge on a single key without
+/// requiring a restart. For strict guarantee, pre-provision <c>Auth:SessionSigningKey</c> as an
+/// environment variable or secret before deploying.
 /// </remarks>
 public sealed partial class HmacSessionService : ISessionService, IAsyncInitializable
 {
@@ -31,6 +31,10 @@ public sealed partial class HmacSessionService : ISessionService, IAsyncInitiali
     private readonly ILogger<HmacSessionService> _logger;
     private volatile byte[]? _signingKey;
     private readonly SemaphoreSlim _initSemaphore = new(1, 1);
+
+    // Bounded timeout applied to all config store I/O during initialization (30 s).
+    // This prevents a hung store from blocking process startup indefinitely.
+    private const int StoreIoTimeoutSeconds = 30;
 
     public HmacSessionService(
         IConfiguration configuration,
@@ -70,31 +74,65 @@ public sealed partial class HmacSessionService : ISessionService, IAsyncInitiali
                 return;
             }
 
-            // 2. Check the durable config store directly (bypasses the provider's 5-second poll lag)
-            var storedValue = await _configStoreWriter
-                .GetAsync("Auth:SessionSigningKey", cancellationToken)
-                .ConfigureAwait(false);
+            // 2 & 3. All remaining work requires store I/O — apply a bounded timeout so a hung
+            //        config store does not pin process startup indefinitely.
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(StoreIoTimeoutSeconds));
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
-            if (!string.IsNullOrWhiteSpace(storedValue))
+            try
             {
-                _signingKey = DecodeSigningKey(storedValue, "durable config store (Auth:SessionSigningKey)");
-                LogSigningKeyLoadedFromStore(_logger);
-                return;
+                // 2. Check the durable config store directly (bypasses the provider's 5-second poll lag)
+                var storedValue = await _configStoreWriter
+                    .GetAsync("Auth:SessionSigningKey", linkedCts.Token)
+                    .ConfigureAwait(false);
+
+                if (!string.IsNullOrWhiteSpace(storedValue))
+                {
+                    _signingKey = DecodeSigningKey(storedValue, "durable config store (Auth:SessionSigningKey)");
+                    LogSigningKeyLoadedFromStore(_logger);
+                    return;
+                }
+
+                // 3. Not found anywhere — generate, persist, then reconcile.
+                var newKey = RandomNumberGenerator.GetBytes(64);
+                var newKeyBase64 = Convert.ToBase64String(newKey);
+
+                await _configStoreWriter.SetAsync(
+                    "Auth:SessionSigningKey",
+                    newKeyBase64,
+                    "system-init",
+                    isSensitive: true,
+                    linkedCts.Token).ConfigureAwait(false);
+
+                // Read-after-write reconciliation: if two instances both passed the initial
+                // GetAsync (key absent) and raced to SetAsync, the last writer wins in the store.
+                // Re-reading here lets the losing instance adopt the winner's persisted key so all
+                // instances converge without a restart, rather than serving sessions signed with
+                // different keys until the next boot.
+                var reconciledValue = await _configStoreWriter
+                    .GetAsync("Auth:SessionSigningKey", linkedCts.Token)
+                    .ConfigureAwait(false);
+
+                if (!string.IsNullOrWhiteSpace(reconciledValue) && reconciledValue != newKeyBase64)
+                {
+                    // Another instance's key is already in the store — adopt it.
+                    LogSigningKeyRaceReconciled(_logger);
+                    _signingKey = DecodeSigningKey(reconciledValue, "durable config store (post-write reconciliation)");
+                }
+                else
+                {
+                    _signingKey = newKey;
+                    LogSigningKeyGenerated(_logger);
+                }
             }
-
-            // 3. Not found anywhere — generate, persist, and use
-            var newKey = RandomNumberGenerator.GetBytes(64);
-            var newKeyBase64 = Convert.ToBase64String(newKey);
-
-            await _configStoreWriter.SetAsync(
-                "Auth:SessionSigningKey",
-                newKeyBase64,
-                "system-init",
-                isSensitive: true,
-                cancellationToken).ConfigureAwait(false);
-
-            _signingKey = newKey;
-            LogSigningKeyGenerated(_logger);
+            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                LogStoreIoTimedOut(_logger, StoreIoTimeoutSeconds);
+                throw new TimeoutException(
+                    $"Config store I/O timed out after {StoreIoTimeoutSeconds} s during HMAC signing key " +
+                    "initialization. Ensure the config store is reachable, or pre-provision " +
+                    "'Auth:SessionSigningKey' as an environment variable or secret.");
+            }
         }
         finally
         {
@@ -233,6 +271,17 @@ public sealed partial class HmacSessionService : ISessionService, IAsyncInitiali
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Generated new HMAC session signing key and persisted it to the config store.")]
     private static partial void LogSigningKeyGenerated(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "First-boot HMAC key race detected: another instance wrote a different key before ours was " +
+            "acknowledged. Adopting the persisted key so all instances share the same signing material.")]
+    private static partial void LogSigningKeyRaceReconciled(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Error,
+        Message = "Config store I/O timed out after {TimeoutSeconds} s during HMAC signing key initialization. " +
+            "Ensure the config store is reachable, or pre-provision 'Auth:SessionSigningKey' as an " +
+            "environment variable or secret to bypass store I/O at startup.")]
+    private static partial void LogStoreIoTimedOut(ILogger logger, int timeoutSeconds);
 
     [LoggerMessage(Level = LogLevel.Error,
         Message = "HMAC session signing key from {Source} is not valid base64. " +
