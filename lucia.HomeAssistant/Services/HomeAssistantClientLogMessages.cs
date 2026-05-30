@@ -44,6 +44,12 @@ public static partial class HomeAssistantClientLogMessages
     public static partial void ShoppingListFallbackToTodo(this ILogger logger, string entityId);
 
     [LoggerMessage(
+        EventId = 1009,
+        Level = LogLevel.Error,
+        Message = "Cannot open WebSocket: HomeAssistant:AccessToken is not configured")]
+    public static partial void WebSocketAccessTokenMissing(this ILogger logger);
+
+    [LoggerMessage(
         EventId = 1010,
         Level = LogLevel.Debug,
         Message = "Opening WebSocket connection to {Endpoint}")]
