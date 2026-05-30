@@ -41,6 +41,32 @@ public sealed class WyomingProtocolComplianceTests
     }
 
     [Fact]
+    public async Task DescribeEvent_AsrAndWakeName_MatchServiceName()
+    {
+        // Use an explicit non-default name to prove WyomingServiceInfo reads from
+        // WyomingOptions.ServiceName rather than recomputing lucia-{hostname} locally.
+        const string configuredServiceName = "lucia-test-instance";
+        var (server, port, services) = await StartTestServerAsync(serviceName: configuredServiceName);
+        var (client, writer, parser) = await ConnectClientAsync(port);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        try
+        {
+            await writer.WriteEventAsync(new DescribeEvent(), cts.Token);
+
+            var info = Assert.IsType<InfoEvent>(await parser.ReadEventAsync(cts.Token));
+            Assert.All(info.Asr ?? [], asr => Assert.Equal(configuredServiceName, asr.Name));
+            Assert.All(info.Wake ?? [], wake => Assert.Equal(configuredServiceName, wake.Name));
+        }
+        finally
+        {
+            client.Close();
+            client.Dispose();
+            await StopServerAsync(server, services);
+        }
+    }
+
+    [Fact]
     public async Task FullFlow_Detect_Audio_Transcribe()
     {
         var wakeSession = new TestWakeWordSession(
@@ -166,7 +192,8 @@ public sealed class WyomingProtocolComplianceTests
     private static async Task<(WyomingServer Server, int Port, ServiceProvider Services)> StartTestServerAsync(
         IWakeWordDetector? wakeWordDetector = null,
         ISttEngine? sttEngine = null,
-        IVadEngine? vadEngine = null)
+        IVadEngine? vadEngine = null,
+        string? serviceName = null)
     {
         var port = GetRandomPort();
         var options = new WyomingOptions
@@ -175,6 +202,9 @@ public sealed class WyomingProtocolComplianceTests
             Host = IPAddress.Loopback.ToString(),
             ReadTimeoutSeconds = 5,
         };
+
+        if (serviceName is not null)
+            options.ServiceName = serviceName;
 
         var services = new ServiceCollection();
         services.AddSingleton<IWakeWordDetector>(wakeWordDetector ?? new TestWakeWordDetector(new TestWakeWordSession(null)));
@@ -194,6 +224,7 @@ public sealed class WyomingProtocolComplianceTests
             configuredOptions.Port = options.Port;
             configuredOptions.Host = options.Host;
             configuredOptions.ReadTimeoutSeconds = options.ReadTimeoutSeconds;
+            configuredOptions.ServiceName = options.ServiceName;
         });
         services.AddLogging();
 

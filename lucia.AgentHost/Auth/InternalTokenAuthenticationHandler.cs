@@ -1,4 +1,6 @@
 using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
@@ -37,7 +39,13 @@ public sealed class InternalTokenAuthenticationHandler(
 
         var token = authHeader["Bearer ".Length..].Trim();
 
-        if (!string.Equals(token, expectedToken, StringComparison.Ordinal))
+        // Use constant-time comparison via SHA-256 hashes to prevent timing attacks.
+        // Hashing both sides produces equal-length spans for FixedTimeEquals
+        // and avoids leaking length information via an early-out branch.
+        var tokenHash = SHA256.HashData(Encoding.UTF8.GetBytes(token));
+        var expectedHash = SHA256.HashData(Encoding.UTF8.GetBytes(expectedToken));
+
+        if (!CryptographicOperations.FixedTimeEquals(tokenHash, expectedHash))
         {
             return Task.FromResult(AuthenticateResult.Fail("Invalid internal token."));
         }

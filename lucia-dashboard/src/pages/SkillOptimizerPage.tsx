@@ -37,20 +37,38 @@ export default function SkillOptimizerPage() {
   const [selectedModel, setSelectedModel] = useState('')
   const [testCases, setTestCases] = useState<OptimizationTestCase[]>([])
 
+  // Initial load state
+  const [isLoadingInit, setIsLoadingInit] = useState(true)
+  const [initError, setInitError] = useState<string | null>(null)
+
   // Job tracking
   const [jobId, setJobId] = useState<string | null>(null)
   const [jobStatus, setJobStatus] = useState<JobStatusResponse | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // ── Load skills and embedding models on mount ─────────────────
-  useEffect(() => {
-    fetchOptimizableSkills().then(setSkills).catch(() => addToast('Failed to load skills', 'error'))
-    fetchModelProviders().then((providers) => {
+  const loadInit = useCallback(async () => {
+    setIsLoadingInit(true)
+    setInitError(null)
+    try {
+      const [fetchedSkills, providers] = await Promise.all([
+        fetchOptimizableSkills(),
+        fetchModelProviders(),
+      ])
+      setSkills(fetchedSkills)
       const embProviders = providers.filter((p) => p.purpose === 'Embedding' && p.enabled)
       setEmbeddingModels(embProviders)
       if (embProviders.length > 0) setSelectedModel(embProviders[0].id)
-    }).catch(() => addToast('Failed to load model providers', 'error'))
-  }, [addToast])
+    } catch {
+      setInitError('Failed to load skills or model providers.')
+    } finally {
+      setIsLoadingInit(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadInit()
+  }, [loadInit])
 
   // ── Auto-select first skill ───────────────────────────────────
   useEffect(() => {
@@ -241,6 +259,29 @@ export default function SkillOptimizerPage() {
           </p>
         </div>
       </div>
+
+      {/* ── Init loading / error ────────────────────────────────── */}
+      {isLoadingInit ? (
+        <div className="space-y-4">
+          {Array.from({ length: 2 }).map((_, i) => (
+            <div key={i} className="animate-pulse rounded-2xl border border-stone/40 bg-obsidian/60 p-5">
+              <div className="h-4 w-32 rounded bg-stone/60" />
+              <div className="mt-3 h-9 rounded bg-stone/60" />
+            </div>
+          ))}
+        </div>
+      ) : initError !== null ? (
+        <div className="rounded-2xl border border-ember/30 bg-ember/10 p-8 text-center">
+          <p className="text-sm text-rose">{initError}</p>
+          <button
+            onClick={loadInit}
+            className="mt-3 rounded-xl bg-amber/20 px-4 py-2 text-sm font-medium text-amber hover:bg-amber/30 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      ) : (
+      <>
 
       {/* ── Skill & Model Selection ─────────────────────────────── */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -448,6 +489,8 @@ export default function SkillOptimizerPage() {
 
       {/* ── Results ─────────────────────────────────────────────── */}
       {result && !isRunning && <ResultsPanel result={result} currentParams={selectedSkill?.currentParams} />}
+      </>
+      )}
     </div>
   )
 }

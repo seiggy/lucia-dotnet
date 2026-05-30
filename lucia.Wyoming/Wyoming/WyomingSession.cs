@@ -14,7 +14,7 @@ using Microsoft.Extensions.Options;
 
 namespace lucia.Wyoming.Wyoming;
 
-public sealed class WyomingSession : IDisposable
+public sealed partial class WyomingSession : IDisposable
 {
     private static readonly ActivitySource WyomingActivitySource = new("lucia.Wyoming.Session", "1.0.0");
     private readonly TcpClient _client;
@@ -29,6 +29,8 @@ public sealed class WyomingSession : IDisposable
     private SttResult? _pendingTranscript;
     private readonly List<float> _utteranceAudioBuffer = [];
     private readonly List<float> _rawUtteranceAudioBuffer = [];
+    private int _utteranceSamplesTotal;
+    private bool _utteranceCapExceeded;
     private int _utteranceSampleRate = 16_000;
     private IDiarizationEngine? _diarizationEngine;
     private ISpeakerProfileStore? _profileStore;
@@ -755,6 +757,11 @@ public sealed class WyomingSession : IDisposable
             return;
         }
 
+        if (_utteranceCapExceeded)
+        {
+            return;
+        }
+
         // Per-frame streaming speech enhancement (GTCRN via ISpeechEnhancerSession).
         // Enhancement feeds improved audio to the utterance buffer for diarization/storage.
         // The hybrid STT session receives RAW audio — Parakeet is robust to noise and
@@ -792,6 +799,12 @@ public sealed class WyomingSession : IDisposable
 
         // Always feed raw audio to STT — the hybrid engine re-transcribes the full
         // buffer each cycle, and raw audio is more consistent than GTCRN-enhanced chunks.
+        // Skip if the utterance cap was hit while appending this chunk.
+        if (_utteranceCapExceeded)
+        {
+            return;
+        }
+
         _currentSttSession.AcceptAudioChunk(samples, _utteranceSampleRate);
 
         if (_currentVadSession is not null)
@@ -1000,11 +1013,20 @@ public sealed class WyomingSession : IDisposable
             IsFinal = true,
         });
 
+        // Snapshot timings before fire-and-forget: ResetUtteranceAudio() zeroes these fields
+        // as soon as ProcessTranscriptAsync returns, so the background task must capture stable copies.
+        long snapshotSttMs = _sttFinalizationMs;
+        long snapshotDiarizationMs = _diarizationMs;
+        long snapshotEnhancementMs = _enhancementTotalMs;
+        long snapshotRetranscriptionMs = _enhancedClipRetranscriptionMs;
+
         // Storage is fire-and-forget — don't block the connection teardown
         _ = Task.Run(() => TrySaveTranscriptRecordAsync(
             transcript, originalConfidence, utteranceAudio,
             speaker, route: null, responseText: taggedTranscript,
-            commandFiltered: false, audioSource, CancellationToken.None), CancellationToken.None);
+            commandFiltered: false, audioSource,
+            snapshotSttMs, snapshotDiarizationMs, snapshotEnhancementMs, snapshotRetranscriptionMs,
+            CancellationToken.None), CancellationToken.None);
     }
 
     /// <summary>
@@ -1090,6 +1112,10 @@ public sealed class WyomingSession : IDisposable
         string? responseText,
         bool commandFiltered,
         string audioSource,
+        long sttFinalizationMs,
+        long diarizationMs,
+        long enhancementTotalMs,
+        long enhancedClipRetranscriptionMs,
         CancellationToken ct)
     {
         if (_transcriptStore is null)
@@ -1101,22 +1127,22 @@ public sealed class WyomingSession : IDisposable
         {
             var stages = new List<PipelineStageTiming>
             {
-                new() { Name = "stt", DurationMs = _sttFinalizationMs },
+                new() { Name = "stt", DurationMs = sttFinalizationMs },
             };
 
             if (_diarizationEngine?.IsReady == true)
             {
-                stages.Add(new PipelineStageTiming { Name = "diarization", DurationMs = _diarizationMs });
+                stages.Add(new PipelineStageTiming { Name = "diarization", DurationMs = diarizationMs });
             }
 
             if (_speechEnhancer?.IsReady == true)
             {
-                stages.Add(new PipelineStageTiming { Name = "enhancement", DurationMs = _enhancementTotalMs });
+                stages.Add(new PipelineStageTiming { Name = "enhancement", DurationMs = enhancementTotalMs });
             }
 
-            if (_enhancedClipRetranscriptionMs > 0)
+            if (enhancedClipRetranscriptionMs > 0)
             {
-                stages.Add(new PipelineStageTiming { Name = "enhanced_retranscription", DurationMs = _enhancedClipRetranscriptionMs });
+                stages.Add(new PipelineStageTiming { Name = "enhanced_retranscription", DurationMs = enhancedClipRetranscriptionMs });
             }
 
             var record = new TranscriptRecord
@@ -1327,14 +1353,41 @@ public sealed class WyomingSession : IDisposable
             return;
         }
 
+        if (_utteranceCapExceeded)
+        {
+            return;
+        }
+
         if (sampleRate > 0)
         {
             _utteranceSampleRate = sampleRate;
         }
 
+        var cap = _options.MaxUtteranceSamples;
+        if (cap > 0)
+        {
+            var remaining = cap - _utteranceSamplesTotal;
+            if (remaining <= 0)
+            {
+                LogUtteranceCapExceeded(Id, cap);
+                _utteranceCapExceeded = true;
+                return;
+            }
+
+            samples = samples.Length <= remaining ? samples : samples[..remaining];
+        }
+
         foreach (var sample in samples)
         {
             _utteranceAudioBuffer.Add(sample);
+        }
+
+        _utteranceSamplesTotal += samples.Length;
+
+        if (cap > 0 && _utteranceSamplesTotal >= cap)
+        {
+            LogUtteranceCapExceeded(Id, cap);
+            _utteranceCapExceeded = true;
         }
     }
 
@@ -1345,14 +1398,41 @@ public sealed class WyomingSession : IDisposable
             return;
         }
 
+        if (_utteranceCapExceeded)
+        {
+            return;
+        }
+
         if (sampleRate > 0)
         {
             _utteranceSampleRate = sampleRate;
         }
 
+        var cap = _options.MaxUtteranceSamples;
+        if (cap > 0)
+        {
+            var remaining = cap - _utteranceSamplesTotal;
+            if (remaining <= 0)
+            {
+                LogUtteranceCapExceeded(Id, cap);
+                _utteranceCapExceeded = true;
+                return;
+            }
+
+            samples = samples.Length <= remaining ? samples : samples[..remaining];
+        }
+
         foreach (var sample in samples)
         {
             _rawUtteranceAudioBuffer.Add(sample);
+        }
+
+        _utteranceSamplesTotal += samples.Length;
+
+        if (cap > 0 && _utteranceSamplesTotal >= cap)
+        {
+            LogUtteranceCapExceeded(Id, cap);
+            _utteranceCapExceeded = true;
         }
     }
 
@@ -1360,6 +1440,8 @@ public sealed class WyomingSession : IDisposable
     {
         _utteranceAudioBuffer.Clear();
         _rawUtteranceAudioBuffer.Clear();
+        _utteranceSamplesTotal = 0;
+        _utteranceCapExceeded = false;
         _utteranceSampleRate = 16_000;
         _enhancementTotalMs = 0;
         _sttFinalizationMs = 0;
@@ -1425,4 +1507,10 @@ public sealed class WyomingSession : IDisposable
             _logger.LogDebug(ex, "Failed to send Wyoming error event for session {SessionId}", Id);
         }
     }
+
+    [LoggerMessage(
+        EventId = 9001,
+        Level = LogLevel.Warning,
+        Message = "Session {SessionId}: utterance audio buffer cap of {MaxSamples} samples exceeded — discarding further audio chunks. The utterance will be finalized with captured audio.")]
+    private partial void LogUtteranceCapExceeded(string sessionId, int maxSamples);
 }

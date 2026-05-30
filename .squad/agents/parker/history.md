@@ -60,3 +60,11 @@ Cherry-picking older PR required stripping accidental repo artifacts:
 ---
 
 **Update from Ripley (2026-05-30):** Inbox retriage complete. You have been assigned issues from the 2026-05-30 batch. Review .squad/decisions/decisions.md for details.
+
+### 2026-05-30: Issue #176 — Validate agentId Uri returns 400 instead of 500
+
+**File changed:** `lucia.AgentHost/Apis/AgentRegistryApi.cs`
+
+**Fix approach:** Replaced both `new Uri(agentId)` calls (lines 71 and 140 in the original) in `RegisterAgentAsync` and `UpdateAgentAsync` with `Uri.TryCreate(agentId, UriKind.Absolute, out var agentUri)`. On failure the handlers return `TypedResults.BadRequest(...)` with a clear message. The guard in `RegisterAgentAsync` is placed immediately after the whitespace check; in `UpdateAgentAsync` it's placed before the registry lookup so we fail fast before any async I/O.
+
+**Incidental fix:** `Nerdbank.MessagePack` bumped 1.1.62 → 1.2.4 in `Directory.Packages.props` to clear pre-existing NU1902 vulnerability audit errors that blocked `dotnet build` on the branch. PR #191.
