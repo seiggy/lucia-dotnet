@@ -34,9 +34,22 @@ public sealed class WyomingOptions
     /// <summary>Read timeout per event in seconds. Connections idle longer are closed. Default 60s.</summary>
     public int ReadTimeoutSeconds { get; set; } = 60;
 
-    /// <summary>Zeroconf service name.</summary>
-    public string ServiceName { get; set; } = "lucia-wyoming";
+    /// <summary>
+    /// Zeroconf mDNS instance name and Wyoming InfoEvent service name.
+    /// Defaults to <c>lucia-{hostname}</c> so that mDNS advertisement and the
+    /// Wyoming InfoEvent always advertise the same, host-unique identifier.
+    /// </summary>
+    public string ServiceName { get; set; } = $"lucia-{Environment.MachineName.ToLowerInvariant()}";
 
     /// <summary>Timeout for continue_conversation follow-up listening.</summary>
     public TimeSpan FollowUpTimeout { get; set; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Maximum cumulative number of mono float samples buffered per utterance across both
+    /// the utterance and raw-utterance audio buffers. Chunks arriving after the cap is
+    /// reached are silently dropped; the utterance is finalized with whatever audio was
+    /// accumulated before the cap. At 16 kHz mono this default is ~60 seconds.
+    /// Set to 0 to disable the cap (not recommended in production).
+    /// </summary>
+    public int MaxUtteranceSamples { get; set; } = 960_000;
 }

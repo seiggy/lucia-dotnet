@@ -66,9 +66,20 @@ public static class AgentRegistryApi
             return TypedResults.BadRequest("Agent URI must be provided");
         }
 
+        if (!Uri.TryCreate(agentId, UriKind.Absolute, out var agentUri))
+        {
+            logger.LogWarning("Agent registration rejected: malformed agentId URI {AgentId}", agentId);
+            return TypedResults.BadRequest($"agentId '{agentId}' is not a valid absolute URI");
+        }
+
+        if (agentUri.Scheme is not ("http" or "https"))
+        {
+            logger.LogWarning("Agent registration rejected: non-http(s) scheme '{Scheme}' for {AgentId}", agentUri.Scheme, agentId);
+            return TypedResults.BadRequest($"agentId '{agentId}' must use http or https scheme");
+        }
+
         // Fetch the agent card using an HttpClient from DI so that
         // Aspire service discovery can resolve logical service names
-        var agentUri = new Uri(agentId);
         AgentCard? agentCard = null;
         var httpClient = httpClientFactory.CreateClient("AgentProxy");
         const int maxRetries = 3;
@@ -129,6 +140,16 @@ public static class AgentRegistryApi
             return TypedResults.BadRequest("Agent URI must be provided");
         }
 
+        if (!Uri.TryCreate(agentId, UriKind.Absolute, out var agentUri))
+        {
+            return TypedResults.BadRequest($"agentId '{agentId}' is not a valid absolute URI");
+        }
+
+        if (agentUri.Scheme is not ("http" or "https"))
+        {
+            return TypedResults.BadRequest($"agentId '{agentId}' must use http or https scheme");
+        }
+
         var agent = await agentRegistry.GetAgentAsync(agentId, cancellationToken).ConfigureAwait(false);
 
         if (agent == null)
@@ -137,7 +158,6 @@ public static class AgentRegistryApi
         }
 
         // Use DI HttpClient for service discovery resolution
-        var agentUri = new Uri(agentId);
         var httpClient = httpClientFactory.CreateClient("AgentProxy");
         var resolver = new A2ACardResolver(agentUri, httpClient);
 

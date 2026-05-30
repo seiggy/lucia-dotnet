@@ -1,4 +1,17 @@
-﻿generate_image:
+send_message:
+  name: Send Message
+  description: Send a message to the Lucia agent and receive a response.
+  fields:
+    message:
+      name: Message
+      description: The message text to send to the Lucia agent.
+      required: true
+      example: "Turn on the living room lights"
+      selector:
+        text:
+          multiline: true
+
+generate_image:
   fields:
     config_entry:
       required: true
