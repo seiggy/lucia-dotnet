@@ -1,5 +1,4 @@
 name: Squad CI
-# dotnet project — configure build/test commands below
 
 on:
   pull_request:
@@ -17,12 +16,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build and test
-        run: |
-          # TODO: Add your dotnet build/test commands here
-          # Go:            go test ./...
-          # Python:        pip install -r requirements.txt && pytest
-          # .NET:          dotnet test
-          # Java (Maven):  mvn test
-          # Java (Gradle): ./gradlew test
-          echo "No build commands configured — update squad-ci.yml"
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.x'
+
+      - name: Restore dependencies
+        run: dotnet restore lucia-dotnet.slnx
+
+      - name: Build
+        run: dotnet build lucia-dotnet.slnx --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test lucia.Tests --no-build --configuration Release --logger "console;verbosity=normal"

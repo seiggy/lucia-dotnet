@@ -1,9 +1,9 @@
 name: Squad Release
-# dotnet project — configure build, test, and release commands below
 
 on:
+  workflow_dispatch:
   push:
-    branches: [master]
+    tags: ['v*']
 
 permissions:
   contents: write

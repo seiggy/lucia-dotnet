@@ -34,7 +34,8 @@ jobs:
       - name: Show current state (dry run info)
         run: |
           echo "=== master HEAD ===" && git log origin/master -1 --oneline
-          echo "=== Files that would be stripped ===" || true
+          echo "=== Files that would be stripped ==="
+          git ls-files | grep -E "^(\.(ai-team|squad|ai-team-templates)/|team-docs/|docs/proposals/)" || echo "(none)"
 
       - name: Merge master (strip forbidden paths)
         if: ${{ inputs.dry_run == 'false' }}
@@ -67,17 +68,18 @@ jobs:
       - name: Show current state
         run: |
           echo "=== master HEAD ===" && git log origin/master -1 --oneline
-          echo "=== Version ===" && node -e "console.log('v' + require('./package.json').version)"
+          VERSION=$(grep -m1 "^# Release Notes" RELEASE_NOTES.md | sed 's/# Release Notes - //')
+          echo "=== Version === $VERSION"
 
       - name: Validate master is release-ready
         run: |
           git checkout master
-          VERSION=$(node -e "console.log(require('./package.json').version)")
-          if ! grep -q "## \[$VERSION\]" CHANGELOG.md 2>/dev/null; then
-            echo "::error::Version $VERSION not found in CHANGELOG.md — update before releasing"
+          VERSION=$(grep -m1 "^# Release Notes" RELEASE_NOTES.md | sed 's/# Release Notes - //')
+          if [ -z "$VERSION" ]; then
+            echo "::error::Could not parse version from RELEASE_NOTES.md — ensure it starts with '# Release Notes - X.Y.Z'"
             exit 1
           fi
-          echo "✅ Version $VERSION has CHANGELOG entry"
+          echo "✅ Version $VERSION found in RELEASE_NOTES.md"
 
           # Verify no forbidden files on master
           FORBIDDEN=$(git ls-files | grep -E "^(\.(ai-team|squad|ai-team-templates)/|team-docs/|docs/proposals/)" || true)
