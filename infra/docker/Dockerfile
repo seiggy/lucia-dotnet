@@ -26,7 +26,7 @@ FROM ${ASSET_IMAGE} AS assets
 # ============================================================================
 # Stage 0b: Node.js Build Stage (React SPA Dashboard)
 # ============================================================================
-FROM node:22-alpine AS node-build
+FROM node:22-alpine@sha256:968df39aedcea65eeb078fb336ed7191baf48f972b4479711397108be0966920 AS node-build
 
 WORKDIR /app
 
@@ -43,7 +43,7 @@ RUN npm run build
 # ============================================================================
 # Stage 1: Base Runtime Image
 # ============================================================================
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
+FROM mcr.microsoft.com/dotnet/aspnet:10.0@sha256:8c0b6857eab7b2aa57884c839bf4678414606bd7d17370f18a842ac5cf414711 AS base
 
 # Set working directory
 WORKDIR /app
@@ -72,7 +72,7 @@ EXPOSE 8080 8081
 # ============================================================================
 # Stage 2: Build Stage
 # ============================================================================
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:c0790639332692a0d56cdd81ed581cfd24d040d9839764c138994866df89a3b6 AS build
 ARG TARGETARCH=amd64
 ARG TARGETOS
 
