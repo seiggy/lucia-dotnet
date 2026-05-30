@@ -18,7 +18,7 @@ jobs:
     name: Promote dev → preview
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -33,33 +33,15 @@ jobs:
 
       - name: Show current state (dry run info)
         run: |
-          echo "=== dev HEAD ===" && git log origin/dev -1 --oneline
-          echo "=== preview HEAD ===" && git log origin/preview -1 --oneline
+          echo "=== master HEAD ===" && git log origin/master -1 --oneline
           echo "=== Files that would be stripped ==="
-          git diff origin/preview..origin/dev --name-only | grep -E "^(\.(ai-team|squad|ai-team-templates)|team-docs/|docs/proposals/)" || echo "(none)"
+          git ls-files | grep -E "^(\.(ai-team|squad|ai-team-templates)/|team-docs/|docs/proposals/)" || echo "(none)"
 
-      - name: Merge dev → preview (strip forbidden paths)
+      - name: Merge master (strip forbidden paths)
         if: ${{ inputs.dry_run == 'false' }}
         run: |
-          git checkout preview
-          git merge origin/dev --no-commit --no-ff -X theirs || true
-
-          # Strip forbidden paths from merge commit
-          git rm -rf --cached --ignore-unmatch \
-            .ai-team/ \
-            .squad/ \
-            .ai-team-templates/ \
-            team-docs/ \
-            "docs/proposals/" || true
-
-          # Commit if there are staged changes
-          if ! git diff --cached --quiet; then
-            git commit -m "chore: promote dev → preview (v$(node -e "console.log(require('./package.json').version)"))"
-            git push origin preview
-            echo "✅ Pushed preview branch"
-          else
-            echo "ℹ️ Nothing to commit — preview is already up to date"
-          fi
+          git checkout master
+          echo "ℹ️ Using master branch (dev/preview branches do not exist)"
 
       - name: Dry run complete
         if: ${{ inputs.dry_run == 'true' }}
@@ -70,7 +52,7 @@ jobs:
     needs: dev-to-preview
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -85,35 +67,32 @@ jobs:
 
       - name: Show current state
         run: |
-          echo "=== preview HEAD ===" && git log origin/preview -1 --oneline
-          echo "=== main HEAD ===" && git log origin/main -1 --oneline
-          echo "=== Version ===" && node -e "console.log('v' + require('./package.json').version)"
+          echo "=== master HEAD ===" && git log origin/master -1 --oneline
+          VERSION=$(grep -m1 "^# Release Notes" RELEASE_NOTES.md | sed 's/# Release Notes - //')
+          echo "=== Version === $VERSION"
 
-      - name: Validate preview is release-ready
+      - name: Validate master is release-ready
         run: |
-          git checkout preview
-          VERSION=$(node -e "console.log(require('./package.json').version)")
-          if ! grep -q "## \[$VERSION\]" CHANGELOG.md 2>/dev/null; then
-            echo "::error::Version $VERSION not found in CHANGELOG.md — update before releasing"
+          git checkout master
+          VERSION=$(grep -m1 "^# Release Notes" RELEASE_NOTES.md | sed 's/# Release Notes - //')
+          if [ -z "$VERSION" ]; then
+            echo "::error::Could not parse version from RELEASE_NOTES.md — ensure it starts with '# Release Notes - X.Y.Z'"
             exit 1
           fi
-          echo "✅ Version $VERSION has CHANGELOG entry"
+          echo "✅ Version $VERSION found in RELEASE_NOTES.md"
 
-          # Verify no forbidden files on preview
+          # Verify no forbidden files on master
           FORBIDDEN=$(git ls-files | grep -E "^(\.(ai-team|squad|ai-team-templates)/|team-docs/|docs/proposals/)" || true)
           if [ -n "$FORBIDDEN" ]; then
-            echo "::error::Forbidden files found on preview: $FORBIDDEN"
+            echo "::error::Forbidden files found on master: $FORBIDDEN"
             exit 1
           fi
-          echo "✅ No forbidden files on preview"
+          echo "✅ No forbidden files on master"
 
-      - name: Merge preview → main
+      - name: Master is release-ready
         if: ${{ inputs.dry_run == 'false' }}
         run: |
-          git checkout main
-          git merge origin/preview --no-ff -m "chore: promote preview → main (v$(node -e "console.log(require('./package.json').version)"))"
-          git push origin main
-          echo "✅ Pushed main — squad-release.yml will tag and publish the release"
+          echo "✅ master — squad-release.yml will tag and publish the release"
 
       - name: Dry run complete
         if: ${{ inputs.dry_run == 'true' }}
