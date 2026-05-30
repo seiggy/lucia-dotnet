@@ -410,6 +410,14 @@ await using (var seedScope = app.Services.CreateAsyncScope())
     await apiKeyService.SeedSetupFromEnvAsync(configStore, config, seedLogger, CancellationToken.None).ConfigureAwait(false);
 }
 
+// Initialize the HMAC signing key: load from config/store or generate+persist.
+// This runs before the app starts accepting requests so CreateSession/ValidateSession
+// always operate with a stable, persisted key.
+{
+    var hmacService = (HmacSessionService)app.Services.GetRequiredService<ISessionService>();
+    await hmacService.InitializeAsync(CancellationToken.None).ConfigureAwait(false);
+}
+
 app.MapOpenApi()
     .CacheOutput();
 
