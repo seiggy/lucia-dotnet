@@ -72,6 +72,12 @@ public static class AgentRegistryApi
             return TypedResults.BadRequest($"agentId '{agentId}' is not a valid absolute URI");
         }
 
+        if (agentUri.Scheme is not ("http" or "https"))
+        {
+            logger.LogWarning("Agent registration rejected: non-http(s) scheme '{Scheme}' for {AgentId}", agentUri.Scheme, agentId);
+            return TypedResults.BadRequest($"agentId '{agentId}' must use http or https scheme");
+        }
+
         // Fetch the agent card using an HttpClient from DI so that
         // Aspire service discovery can resolve logical service names
         AgentCard? agentCard = null;
@@ -137,6 +143,11 @@ public static class AgentRegistryApi
         if (!Uri.TryCreate(agentId, UriKind.Absolute, out var agentUri))
         {
             return TypedResults.BadRequest($"agentId '{agentId}' is not a valid absolute URI");
+        }
+
+        if (agentUri.Scheme is not ("http" or "https"))
+        {
+            return TypedResults.BadRequest($"agentId '{agentId}' must use http or https scheme");
         }
 
         var agent = await agentRegistry.GetAgentAsync(agentId, cancellationToken).ConfigureAwait(false);
