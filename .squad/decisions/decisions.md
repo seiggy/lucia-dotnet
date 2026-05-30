@@ -1,195 +1,9 @@
 # Lucia Orchestration & Caching Decisions Log
 
-## 2026-03-27: Entity Matching Root Cause & Fix Proposal
-
-**Author:** Parker (Backend / Platform Engineer)  
-**Date:** 2025-07-17  
-**Status:** Proposed  
-**Decision Type:** Bug Fix / Architecture
-
-### Summary
-Both "turn off the bedroom lights" → bathroom lights and "play music in the office" → wrong speaker bugs trace to `EntityLocationService.SearchHierarchyAsync()` → `HybridEntityMatcher.FindMatchesAsync()` → `StringSimilarity.HybridScore()`.
-
-**Root Causes:**
-1. Embedding similarity computed from unstemmed query ("bedroom lights") instead of stop-word-stripped version ("bedroom")
-2. Path selection in SearchHierarchyAsync biases toward entities over areas (margin check favors entity wins)
-3. No query decomposition step — single-tool approach passes full natural language, relying entirely on hybrid matcher
-
-**Recommendation:** Apply stop-word stripping before embedding query + swap path priority to area-first selection in close races. Both fixes working together.
-
-**Test Plan:** Add unit tests for area→entity resolution, entity name matching, regression guards in existing EmbeddingMatchingTests.cs.
-
-**Risk Assessment:** Low risk for embedding normalization (extends proven string scoring). Medium risk for path priority swap, mitigated by margin check — if entity clearly dominates, it still wins.
-
----
-
-## 2026-03-27: Prompt Cache Investigation
-
-**Author:** Bishop (HA Integration Engineer)  
-**Date:** 2025-07-23  
-**Requested by:** Zack Way  
-**Status:** Investigation complete
-
-### Architecture
-Two-tier caching system: Tier 1 (routing cache for agent selection), Tier 2 (chat/agent cache for tool-call plans).
-
-Both support SHA256 matching + semantic similarity fallback (embeddings + cosine similarity).
-
-### Critical Issues
-
-**Issue 1: No Automatic Cache Invalidation (PRIMARY "FRAILTY" SOURCE)**
-- Agent definitions change → stale routing entries served (mitigated by IsKnownAgent guard, but not proactive)
-- Model provider changes → cached entries from different model served (ModelId stored but not checked)
-- HA entity data changes → HA context stale, but 48h TTL means entries persist indefinitely until manual eviction
-
-**Issue 2: Cold-Start Problem (InMemory Only)**
-- In-memory implementation starts empty, no cache warming
-- Redis survives restarts
-
-**Issue 3: Routing Cache Key Uses Last Line Only**
-- HA component prepends context above user command
-- Intentional but can't differentiate if agent catalog changes
-
-**Issue 4: Chat Cache Requires Embedding Provider**
-- Semantic fallback disabled if no embedding provider
-- Users without embedding model get exact-match only
-
-**Issue 5: InMemory Implementation Lacks OTel Metrics**
-- RedisPromptCacheService has Counter/Histogram instruments
-- InMemoryPromptCacheService only has internal fields, no OTel registration
-
-### Recommendations (Priority)
-
-**P0:** Auto-invalidate on config changes. When agent definitions/model providers/entity location cache change, call EvictAllAsync(). This is the primary "frailty" source.
-
-**P1:** Add OTel metrics to InMemoryPromptCacheService (Counter/Histogram matching Redis impl).
-
-**P2:** Show cache bypass rate in dashboard (activity tags already captured).
-
-**P3:** Add auto-refresh to PromptCachePage (10-30s polling).
-
-**P4:** Consider shorter TTL for routing cache (48h is generous, suggest 12-24h configurable).
-
----
-
-## 2026-03-27: Cache Architecture Investigation
-
-**Author:** Bishop (HA Integration Engineer)  
-**Date:** 2026-03-27  
-**Status:** Investigation Complete  
-**Requested by:** Zack Way — "the system feels like it's not using the cache and is just a tad frail sometimes"
-
-### Executive Summary
-Cache architecture well-designed in principle, but THREE concrete gaps:
-
-1. **Entity resolution cached; entity state never cached** — Every "is this light on?" check makes live HA REST call even if answer fetched seconds ago
-2. **No event-driven cache invalidation** — 30s polling + manual invalidate. Up to 30s staleness window when entities change in HA
-3. **Cold-start race condition** — DirectSkillExecutor has cache-ready gate, but orchestrator/LLM routing paths don't
-
-### Cache Services Overview
-- **EntityLocationService** — Floors, areas, entities, embeddings, visibility config, area→entity map (24h TTL Redis, 30s polling)
-- **DeviceCacheService** — Climate, fans, music players, per-device embeddings (caller-supplied TTL)
-- **SessionCacheService** — Conversation history per session (configurable sliding TTL)
-- **PromptCacheService** — Routing decisions, chat responses (48h TTL)
-- **IHomeAssistantClient** — NOT a cache, every call = live HA REST/WebSocket
-
-### Identified Gaps (Prioritized)
-
-**P0: Short-TTL Entity State Cache**
-Add 5-15s read-through cache for GetEntityStateAsync() results. Eliminates most common live HA calls, resilient to brief HA hiccups.
-
-**P1: WebSocket Event-Driven Invalidation**
-Subscribe to HA state_changed events. When registry-level changes detected, trigger InvalidateAndReloadAsync() automatically. Eliminates 30s staleness window.
-
-**P2: Startup Readiness Gate**
-Return HTTP 503 from /api/conversation endpoint until AgentInitializationService completes. Prevents cold-start race.
-
-**P3: Scene Cache Alignment**
-Move SceneControlSkill.GetScenesAsync() to use IEntityLocationService instead of live GetStatesAsync().
-
-**P4: Immutable Visibility Config**
-Replace EntityVisibilityConfig.EntityAgentMap mutable Dictionary with ImmutableDictionary.
-
-### Conclusion
-Cache architecture fundamentally sound — "frail" feeling comes from **entity state never cached** (every state check goes live) and **no event-driven refresh**. Fixing P0 alone would dramatically reduce live HA calls and improve reliability.
-
----
-
-## 2026-03-27: MAF Workflows Deep-Dive v2
-
-**Author:** Ripley (Eval/Lead Architect)  
-**Date:** 2025-10-13  
-**Status:** Recommendation to proceed with Phase 1 refactor
-
-### Question
-Can we simplify orchestration by consolidating workflow construction into DynamicOrchestrationWorkflow service?
-
-### Answer
-**YES**, but complexity reduction is modest (10-15%, ~100-150 lines) because:
-1. We're ALREADY using MAF Workflows — current implementation IS a proper MAF workflow
-2. Business logic must stay — RouterExecutor (432 lines), AgentDispatchExecutor (299 lines), ResultAggregatorExecutor (269 lines) contain orchestration intelligence
-3. Real complexity source is A2A infrastructure (~154 lines RemoteAgentInvoker + mesh config), not workflow construction
-
-### What MAF Workflows Provides
-- Graph execution (DAG), type safety, event system, conditional routing, fan-out/fan-in, nested workflows, durable workflows, streaming
-- Does NOT provide: routing logic, agent execution, response aggregation, session management, agent resolution
-
-### Current Architecture (2,753 total lines)
-- Core Orchestration (1,377 lines): RouterExecutor, WorkflowFactory, AgentDispatchExecutor, LuciaEngine
-- Aggregation (316 lines): ResultAggregatorExecutor + options
-- Agent Invocation (340 lines): LocalAgentInvoker + RemoteAgentInvoker
-- Session Management (145 lines): SessionManager
-- Observer Infrastructure (206 lines)
-- Configuration (369 lines)
-
-### Proposed DynamicOrchestrationWorkflow Service
-Consolidates agent resolution + executor caching into single service. WorkflowFactory (~348 lines) → DynamicOrchestrationWorkflow (~250 lines), net -98 lines.
-
-**What Changes:** WorkflowFactory removed, agent discovery/invoker creation centralized, executor caching (Router/Aggregator singletons, Dispatch per-request)
-
-**What Stays:** All three custom Executors, LocalAgentInvoker, SessionManager, LuciaEngine, Observer infrastructure
-
-### Complexity Breakdown
-| Component | Lines | Delete? |
-|-----------|-------|---------|
-| RouterExecutor | 431 | ❌ Contains routing logic |
-| WorkflowFactory | 348 | ✅ Phase 1 consolidation |
-| AgentDispatchExecutor | 299 | ❌ Parallel execution + clarification |
-| LuciaEngine | 277 | ❌ Session lifecycle |
-| ResultAggregatorExecutor | 269 | ❌ Response aggregation + personality |
-| LocalAgentInvoker | 186 | ❌ In-process execution + NeedsInput |
-| RemoteAgentInvoker | 154 | ✅ Phase 3 A2A removal |
-| SessionManager | 145 | ❌ Redis session/task lifecycle |
-
-**Phase 1 savings:** ~98 lines (3.5%)  
-**Phase 1 + Phase 3:** ~252 lines (9%)
-
-### Recommendation
-**Proceed with Phase 1** — DynamicOrchestrationWorkflow refactor (3-5 days)
-
-**Why:**
-- 10-15% complexity reduction with no risk
-- Foundation for Phase 2 executor caching
-- Single-responsibility principle (workflow service vs session lifecycle)
-- No architectural changes (custom executors stay intact)
-
-**Why NOT full rewrite:**
-- Custom executors contain business logic (must stay)
-- A2A infrastructure is real complexity source (separate decision, Phase 3)
-- Incremental value meaningful but not transformative
-
----
-
-## 2026-03-27: User Directive — Entity Resolution Architecture Migration
-
-**By:** Zack Way (via Copilot)  
-**What:** Migrate entity resolution from heuristic scoring (HybridEntityMatcher) to cascading elimination architecture based on EMNLP 2024 research. Pipeline: location grounding → domain filtering → entity linking → coreference → disambiguation. Keep smart LLM fallback for: (1) high WER% STT transcriptions that fail deterministic matching, (2) complex/compound commands like "turn off the bedroom lights in 5 minutes" that need temporal/multi-step parsing. The deterministic pipeline handles simple commands; anything outside its confidence goes to the LLM orchestrator.
-
-**Why:** Current global scoring with biases/margins is mathematically unsound — produces wrong results in real user scenarios (bedroom→bathroom, wrong speaker). Research shows cascading elimination outperforms global scoring for voice command disambiguation.
 
 
 
----
+
 
 # Bishop — Shopping list fallback for todo-backed Home Assistant lists
 
@@ -802,3 +616,83 @@ Adopt a **three-wave remediation sequence** for the lucia-dotnet whole-solution 
 ## Next action
 Offered to open GitHub issues for all High findings (#1-#20) grouped as three milestone waves, and to dispatch fix branches for S-effort quick wins. Recommend a single blocking "CI gate" issue (#1-#3) first.
 
+---
+
+# Inbox Re-triage Decision
+
+**Author:** Ripley (Lead / Eval Architect)  
+**Date:** 2026-05-30  
+**Status:** Complete  
+**Decision Type:** Issue Triage
+
+## Problem
+
+All 50 open issues carrying the `squad` label were also labeled `squad:lambert` after a bulk-triage operation. Lambert's domain is narrow: writing test scenarios, adding real assertions to eval suites, skill unit tests, and provider-free test coverage. 46 of the 50 issues were misrouted.
+
+## Routing Rationale
+
+Each issue was routed by matching its title keywords to the team domain map.
+
+### squad:brett — 6 issues
+`#183 #182 #180 #179 #178 #177`
+
+Wyoming protocol, mDNS/InfoEvent, STT, GtcrnStreamingSession, speech buffers, pipeline-stage timings are all explicitly Brett's domain. Every issue in this group names one or more of those artifacts directly.
+
+### squad:parker — 17 issues
+`#176 #175 #174 #173 #172 #171 #170 #169 #168 #167 #166 #165 #158 #154 #153 #145 #140`
+
+Parker owns .NET API hosts, orchestration spans/meters, auth/tokens, async cancellation, HttpClient lifetime, OpenAPI gating, ChatOptions, num_ctx, and SSE. This is the largest bucket because the bulk of the open work is backend-platform hardening: API validation, token security, OTel naming, cancellation deadlines, AppHost alignment, and SSE streaming.
+
+### squad:hicks — 11 issues
+`#181 #164 #162 #161 #159 #155 #151 #147 #142 #138 #135`
+
+Hicks owns Docker images/digests, compose, GitHub Actions pinning, Trivy scanning, CI gates, infra lint, and asset image tags. All 11 issues are infrastructure hardening: Docker digest pinning, asset SHA tags, Actions pinning, Trivy coverage, infra lint gates, CI branch alignment, and CI build stubs.
+
+### squad:lambert — 4 issues (kept as-is)
+`#144 #148 #152 #156`
+
+These four genuinely belong to Lambert:
+- #144 — Add deterministic CI tests for the orchestration routing brain (test scenario writing)
+- #148 — Make eval suites opt-in and back behaviors with provider-free tests (provider-free coverage)
+- #152 — Add real assertions to no-assert speech benchmark tests (adding assertions)
+- #156 — Add unit tests for SceneControlSkill and ListSkill (skill unit tests)
+
+### squad:dallas — 4 issues
+`#134 #137 #141 #150`
+
+Dallas owns core eval engine code, scoring/aggregation logic, sweep/optimizer mechanics, and judge-score computation. All four issues are engine-level: N-sweep winner selection, synthesized constant judge scores, per-dimension scoring, and eval profile parameter override determinism.
+
+### squad:kane — 3 issues
+`#136 #139 #143`
+
+Kane owns the React dashboard, UI, error boundaries, and typed API responses. These three are pure frontend: global error boundary, unsafe `as`/`any` API response casts, and error UI for template/optimizer fetches.
+
+### squad:bishop — 3 issues
+`#149 #157 #160`
+
+Bishop owns the HA custom component, services.yaml, and HA WebSocket/token validation. Three issues map exactly: HA access token validation before WS open, services.yaml for lucia.send_message, and moving dev/debug scripts out of the shippable component root.
+
+### squad:ripley — 1 issue
+`#146`
+
+Centralize and document eval pass thresholds — pass-threshold policy is explicitly Ripley's remit as Lead / Eval Architect.
+
+### squad:ash — 1 issue
+`#163`
+
+Use UTC consistently for all persisted and compared timestamps — timestamp persistence is the data engineering domain (Ash owns trace/transcript persistence and datasets).
+
+## Summary Table
+
+| Member  | Count | Issues                                                                 |
+|---------|-------|------------------------------------------------------------------------|
+| parker  | 17    | #176 #175 #174 #173 #172 #171 #170 #169 #168 #167 #166 #165 #158 #154 #153 #145 #140 |
+| hicks   | 11    | #181 #164 #162 #161 #159 #155 #151 #147 #142 #138 #135                |
+| brett   | 6     | #183 #182 #180 #179 #178 #177                                          |
+| lambert | 4     | #144 #148 #152 #156 (kept)                                             |
+| dallas  | 4     | #134 #137 #141 #150                                                    |
+| kane    | 3     | #136 #139 #143                                                         |
+| bishop  | 3     | #149 #157 #160                                                         |
+| ripley  | 1     | #146                                                                   |
+| ash     | 1     | #163                                                                   |
+| **Total** | **50** |                                                                      |

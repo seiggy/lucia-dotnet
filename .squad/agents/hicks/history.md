@@ -48,4 +48,6 @@
 <!-- Append new learnings below. -->
 
 - Participated in 2026-05-29 health review
+---
 
+**Update from Ripley (2026-05-30):** Inbox retriage complete. You have been assigned issues from the 2026-05-30 batch. Review .squad/decisions/decisions.md for details.
