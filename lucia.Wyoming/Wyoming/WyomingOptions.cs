@@ -34,8 +34,12 @@ public sealed class WyomingOptions
     /// <summary>Read timeout per event in seconds. Connections idle longer are closed. Default 60s.</summary>
     public int ReadTimeoutSeconds { get; set; } = 60;
 
-    /// <summary>Zeroconf service name.</summary>
-    public string ServiceName { get; set; } = "lucia-wyoming";
+    /// <summary>
+    /// Zeroconf mDNS instance name and Wyoming InfoEvent service name.
+    /// Defaults to <c>lucia-{hostname}</c> so that mDNS advertisement and the
+    /// Wyoming InfoEvent always advertise the same, host-unique identifier.
+    /// </summary>
+    public string ServiceName { get; set; } = $"lucia-{Environment.MachineName.ToLowerInvariant()}";
 
     /// <summary>Timeout for continue_conversation follow-up listening.</summary>
     public TimeSpan FollowUpTimeout { get; set; } = TimeSpan.FromSeconds(10);

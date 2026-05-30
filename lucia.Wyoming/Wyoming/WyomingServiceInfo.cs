@@ -6,6 +6,7 @@ namespace lucia.Wyoming.Wyoming;
 
 public sealed class WyomingServiceInfo
 {
+    private readonly WyomingOptions _options;
     private readonly IEnumerable<ISttEngine> _sttEngines;
     private readonly IWakeWordDetector? _wakeWordDetector;
 
@@ -15,15 +16,14 @@ public sealed class WyomingServiceInfo
         IWakeWordDetector? wakeWordDetector = null)
     {
         ArgumentNullException.ThrowIfNull(options);
-        _ = options.Value;
+        _options = options.Value;
         _sttEngines = sttEngines;
         _wakeWordDetector = wakeWordDetector;
     }
 
     public InfoEvent BuildInfoEvent()
     {
-        var hostname = Environment.MachineName.ToLowerInvariant();
-        var serviceName = $"lucia-{hostname}";
+        var serviceName = _options.ServiceName;
 
         var sherpaAttribution = new Attribution
         {
