@@ -725,6 +725,14 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
 
     private async Task<T?> SendWebSocketCommandAsync<T>(string commandType, object? payload, CancellationToken ct)
     {
+        if (string.IsNullOrWhiteSpace(Options.AccessToken))
+        {
+            _logger.WebSocketAccessTokenMissing();
+            throw new InvalidOperationException(
+                "Cannot open WebSocket connection: HomeAssistant:AccessToken is not configured. " +
+                "Set it in appsettings.json, environment variables, or user secrets.");
+        }
+
         var baseUrl = Options.BaseUrl.TrimEnd('/');
         var wsScheme = baseUrl.StartsWith("https", StringComparison.OrdinalIgnoreCase) ? "wss" : "ws";
         var uri = new Uri(baseUrl);
