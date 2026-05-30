@@ -54,6 +54,46 @@
 
 **Summary:** Single PR addressing #120 (permission failure on `/app/models`), #119 (healthcheck wget→curl mismatch), and #122 (kernel 6.19 compatibility). Fixed: baked ownership at image build time (mirrors Dockerfile.ha pattern), fixed healthcheck with curl, applied GLIBC_TUNABLES workaround, pinned mongo:8.0.5. See full document below.
 
+### 14. Validate HA access token before opening WebSocket (Bishop, 2026-05-30)
+
+**Summary:** Added null/whitespace guard in `HomeAssistantClient.SendWebSocketCommandAsync` to validate token presence before opening WS connection. Missing token now throws `InvalidOperationException` with actionable message instead of opaque `auth_invalid` server error. PR #188. See full document below.
+
+### 15. Constant-time comparison for internal service token (Parker, 2026-05-30)
+
+**Summary:** Replaced `string.Equals(..., StringComparison.Ordinal)` with `CryptographicOperations.FixedTimeEquals` in `InternalTokenAuthenticationHandler` token validation to prevent timing side-channels. SHA-256 hash comparison ensures constant-time regardless of token content. PR #185. See full document below.
+
+### 16. Global React Error Boundary (Kane, 2026-05-30)
+
+**Summary:** Added global `ErrorBoundary` class component in lucia-dashboard wired as outermost wrapper in main.tsx (outside all providers). Catches render errors and displays fallback UI with "Try again" and "Reload page" recovery actions. PR #184. See full document below.
+
+### 17. Snapshot pipeline-stage timings before background transcript save (Brett, 2026-05-30)
+
+**Summary:** Fixed race condition where `WyomingSession.ResetUtteranceAudio()` zeroed timing fields while background `Task.Run` was reading them. Now snapshots four timing fields into locals before `Task.Run` and passes as explicit parameters. Telemetry correctness improved. PR #187. See full document below.
+
+### 18. Pin GitHub Actions to full commit SHAs (Hicks, 2026-05-30)
+
+**Summary:** Hardened supply-chain security by pinning 13 unique GitHub Actions across 8 workflows to immutable full-length commit SHAs while retaining human-readable version comments. Prevents tag reassignment attacks. PR #186. See full document below.
+
+### 19. Validate agentId URI at API boundary (Parker, 2026-05-30)
+
+**Summary:** Added `Uri.TryCreate` validation in `AgentRegistryApi.RegisterAgentAsync` and `UpdateAgentAsync` to return HTTP 400 with actionable message instead of 500 on malformed agentId. Incidental: bumped `Nerdbank.MessagePack` 1.1.62→1.2.4 to clear NU1902 CVE advisory. PR #191. See full document below.
+
+### 20. Docker base image digest pinning (Hicks, 2026-05-30)
+
+**Summary:** Pinned all Docker base images across 10 Dockerfiles to immutable sha256 digests (26 FROM lines total) while retaining human-readable tags. Eliminates floating-tag supply-chain risk and enables deterministic builds. Aligns with charter "pin exact versions." PR #193. See full document below.
+
+### 21. Align mDNS instance name with Wyoming InfoEvent name (Brett, 2026-05-30)
+
+**Summary:** Made `WyomingOptions.ServiceName` the single source of truth (default `lucia-{hostname}`), eliminating mDNS collision between `ZeroconfAdvertiser` and `WyomingServiceInfo`. Added `DescribeEvent_AsrAndWakeName_MatchServiceName` regression test. PR #192. See full document below.
+
+### 22. Add send_message service block to services.yaml (Bishop, 2026-05-30)
+
+**Summary:** Added `send_message` entry to `custom_components/lucia/services.yaml` with field documentation. Service was registered in Python code but had no YAML, making it undiscoverable in HA Developer Tools. PR #189. See full document below.
+
+### 23. Surface error UI for template and optimizer fetches (Kane, 2026-05-30)
+
+**Summary:** Added retryable inline error UI to `ResponseTemplatesPage` and `SkillOptimizerPage`. ResponseTemplatesPage shows full-page error panel and inline banner; SkillOptimizerPage shows loading skeleton and retryable error panel. Consistent with project error handling patterns. PR #190. See full document below.
+
 ## Governance
 
 - All meaningful changes require team consensus
@@ -3065,3 +3105,413 @@ healthcheck:
 - Plus 6 supporting infrastructure files
 
 **Decision closure:** Closes issues #120, #119, #122.
+
+---
+
+# Decision 14: Validate HA access token before opening WebSocket
+
+**Date:** 2026-05-30  
+**Author:** Bishop  
+**Issue:** #149  
+**PR:** #188
+
+## Context
+
+`HomeAssistantClient.SendWebSocketCommandAsync` opened a WebSocket connection and then sent `Options.AccessToken` (potentially null or empty) as the HA auth token. A missing token produced a server-side `auth_invalid` message — an opaque remote error rather than a clear local one.
+
+## Decision
+
+Added a null/whitespace guard at the entry of `SendWebSocketCommandAsync` (the private method that all WebSocket registry/floor/entity/media commands funnel through). If the token is absent:
+1. Logs `WebSocketAccessTokenMissing` at Error level (EventId 1009) via the compile-time `[LoggerMessage]` infrastructure.
+2. Throws `InvalidOperationException` with an actionable message directing the operator to configure `HomeAssistant:AccessToken`.
+
+No socket is opened and no network traffic is initiated.
+
+## Alternatives Considered
+
+- **REST pre-flight check (`GET /api/`):** Would validate the token against HA before each WS call. Rejected as unnecessarily chatty for a misconfiguration guard; the options validator already catches empty tokens at startup. The socket guard is a defence-in-depth check for runtime options changes.
+- **Return default/null:** Would silently swallow the error. Rejected.
+
+## Consequences
+
+- Misconfigured deployments now surface a clear `InvalidOperationException` immediately instead of an opaque `auth_invalid` WS error.
+- Six new unit tests cover empty-string and whitespace token cases for the three most-used WS registry methods.
+- No behaviour change when token is present.
+
+---
+
+# Decision 15: Constant-time comparison for internal service token
+
+**Date:** 2026-05-30
+**Author:** Parker (Backend / Platform Engineer)
+**Issue:** #173
+**PR:** #185
+
+## Context
+
+`InternalTokenAuthenticationHandler` validated the platform-injected Bearer token using `string.Equals(..., StringComparison.Ordinal)`, which is not constant-time and can leak token length or prefix information through timing side-channels. `HmacSessionService` already used the correct pattern.
+
+## Decision
+
+Replace the string equality check with `CryptographicOperations.FixedTimeEquals` operating over SHA-256 hashes of the UTF-8-encoded token and expected token. This:
+
+1. Prevents timing side-channels — comparison time is independent of token content.
+2. Handles variable-length inputs safely — SHA-256 always produces 32-byte output, so `FixedTimeEquals` (which requires equal-length spans) is always valid.
+3. Avoids leaking token length via an early-out length comparison.
+
+## Alternatives Considered
+
+- **Direct byte span comparison with length guard:** Would still leak whether lengths match via the early-exit branch. Rejected.
+- **HMAC-based approach:** Adds key management complexity for what is a simple bearer token check. SHA-256 hash comparison is sufficient here.
+
+## Status
+
+Implemented and merged via PR #185.
+
+---
+
+# Decision 16: Global React Error Boundary
+
+**Date:** 2026-05-30
+**Issue:** #136
+**Author:** Kane
+**PR:** #184
+
+## Decision
+
+Added a global `ErrorBoundary` class component at `lucia-dashboard/src/components/ErrorBoundary.tsx` and wired it as the outermost wrapper in `main.tsx` (outside `QueryClientProvider` and `BrowserRouter`).
+
+## Rationale
+
+React error boundaries must be class components (the only way to use `getDerivedStateFromError` and `componentDidCatch`). Placing the boundary outside all providers ensures any render error — including inside provider subtrees — is caught and displayed as a styled fallback rather than a blank screen.
+
+## Fallback UX
+
+The fallback shows the error message in a code block (development-friendly), plus two recovery actions:
+- **Try again** — resets boundary state so React re-renders the tree in place (good for transient errors).
+- **Reload page** — full `window.location.reload()` for persistent/unknown errors.
+
+All styling uses existing project Tailwind tokens (`bg-void`, `bg-basalt`, `bg-charcoal`, `text-amber`, `border-stone`, `bg-amber-glow`, `text-light`, `text-dust`).
+
+## Alternatives Considered
+
+- Wrapping only `<Routes>` inside `App.tsx` — rejected because errors in `AuthProvider` or `QueryClientProvider` would still blank the app.
+- Using a third-party library (e.g., `react-error-boundary`) — rejected to keep the dependency footprint minimal; the native class approach is straightforward here.
+
+---
+
+# Decision 17: Snapshot pipeline-stage timings before background transcript save
+
+**Date:** 2026-05-30
+**Author:** Brett (Voice / Speech Engineer)
+**Issue:** #182
+**PR:** #187
+**Status:** Implemented
+
+## Context
+
+`WyomingSession.ProcessTranscriptAsync` fires a background `Task.Run` to save a `TranscriptRecord`. The save method `TrySaveTranscriptRecordAsync` read four instance fields directly inside the lambda: `_sttFinalizationMs`, `_diarizationMs`, `_enhancementTotalMs`, `_enhancedClipRetranscriptionMs`. Immediately after `ProcessTranscriptAsync` returns, the call site invokes `ResetUtteranceAudio()`, which zeroes all four fields. Under the race, the background task would read 0ms for every stage, corrupting persisted telemetry.
+
+## Decision
+
+Snapshot the four timing fields into local `long` variables synchronously before `Task.Run`. Pass the snapshots as explicit parameters to `TrySaveTranscriptRecordAsync` and remove the instance field reads from the method body.
+
+## Alternatives Considered
+
+- **Volatile reads / Interlocked:** Adds complexity and still doesn't prevent the background task from reading after `Reset`. Locals are simpler and correct.
+- **Reset after background task completes:** Would block connection teardown — rejected.
+
+## Consequences
+
+- Persisted `PipelineStageTiming` values are now stable regardless of scheduling jitter between `Task.Run` and `ResetUtteranceAudio()`.
+- No functional change to the voice pipeline; only telemetry correctness improved.
+- `TrySaveTranscriptRecordAsync` signature gains 4 `long` parameters — internal private method, no public API impact.
+
+---
+
+# Decision 18: Pin GitHub Actions to full commit SHAs
+
+**Date:** 2026-05-30  
+**Owner:** Hicks (DevOps/Infrastructure)  
+**PR:** #186  
+**Issue:** #155
+
+## Summary
+
+All GitHub Actions references across 8 CI/CD workflows have been pinned to immutable full-length (40-character) commit SHAs, with human-readable version comments retained for clarity.
+
+## Problem
+
+- Mutable major version tags (e.g., `@v4`, `@main`) used in GitHub Actions are a known supply-chain integrity risk.
+- If an action repository is compromised, the tag can be reassigned to malicious code without notice.
+- Only `aquasecurity/trivy-action@v0.35.0` was previously pinned to an exact version; all others used mutable tags.
+
+## Solution
+
+Each action reference was converted from a mutable tag to an immutable commit SHA, with the original version retained as a trailing comment:
+
+```yaml
+# Before
+uses: actions/checkout@v6
+
+# After
+uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+```
+
+### Actions Pinned
+
+| Action | Version | SHA |
+|--------|---------|-----|
+| actions/checkout | v4 | 34e114876b0b11c390a56381ad16ebd13914f8d5 |
+| actions/checkout | v6 | de0fac2e4500dabe0009e67214ff5f5447ce83dd |
+| docker/login-action | v4 | 650006c6eb7dba73a995cc03b0b2d7f5ca915bee |
+| docker/setup-qemu-action | v4 | 06116385d9baf250c9f4dcb4858b16962ea869c3 |
+| docker/setup-buildx-action | v4 | d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 |
+| docker/metadata-action | v6 | 80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 |
+| docker/build-push-action | v6 | 10e90e3645eae34f1e60eeb005ba3a3d33f178e8 |
+| aquasecurity/trivy-action | v0.35.0 | 57a97c7e7821a5776cebc9bb87c984fa69cba8f1 |
+| github/codeql-action/upload-sarif | v4 | dc73d59c2d7bd4f8194098a91219eeee6d8a1719 |
+| azure/setup-helm | v4 | bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a |
+| DavidAnson/markdownlint-cli2-action | v22 | 07035fd053f7be764496c0f8d8f9f41f98305101 |
+| hacs/action | main | dcb30e72781db3f207d5236b861172774ab0b485 |
+| home-assistant/actions/hassfest | master | 868e6cb4607727d764341a158d98872cd63fa658 |
+
+### Workflows Updated
+
+- `.github/workflows/docker-build-push.yml` (8 actions pinned)
+- `.github/workflows/validate-infrastructure.yml` (5 actions pinned)
+- `.github/workflows/docker-assets.yml` (5 actions pinned)
+- `.github/workflows/hacs-validate.yml` (3 actions pinned)
+- `.github/workflows/helm-lint.yml` (3 actions pinned)
+- `.github/workflows/squad-ci.yml` (1 action pinned)
+- `.github/workflows/squad-release.yml` (1 action pinned)
+- `.github/workflows/squad-docs.yml` (1 action pinned)
+
+**Total:** 13 unique actions pinned across 8 workflows.
+
+## Rationale
+
+1. **Supply-Chain Hardening:** Immutable SHAs prevent tag reassignment attacks, a documented GitHub Actions attack vector.
+2. **Auditability:** Exact commit SHAs are traceable to specific releases and code changes, enabling forensic analysis if needed.
+3. **Reproducibility:** Ensures identical action code is used across all CI/CD runs, preventing subtle behavioral drift.
+4. **Version Comments:** Retained version tags aid human readability and enable quick identification of which release is pinned.
+
+## Impact
+
+- **No functional change:** Workflows behave identically; only the reference mechanism is hardened.
+- **Future maintenance:** Updating to new action versions will require explicit SHA updates (not automatic), which is the intended design.
+- **YAML validity:** All modified workflows pass YAML syntax validation (structure and indentation unchanged).
+
+---
+
+# Decision 19: Validate agentId URI at API boundary
+
+**Date:** 2026-05-30  
+**Author:** Parker  
+**PR:** #191  
+**Issue:** #176
+
+## Context
+
+`AgentRegistryApi.RegisterAgentAsync` and `UpdateAgentAsync` both called `new Uri(agentId)` directly on caller-supplied input with no validation. A malformed value (e.g. a plain name like `"bad-agent"` or an empty path) throws `UriFormatException`, which surfaced as an unhandled 500 to the caller.
+
+## Decision
+
+Use `Uri.TryCreate(agentId, UriKind.Absolute, out var agentUri)` as the validation guard in both handlers. On failure return `TypedResults.BadRequest($"agentId '{agentId}' is not a valid absolute URI")`. This is the minimal, BCL-native pattern that requires no new dependencies, is cheap, and produces a correct HTTP 400 with a human-readable message.
+
+`UriKind.Absolute` is intentional: agent cards are reachable over the network, so relative URIs are never valid here.
+
+## Alternatives Considered
+
+- **try/catch UriFormatException** — would work but is exception-as-flow-control; `TryCreate` is preferred by the BCL design guidelines for predictable failure paths.
+- **FluentValidation / DataAnnotations [Url]** — overkill for a single property; minimal-API pattern doesn't use model binding validators here.
+
+## Incidental Change
+
+`Nerdbank.MessagePack` was pinned at 1.1.62, which had two known moderate CVEs (GHSA-92vj-hp7m-gwcj, GHSA-qjvr-435c-5fjh). These caused NU1902 errors on every `dotnet restore` on this branch. Bumped to 1.2.4 (latest stable, no known CVEs) in the same PR since it was blocking build validation.
+
+---
+
+# Decision 20: Docker base image digest pinning
+
+**Date:** 2026-05-30  
+**Owner:** Hicks (DevOps)  
+**Status:** ✅ Completed (PR #193)  
+**Related Issue:** #162  
+
+## Summary
+
+All Docker base images across the lucia-dotnet deployment stack have been pinned to immutable sha256 digests while retaining human-readable tags. This resolves the supply-chain hardening gap identified in the 2026-05-29 health review.
+
+## Problem Statement
+
+- Dockerfiles used floating minor tags (e.g., `node:22-alpine`, `mcr.microsoft.com/dotnet/aspnet:10.0`)
+- Floating tags contradict the charter requirement: **"pin exact versions — never `latest`"**
+- Builds were not reproducible or attestable (image content could change between builds on the same tag)
+- Supply-chain risk: tag reassignment attacks possible
+
+## Solution
+
+Pin all base images to immutable digests using Docker 1.13+ multi-reference format:
+
+```dockerfile
+FROM image:tag@sha256:<digest> AS stage
+```
+
+### Format Rationale
+
+- **Immutable:** `sha256:xyz` cannot be reassigned
+- **Readable:** Tag retained for human understanding (`node:22-alpine` still visible)
+- **Backward compatible:** Docker pulls by digest automatically
+
+## Digests Resolved
+
+All digests verified via local Docker cache (pulled from registries):
+
+| Image | Digest |
+|-------|--------|
+| alpine:3.21 | sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d |
+| mcr.microsoft.com/dotnet/aspnet:10.0 | sha256:8c0b6857eab7b2aa57884c839bf4678414606bd7d17370f18a842ac5cf414711 |
+| mcr.microsoft.com/dotnet/aspnet:10.0-noble-arm64v8 | sha256:0a961de5dbc02a50d4362ca2ae4e09b2c3426c1b51a6c00d336a0849643d8757 |
+| mcr.microsoft.com/dotnet/sdk:10.0 | sha256:c0790639332692a0d56cdd81ed581cfd24d040d9839764c138994866df89a3b6 |
+| mcr.microsoft.com/dotnet/sdk:10.0-noble-arm64v8 | sha256:a3c9e022cfe0fa95d9a19ac4a136c88c34f9d04b5029c8aedfb2098979067fcf |
+| node:22-alpine | sha256:968df39aedcea65eeb078fb336ed7191baf48f972b4479711397108be0966920 |
+| node:22-slim | sha256:7af03b14a13c8cdd38e45058fd957bf00a72bbe17feac43b1c15a689c029c732 |
+| nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04 | sha256:8aef630a54bc5c5146ae5ce68e6af5caa3df0fb690bb91544175c91f307e4356 |
+| rocm/dev-ubuntu-24.04:6.4.1-complete | sha256:220252a3bab60f32570cbd3f600fcd89925dc404dd0ab5030f617e4971c7ab3d |
+| rocm/onnxruntime:rocm6.4.4_ub24.04_ort1.21_torch2.8.0 | sha256:b81245167fb85dd31297b3196ef5588322527ecf9d03b404ec0b36c5f0875833 |
+
+## Dockerfiles Updated
+
+All 10 Dockerfiles updated with digest pinning:
+
+1. **Dockerfile** — Main AgentHost (3 FROM lines: node:22-alpine, aspnet:10.0, sdk:10.0)
+2. **Dockerfile.a2ahost** — A2A base (2 FROM lines: aspnet:10.0, sdk:10.0)
+3. **Dockerfile.agenthost-jetson** — ARM64 Jetson (3 FROM lines: node:22-alpine, aspnet:10.0-noble-arm64v8, sdk:10.0-noble-arm64v8)
+4. **Dockerfile.ha** — Home Assistant add-on (3 FROM lines: node:22-slim, sdk:10.0, aspnet:10.0)
+5. **Dockerfile.assets** — Build assets (1 FROM line: alpine:3.21)
+6. **Dockerfile.timer-agent** — Timer plugin (2 FROM lines: aspnet:10.0, sdk:10.0)
+7. **Dockerfile.music-agent** — Music plugin (2 FROM lines: aspnet:10.0, sdk:10.0)
+8. **Dockerfile.voice** — GPU-enabled voice (3 FROM lines: node:22-alpine, nvidia/cuda, sdk:10.0)
+9. **Dockerfile.voice-cpu** — CPU-only voice (3 FROM lines: node:22-alpine, aspnet:10.0, sdk:10.0)
+10. **Dockerfile.voice-rocm** — AMD ROCm GPU (4 FROM lines: rocm/onnxruntime, node:22-alpine, rocm/dev-ubuntu, sdk:10.0)
+
+**Total:** 26 FROM lines pinned across 10 files
+
+## Impact
+
+### Benefits
+- ✅ Eliminates floating-tag supply-chain risk
+- ✅ Enables deterministic rebuilds (bitwise reproducible)
+- ✅ Improves provenance tracking & attestation
+- ✅ Aligns with charter: "pin exact versions"
+- ✅ Maintains readability via retained tags
+
+### No Breaking Changes
+- Format is backward compatible (Docker 1.13+)
+- Builds continue to work as before
+- No runtime behavior changes
+
+---
+
+# Decision 21: Align mDNS instance name with Wyoming InfoEvent name
+
+**Date:** 2026-05-30  
+**Author:** Brett (Voice / Speech Engineer)  
+**Issue:** #183  
+**PR:** #192  
+**Status:** Implemented
+
+## Problem
+
+`WyomingServiceInfo.BuildInfoEvent()` computed `serviceName = $"lucia-{hostname}"` inline, while `ZeroconfAdvertiser` used `_options.ServiceName` (default `"lucia-wyoming"`). On multi-host networks the static default caused mDNS name collisions and the two advertisement layers disagreed on the service identity.
+
+## Decision
+
+Make `WyomingOptions.ServiceName` the single source of truth by defaulting it to `$"lucia-{Environment.MachineName.ToLowerInvariant()}"`. Both `ZeroconfAdvertiser` and `WyomingServiceInfo` now read from `_options.ServiceName`, so any config override propagates automatically to both layers.
+
+## Changes
+
+| File | Change |
+|------|--------|
+| `lucia.Wyoming/Wyoming/WyomingOptions.cs` | Default `ServiceName` changed from `"lucia-wyoming"` → `$"lucia-{Environment.MachineName.ToLowerInvariant()}"` |
+| `lucia.Wyoming/Wyoming/WyomingServiceInfo.cs` | Added `_options` field; `BuildInfoEvent()` now reads `_options.ServiceName` instead of computing hostname inline |
+| `lucia.Tests/Wyoming/WyomingProtocolComplianceTests.cs` | Added `DescribeEvent_AsrAndWakeName_MatchServiceName` regression test |
+
+## Consequences
+
+- **Positive:** HA mDNS discovery and Wyoming handshake now agree on service identity. Each host gets a unique mDNS instance name by default, eliminating multi-host collision.
+- **Positive:** Config override (`Wyoming:ServiceName`) now propagates to both advertisement layers with no additional wiring.
+- **Neutral:** Operators who relied on `"lucia-wyoming"` as a fixed name will see it change to `lucia-{hostname}` on upgrade; this is the intended behaviour (the fix).
+
+---
+
+# Decision 22: Add send_message service block to services.yaml
+
+**Date:** 2026-05-30  
+**Author:** Bishop  
+**Issue:** #157  
+**PR:** #189  
+
+## Context
+
+`lucia.send_message` was registered via `hass.services.async_register` in `custom_components/lucia/__init__.py` but had no corresponding entry in `services.yaml`. Without it, the service appears in HA Developer Tools with no field documentation, making it undiscoverable to users.
+
+## Decision
+
+Add a `send_message` block to `custom_components/lucia/services.yaml` as the first entry. The block includes:
+- `name` and `description` (matching `strings.json` which already had translation strings)
+- `fields.message`: required, multiline text selector, with an example string
+
+## Rationale
+
+- The handler reads only `call.data.get("message")` — a single text field, no schema complexity.
+- `strings.json` already had `services.send_message` translations, confirming the intent existed but YAML was never written.
+- HA convention: `services.yaml` field keys must exactly match what the handler reads from `call.data`; `message` is the only key used.
+
+## Validation
+
+```
+python -c "import yaml,sys; data=yaml.safe_load(open('custom_components/lucia/services.yaml')); print(list(data.keys()))"
+# ['send_message', 'generate_image', 'generate_content']
+```
+
+## Files Changed
+
+- `custom_components/lucia/services.yaml` — added `send_message` service block (14 lines)
+
+---
+
+# Decision 23: Surface error UI for template and optimizer fetches
+
+**Date:** 2026-05-30  
+**Author:** Kane  
+**PR:** #190  
+
+## Context
+
+`ResponseTemplatesPage` and `SkillOptimizerPage` both left the user with no signal when their initial data fetches failed — either silently rendering an empty state (templates) or only emitting a toast that disappears (optimizer). Issue #143 requested retryable inline error UI consistent with other pages.
+
+## Decisions
+
+### ResponseTemplatesPage
+- Destructured `isError` and `refetch` from the `useQuery` for `fetchResponseTemplates`.
+- Destructured `isError` and `refetch` from the `useQuery` for `fetchCommandPatterns`.
+- Added a **full-page error panel** (ember border, centered, retry button calls `refetchTemplates()`) as a third branch in the loading/empty/list ternary.
+- Added a **slim inline error banner** above the template groups for command-patterns failure (non-fatal to page, but user-visible with retry).
+
+### SkillOptimizerPage
+- The page uses manual `useState`+`useEffect`, not TanStack Query; converting to `useQuery` would require significant state threading (skills feed `selectedSkill`, devices, etc.).
+- Instead: extracted init logic into a `loadInit` `useCallback` tracking `isLoadingInit` / `initError` state via `Promise.all` so both fetches fail atomically.
+- Renders a **loading skeleton** (2 pulse cards) while init is in progress.
+- Renders a **retryable error panel** when `initError` is non-null; `Retry` button re-calls `loadInit()`.
+- The main page body is gated behind `!isLoadingInit && initError === null`.
+
+## Alternatives Considered
+
+- **Toast-only** (status quo): Rejected — silent degradation; no way to retry.
+- **Convert SkillOptimizerPage to full TanStack Query**: Would be cleaner long-term but is a larger refactor outside issue scope. Noted as a future improvement.
+- **Global error boundary only**: The existing ErrorBoundary (issue #136) only catches render errors, not fetch errors.
+
+## Token style used
+`border-ember/30 bg-ember/10 text-rose` for error panels; `bg-amber/20 text-amber` for retry buttons — consistent with project Tailwind `@theme` tokens.
