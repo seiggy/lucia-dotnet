@@ -161,7 +161,7 @@ export default function MatcherDebugPage() {
         embeddingResolutionMargin,
         domains: selectedDomains.length > 0 ? selectedDomains : undefined,
         agent: selectedAgent || undefined,
-      }) as SearchResult
+      })
       setResult(r)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Search failed')

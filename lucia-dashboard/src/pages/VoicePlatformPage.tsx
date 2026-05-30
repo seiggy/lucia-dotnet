@@ -70,25 +70,6 @@ type WakeWordSummary = {
   isCalibrated?: boolean
 }
 
-type StartOnboardingResponse = {
-  id: string
-  wakeWordId?: string | null
-  firstPrompt?: string | null
-  totalPrompts: number
-}
-
-type OnboardingStatusResponse = {
-  status: string
-  currentPromptIndex: number
-  nextPrompt?: string | null
-}
-
-type OnboardingStepResult = {
-  status: 'NextPrompt' | 'Retry' | 'Complete' | 'Error'
-  message: string
-  nextPrompt?: string | null
-  completedProfile?: { id: string; name: string } | null
-}
 
 const tabs: { id: Tab; label: string; icon: typeof Mic }[] = [
   { id: 'status', label: 'Status', icon: Mic },
@@ -381,8 +362,8 @@ export default function VoicePlatformPage() {
     setDirectoryLoading(true)
     try {
       const [nextProfiles, nextWakeWords] = await Promise.all([
-        listSpeakerProfiles() as Promise<SpeakerProfileSummary[]>,
-        listWakeWords() as Promise<WakeWordSummary[]>,
+        listSpeakerProfiles(),
+        listWakeWords(),
       ])
       setProfiles(nextProfiles)
       setWakeWords(nextWakeWords)
@@ -858,7 +839,7 @@ export default function VoicePlatformPage() {
     setEnrollmentBusy(true)
     setEnrollmentError(null)
     try {
-      const result = await startOnboarding(speakerName.trim(), wakePhrase.trim() || undefined) as StartOnboardingResponse
+      const result = await startOnboarding(speakerName.trim(), wakePhrase.trim() || undefined)
       setSessionId(result.id)
       setPrompt(result.firstPrompt || 'Please say the displayed prompt clearly.')
       setTrainingCount(0)
@@ -876,13 +857,13 @@ export default function VoicePlatformPage() {
     setEnrollmentError(null)
     try {
       const wav = await finishRecording()
-      const result = await uploadVoiceSample(sessionId, wav) as OnboardingStepResult
+      const result = await uploadVoiceSample(sessionId, wav)
       if (result.status === 'Retry') {
         setStatusNote(result.message || 'Please retry the same prompt.')
         return
       }
 
-      const nextStatus = await getOnboardingStatus(sessionId) as OnboardingStatusResponse
+      const nextStatus = await getOnboardingStatus(sessionId)
       const completed = result.status === 'Complete' || nextStatus.status === 'Complete'
       const nextCount = completed ? TRAINING_SAMPLE_COUNT : Math.max(trainingCount + 1, nextStatus.currentPromptIndex)
 
