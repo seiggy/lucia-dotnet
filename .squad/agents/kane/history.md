@@ -41,3 +41,5 @@ MeshGraph, PluginRepoDialog, PluginConfigTab, RestartBanner, SkillConfigEditor, 
 ---
 
 **Update from Ripley (2026-05-30):** Inbox retriage complete. You have been assigned issues from the 2026-05-30 batch. Review .squad/decisions/decisions.md for details.
+
+- **Error UI for useQuery fetches (issue #143, 2026-05-30)**: `ResponseTemplatesPage` now destructures `isError`/`refetch` from both `useQuery` hooks and renders a styled error panel (ember border + retry button) in the template-groups section; a narrower inline banner handles command-pattern failures. `SkillOptimizerPage` had no TanStack Query — replaced the fire-and-forget `useEffect` with a `loadInit` `useCallback` tracked by `isLoadingInit`/`initError` state; a loading skeleton renders during init and a retryable error panel replaces the content area on failure. PR #190.

@@ -51,3 +51,11 @@
 ---
 
 **Update from Ripley (2026-05-30):** Inbox retriage complete. You have been assigned issues from the 2026-05-30 batch. Review .squad/decisions/decisions.md for details.
+
+### 2026-05-30: Docker Base Image Digest Pinning (PR #193, Issue #162)
+- Pinned all 10 Dockerfiles to immutable base image digests (sha256 format) while retaining human-readable tags.
+- Resolved digests for 10 unique base images: alpine:3.21, mcr.microsoft.com/dotnet/aspnet:10.0 (x2 variants), mcr.microsoft.com/dotnet/sdk:10.0 (x2 variants), node:22-alpine, node:22-slim, nvidia/cuda:12.6.3, rocm/dev-ubuntu-24.04:6.4.1-complete, rocm/onnxruntime.
+- All Dockerfiles updated: main Dockerfile, a2ahost, agenthost-jetson, ha, assets, timer-agent, music-agent, voice, voice-cpu, voice-rocm (26 total line changes).
+- Format: `FROM image:tag@sha256:<digest>` preserves tag for readability while pinning immutable digest.
+- Supply-chain hardening: eliminates floating-tag risk, enables deterministic rebuilds, improves provenance tracking per charter requirement "pin exact versions".
+- PR opened: https://github.com/seiggy/lucia-dotnet/pull/193
