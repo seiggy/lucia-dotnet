@@ -3,7 +3,7 @@ name: Squad Insider Release
 
 on:
   push:
-    branches: [insider]
+    branches: [master]
 
 permissions:
   contents: write

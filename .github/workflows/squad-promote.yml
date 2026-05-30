@@ -33,33 +33,14 @@ jobs:
 
       - name: Show current state (dry run info)
         run: |
-          echo "=== dev HEAD ===" && git log origin/dev -1 --oneline
-          echo "=== preview HEAD ===" && git log origin/preview -1 --oneline
-          echo "=== Files that would be stripped ==="
-          git diff origin/preview..origin/dev --name-only | grep -E "^(\.(ai-team|squad|ai-team-templates)|team-docs/|docs/proposals/)" || echo "(none)"
+          echo "=== master HEAD ===" && git log origin/master -1 --oneline
+          echo "=== Files that would be stripped ===" || true
 
-      - name: Merge dev → preview (strip forbidden paths)
+      - name: Merge master (strip forbidden paths)
         if: ${{ inputs.dry_run == 'false' }}
         run: |
-          git checkout preview
-          git merge origin/dev --no-commit --no-ff -X theirs || true
-
-          # Strip forbidden paths from merge commit
-          git rm -rf --cached --ignore-unmatch \
-            .ai-team/ \
-            .squad/ \
-            .ai-team-templates/ \
-            team-docs/ \
-            "docs/proposals/" || true
-
-          # Commit if there are staged changes
-          if ! git diff --cached --quiet; then
-            git commit -m "chore: promote dev → preview (v$(node -e "console.log(require('./package.json').version)"))"
-            git push origin preview
-            echo "✅ Pushed preview branch"
-          else
-            echo "ℹ️ Nothing to commit — preview is already up to date"
-          fi
+          git checkout master
+          echo "ℹ️ Using master branch (dev/preview branches do not exist)"
 
       - name: Dry run complete
         if: ${{ inputs.dry_run == 'true' }}
@@ -85,13 +66,12 @@ jobs:
 
       - name: Show current state
         run: |
-          echo "=== preview HEAD ===" && git log origin/preview -1 --oneline
-          echo "=== main HEAD ===" && git log origin/main -1 --oneline
+          echo "=== master HEAD ===" && git log origin/master -1 --oneline
           echo "=== Version ===" && node -e "console.log('v' + require('./package.json').version)"
 
-      - name: Validate preview is release-ready
+      - name: Validate master is release-ready
         run: |
-          git checkout preview
+          git checkout master
           VERSION=$(node -e "console.log(require('./package.json').version)")
           if ! grep -q "## \[$VERSION\]" CHANGELOG.md 2>/dev/null; then
             echo "::error::Version $VERSION not found in CHANGELOG.md — update before releasing"
@@ -99,21 +79,18 @@ jobs:
           fi
           echo "✅ Version $VERSION has CHANGELOG entry"
 
-          # Verify no forbidden files on preview
+          # Verify no forbidden files on master
           FORBIDDEN=$(git ls-files | grep -E "^(\.(ai-team|squad|ai-team-templates)/|team-docs/|docs/proposals/)" || true)
           if [ -n "$FORBIDDEN" ]; then
-            echo "::error::Forbidden files found on preview: $FORBIDDEN"
+            echo "::error::Forbidden files found on master: $FORBIDDEN"
             exit 1
           fi
-          echo "✅ No forbidden files on preview"
+          echo "✅ No forbidden files on master"
 
-      - name: Merge preview → main
+      - name: Master is release-ready
         if: ${{ inputs.dry_run == 'false' }}
         run: |
-          git checkout main
-          git merge origin/preview --no-ff -m "chore: promote preview → main (v$(node -e "console.log(require('./package.json').version)"))"
-          git push origin main
-          echo "✅ Pushed main — squad-release.yml will tag and publish the release"
+          echo "✅ master — squad-release.yml will tag and publish the release"
 
       - name: Dry run complete
         if: ${{ inputs.dry_run == 'true' }}
