@@ -617,12 +617,21 @@ export default function ResponseTemplatesPage() {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
 
   // ── Queries ──────────────────────────────────────────────────
-  const { data: templates, isLoading } = useQuery({
+  const {
+    data: templates,
+    isLoading,
+    isError: isTemplatesError,
+    refetch: refetchTemplates,
+  } = useQuery({
     queryKey: ['response-templates'],
     queryFn: fetchResponseTemplates,
   })
 
-  const { data: patterns } = useQuery({
+  const {
+    data: patterns,
+    isError: isPatternsError,
+    refetch: refetchPatterns,
+  } = useQuery({
     queryKey: ['command-patterns'],
     queryFn: fetchCommandPatterns,
   })
@@ -713,6 +722,19 @@ export default function ResponseTemplatesPage() {
         submitting={createMutation.isPending}
       />
 
+      {/* Command patterns error */}
+      {isPatternsError && (
+        <div className="rounded-xl border border-ember/30 bg-ember/10 px-4 py-3 flex items-center justify-between gap-4">
+          <p className="text-sm text-rose">Failed to load command patterns.</p>
+          <button
+            onClick={() => refetchPatterns()}
+            className="shrink-0 rounded-lg bg-amber/20 px-3 py-1.5 text-xs font-medium text-amber hover:bg-amber/30 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Template Groups */}
       {isLoading ? (
         <div className="space-y-4">
@@ -722,6 +744,16 @@ export default function ResponseTemplatesPage() {
               <div className="mt-3 h-10 rounded bg-stone" />
             </div>
           ))}
+        </div>
+      ) : isTemplatesError ? (
+        <div className="rounded-xl border border-ember/30 bg-ember/10 p-8 text-center">
+          <p className="text-sm text-rose">Failed to load response templates.</p>
+          <button
+            onClick={() => refetchTemplates()}
+            className="mt-3 rounded-xl bg-amber/20 px-4 py-2 text-sm font-medium text-amber hover:bg-amber/30 transition-colors"
+          >
+            Retry
+          </button>
         </div>
       ) : skillIds.length === 0 ? (
         <div className="rounded-xl border border-stone bg-charcoal p-8 text-center">
