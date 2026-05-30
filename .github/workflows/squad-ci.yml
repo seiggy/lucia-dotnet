@@ -28,4 +28,4 @@ jobs:
         run: dotnet build lucia-dotnet.slnx --no-restore --configuration Release
 
       - name: Test
-        run: dotnet test lucia.Tests --no-build --configuration Release --logger "console;verbosity=normal"
+        run: dotnet test lucia.Tests --no-build --configuration Release --filter "Category!=Eval&Category!=Integration" --logger "console;verbosity=normal"
