@@ -41,6 +41,30 @@ public sealed class WyomingProtocolComplianceTests
     }
 
     [Fact]
+    public async Task DescribeEvent_AsrAndWakeName_MatchServiceName()
+    {
+        var expectedName = $"lucia-{Environment.MachineName.ToLowerInvariant()}";
+        var (server, port, services) = await StartTestServerAsync();
+        var (client, writer, parser) = await ConnectClientAsync(port);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        try
+        {
+            await writer.WriteEventAsync(new DescribeEvent(), cts.Token);
+
+            var info = Assert.IsType<InfoEvent>(await parser.ReadEventAsync(cts.Token));
+            Assert.All(info.Asr ?? [], asr => Assert.Equal(expectedName, asr.Name));
+            Assert.All(info.Wake ?? [], wake => Assert.Equal(expectedName, wake.Name));
+        }
+        finally
+        {
+            client.Close();
+            client.Dispose();
+            await StopServerAsync(server, services);
+        }
+    }
+
+    [Fact]
     public async Task FullFlow_Detect_Audio_Transcribe()
     {
         var wakeSession = new TestWakeWordSession(
