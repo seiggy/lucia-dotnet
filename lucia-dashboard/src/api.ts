@@ -1018,6 +1018,12 @@ export interface PaginatedEntityQueryResponse {
   pageSize: number
 }
 
+/**
+ * Discriminated response from the entity-location search endpoint.
+ * The backend may return either a bare array or a wrapped object.
+ */
+export type EntityLocationSearchResponse = EntityLocationInfo[] | { entities: EntityLocationInfo[] }
+
 export async function fetchEntityLocationSummary(): Promise<EntityLocationSummary> {
   const res = await fetch(`${BASE}/entity-location`);
   if (!res.ok) throw new Error(`Failed to fetch location summary: ${res.statusText}`);
@@ -1083,8 +1089,7 @@ export async function searchEntityLocation(
   term: string,
   domain?: string,
   agent?: string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): Promise<any> {
+): Promise<EntityLocationSearchResponse> {
   const params = new URLSearchParams();
   if (domain) params.set('domain', domain);
   if (agent) params.set('agent', agent);
@@ -1187,12 +1192,86 @@ export async function fetchAvailableAgents(): Promise<{ name: string; domains: s
   return res.json();
 }
 
+// ── Matcher Debug Types ────────────────────────────────────────────
+
+export interface MatcherDebugMatchedFloor {
+  floorId: string
+  name: string
+  aliases: string[]
+  level: number | null
+  hybridScore: number
+  embeddingSimilarity: number
+}
+
+export interface MatcherDebugMatchedArea {
+  areaId: string
+  name: string
+  aliases: string[]
+  floorId: string | null
+  hybridScore: number
+  embeddingSimilarity: number
+}
+
+export interface MatcherDebugMatchedEntity {
+  entityId: string
+  friendlyName: string
+  domain: string
+  aliases: string[]
+  areaId: string | null
+  areaName: string | null
+  hybridScore: number
+  embeddingSimilarity: number
+  visibleToAgent: boolean
+}
+
+export interface MatcherDebugResolvedEntity {
+  entityId: string
+  friendlyName: string
+  domain: string
+  areaId: string | null
+  areaName: string | null
+  visibleToAgent: boolean
+}
+
+/** Full response shape from the matcher-debug search endpoint. */
+export interface MatcherDebugResult {
+  query: string
+  options: {
+    threshold: number
+    embeddingWeight: number
+    scoreDropoffRatio: number
+    disagreementPenalty: number
+    embeddingResolutionMargin: number
+    domainFilter: string[]
+    agentFilter: string | null
+  }
+  resolution: {
+    strategy: string
+    reason: string
+    bestEntityScore: number | null
+    bestAreaScore: number | null
+    bestFloorScore: number | null
+  }
+  floors: MatcherDebugMatchedFloor[]
+  areas: MatcherDebugMatchedArea[]
+  entities: MatcherDebugMatchedEntity[]
+  resolvedEntities: MatcherDebugResolvedEntity[]
+  summary: {
+    floorMatchCount: number
+    areaMatchCount: number
+    entityMatchCount: number
+    resolvedEntityCount: number
+    visibleEntityMatchCount: number | null
+    visibleResolvedEntityCount: number | null
+  }
+}
+
 // ── Matcher Debug API ──────────────────────────────────────────────
 
 export async function searchMatcherDebug(
   term: string,
   options?: { threshold?: number; embeddingWeight?: number; dropoff?: number; disagreementPenalty?: number; embeddingResolutionMargin?: number; domains?: string[]; agent?: string }
-): Promise<unknown> {
+): Promise<MatcherDebugResult> {
   const params = new URLSearchParams();
   if (options?.threshold !== undefined) params.set('threshold', String(options.threshold));
   if (options?.embeddingWeight !== undefined) params.set('embeddingWeight', String(options.embeddingWeight));
@@ -1541,9 +1620,50 @@ export async function triggerRestart(): Promise<void> {
   if (!res.ok) throw new Error(`Failed to trigger restart`);
 }
 
+// ── Voice Onboarding Types ────────────────────────────────────────
+
+export interface SpeakerProfileSummary {
+  id: string
+  name: string
+  isProvisional: boolean
+  isAuthorized: boolean
+  interactionCount: number
+  enrolledAt: string
+  lastSeenAt: string | null
+}
+
+export interface WakeWordSummary {
+  id: string
+  phrase: string
+  userId?: string | null
+  boostScore?: number
+  threshold?: number
+  isCalibrated?: boolean
+}
+
+export interface StartOnboardingResponse {
+  id: string
+  wakeWordId?: string | null
+  firstPrompt?: string | null
+  totalPrompts: number
+}
+
+export interface OnboardingStatusResponse {
+  status: string
+  currentPromptIndex: number
+  nextPrompt?: string | null
+}
+
+export interface OnboardingStepResult {
+  status: 'NextPrompt' | 'Retry' | 'Complete' | 'Error'
+  message: string
+  nextPrompt?: string | null
+  completedProfile?: { id: string; name: string } | null
+}
+
 // ── Voice Onboarding ──────────────────────────────────────────────
 
-export async function startOnboarding(speakerName: string, wakeWordPhrase?: string) {
+export async function startOnboarding(speakerName: string, wakeWordPhrase?: string): Promise<StartOnboardingResponse> {
   const res = await fetch(`${BASE}/onboarding/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1553,7 +1673,7 @@ export async function startOnboarding(speakerName: string, wakeWordPhrase?: stri
   return res.json()
 }
 
-export async function uploadVoiceSample(sessionId: string, audioBlob: Blob) {
+export async function uploadVoiceSample(sessionId: string, audioBlob: Blob): Promise<OnboardingStepResult> {
   const formData = new FormData()
   formData.append('audio', audioBlob, 'sample.wav')
   const res = await fetch(`${BASE}/onboarding/${sessionId}/sample`, {
@@ -1564,13 +1684,13 @@ export async function uploadVoiceSample(sessionId: string, audioBlob: Blob) {
   return res.json()
 }
 
-export async function getOnboardingStatus(sessionId: string) {
+export async function getOnboardingStatus(sessionId: string): Promise<OnboardingStatusResponse> {
   const res = await fetch(`${BASE}/onboarding/${sessionId}`)
   if (!res.ok) throw new Error(`Failed to fetch onboarding status: ${res.statusText}`)
   return res.json()
 }
 
-export async function listSpeakerProfiles() {
+export async function listSpeakerProfiles(): Promise<SpeakerProfileSummary[]> {
   const res = await fetch(`${BASE}/speakers`)
   if (!res.ok) throw new Error(`Failed to fetch speaker profiles: ${res.statusText}`)
   return res.json()
@@ -1591,7 +1711,7 @@ export async function updateSpeakerProfile(id: string, updates: { name?: string;
   return res.json()
 }
 
-export async function listWakeWords() {
+export async function listWakeWords(): Promise<WakeWordSummary[]> {
   const res = await fetch(`${BASE}/wake-words`)
   if (!res.ok) throw new Error(`Failed to fetch wake words: ${res.statusText}`)
   return res.json()

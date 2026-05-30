@@ -395,7 +395,7 @@ export default function EntityLocationPage() {
     setSelectedEntityIds(new Set())
     try {
       const data = await searchEntityLocation(searchTerm.trim(), searchDomain || undefined, impersonateAgent || undefined)
-      setSearchResults(data.entities ?? data)
+      setSearchResults(Array.isArray(data) ? data : data.entities)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Search failed')
     } finally {
