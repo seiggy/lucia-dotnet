@@ -22,7 +22,7 @@
 # ============================================================================
 # Stage 0b: Node.js Build Stage (React SPA Dashboard)
 # ============================================================================
-FROM node:22-alpine AS node-build
+FROM node:22-alpine@sha256:968df39aedcea65eeb078fb336ed7191baf48f972b4479711397108be0966920 AS node-build
 
 WORKDIR /app
 
@@ -39,7 +39,7 @@ RUN npm run build
 # ============================================================================
 # Stage 1: Base Runtime Image (Minimal ARM64)
 # ============================================================================
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-arm64v8 AS base
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-arm64v8@sha256:0a961de5dbc02a50d4362ca2ae4e09b2c3426c1b51a6c00d336a0849643d8757 AS base
 
 # Set working directory
 WORKDIR /app
@@ -62,7 +62,7 @@ EXPOSE 8080 8081
 # ============================================================================
 # Stage 2: Build Stage
 # ============================================================================
-FROM mcr.microsoft.com/dotnet/sdk:10.0-noble-arm64v8 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0-noble-arm64v8@sha256:a3c9e022cfe0fa95d9a19ac4a136c88c34f9d04b5029c8aedfb2098979067fcf AS build
 
 # Set build configuration (can be overridden via --build-arg)
 ARG BUILD_CONFIGURATION=Release

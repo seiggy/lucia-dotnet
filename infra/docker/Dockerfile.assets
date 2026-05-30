@@ -19,7 +19,7 @@
 #   docker buildx build --platform linux/amd64,linux/arm64 \
 #     -f infra/docker/Dockerfile.assets -t ghcr.io/seiggy/lucia-dotnet/build-assets:latest .
 
-FROM alpine:3.21 AS downloader
+FROM alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d AS downloader
 
 RUN apk add --no-cache curl tar bzip2 unzip
 

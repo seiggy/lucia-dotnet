@@ -5,7 +5,7 @@
 # =============================================================================
 
 # Dashboard build stage
-FROM node:22-slim AS dashboard
+FROM node:22-slim@sha256:7af03b14a13c8cdd38e45058fd957bf00a72bbe17feac43b1c15a689c029c732 AS dashboard
 WORKDIR /dashboard
 COPY lucia-dashboard/package.json lucia-dashboard/package-lock.json* ./
 RUN npm ci --ignore-scripts
@@ -13,7 +13,7 @@ COPY lucia-dashboard/ .
 RUN npm run build
 
 # .NET build stage
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:c0790639332692a0d56cdd81ed581cfd24d040d9839764c138994866df89a3b6 AS build
 WORKDIR /src
 
 # Copy solution and project files for restore
@@ -51,7 +51,7 @@ RUN dotnet publish lucia.AgentHost/lucia.AgentHost.csproj \
     /p:CpuOnly=true
 
 # Runtime stage — slim aspnet image, no GPU libs
-FROM mcr.microsoft.com/dotnet/aspnet:10.0
+FROM mcr.microsoft.com/dotnet/aspnet:10.0@sha256:8c0b6857eab7b2aa57884c839bf4678414606bd7d17370f18a842ac5cf414711
 WORKDIR /app
 
 # Install curl for health check

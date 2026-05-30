@@ -73,14 +73,14 @@ FROM ${ASSET_IMAGE} AS assets
 # Stage 0a: Extract ROCm-enabled ORT native libs from the fat image
 # We only need the .so files, not the full ~63GB PyTorch/dev environment.
 # ============================================================================
-FROM rocm/onnxruntime:rocm6.4.4_ub24.04_ort1.21_torch2.8.0 AS rocm-libs
+FROM rocm/onnxruntime:rocm6.4.4_ub24.04_ort1.21_torch2.8.0@sha256:b81245167fb85dd31297b3196ef5588322527ecf9d03b404ec0b36c5f0875833 AS rocm-libs
 RUN mkdir -p /rocm-ort-libs && \
     cp /opt/venv/lib/python3.12/site-packages/onnxruntime/capi/libonnxruntime*.so* /rocm-ort-libs/
 
 # ============================================================================
 # Stage 0b: Node.js Build Stage (React SPA Dashboard)
 # ============================================================================
-FROM node:22-alpine AS node-build
+FROM node:22-alpine@sha256:968df39aedcea65eeb078fb336ed7191baf48f972b4479711397108be0966920 AS node-build
 
 WORKDIR /app
 
@@ -99,7 +99,7 @@ RUN npm run build
 # Uses the -complete variant which includes rocm-libs for GPU access.
 # ROCm ORT native libs are overlaid from the rocm-libs stage.
 # ============================================================================
-FROM rocm/dev-ubuntu-24.04:6.4.1-complete AS base
+FROM rocm/dev-ubuntu-24.04:6.4.1-complete@sha256:220252a3bab60f32570cbd3f600fcd89925dc404dd0ab5030f617e4971c7ab3d AS base
 
 # Install .NET ASP.NET 10.0 runtime + curl for healthcheck
 # + python3 + huggingface-hub[cli] (pinned) for runtime HF model downloads via the `hf` CLI
@@ -138,7 +138,7 @@ EXPOSE 8080 8081 10400
 # ============================================================================
 # Stage 2: Build Stage
 # ============================================================================
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:c0790639332692a0d56cdd81ed581cfd24d040d9839764c138994866df89a3b6 AS build
 ARG TARGETARCH=amd64
 ARG TARGETOS
 
