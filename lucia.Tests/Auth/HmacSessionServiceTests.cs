@@ -30,6 +30,8 @@ public class HmacSessionServiceTests
         _configStore = A.Fake<IConfigStoreWriter>();
 
         _service = new HmacSessionService(config, options, logger, _configStore);
+        // InitializeAsync must run before Create/Validate (fail-fast contract)
+        _service.InitializeAsync().GetAwaiter().GetResult();
     }
 
     [Fact]
@@ -69,7 +71,7 @@ public class HmacSessionServiceTests
     }
 
     [Fact]
-    public void ValidateSession_ReturnsNullForExpiredCookie()
+    public async Task ValidateSession_ReturnsNullForExpiredCookie()
     {
         // Use a negative lifetime so the token is already expired at creation time
         var signingKey = RandomNumberGenerator.GetBytes(64);
@@ -90,6 +92,7 @@ public class HmacSessionServiceTests
             options,
             A.Fake<ILogger<HmacSessionService>>(),
             A.Fake<IConfigStoreWriter>());
+        await shortLived.InitializeAsync();
         var cookie = shortLived.CreateSession("key-1", "Test Key");
 
         var claims = shortLived.ValidateSession(cookie);
@@ -217,6 +220,34 @@ public class HmacSessionServiceTests
         await svc.InitializeAsync();
         await svc.InitializeAsync(); // second call should be a no-op
 
+        A.CallTo(() => configStore.SetAsync(
+                A<string>._, A<string?>._, A<string>._, A<bool>._, A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task InitializeAsync_ConcurrentCalls_PersistKeyExactlyOnce()
+    {
+        // This test verifies that the SemaphoreSlim double-check enforces a single write
+        // even when multiple callers race through InitializeAsync simultaneously.
+        var config = new ConfigurationBuilder().Build();
+
+        var configStore = A.Fake<IConfigStoreWriter>();
+        A.CallTo(() => configStore.GetAsync(A<string>._, A<CancellationToken>._))
+            .Returns((string?)null);
+
+        var svc = new HmacSessionService(
+            config,
+            Options.Create(new AuthOptions()),
+            A.Fake<ILogger<HmacSessionService>>(),
+            configStore);
+
+        await Task.WhenAll(
+            svc.InitializeAsync(CancellationToken.None),
+            svc.InitializeAsync(CancellationToken.None),
+            svc.InitializeAsync(CancellationToken.None));
+
+        // The semaphore + double-check must ensure exactly one write reaches the store
         A.CallTo(() => configStore.SetAsync(
                 A<string>._, A<string?>._, A<string>._, A<bool>._, A<CancellationToken>._))
             .MustHaveHappenedOnceExactly();

@@ -15,6 +15,7 @@ namespace lucia.AgentHost.Auth;
 /// <see cref="InitializeAsync"/> generates a 64-byte key and persists it to the durable config
 /// store so it survives restarts and is shared across instances.
 /// </para>
+/// </summary>
 /// <remarks>
 /// <b>Multi-instance note:</b> key generation uses a read-then-write strategy against the shared
 /// config store. On first boot with multiple simultaneously-starting instances there is a narrow
@@ -22,8 +23,7 @@ namespace lucia.AgentHost.Auth;
 /// will read the same persisted key. For strict multi-instance safety, pre-provision
 /// <c>Auth:SessionSigningKey</c> as an environment variable or secret before deploying.
 /// </remarks>
-/// </summary>
-public sealed partial class HmacSessionService : ISessionService
+public sealed partial class HmacSessionService : ISessionService, IAsyncInitializable
 {
     private readonly IConfiguration _configuration;
     private readonly IConfigStoreWriter _configStoreWriter;
@@ -31,7 +31,6 @@ public sealed partial class HmacSessionService : ISessionService
     private readonly ILogger<HmacSessionService> _logger;
     private volatile byte[]? _signingKey;
     private readonly SemaphoreSlim _initSemaphore = new(1, 1);
-    private readonly object _fallbackLock = new();
 
     public HmacSessionService(
         IConfiguration configuration,
@@ -66,7 +65,7 @@ public sealed partial class HmacSessionService : ISessionService
             var configValue = _configuration["Auth:SessionSigningKey"];
             if (!string.IsNullOrWhiteSpace(configValue))
             {
-                _signingKey = Convert.FromBase64String(configValue);
+                _signingKey = DecodeSigningKey(configValue, "IConfiguration (Auth:SessionSigningKey)");
                 LogSigningKeyLoaded(_logger);
                 return;
             }
@@ -78,7 +77,7 @@ public sealed partial class HmacSessionService : ISessionService
 
             if (!string.IsNullOrWhiteSpace(storedValue))
             {
-                _signingKey = Convert.FromBase64String(storedValue);
+                _signingKey = DecodeSigningKey(storedValue, "durable config store (Auth:SessionSigningKey)");
                 LogSigningKeyLoadedFromStore(_logger);
                 return;
             }
@@ -173,32 +172,50 @@ public sealed partial class HmacSessionService : ISessionService
         }
     }
 
-    private byte[] GetOrCreateSigningKey()
+    /// <summary>
+    /// Returns the signing key.
+    /// <para>
+    /// Contract: <see cref="InitializeAsync"/> MUST be called at application startup before any
+    /// sessions are created or validated. This service does not generate ephemeral fallback keys —
+    /// a missing initialization is a programming error that surfaces as an
+    /// <see cref="InvalidOperationException"/> rather than silently issuing unrecoverable sessions.
+    /// </para>
+    /// </summary>
+    private byte[] GetOrCreateSigningKey() =>
+        _signingKey ?? throw new InvalidOperationException(
+            "HmacSessionService has not been initialized. Call InitializeAsync at application " +
+            "startup before any sessions are created or validated.");
+
+    /// <summary>
+    /// Decodes a base64 signing key from the given source, validating that it is well-formed
+    /// base64 and exactly 64 bytes. Throws <see cref="InvalidOperationException"/> with an
+    /// actionable message on failure.
+    /// </summary>
+    private byte[] DecodeSigningKey(string base64Value, string source)
     {
-        var key = _signingKey;
-        if (key is not null)
-            return key;
-
-        // Fallback: InitializeAsync was not called before this point.
-        // Generate an ephemeral key so the service can still operate, but warn loudly —
-        // this key will not survive a restart or be shared across instances.
-        lock (_fallbackLock)
+        byte[] key;
+        try
         {
-            key = _signingKey;
-            if (key is not null)
-                return key;
-
-            var configValue = _configuration["Auth:SessionSigningKey"];
-            if (!string.IsNullOrWhiteSpace(configValue))
-            {
-                _signingKey = Convert.FromBase64String(configValue);
-                return _signingKey;
-            }
-
-            LogEphemeralSigningKeyFallback(_logger);
-            _signingKey = RandomNumberGenerator.GetBytes(64);
-            return _signingKey;
+            key = Convert.FromBase64String(base64Value);
         }
+        catch (FormatException)
+        {
+            LogInvalidBase64SigningKey(_logger, source);
+            throw new InvalidOperationException(
+                $"The HMAC session signing key from '{source}' is not valid base64. " +
+                "Remove or correct the 'Auth:SessionSigningKey' entry and restart the host.");
+        }
+
+        if (key.Length != 64)
+        {
+            LogInvalidSigningKeyLength(_logger, source, key.Length);
+            throw new InvalidOperationException(
+                $"The HMAC session signing key from '{source}' decoded to {key.Length} bytes " +
+                "but exactly 64 bytes are required. Remove or correct the 'Auth:SessionSigningKey' " +
+                "entry and restart the host.");
+        }
+
+        return key;
     }
 
     private static string ComputeSignature(string payload, byte[] key)
@@ -217,10 +234,16 @@ public sealed partial class HmacSessionService : ISessionService
     [LoggerMessage(Level = LogLevel.Information, Message = "Generated new HMAC session signing key and persisted it to the config store.")]
     private static partial void LogSigningKeyGenerated(ILogger logger);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "HmacSessionService.InitializeAsync was not called before the service was used. " +
-        "An ephemeral signing key will be used — sessions will be invalidated on restart and will not " +
-        "validate across multiple instances. Ensure InitializeAsync is called at application startup.")]
-    private static partial void LogEphemeralSigningKeyFallback(ILogger logger);
+    [LoggerMessage(Level = LogLevel.Error,
+        Message = "HMAC session signing key from {Source} is not valid base64. " +
+            "Remove or correct the 'Auth:SessionSigningKey' entry in {Source} and restart the host.")]
+    private static partial void LogInvalidBase64SigningKey(ILogger logger, string source);
+
+    [LoggerMessage(Level = LogLevel.Error,
+        Message = "HMAC session signing key from {Source} decoded to {ActualLength} bytes but " +
+            "exactly 64 bytes are required. Remove or correct the 'Auth:SessionSigningKey' entry " +
+            "in {Source} and restart the host.")]
+    private static partial void LogInvalidSigningKeyLength(ILogger logger, string source, int actualLength);
 
     private sealed class SessionPayload
     {

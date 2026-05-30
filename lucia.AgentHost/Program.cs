@@ -297,7 +297,9 @@ if (useMongo)
     builder.Services.AddSingleton<IConfigStoreWriter, ConfigStoreWriter>();
 }
 // Note: SQLite IApiKeyService and IConfigStoreWriter registered by AddSqliteStoreProviders()
-builder.Services.AddSingleton<ISessionService, HmacSessionService>();
+builder.Services.AddSingleton<HmacSessionService>();
+builder.Services.AddSingleton<ISessionService>(sp => sp.GetRequiredService<HmacSessionService>());
+builder.Services.AddSingleton<IAsyncInitializable>(sp => sp.GetRequiredService<HmacSessionService>());
 
 // Bind internal token options (injected by Aspire/K8s as env var InternalAuth__Token)
 builder.Services.Configure<InternalTokenOptions>(
@@ -414,8 +416,8 @@ await using (var seedScope = app.Services.CreateAsyncScope())
 // This runs before the app starts accepting requests so CreateSession/ValidateSession
 // always operate with a stable, persisted key.
 {
-    var hmacService = (HmacSessionService)app.Services.GetRequiredService<ISessionService>();
-    await hmacService.InitializeAsync(CancellationToken.None).ConfigureAwait(false);
+    var initializable = app.Services.GetRequiredService<IAsyncInitializable>();
+    await initializable.InitializeAsync(CancellationToken.None).ConfigureAwait(false);
 }
 
 app.MapOpenApi()
