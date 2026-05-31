@@ -11,58 +11,6 @@
 
 ## Active Decisions
 
-### 1. Eval Expansion Architecture (Ripley, 2026-03-26)
-
-**Summary:** 5-phase roadmap for scaling eval infrastructure from foundation through production scale. Includes infrastructure, tooling, and team expansion plans. See full document below.
-
-### 2. Eval Infrastructure Audit & Extension (Dallas, 2026-03-26)
-
-**Summary:** Extended RealAgentFactory and EvalTestFixture to support all agent types (Climate, Lists, Scene, Dynamic). All components now support comprehensive eval testing across 7 agent types. See full document below.
-
-### 3. Data Pipeline for Eval Scenarios (Ash, 2026-03-26)
-
-**Summary:** Implemented IEvalScenarioSource architecture for converting GitHub issues and conversation traces into standardized eval scenarios. Enables continuous learning from production data. See full document below.
-
-### 4. Climate Agent Eval Suite (Lambert, 2026-03-26)
-
-**Summary:** Created ClimateAgentEvalTests.cs with 8 scenarios covering tool accuracy, intent resolution, and task adherence. Pattern-compliant with existing eval test structure. See full document below.
-
-### 5. SQLite Aggregate NULL Handling Convention (Parker, 2026-03-28)
-
-**Summary:** All SQLite aggregate column reads (SUM, AVG, MIN, MAX) must be guarded with IsDBNull() checks. Bug fix for GitHub #107; audit confirmed no other vulnerabilities in SQLite repositories. See full document below.
-
-### 6. Router System Prompt Improvements for Smaller LLMs (Ripley, 2025-07-14)
-
-**Summary:** Added domain inference hints (Rule 8) and multi-domain detection (Rule 9) to router system prompt. Improves routing accuracy on smaller models (Gemma4) from 17/20 to full pass rate. Minimal token overhead (~250 tokens). See full document below.
-
-### 7. Timer-Agent Priority Rule for Time-Delayed Device Actions (Ripley, 2025-07-17)
-
-**Summary:** Added Rule 0 priority rule and enabled `IncludeSkillExamples` by default. Fixes production routing failures on time-delayed device actions (e.g., "turn off AC in 5 minutes") that were incorrectly routing to climate-agent or falling back to general-assistant. See full document below.
-
-### 8. Timer Agent Eval Coverage & Router Hint (Lambert, 2025-07-24)
-
-**Summary:** Added 15 timer eval scenarios (basic, scheduled-action, alarm, cross-domain-timer categories) and 4 test methods with negative assertions to catch cross-domain misrouting. Coordinates with Ripley's router improvements. See full document below.
-
-### 9. Feature-flagged Enhanced Clip STT Pipeline (Brett, 2025-07-24)
-
-**Summary:** Added `SpeechEnhancementOptions.UseEnhancedClipForStt` feature flag to enable optional re-transcription path using GTCRN-enhanced audio. Fixes buffer discontinuity issues from per-frame enhancement in STT sessions by accumulating full clip and re-transcribing in fresh session. Feature-flagged OFF by default. See full document below.
-
-### 10. Enhanced Clip Pipeline Test Strategy (Lambert, 2026-04-14)
-
-**Summary:** Created 9 integration tests in `EnhancedClipPipelineTests.cs` covering flag-OFF (3), flag-ON (3), and edge cases (3). Tests use amplitude-scaling distinguishable audio and verify behavior through Wyoming protocol events. All 288 tests pass. See full document below.
-
-### 11. /app/models Subdirectory Audit (Brett, 2026-03-28)
-
-**Summary:** Authoritative audit of writable subdirectories under `/app/models` required by Wyoming STT/VAD/KWS/speech-enhancement/speaker-embedding pipelines. Confirmed 5 subdirs with runtime model caching behavior, HuggingFace cache configuration, and ONNX tmpfs sufficiency. Recommendation provided for Dockerfile mkdir and chown pattern. See full document below.
-
-### 12. GLIBC_TUNABLES Clearance for MongoDB Kernel 6.19+ Workaround (Parker, 2026-03-28)
-
-**Summary:** Confirmed `GLIBC_TUNABLES=glibc.pthread.rseq=1` is server-side only (glibc runtime tunable, not MongoDB driver concern). Safe to set on `lucia-mongo` service; MongoDB.Driver 3.7.1 unaffected. Recommended: pin `mongo:8.0.5` and document env var as kernel 6.19+ TCMalloc safety net pending upstream fix. See full document below.
-
-### 13. Docker Stack Hardening Implementation (Hicks, 2026-03-28)
-
-**Summary:** Single PR addressing #120 (permission failure on `/app/models`), #119 (healthcheck wget→curl mismatch), and #122 (kernel 6.19 compatibility). Fixed: baked ownership at image build time (mirrors Dockerfile.ha pattern), fixed healthcheck with curl, applied GLIBC_TUNABLES workaround, pinned mongo:8.0.5. See full document below.
-
 ### 14. Validate HA access token before opening WebSocket (Bishop, 2026-05-30)
 
 **Summary:** Added null/whitespace guard in `HomeAssistantClient.SendWebSocketCommandAsync` to validate token presence before opening WS connection. Missing token now throws `InvalidOperationException` with actionable message instead of opaque `auth_invalid` server error. PR #188. See full document below.
@@ -2120,29 +2068,9 @@ SQLite aggregate functions differ from relational databases in handling empty se
 
 **Summary:** Applied MANDATORY RULES pattern to ClimateAgent system prompt to fix Gemma 4 failures. Removed discovery-first workflow, simplified comfort handling, fixed 5 YAML eval scenario mismatches. See full document below.
 
-### 7. Dynamic Entity Registration for Eval Scenarios (Dallas, 2025-07-15)
-
-**Summary:** Added dynamic entity registration to SnapshotEntityLocationService and fake embedding generator. Climate eval scenarios now inject entities discoverable by Find-style tools. Eval factory supports zero cache TTL for scenario-based device discovery. See full document below.
-
 ### 8. Include All 6 Agent Cards in EvalTestFixture Registry (Dallas, 2026-10-13)
 
 **Summary:** Fixed critical bug where EvalTestFixture only registered 3 agent cards despite extracting 6. Router LLM now sees complete agent catalog. Enables cross-domain routing regression tests. See full document below.
-
-### 9. Multi-Backend Benchmark Comparison in EvalHarness (Dallas, 2025-07-23)
-
-**Summary:** Implemented OpenAI-compatible backend support for multi-backend eval runs. Ollama and llama.cpp side-by-side comparison with backend-tagged model names and comparison reports. Backward compatible with existing Ollama-only configs. See full document below.
-
-### 10. Relax eval expectations + add speaker context to LightAgent (Dallas, 2025-07-17)
-
-**Summary:** Relaxed searchTerms assertions in kitchen query scenarios (kitchen light → kitchen). Added speaker_context_identity rule to LightAgent system prompt. Respects speaker metadata for identity questions. See full document below.
-
-### 11. LightAgent Toggle Prompt Fix (Dallas, 2025-07-23)
-
-**Summary:** Added toggle guidance to LightAgent system prompt (Rule 2 + new Rule 5). Small models now call ControlLights directly with state "on" when toggle state is unknown. Verified 28/28 pass on gemma4:e2b. See full document below.
-
-### 12. Auto-enable conversation tracing for scenario evaluation (Dallas, 2025-07-18)
-
-**Summary:** Tracing auto-enabled in Program.cs for scenario-based eval. Tool call validation depends on tracer; defaulting to false caused silent test failures. Guard added to fail-fast if tracer null and scenarios have ExpectedToolCalls. See full document below.
 
 ### 13. Orchestrator Eval Coverage Expansion Strategy (Lambert, 2026-10-13)
 
@@ -3813,3 +3741,153 @@ After AppHost restart:
 1. Check AgentHost structured logs for: `Seeded Dashboard API key from DASHBOARD_API_KEY`
 2. POST `https://<agenthost>/api/auth/login` with body `{"apiKey": "<value from .env>"}` — expect `200 OK` with `{"authenticated": true, "keyName": "Dashboard", ...}`
 
+
+
+---
+
+### 2026-05-31T11:32:05-04:00: User directive
+**By:** Zack Way (via Copilot)
+**What:** The Jetson (zackw@192.168.1.239) non-voice deployment must use the EXISTING method already in use ("jetson-containers", per Zack's recollection) — the platform is CURRENTLY RUNNING on the Jetson via that method. Deploy/redeploy the same way it was done before; do NOT introduce a new/divergent topology or build path.
+**Why:** User request — captured for team memory. Avoids conflicting with the live deployment and keeps the Jetson on its established, working deploy mechanism.
+
+
+---
+
+# Decision: Jetson Non-Voice Deploy — 2026-05-31
+
+**Author:** Hicks  
+**Date:** 2026-05-31  
+**Status:** BLOCKED — SSH unreachable from this machine; ready-to-execute package prepared  
+**Requested by:** Zack Way
+
+---
+
+## Summary
+
+Investigated and prepared the full non-voice Jetson deploy. The canonical deploy file exists and is correctly structured. Blocked only by network routing (this dev machine is on 192.168.0.x; Jetson is at 192.168.1.239 / 192.168.1.x — different subnet, no route from here).
+
+**All build and deploy artifacts are ready. Zack can execute in ~1 command from the Jetson.**
+
+---
+
+## Non-Voice Topology
+
+**Compose file used:** `infra/docker/docker-compose.jetson.yml`
+
+| Service | Image | Container Name | Port | Purpose |
+|---------|-------|----------------|------|---------|
+| `lucia-redis` | `redis:8.2-alpine` | `lucia-redis-jetson` | 127.0.0.1:6379 | Task persistence / session state |
+| `lucia-mongo` | `mongo:8.0.5` | `lucia-mongo-jetson` | 127.0.0.1:27017 | Traces + config storage |
+| `lucia` | `lucia:jetson` (built locally) | `lucia-jetson` | 0.0.0.0:7233 | AgentHost API — all agents embedded, no voice pipeline |
+
+**Voice services excluded:** None started — the Jetson compose file contains only the three services above. No Wyoming, no STT/TTS, no GPU runtime.
+
+---
+
+## Build Approach
+
+**On-device build (designed pattern for Jetson):**
+
+The `docker-compose.jetson.yml` `build.context` points to the repo root (`../..` relative to `infra/docker/`). The `Dockerfile.agenthost-jetson` uses:
+- **SDK stage:** `mcr.microsoft.com/dotnet/sdk:10.0-noble-arm64v8` — native ARM64, no QEMU needed
+- **Runtime stage:** `mcr.microsoft.com/dotnet/aspnet:10.0-noble-arm64v8` — minimal ARM64 runtime
+- **MSBuild flag:** `ExcludeSpeech=true` at restore + build + publish — gates out ONNX Runtime and Wyoming pipeline
+- **Publish RID:** `--runtime linux-arm64` with `PublishReadyToRun=true`
+
+Redis and MongoDB use official multi-arch images that have native arm64 variants on Docker Hub.
+
+**Why not buildx cross-compile from this Windows machine:** This machine's buildx does not show `linux/arm64` emulation (no QEMU registered). The designed path is on-device build, which is native ARM64 and avoids emulation overhead.
+
+---
+
+## Deploy Instructions for Zack
+
+**Prerequisites on Jetson:**
+- Docker Engine 24.0+ and Docker Compose v2 plugin
+- SSH key or password access
+- The repo cloned at some path
+
+**One-time setup (clone):**
+```bash
+git clone https://github.com/seiggy/lucia-dotnet.git
+cd lucia-dotnet/infra/docker
+chmod +x deploy-jetson.sh
+./deploy-jetson.sh
+```
+
+**Subsequent updates:**
+```bash
+cd lucia-dotnet/infra/docker
+./deploy-jetson.sh --pull --rebuild
+```
+
+**After deploy — setup wizard:**
+```
+Open http://192.168.1.239:7233 in a browser on the LAN
+Complete the wizard: LLM provider, Home Assistant URL + token, optional API key
+```
+
+**Health check:**
+```bash
+# On the Jetson:
+docker compose -f infra/docker/docker-compose.jetson.yml ps
+curl http://localhost:7233/health
+
+# From any LAN machine:
+curl http://192.168.1.239:7233/health
+```
+
+---
+
+## SSH Blocker
+
+```
+$ ping 192.168.1.239
+Reply from 192.168.0.184: Destination host unreachable
+```
+
+This dev machine is on 192.168.0.x; the Jetson is on 192.168.1.x. No route exists between these subnets from the CLI session. SSH timed out.
+
+**To unblock remote execution:** Either (a) run deploy-jetson.sh directly on the Jetson over a local terminal, (b) SSH from a machine that IS on 192.168.1.x, or (c) add a route/VPN between the two subnets.
+
+---
+
+## New File Created
+
+| Path | Purpose |
+|------|---------|
+| `infra/docker/deploy-jetson.sh` | One-command Jetson deploy script (`--pull`, `--rebuild`, `--wipe` flags). Coordinator may commit as part of Jetson infra improvements. |
+
+---
+
+## Validation Steps (for Zack post-deploy)
+
+```bash
+# Container status
+docker compose -f infra/docker/docker-compose.jetson.yml ps
+
+# Lucia health endpoint
+curl http://localhost:7233/health
+# Expected: {"status":"Healthy",...}
+
+# Redis ping
+docker exec lucia-redis-jetson redis-cli PING
+# Expected: PONG
+
+# MongoDB ping
+docker exec lucia-mongo-jetson mongosh --eval "db.runCommand('ping').ok" --quiet
+# Expected: 1
+
+# Confirm NO voice containers running
+docker ps | grep -E "voice|wyoming|whisper|piper|wake"
+# Expected: no output
+```
+
+---
+
+## Caveats
+
+1. **First build takes ~10-15 min on Jetson Nano (4-core ARM Cortex-A57)** — dotnet publish for linux-arm64 is CPU-intensive. Subsequent builds use Docker layer cache.
+2. **MongoDB 8.0.5 + kernel 6.19+ workaround** is already in the compose (`GLIBC_TUNABLES=glibc.pthread.rseq=1`). If Jetson runs a stock JetPack kernel this likely isn't triggered, but it's safe to keep.
+3. **No .env file needed** — all user config (LLM keys, HA token, API key) is handled by the setup wizard on first launch, stored in MongoDB. See `infra/docker/DEPLOYMENT.md` for headless override options.
+4. **Port 7233 is LAN-accessible** (0.0.0.0:7233) — required for Home Assistant integration to reach the AgentHost.
