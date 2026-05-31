@@ -27,6 +27,8 @@ public sealed class WyomingServiceCollectionExtensionsTests
                 ["Wyoming:VoiceProfiles:AdaptiveAlpha"] = "0.05",
                 ["Wyoming:CommandRouting:Enabled"] = "true",
                 ["Wyoming:CommandRouting:ConfidenceThreshold"] = "0.8",
+                ["DataProvider:Store"] = "InMemory",
+                ["DataProvider:Cache"] = "InMemory",
             });
 
         builder.AddWyomingServer();

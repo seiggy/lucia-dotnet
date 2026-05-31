@@ -404,7 +404,7 @@ public class MusicPlaybackSkill : IOptimizableSkill
             var payload = new ServiceCallRequest()
             {
                 ["media_id"] = tracks,
-                ["enqueue"] = clearQueue ? "play" : "next",
+                ["enqueue"] = clearQueue ? "replace" : "next",
                 ["media_type"] = "track",
             };
             payload.EntityId = player.EntityId;

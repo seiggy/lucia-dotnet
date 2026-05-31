@@ -193,6 +193,7 @@ internal sealed partial class QueryDecomposer
 
         var remaining = tokens
             .Where(t => !ActionTokens.Contains(t))
+            .Where(t => !ActionValues.Contains(t))
             .Where(t => !IgnoreTokens.Contains(t))
             .Where(t => explicitTokens.Length == 0 || !explicitTokens.Contains(t, StringComparer.OrdinalIgnoreCase))
             .Where(t => deviceType is null || !string.Equals(t, deviceType, StringComparison.OrdinalIgnoreCase))
@@ -231,7 +232,7 @@ internal sealed partial class QueryDecomposer
             if (deviceType is not null && string.Equals(token, deviceType, StringComparison.OrdinalIgnoreCase))
                 break;
 
-            if (ActionTokens.Contains(token))
+            if (ActionTokens.Contains(token) || ActionValues.Contains(token))
                 continue;
 
             phraseTokens.Add(token);

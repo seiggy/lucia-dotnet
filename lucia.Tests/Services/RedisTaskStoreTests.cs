@@ -92,9 +92,8 @@ public class RedisTaskStoreTests
         A.CallTo(() => _database.StringSetAsync(
             "lucia:task:task-789",
             A<RedisValue>.That.Matches(v => v.ToString().Contains("task-789")),
-            A<TimeSpan>.That.Matches(t => t == TimeSpan.FromHours(24)),
-            A<bool>._,
-            A<When>._,
+            A<Expiration>.That.Matches(e => e.Equals((Expiration)TimeSpan.FromHours(24))),
+            A<ValueCondition>._,
             A<CommandFlags>._))
             .MustHaveHappenedOnceExactly();
         
@@ -141,9 +140,8 @@ public class RedisTaskStoreTests
         A.CallTo(() => _database.StringSetAsync(
             $"lucia:task:{taskId}",
             A<RedisValue>._,
-            A<TimeSpan>._,
-            A<bool>._,
-            A<When>._,
+            A<Expiration>._,
+            A<ValueCondition>._,
             A<CommandFlags>._))
             .MustHaveHappenedOnceExactly();
     }
@@ -224,9 +222,8 @@ public class RedisTaskStoreTests
         A.CallTo(() => _database.StringSetAsync(
             "lucia:task:task-notif-789:notification:default",
             A<RedisValue>.That.Matches(v => v.ToString().Contains("task-notif-789")),
-            A<TimeSpan>.That.Matches(t => t == TimeSpan.FromHours(24)),
-            A<bool>._,
-            A<When>._,
+            A<Expiration>.That.Matches(e => e.Equals((Expiration)TimeSpan.FromHours(24))),
+            A<ValueCondition>._,
             A<CommandFlags>._))
             .MustHaveHappenedOnceExactly();
     }
@@ -271,9 +268,8 @@ public class RedisTaskStoreTests
         A.CallTo(() => _database.StringSetAsync(
             A<RedisKey>._,
             A<RedisValue>._,
-            A<TimeSpan?>._,
-            A<bool>._,
-            A<When>._,
+            A<Expiration>._,
+            A<ValueCondition>._,
             A<CommandFlags>._))
             .Invokes(call => capturedValue = call.GetArgument<RedisValue>(1))
             .Returns(true);

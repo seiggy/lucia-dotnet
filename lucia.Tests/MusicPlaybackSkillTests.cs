@@ -55,7 +55,7 @@ public class MusicPlaybackSkillTests
     public async Task PlayArtistAsync_CallsMusicAssistantPlayMedia()
     {
         ServiceCallRequest? capturedRequest = null;
-        A.CallTo(() => _homeAssistantClient.CallServiceAsync("music_assistant", "play_media", "return_response=1", A<ServiceCallRequest>._, A<CancellationToken>._))
+        A.CallTo(() => _homeAssistantClient.CallServiceAsync("music_assistant", "play_media", null, A<ServiceCallRequest>._, A<CancellationToken>._))
             .Invokes((string _, string _, string? _, ServiceCallRequest request, CancellationToken _) => capturedRequest = request)
             .Returns(Task.FromResult(Array.Empty<object>()));
 
