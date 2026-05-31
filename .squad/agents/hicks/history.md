@@ -47,6 +47,68 @@
 
 <!-- Append new learnings below. -->
 
+### 2026-05-31: Jetson Non-Voice Deploy — RETRY SUCCESS (full on-device build & validate)
+
+**Connectivity resolution**: The 192.168.0.x→192.168.1.x subnet gap from the previous run was resolved by Zack bouncing the Jetson. SSH to `zackw@192.168.1.239` connected cleanly with key-based auth (BatchMode=yes, ConnectTimeout=10). L3 ping RTT: 3–23ms.
+
+**Live state found on Jetson before deploy**:
+- Stack was running from `/home/zackw/docker-compose.jetson.yml` (project name `zackw`) using image `seiggy/lucia-agenthost:jetson` (pulled from registry, NOT built on-device).
+- `lucia-jetson` was `unhealthy` (18 failing streak): `/bin/sh: 1: curl: not found` — the registry image was built without curl.
+- `lucia-redis-jetson` and `lucia-mongo-jetson` were `healthy`.
+- Two stopped voice containers (`jetson-wyoming:full-ram`, `jetson-wyoming-gpu`) present but not running.
+- No git repo on the Jetson (`~/lucia-dotnet` did not exist).
+
+**Deploy steps actually run**:
+1. `git clone https://github.com/seiggy/lucia-dotnet.git ~/lucia-dotnet` → branch `master`, SHA `f484680`.
+2. Patched `~/lucia-dotnet/infra/docker/Dockerfile.agenthost-jetson` on-device (Python3 in-place): added `RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*` in the base stage (curl absent from aspnet noble minimal image).
+3. Second patch needed: stripped `@sha256:...` pins from all `FROM` lines — Docker 29.4.1 on Jetson throws `unexpected media type application/octet-stream` when resolving pinned manifest-list digests. Tags-only build succeeds natively on ARM64.
+4. `docker compose -f ~/docker-compose.jetson.yml down --remove-orphans` — took down old `zackw` project stack (volumes preserved).
+5. Built via background script (`nohup ~/run-lucia-deploy.sh`) writing to `~/lucia-build.log`:  
+   `docker compose -f infra/docker/docker-compose.jetson.yml build --no-cache lucia`  
+   then `docker compose -f infra/docker/docker-compose.jetson.yml up -d`
+6. Build completed: image `lucia:jetson` sha256:`4de9e2bb71f0`, size 434MB.
+7. Stack came up as project `docker` (from `lucia-dotnet/infra/docker/` directory name): three containers, all healthy within ~35s.
+
+**Validation results**:
+- `docker compose ps`: lucia-jetson (healthy), lucia-mongo-jetson (healthy), lucia-redis-jetson (healthy).
+- `curl http://localhost:7233/health` → `Healthy`.
+- `docker exec lucia-redis-jetson redis-cli PING` → `PONG`.
+- `docker exec lucia-mongo-jetson mongosh --eval 'db.runCommand({ping:1}).ok'` → `1`.
+- `docker ps | grep -Ei 'voice|wyoming|whisper|piper|wake'` → empty. Zero voice containers running.
+
+**Gotchas / future infra notes**:
+1. **`deploy-jetson.sh` not in remote repo** — the script exists only locally (not pushed to `seiggy/lucia-dotnet`). The Coordinator must commit `infra/docker/deploy-jetson.sh` so it's available on clone.
+2. **SHA digest pinning breaks on Docker 29.4.1 on Jetson** for manifest-list digests. The pinned SHAs were resolved on a different host/platform and the Jetson's BuildKit can't resolve them. Either: (a) use `--platform linux/arm64` when resolving digests so they match the ARM64 image manifest (not the index), OR (b) strip pins from the Jetson Dockerfile and maintain a separate unpin step. The local `Dockerfile.agenthost-jetson` must be fixed before the next deploy (the curl fix is already committed locally but the SHA issue needs the coordinator to re-resolve or remove the ARM64 Dockerfile pins).
+3. **Project name drift**: Old stack (project `zackw`) vs new stack (project `docker`) use different volume prefixes. Data in `zackw_lucia-mongo-data` etc. is orphaned — acceptable for fresh deploy, but worth noting if migration is ever needed.
+4. **Note to self**: `aspnet:10.0 ships curl` learning from 2026-03-28 was wrong for the *registry-pulled* `seiggy/lucia-agenthost:jetson` image (it was built without curl). The base image DOES ship curl once apt-installed in the build stage.
+
+### 2026-05-31: Jetson Non-Voice Deploy — Topology & Connectivity Findings
+
+**Compose file**: `infra/docker/docker-compose.jetson.yml` — this is the canonical non-voice Jetson deploy file. Three services only: `lucia-redis-jetson` (Redis 8.2-alpine), `lucia-mongo-jetson` (MongoDB 8.0.5), `lucia-jetson` (ARM64 AgentHost built from `Dockerfile.agenthost-jetson`). No voice/STT/TTS/Wyoming services.
+
+**Build approach (on-device)**: The compose file's `build.context: ../..` + `dockerfile: infra/docker/Dockerfile.agenthost-jetson` means Docker builds the image natively on the Jetson. The Dockerfile uses `mcr.microsoft.com/dotnet/sdk:10.0-noble-arm64v8` (ARM64 SDK — native, no emulation needed) and publishes with `--runtime linux-arm64`. Redis and MongoDB use official multi-arch images with native arm64 variants.
+
+**ExcludeSpeech=true** is passed at restore, build, and publish stages in `Dockerfile.agenthost-jetson` — this gates out ONNX Runtime and Wyoming pipeline completely. The `Deployment__Mode` is not set, so it defaults to standalone (all agents embedded). No separate A2A containers needed for Jetson.
+
+**Deploy command (on Jetson)**:
+```bash
+cd infra/docker
+./deploy-jetson.sh          # first deploy (created 2026-05-31)
+./deploy-jetson.sh --pull --rebuild  # update + clean rebuild
+```
+
+**Network blocker context**: This dev machine (192.168.0.x) cannot directly reach the Jetson (192.168.1.x) — different subnet, no route. The deploy-jetson.sh must be run from the Jetson directly or from a machine on the 192.168.1.x network. SSH key-based auth for `zackw@192.168.1.239` is required on whatever machine executes the SSH step.
+
+**Key infra file paths for Jetson**:
+- `infra/docker/docker-compose.jetson.yml` — non-voice compose (3 services)
+- `infra/docker/Dockerfile.agenthost-jetson` — ARM64, no speech, pinned digest
+- `infra/docker/deploy-jetson.sh` — one-command deploy script (NEW, 2026-05-31)
+- `infra/scripts/health-check.sh` — post-deploy validation script
+
+**Resource limits** (tight for 4GB Jetson): Redis 128MB, MongoDB 256MB, AgentHost 512MB / 1.5 CPU. No GPU/nvidia runtime required for non-voice.
+
+**MongoDB 8.0 arm64**: Official `mongo:8.0.5` ships arm64 variant. The `GLIBC_TUNABLES=glibc.pthread.rseq=1` workaround for kernel 6.19+ TCMalloc crash is already in the Jetson compose.
+
 ### 2026-05-31: AppHost .env Loading & Seed Var Forwarding (Parker)
 - **DotNetEnv + TraversePath() pattern**: Aspire AppHost does not auto-load `.env` files; use DotNetEnv 3.2.0 with `Env.NoClobber().TraversePath().Load()` before `CreateBuilder` to pick up repo-root `.env`.
 - **WithEnvironment forwarding**: Aspire's `.WithEnvironment(name, value)` is the correct idiom for injecting AppHost-resolved env vars into child projects. Values become process environment variables, which `IConfiguration.AddEnvironmentVariables()` picks up.
