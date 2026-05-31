@@ -1,6 +1,7 @@
 using lucia.AgentHost;
 using lucia.AgentHost.Apis;
 using lucia.AgentHost.Auth;
+using lucia.AgentHost.Hosting;
 using lucia.AgentHost.Conversation;
 using lucia.AgentHost.Conversation.Execution;
 using lucia.AgentHost.Conversation.Templates;

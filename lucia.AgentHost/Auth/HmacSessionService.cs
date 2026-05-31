@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using lucia.AgentHost.Hosting;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Auth;
 using Microsoft.Extensions.Options;
@@ -18,12 +19,15 @@ namespace lucia.AgentHost.Auth;
 /// </summary>
 /// <remarks>
 /// <b>Multi-instance note:</b> key generation uses a read–write–reconcile strategy. After writing a
-/// newly generated key, the service re-reads the store; if another instance already wrote a different
-/// key, the service adopts the persisted value so all instances converge on a single key without
-/// requiring a restart. For strict guarantee, pre-provision <c>Auth:SessionSigningKey</c> as an
+/// newly generated key, the service re-reads the store. This collapses the common case where one
+/// instance's write completes before another instance's initial read — but convergence is
+/// <b>best-effort only</b>: because <see cref="IConfigStoreWriter.SetAsync"/> is an unconditional
+/// upsert (no compare-and-swap), a fully-concurrent first-boot in which both instances pass the
+/// initial read before either writes can leave them on divergent keys until their next restart.
+/// For a strict single-key guarantee, pre-provision <c>Auth:SessionSigningKey</c> as an
 /// environment variable or secret before deploying.
 /// </remarks>
-public sealed partial class HmacSessionService : ISessionService, IAsyncInitializable
+public sealed partial class HmacSessionService : ISessionService, IAsyncInitializable, IDisposable
 {
     private readonly IConfiguration _configuration;
     private readonly IConfigStoreWriter _configStoreWriter;
@@ -104,11 +108,12 @@ public sealed partial class HmacSessionService : ISessionService, IAsyncInitiali
                     isSensitive: true,
                     linkedCts.Token).ConfigureAwait(false);
 
-                // Read-after-write reconciliation: if two instances both passed the initial
-                // GetAsync (key absent) and raced to SetAsync, the last writer wins in the store.
-                // Re-reading here lets the losing instance adopt the winner's persisted key so all
-                // instances converge without a restart, rather than serving sessions signed with
-                // different keys until the next boot.
+                // Read-after-write reconciliation (best-effort): if two instances both read a missing
+                // key and raced to write, the store retains whichever write landed last (unconditional
+                // upsert — no CAS). Re-reading here lets this instance adopt a key already in the
+                // store, collapsing the common case. It does NOT guarantee convergence if this
+                // instance's post-write read completes before a concurrent write arrives.
+                // Pre-provision Auth:SessionSigningKey for a strict single-key guarantee.
                 var reconciledValue = await _configStoreWriter
                     .GetAsync("Auth:SessionSigningKey", linkedCts.Token)
                     .ConfigureAwait(false);
@@ -293,6 +298,8 @@ public sealed partial class HmacSessionService : ISessionService, IAsyncInitiali
             "exactly 64 bytes are required. Remove or correct the 'Auth:SessionSigningKey' entry " +
             "in {Source} and restart the host.")]
     private static partial void LogInvalidSigningKeyLength(ILogger logger, string source, int actualLength);
+
+    public void Dispose() => _initSemaphore.Dispose();
 
     private sealed class SessionPayload
     {

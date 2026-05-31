@@ -1,4 +1,4 @@
-namespace lucia.AgentHost.Auth;
+namespace lucia.AgentHost.Hosting;
 
 /// <summary>
 /// Implemented by services that require asynchronous initialization before they are ready to

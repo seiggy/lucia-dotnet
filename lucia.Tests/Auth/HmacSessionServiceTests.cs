@@ -10,7 +10,7 @@ using Microsoft.Extensions.Options;
 
 namespace lucia.Tests.Auth;
 
-public class HmacSessionServiceTests
+public class HmacSessionServiceTests : IAsyncLifetime
 {
     private readonly HmacSessionService _service;
     private readonly IConfigStoreWriter _configStore;
@@ -30,8 +30,14 @@ public class HmacSessionServiceTests
         _configStore = A.Fake<IConfigStoreWriter>();
 
         _service = new HmacSessionService(config, options, logger, _configStore);
-        // InitializeAsync must run before Create/Validate (fail-fast contract)
-        _service.InitializeAsync().GetAwaiter().GetResult();
+    }
+
+    public async Task InitializeAsync() => await _service.InitializeAsync();
+
+    public Task DisposeAsync()
+    {
+        _service.Dispose();
+        return Task.CompletedTask;
     }
 
     [Fact]
