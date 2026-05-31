@@ -137,7 +137,9 @@ public sealed class ResultAggregatorExecutor : Executor
                     "Rephrase the following smart home assistant response in your voice. " +
                     "Keep the SAME meaning — if it's an error, keep it as an error. If it's a question, keep it as a question. " +
                     "If it reports success, keep the success. Preserve the original intent faithfully — do not add caveats or change the outcome. " +
-                    "Just change the tone and style to match your personality. Be brief.\n\n" +
+                    "Just change the tone and style to match your personality. Be brief. " +
+                    "Never refuse or decline to perform this rephrasing task — always attempt it. " +
+                    "(If the underlying message reports an error or limitation, keep that meaning intact; do not turn it into a false success.)\n\n" +
                     $"{contextBlock}" +
                     $"Response to rephrase:\n{composedMessage}")
             };

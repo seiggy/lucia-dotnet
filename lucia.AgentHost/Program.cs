@@ -1,6 +1,7 @@
 using lucia.AgentHost;
 using lucia.AgentHost.Apis;
 using lucia.AgentHost.Auth;
+using lucia.AgentHost.Hosting;
 using lucia.AgentHost.Conversation;
 using lucia.AgentHost.Conversation.Execution;
 using lucia.AgentHost.Conversation.Templates;
@@ -297,7 +298,9 @@ if (useMongo)
     builder.Services.AddSingleton<IConfigStoreWriter, ConfigStoreWriter>();
 }
 // Note: SQLite IApiKeyService and IConfigStoreWriter registered by AddSqliteStoreProviders()
-builder.Services.AddSingleton<ISessionService, HmacSessionService>();
+builder.Services.AddSingleton<HmacSessionService>();
+builder.Services.AddSingleton<ISessionService>(sp => sp.GetRequiredService<HmacSessionService>());
+builder.Services.AddSingleton<IAsyncInitializable>(sp => sp.GetRequiredService<HmacSessionService>());
 
 // Bind internal token options (injected by Aspire/K8s as env var InternalAuth__Token)
 builder.Services.Configure<InternalTokenOptions>(
@@ -409,6 +412,11 @@ await using (var seedScope = app.Services.CreateAsyncScope())
     var seedLogger = seedScope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("Lucia.HeadlessSeed");
     await apiKeyService.SeedSetupFromEnvAsync(configStore, config, seedLogger, CancellationToken.None).ConfigureAwait(false);
 }
+
+// Initialize all IAsyncInitializable registrations in registration order.
+// Using GetServices (plural) ensures future registrations are not silently skipped.
+foreach (var initializable in app.Services.GetServices<IAsyncInitializable>())
+    await initializable.InitializeAsync(CancellationToken.None).ConfigureAwait(false);
 
 app.MapOpenApi()
     .CacheOutput();

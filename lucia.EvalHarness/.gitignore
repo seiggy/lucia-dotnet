@@ -1,1 +1,5 @@
-Reports/
+# Generated evaluation output (source under Reports/ stays tracked)
+Reports/*.json
+Reports/*.md
+Reports/*.html
+Reports/traces/

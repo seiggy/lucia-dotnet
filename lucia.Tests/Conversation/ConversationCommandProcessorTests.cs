@@ -174,7 +174,7 @@ public sealed class ConversationCommandProcessorTests : IDisposable
         using var meterListener = new MeterListener();
         meterListener.InstrumentPublished = (instrument, listener) =>
         {
-            if (instrument.Name == "conversation.command_parsed")
+            if (instrument.Meter == _telemetrySource.Meter && instrument.Name == "conversation.command_parsed")
                 listener.EnableMeasurementEvents(instrument);
         };
         meterListener.SetMeasurementEventCallback<long>((instrument, measurement, tags, state) =>
@@ -233,7 +233,8 @@ public sealed class ConversationCommandProcessorTests : IDisposable
         using var meterListener = new MeterListener();
         meterListener.InstrumentPublished = (instrument, listener) =>
         {
-            if (instrument.Name is "conversation.command_parsed" or "conversation.llm_fallback")
+            if (instrument.Meter == _telemetrySource.Meter &&
+                instrument.Name is "conversation.command_parsed" or "conversation.llm_fallback")
                 listener.EnableMeasurementEvents(instrument);
         };
         meterListener.SetMeasurementEventCallback<long>((instrument, measurement, tags, state) =>
