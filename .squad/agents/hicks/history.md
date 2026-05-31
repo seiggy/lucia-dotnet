@@ -47,7 +47,23 @@
 
 <!-- Append new learnings below. -->
 
+### 2026-05-31: AppHost .env Loading & Seed Var Forwarding (Parker)
+- **DotNetEnv + TraversePath() pattern**: Aspire AppHost does not auto-load `.env` files; use DotNetEnv 3.2.0 with `Env.NoClobber().TraversePath().Load()` before `CreateBuilder` to pick up repo-root `.env`.
+- **WithEnvironment forwarding**: Aspire's `.WithEnvironment(name, value)` is the correct idiom for injecting AppHost-resolved env vars into child projects. Values become process environment variables, which `IConfiguration.AddEnvironmentVariables()` picks up.
+- **Double-underscore vars in DotNetEnv**: Use `Environment.GetEnvironmentVariable()` directly, not `builder.Configuration[name]`, because the config provider normalizes `__` → `:`, making original names inaccessible.
+- **Redis TLS health check fix (Aspire 13)**: `.WithoutHttpsCertificate()` on the Redis builder disables auto-TLS so the built-in health check can connect (AppHost dev cert is not trusted by the host's SslStream). This is documented opt-out; production Redis TLS is handled by Helm independently.
+
 - Participated in 2026-05-29 health review
+
+### 2026-05-31: Aspire 13 Redis Auto-TLS + Health Check EOF Fix
+
+- **Aspire 13 (`Aspire.Hosting.Redis` 13.3.5) auto-enables TLS on the primary Redis endpoint at run time** when a dev certificate is present. Internally `AddRedis()` calls `WithHttpsCertificateConfiguration()` and `SubscribeHttpsEndpointsUpdate()`, which rewrites the primary endpoint from `redis://` to `rediss://` and starts Redis with `--tls-port 6379 --port 6380`.
+- **The built-in `redis_check` health check** (registered via `builder.Services.AddHealthChecks().AddRedis(...)`) obtains the connection string from `ConnectionStringAvailableEvent` — which now resolves to `rediss://:{password}@localhost:<port>`. The `HealthChecks.Redis` `ConnectionMultiplexer` running in the AppHost process then tries a TLS handshake but the AppHost process does not trust the Aspire dev cert, causing `IOException: Received an unexpected EOF` at `SslStream.ReceiveHandshakeFrameAsync`.
+- **Fix**: Add `.WithoutHttpsCertificate()` to the Redis builder chain in `lucia.AppHost/AppHost.cs`. This is the documented opt-out API in Aspire. It prevents `SubscribeHttpsEndpointsUpdate` from firing, keeping Redis on plaintext port 6379 so the health check connects cleanly. The method is marked `[Experimental("ASPIRECERTIFICATES001")]`, so `<NoWarn>$(NoWarn);ASPIRECERTIFICATES001</NoWarn>` was added to `lucia.AppHost/lucia.AppHost.csproj`.
+- **Production posture unaffected**: `.WithoutHttpsCertificate()` is a run-time-only opt-out. Production Redis TLS is managed by the infra/Helm chart independently.
+- **Key files**: `lucia.AppHost/AppHost.cs`, `lucia.AppHost/lucia.AppHost.csproj`.
+- **Source**: [dotnet/aspire `RedisBuilderExtensions.cs`](https://github.com/dotnet/aspire/blob/main/src/Aspire.Hosting.Redis/RedisBuilderExtensions.cs) + [Aspire certificate-configuration docs](https://aspire.dev/certificate-configuration).
+
 ---
 
 **Update from Ripley (2026-05-30):** Inbox retriage complete. You have been assigned issues from the 2026-05-30 batch. Review .squad/decisions/decisions.md for details.

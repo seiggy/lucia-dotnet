@@ -3524,3 +3524,292 @@ python -c "import yaml,sys; data=yaml.safe_load(open('custom_components/lucia/se
 
 ## Token style used
 `border-ember/30 bg-ember/10 text-rose` for error panels; `bg-amber/20 text-amber` for retry buttons — consistent with project Tailwind `@theme` tokens.
+
+### 23. Disable Aspire 13 Auto-TLS on Local Redis to Fix Health Check EOF (Hicks, 2026-05-31)
+
+Disable Aspire 13 Auto-TLS on Local Redis to Fix Health Check EOF
+
+**Date:** 2026-05-31  
+**Author:** Hicks (DevOps / Infrastructure Engineer)  
+**Status:** Applied  
+**Files changed:** `lucia.AppHost/AppHost.cs`, `lucia.AppHost/lucia.AppHost.csproj`
+
+---
+
+## Context
+
+Running the app locally via `aspire run` (AppHost), the `redis` container resource showed `state=Running` but `health_status=Unhealthy`. Redis itself was healthy (logs confirmed "Ready to accept connections tcp" and "Ready to accept connections tls"). The failing `redis_check` threw:
+
+```
+StackExchange.Redis.RedisConnectionException: It was not possible to connect to the redis server(s).
+  There was an authentication failure; check that passwords (or client certificates) are configured correctly:
+  (IOException) Received an unexpected EOF or 0 bytes from the transport stream.
+    at System.Net.Security.SslStream.ReceiveHandshakeFrameAsync(...)
+    at HealthChecks.Redis.RedisHealthCheck.CheckHealthAsync(...)
+```
+
+---
+
+## Root Cause
+
+`Aspire.Hosting.Redis` 13.3.5 (`AddRedis()`) registers two hooks in its builder:
+
+1. **`WithHttpsCertificateConfiguration()`** — wires Redis to receive the Aspire dev cert as `--tls-cert-file` / `--tls-key-file` / `--tls-ca-cert-file` container args.
+2. **`SubscribeHttpsEndpointsUpdate()`** (run-mode only) — when a TLS cert is present, rewrites the primary Redis endpoint from `redis://` to `rediss://` (scheme + `TlsEnabled=true`) and adds `--tls-port 6379 --port 6380` args, demoting plaintext to the secondary endpoint.
+
+The built-in health check is registered as:
+```csharp
+builder.Services.AddHealthChecks()
+    .AddRedis(sp => connectionString, name: healthCheckKey);
+```
+where `connectionString` is populated from `ConnectionStringAvailableEvent` → `redis.GetConnectionStringAsync()`. After the TLS promotion, this resolves to `rediss://:{password}@localhost:62314`. The `HealthChecks.Redis` library's `ConnectionMultiplexer` runs **in the AppHost process** (host machine) and attempts a TLS handshake with Redis. The Aspire dev cert is not trusted by the host process's .NET `SslStream`, causing an immediate EOF.
+
+**Source:** [`dotnet/aspire` `RedisBuilderExtensions.cs`](https://github.com/dotnet/aspire/blob/main/src/Aspire.Hosting.Redis/RedisBuilderExtensions.cs) and the [Aspire certificate configuration documentation](https://aspire.dev/certificate-configuration).
+
+---
+
+## Options Evaluated
+
+| Option | Approach | Verdict |
+|---|---|---|
+| A | `.WithoutHttpsCertificate()` on the Redis builder | ✅ **Chosen** — documented opt-out, minimal, surgical |
+| B | Configure cert trust in health check's `ConnectionMultiplexer` | ❌ No extension point on the built-in `AddRedis` health check registration |
+| C | Bump `Aspire.Hosting.Redis` version | ❌ Already on 13.3.5 (latest); TLS is by design, not a bug |
+| D | Point health check at secondary plaintext endpoint manually | ❌ Would require re-registering the health check; fragile vs. port changes |
+
+---
+
+## Decision
+
+Add `.WithoutHttpsCertificate()` to the Redis builder chain in `lucia.AppHost/AppHost.cs`.  
+Suppress the `ASPIRECERTIFICATES001` experimental diagnostic in `lucia.AppHost/lucia.AppHost.csproj` (scoped to AppHost only).
+
+**Why this is correct:**
+- It is the officially documented API for this exact use case ("Or disable TLS entirely") in the [Aspire cert-config docs](https://aspire.dev/certificate-configuration#configure-redis-with-tls).
+- Run-time only — does not affect publish manifests or production deployments.
+- Minimal diff: 1 method call + 1 csproj property.
+- Zero risk to the production TLS posture (Helm/K8s Redis chart manages its own TLS independently).
+
+---
+
+## Diff Summary
+
+### `lucia.AppHost/AppHost.cs`
+```diff
+     redis = builder.AddRedis("redis")
+         .WithDataVolume()
+         .WithLifetime(ContainerLifetime.Persistent)
+         .WithRedisInsight()
+         .WithPersistence()
+-        .WithContainerName("redis");
++        .WithContainerName("redis")
++        // Aspire 13 auto-enables TLS on the primary Redis endpoint when a dev cert is present,
++        // which causes the built-in redis_check health check to fail with an EOF during the
++        // TLS handshake (the AppHost-side ConnectionMultiplexer doesn't trust the Aspire dev cert).
++        // Opting out of HTTPS certificate configuration reverts Redis to plaintext-only on its
++        // primary endpoint so the health check can connect successfully. TLS is still available
++        // in production via the infra/Helm Redis chart's own TLS configuration.
++        .WithoutHttpsCertificate();
+```
+
+### `lucia.AppHost/lucia.AppHost.csproj`
+```diff
+   <PropertyGroup>
+     <OutputType>Exe</OutputType>
+     <PreviewFeatures>enable</PreviewFeatures>
+     <UserSecretsId>dd99e9ff-e233-4d7f-99b9-8c04beabcc9f</UserSecretsId>
++    <!-- ASPIRECERTIFICATES001: suppress experimental warning for WithoutHttpsCertificate()
++         used to opt Redis out of auto-TLS so the built-in redis_check health check can connect. -->
++    <NoWarn>$(NoWarn);ASPIRECERTIFICATES001</NoWarn>
+   </PropertyGroup>
+```
+
+---
+
+## Verification Steps for Coordinator
+
+1. **Full AppHost restart required.** `AppHost.cs` is AppHost-level code — a resource restart of just `redis` is not sufficient. Stop the running AppHost process entirely and relaunch: `dotnet run --project lucia.AppHost` (or `aspire run`).
+2. After restart, the `redis` container will launch with **plaintext only** (no `--tls-port` / `--port 6380` args, no secondary endpoint). The primary endpoint will be `tcp://localhost:<port>` (scheme `redis://`).
+3. Expected health outcome: `redis` resource `health_status=Healthy` within ~15 seconds of the container reaching `Running` state.
+4. `registryApi.WithReference(redis)` will inject a plaintext `redis://` connection string to the AgentHost — no consumer changes required.
+
+---
+
+## Follow-up Risks / Notes
+
+- **`appsettings.Development.json` stale entry**: `lucia.AppHost/appsettings.Development.json` contains `"ConnectionStrings": { "redis": "localhost:6379" }`. This is in the AppHost project (which doesn't consume Redis directly), so it's harmless but stale. It does not override the injected connection string in consuming services. Low priority cleanup.
+- **`registryApi.WithReference(redis)` / WaitFor**: The AgentHost will now receive a plaintext connection string. If AgentHost's own `AddRedisClient()` was relying on TLS (unlikely in local dev), it would need updating — but since Aspire auto-injects the correct connection string, this is transparent.
+- **`lucia.apphost-...-redis-data` persistent volume**: This is unaffected by the TLS change. Data persists across AppHost restarts as before.
+- **RedisInsight**: The `WithRedisInsight()` secondary companion uses the `SecondaryEndpointName` endpoint (plaintext) for its own connection, per the Aspire source. After the fix this secondary endpoint no longer exists; RedisInsight will fall back to the primary plaintext endpoint, which is correct behaviour.
+
+
+### 24. Dashboard API Key Override / Reset Semantics (Parker, 2026-05-31)
+
+Dashboard API Key Override / Reset Semantics
+
+**Date:** 2026-05-31
+**Author:** Parker (Backend/Platform)
+**Status:** Implemented
+**Supersedes:** Caveat documented in `.squad/agents/parker/history.md` under "2026-05-31: .env → AppHost → AgentHost Config Flow" (seed re-entrance caveat)
+
+---
+
+## Context
+
+`SeedSetupFromEnvAsync` (in `lucia.Agents/Extensions/SetupSeedExtensions.cs`) calls
+`IApiKeyService.CreateKeyFromPlaintextAsync("Dashboard", dashboardKey)` on startup.
+
+`CreateKeyFromPlaintextAsync` contains this gate:
+```
+// MongoApiKeyService.cs:62
+if (existingKeys.Any(k => k.Name == name && !k.IsRevoked)) return null;
+```
+
+If a non-revoked "Dashboard" key already exists in MongoDB — e.g. from a previous deployment
+where the plaintext was lost — a new value of `DASHBOARD_API_KEY` is silently ignored.
+Login fails; no useful log message appears. This is a recovery trap in headless / Docker
+deployments where the operator cannot easily revoke a key without MongoDB access.
+
+## Decision
+
+When `DASHBOARD_API_KEY` is present in configuration, the env value must become the
+**authoritative, working login key**, regardless of what is already stored in MongoDB.
+
+### Approach: `OverrideKeyFromPlaintextAsync` on `IApiKeyService`
+
+Added a new method to `IApiKeyService`:
+
+```csharp
+Task<(ApiKeyCreateResponse? Created, int RevokedCount)> OverrideKeyFromPlaintextAsync(
+    string name, string plaintextKey, CancellationToken cancellationToken = default);
+```
+
+**Why a new method on the interface instead of modifying the call-site:**
+
+The lockout guard in `RevokeKeyAsync` (`if (activeCount <= 1) throw`) prevents revoking the
+Dashboard key when it is the only active key. And `CreateKeyFromPlaintextAsync` prevents
+creating a second same-name key. This deadlock cannot be broken from outside the service
+without exposing a bypass surface. The cleanest, safest encapsulation is a dedicated "override"
+method that owns its own atomic revoke-then-insert sequence inside the service layer.
+
+### Algorithm
+
+1. Compute SHA-256 hash of `plaintextKey`.
+2. Query for a non-revoked key with `name == "Dashboard"` AND `keyHash == hash`.
+   - If found and not expired → `(null, 0)` — already correct, no change.
+3. `UpdateMany` all non-revoked keys with `name == "Dashboard"` to `isRevoked = true`.
+   - This **bypasses the lockout check** intentionally: we are always creating a replacement
+     immediately after. Brief window with zero active keys is acceptable at startup only.
+4. Insert new `ApiKeyEntry` with the computed hash.
+5. Handle `MongoWriteException.DuplicateKey` / SQLite `INSERT OR IGNORE` / Postgres
+   `ON CONFLICT DO NOTHING` for concurrent startup idempotency → `(null, 0)`.
+
+### Return semantics
+
+| `Created` | `RevokedCount` | Meaning |
+|-----------|----------------|---------|
+| `null`    | `0`            | No-op: env key already matched existing key |
+| non-null  | `0`            | First-time create |
+| non-null  | `N > 0`        | Reset: revoked N prior keys, created new one |
+
+### `SetupSeedExtensions` changes
+
+- Class changed to `partial` to support `[LoggerMessage]` source-gen attributes.
+- `CreateKeyFromPlaintextAsync` for Dashboard replaced with `OverrideKeyFromPlaintextAsync`.
+- Guard changed from `IsNullOrEmpty` to `IsNullOrWhiteSpace` (consistent with task spec).
+- Three greppable `[LoggerMessage]` log lines added (see below).
+- All other seed paths (HA connection, MusicAssistant, Auth:SetupComplete) unchanged.
+
+### Log lines (greppable from AgentHost logs)
+
+```
+Dashboard API key already matches DASHBOARD_API_KEY; no reset needed
+Reset Dashboard API key from DASHBOARD_API_KEY (revoked {Count} prior key(s))
+Seeded Dashboard API key from DASHBOARD_API_KEY
+```
+
+## Files Changed
+
+| File | Change |
+|------|--------|
+| `lucia.Agents/Abstractions/IApiKeyService.cs` | Add `OverrideKeyFromPlaintextAsync` |
+| `lucia.Agents/Auth/MongoApiKeyService.cs` | Implement (Mongo `UpdateMany` + `InsertOne` + DuplicateKey catch) |
+| `lucia.Agents/Auth/CachedApiKeyService.cs` | Delegate + `InvalidateAll()` on create |
+| `lucia.Data/Sqlite/SqliteApiKeyService.cs` | Implement (SQL UPDATE + `INSERT OR IGNORE`) |
+| `lucia.Data/PostgreSQL/PostgresApiKeyService.cs` | Implement (SQL UPDATE + `ON CONFLICT DO NOTHING`) |
+| `lucia.Agents/Extensions/SetupSeedExtensions.cs` | Use override method; `[LoggerMessage]`; `partial` class |
+| `lucia.Tests/Auth/SetupSeedExtensionsTests.cs` | 6 new tests (no-existing, different-plaintext, already-matches, blank, missing, idempotent) |
+
+## Idempotency & Concurrency
+
+`SeedSetupFromEnvAsync` is called from two sites at startup:
+- `lucia.AgentHost/Program.cs` (direct call ~line 413)
+- `lucia.Agents/Services/AgentInitializationService.cs` (~line 74)
+
+Both can run concurrently. The override method is safe because:
+1. Both calls hash the same `plaintextKey` to the same value.
+2. Both `UpdateMany` the same rows — the second call updates 0 rows, which is fine.
+3. Both try to insert the same `keyHash`. Mongo unique index / SQLite UNIQUE / Postgres unique
+   constraint causes the second insert to fail with a handled duplicate-key error, returning
+   `(null, 0)`. No duplicate active key is created, no exception propagates.
+
+## Verification Steps for Coordinator
+
+1. Set `DASHBOARD_API_KEY=<your-new-key>` in the repo-root `.env` (minimum 16 chars).
+2. Restart the AppHost: `dotnet run --project lucia.AppHost`.
+3. Check AgentHost logs for one of:
+   - `Reset Dashboard API key from DASHBOARD_API_KEY (revoked 1 prior key(s))` — if a stale key existed
+   - `Seeded Dashboard API key from DASHBOARD_API_KEY` — if no key existed
+   - `Dashboard API key already matches DASHBOARD_API_KEY; no reset needed` — if env value already worked
+4. POST `{"key":"<your-new-key>"}` to `/api/auth/login` — expect `200 OK` with a session token.
+5. Confirm no stale Dashboard key validates: change `DASHBOARD_API_KEY` to a different value,
+   restart, verify the OLD value now returns `401`.
+
+
+### 25. Load repo-root .env in AppHost and forward seed vars to AgentHost (Parker, 2026-05-31)
+
+Load repo-root .env in AppHost and forward seed vars to AgentHost
+
+**Date:** 2026-05-31
+**Author:** Parker (Backend / Platform Engineer)
+**Status:** Implemented
+
+## Context
+
+Zack reported that `DASHBOARD_API_KEY` set in the repo-root `.env` did not result in a usable login via the local dashboard when running via `aspire run`. Investigation confirmed that the Aspire AppHost never loaded the `.env` file, so the value never existed in the AppHost process environment, was never forwarded to the `lucia-agenthost` child process, and consequently `SeedSetupFromEnvAsync` never seeded the Dashboard API key.
+
+## Decision
+
+Load the repo-root `.env` using **DotNetEnv 3.2.0** at the top of `AppHost.cs`, before `DistributedApplication.CreateBuilder(args)`, and conditionally forward the five headless-seed env vars to the AgentHost via `.WithEnvironment(...)`.
+
+## Rationale
+
+- `DistributedApplication.CreateBuilder` does not auto-load `.env` files. Any key not in the system environment or `appsettings*.json` is invisible to both `builder.Configuration` and `Environment.GetEnvironmentVariable()` inside the AppHost process.
+- `DotNetEnv` is the standard .NET `.env` loader. `TraversePath()` eliminates hardcoded path assumptions; `NoClobber()` ensures real system env vars are never overwritten by file values.
+- Aspire `.WithEnvironment(name, value)` is the correct idiom for injecting AppHost-resolved values into child project processes. Values are injected as process environment variables, which `WebApplication.CreateBuilder`'s default `AddEnvironmentVariables()` picks up into `IConfiguration`.
+- `Environment.GetEnvironmentVariable()` is used (not `builder.Configuration[name]`) for double-underscore var names (`HOMEASSISTANT__BASEURL` etc.) because the .NET config provider normalizes `__` → `:`, which would make those keys inaccessible via their original name.
+
+## Changes
+
+| File | Change |
+|------|--------|
+| `Directory.Packages.props` | Added `DotNetEnv` version 3.2.0 to the Misc label group |
+| `lucia.AppHost/lucia.AppHost.csproj` | Added `<PackageReference Include="DotNetEnv" />` (no version — CPM) |
+| `lucia.AppHost/AppHost.cs` | Added `Env.NoClobber().TraversePath().Load()` before `CreateBuilder`; added seed-var forwarding loop after `registryApi` definition |
+
+## Seed Re-entrance Caveat
+
+`MongoApiKeyService.CreateKeyFromPlaintextAsync` returns `null` (no-op) when a non-revoked key named "Dashboard" already exists. If Zack previously created a Dashboard key that is now lost (e.g., forgotten plaintext), setting `DASHBOARD_API_KEY` in `.env` will NOT produce a new key on the next restart — the log line "Seeded Dashboard API key from DASHBOARD_API_KEY" will be absent. Resolution: revoke the existing key via `DELETE /api/keys/{id}` through the Scalar UI, or clear the MongoDB data volume (`docker volume rm <volume>`) to allow a clean re-seed.
+
+## Affected Components
+
+- `lucia.AppHost` — .env loading and env var forwarding
+- `lucia.AgentHost` — receives `DASHBOARD_API_KEY` as process env var, seeds via `SeedSetupFromEnvAsync`
+- `lucia.Agents/Auth/MongoApiKeyService` — stores key hash; guards duplicate seeds
+
+## Verification
+
+After AppHost restart:
+1. Check AgentHost structured logs for: `Seeded Dashboard API key from DASHBOARD_API_KEY`
+2. POST `https://<agenthost>/api/auth/login` with body `{"apiKey": "<value from .env>"}` — expect `200 OK` with `{"authenticated": true, "keyName": "Dashboard", ...}`
+
