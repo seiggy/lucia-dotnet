@@ -59,3 +59,6 @@
 - Format: `FROM image:tag@sha256:<digest>` preserves tag for readability while pinning immutable digest.
 - Supply-chain hardening: eliminates floating-tag risk, enables deterministic rebuilds, improves provenance tracking per charter requirement "pin exact versions".
 - PR opened: https://github.com/seiggy/lucia-dotnet/pull/193
+## 2026-05-31 — PR #195 Workflow Hygiene
+
+Cleaned up workflow configurations (squad-promote/preview/docs): step renames, workflow_dispatch migration, reduced permissions. Consolidated with Ripley/Parker into commit 9809a36.

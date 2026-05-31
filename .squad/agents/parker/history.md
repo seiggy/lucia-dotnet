@@ -68,3 +68,6 @@ Cherry-picking older PR required stripping accidental repo artifacts:
 **Fix approach:** Replaced both `new Uri(agentId)` calls (lines 71 and 140 in the original) in `RegisterAgentAsync` and `UpdateAgentAsync` with `Uri.TryCreate(agentId, UriKind.Absolute, out var agentUri)`. On failure the handlers return `TypedResults.BadRequest(...)` with a clear message. The guard in `RegisterAgentAsync` is placed immediately after the whitespace check; in `UpdateAgentAsync` it's placed before the registry lookup so we fail fast before any async I/O.
 
 **Incidental fix:** `Nerdbank.MessagePack` bumped 1.1.62 → 1.2.4 in `Directory.Packages.props` to clear pre-existing NU1902 vulnerability audit errors that blocked `dotnet build` on the branch. PR #191.
+## 2026-05-31 — PR #195 Personality Guardrail Narrowing
+
+Narrowed personality guardrail C1 in ResultAggregatorExecutor.cs with task-scoped 'never decline rephrasing' rule. Updated test assertions. Consolidated with Ripley/Hicks into commit 9809a36.

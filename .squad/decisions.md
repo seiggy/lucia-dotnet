@@ -1,5 +1,14 @@
 # Squad Decisions
 
+
+### 4. 2026-05-30T13:10:00-04:00: User directive — Ripley pre-push review gate
+**By:** Zack Way (via Ralph)
+**What:** When resolving GitHub Copilot code-review comments on a PR, the author agent (e.g., Parker) resolves the comments and commits LOCALLY but does NOT push. Ripley (Lead) reviews the committed diff against the reviewer comments + general correctness FIRST. Only push after Ripley approves. If Ripley finds issues, iterate before pushing.
+**Why:** To stop the back-and-forth ping-pong with the Copilot review bot. Most of the reviewer's concerns are obvious to Ripley too, so catching them internally before push avoids repeated automated review rounds and wasted CI cycles. Applies broadly to comment-resolution work, not just one PR.
+**Scope/Notes:** This is a pre-push QUALITY gate (iterative refinement of in-progress work), not a formal artifact-rejection lockout — the original author may revise based on Ripley's feedback. Combine with the standing `.squad/`-comments-ignored directive (copilot-directive-20260530T114644.md).
+
+# Squad Decisions
+
 ## Active Decisions
 
 ### 1. Eval Expansion Architecture (Ripley, 2026-03-26)
