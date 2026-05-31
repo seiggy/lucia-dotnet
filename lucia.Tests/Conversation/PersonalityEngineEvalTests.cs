@@ -224,7 +224,7 @@ public sealed class PersonalityEngineEvalTests : TestBase
         // Assert — critical guardrail against LLM refusal behavior
         var userText = stub.CapturedMessages[0][1].Text!;
         Assert.Contains("Never refuse", userText);
-        Assert.Contains("never say you can't do things", userText);
+        Assert.Contains("always attempt it", userText);
     }
 
     [Fact]

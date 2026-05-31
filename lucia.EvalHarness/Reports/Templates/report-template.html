@@ -4,34 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>lucia Eval Report</title>
-<script src="https://cdn.tailwindcss.com"></script>
-<script>
-tailwind.config = {
-  darkMode: 'class',
-  theme: {
-    extend: {
-      colors: {
-        bg:        'var(--c-bg)',
-        surface:   'var(--c-surface)',
-        surface2:  'var(--c-surface2)',
-        surface3:  'var(--c-surface3)',
-        brd:       'var(--c-border)',
-        accent:    'var(--c-accent)',
-        'accent-s':'var(--c-accent-soft)',
-      },
-      textColor: {
-        skin:      'var(--c-text)',
-        skin2:     'var(--c-text2)',
-        skin3:     'var(--c-text3)',
-      },
-      fontFamily: {
-        sans: ['"SF Pro Display"', '"Segoe UI"', 'system-ui', '-apple-system', 'sans-serif'],
-        mono: ['"SF Mono"', '"Cascadia Code"', '"JetBrains Mono"', '"Fira Code"', 'ui-monospace', 'monospace'],
-      },
-    }
-  }
-};
-</script>
+<!--__TAILWIND_CSS__-->
 <style>
   :root {
     --c-bg: #fafaf9; --c-surface: #ffffff; --c-surface2: #f5f5f4; --c-surface3: #e7e5e4;
@@ -176,7 +149,7 @@ tailwind.config = {
       <button class="tab-btn" data-tab="traces">Traces</button>
       <button class="tab-btn" data-tab="comparison">Comparison</button>
     </nav>
-    <button id="theme-btn" class="theme-toggle shrink-0" title="Toggle theme">
+    <button id="theme-btn" class="theme-toggle shrink-0" title="Toggle theme" aria-label="Toggle theme">
       <span class="dark:hidden">🌙</span><span class="hidden dark:inline">☀️</span>
     </button>
   </div>
@@ -324,7 +297,7 @@ function renderSummary() {
   const best = bestModel();
   const fast = fastestModel();
   const gpu = data.gpu;
-  const pp = data.parameterProfile;
+  const pp = data.agents?.[0]?.models?.[0]?.parameters;
   const models = allModelNames();
   const agents = data.agents || [];
 

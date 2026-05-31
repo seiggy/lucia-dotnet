@@ -7,7 +7,9 @@ namespace lucia.EvalHarness.Reports;
 
 /// <summary>
 /// Generates a self-contained HTML report from evaluation results.
-/// Reads the embedded template and injects eval data as JSON.
+/// Loads the HTML template from disk (deployed alongside the assembly under
+/// <c>Reports/Templates/report-template.html</c>), injects eval data as JSON,
+/// and embeds an offline stylesheet so the generated report works without network access.
 /// </summary>
 public static class HtmlReportGenerator
 {
@@ -32,7 +34,9 @@ public static class HtmlReportGenerator
         var dataJson = JsonSerializer.Serialize(data, JsonOptions);
 
         var template = LoadTemplate();
-        var html = template.Replace("/*__EVAL_DATA__*/{}", dataJson);
+        var html = template
+            .Replace("<!--__TAILWIND_CSS__-->", $"<style>{TailwindStaticCss.Css}</style>")
+            .Replace("/*__EVAL_DATA__*/{}", dataJson);
 
         File.WriteAllText(htmlPath, html);
         return htmlPath;

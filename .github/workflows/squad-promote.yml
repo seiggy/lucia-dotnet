@@ -37,11 +37,12 @@ jobs:
           echo "=== Files that would be stripped ==="
           git ls-files | grep -E "^(\.(ai-team|squad|ai-team-templates)/|team-docs/|docs/proposals/)" || echo "(none)"
 
-      - name: Merge master (strip forbidden paths)
+      - name: Confirm master (strip implementation pending)
         if: ${{ inputs.dry_run == 'false' }}
         run: |
           git checkout master
           echo "ℹ️ Using master branch (dev/preview branches do not exist)"
+          # TODO: implement forbidden-path stripping (git filter-repo / sparse-checkout) before enabling real promotion
 
       - name: Dry run complete
         if: ${{ inputs.dry_run == 'true' }}

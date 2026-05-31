@@ -66,6 +66,8 @@ public static class SweepReportGenerator
         // Per-target model sweep results
         foreach (var (targetModel, entries) in result.TargetResults)
         {
+            if (!entries.Any()) continue;
+
             sb.AppendLine($"## {targetModel} — Parameter Sweep Results");
             sb.AppendLine();
 
@@ -115,6 +117,8 @@ public static class SweepReportGenerator
 
         foreach (var (targetModel, entries) in result.TargetResults)
         {
+            if (!entries.Any()) continue;
+
             var best = entries.OrderByDescending(e => e.AverageScore).First();
             var delta = best.AverageScore - baselineAvg;
             var pct = baselineAvg > 0 ? best.AverageScore / baselineAvg * 100 : 0;
@@ -152,7 +156,7 @@ public static class SweepReportGenerator
                 averageScore = e.AverageScore,
                 averageLatencyMs = e.AverageLatencyMs,
                 agents = e.Results.Select(r => new { r.AgentName, r.OverallScore })
-            }).First(),
+            }).FirstOrDefault(),
             allConfigs = kvp.Value.OrderByDescending(e => e.AverageScore).Select(e => new
             {
                 parameters = new
