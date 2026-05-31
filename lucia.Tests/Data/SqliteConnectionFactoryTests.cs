@@ -1,4 +1,5 @@
 using lucia.Data.Sqlite;
+using Microsoft.Data.Sqlite;
 
 namespace lucia.Tests.Data;
 
@@ -15,15 +16,17 @@ public sealed class SqliteConnectionFactoryTests : IDisposable
     public void Constructor_CreatesDirectoryOnFirstUse()
     {
         var nestedPath = Path.Combine(Path.GetTempPath(), $"lucia-nested-{Guid.NewGuid():N}", "sub", "test.db");
+        var parentDir = Path.GetDirectoryName(Path.GetDirectoryName(nestedPath))!;
 
-        using var factory = new SqliteConnectionFactory(nestedPath);
-        // Directory is created lazily on first connection
-        using var conn = factory.CreateConnection();
+        using (var factory = new SqliteConnectionFactory(nestedPath))
+        using (factory.CreateConnection())
+        {
+            Assert.True(Directory.Exists(Path.GetDirectoryName(nestedPath)));
+        }
 
-        Assert.True(Directory.Exists(Path.GetDirectoryName(nestedPath)));
-
-        // Cleanup nested directory
-        Directory.Delete(Path.GetDirectoryName(Path.GetDirectoryName(nestedPath))!, true);
+        // Cleanup nested directory after all connections are disposed
+        SqliteConnection.ClearAllPools();
+        Directory.Delete(parentDir, true);
     }
 
     [Fact]

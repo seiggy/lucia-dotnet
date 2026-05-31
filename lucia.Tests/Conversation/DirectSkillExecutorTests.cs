@@ -85,6 +85,14 @@ public sealed class DirectSkillExecutorTests
                 A<string>._, A<string>._, A<string?>._, A<ServiceCallRequest?>._, A<CancellationToken>._))
             .Returns(Array.Empty<object>());
 
+        // ExactMatchEntities used by non-cascading entity resolution path
+        A.CallTo(() => _entityLocationService.ExactMatchEntities(
+                "living room", A<IReadOnlyList<string>>._))
+            .Returns(new List<HomeAssistantEntity>
+            {
+                new() { EntityId = "light.living_room", FriendlyName = "Living Room Light" }
+            });
+
         var skill = new LightControlSkill(
             haClient,
             A.Fake<ILogger<LightControlSkill>>(),

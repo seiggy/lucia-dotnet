@@ -29,6 +29,7 @@ public sealed partial class WyomingSession : IDisposable
     private SttResult? _pendingTranscript;
     private readonly List<float> _utteranceAudioBuffer = [];
     private readonly List<float> _rawUtteranceAudioBuffer = [];
+    private readonly List<Task> _backgroundTasks = [];
     private int _utteranceSamplesTotal;
     private bool _utteranceCapExceeded;
     private int _utteranceSampleRate = 16_000;
@@ -230,6 +231,17 @@ public sealed partial class WyomingSession : IDisposable
         finally
         {
             SetState(WyomingSessionState.Disconnected);
+            if (_backgroundTasks.Count > 0)
+            {
+                try
+                {
+                    await Task.WhenAll(_backgroundTasks).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Background task in Wyoming session {SessionId} failed", Id);
+                }
+            }
             DisposeEngineSessions();
         }
     }
@@ -1021,12 +1033,12 @@ public sealed partial class WyomingSession : IDisposable
         long snapshotRetranscriptionMs = _enhancedClipRetranscriptionMs;
 
         // Storage is fire-and-forget — don't block the connection teardown
-        _ = Task.Run(() => TrySaveTranscriptRecordAsync(
+        _backgroundTasks.Add(Task.Run(() => TrySaveTranscriptRecordAsync(
             transcript, originalConfidence, utteranceAudio,
             speaker, route: null, responseText: taggedTranscript,
             commandFiltered: false, audioSource,
             snapshotSttMs, snapshotDiarizationMs, snapshotEnhancementMs, snapshotRetranscriptionMs,
-            CancellationToken.None), CancellationToken.None);
+            CancellationToken.None), CancellationToken.None));
     }
 
     /// <summary>
@@ -1247,7 +1259,7 @@ public sealed partial class WyomingSession : IDisposable
                 var audioCopy = utteranceAudio;
                 var sr = sampleRate;
                 var tx = transcript;
-                _ = Task.Run(async () =>
+                _backgroundTasks.Add(Task.Run(async () =>
                 {
                     try
                     {
@@ -1278,7 +1290,7 @@ public sealed partial class WyomingSession : IDisposable
                     {
                         _logger.LogWarning(ex, "Background unknown speaker tracking failed");
                     }
-                }, CancellationToken.None);
+                }, CancellationToken.None));
             }
 
             return null;
