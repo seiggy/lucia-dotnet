@@ -128,3 +128,46 @@ Narrowed personality guardrail C1 in ResultAggregatorExecutor.cs with task-scope
 - Postgres impl: `lucia.Data/PostgreSQL/PostgresApiKeyService.cs`
 - Seed logic: `lucia.Agents/Extensions/SetupSeedExtensions.cs` (now `partial`, uses `[LoggerMessage]`)
 - Tests: `lucia.Tests/Auth/SetupSeedExtensionsTests.cs` (6 tests, real SQLite backing)
+
+## Learnings
+
+### 2026-06-01: InputRequired Task Timeout — Background Sweeper
+
+**Task system location:** `TaskState.InputRequired` is set in `lucia.Agents/Orchestration/LuciaEngine.cs:188` when `workflowResult.NeedsInput == true`. State is persisted via `ITaskStore` (A2A package) — backed in production by `ArchivingTaskStore → RedisTaskStore` (`lucia.Agents/Integration/RedisTaskStore.cs`).
+
+**Root cause:** Before this fix, a task in `InputRequired` had no timeout. It sat indefinitely until the 24h Redis TTL expired (line 158 of `RedisTaskStore.cs`). `TaskArchivalService` only sweeps terminal states (Completed, Failed, Canceled).
+
+**Fix — background sweeper pattern:** `InputRequiredTimeoutService : BackgroundService` in `lucia.Agents/Services/`. A per-task `CancellationTokenSource` was rejected because Redis-backed tasks survive process restarts — a CTS would be lost. The sweeper loops on a configurable interval, reads all task IDs from `ITaskIdIndex`, and cancels any `InputRequired` tasks older than the configured timeout.
+
+**Config options:** `InputRequiredTimeoutOptions` in `lucia.Agents/Configuration/`, section key `InputRequiredTimeout`.
+- `Timeout` — default `00:00:30` (30 seconds)
+- `SweepInterval` — default `00:00:10` (10 seconds)
+Override via appsettings: `"InputRequiredTimeout": { "Timeout": "00:05:00" }`.
+
+**TimeProvider seam:** Sweeper calls `_timeProvider.GetUtcNow()` for both elapsed calculation and for the Canceled timestamp written to the task. `A2A.TaskStatus.Timestamp` is `DateTimeOffset?` — pattern match `if (task.Status.Timestamp is not { } enteredAt) continue;` guards tasks saved without a timestamp.
+
+**Idempotency / concurrency:** Double-check re-read (`GetTaskAsync` a second time) before writing Canceled. If input arrived concurrently between first and second read, state will differ → skip. Subsequent sweeps skip already-Canceled tasks (`State != InputRequired`).
+
+**Key files:**
+- `lucia.Agents/Configuration/InputRequiredTimeoutOptions.cs` — options, defaults, section name
+- `lucia.Agents/Services/InputRequiredTimeoutLogMessages.cs` — compile-time `[LoggerMessage]`
+- `lucia.Agents/Services/InputRequiredTimeoutService.cs` — sweeper; `SweepAsync` is `internal` for direct test access
+- `lucia.Agents/Extensions/ServiceCollectionExtensions.cs` — registration (`Configure<>` + `AddHostedService<>`)
+- `lucia.Tests/Services/InputRequiredTimeoutServiceTests.cs` — 12 tests; `FakeTimeProvider` + `lucia.Data.InMemory.InMemoryTaskStore`; no real sleeps
+
+### 2026-06-01: InputRequired Timeout Default Changed to 1 Minute (parker-8 follow-up)
+
+**Changed from:** 30 seconds (parker-7 initial default)  
+**Changed to:** 1 minute (TimeSpan.FromMinutes(1))  
+**Rationale (per Zack voice-engine reasoning):**
+- Typical human voice reply after LLM output: 6–10 seconds
+- Long speech-to-text utterance: rarely exceeds 15–20 seconds
+- 30 seconds was too tight; slow speaker or noisy environment could lose race
+- 5 minutes too lenient; sessions hang too long in voice loop
+- **1 minute is the safe margin** that won't cut off realistic voice interactions
+
+**File updated:** `lucia.Agents/Configuration/InputRequiredTimeoutOptions.cs` (default parameter changed)  
+**Tests:** All 12 tests still pass; they use explicit overrides, not defaults  
+**Build:** 0 warnings, 0 errors  
+
+**Deployment guidance:** Non-voice deployments (chat UI, async input) should override via configuration to suit their response cadence.

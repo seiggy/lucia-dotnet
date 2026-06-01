@@ -1,5 +1,80 @@
 # Lucia Orchestration & Caching Decisions Log
 
+# Decision: InputRequired Task Auto-Cancel Timeout
+
+**Date:** 2026-06-01  
+**Author:** Parker (Backend / Platform Engineer)  
+**Requested by:** Zack Way  
+
+---
+
+## Context
+
+Tasks in the lucia multi-agent orchestration that enter `TaskState.InputRequired` (set in `LuciaEngine.cs:188` when `workflowResult.NeedsInput == true`) were getting stuck indefinitely. The only safety net was the 24-hour Redis TTL on `RedisTaskStore`. No code-level timeout existed; a task awaiting human input would sit in that state until Redis expired it, causing the agent session to appear permanently hung.
+
+---
+
+## Decision
+
+Implement a **background sweeper service** (`InputRequiredTimeoutService : BackgroundService`) that periodically scans all known task IDs, identifies tasks in `InputRequired` that have exceeded a configurable timeout, and transitions them to `TaskState.Canceled`.
+
+**Why a sweeper, not a per-task `CancellationTokenSource`:**  
+Tasks are durable — persisted in Redis and surviving process restarts. A per-task CTS lives in memory only; it would be silently lost on restart, providing no protection after a pod recycle. The sweeper re-derives timeout state from the stored `TaskStatus.Timestamp` on every startup, making it restart-safe.
+
+---
+
+## Configuration
+
+Options class: `InputRequiredTimeoutOptions` (section key: `InputRequiredTimeout`)
+
+| Key | Default | Notes |
+|-----|---------|-------|
+| `Timeout` | `00:01:00` (1 min) | How long a task may stay in InputRequired before auto-cancel |
+| `SweepInterval` | `00:00:10` (10 s) | How often the sweeper checks |
+
+Override in appsettings or environment:
+```json
+"InputRequiredTimeout": {
+  "Timeout": "00:05:00"
+}
+```
+
+---
+
+## Why 1 Minute (Zack's Voice-Engine Reasoning — 2026-06-01)
+
+Lucia is a **voice response engine**. After the LLM delivers a final response and creates a task awaiting input, a human voice reply typically arrives within 6–10 seconds. Even a long speech-to-text utterance rarely exceeds 15–20 seconds. 30 seconds was too tight (a slow speaker or noisy environment could lose the race), and 5 minutes is far too lenient for a real-time voice loop. **1 minute** was chosen as a safe buffer that won't cut off any realistic voice interaction while still keeping agent sessions from hanging for long periods.
+
+Deployments using a chat UI or other asynchronous input channels should increase this value to suit their expected response cadence.
+
+---
+
+## Idempotency / Concurrency
+
+- **Double-check re-read:** Before writing `Canceled`, the sweeper re-reads the task from the store. If input arrived concurrently (between first and second read), the fresh state will differ and the cancel is skipped.
+- **Late input after cancel:** If input arrives after the task is already `Canceled`, the task's state is no longer `InputRequired`; any handler checking state will see `Canceled` and respond appropriately (not double-complete).
+- **Repeated sweeps:** Canceled tasks have `State != InputRequired` and are skipped in every subsequent sweep pass. Idempotent by design.
+
+---
+
+## Key Files
+
+| File | Role |
+|------|------|
+| `lucia.Agents/Configuration/InputRequiredTimeoutOptions.cs` | Options class, defaults, section name |
+| `lucia.Agents/Services/InputRequiredTimeoutService.cs` | Sweeper implementation; `SweepAsync` is `internal` for test access |
+| `lucia.Agents/Services/InputRequiredTimeoutLogMessages.cs` | Compile-time `[LoggerMessage]` attributes |
+| `lucia.Agents/Extensions/ServiceCollectionExtensions.cs` | DI registration (`Configure<>` + `AddHostedService<>`) |
+| `lucia.Tests/Services/InputRequiredTimeoutServiceTests.cs` | 12 unit tests; `FakeTimeProvider` + `InMemoryTaskStore`; no real sleeps |
+
+---
+
+## Follow-Up
+
+- Consider surfacing `InputRequired` timeout as a per-context/per-agent override (not just global) if different agent types have different human-response expectations.
+- The `SessionManager.UpdateTaskStatusAsync` hardcodes `DateTimeOffset.UtcNow` — consider threading `TimeProvider` through it for complete testability of the task lifecycle.
+
+
 # Decision: Jetson Non-Voice Deploy — Final Outcome
 
 **Date:** 2026-05-31  
@@ -537,3 +612,4 @@ Use UTC consistently for all persisted and compared timestamps — timestamp per
 | ripley  | 1     | #146                                                                   |
 | ash     | 1     | #163                                                                   |
 | **Total** | **50** |                                                                      |
+
