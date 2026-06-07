@@ -114,10 +114,9 @@ public sealed class CachedApiKeyService : IApiKeyService
         string name, string plaintextKey, CancellationToken cancellationToken = default)
     {
         var result = await _inner.OverrideKeyFromPlaintextAsync(name, plaintextKey, cancellationToken).ConfigureAwait(false);
-        if (result.Created is not null)
-        {
-            InvalidateAll();
-        }
+        // Invalidate on any valid override attempt: a revoke-only path (Created == null) can still
+        // mean a previously-cached valid key must no longer be accepted.
+        InvalidateAll();
         return result;
     }
 

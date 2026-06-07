@@ -204,7 +204,7 @@ public static class ServiceCollectionExtensions
             .AddCheck<AgentInitializationHealthCheck>("agent-initialization", tags: ["ready"]);
 
         // Register InputRequired timeout sweeper — auto-cancels tasks stuck waiting
-        // for user input beyond the configured timeout (default 30 s).
+        // for user input beyond the configured timeout (default 1 minute).
         builder.Services.AddHostedService<InputRequiredTimeoutService>();
 
         // Register MCP tool registry and dynamic agent system

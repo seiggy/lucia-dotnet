@@ -1,5 +1,6 @@
 using A2A;
 using FakeItEasy;
+using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
 using lucia.Agents.Services;
 using Microsoft.Extensions.Logging;
@@ -315,5 +316,34 @@ public sealed class InputRequiredTimeoutServiceTests : IDisposable
         Assert.Equal(TaskState.Canceled, (await _store.GetTaskAsync("t1"))!.Status.State);
         Assert.Equal(TaskState.Canceled, (await _store.GetTaskAsync("t2"))!.Status.State);
         Assert.Equal(TaskState.Canceled, (await _store.GetTaskAsync("t3"))!.Status.State);
+    }
+
+    // ── cancellation propagation ─────────────────────────────────────────
+
+    [Fact]
+    public async Task SweepAsync_CancelledMidSweep_PropagatesOperationCanceledException()
+    {
+        // Arrange: use FakeItEasy fakes so the per-task GetTaskAsync throws OCE,
+        // exercising the fix that rethrows OCE instead of swallowing it as a warning.
+        var fakeIndex = A.Fake<ITaskIdIndex>();
+        var fakeStore = A.Fake<ITaskStore>();
+
+        A.CallTo(() => fakeIndex.GetAllTrackedTaskIdsAsync(A<CancellationToken>._))
+            .Returns(Task.FromResult<IReadOnlyList<string>>(["task-cancel"]));
+
+        A.CallTo(() => fakeStore.GetTaskAsync(A<string>._, A<CancellationToken>._))
+            .ThrowsAsync(new OperationCanceledException());
+
+        var options = Options.Create(new InputRequiredTimeoutOptions
+        {
+            Timeout = TimeSpan.FromSeconds(30),
+            SweepInterval = TimeSpan.FromSeconds(10)
+        });
+
+        using var svc = new InputRequiredTimeoutService(fakeIndex, fakeStore, _clock, options, _logger);
+
+        // Act + Assert: OCE must propagate out of SweepAsync, not be silently logged.
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => svc.SweepAsync(new CancellationToken(canceled: true)));
     }
 }

@@ -142,6 +142,12 @@ public sealed class InputRequiredTimeoutService : BackgroundService
                 cancelledCount++;
                 _logger.TaskAutoCancel(taskId, (long)elapsed.TotalSeconds, _options.Timeout);
             }
+            catch (OperationCanceledException)
+            {
+                // Shutdown cancellation — let it propagate so ExecuteAsync exits cleanly
+                // without emitting a per-task "failed to process" warning.
+                throw;
+            }
             catch (Exception ex)
             {
                 _logger.TaskCheckFailed(ex, taskId);
