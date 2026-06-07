@@ -110,6 +110,17 @@ public sealed class CachedApiKeyService : IApiKeyService
     public Task<bool> HasAnyKeysAsync(CancellationToken cancellationToken = default)
         => _inner.HasAnyKeysAsync(cancellationToken);
 
+    public async Task<(ApiKeyCreateResponse? Created, int RevokedCount)> OverrideKeyFromPlaintextAsync(
+        string name, string plaintextKey, CancellationToken cancellationToken = default)
+    {
+        var result = await _inner.OverrideKeyFromPlaintextAsync(name, plaintextKey, cancellationToken).ConfigureAwait(false);
+        if (result.Created is not null)
+        {
+            InvalidateAll();
+        }
+        return result;
+    }
+
     private void InvalidateAll()
     {
         Interlocked.Increment(ref _generation);

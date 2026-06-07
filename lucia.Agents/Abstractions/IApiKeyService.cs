@@ -50,4 +50,20 @@ public interface IApiKeyService
     /// Returns true if any API key exists (setup has been started).
     /// </summary>
     Task<bool> HasAnyKeysAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Ensures the given plaintext key is the active key with the given name, overriding any
+    /// existing key. Bypasses the normal lockout guard because a replacement is always created.
+    /// <list type="bullet">
+    ///   <item>If a non-revoked key with <paramref name="name"/> already hashes to
+    ///         <paramref name="plaintextKey"/>, returns <c>(null, 0)</c> — no change needed.</item>
+    ///   <item>Otherwise, revokes ALL non-revoked keys with <paramref name="name"/> and creates a
+    ///         fresh one from <paramref name="plaintextKey"/>. Returns <c>(newKey, revokedCount)</c>
+    ///         where <c>revokedCount == 0</c> means first-time create and <c>&gt; 0</c> means reset.</item>
+    /// </list>
+    /// This operation is idempotent: concurrent calls with the same plaintext converge to exactly
+    /// one active key and do not throw.
+    /// </summary>
+    Task<(ApiKeyCreateResponse? Created, int RevokedCount)> OverrideKeyFromPlaintextAsync(
+        string name, string plaintextKey, CancellationToken cancellationToken = default);
 }

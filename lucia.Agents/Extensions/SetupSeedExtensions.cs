@@ -11,11 +11,13 @@ namespace lucia.Agents.Extensions;
 /// LUCIA_HA_API_KEY are set in .env, Lucia auto-configures and skips the setup wizard.
 /// Optionally MUSICASSISTANT__INTEGRATIONID seeds the HA Music Assistant config entry ID for the music agent.
 /// </summary>
-public static class SetupSeedExtensions
+public static partial class SetupSeedExtensions
 {
     /// <summary>
     /// Seeds API keys and HA config from environment. If all required env vars are present
     /// and seeding succeeds, marks Auth:SetupComplete so the wizard is skipped.
+    /// When DASHBOARD_API_KEY is present it is authoritative: any pre-existing Dashboard key is
+    /// revoked and replaced so the env value always authenticates successfully.
     /// </summary>
     public static async Task SeedSetupFromEnvAsync(
         this IApiKeyService apiKeyService,
@@ -31,13 +33,26 @@ public static class SetupSeedExtensions
 
         var seededKeys = 0;
 
-        if (!string.IsNullOrEmpty(dashboardKey))
+        if (!string.IsNullOrWhiteSpace(dashboardKey))
         {
-            var result = await apiKeyService.CreateKeyFromPlaintextAsync("Dashboard", dashboardKey, ct).ConfigureAwait(false);
-            if (result is not null)
+            var (created, revokedCount) = await apiKeyService
+                .OverrideKeyFromPlaintextAsync("Dashboard", dashboardKey, ct)
+                .ConfigureAwait(false);
+
+            if (created is null && revokedCount == 0)
             {
+                LogDashboardKeyAlreadyMatches(logger);
                 seededKeys++;
-                logger.LogInformation("Seeded Dashboard API key from DASHBOARD_API_KEY");
+            }
+            else if (created is not null && revokedCount > 0)
+            {
+                LogDashboardKeyReset(logger, revokedCount);
+                seededKeys++;
+            }
+            else if (created is not null)
+            {
+                LogDashboardKeySeeded(logger);
+                seededKeys++;
             }
         }
 
@@ -98,6 +113,18 @@ public static class SetupSeedExtensions
             logger.LogInformation("Setup complete (all non-optional values present) — wizard skipped.");
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Dashboard API key already matches DASHBOARD_API_KEY; no reset needed")]
+    private static partial void LogDashboardKeyAlreadyMatches(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Reset Dashboard API key from DASHBOARD_API_KEY (revoked {Count} prior key(s))")]
+    private static partial void LogDashboardKeyReset(ILogger logger, int count);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Seeded Dashboard API key from DASHBOARD_API_KEY")]
+    private static partial void LogDashboardKeySeeded(ILogger logger);
 
     private static string? GetEnv(IConfiguration configuration, params string[] keys)
     {
