@@ -44,6 +44,11 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-arm64v8@sha256:0a961de5dbc02a50d
 # Set working directory
 WORKDIR /app
 
+# Install curl for health checks (not present in minimal aspnet noble image)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 # Create non-root user for security
 # UID 1100 for non-privileged access
 RUN useradd -m -u 1100 appuser
