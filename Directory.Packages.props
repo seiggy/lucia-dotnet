@@ -9,9 +9,9 @@
        ══════════════════════════════════════════════════════════════ -->
   <PropertyGroup Label="Version Variables">
     <MicrosoftAgentsVersion>1.0.0-rc2</MicrosoftAgentsVersion>
-    <MicrosoftExtensionsAIVersion>10.5.0</MicrosoftExtensionsAIVersion>
-    <MicrosoftExtensionsVersion>10.0.7</MicrosoftExtensionsVersion>
-    <MicrosoftExtensionsConfigVersion>10.0.7</MicrosoftExtensionsConfigVersion>
+    <MicrosoftExtensionsAIVersion>10.6.0</MicrosoftExtensionsAIVersion>
+    <MicrosoftExtensionsVersion>10.0.8</MicrosoftExtensionsVersion>
+    <MicrosoftExtensionsConfigVersion>10.0.8</MicrosoftExtensionsConfigVersion>
     <OpenTelemetryVersion>1.15.3</OpenTelemetryVersion>
     <XunitVersion>2.9.3</XunitVersion>
   </PropertyGroup>
@@ -19,25 +19,25 @@
   <ItemGroup Label="A2A Protocol">
     <PackageVersion Include="A2A" Version="1.0.0-preview" />
     <PackageVersion Include="A2A.AspNetCore" Version="1.0.0-preview" />
-    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.3.3" />
+    <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.4.2" />
     <PackageVersion Include="Npgsql" Version="10.0.2" />
   </ItemGroup>
   <!-- ── .NET Aspire Hosting (AppHost orchestration) ──────────── -->
   <ItemGroup Label="Aspire Hosting">
     <PackageVersion Include="Aspire.Hosting.Azure.AIFoundry" Version="13.1.3-preview.1.26166.8" />
-    <PackageVersion Include="Aspire.Hosting.Azure.CognitiveServices" Version="13.3.3" />
-    <PackageVersion Include="Aspire.Hosting.JavaScript" Version="13.3.3" />
-    <PackageVersion Include="Aspire.Hosting.MongoDB" Version="13.3.3" />
-    <PackageVersion Include="Aspire.Hosting.OpenAI" Version="13.3.3" />
-    <PackageVersion Include="Aspire.Hosting.Redis" Version="13.3.3" />
+    <PackageVersion Include="Aspire.Hosting.Azure.CognitiveServices" Version="13.4.2" />
+    <PackageVersion Include="Aspire.Hosting.JavaScript" Version="13.4.2" />
+    <PackageVersion Include="Aspire.Hosting.MongoDB" Version="13.4.2" />
+    <PackageVersion Include="Aspire.Hosting.OpenAI" Version="13.4.2" />
+    <PackageVersion Include="Aspire.Hosting.Redis" Version="13.4.2" />
     <PackageVersion Include="Aspire.Hosting.Testing" Version="13.2.0" />
   </ItemGroup>
   <!-- ── .NET Aspire Client Integrations (service projects) ───── -->
   <ItemGroup Label="Aspire Client Integrations">
-    <PackageVersion Include="Aspire.Azure.AI.OpenAI" Version="13.3.3-preview.1.26264.13" />
-    <PackageVersion Include="Aspire.MongoDB.Driver" Version="13.3.3" />
+    <PackageVersion Include="Aspire.Azure.AI.OpenAI" Version="13.4.2-preview.1.26303.6" />
+    <PackageVersion Include="Aspire.MongoDB.Driver" Version="13.4.2" />
     <PackageVersion Include="Aspire.MongoDB.Driver.v3" Version="9.5.2" />
-    <PackageVersion Include="Aspire.StackExchange.Redis" Version="13.3.3" />
+    <PackageVersion Include="Aspire.StackExchange.Redis" Version="13.4.2" />
   </ItemGroup>
   <!-- ── Microsoft Agent Framework ────────────────────────────── -->
   <ItemGroup Label="Microsoft Agent Framework">
@@ -108,10 +108,10 @@
   <!-- ── Data & Infrastructure ────────────────────────────────── -->
   <ItemGroup Label="Data and Infrastructure">
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="$(MicrosoftExtensionsVersion)" />
-    <PackageVersion Include="MongoDB.Driver" Version="3.7.1" />
+    <PackageVersion Include="MongoDB.Driver" Version="3.8.1" />
     <PackageVersion Include="System.Linq.Async" Version="7.0.0" />
     <PackageVersion Include="System.Text.Json" Version="$(MicrosoftExtensionsVersion)" />
-    <PackageVersion Include="StackExchange.Redis" Version="2.12.8" />
+    <PackageVersion Include="StackExchange.Redis" Version="2.13.1" />
   </ItemGroup>
   <!-- ── API Documentation ────────────────────────────────────── -->
   <ItemGroup Label="API Documentation">
@@ -148,7 +148,7 @@
     <PackageVersion Include="Microsoft.ML.OnnxRuntime.Managed" Version="1.23.2" />
     <PackageVersion Include="org.k2fsa.sherpa.onnx" Version="1.12.34" />
     <PackageVersion Include="GitHub.Copilot.SDK" Version="0.2.1-preview.1" />
-    <PackageVersion Include="ModelContextProtocol" Version="1.1.0" />
+    <PackageVersion Include="ModelContextProtocol" Version="1.3.0" />
     <PackageVersion Include="OllamaSharp" Version="5.4.25" />
     <PackageVersion Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
   </ItemGroup>
@@ -157,7 +157,7 @@
     <PackageVersion Include="Makaretu.Dns.Multicast" Version="0.27.0" />
     <PackageVersion Include="NAudio" Version="2.3.0" />
     <PackageVersion Include="Nerdbank.MessagePack" Version="1.2.4" />
-    <PackageVersion Include="SharpCompress" Version="0.48.1" />
+    <PackageVersion Include="SharpCompress" Version="1.0.0" />
     <PackageVersion Include="Snappier" Version="1.3.1" />
     <PackageVersion Include="Spectre.Console" Version="0.54.0" />
     <PackageVersion Include="YamlDotNet" Version="16.3.0" />
