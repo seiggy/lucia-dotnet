@@ -94,10 +94,12 @@ public sealed class ModelDownloaderTests : IDisposable
     [Fact]
     public async Task DownloadModelAsync_TarGzUrl_TreatedAsArchive()
     {
-        // Arrange
+        // Arrange — 32 bytes of garbage so SharpCompress's format-detection
+        // buffer is filled enough to raise InvalidFormatException (it raises
+        // EndOfStreamException on shorter streams since SharpCompress 1.0.0).
         var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
         {
-            Content = new ByteArrayContent([0x00, 0x01, 0x02]),
+            Content = new ByteArrayContent(new byte[32]),
         });
 
         var downloader = CreateDownloader(handler);
@@ -113,10 +115,11 @@ public sealed class ModelDownloaderTests : IDisposable
     [Fact]
     public async Task DownloadModelAsync_ZipUrl_TreatedAsArchive()
     {
-        // Arrange
+        // Arrange — see DownloadModelAsync_TarGzUrl_TreatedAsArchive for the
+        // 32-byte rationale (SharpCompress 1.0.0 format-detection floor).
         var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
         {
-            Content = new ByteArrayContent([0x00]),
+            Content = new ByteArrayContent(new byte[32]),
         });
 
         var downloader = CreateDownloader(handler);
@@ -179,10 +182,12 @@ public sealed class ModelDownloaderTests : IDisposable
     [Fact]
     public async Task DownloadModelAsync_UrlWithNoFileName_FallsBackToModelIdArchive()
     {
-        // Arrange — a URL whose path is "/" so GetDownloadFileName returns "{modelId}.tar.bz2"
+        // Arrange — a URL whose path is "/" so GetDownloadFileName returns "{modelId}.tar.bz2".
+        // 32 bytes of garbage so SharpCompress reaches its format-detection floor and
+        // throws InvalidFormatException (smaller streams raise EndOfStreamException in 1.0.0).
         var handler = new FakeHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
         {
-            Content = new ByteArrayContent([0x00]),
+            Content = new ByteArrayContent(new byte[32]),
         });
 
         var downloader = CreateDownloader(handler);
