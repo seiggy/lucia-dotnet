@@ -133,6 +133,9 @@ public static class ServiceCollectionExtensions
         builder.Services.Configure<SessionCacheOptions>(
             builder.Configuration.GetSection("SessionCache"));
 
+        builder.Services.Configure<InputRequiredTimeoutOptions>(
+            builder.Configuration.GetSection(InputRequiredTimeoutOptions.SectionName));
+
         // Session cache: Redis registered in useRedis block above,
         // InMemory registered by AddInMemoryCacheProviders in Program.cs.
 
@@ -199,6 +202,10 @@ public static class ServiceCollectionExtensions
         builder.Services.AddHostedService<AgentInitializationService>();
         builder.Services.AddHealthChecks()
             .AddCheck<AgentInitializationHealthCheck>("agent-initialization", tags: ["ready"]);
+
+        // Register InputRequired timeout sweeper — auto-cancels tasks stuck waiting
+        // for user input beyond the configured timeout (default 1 minute).
+        builder.Services.AddHostedService<InputRequiredTimeoutService>();
 
         // Register MCP tool registry and dynamic agent system
         if (useMongo)

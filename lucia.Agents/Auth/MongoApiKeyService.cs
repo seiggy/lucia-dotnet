@@ -219,6 +219,65 @@ public sealed class MongoApiKeyService : IApiKeyService
         return (int)count;
     }
 
+    public async Task<(ApiKeyCreateResponse? Created, int RevokedCount)> OverrideKeyFromPlaintextAsync(
+        string name, string plaintextKey, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(plaintextKey) || plaintextKey.Length < 16)
+            return (null, 0);
+
+        var hash = HashKey(plaintextKey);
+
+        // Check if a non-revoked key with this name already hashes to the env value → no-op
+        var now = DateTime.UtcNow;
+        var existingMatch = await _collection
+            .Find(k => k.Name == name && k.KeyHash == hash && !k.IsRevoked)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (existingMatch is not null && (!existingMatch.ExpiresAt.HasValue || existingMatch.ExpiresAt.Value > now))
+            return (null, 0);
+
+        // Revoke all non-revoked keys with this name — bypass lockout because we are
+        // creating a replacement immediately after.
+        var revokeUpdate = Builders<ApiKeyEntry>.Update
+            .Set(k => k.IsRevoked, true)
+            .Set(k => k.RevokedAt, DateTime.UtcNow);
+        var revokeResult = await _collection
+            .UpdateManyAsync(k => k.Name == name && !k.IsRevoked, revokeUpdate, cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        var revokedCount = (int)revokeResult.ModifiedCount;
+
+        // Create the replacement key from the provided plaintext.
+        var prefix = plaintextKey.Length <= 12 ? plaintextKey : plaintextKey[..12] + "...";
+        var entry = new ApiKeyEntry
+        {
+            KeyHash = hash,
+            KeyPrefix = prefix,
+            Name = name,
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        try
+        {
+            await _collection.InsertOneAsync(entry, cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (MongoWriteException ex) when (ex.WriteError.Category == ServerErrorCategory.DuplicateKey)
+        {
+            // Concurrent seed: another process already inserted the same hash — idempotent.
+            return (null, 0);
+        }
+
+        _logger.LogInformation("Override API key '{Name}' from env (prefix {Prefix})", name, prefix);
+
+        return (new ApiKeyCreateResponse
+        {
+            Key = plaintextKey,
+            Id = entry.Id,
+            Prefix = prefix,
+            Name = name,
+            CreatedAt = entry.CreatedAt,
+        }, revokedCount);
+    }
+
     public async Task<bool> HasAnyKeysAsync(CancellationToken cancellationToken = default)
     {
         var count = await _collection

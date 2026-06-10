@@ -1,3 +1,11 @@
+using DotNetEnv;
+
+// Load the repo-root .env before CreateBuilder so the values land in
+// IConfiguration via AddEnvironmentVariables(). TraversePath() walks up
+// from the AppHost working directory until it finds a .env file.
+// NoClobber() ensures real process-environment values always win over .env.
+Env.NoClobber().TraversePath().Load();
+
 var builder = DistributedApplication.CreateBuilder(args);
 
 // Read DataProvider config to conditionally include infrastructure containers
@@ -16,7 +24,14 @@ if (useRedis)
         .WithLifetime(ContainerLifetime.Persistent)
         .WithRedisInsight()
         .WithPersistence()
-        .WithContainerName("redis");
+        .WithContainerName("redis")
+        // Aspire 13 auto-enables TLS on the primary Redis endpoint when a dev cert is present,
+        // which causes the built-in redis_check health check to fail with an EOF during the
+        // TLS handshake (the AppHost-side ConnectionMultiplexer doesn't trust the Aspire dev cert).
+        // Opting out of HTTPS certificate configuration reverts Redis to plaintext-only on its
+        // primary endpoint so the health check can connect successfully. TLS is still available
+        // in production via the infra/Helm Redis chart's own TLS configuration.
+        .WithoutHttpsCertificate();
 }
 
 IResourceBuilder<MongoDBServerResource>? mongodb = null;
@@ -79,6 +94,26 @@ var registryApi = builder.AddProject<Projects.lucia_AgentHost>("lucia-agenthost"
         url.Url = "/scalar";
     })
     .WithExternalHttpEndpoints();
+
+// Forward .env seed vars to the AgentHost only when non-empty, so we never
+// inject blank strings that could clobber real config values.
+// Environment.GetEnvironmentVariable is used here (rather than builder.Configuration)
+// to avoid the __ → : normalization that IConfiguration applies to double-underscore
+// env var names, preserving the exact key names the AgentHost expects.
+string[] seedEnvNames =
+[
+    "DASHBOARD_API_KEY",
+    "LUCIA_HA_API_KEY",
+    "HOMEASSISTANT__BASEURL",
+    "HOMEASSISTANT__ACCESSTOKEN",
+    "MUSICASSISTANT__INTEGRATIONID",
+];
+foreach (var envName in seedEnvNames)
+{
+    var value = Environment.GetEnvironmentVariable(envName);
+    if (!string.IsNullOrEmpty(value))
+        registryApi.WithEnvironment(envName, value);
+}
 
 // Conditionally wire infrastructure references
 if (redis is not null)

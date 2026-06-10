@@ -3,6 +3,9 @@
     <OutputType>Exe</OutputType>
     <PreviewFeatures>enable</PreviewFeatures>
     <UserSecretsId>dd99e9ff-e233-4d7f-99b9-8c04beabcc9f</UserSecretsId>
+    <!-- ASPIRECERTIFICATES001: suppress experimental warning for WithoutHttpsCertificate()
+         used to opt Redis out of auto-TLS so the built-in redis_check health check can connect. -->
+    <NoWarn>$(NoWarn);ASPIRECERTIFICATES001</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Aspire.Hosting.Azure.AIFoundry" />
@@ -14,6 +17,7 @@
     <PackageReference Include="Aspire.Hosting.Redis" />
     <PackageReference Include="CommunityToolkit.Aspire.Hosting.JavaScript.Extensions" />
     <PackageReference Include="Scalar.Aspire" />
+    <PackageReference Include="DotNetEnv" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.Http" />

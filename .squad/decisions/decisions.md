@@ -1,9 +1,163 @@
 # Lucia Orchestration & Caching Decisions Log
 
+# Decision: InputRequired Task Auto-Cancel Timeout
+
+**Date:** 2026-06-01  
+**Author:** Parker (Backend / Platform Engineer)  
+**Requested by:** Zack Way  
+
+---
+
+## Context
+
+Tasks in the lucia multi-agent orchestration that enter `TaskState.InputRequired` (set in `LuciaEngine.cs:188` when `workflowResult.NeedsInput == true`) were getting stuck indefinitely. The only safety net was the 24-hour Redis TTL on `RedisTaskStore`. No code-level timeout existed; a task awaiting human input would sit in that state until Redis expired it, causing the agent session to appear permanently hung.
+
+---
+
+## Decision
+
+Implement a **background sweeper service** (`InputRequiredTimeoutService : BackgroundService`) that periodically scans all known task IDs, identifies tasks in `InputRequired` that have exceeded a configurable timeout, and transitions them to `TaskState.Canceled`.
+
+**Why a sweeper, not a per-task `CancellationTokenSource`:**  
+Tasks are durable — persisted in Redis and surviving process restarts. A per-task CTS lives in memory only; it would be silently lost on restart, providing no protection after a pod recycle. The sweeper re-derives timeout state from the stored `TaskStatus.Timestamp` on every startup, making it restart-safe.
+
+---
+
+## Configuration
+
+Options class: `InputRequiredTimeoutOptions` (section key: `InputRequiredTimeout`)
+
+| Key | Default | Notes |
+|-----|---------|-------|
+| `Timeout` | `00:01:00` (1 min) | How long a task may stay in InputRequired before auto-cancel |
+| `SweepInterval` | `00:00:10` (10 s) | How often the sweeper checks |
+
+Override in appsettings or environment:
+```json
+"InputRequiredTimeout": {
+  "Timeout": "00:05:00"
+}
+```
+
+---
+
+## Why 1 Minute (Zack's Voice-Engine Reasoning — 2026-06-01)
+
+Lucia is a **voice response engine**. After the LLM delivers a final response and creates a task awaiting input, a human voice reply typically arrives within 6–10 seconds. Even a long speech-to-text utterance rarely exceeds 15–20 seconds. 30 seconds was too tight (a slow speaker or noisy environment could lose the race), and 5 minutes is far too lenient for a real-time voice loop. **1 minute** was chosen as a safe buffer that won't cut off any realistic voice interaction while still keeping agent sessions from hanging for long periods.
+
+Deployments using a chat UI or other asynchronous input channels should increase this value to suit their expected response cadence.
+
+---
+
+## Idempotency / Concurrency
+
+- **Double-check re-read:** Before writing `Canceled`, the sweeper re-reads the task from the store. If input arrived concurrently (between first and second read), the fresh state will differ and the cancel is skipped.
+- **Late input after cancel:** If input arrives after the task is already `Canceled`, the task's state is no longer `InputRequired`; any handler checking state will see `Canceled` and respond appropriately (not double-complete).
+- **Repeated sweeps:** Canceled tasks have `State != InputRequired` and are skipped in every subsequent sweep pass. Idempotent by design.
+
+---
+
+## Key Files
+
+| File | Role |
+|------|------|
+| `lucia.Agents/Configuration/InputRequiredTimeoutOptions.cs` | Options class, defaults, section name |
+| `lucia.Agents/Services/InputRequiredTimeoutService.cs` | Sweeper implementation; `SweepAsync` is `internal` for test access |
+| `lucia.Agents/Services/InputRequiredTimeoutLogMessages.cs` | Compile-time `[LoggerMessage]` attributes |
+| `lucia.Agents/Extensions/ServiceCollectionExtensions.cs` | DI registration (`Configure<>` + `AddHostedService<>`) |
+| `lucia.Tests/Services/InputRequiredTimeoutServiceTests.cs` | 12 unit tests; `FakeTimeProvider` + `InMemoryTaskStore`; no real sleeps |
+
+---
+
+## Follow-Up
+
+- Consider surfacing `InputRequired` timeout as a per-context/per-agent override (not just global) if different agent types have different human-response expectations.
+- The `SessionManager.UpdateTaskStatusAsync` hardcodes `DateTimeOffset.UtcNow` — consider threading `TimeProvider` through it for complete testability of the task lifecycle.
 
 
+# Decision: Jetson Non-Voice Deploy — Final Outcome
 
+**Date:** 2026-05-31  
+**Author:** Hicks (DevOps)  
+**Status:** ✅ DEPLOYED & VALIDATED
 
+---
+
+## Context
+
+Retry of the Jetson non-voice platform deploy after previous run hit a subnet routing block (192.168.0.x host could not reach 192.168.1.x Jetson). Zack bounced the Jetson; it came back online on 192.168.1.239.
+
+---
+
+## Deploy Outcome
+
+### Connectivity
+SSH to `zackw@192.168.1.239` ✅ connected with key-based auth. No password prompt, no host-key interaction needed. L3 ping 3–23ms RTT.
+
+### Jetson State Before Deploy
+| Item | State |
+|------|-------|
+| Compose project | `zackw` from `/home/zackw/docker-compose.jetson.yml` |
+| lucia-jetson image | `seiggy/lucia-agenthost:jetson` (registry, not on-device build) |
+| lucia-jetson health | **unhealthy** (curl not found, 18 fail streak) |
+| Redis / MongoDB | healthy |
+| Voice containers | 2 stopped (`jetson-wyoming:full-ram`, `jw-gpu`) |
+| Repo on device | Not cloned |
+
+### Steps Executed
+1. Cloned repo: `git clone https://github.com/seiggy/lucia-dotnet.git ~/lucia-dotnet` → `master` @ `f484680`
+2. Patched `Dockerfile.agenthost-jetson` on-device:
+   - Added curl installation in base stage (fixes unhealthy healthcheck)
+   - Stripped `@sha256:...` pins from all `FROM` lines (Docker 29.4.1 BuildKit fails on manifest-list digests)
+3. Took down old stack: `docker compose -f ~/docker-compose.jetson.yml down --remove-orphans`
+4. Built on-device: `docker compose -f infra/docker/docker-compose.jetson.yml build --no-cache lucia` (via nohup background script, ~15 min on A57)
+5. Started stack: `docker compose -f infra/docker/docker-compose.jetson.yml up -d`
+
+### Result
+- Image built: `lucia:jetson` sha256:`4de9e2bb71f0`, 434MB
+- New compose project: `docker` (from `lucia-dotnet/infra/docker/` directory)
+
+### Validation
+| Check | Result |
+|-------|--------|
+| `docker compose ps` — all healthy | ✅ lucia-jetson, lucia-mongo-jetson, lucia-redis-jetson all `(healthy)` |
+| `curl http://localhost:7233/health` | ✅ `Healthy` |
+| `redis-cli PING` | ✅ `PONG` |
+| `mongosh ping` | ✅ `1` |
+| Voice containers | ✅ Zero running |
+
+### Access
+- Dashboard / API: `http://192.168.1.239:7233`
+- Health endpoint: `http://192.168.1.239:7233/health`
+- Logs: `docker compose -f ~/lucia-dotnet/infra/docker/docker-compose.jetson.yml logs -f lucia`
+- First-run setup wizard handles LLM keys and HA token — no `.env` needed
+
+---
+
+## Decisions / Action Items for Coordinator
+
+### 1. Commit `deploy-jetson.sh` to remote (REQUIRED)
+`infra/docker/deploy-jetson.sh` exists locally but was **never pushed** to `seiggy/lucia-dotnet`. The Jetson clone had it absent. Without this file, `deploy-jetson.sh` must be recreated manually every time. Coordinator should commit it.
+
+### 2. Fix `Dockerfile.agenthost-jetson` SHA pins (REQUIRED before next deploy)
+The `@sha256:...` digest pins added in PR #193 break on Docker 29.4.1 on the Jetson with:  
+```
+unexpected media type application/octet-stream for sha256:...: not found
+```
+Root cause: the SHAs were resolved as manifest-list (multi-arch index) digests, not single-platform ARM64 image digests. BuildKit on the Jetson can't resolve them.  
+
+**Fix options (pick one):**
+- **Option A (preferred):** Re-resolve digests for the Jetson Dockerfile specifically using `--platform linux/arm64`:  
+  `docker buildx imagetools inspect --format '{{json .Manifest}}' mcr.microsoft.com/dotnet/sdk:10.0-noble-arm64v8 | jq '.digest'`  
+  This gives the platform-specific digest, which BuildKit CAN resolve.
+- **Option B:** Remove SHA pins from `Dockerfile.agenthost-jetson` only (the ARM64 image is already `*-arm64v8` tag, which is unambiguous). The other Dockerfiles can keep their pins.
+
+The local `Dockerfile.agenthost-jetson` already has the curl fix (stage 1 of the needed changes).
+
+### 3. Note: Volume data orphaned (informational)
+Old stack volumes (`zackw_lucia-redis-data`, `zackw_lucia-mongo-data`) remain on disk but are no longer attached. They can be pruned with `docker volume prune` on the Jetson. No important data (first-run wizard config was not set up on the old unhealthy stack).
+
+---
 
 # Bishop — Shopping list fallback for todo-backed Home Assistant lists
 
@@ -157,110 +311,6 @@ No tight CPU spin was found. The idle CPU is most likely the **aggregate effect*
 
 ---
 
-# Decision: Jetson Nano ARM64 Dockerfile & Compose
-
-**Date:** 2026-03-29  
-**Author:** Hicks (DevOps / Infrastructure Engineer)  
-**Scope:** Docker images and deployment configuration  
-**Status:** ACCEPTED
-
-## Problem Statement
-
-Lucia needs to support deployment on NVIDIA Jetson Nano (ARM64/aarch64) edge devices. The existing Dockerfiles (standard x64, GPU voice variant, CPU voice variant) do not support ARM64. Additionally, the speech pipeline (Wyoming + ONNX Runtime) has dependency gaps on ARM64 (no .NET ONNX Runtime support for GPU or CPU inference on ARM), requiring a new build variant that excludes the speech pipeline entirely.
-
-## Decision
-
-Create two new infrastructure files to enable ARM64 Jetson Nano deployment:
-
-1. **`infra/docker/Dockerfile.agenthost-jetson`** — Multi-stage Dockerfile for ARM64 without speech pipeline
-2. **`infra/docker/docker-compose.jetson.yml`** — Docker Compose configuration with resource constraints optimized for 4GB RAM Jetson boards
-
-### Key Design Choices
-
-#### 1. ExcludeSpeech Precompiler Flag
-- Pass `-p:ExcludeSpeech=true` at **restore**, **build**, and **publish** stages to ensure speech-related dependencies are never included.
-- Matches Parker's .NET code changes that conditionally compile speech features.
-- No runtime env vars needed — pure compile-time gate.
-
-#### 2. ARM64 Base Images
-- **Runtime:** `mcr.microsoft.com/dotnet/aspnet:10.0-noble-arm64v8` (minimal Ubuntu Noble, ARM64-optimized)
-- **Build:** `mcr.microsoft.com/dotnet/sdk:10.0-noble-arm64v8`
-- Both images are official Microsoft images, pinned to .NET 10.0, and widely available in public registries.
-
-#### 3. No Assets Stage
-- Removed the assets/pre-built binaries pattern — no Wyoming models, no GPU ONNX Runtime libs needed.
-- Simplified build: only `node-build` → `base` → `build` → `publish` → `final` (5 stages instead of 6).
-
-#### 4. Separate Compose File
-- `docker-compose.jetson.yml` is independent of `docker-compose.yml` (standard x64 deployment).
-- Allows different resource limits without conditional logic in a single file.
-- Tighter constraints: Redis 128MB (vs 256MB), MongoDB 256MB (vs 512MB), AgentHost 512MB (vs 1GB).
-
-#### 5. Security & Non-Root User
-- Same non-root user pattern (appuser, UID 1100) as standard images.
-- Same health check, read-only filesystem, and capability dropping.
-- No voice models → no `/app/models` volume (only `/app/plugins` for future extensibility).
-
-## Rationale
-
-### Why Separate Jetson Compose?
-A single `docker-compose.yml` with profiles would require conditional resource limits, making the file harder to read and maintain. Separate compose files follow the pattern of existing variants (e.g., `docker-compose.lucia-sidecar.yml`, `docker-compose.voice.yml`).
-
-### Why No GPU Support on Jetson?
-Jetson's NVIDIA CUDA runtime is available, but `.NET ONNX Runtime` lacks ARM64 GPU binaries. The Wyoming speech pipeline depends on ONNX Runtime. Fixing this would require:
-1. Compiling ONNX Runtime from source for ARM64 CUDA (weeks of work, many edge cases)
-2. Or using a fallback SLM (small language model) for speech on Jetson
-
-This decision chooses pragmatism: deploy Jetson **without speech** for now, unblocking the use case. Speech can be added later when `.NET ONNX Runtime` officially supports ARM64 or a fallback SLM is integrated.
-
-### Why ExcludeSpeech in Build?
-Compile-time gates prevent accidental inclusion of speech dependencies even if Wyoming package is restored. Runtime env vars are easier to forget; build-time gates are bulletproof.
-
-## Files Created
-
-- `infra/docker/Dockerfile.agenthost-jetson` (219 lines) — ARM64 build without speech
-- `infra/docker/docker-compose.jetson.yml` (280 lines) — Jetson deployment config
-
-## Files Modified
-
-- `infra/docker/README.md` — Added "Jetson Nano ARM64 Deployment" section with build/deploy examples and comparison table
-
-## Testing & Validation
-
-Before merging:
-
-1. **Build locally** (on ARM64 board or cross-compile):
-   ```bash
-   docker build -f infra/docker/Dockerfile.agenthost-jetson -t lucia:jetson .
-   ```
-
-2. **Start compose**:
-   ```bash
-   docker compose -f docker-compose.jetson.yml up -d
-   ```
-
-3. **Verify health**:
-   ```bash
-   docker compose -f docker-compose.jetson.yml ps
-   curl http://localhost:7233/health
-   ```
-
-4. **Confirm speech is disabled** — Check app logs; verify no Wyoming/ONNX warnings.
-
-## Impact
-
-- ✅ **New capability:** Jetson Nano (and all ARM64 boards) now supported
-- ✅ **No breaking changes** — Standard x64 images and compose unchanged
-- ✅ **Consistent patterns** — Follows existing Dockerfile and compose conventions
-- ❌ **No speech pipeline on Jetson** — Acceptable trade-off; local LLM + Home Assistant automation still works without voice
-
-## Future Work
-
-1. **Speech on Jetson** — Once `.NET ONNX Runtime` ARM64 support lands, re-enable speech by removing `ExcludeSpeech=true`.
-2. **Jetson-specific SLM** — Explore lightweight speech models (e.g., SherpaONNX CPU) that don't require ONNX Runtime GPU bindings.
-3. **Kubernetes Jetson** — Add Helm chart variant for multi-Jetson clusters.
-
----
 
 **Approved by:** Zack Way  
 **Co-author:** Hicks (GitHub Copilot CLI)
@@ -385,140 +435,6 @@ These files are not source-of-truth application code and they either bloat the r
 
 ---
 
-# CPU Idle Optimization — Implementation Plan
-
-**Author:** Ripley (Lead / Eval Architect)
-**Date:** 2025-07-23
-**Status:** Approved — ready for implementation
-**Based on:** Brett's CPU Investigation (`brett-cpu-investigation.md`)
-
----
-
-## Executive Summary
-
-Brett's investigation correctly identified the two highest-impact contributors to idle CPU:
-1. **Config pollers** hitting DB every 5 seconds unconditionally (SQLite + Mongo)
-2. **ONNX Runtime native thread pools** staying warm across multiple singleton sessions
-
-Both findings are validated. This plan assigns concrete fix tasks to Parker (config) and Brett (ORT).
-
----
-
-## Issue 1: Config Pollers — 5-Second Unconditional DB Polling
-
-### Validated Root Cause
-
-Both `SqliteConfigurationProvider` and `MongoConfigurationProvider` use `System.Threading.Timer` at a 5-second interval. Every tick:
-- **SQLite:** Opens a new connection, runs `SELECT COUNT(*), COALESCE(MAX(updated_at), '') FROM configuration`, computes a hash, and only reloads all rows if the hash changed. The change-detection is present but the connection open/close cycle runs unconditionally every 5s.
-- **Mongo:** Runs `AnyAsync()` with a `Gt(UpdatedAt, _lastLoadTime)` filter against MongoDB every 5s.
-
-Key insight: `ConfigurationApi.UpdateSectionAsync` already calls `configRoot.Reload()` after writes (line 225 of `ConfigurationApi.cs`). This means the 5s poll is **only needed for external changes** (direct DB edits, multi-instance deployments). That's a rare event — the poll can be very slow.
-
-### Chosen Fix: Increase Default to 30s + Make Configurable
-
-**Approach:** Change the default `PollInterval` from `TimeSpan.FromSeconds(5)` to `TimeSpan.FromSeconds(30)` in both Source classes. Keep the `pollInterval` constructor parameter so it remains overridable.
-
-**Why 30s:** Config changes from direct DB edits are rare. A 30-second lag is imperceptible for human-initiated config changes. The `configRoot.Reload()` on API writes already provides instant reload for normal operations.
-
-**Why not longer (60s+):** Some users may expect reasonably fast feedback from the admin UI after a DB edit. 30s is a pragmatic middle ground.
-
-### Rejected Alternatives
-
-| Alternative | Why Rejected |
-|---|---|
-| **SQLite WAL file-change notification** | Requires filesystem inotify, fragile across NFS/Docker volumes, and the current hash-based change detection in SQLite is already efficient — the problem is just the interval |
-| **MongoDB change streams** | Requires a replica set (standalone MongoDB won't work). This project supports both standalone and replica set deployments. Too restrictive. |
-| **Remove polling entirely** | Would break detection of external changes (multi-instance, direct DB edits) |
-| **Event-driven with SignalR/Redis pub-sub** | Massive over-engineering for a config poller. Adds infrastructure dependency. |
-
-### Additional Fix: Mongo Provider Race Condition
-
-The `MongoConfigurationProvider` uses `volatile bool _isPolling` instead of `Interlocked.CompareExchange`. This is a data race — two timer callbacks could both read `_isPolling == false` before either sets it to `true`. The SQLite provider correctly uses `Interlocked`. Fix the Mongo provider to match.
-
----
-
-## Issue 2: ONNX Runtime Native Thread Pool — Warm Sessions
-
-### Validated Root Cause
-
-Multiple singleton ONNX sessions are loaded eagerly at startup and kept alive for the app lifetime:
-
-| Engine | Sessions | IntraOp Threads | InterOp Threads |
-|---|---|---|---|
-| `GtcrnSpeechEnhancer` | 1 `InferenceSession` | 2 | 1 |
-| `GraniteOnnxEngine` | 1–3 `InferenceSession` | `_options.NumThreads` (default: 4) | 1 |
-| `SherpaSttEngine` | 1 `OnlineRecognizer` (wraps ORT) | via `NumThreads` (default: 4) | N/A (sherpa manages) |
-| `HybridSttEngine` | 1 `OfflineRecognizer` (wraps ORT) | via `NumThreads` (default: 4) | N/A (sherpa manages) |
-| `SherpaDiarizationEngine` | 1 `SpeakerEmbeddingExtractor` | 2 | N/A (sherpa manages) |
-
-**Worst case:** If all engines are enabled, that's 7+ ORT sessions × 2–4 intra-op threads each = 14–28 native threads with active spin loops. ORT's default spin control keeps these threads spinning for work even when idle, which shows as baseline CPU on `top`.
-
-The `ModelStartupValidator` runs warm-up inferences at startup only — not ongoing. The CPU drain is from the thread pool spin, not from inference.
-
-### Chosen Fix: Two-Phase Approach
-
-#### Phase 1 (Quick Win): Environment Variable `ORT_THREADPOOL_SPIN_CONTROL=0`
-
-Set `ORT_THREADPOOL_SPIN_CONTROL=0` in the container entrypoint / docker-compose / Aspire AppHost. This tells ORT's thread pool to sleep when idle instead of busy-spinning. It is the single highest-impact change with zero code modifications.
-
-**Tradeoff:** First inference after idle will have ~1-5ms extra latency as threads wake from sleep instead of being already spinning. For voice processing at 16kHz, this is imperceptible — the audio buffer alone is hundreds of milliseconds.
-
-#### Phase 2 (Code Change): Reduce Default `NumThreads` from 4 to 2
-
-Change the default `NumThreads` in all options classes from `4` to `2`:
-- `SttModelOptions.NumThreads` → 2
-- `SttOptions.NumThreads` → 2
-- `HybridSttOptions.NumThreads` → 2
-- `GraniteOptions.NumThreads` → 2
-- `OfflineSttOptions.NumThreads` → 2
-
-**Rationale:** These engines process short audio clips (1–30 seconds). On a typical 4–8 core machine, 4 intra-op threads per session is excessive, especially with multiple engines loaded. 2 threads per session still enables parallelism for ORT graph execution while cutting native thread count in half.
-
-The GTCRN enhancer and diarization engine already use `NumThreads = 2` — they're correctly sized.
-
-### Rejected Alternatives
-
-| Alternative | Why Rejected |
-|---|---|
-| **Lazy-load models on first voice session** | Adds 2–8 seconds of cold-start latency on first voice command. Unacceptable for a voice assistant. The `ModelStartupValidator` explicitly warm-starts for this reason. |
-| **Idle timeout + dispose after N minutes** | Same cold-start problem. Model reload is expensive (disk I/O, memory allocation, graph optimization). Users expect instant response when they say the wake word. |
-| **`IntraOpNumThreads = 1` for idle sessions** | ORT `SessionOptions` are immutable after session creation. Would require disposing and recreating sessions, which is equivalent to lazy loading — same latency problem. |
-| **Use ORT's `DisablePerSessionThreads`** | Shares a global thread pool across sessions — reduces total threads but removes ability to control per-engine parallelism. Could cause contention between engines. |
-
----
-
-## Task Breakdown
-
-### Parker (Backend / Config) — Config Poller Fixes
-
-**Task P1: Increase default poll interval to 30s**
-
-Files to change:
-- `lucia.Data/Sqlite/SqliteConfigurationSource.cs` line 20: `TimeSpan.FromSeconds(5)` → `TimeSpan.FromSeconds(30)`
-- `lucia.Agents/Configuration/MongoConfigurationSource.cs` line 25: `TimeSpan.FromSeconds(5)` → `TimeSpan.FromSeconds(30)`
-- `lucia.Data/Sqlite/SqliteConfigurationProvider.cs` line 28: `TimeSpan.FromSeconds(5)` → `TimeSpan.FromSeconds(30)`
-- `lucia.Agents/Configuration/MongoConfigurationProvider.cs` line 25: `TimeSpan.FromSeconds(5)` → `TimeSpan.FromSeconds(30)`
-
-Acceptance criteria:
-- Both providers default to 30s polling
-- Existing `pollInterval` constructor parameter still works for custom intervals
-- `configRoot.Reload()` in `ConfigurationApi.UpdateSectionAsync` still provides instant reload on API writes
-- No behavior change visible to users (config changes via admin UI are still instant)
-
-**Task P2: Fix Mongo provider race condition**
-
-File: `lucia.Agents/Configuration/MongoConfigurationProvider.cs`
-- Change `private volatile bool _isPolling;` → `private int _isPolling;`
-- Change poll guard from `if (_isPolling) return; _isPolling = true;` → `if (Interlocked.CompareExchange(ref _isPolling, 1, 0) != 0) return;`
-- Change cleanup from `_isPolling = false;` → `Interlocked.Exchange(ref _isPolling, 0);`
-
-This matches the pattern already used correctly in `SqliteConfigurationProvider`.
-
-Acceptance criteria:
-- No overlapping polls possible even under timer re-entrance
-- Tests still pass
-
----
 
 ### Brett (Voice / ORT) — ONNX Thread Pool Fixes
 
@@ -696,3 +612,4 @@ Use UTC consistently for all persisted and compared timestamps — timestamp per
 | ripley  | 1     | #146                                                                   |
 | ash     | 1     | #163                                                                   |
 | **Total** | **50** |                                                                      |
+

@@ -291,6 +291,78 @@ public sealed class SqliteApiKeyService : IApiKeyService
         return result is long count && count > 0;
     }
 
+    public async Task<(ApiKeyCreateResponse? Created, int RevokedCount)> OverrideKeyFromPlaintextAsync(
+        string name, string plaintextKey, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(plaintextKey) || plaintextKey.Length < 16)
+            return (null, 0);
+
+        var hash = HashKey(plaintextKey);
+
+        // Check if a non-revoked key with this name already hashes to the env value → no-op
+        using var checkConn = _connectionFactory.CreateConnection();
+        using var checkCmd = checkConn.CreateCommand();
+        checkCmd.CommandText = """
+            SELECT COUNT(*) FROM api_keys
+            WHERE name = @name AND key_hash = @hash AND is_revoked = 0
+              AND (expires_at IS NULL OR expires_at > @now);
+            """;
+        checkCmd.Parameters.AddWithValue("@name", name);
+        checkCmd.Parameters.AddWithValue("@hash", hash);
+        checkCmd.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("O"));
+        var matchCount = (long)(await checkCmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
+        if (matchCount > 0)
+            return (null, 0);
+
+        // Revoke existing non-revoked keys with this name — bypass lockout because we are
+        // creating a replacement immediately after.
+        using var revokeConn = _connectionFactory.CreateConnection();
+        using var revokeCmd = revokeConn.CreateCommand();
+        revokeCmd.CommandText = """
+            UPDATE api_keys SET is_revoked = 1, revoked_at = @revokedAt
+            WHERE name = @name AND is_revoked = 0;
+            """;
+        revokeCmd.Parameters.AddWithValue("@revokedAt", DateTime.UtcNow.ToString("O"));
+        revokeCmd.Parameters.AddWithValue("@name", name);
+        var revokedCount = await revokeCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        // Create the replacement key from the provided plaintext.
+        var prefix = plaintextKey.Length <= 12 ? plaintextKey : plaintextKey[..12] + "...";
+        var id = Guid.NewGuid().ToString("N");
+        var createdAt = DateTime.UtcNow;
+
+        using var insertConn = _connectionFactory.CreateConnection();
+        using var insertCmd = insertConn.CreateCommand();
+        insertCmd.CommandText = """
+            INSERT OR IGNORE INTO api_keys (id, key_hash, key_prefix, name, created_at, scopes)
+            VALUES (@id, @keyHash, @keyPrefix, @name, @createdAt, @scopes);
+            """;
+        insertCmd.Parameters.AddWithValue("@id", id);
+        insertCmd.Parameters.AddWithValue("@keyHash", hash);
+        insertCmd.Parameters.AddWithValue("@keyPrefix", prefix);
+        insertCmd.Parameters.AddWithValue("@name", name);
+        insertCmd.Parameters.AddWithValue("@createdAt", createdAt.ToString("O"));
+        insertCmd.Parameters.AddWithValue("@scopes", JsonSerializer.Serialize(new[] { "*" }));
+
+        var inserted = await insertCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        if (inserted == 0)
+        {
+            // Concurrent seed: another process already inserted the same hash — idempotent.
+            return (null, 0);
+        }
+
+        _logger.LogInformation("Override API key '{Name}' from env (prefix {Prefix})", name, prefix);
+
+        return (new ApiKeyCreateResponse
+        {
+            Key = plaintextKey,
+            Id = id,
+            Prefix = prefix,
+            Name = name,
+            CreatedAt = createdAt,
+        }, revokedCount);
+    }
+
     // ── Crypto helpers (identical to MongoApiKeyService) ────────
 
     private static string GenerateKey()
