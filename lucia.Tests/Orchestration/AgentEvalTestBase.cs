@@ -164,7 +164,7 @@ public abstract class AgentEvalTestBase
         tags.AddRange(additionalTags);
 
         await using var scenarioRun = await reportingConfig.CreateScenarioRunAsync(
-            $"{scenarioName}[{deploymentName}]",
+            BuildScenarioRunName(scenarioName, deploymentName),
             additionalTags: tags);
 
         // Pass latency context to evaluators.
@@ -212,7 +212,7 @@ public abstract class AgentEvalTestBase
         tags.AddRange(additionalTags);
 
         await using var scenarioRun = await reportingConfig.CreateScenarioRunAsync(
-            $"{scenarioName}[{deploymentName}]",
+            BuildScenarioRunName(scenarioName, deploymentName),
             additionalTags: tags);
 
         // Build evaluator contexts with captured tool definitions and latency
@@ -259,7 +259,7 @@ public abstract class AgentEvalTestBase
         tags.AddRange(additionalTags);
 
         await using var scenarioRun = await reportingConfig.CreateScenarioRunAsync(
-            $"{scenarioName}[{deploymentName}]",
+            BuildScenarioRunName(scenarioName, deploymentName),
             additionalTags: tags);
 
         var latencyContext = new LatencyEvaluatorContext(stopwatch.Elapsed);
@@ -327,7 +327,7 @@ public abstract class AgentEvalTestBase
         tags.AddRange(additionalTags);
 
         await using var scenarioRun = await reportingConfig.CreateScenarioRunAsync(
-            $"{scenarioName}[{deploymentName}]",
+            BuildScenarioRunName(scenarioName, deploymentName),
             additionalTags: tags);
 
         var contexts = new List<EvaluationContext>
@@ -555,4 +555,42 @@ public abstract class AgentEvalTestBase
         string.Join("; ", calls.Select(c =>
             $"{c.Name}({FormatArgKeys(c.Arguments)})"));
 
+    // ─── Scenario name formatting ────────────────────────────────────────
+
+    /// <summary>
+    /// Builds a scenario-run identifier of the form
+    /// <c>{scenarioName}[{sanitizedDeploymentName}]</c>. The deployment name is
+    /// sanitized so that characters illegal in filesystem paths
+    /// (notably <c>:</c> for model ids like <c>gpt-oss:20b</c> on Windows)
+    /// don't break <see cref="DiskBasedReportingConfiguration"/> when it
+    /// materializes the scenario directory.
+    /// </summary>
+    private static string BuildScenarioRunName(string scenarioName, string deploymentName) =>
+        $"{scenarioName}[{SanitizePathSegment(deploymentName)}]";
+
+    private static readonly char[] s_extraInvalidPathChars = [':', '/', '\\', '*', '?', '"', '<', '>', '|'];
+
+    private static string SanitizePathSegment(string value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return value;
+        }
+
+        // Combine the platform-invalid set (which on Linux is tiny) with a
+        // conservative cross-platform set so reports are portable.
+        var invalid = new HashSet<char>(Path.GetInvalidFileNameChars());
+        foreach (var c in s_extraInvalidPathChars)
+        {
+            invalid.Add(c);
+        }
+
+        var buffer = new char[value.Length];
+        for (var i = 0; i < value.Length; i++)
+        {
+            var c = value[i];
+            buffer[i] = invalid.Contains(c) ? '_' : c;
+        }
+        return new string(buffer);
+    }
 }
