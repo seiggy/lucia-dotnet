@@ -285,6 +285,8 @@ public sealed class EvalTestFixture : IAsyncLifetime
     {
         var provider = model.Provider ?? EvalProviderType.AzureOpenAI;
 
+        SkipIfModelNotConfigured(model, provider);
+
         return provider switch
         {
             EvalProviderType.AzureOpenAI => AzureClient.GetChatClient(model.DeploymentName).AsIChatClient(),
@@ -292,6 +294,46 @@ public sealed class EvalTestFixture : IAsyncLifetime
             EvalProviderType.OpenAI => CreateOpenAIChatClient(model),
             _ => throw new NotSupportedException($"Provider type '{provider}' is not supported in eval tests.")
         };
+    }
+
+    /// <summary>
+    /// Throws <see cref="Xunit.SkipException"/> when the credentials required to
+    /// reach <paramref name="model"/> are missing or are still set to a committed
+    /// placeholder like <c>&lt;YOUR_AZURE_OPENAI_API_KEY&gt;</c>. Ollama does not
+    /// require credentials; tests against an unreachable local endpoint will
+    /// surface as connection errors instead of skips.
+    /// </summary>
+    private void SkipIfModelNotConfigured(EvalModelConfig model, EvalProviderType provider)
+    {
+        switch (provider)
+        {
+            case EvalProviderType.OpenAI:
+                if (!EvalCredentialChecks.IsUsable(model.ApiKey))
+                {
+                    throw new Xunit.SkipException(
+                        $"OpenAI model '{model.DeploymentName}' has no usable API key. " +
+                        "Set EvalConfiguration:Models[*]:ApiKey (or the matching environment variable) " +
+                        "to a real key to run this test.");
+                }
+                break;
+
+            case EvalProviderType.AzureOpenAI:
+                // The shared AzureOpenAIClient was built from Configuration.AzureOpenAI.ApiKey
+                // (or AzureCliCredential when the key is null/empty). A placeholder value will
+                // 401 at the first request; skip instead.
+                if (EvalCredentialChecks.IsPlaceholder(Configuration.AzureOpenAI.ApiKey))
+                {
+                    throw new Xunit.SkipException(
+                        $"Azure OpenAI model '{model.DeploymentName}' cannot be reached: " +
+                        "EvalConfiguration:AzureOpenAI:ApiKey is still set to a placeholder. " +
+                        "Replace it with a real key, or unset it to use AzureCliCredential after `az login`.");
+                }
+                break;
+
+            case EvalProviderType.Ollama:
+                // Endpoint reachability is not pre-checked; let connection errors surface.
+                break;
+        }
     }
 
     private static IChatClient CreateOllamaChatClient(EvalModelConfig model)

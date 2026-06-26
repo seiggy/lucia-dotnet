@@ -216,17 +216,18 @@ public sealed class ModelDownloader(
 
     private static void ExtractArchive(string archivePath, string extractionDirectory, IProgress<ProgressReport>? onProgress = null)
     {
-        // SharpCompress uses Constants.RewindableBufferSize for the ring buffer during
-        // format detection. The default (81920) is too small for bz2-compressed tar archives
-        // where ~800KB of decompressed data must be inspected to confirm the inner tar format.
-        // ReaderOptions.WithRewindableBufferSize doesn't flow through to the stream constructor,
-        // so we set the static default directly.
-        Constants.RewindableBufferSize = 1_048_576;
+        // SharpCompress 1.0.0 surfaces the rewindable/format-detection buffer via
+        // ReaderOptions.BufferSize. The default (81920) is too small for bz2-compressed
+        // tar archives where ~800KB of decompressed data must be inspected to confirm
+        // the inner tar format, so we enlarge the buffer to 1MB.
+        var options = new ReaderOptions
+        {
+            BufferSize = 1_048_576,
+            Progress = onProgress,
+        };
 
-        var options = ReaderOptions.ForFilePath
-            .WithProgress(onProgress);
         using var stream = File.OpenRead(archivePath);
-        using var reader = ReaderFactory.OpenReader(stream, options);
+        using var reader = ReaderFactory.Open(stream, options);
 
         while (reader.MoveToNextEntry())
         {
