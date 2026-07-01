@@ -2,6 +2,11 @@
 
 ## Active Decisions
 
+### 25. Aspire 13.4 Redis — Disable Client Certificate Trust Scope (Parker, 2026-07-01)
+
+**Summary:** Aspire.Hosting 13.4.2 split certificate handling into server-HTTPS and client-trust APIs. Redis was reported UNHEALTHY in dashboard even though the container ran fine because `.WithoutHttpsCertificate()` disabled only server TLS, but Aspire still injected a CA cert file (`--tls-ca-cert-file`), causing the health probe to attempt TLS against the plaintext server and fail (EOF). Fix: added `.WithCertificateTrustScope(CertificateTrustScope.None)` to the Redis chain in `lucia.AppHost/AppHost.cs`. Branch: fix/package-updates-build.
+
+
 ### 24. Transitive Package Vulnerability Pins (Parker, 2026-07-01)
 
 **Summary:** Pinned three vulnerable transitive dependencies in Directory.Packages.props using CentralPackageTransitivePinningEnabled: MessagePack 2.5.198→2.5.302 (GHSA via StreamJsonRpc), Microsoft.OpenApi 2.0.0→2.7.5 (GHSA-v5pm-xwqc-g5wc), SQLitePCLRaw.lib.e_sqlite3 2.1.11→3.50.3 (GHSA-2m69-gcr7-jv3q). Build verified: 0 warnings, 0 errors. Branch: fix/package-updates-build.
