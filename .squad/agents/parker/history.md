@@ -43,6 +43,18 @@ Override via appsettings: `"InputRequiredTimeout": { "Timeout": "00:05:00" }`.
 - `lucia.Agents/Extensions/ServiceCollectionExtensions.cs` — registration (`Configure<>` + `AddHostedService<>`)
 - `lucia.Tests/Services/InputRequiredTimeoutServiceTests.cs` — 12 tests; `FakeTimeProvider` + `lucia.Data.InMemory.InMemoryTaskStore`; no real sleeps
 
+### 2026-07-01: Aspire 13.4 Redis — Server-HTTPS vs Client-Trust Are Separate APIs (branch: fix/package-updates-build)
+
+Aspire 13.4 separated Redis certificate handling into two independent APIs:
+- **Server HTTPS cert** → `.WithoutHttpsCertificate()` — disables TLS on the server endpoint.
+- **Client cert trust** → `.WithCertificateTrustScope(CertificateTrustScope.None)` — disables CA certificate injection into the container.
+
+Disabling **only** the server side still injects `--tls-ca-cert-file /usr/lib/ssl/aspire/cert.pem` into the container command, leaving the endpoint flagged for TLS. The built-in `redis_check` health check then attempts a TLS handshake against the plaintext server → EOF → UNHEALTHY. Full plaintext opt-out requires **both** `.WithoutHttpsCertificate()` + `.WithCertificateTrustScope(CertificateTrustScope.None)`.
+
+`CertificateTrustScope` lives in `Aspire.Hosting.ApplicationModel`; in practice it's resolved via the Aspire.AppHost.Sdk global usings so no explicit `using` is needed in `AppHost.cs`.
+
+**Key file:** `lucia.AppHost/AppHost.cs` — Redis `AddRedis("redis")` chain.
+
 ### 2026-07-01: Postgres Image Pinned to Tag "17" to Prevent Volume Incompatibility (branch: fix/package-updates-build)
 
 `Aspire.Hosting.PostgreSQL` 13.4.2 changed the default container image to `postgres:18.3`. The existing dev data volume (`lucia.apphost-43be2f4b46-postgres-data`) was created under Postgres 17's on-disk format and is incompatible with Postgres 18, causing the container to exit with code 1 on startup.

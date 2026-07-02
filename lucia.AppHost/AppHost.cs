@@ -25,13 +25,16 @@ if (useRedis)
         .WithRedisInsight()
         .WithPersistence()
         .WithContainerName("redis")
-        // Aspire 13 auto-enables TLS on the primary Redis endpoint when a dev cert is present,
-        // which causes the built-in redis_check health check to fail with an EOF during the
-        // TLS handshake (the AppHost-side ConnectionMultiplexer doesn't trust the Aspire dev cert).
-        // Opting out of HTTPS certificate configuration reverts Redis to plaintext-only on its
-        // primary endpoint so the health check can connect successfully. TLS is still available
-        // in production via the infra/Helm Redis chart's own TLS configuration.
-        .WithoutHttpsCertificate();
+        // Aspire 13.4 split certificate handling into two independent APIs:
+        //   1. Server HTTPS cert  → WithoutHttpsCertificate()
+        //   2. Client cert trust  → WithCertificateTrustScope(CertificateTrustScope.None)
+        // Disabling only the server side still injects "--tls-ca-cert-file ..." into the
+        // container command, leaving the endpoint flagged for TLS.  The built-in redis_check
+        // health check then attempts a TLS handshake against the plaintext server → EOF →
+        // UNHEALTHY.  Both calls are required for a fully plaintext Redis endpoint.
+        // Production TLS is handled by the infra/Helm Redis chart's own TLS configuration.
+        .WithoutHttpsCertificate()
+        .WithCertificateTrustScope(CertificateTrustScope.None);
 }
 
 IResourceBuilder<MongoDBServerResource>? mongodb = null;
@@ -55,6 +58,7 @@ IResourceBuilder<PostgresDatabaseResource>? pgtracesDb = null, pgconfigDb = null
 if (usePostgres)
 {
     postgres = builder.AddPostgres("postgres")
+        .WithImageTag("17")
         .WithDataVolume()
         .WithLifetime(ContainerLifetime.Persistent)
         .WithPgAdmin()
