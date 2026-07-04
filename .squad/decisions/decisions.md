@@ -613,3 +613,60 @@ Use UTC consistently for all persisted and compared timestamps — timestamp per
 | ash     | 1     | #163                                                                   |
 | **Total** | **50** |                                                                      |
 
+---
+
+# Decision: Pin Postgres Container Image Tag to "17" in AppHost
+
+**Date:** 2026-07-01  
+**Author:** Parker (Backend / Platform Engineer)  
+**Branch:** fix/package-updates-build  
+**Status:** Implemented — awaiting coordinator commit
+
+---
+
+## Context
+
+`Aspire.Hosting.PostgreSQL` was bumped from 13.3.3 → 13.4.2. This version changed the default Postgres container image from `postgres:17` to `postgres:18.3`.
+
+The existing persistent dev data volume (`lucia.apphost-43be2f4b46-postgres-data`) was initialized under Postgres 17's on-disk storage format. Postgres 18 detects the incompatible format and refuses to start (container exits with code 1 immediately).
+
+---
+
+## Decision
+
+**Pin the Postgres container image tag to `"17"`** by adding `.WithImageTag("17")` to the `AddPostgres` chain in `lucia.AppHost/AppHost.cs`.
+
+This preserves the existing dev data volume and avoids any data migration or data loss.
+
+```csharp
+postgres = builder.AddPostgres("postgres")
+    .WithImageTag("17")          // ← pinned: prevents silent major-version jump
+    .WithDataVolume()
+    .WithLifetime(ContainerLifetime.Persistent)
+    .WithPgAdmin()
+    .WithContainerName("postgres");
+```
+
+---
+
+## Alternatives Considered
+
+| Option | Outcome |
+|--------|---------|
+| Migrate data volume to Postgres 18 | Requires `pg_upgrade` or dump/restore; disproportionate for a dev environment; risk of data loss |
+| Delete the volume and start fresh | Loses all dev data; not acceptable without explicit user consent |
+| Pin image tag to "17" | Zero data loss, minimal change, restores startup immediately ✅ |
+
+---
+
+## Consequences
+
+- **Immediate:** AppHost Postgres container will start successfully on the existing volume.
+- **Future upgrades:** When the team is ready to move to Postgres 18+, the `.WithImageTag(...)` pin makes the intent explicit and the change deliberate — no silent version jumps from package bumps.
+- **Maintenance:** On next planned Postgres major-version upgrade, update the tag here AND handle the volume migration (dump/restore or `pg_upgrade`) as a coordinated step.
+
+---
+
+## Files Changed
+
+- `lucia.AppHost/AppHost.cs` — added `.WithImageTag("17")` to the `AddPostgres` chain
