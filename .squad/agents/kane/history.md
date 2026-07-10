@@ -38,6 +38,10 @@ MeshGraph, PluginRepoDialog, PluginConfigTab, RestartBanner, SkillConfigEditor, 
 - **Review hygiene confirmed**: dashboard has no `dangerouslySetInnerHTML`, no hardcoded secrets, all API calls use relative `/api` via the single typed `api.ts` client.
 
 - Participated in 2026-05-29 health review
+
+## Learnings
+
+- **useActivityStream timer fix (2026-07-10, issue #133)**: Fixed post-unmount timer leak by mirroring `useCommandTraceStream`: added `retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)`, stored the ID in `onerror`, cleared it at the top of `connect()` (cancels prior retry on reconnect), and cleared it in the effect cleanup (stops pending timer on unmount). This prevents a phantom EventSource + post-unmount `setState` when the component unmounts during a backoff delay. PR #219.
 ---
 
 **Update from Ripley (2026-05-30):** Inbox retriage complete. You have been assigned issues from the 2026-05-30 batch. Review .squad/decisions/decisions.md for details.
