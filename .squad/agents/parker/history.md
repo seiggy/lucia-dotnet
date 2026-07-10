@@ -150,3 +150,25 @@ guaranteed fallback.
   registrations in secondary hosts (A2AHost, satellite containers) can silently miss the fix.
 - IAsyncDisposable + Interlocked exchange flag = safe idempotent async disposal pattern.
 - Extract nested classes to own files as part of the same PR when they gain behaviour (new interface).
+
+### 2026-07-10: HttpClient Lifetime — PR #224 Round 6 Review (branch: squad/140-httpclient-lifetime)
+
+**Thread 1 — Resource leak on InitializeAsync exception (real bug):**
+All 7 Create*AgentAsync methods added RealAgentInstance to _instances AFTER InitializeAsync.
+On exception, the ownedClient was never tracked and factory disposal could not release sockets.
+- Standard methods: moved _instances.Add(instance) BEFORE InitializeAsync.
+- CreateDynamicAgentAsync: wrapped in try/catch; disposes ownedClient directly on exception.
+
+**Thread 2 — One class per file (non-negotiable repo rule):**
+Extracted MutableOptionsMonitor, NullDisposable, CapturingHandler from the test file into:
+lucia.Tests/TestDoubles/MutableOptionsMonitor.cs, NullDisposable.cs, CapturingHandler.cs.
+Test file now adds using lucia.Tests.TestDoubles; and has only one class.
+
+**Thread 3 — Remove stale PR #223 parenthetical from DisposeAsync comment:**
+Updated to: factory disposal is the guaranteed cleanup path; per-evaluation disposal is a future follow-up.
+
+**Key files:** lucia.Tests/TestDoubles/{MutableOptionsMonitor,NullDisposable,CapturingHandler}.cs (new),
+lucia.Tests/HomeAssistantAuthorizationHandlerTests.cs (removed inline classes),
+lucia.EvalHarness/Providers/RealAgentFactory.cs (leak fix + doc).
+
+**Result:** 7/7 auth tests pass, 0 build warnings.

@@ -1,7 +1,7 @@
-using System.Collections.Concurrent;
 using FakeItEasy;
 using lucia.HomeAssistant.Configuration;
 using lucia.HomeAssistant.Services;
+using lucia.Tests.TestDoubles;
 using Microsoft.Extensions.Options;
 
 namespace lucia.Tests;
@@ -172,43 +172,5 @@ public sealed class HomeAssistantAuthorizationHandlerTests
         var authValues = request.Headers.GetValues("Authorization").ToList();
         Assert.Single(authValues);
         Assert.EndsWith(token, authValues[0]);
-    }
-
-    // ── Test doubles ──────────────────────────────────────────────────
-
-    /// <summary>
-    /// Simple mutable <see cref="IOptionsMonitor{T}"/> backed by a single value
-    /// that can be changed between requests to test live token rotation.
-    /// </summary>
-    private sealed class MutableOptionsMonitor : IOptionsMonitor<HomeAssistantOptions>
-    {
-        public required string AccessToken { get; set; }
-
-        public HomeAssistantOptions CurrentValue => new() { AccessToken = AccessToken };
-
-        public HomeAssistantOptions Get(string? name) => CurrentValue;
-
-        public IDisposable? OnChange(Action<HomeAssistantOptions, string?> listener) => NullDisposable.Instance;
-    }
-
-    /// <summary>No-op <see cref="IDisposable"/> returned by <see cref="MutableOptionsMonitor.OnChange"/>.</summary>
-    private sealed class NullDisposable : IDisposable
-    {
-        internal static readonly NullDisposable Instance = new();
-        public void Dispose() { }
-    }
-
-    private sealed class CapturingHandler : HttpMessageHandler
-    {
-        private readonly ConcurrentQueue<HttpRequestMessage> _queue = new();
-
-        public IReadOnlyList<HttpRequestMessage> Captured => [.. _queue];
-
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            _queue.Enqueue(request);
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
-        }
     }
 }

@@ -124,9 +124,9 @@ public sealed class RealAgentFactory : IAsyncDisposable
             _locationService,
             CreateOptionsMonitor<LightControlSkillOptions>());
         var agent = new LightAgent(resolver, _definitionRepo, skill, _tracingFactory, _loggerFactory);
-        await agent.InitializeAsync();
         var instance = new RealAgentInstance { AgentName = "LightAgent", Agent = agent, DatasetFile = "TestData/light-agent.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
-        _instances.Add(instance);
+        _instances.Add(instance); // track before InitializeAsync — factory.DisposeAsync releases the client on failure
+        await agent.InitializeAsync();
         return instance;
     }
 
@@ -166,9 +166,9 @@ public sealed class RealAgentFactory : IAsyncDisposable
             _loggerFactory.CreateLogger<FanControlSkill>());
 
         var agent = new ClimateAgent(resolver, _definitionRepo, climateSkill, fanSkill, _tracingFactory, _loggerFactory);
-        await agent.InitializeAsync();
         var instance = new RealAgentInstance { AgentName = "ClimateAgent", Agent = agent, DatasetFile = "TestData/climate-agent.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
         _instances.Add(instance);
+        await agent.InitializeAsync();
         return instance;
     }
 
@@ -180,9 +180,9 @@ public sealed class RealAgentFactory : IAsyncDisposable
         var (resolver, tracer, ownedClient) = CreateOllamaResolverWithTracer(modelName);
         var skill = new ListSkill(_haClient, _loggerFactory.CreateLogger<ListSkill>());
         var agent = new ListsAgent(resolver, _definitionRepo, skill, _tracingFactory, _loggerFactory);
-        await agent.InitializeAsync();
         var instance = new RealAgentInstance { AgentName = "ListsAgent", Agent = agent, DatasetFile = "TestData/lists-agent.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
         _instances.Add(instance);
+        await agent.InitializeAsync();
         return instance;
     }
 
@@ -198,9 +198,9 @@ public sealed class RealAgentFactory : IAsyncDisposable
             CreateOptionsMonitor<SceneControlSkillOptions>(),
             _loggerFactory.CreateLogger<SceneControlSkill>());
         var agent = new SceneAgent(resolver, _definitionRepo, skill, _tracingFactory, _loggerFactory);
-        await agent.InitializeAsync();
         var instance = new RealAgentInstance { AgentName = "SceneAgent", Agent = agent, DatasetFile = "TestData/scene-agent.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
         _instances.Add(instance);
+        await agent.InitializeAsync();
         return instance;
     }
 
@@ -220,9 +220,9 @@ public sealed class RealAgentFactory : IAsyncDisposable
         var server = A.Fake<Microsoft.AspNetCore.Hosting.Server.IServer>();
         var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
         var agent = new lucia.MusicAgent.MusicAgent(resolver, _definitionRepo, skill, server, configuration, _tracingFactory, _loggerFactory);
-        await agent.InitializeAsync();
         var instance = new RealAgentInstance { AgentName = "MusicAgent", Agent = agent, DatasetFile = "TestData/music-agent.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
         _instances.Add(instance);
+        await agent.InitializeAsync();
         return instance;
     }
 
@@ -234,9 +234,9 @@ public sealed class RealAgentFactory : IAsyncDisposable
         var (resolver, tracer, ownedClient) = CreateOllamaResolverWithTracer(modelName);
         var mcpRegistry = A.Fake<IMcpToolRegistry>();
         var agent = new GeneralAgent(resolver, _definitionRepo, mcpRegistry, _tracingFactory, _loggerFactory);
-        await agent.InitializeAsync();
         var instance = new RealAgentInstance { AgentName = "GeneralAgent", Agent = agent, DatasetFile = "TestData/general-agent.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
         _instances.Add(instance);
+        await agent.InitializeAsync();
         return instance;
     }
 
@@ -247,35 +247,45 @@ public sealed class RealAgentFactory : IAsyncDisposable
     public async Task<RealAgentInstance> CreateDynamicAgentAsync(string modelName, string agentId)
     {
         var (resolver, tracer, ownedClient) = CreateOllamaResolverWithTracer(modelName);
-        
-        // Load agent definition from repository
-        var definition = await _definitionRepo.GetAgentDefinitionAsync(agentId, default);
-        if (definition is null)
+        try
         {
-            throw new InvalidOperationException($"Agent definition '{agentId}' not found in repository");
+            // Load agent definition from repository
+            var definition = await _definitionRepo.GetAgentDefinitionAsync(agentId, default);
+            if (definition is null)
+            {
+                throw new InvalidOperationException($"Agent definition '{agentId}' not found in repository");
+            }
+
+            // Create mock dependencies for DynamicAgent
+            var providerResolver = A.Fake<IModelProviderResolver>();
+            var providerRepository = A.Fake<IModelProviderRepository>();
+            var telemetrySource = new lucia.Agents.AgentsTelemetrySource();
+
+            var agent = new DynamicAgent(
+                agentId,
+                definition,
+                _definitionRepo,
+                A.Fake<IMcpToolRegistry>(),
+                resolver,
+                providerResolver,
+                providerRepository,
+                _tracingFactory,
+                telemetrySource,
+                _loggerFactory);
+
+            var instance = new RealAgentInstance { AgentName = $"DynamicAgent[{agentId}]", Agent = agent, DatasetFile = $"TestData/{agentId}.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
+            _instances.Add(instance); // track before InitializeAsync
+            await agent.InitializeAsync();
+            return instance;
         }
-
-        // Create mock dependencies for DynamicAgent
-        var providerResolver = A.Fake<IModelProviderResolver>();
-        var providerRepository = A.Fake<IModelProviderRepository>();
-        var telemetrySource = new lucia.Agents.AgentsTelemetrySource();
-
-        var agent = new DynamicAgent(
-            agentId,
-            definition,
-            _definitionRepo,
-            A.Fake<IMcpToolRegistry>(),
-            resolver,
-            providerResolver,
-            providerRepository,
-            _tracingFactory,
-            telemetrySource,
-            _loggerFactory);
-
-        await agent.InitializeAsync();
-        var instance = new RealAgentInstance { AgentName = $"DynamicAgent[{agentId}]", Agent = agent, DatasetFile = $"TestData/{agentId}.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
-        _instances.Add(instance);
-        return instance;
+        catch
+        {
+            // GetAgentDefinitionAsync or InitializeAsync failed before the instance was tracked;
+            // dispose the backend client directly so no socket handle is leaked.
+            if (ownedClient is IAsyncDisposable ad) await ad.DisposeAsync();
+            else if (ownedClient is IDisposable d) d.Dispose();
+            throw;
+        }
     }
 
     /// <summary>
@@ -359,8 +369,8 @@ public sealed class RealAgentFactory : IAsyncDisposable
         // Dispose all agent instances, which in turn dispose their owned IChatClient chain.
         // Each backend client (OllamaApiClient, OpenAIClient) owns an HttpClient; releasing them
         // avoids socket/handle exhaustion on long eval sweeps.
-        // RealAgentInstance.DisposeAsync is idempotent, so instances already disposed by the
-        // caller (e.g., the sweep runner after PR #223) are silently skipped here.
+        // RealAgentInstance.DisposeAsync is idempotent; factory disposal is the guaranteed
+        // cleanup path — per-evaluation disposal is a future follow-up.
         foreach (var instance in _instances)
             await instance.DisposeAsync();
     }
