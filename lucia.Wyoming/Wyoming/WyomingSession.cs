@@ -48,6 +48,7 @@ public sealed partial class WyomingSession : IDisposable
     private ISpeechEnhancerSession? _currentEnhancerSession;
     private IOptionsMonitor<SpeechEnhancementOptions>? _speechEnhancementOptions;
     private readonly SessionEventBus? _eventBus;
+    private readonly SemaphoreSlim? _sttConcurrency;
     private DateTimeOffset _lastAudioLevelEvent;
     private long _enhancementTotalMs;
     private long _sttFinalizationMs;
@@ -61,7 +62,8 @@ public sealed partial class WyomingSession : IDisposable
         IServiceProvider serviceProvider,
         ILogger<WyomingSession> logger,
         WyomingOptions options,
-        SessionEventBus? eventBus = null)
+        SessionEventBus? eventBus = null,
+        SemaphoreSlim? sttConcurrency = null)
     {
         ArgumentNullException.ThrowIfNull(client);
         ArgumentNullException.ThrowIfNull(serviceProvider);
@@ -73,6 +75,7 @@ public sealed partial class WyomingSession : IDisposable
         _logger = logger;
         _options = options;
         _eventBus = eventBus;
+        _sttConcurrency = sttConcurrency;
         Id = Guid.NewGuid().ToString("N");
         State = WyomingSessionState.Connected;
     }
@@ -446,15 +449,24 @@ public sealed partial class WyomingSession : IDisposable
                     SttResult sttResult;
                     using (var sttActivity = WyomingActivitySource.StartActivity("wyoming.stt.finalize"))
                     {
-                        var sttSw = System.Diagnostics.Stopwatch.StartNew();
-                        sttResult = await _currentSttSession.GetFinalResultAsync().ConfigureAwait(false);
-                        sttSw.Stop();
-                        _sttFinalizationMs = sttSw.ElapsedMilliseconds;
-                        sttActivity?.SetTag("stt.duration_ms", sttSw.ElapsedMilliseconds);
-                        sttActivity?.SetTag("stt.text", sttResult.Text);
-                        _logger.LogInformation(
-                            "Session {SessionId} STT finalized in {SttMs}ms → \"{Text}\"",
-                            Id, sttSw.ElapsedMilliseconds, sttResult.Text);
+                        if (_sttConcurrency is not null)
+                            await _sttConcurrency.WaitAsync(ct).ConfigureAwait(false);
+                        try
+                        {
+                            var sttSw = System.Diagnostics.Stopwatch.StartNew();
+                            sttResult = await _currentSttSession.GetFinalResultAsync().ConfigureAwait(false);
+                            sttSw.Stop();
+                            _sttFinalizationMs = sttSw.ElapsedMilliseconds;
+                            sttActivity?.SetTag("stt.duration_ms", sttSw.ElapsedMilliseconds);
+                            sttActivity?.SetTag("stt.text", sttResult.Text);
+                            _logger.LogInformation(
+                                "Session {SessionId} STT finalized in {SttMs}ms → \"{Text}\"",
+                                Id, sttSw.ElapsedMilliseconds, sttResult.Text);
+                        }
+                        finally
+                        {
+                            _sttConcurrency?.Release();
+                        }
                     }
 
                     _pendingTranscript = sttResult;
@@ -541,7 +553,16 @@ public sealed partial class WyomingSession : IDisposable
         if (_pendingTranscript is null && _currentSttSession is not null)
         {
             _currentVadSession?.Flush();
-            _pendingTranscript = await _currentSttSession.GetFinalResultAsync().ConfigureAwait(false);
+            if (_sttConcurrency is not null)
+                await _sttConcurrency.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                _pendingTranscript = await _currentSttSession.GetFinalResultAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                _sttConcurrency?.Release();
+            }
             DisposeCurrentSttSession();
             DisposeCurrentVadSession();
         }

@@ -104,3 +104,12 @@
 - **Approach:** Changed `WyomingOptions.ServiceName` default from `"lucia-wyoming"` to `$"lucia-{Environment.MachineName.ToLowerInvariant()}"` — single source of truth. Updated `WyomingServiceInfo.BuildInfoEvent()` to use `_options.ServiceName` (stored field) instead of computing hostname inline. `ZeroconfAdvertiser` already used `_options.ServiceName` so no change needed there.
 - Added regression test `DescribeEvent_AsrAndWakeName_MatchServiceName`. Build clean (0 warnings); all 5 compliance tests pass.
 - `LUCIA_SKIP_DOTNET_BUILD=1` used to bypass pre-commit hook because pre-existing `Nerdbank.MessagePack` vulnerability (GHSA-92vj-hp7m-gwcj / GHSA-qjvr-435c-5fjh) now triggers NU1902 as error in fresh restores. `lucia.EvalHarness` is outside this PR's scope.
+
+### 2026-07-10: STT Semaphore Scope Fix (issue #178)
+
+**Fix Complete — PR pending**
+- **Root cause:** `WyomingServer.RunSessionAsync` held `_sttConcurrency` (default 4) for the ENTIRE session lifetime. The 30-connection wake-word accept limit let connections in, but only 4 could enter their read loop; the rest blocked with sockets unread — silently hanging clients.
+- **Fix:** Passed `_sttConcurrency` as optional `SemaphoreSlim?` to `WyomingSession` constructor. Semaphore acquire/release now wraps only `ISttSession.GetFinalResultAsync()` in both `HandleAudioStopEventAsync` and `SendPendingTranscriptAsync`. `RunSessionAsync` in the server has no semaphore logic at all.
+- **Key pattern:** `if (_sttConcurrency is not null) await _sttConcurrency.WaitAsync(ct)` + `try/finally { _sttConcurrency?.Release(); }` — null-safe, backward compatible with tests that don't pass a semaphore.
+- **Timing accuracy:** `_sttFinalizationMs` now measures pure inference time (stopwatch starts after semaphore acquire), consistent with Decision #17's timing snapshot principle.
+- Build: 0 warnings, 0 errors. Wyoming tests: 296 passed, 10 skipped (hardware model tests), 0 failed.
