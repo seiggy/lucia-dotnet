@@ -70,6 +70,32 @@ public sealed class ParameterSweepAggregationTests
     }
 
     // ──────────────────────────────────────────────────────────────
+    // SweepRunAggregator.ComputeMinRunMean
+    // ──────────────────────────────────────────────────────────────
+
+    [Fact]
+    public void ComputeMinRunMean_ReturnsZero_WhenNoRuns()
+    {
+        var minMean = SweepRunAggregator.ComputeMinRunMean(new List<IReadOnlyList<ModelEvalResult>>());
+        Assert.Equal(0.0, minMean);
+    }
+
+    [Fact]
+    public void ComputeMinRunMean_SingleRun_ReturnsRunMean()
+    {
+        var minMean = SweepRunAggregator.ComputeMinRunMean(Runs(Run(73.0)));
+        Assert.Equal(73.0, minMean, precision: 6);
+    }
+
+    [Fact]
+    public void ComputeMinRunMean_MultipleRuns_ReturnsLowestPerRunMean()
+    {
+        // 3 runs with means 60, 80, 100 — min is 60
+        var minMean = SweepRunAggregator.ComputeMinRunMean(Runs(Run(100.0), Run(60.0), Run(80.0)));
+        Assert.Equal(60.0, minMean, precision: 6);
+    }
+
+    // ──────────────────────────────────────────────────────────────
     // SweepRunAggregator.ComputeVariance
     // ──────────────────────────────────────────────────────────────
 

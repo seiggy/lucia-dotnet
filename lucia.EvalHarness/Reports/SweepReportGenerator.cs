@@ -85,7 +85,7 @@ public static class SweepReportGenerator
             sb.AppendLine("|---|-------------|-------|-------|--------|------------|---|---------------------|-------------|");
 
             var rank = 1;
-            foreach (var entry in entries.OrderByDescending(e => e.MeanScore))
+            foreach (var entry in entries.OrderByDescending(e => e.MeanScore).ThenBy(e => e.ScoreVariance))
             {
                 var delta = entry.MeanScore - baselineMean;
                 var marker = entry == bestEntry ? " *" : "";
@@ -171,7 +171,7 @@ public static class SweepReportGenerator
                     averageLatencyMs = e.AverageLatencyMs,
                     agents = e.Results.Select(r => new { r.AgentName, r.OverallScore })
                 }).FirstOrDefault(),
-            allConfigs = kvp.Value.OrderByDescending(e => e.MeanScore).Select(e => new
+            allConfigs = kvp.Value.OrderByDescending(e => e.MeanScore).ThenBy(e => e.ScoreVariance).Select(e => new
             {
                 parameters = new
                 {

@@ -15,7 +15,7 @@ public sealed class SweepResult
     public required DateTimeOffset CompletedAt { get; init; }
 
     /// <summary>
-    /// The baseline model''s evaluation results from the first run (display use).
+    /// The baseline model's evaluation results from the first run (display use).
     /// </summary>
     public required IReadOnlyList<ModelEvalResult> BaselineResults { get; init; }
 
@@ -91,7 +91,7 @@ public sealed class SweepEntry
 
 /// <summary>
 /// Orchestrates parameter sweep experiments: runs each target model at multiple
-/// parameter configurations and compares against a baseline model''s scores.
+/// parameter configurations and compares against a baseline model's scores.
 /// </summary>
 public sealed class ParameterSweepRunner
 {
@@ -198,7 +198,7 @@ public sealed class ParameterSweepRunner
                         {
                             // profile.Seed is already set by GenerateCombinations() when BaseSeed
                             // is configured; DeriveRunSeed offsets it by runIndex so each run gets
-                            // a unique, reproducible seed within the combination''s allocated block.
+                            // a unique, reproducible seed within the combination's allocated block.
                             var runProfile = profile.Seed.HasValue
                                 ? profile with { Seed = SweepRunAggregator.DeriveRunSeed(profile.Seed, runIndex) }
                                 : profile;

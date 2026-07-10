@@ -230,6 +230,80 @@ public sealed class ParameterSweepRunnerTests
         Assert.Equal(75.0, winner.MeanScore, precision: 1);
     }
 
+    [Fact]
+    public async Task RunAsync_WithBaseSeed_PerRunSeedsMatchDerivedFormula()
+    {
+        // Combo 0, BaseSeed=1000, N=3:
+        //   GenerateCombinations stamps profile.Seed = 1000 + 0 * 3 = 1000
+        //   DeriveRunSeed(1000, 0) = 1000, DeriveRunSeed(1000, 1) = 1001, DeriveRunSeed(1000, 2) = 1002
+        var callLog = new List<(string ModelName, ModelParameterProfile Profile)>();
+        var runner = MakeRunner(callLog, score: 70.0);
+
+        var config = new ParameterSweepConfig
+        {
+            RunsPerCombination = 3,
+            BaseSeed = 1000,
+            TemperatureValues = [0.5],   // single combo → comboIndex = 0
+            TopKValues = [40],
+            TopPValues = [0.9],
+            RepeatPenaltyValues = [1.1],
+            MaxCombinations = 10
+        };
+
+        await RunSweepAsync(runner, config, "baseline-model", ["target-model"]);
+
+        // Runs within a single combo are sequential, so callLog order is stable
+        var targetSeeds = callLog
+            .Where(c => c.ModelName == "target-model")
+            .Select(c => c.Profile.Seed)
+            .ToList();
+
+        Assert.Equal(3, targetSeeds.Count);
+        Assert.Equal(1000, targetSeeds[0]);
+        Assert.Equal(1001, targetSeeds[1]);
+        Assert.Equal(1002, targetSeeds[2]);
+    }
+
+    [Fact]
+    public async Task RunAsync_TwoCombinations_SeedBlocksDoNotOverlap()
+    {
+        // With 2 combos, N=3, BaseSeed=1000:
+        //   Combo 0 profile.Seed = 1000 + 0*3 = 1000  → run seeds {1000, 1001, 1002}
+        //   Combo 1 profile.Seed = 1000 + 1*3 = 1003  → run seeds {1003, 1004, 1005}
+        var callLog = new List<(string ModelName, ModelParameterProfile Profile)>();
+        var runner = MakeRunner(callLog, score: 70.0);
+
+        var config = new ParameterSweepConfig
+        {
+            RunsPerCombination = 3,
+            BaseSeed = 1000,
+            TemperatureValues = [0.3, 0.7],   // 2 combos
+            TopKValues = [40],
+            TopPValues = [0.9],
+            RepeatPenaltyValues = [1.1],
+            MaxCombinations = 10
+        };
+
+        await RunSweepAsync(runner, config, "baseline-model", ["target-model"]);
+
+        var targetSeeds = callLog
+            .Where(c => c.ModelName == "target-model")
+            .Select(c => c.Profile.Seed)
+            .Where(s => s.HasValue)
+            .Select(s => s!.Value)
+            .ToList();
+
+        // 6 seeds total, all distinct, each block of 3 must not overlap the other
+        Assert.Equal(6, targetSeeds.Count);
+        Assert.Equal(6, targetSeeds.Distinct().Count());
+
+        // The two blocks must be {1000,1001,1002} and {1003,1004,1005} (any order between blocks)
+        var seedSet = targetSeeds.ToHashSet();
+        Assert.True(seedSet.IsSupersetOf(new[] { 1000, 1001, 1002 }) ||
+                    seedSet.IsSupersetOf(new[] { 1003, 1004, 1005 }),
+                    "Seed blocks 0 and 1 should be contiguous, non-overlapping ranges");
+    }
+
     // ──────────────────────────────────────────────────────────────
     // Helpers
     // ──────────────────────────────────────────────────────────────
