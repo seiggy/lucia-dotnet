@@ -22,25 +22,6 @@ using Microsoft.Extensions.Options;
 namespace lucia.EvalHarness.Providers;
 
 /// <summary>
-/// Describes a real lucia agent instance ready for evaluation.
-/// Contains the actual agent with its real system prompt, tools, and skills —
-/// only the LLM backend is swapped to Ollama.
-/// </summary>
-public sealed class RealAgentInstance
-{
-    public required string AgentName { get; init; }
-    public required ILuciaAgent Agent { get; init; }
-    public required string DatasetFile { get; init; }
-
-    /// <summary>
-    /// When conversation tracing is enabled, this captures the full ordered
-    /// conversation history (system prompt, user, assistant, tool calls/results).
-    /// Call <see cref="ConversationTracer.Reset"/> between test cases.
-    /// </summary>
-    public ConversationTracer? Tracer { get; init; }
-}
-
-/// <summary>
 /// Constructs real lucia agent instances backed by inference backends.
 /// Mirrors the <c>EvalTestFixture</c> construction pattern: real skills, real tools,
 /// real system prompts — only the <see cref="IChatClientResolver"/> is faked to return
@@ -56,7 +37,7 @@ public sealed class RealAgentFactory : IAsyncDisposable
     private readonly IDeviceCacheService _deviceCache;
     private readonly TracingChatClientFactory _tracingFactory;
 
-    private readonly List<IChatClient> _chatClients = [];
+    private readonly List<RealAgentInstance> _instances = [];
 
     /// <summary>
     /// The inference backend this factory targets.
@@ -136,7 +117,7 @@ public sealed class RealAgentFactory : IAsyncDisposable
     /// </summary>
     public async Task<RealAgentInstance> CreateLightAgentAsync(string modelName)
     {
-        var (resolver, tracer) = CreateOllamaResolverWithTracer(modelName);
+        var (resolver, tracer, ownedClient) = CreateOllamaResolverWithTracer(modelName);
         var skill = new LightControlSkill(
             _haClient,
             _loggerFactory.CreateLogger<LightControlSkill>(),
@@ -144,7 +125,9 @@ public sealed class RealAgentFactory : IAsyncDisposable
             CreateOptionsMonitor<LightControlSkillOptions>());
         var agent = new LightAgent(resolver, _definitionRepo, skill, _tracingFactory, _loggerFactory);
         await agent.InitializeAsync();
-        return new RealAgentInstance { AgentName = "LightAgent", Agent = agent, DatasetFile = "TestData/light-agent.yaml", Tracer = tracer };
+        var instance = new RealAgentInstance { AgentName = "LightAgent", Agent = agent, DatasetFile = "TestData/light-agent.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
+        _instances.Add(instance);
+        return instance;
     }
 
     /// <summary>
@@ -152,7 +135,7 @@ public sealed class RealAgentFactory : IAsyncDisposable
     /// </summary>
     public async Task<RealAgentInstance> CreateClimateAgentAsync(string modelName)
     {
-        var (resolver, tracer) = CreateOllamaResolverWithTracer(modelName);
+        var (resolver, tracer, ownedClient) = CreateOllamaResolverWithTracer(modelName);
         var similarity = new EmbeddingSimilarityService();
         var entityMatcher = new HybridEntityMatcher(
             similarity, _loggerFactory.CreateLogger<HybridEntityMatcher>());
@@ -184,7 +167,9 @@ public sealed class RealAgentFactory : IAsyncDisposable
 
         var agent = new ClimateAgent(resolver, _definitionRepo, climateSkill, fanSkill, _tracingFactory, _loggerFactory);
         await agent.InitializeAsync();
-        return new RealAgentInstance { AgentName = "ClimateAgent", Agent = agent, DatasetFile = "TestData/climate-agent.yaml", Tracer = tracer };
+        var instance = new RealAgentInstance { AgentName = "ClimateAgent", Agent = agent, DatasetFile = "TestData/climate-agent.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
+        _instances.Add(instance);
+        return instance;
     }
 
     /// <summary>
@@ -192,11 +177,13 @@ public sealed class RealAgentFactory : IAsyncDisposable
     /// </summary>
     public async Task<RealAgentInstance> CreateListsAgentAsync(string modelName)
     {
-        var (resolver, tracer) = CreateOllamaResolverWithTracer(modelName);
+        var (resolver, tracer, ownedClient) = CreateOllamaResolverWithTracer(modelName);
         var skill = new ListSkill(_haClient, _loggerFactory.CreateLogger<ListSkill>());
         var agent = new ListsAgent(resolver, _definitionRepo, skill, _tracingFactory, _loggerFactory);
         await agent.InitializeAsync();
-        return new RealAgentInstance { AgentName = "ListsAgent", Agent = agent, DatasetFile = "TestData/lists-agent.yaml", Tracer = tracer };
+        var instance = new RealAgentInstance { AgentName = "ListsAgent", Agent = agent, DatasetFile = "TestData/lists-agent.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
+        _instances.Add(instance);
+        return instance;
     }
 
     /// <summary>
@@ -204,7 +191,7 @@ public sealed class RealAgentFactory : IAsyncDisposable
     /// </summary>
     public async Task<RealAgentInstance> CreateSceneAgentAsync(string modelName)
     {
-        var (resolver, tracer) = CreateOllamaResolverWithTracer(modelName);
+        var (resolver, tracer, ownedClient) = CreateOllamaResolverWithTracer(modelName);
         var skill = new SceneControlSkill(
             _haClient,
             _locationService,
@@ -212,7 +199,9 @@ public sealed class RealAgentFactory : IAsyncDisposable
             _loggerFactory.CreateLogger<SceneControlSkill>());
         var agent = new SceneAgent(resolver, _definitionRepo, skill, _tracingFactory, _loggerFactory);
         await agent.InitializeAsync();
-        return new RealAgentInstance { AgentName = "SceneAgent", Agent = agent, DatasetFile = "TestData/scene-agent.yaml", Tracer = tracer };
+        var instance = new RealAgentInstance { AgentName = "SceneAgent", Agent = agent, DatasetFile = "TestData/scene-agent.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
+        _instances.Add(instance);
+        return instance;
     }
 
     /// <summary>
@@ -220,7 +209,7 @@ public sealed class RealAgentFactory : IAsyncDisposable
     /// </summary>
     public async Task<RealAgentInstance> CreateMusicAgentAsync(string modelName)
     {
-        var (resolver, tracer) = CreateOllamaResolverWithTracer(modelName);
+        var (resolver, tracer, ownedClient) = CreateOllamaResolverWithTracer(modelName);
         var skill = new MusicPlaybackSkill(
             _haClient,
             _loggerFactory.CreateLogger<MusicPlaybackSkill>(),
@@ -232,7 +221,9 @@ public sealed class RealAgentFactory : IAsyncDisposable
         var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
         var agent = new lucia.MusicAgent.MusicAgent(resolver, _definitionRepo, skill, server, configuration, _tracingFactory, _loggerFactory);
         await agent.InitializeAsync();
-        return new RealAgentInstance { AgentName = "MusicAgent", Agent = agent, DatasetFile = "TestData/music-agent.yaml", Tracer = tracer };
+        var instance = new RealAgentInstance { AgentName = "MusicAgent", Agent = agent, DatasetFile = "TestData/music-agent.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
+        _instances.Add(instance);
+        return instance;
     }
 
     /// <summary>
@@ -240,11 +231,13 @@ public sealed class RealAgentFactory : IAsyncDisposable
     /// </summary>
     public async Task<RealAgentInstance> CreateGeneralAgentAsync(string modelName)
     {
-        var (resolver, tracer) = CreateOllamaResolverWithTracer(modelName);
+        var (resolver, tracer, ownedClient) = CreateOllamaResolverWithTracer(modelName);
         var mcpRegistry = A.Fake<IMcpToolRegistry>();
         var agent = new GeneralAgent(resolver, _definitionRepo, mcpRegistry, _tracingFactory, _loggerFactory);
         await agent.InitializeAsync();
-        return new RealAgentInstance { AgentName = "GeneralAgent", Agent = agent, DatasetFile = "TestData/general-agent.yaml", Tracer = tracer };
+        var instance = new RealAgentInstance { AgentName = "GeneralAgent", Agent = agent, DatasetFile = "TestData/general-agent.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
+        _instances.Add(instance);
+        return instance;
     }
 
     /// <summary>
@@ -253,7 +246,7 @@ public sealed class RealAgentFactory : IAsyncDisposable
     /// </summary>
     public async Task<RealAgentInstance> CreateDynamicAgentAsync(string modelName, string agentId)
     {
-        var (resolver, tracer) = CreateOllamaResolverWithTracer(modelName);
+        var (resolver, tracer, ownedClient) = CreateOllamaResolverWithTracer(modelName);
         
         // Load agent definition from repository
         var definition = await _definitionRepo.GetAgentDefinitionAsync(agentId, default);
@@ -280,7 +273,9 @@ public sealed class RealAgentFactory : IAsyncDisposable
             _loggerFactory);
 
         await agent.InitializeAsync();
-        return new RealAgentInstance { AgentName = $"DynamicAgent[{agentId}]", Agent = agent, DatasetFile = $"TestData/{agentId}.yaml", Tracer = tracer };
+        var instance = new RealAgentInstance { AgentName = $"DynamicAgent[{agentId}]", Agent = agent, DatasetFile = $"TestData/{agentId}.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
+        _instances.Add(instance);
+        return instance;
     }
 
     /// <summary>
@@ -305,7 +300,7 @@ public sealed class RealAgentFactory : IAsyncDisposable
     /// When <see cref="EnableTracing"/> is true, wraps the client with a
     /// <see cref="ConversationTracer"/> to capture full conversation history.
     /// </summary>
-    private (IChatClientResolver Resolver, ConversationTracer? Tracer) CreateOllamaResolverWithTracer(string modelName)
+    private (IChatClientResolver Resolver, ConversationTracer? Tracer, IChatClient OwnedClient) CreateOllamaResolverWithTracer(string modelName)
     {
         IChatClient chatClient = BackendChatClientFactory.CreateChatClient(_backend, modelName, ParameterProfile);
         ConversationTracer? tracer = null;
@@ -316,14 +311,13 @@ public sealed class RealAgentFactory : IAsyncDisposable
             chatClient = tracer;
         }
 
-        _chatClients.Add(chatClient);
         var resolver = A.Fake<IChatClientResolver>();
         A.CallTo(() => resolver.ResolveAsync(A<string?>._, A<CancellationToken>._))
             .Returns(chatClient);
         // Return null so agents fall through to the IChatClient path
         A.CallTo(() => resolver.ResolveAIAgentAsync(A<string?>._, A<CancellationToken>._))
             .Returns(Task.FromResult<AIAgent?>(null));
-        return (resolver, tracer);
+        return (resolver, tracer, chatClient);
     }
 
     private static IDeviceCacheService CreateNullDeviceCache()
@@ -362,15 +356,12 @@ public sealed class RealAgentFactory : IAsyncDisposable
         if (_haClient is IDisposable disposable)
             disposable.Dispose();
 
-        // Dispose all chat clients created by CreateOllamaResolverWithTracer.
-        // Each OllamaApiClient / OpenAIClient wrapper owns an HttpClient; releasing
-        // them avoids socket/handle exhaustion on long eval sweeps.
-        foreach (var client in _chatClients)
-        {
-            if (client is IAsyncDisposable asyncDisposable)
-                await asyncDisposable.DisposeAsync();
-            else if (client is IDisposable syncDisposable)
-                syncDisposable.Dispose();
-        }
+        // Dispose all agent instances, which in turn dispose their owned IChatClient chain.
+        // Each backend client (OllamaApiClient, OpenAIClient) owns an HttpClient; releasing them
+        // avoids socket/handle exhaustion on long eval sweeps.
+        // RealAgentInstance.DisposeAsync is idempotent, so instances already disposed by the
+        // caller (e.g., the sweep runner after PR #223) are silently skipped here.
+        foreach (var instance in _instances)
+            await instance.DisposeAsync();
     }
 }
