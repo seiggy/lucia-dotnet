@@ -1,5 +1,6 @@
-using lucia.HomeAssistant.Configuration;
+﻿using lucia.HomeAssistant.Configuration;
 using Microsoft.Extensions.Options;
+using System.Net.Http.Headers;
 
 namespace lucia.HomeAssistant.Services;
 
@@ -18,7 +19,7 @@ public sealed class HomeAssistantAuthorizationHandler(IOptionsMonitor<HomeAssist
     {
         var token = optionsMonitor.CurrentValue.AccessToken;
         if (!string.IsNullOrWhiteSpace(token))
-            request.Headers.TryAddWithoutValidation("Authorization", $"Bearer {token}");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         return base.SendAsync(request, cancellationToken);
     }

@@ -130,6 +130,30 @@ public sealed class HomeAssistantAuthorizationHandlerTests
         });
     }
 
+    /// <summary>
+    /// Retry guard: the same <see cref="HttpRequestMessage"/> re-sent through the handler
+    /// (as happens when the standard resilience handler retries) must not accumulate duplicate
+    /// Authorization header values.
+    /// </summary>
+    [Fact]
+    public async Task SendAsync_SameRequestRetried_HasExactlyOneAuthorizationHeader()
+    {
+        const string token = "retry-safe-token";
+        var inner = new CapturingHandler();
+        using var invoker = BuildInvoker(BuildMonitor(token), inner);
+
+        // Simulate a resilience-handler retry: same HttpRequestMessage sent twice.
+        var request = NewGet("/api/retry");
+        await invoker.SendAsync(request, default);
+        await invoker.SendAsync(request, default);
+
+        // Headers.Authorization is a single-value property; the second send must overwrite,
+        // not append. A second Authorization value would produce a 401 on the HA API.
+        var authValues = request.Headers.GetValues("Authorization").ToList();
+        Assert.Single(authValues);
+        Assert.EndsWith(token, authValues[0]);
+    }
+
     // ── Test doubles ──────────────────────────────────────────────────
 
     /// <summary>
@@ -144,7 +168,14 @@ public sealed class HomeAssistantAuthorizationHandlerTests
 
         public HomeAssistantOptions Get(string? name) => CurrentValue;
 
-        public IDisposable? OnChange(Action<HomeAssistantOptions, string?> listener) => null;
+        public IDisposable? OnChange(Action<HomeAssistantOptions, string?> listener) => NullDisposable.Instance;
+    }
+
+    /// <summary>No-op <see cref="IDisposable"/> returned by <see cref="MutableOptionsMonitor.OnChange"/>.</summary>
+    private sealed class NullDisposable : IDisposable
+    {
+        internal static readonly NullDisposable Instance = new();
+        public void Dispose() { }
     }
 
     private sealed class CapturingHandler : HttpMessageHandler

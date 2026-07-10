@@ -103,15 +103,16 @@ All three pins added to the `Misc` ItemGroup (SQLitePCLRaw, MessagePack) and `Mi
 **Fix A — `HomeAssistantAuthorizationHandler` (new `DelegatingHandler`):**  
 Reads current token from `IOptionsMonitor<HomeAssistantOptions>` and sets `Authorization` header directly on each `HttpRequestMessage` before delegating. Atomic, always current. Registered as transient via `.AddHttpMessageHandler<HomeAssistantAuthorizationHandler>()` in both `lucia.Agents` and `lucia.HomeAssistant` registrations. `EnsureHttpClientConfigured()` now only manages `BaseAddress`.
 
-**Fix B — `RealAgentFactory._chatClients` tracking:**  
-Added `List<IChatClient> _chatClients`; `CreateOllamaResolverWithTracer` tracks the outer client; `DisposeAsync()` disposes all of them (async-first, sync fallback).
+**Fix B — `RealAgentInstance` IAsyncDisposable + `RealAgentFactory._instances` tracking:**
+Added per-instance ownership: `RealAgentInstance` (extracted to its own file) implements `IAsyncDisposable` with an `Interlocked` idempotency guard and an `OwnedChatClient` property. `RealAgentFactory` now tracks `List<RealAgentInstance> _instances`; `DisposeAsync()` cascades to each instance. Idempotent, so safe for per-evaluation disposal when PR #223 (squad/134) lands.
 
 **Key files:**
 - `lucia.HomeAssistant/Services/HomeAssistantAuthorizationHandler.cs` — new per-request auth handler
 - `lucia.HomeAssistant/Services/HomeAssistantClient.cs` — removed non-atomic Remove/Add from `EnsureHttpClientConfigured`
 - `lucia.Agents/Extensions/ServiceCollectionExtensions.cs` — register handler, remove static auth header from factory
 - `lucia.HomeAssistant/Extensions/ServiceCollectionExtensions.cs` — same registration for the test-facing `AddHomeAssistant` path
-- `lucia.EvalHarness/Providers/RealAgentFactory.cs` — `_chatClients` list + disposal
+- `lucia.EvalHarness/Providers/RealAgentInstance.cs` — new file, `IAsyncDisposable` + `OwnedChatClient`; extracted from `RealAgentFactory.cs` (one-class-per-file)
+- `lucia.EvalHarness/Providers/RealAgentFactory.cs` — `_instances` list + `DisposeAsync` cascade to each `RealAgentInstance`
 
 **Out of scope (follow-up):** Captive dependency — singleton `EntityLocationService`/`PresenceDetectionService` capture a transient typed `IHomeAssistantClient`, preventing `IHttpClientFactory` handler rotation for DNS changes. Requires broader refactor; noted in PR.
 
