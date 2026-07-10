@@ -1,7 +1,9 @@
 using FakeItEasy;
 using lucia.Agents.Abstractions;
+using lucia.EvalHarness.Configuration;
 using lucia.EvalHarness.Providers;
 using lucia.EvalHarness.Tests.TestDoubles;
+using Microsoft.Extensions.Logging;
 
 namespace lucia.EvalHarness.Tests.Providers;
 
@@ -10,6 +12,9 @@ public class RealAgentInstanceTests
     [Fact]
     public async Task DisposeAsync_CalledTwice_DisposesOwnedClientExactlyOnce()
     {
+        // Instance-level idempotency: the Interlocked guard must make the second
+        // call a no-op even if both a sweep runner and the factory safety-net
+        // dispose the same instance.
         var client = new CountingChatClient();
         var instance = new RealAgentInstance
         {
@@ -26,30 +31,36 @@ public class RealAgentInstanceTests
     }
 
     [Fact]
-    public async Task DisposeAsync_WhenTrackedBeforeInitFailure_OwnedClientReleasedOnFactoryDisposal()
+    public async Task CreateDynamicAgentAsync_AgentCtorFails_DisposesOwnedClientExactlyOnce()
     {
-        // Simulates the factory pattern:
-        //   _instances.Add(instance);   ← tracked BEFORE InitializeAsync
-        //   await agent.InitializeAsync();  ← throws
-        //   ...exception propagates...
-        //   factory.DisposeAsync();     ← cascades to all tracked instances
+        // Drives the real RealAgentFactory.CreateDynamicAgentAsync production path.
+        //
+        // The factory injects a CountingChatClient via ChatClientCreator.
+        // Agent construction fails before _instances.Add (tracked=false) because the
+        // faked IAgentDefinitionRepository returns a fake AgentDefinition with null
+        // properties, causing DynamicAgent..ctor to throw.  The catch block must
+        // dispose ownedClient directly; subsequent factory.DisposeAsync must not
+        // double-dispose it.
+        using var loggerFactory = LoggerFactory.Create(_ => { });
         var client = new CountingChatClient();
-        var trackedInstances = new List<RealAgentInstance>();
 
-        var instance = new RealAgentInstance
+        var factory = new RealAgentFactory(
+            new InferenceBackend { Name = "test", Endpoint = "http://localhost:11434" },
+            "nonexistent-snapshot.json",
+            loggerFactory)
         {
-            AgentName = "test",
-            Agent = A.Fake<ILuciaAgent>(),
-            DatasetFile = "test.yaml",
-            OwnedChatClient = client
+            ChatClientCreator = (_, _, _) => client
         };
 
-        trackedInstances.Add(instance); // mirrors _instances.Add before InitializeAsync
+        // Construction fails before _instances.Add; catch block disposes directly.
+        await Assert.ThrowsAnyAsync<Exception>(
+            () => factory.CreateDynamicAgentAsync("any-model", "nonexistent-id"));
 
-        // Simulate factory.DisposeAsync — called even when InitializeAsync threw
-        foreach (var i in trackedInstances)
-            await i.DisposeAsync();
+        // ownedClient must be disposed exactly once in the catch block (no leak)
+        Assert.Equal(1, client.DisposeCount);
 
+        // factory.DisposeAsync iterates _instances (empty) — must not double-dispose
+        await factory.DisposeAsync();
         Assert.Equal(1, client.DisposeCount);
     }
 }

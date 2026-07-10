@@ -71,6 +71,15 @@ public sealed class RealAgentFactory : IAsyncDisposable
     public ModelParameterProfile ParameterProfile { get; set; } = ModelParameterProfile.Default;
 
     /// <summary>
+    /// Factory function that allocates a backend <see cref="IChatClient"/>.
+    /// Defaults to <see cref="BackendChatClientFactory.CreateChatClient"/>.
+    /// Internal so unit tests can inject a counting/fake client to verify
+    /// ownership-transfer and disposal behaviour without starting real servers.
+    /// </summary>
+    internal Func<InferenceBackend, string, ModelParameterProfile, IChatClient> ChatClientCreator { get; init; }
+        = BackendChatClientFactory.CreateChatClient;
+
+    /// <summary>
     /// Creates a factory backed by the specified inference backend.
     /// </summary>
     public RealAgentFactory(InferenceBackend backend, string haSnapshotPath, ILoggerFactory loggerFactory)
@@ -395,7 +404,7 @@ public sealed class RealAgentFactory : IAsyncDisposable
     /// </summary>
     private (IChatClientResolver Resolver, ConversationTracer? Tracer, IChatClient OwnedClient) CreateOllamaResolverWithTracer(string modelName)
     {
-        IChatClient chatClient = BackendChatClientFactory.CreateChatClient(_backend, modelName, ParameterProfile);
+        IChatClient chatClient = ChatClientCreator(_backend, modelName, ParameterProfile);
         ConversationTracer? tracer = null;
 
         if (EnableTracing)
