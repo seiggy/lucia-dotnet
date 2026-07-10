@@ -415,6 +415,114 @@ public sealed class WyomingSessionIntegrationTests(ITestOutputHelper output)
 
     }
 
+    /// <summary>
+    /// Verifies that when WyomingServer.Dispose() calls _sttConcurrency.Dispose() while a
+    /// session has already acquired the semaphore slot and is inside GetFinalResultAsync(),
+    /// the Release() in the finally block catches ObjectDisposedException and does NOT
+    /// surface it as an unhandled session error.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_SttSemaphoreDisposedWhileSlotHeld_ReleaseHandlesDisposedSemaphore()
+    {
+        // SemaphoreSlim(1): WaitAsync succeeds immediately so the session acquires the slot
+        // and enters GetFinalResultAsync. The blocking session gives us a deterministic
+        // synchronisation point to dispose the semaphore while the slot is held.
+        var semaphore = new SemaphoreSlim(1, 4);
+        var blockingSession = new BlockingTestSttSession(
+            new SttResult { Text = "shutdown test", Confidence = 1.0f });
+        var sttEngine = new TestSttEngine(blockingSession);
+        var options = CreateOptions();
+
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var endpoint = (IPEndPoint)listener.LocalEndpoint;
+        var acceptTask = listener.AcceptTcpClientAsync();
+        var client = new TcpClient();
+        await client.ConnectAsync(endpoint.Address, endpoint.Port);
+        var serverClient = await acceptTask;
+
+        await using var serviceProvider = new ServiceCollection()
+            .AddSingleton<IOptions<WyomingOptions>>(Options.Create(options))
+            .AddSingleton<ISttEngine>(sttEngine)
+            .BuildServiceProvider();
+
+        var session = new WyomingSession(
+            serverClient,
+            serviceProvider,
+            NullLogger<WyomingSession>.Instance,
+            options,
+            eventBus: null,
+            sttConcurrency: semaphore);
+
+        var clientStream = client.GetStream();
+        var writer = new WyomingEventWriter(clientStream);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        // Drain all server responses in the background to prevent TCP backpressure from
+        // blocking the session's WriteEventAsync calls.
+        _ = Task.Run(async () =>
+        {
+            var drainParser = new WyomingEventParser(clientStream, options);
+            try
+            {
+                while (await drainParser.ReadEventAsync(cts.Token) is not null) { }
+            }
+            catch { }
+        });
+
+        var runTask = session.RunAsync(cts.Token);
+
+        // Drive the session into Transcribing state and signal end of utterance so it
+        // acquires the semaphore slot and calls GetFinalResultAsync.
+        await writer.WriteEventAsync(
+            new AudioStartEvent { Rate = 16_000, Width = 2, Channels = 1 }, cts.Token);
+        await writer.WriteEventAsync(
+            new AudioChunkEvent
+            {
+                Rate = 16_000, Width = 2, Channels = 1,
+                Payload = PcmConverter.Float32ToInt16([0.1f, -0.1f, 0.1f, -0.1f]),
+            },
+            cts.Token);
+        await writer.WriteEventAsync(new AudioStopEvent(), cts.Token);
+
+        // Wait until GetFinalResultAsync is executing (semaphore slot is acquired).
+        // This is deterministic — no polling or arbitrary delays.
+        var inferenceReached = await Task.WhenAny(
+            blockingSession.InferenceStarted.Task,
+            Task.Delay(TimeSpan.FromSeconds(5), cts.Token));
+        Assert.True(
+            inferenceReached == blockingSession.InferenceStarted.Task,
+            "Session did not reach STT inference within 5 s — AudioStop may not have been processed");
+
+        // Simulate WyomingServer.Dispose() racing with the in-flight STT session.
+        // The slot is held; Release() in the finally block must catch ObjectDisposedException.
+        semaphore.Dispose();
+
+        // Unblock inference so the session proceeds to the Release() call.
+        blockingSession.Unblock();
+
+        // Close the client connection; the server's next ReadEventAsync will see EOF and
+        // RunAsync will exit cleanly (mirrors normal session teardown).
+        await Task.Delay(TimeSpan.FromMilliseconds(200), cts.Token);
+        client.Close();
+
+        var completed = await Task.WhenAny(runTask, Task.Delay(TimeSpan.FromSeconds(5))) == runTask;
+        Assert.True(completed, "RunAsync did not complete after inference unblock and connection close");
+
+        if (runTask.Exception is { } aggregateEx)
+        {
+            var innerEx = aggregateEx.InnerException ?? aggregateEx;
+            Assert.False(
+                innerEx is ObjectDisposedException,
+                $"Session must not surface ObjectDisposedException on Release(); got: {innerEx.GetType().Name}: {innerEx.Message}");
+        }
+
+        client.Dispose();
+        serverClient.Dispose();
+        listener.Stop();
+    }
+
     private static WyomingOptions CreateOptions()
     {
         return new WyomingOptions

@@ -449,8 +449,20 @@ public sealed partial class WyomingSession : IDisposable
                     SttResult sttResult;
                     using (var sttActivity = WyomingActivitySource.StartActivity("wyoming.stt.finalize"))
                     {
+                        var sttSlotAcquired = false;
                         if (_sttConcurrency is not null)
-                            await _sttConcurrency.WaitAsync(ct).ConfigureAwait(false);
+                        {
+                            try
+                            {
+                                await _sttConcurrency.WaitAsync(ct).ConfigureAwait(false);
+                                sttSlotAcquired = true;
+                            }
+                            catch (ObjectDisposedException) when (ct.IsCancellationRequested)
+                            {
+                                // Semaphore disposed during server shutdown — normalize to cancellation
+                                ct.ThrowIfCancellationRequested();
+                            }
+                        }
                         try
                         {
                             var sttSw = System.Diagnostics.Stopwatch.StartNew();
@@ -465,7 +477,11 @@ public sealed partial class WyomingSession : IDisposable
                         }
                         finally
                         {
-                            _sttConcurrency?.Release();
+                            if (sttSlotAcquired)
+                            {
+                                try { _sttConcurrency!.Release(); }
+                                catch (ObjectDisposedException) { /* Disposed during shutdown — slot already reclaimed */ }
+                            }
                         }
                     }
 
@@ -553,15 +569,31 @@ public sealed partial class WyomingSession : IDisposable
         if (_pendingTranscript is null && _currentSttSession is not null)
         {
             _currentVadSession?.Flush();
+            var sttSlotAcquired = false;
             if (_sttConcurrency is not null)
-                await _sttConcurrency.WaitAsync(ct).ConfigureAwait(false);
+            {
+                try
+                {
+                    await _sttConcurrency.WaitAsync(ct).ConfigureAwait(false);
+                    sttSlotAcquired = true;
+                }
+                catch (ObjectDisposedException) when (ct.IsCancellationRequested)
+                {
+                    // Semaphore disposed during server shutdown — normalize to cancellation
+                    ct.ThrowIfCancellationRequested();
+                }
+            }
             try
             {
                 _pendingTranscript = await _currentSttSession.GetFinalResultAsync().ConfigureAwait(false);
             }
             finally
             {
-                _sttConcurrency?.Release();
+                if (sttSlotAcquired)
+                {
+                    try { _sttConcurrency!.Release(); }
+                    catch (ObjectDisposedException) { /* Disposed during shutdown — slot already reclaimed */ }
+                }
             }
             DisposeCurrentSttSession();
             DisposeCurrentVadSession();
