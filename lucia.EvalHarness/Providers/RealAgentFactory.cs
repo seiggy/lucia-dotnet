@@ -118,16 +118,30 @@ public sealed class RealAgentFactory : IAsyncDisposable
     public async Task<RealAgentInstance> CreateLightAgentAsync(string modelName)
     {
         var (resolver, tracer, ownedClient) = CreateOllamaResolverWithTracer(modelName);
-        var skill = new LightControlSkill(
-            _haClient,
-            _loggerFactory.CreateLogger<LightControlSkill>(),
-            _locationService,
-            CreateOptionsMonitor<LightControlSkillOptions>());
-        var agent = new LightAgent(resolver, _definitionRepo, skill, _tracingFactory, _loggerFactory);
-        var instance = new RealAgentInstance { AgentName = "LightAgent", Agent = agent, DatasetFile = "TestData/light-agent.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
-        _instances.Add(instance); // track before InitializeAsync — factory.DisposeAsync releases the client on failure
-        await agent.InitializeAsync();
-        return instance;
+        var tracked = false;
+        try
+        {
+            var skill = new LightControlSkill(
+                _haClient,
+                _loggerFactory.CreateLogger<LightControlSkill>(),
+                _locationService,
+                CreateOptionsMonitor<LightControlSkillOptions>());
+            var agent = new LightAgent(resolver, _definitionRepo, skill, _tracingFactory, _loggerFactory);
+            var instance = new RealAgentInstance { AgentName = "LightAgent", Agent = agent, DatasetFile = "TestData/light-agent.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
+            _instances.Add(instance);
+            tracked = true; // ownership transferred — factory.DisposeAsync handles cleanup from here
+            await agent.InitializeAsync();
+            return instance;
+        }
+        catch
+        {
+            if (!tracked)
+            {
+                if (ownedClient is IAsyncDisposable ad) await ad.DisposeAsync();
+                else if (ownedClient is IDisposable d) d.Dispose();
+            }
+            throw;
+        }
     }
 
     /// <summary>
@@ -136,40 +150,54 @@ public sealed class RealAgentFactory : IAsyncDisposable
     public async Task<RealAgentInstance> CreateClimateAgentAsync(string modelName)
     {
         var (resolver, tracer, ownedClient) = CreateOllamaResolverWithTracer(modelName);
-        var similarity = new EmbeddingSimilarityService();
-        var entityMatcher = new HybridEntityMatcher(
-            similarity, _loggerFactory.CreateLogger<HybridEntityMatcher>());
-        var embeddingResolver = CreateFakeEmbeddingResolver();
-        var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
+        var tracked = false;
+        try
+        {
+            var similarity = new EmbeddingSimilarityService();
+            var entityMatcher = new HybridEntityMatcher(
+                similarity, _loggerFactory.CreateLogger<HybridEntityMatcher>());
+            var embeddingResolver = CreateFakeEmbeddingResolver();
+            var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
 
-        var climateOptions = CreateOptionsMonitor(new ClimateControlSkillOptions { CacheRefreshMinutes = 0 });
+            var climateOptions = CreateOptionsMonitor(new ClimateControlSkillOptions { CacheRefreshMinutes = 0 });
 
-        var climateSkill = new ClimateControlSkill(
-            _haClient,
-            embeddingResolver,
-            _loggerFactory.CreateLogger<ClimateControlSkill>(),
-            _deviceCache,
-            _locationService,
-            entityMatcher,
-            climateOptions,
-            configuration);
+            var climateSkill = new ClimateControlSkill(
+                _haClient,
+                embeddingResolver,
+                _loggerFactory.CreateLogger<ClimateControlSkill>(),
+                _deviceCache,
+                _locationService,
+                entityMatcher,
+                climateOptions,
+                configuration);
 
-        var fanOptions = CreateOptionsMonitor(new FanControlSkillOptions { CacheRefreshMinutes = 0 });
+            var fanOptions = CreateOptionsMonitor(new FanControlSkillOptions { CacheRefreshMinutes = 0 });
 
-        var fanSkill = new FanControlSkill(
-            _haClient,
-            embeddingResolver,
-            _deviceCache,
-            _locationService,
-            entityMatcher,
-            fanOptions,
-            _loggerFactory.CreateLogger<FanControlSkill>());
+            var fanSkill = new FanControlSkill(
+                _haClient,
+                embeddingResolver,
+                _deviceCache,
+                _locationService,
+                entityMatcher,
+                fanOptions,
+                _loggerFactory.CreateLogger<FanControlSkill>());
 
-        var agent = new ClimateAgent(resolver, _definitionRepo, climateSkill, fanSkill, _tracingFactory, _loggerFactory);
-        var instance = new RealAgentInstance { AgentName = "ClimateAgent", Agent = agent, DatasetFile = "TestData/climate-agent.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
-        _instances.Add(instance);
-        await agent.InitializeAsync();
-        return instance;
+            var agent = new ClimateAgent(resolver, _definitionRepo, climateSkill, fanSkill, _tracingFactory, _loggerFactory);
+            var instance = new RealAgentInstance { AgentName = "ClimateAgent", Agent = agent, DatasetFile = "TestData/climate-agent.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
+            _instances.Add(instance);
+            tracked = true;
+            await agent.InitializeAsync();
+            return instance;
+        }
+        catch
+        {
+            if (!tracked)
+            {
+                if (ownedClient is IAsyncDisposable ad) await ad.DisposeAsync();
+                else if (ownedClient is IDisposable d) d.Dispose();
+            }
+            throw;
+        }
     }
 
     /// <summary>
@@ -178,12 +206,26 @@ public sealed class RealAgentFactory : IAsyncDisposable
     public async Task<RealAgentInstance> CreateListsAgentAsync(string modelName)
     {
         var (resolver, tracer, ownedClient) = CreateOllamaResolverWithTracer(modelName);
-        var skill = new ListSkill(_haClient, _loggerFactory.CreateLogger<ListSkill>());
-        var agent = new ListsAgent(resolver, _definitionRepo, skill, _tracingFactory, _loggerFactory);
-        var instance = new RealAgentInstance { AgentName = "ListsAgent", Agent = agent, DatasetFile = "TestData/lists-agent.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
-        _instances.Add(instance);
-        await agent.InitializeAsync();
-        return instance;
+        var tracked = false;
+        try
+        {
+            var skill = new ListSkill(_haClient, _loggerFactory.CreateLogger<ListSkill>());
+            var agent = new ListsAgent(resolver, _definitionRepo, skill, _tracingFactory, _loggerFactory);
+            var instance = new RealAgentInstance { AgentName = "ListsAgent", Agent = agent, DatasetFile = "TestData/lists-agent.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
+            _instances.Add(instance);
+            tracked = true;
+            await agent.InitializeAsync();
+            return instance;
+        }
+        catch
+        {
+            if (!tracked)
+            {
+                if (ownedClient is IAsyncDisposable ad) await ad.DisposeAsync();
+                else if (ownedClient is IDisposable d) d.Dispose();
+            }
+            throw;
+        }
     }
 
     /// <summary>
@@ -192,16 +234,30 @@ public sealed class RealAgentFactory : IAsyncDisposable
     public async Task<RealAgentInstance> CreateSceneAgentAsync(string modelName)
     {
         var (resolver, tracer, ownedClient) = CreateOllamaResolverWithTracer(modelName);
-        var skill = new SceneControlSkill(
-            _haClient,
-            _locationService,
-            CreateOptionsMonitor<SceneControlSkillOptions>(),
-            _loggerFactory.CreateLogger<SceneControlSkill>());
-        var agent = new SceneAgent(resolver, _definitionRepo, skill, _tracingFactory, _loggerFactory);
-        var instance = new RealAgentInstance { AgentName = "SceneAgent", Agent = agent, DatasetFile = "TestData/scene-agent.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
-        _instances.Add(instance);
-        await agent.InitializeAsync();
-        return instance;
+        var tracked = false;
+        try
+        {
+            var skill = new SceneControlSkill(
+                _haClient,
+                _locationService,
+                CreateOptionsMonitor<SceneControlSkillOptions>(),
+                _loggerFactory.CreateLogger<SceneControlSkill>());
+            var agent = new SceneAgent(resolver, _definitionRepo, skill, _tracingFactory, _loggerFactory);
+            var instance = new RealAgentInstance { AgentName = "SceneAgent", Agent = agent, DatasetFile = "TestData/scene-agent.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
+            _instances.Add(instance);
+            tracked = true;
+            await agent.InitializeAsync();
+            return instance;
+        }
+        catch
+        {
+            if (!tracked)
+            {
+                if (ownedClient is IAsyncDisposable ad) await ad.DisposeAsync();
+                else if (ownedClient is IDisposable d) d.Dispose();
+            }
+            throw;
+        }
     }
 
     /// <summary>
@@ -210,20 +266,34 @@ public sealed class RealAgentFactory : IAsyncDisposable
     public async Task<RealAgentInstance> CreateMusicAgentAsync(string modelName)
     {
         var (resolver, tracer, ownedClient) = CreateOllamaResolverWithTracer(modelName);
-        var skill = new MusicPlaybackSkill(
-            _haClient,
-            _loggerFactory.CreateLogger<MusicPlaybackSkill>(),
-            _locationService,
-            CreateOptionsMonitor<MusicPlaybackSkillOptions>(),
-            CreateOptionsMonitor<MusicAssistantConfig>());
+        var tracked = false;
+        try
+        {
+            var skill = new MusicPlaybackSkill(
+                _haClient,
+                _loggerFactory.CreateLogger<MusicPlaybackSkill>(),
+                _locationService,
+                CreateOptionsMonitor<MusicPlaybackSkillOptions>(),
+                CreateOptionsMonitor<MusicAssistantConfig>());
 
-        var server = A.Fake<Microsoft.AspNetCore.Hosting.Server.IServer>();
-        var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
-        var agent = new lucia.MusicAgent.MusicAgent(resolver, _definitionRepo, skill, server, configuration, _tracingFactory, _loggerFactory);
-        var instance = new RealAgentInstance { AgentName = "MusicAgent", Agent = agent, DatasetFile = "TestData/music-agent.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
-        _instances.Add(instance);
-        await agent.InitializeAsync();
-        return instance;
+            var server = A.Fake<Microsoft.AspNetCore.Hosting.Server.IServer>();
+            var configuration = new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build();
+            var agent = new lucia.MusicAgent.MusicAgent(resolver, _definitionRepo, skill, server, configuration, _tracingFactory, _loggerFactory);
+            var instance = new RealAgentInstance { AgentName = "MusicAgent", Agent = agent, DatasetFile = "TestData/music-agent.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
+            _instances.Add(instance);
+            tracked = true;
+            await agent.InitializeAsync();
+            return instance;
+        }
+        catch
+        {
+            if (!tracked)
+            {
+                if (ownedClient is IAsyncDisposable ad) await ad.DisposeAsync();
+                else if (ownedClient is IDisposable d) d.Dispose();
+            }
+            throw;
+        }
     }
 
     /// <summary>
@@ -232,12 +302,26 @@ public sealed class RealAgentFactory : IAsyncDisposable
     public async Task<RealAgentInstance> CreateGeneralAgentAsync(string modelName)
     {
         var (resolver, tracer, ownedClient) = CreateOllamaResolverWithTracer(modelName);
-        var mcpRegistry = A.Fake<IMcpToolRegistry>();
-        var agent = new GeneralAgent(resolver, _definitionRepo, mcpRegistry, _tracingFactory, _loggerFactory);
-        var instance = new RealAgentInstance { AgentName = "GeneralAgent", Agent = agent, DatasetFile = "TestData/general-agent.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
-        _instances.Add(instance);
-        await agent.InitializeAsync();
-        return instance;
+        var tracked = false;
+        try
+        {
+            var mcpRegistry = A.Fake<IMcpToolRegistry>();
+            var agent = new GeneralAgent(resolver, _definitionRepo, mcpRegistry, _tracingFactory, _loggerFactory);
+            var instance = new RealAgentInstance { AgentName = "GeneralAgent", Agent = agent, DatasetFile = "TestData/general-agent.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
+            _instances.Add(instance);
+            tracked = true;
+            await agent.InitializeAsync();
+            return instance;
+        }
+        catch
+        {
+            if (!tracked)
+            {
+                if (ownedClient is IAsyncDisposable ad) await ad.DisposeAsync();
+                else if (ownedClient is IDisposable d) d.Dispose();
+            }
+            throw;
+        }
     }
 
     /// <summary>
@@ -247,16 +331,12 @@ public sealed class RealAgentFactory : IAsyncDisposable
     public async Task<RealAgentInstance> CreateDynamicAgentAsync(string modelName, string agentId)
     {
         var (resolver, tracer, ownedClient) = CreateOllamaResolverWithTracer(modelName);
+        var tracked = false;
         try
         {
-            // Load agent definition from repository
-            var definition = await _definitionRepo.GetAgentDefinitionAsync(agentId, default);
-            if (definition is null)
-            {
-                throw new InvalidOperationException($"Agent definition '{agentId}' not found in repository");
-            }
+            var definition = await _definitionRepo.GetAgentDefinitionAsync(agentId, default)
+                ?? throw new InvalidOperationException($"Agent definition '{agentId}' not found in repository");
 
-            // Create mock dependencies for DynamicAgent
             var providerResolver = A.Fake<IModelProviderResolver>();
             var providerRepository = A.Fake<IModelProviderRepository>();
             var telemetrySource = new lucia.Agents.AgentsTelemetrySource();
@@ -274,16 +354,19 @@ public sealed class RealAgentFactory : IAsyncDisposable
                 _loggerFactory);
 
             var instance = new RealAgentInstance { AgentName = $"DynamicAgent[{agentId}]", Agent = agent, DatasetFile = $"TestData/{agentId}.yaml", Tracer = tracer, OwnedChatClient = ownedClient };
-            _instances.Add(instance); // track before InitializeAsync
+            _instances.Add(instance);
+            tracked = true; // ownership transferred — factory.DisposeAsync handles cleanup from here
             await agent.InitializeAsync();
             return instance;
         }
         catch
         {
-            // GetAgentDefinitionAsync or InitializeAsync failed before the instance was tracked;
-            // dispose the backend client directly so no socket handle is leaked.
-            if (ownedClient is IAsyncDisposable ad) await ad.DisposeAsync();
-            else if (ownedClient is IDisposable d) d.Dispose();
+            if (!tracked)
+            {
+                // ownedClient has not been transferred to a tracked instance; dispose directly.
+                if (ownedClient is IAsyncDisposable ad) await ad.DisposeAsync();
+                else if (ownedClient is IDisposable d) d.Dispose();
+            }
             throw;
         }
     }

@@ -47,17 +47,19 @@ public static class HomeAssistantTestConfig
             options.ValidateSSL = validateSsl;
         });
 
+        // Authorization is set per-request by HomeAssistantAuthorizationHandler.
+        services.AddTransient<HomeAssistantAuthorizationHandler>();
         services.AddHttpClient<HomeAssistantClient>((sp, client) =>
             {
                 client.BaseAddress = new Uri(Endpoint!.TrimEnd('/'));
-                client.DefaultRequestHeaders.Add("Authorization", $"Bearer {Token}");
                 client.DefaultRequestHeaders.Add("Accept", "application/json");
                 client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
             })
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
             {
                 ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
-            });
+            })
+            .AddHttpMessageHandler<HomeAssistantAuthorizationHandler>();
 
         var serviceProvider = services.BuildServiceProvider();
         var client = serviceProvider.GetRequiredService<HomeAssistantClient>();

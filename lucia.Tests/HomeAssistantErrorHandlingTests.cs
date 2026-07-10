@@ -1,3 +1,4 @@
+using lucia.HomeAssistant.Configuration;
 using lucia.HomeAssistant.Services;
 
 namespace lucia.Tests;
@@ -9,39 +10,54 @@ public class HomeAssistantErrorHandlingTests
 
     public HomeAssistantErrorHandlingTests()
     {
-        // Client with invalid token — uses the configured endpoint but a bad token
+        // Client with invalid token — uses the configured endpoint but a bad token.
+        // HomeAssistantAuthorizationHandler reads AccessToken from options per-request.
         if (HomeAssistantTestConfig.IsConfigured)
         {
             var servicesInvalidToken = new ServiceCollection();
             servicesInvalidToken.AddLogging();
+            servicesInvalidToken.Configure<HomeAssistantOptions>(options =>
+            {
+                options.BaseUrl = HomeAssistantTestConfig.Endpoint!;
+                options.AccessToken = "invalid-token-for-test"; // intentionally invalid — HA returns 401
+            });
+            servicesInvalidToken.AddTransient<HomeAssistantAuthorizationHandler>();
             servicesInvalidToken.AddHttpClient<HomeAssistantClient>((sp, client) =>
                 {
                     client.BaseAddress = new Uri(HomeAssistantTestConfig.Endpoint!.TrimEnd('/'));
-                    client.DefaultRequestHeaders.Add("Authorization", "Bearer invalid-token");
                     client.Timeout = TimeSpan.FromSeconds(5);
+                    // Authorization is set per-request by HomeAssistantAuthorizationHandler.
                 })
                 .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
                 {
                     ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
-                });
+                })
+                .AddHttpMessageHandler<HomeAssistantAuthorizationHandler>();
 
             var serviceProviderInvalidToken = servicesInvalidToken.BuildServiceProvider();
             _clientWithInvalidToken = serviceProviderInvalidToken.GetRequiredService<HomeAssistantClient>();
         }
 
-        // Client with invalid URL
+        // Client with invalid URL — token value doesn't matter since the URL won't resolve.
         var servicesInvalidUrl = new ServiceCollection();
         servicesInvalidUrl.AddLogging();
+        servicesInvalidUrl.Configure<HomeAssistantOptions>(options =>
+        {
+            options.BaseUrl = "http://nonexistent.local:8123";
+            options.AccessToken = "test-token";
+        });
+        servicesInvalidUrl.AddTransient<HomeAssistantAuthorizationHandler>();
         servicesInvalidUrl.AddHttpClient<HomeAssistantClient>((sp, client) =>
             {
                 client.BaseAddress = new Uri("http://nonexistent.local:8123");
-                client.DefaultRequestHeaders.Add("Authorization", "Bearer any-token");
                 client.Timeout = TimeSpan.FromSeconds(5);
+                // Authorization is set per-request by HomeAssistantAuthorizationHandler.
             })
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
             {
                 ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
-            });
+            })
+            .AddHttpMessageHandler<HomeAssistantAuthorizationHandler>();
 
         var serviceProviderInvalidUrl = servicesInvalidUrl.BuildServiceProvider();
         _clientWithInvalidUrl = serviceProviderInvalidUrl.GetRequiredService<HomeAssistantClient>();
