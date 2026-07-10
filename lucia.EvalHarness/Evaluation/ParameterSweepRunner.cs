@@ -27,22 +27,50 @@ public sealed class SweepResult
 }
 
 /// <summary>
-/// A single sweep entry: one model evaluated with a specific parameter profile.
+/// A single sweep entry: one model evaluated with a specific parameter profile
+/// across N independent runs. Scores are aggregated over all runs to reduce
+/// the effect of LLM non-determinism on winner selection.
 /// </summary>
 public sealed class SweepEntry
 {
     public required ModelParameterProfile Profile { get; init; }
+
+    /// <summary>
+    /// Results from the first run only — used for per-agent display/reporting.
+    /// </summary>
     public required IReadOnlyList<ModelEvalResult> Results { get; init; }
 
     /// <summary>
-    /// Average overall score across all agents for this profile.
+    /// Results for every run. Each inner list contains one <see cref="ModelEvalResult"/>
+    /// per agent evaluated in that run.
     /// </summary>
-    public double AverageScore => Results.Count > 0
-        ? Results.Average(r => r.OverallScore)
-        : 0;
+    public required IReadOnlyList<IReadOnlyList<ModelEvalResult>> AllRunResults { get; init; }
 
     /// <summary>
-    /// Average latency in milliseconds across all agents.
+    /// Mean overall score across all runs and all agents.
+    /// This is the primary metric used for winner selection.
+    /// </summary>
+    public double MeanScore => SweepRunAggregator.ComputeMean(AllRunResults);
+
+    /// <summary>
+    /// Variance of per-run mean scores. Lower value means the combination is
+    /// stable; higher value means results are noisy.
+    /// </summary>
+    public double ScoreVariance => SweepRunAggregator.ComputeVariance(AllRunResults);
+
+    /// <summary>
+    /// Pessimistic bound: the lowest per-run mean score across all N runs.
+    /// </summary>
+    public double MinRunMean => SweepRunAggregator.ComputeMinRunMean(AllRunResults);
+
+    /// <summary>
+    /// Average overall score — alias for <see cref="MeanScore"/> for backward
+    /// compatibility with report generators and display code.
+    /// </summary>
+    public double AverageScore => MeanScore;
+
+    /// <summary>
+    /// Average latency in milliseconds from the first run (representative sample).
     /// </summary>
     public double AverageLatencyMs => Results.Count > 0
         ? Results.Average(r => r.Performance.MeanLatency.TotalMilliseconds)
@@ -67,6 +95,8 @@ public sealed class ParameterSweepRunner
     /// <summary>
     /// Runs a baseline evaluation with the best/largest model, then sweeps
     /// parameter configurations for each target model.
+    /// Each combination is evaluated <see cref="ParameterSweepConfig.RunsPerCombination"/> times
+    /// and the winner is chosen by mean score across all runs.
     /// </summary>
     public async Task<SweepResult> RunAsync(
         string baselineModel,
@@ -79,6 +109,7 @@ public sealed class ParameterSweepRunner
     {
         var startedAt = DateTimeOffset.UtcNow;
         var combinations = sweepConfig.GenerateCombinations();
+        var runsPerCombination = Math.Max(1, sweepConfig.RunsPerCombination);
 
         // 1. Run baseline with default parameters
         AnsiConsole.MarkupLine($"[bold]Running baseline:[/] {Markup.Escape(baselineModel)} (default parameters)");
@@ -96,7 +127,9 @@ public sealed class ParameterSweepRunner
 
         foreach (var targetModel in targetModels)
         {
-            AnsiConsole.MarkupLine($"[bold]Sweeping:[/] {Markup.Escape(targetModel)} ({combinations.Count} parameter configurations)");
+            AnsiConsole.MarkupLine(
+                $"[bold]Sweeping:[/] {Markup.Escape(targetModel)} " +
+                $"({combinations.Count} configurations × {runsPerCombination} run{(runsPerCombination == 1 ? "" : "s")} each)");
 
             var entries = new List<SweepEntry>();
 
@@ -115,25 +148,39 @@ public sealed class ParameterSweepRunner
 
                     foreach (var profile in combinations)
                     {
-                        _agentFactory.ParameterProfile = profile;
+                        var allRunResults = new List<IReadOnlyList<ModelEvalResult>>(runsPerCombination);
 
-                        var results = await RunModelAcrossAgentsAsync(
-                            targetModel, agentNames, testCaseLoader, maxCasesPerAgent, profile, ct);
+                        for (var runIndex = 0; runIndex < runsPerCombination; runIndex++)
+                        {
+                            // Derive a per-run seed so each run is reproducible yet distinct
+                            var runProfile = profile.Seed.HasValue
+                                ? profile with { Seed = SweepRunAggregator.DeriveRunSeed(profile.Seed, runIndex) }
+                                : profile;
+
+                            _agentFactory.ParameterProfile = runProfile;
+
+                            var runResults = await RunModelAcrossAgentsAsync(
+                                targetModel, agentNames, testCaseLoader, maxCasesPerAgent, runProfile, ct);
+
+                            allRunResults.Add(runResults);
+                        }
 
                         entries.Add(new SweepEntry
                         {
                             Profile = profile,
-                            Results = results
+                            Results = allRunResults[0],  // first run — used for per-agent display
+                            AllRunResults = allRunResults
                         });
 
                         progressTask.Increment(1);
                     }
                 });
 
-            var bestEntry = entries.OrderByDescending(e => e.AverageScore).First();
+            var bestEntry = SweepRunAggregator.SelectWinner(entries);
             AnsiConsole.MarkupLine(
-                $"[green]\u2713[/] Best config: {Markup.Escape(bestEntry.Profile.ToSummary())} → {bestEntry.AverageScore:F1} " +
-                $"(delta from baseline: {bestEntry.AverageScore - baselineAvg:+0.0;-0.0})");
+                $"[green]\u2713[/] Best config: {Markup.Escape(bestEntry.Profile.ToSummary())} → " +
+                $"{bestEntry.MeanScore:F1} (±{bestEntry.ScoreVariance:F2} var, " +
+                $"{runsPerCombination}-run mean, delta from baseline: {bestEntry.MeanScore - baselineAvg:+0.0;-0.0})");
             AnsiConsole.WriteLine();
 
             targetResults[targetModel] = entries;

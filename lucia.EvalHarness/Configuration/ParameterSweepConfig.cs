@@ -47,6 +47,15 @@ public sealed class ParameterSweepConfig
     public int MaxCombinations { get; set; } = 20;
 
     /// <summary>
+    /// Number of times each combination is evaluated before selecting a winner.
+    /// Running multiple times reduces the impact of LLM non-determinism on winner
+    /// selection; the winner is chosen by mean score across all runs, with score
+    /// variance used as a tie-breaker (lower variance wins).
+    /// Default: 3. Set to 1 to restore the old single-run behaviour.
+    /// </summary>
+    public int RunsPerCombination { get; set; } = 3;
+
+    /// <summary>
     /// Generates the parameter combinations to test, applying <see cref="MaxCombinations"/> limit.
     /// Uses systematic sampling when the full grid is too large.
     /// </summary>

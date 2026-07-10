@@ -72,26 +72,26 @@ public static class SweepReportGenerator
             sb.AppendLine();
 
             // Summary: best configuration
-            var bestEntry = entries.OrderByDescending(e => e.AverageScore).First();
-            var worstEntry = entries.OrderBy(e => e.AverageScore).First();
-            sb.AppendLine($"- **Best config:** {bestEntry.Profile.ToSummary()} → **{bestEntry.AverageScore:F1}** (Δ from baseline: {bestEntry.AverageScore - baselineAvg:+0.0;-0.0})");
-            sb.AppendLine($"- **Worst config:** {worstEntry.Profile.ToSummary()} → **{worstEntry.AverageScore:F1}**");
-            sb.AppendLine($"- **Score range:** {worstEntry.AverageScore:F1} – {bestEntry.AverageScore:F1}");
+            var bestEntry = entries.OrderByDescending(e => e.MeanScore).First();
+            var worstEntry = entries.OrderBy(e => e.MeanScore).First();
+            sb.AppendLine($"- **Best config:** {bestEntry.Profile.ToSummary()} → **{bestEntry.MeanScore:F1}** (Δ from baseline: {bestEntry.MeanScore - baselineAvg:+0.0;-0.0}, var: {bestEntry.ScoreVariance:F2})");
+            sb.AppendLine($"- **Worst config:** {worstEntry.Profile.ToSummary()} → **{worstEntry.MeanScore:F1}**");
+            sb.AppendLine($"- **Score range:** {worstEntry.MeanScore:F1} – {bestEntry.MeanScore:F1}");
             sb.AppendLine();
 
             // Full results table
-            sb.AppendLine("| # | Temperature | Top-K | Top-P | Repeat | Avg Score | Δ Baseline | Avg Latency |");
-            sb.AppendLine("|---|-------------|-------|-------|--------|-----------|------------|-------------|");
+            sb.AppendLine("| # | Temperature | Top-K | Top-P | Repeat | Mean Score | Variance | Δ Baseline | Avg Latency |");
+            sb.AppendLine("|---|-------------|-------|-------|--------|------------|----------|------------|-------------|");
 
             var rank = 1;
-            foreach (var entry in entries.OrderByDescending(e => e.AverageScore))
+            foreach (var entry in entries.OrderByDescending(e => e.MeanScore))
             {
-                var delta = entry.AverageScore - baselineAvg;
+                var delta = entry.MeanScore - baselineAvg;
                 var marker = entry == bestEntry ? " ⭐" : "";
                 sb.AppendLine(
                     $"| {rank++}{marker} | {entry.Profile.Temperature} | {entry.Profile.TopK} | " +
                     $"{entry.Profile.TopP} | {entry.Profile.RepeatPenalty} | " +
-                    $"{entry.AverageScore:F1} | {delta:+0.0;-0.0} | {entry.AverageLatencyMs:F0}ms |");
+                    $"{entry.MeanScore:F1} | {entry.ScoreVariance:F2} | {delta:+0.0;-0.0} | {entry.AverageLatencyMs:F0}ms |");
             }
             sb.AppendLine();
 
@@ -119,10 +119,10 @@ public static class SweepReportGenerator
         {
             if (!entries.Any()) continue;
 
-            var best = entries.OrderByDescending(e => e.AverageScore).First();
-            var delta = best.AverageScore - baselineAvg;
-            var pct = baselineAvg > 0 ? best.AverageScore / baselineAvg * 100 : 0;
-            sb.AppendLine($"- **{targetModel}:** Use `{best.Profile.ToSummary()}` → {best.AverageScore:F1} ({pct:F0}% of baseline, {delta:+0.0;-0.0} delta)");
+            var best = entries.OrderByDescending(e => e.MeanScore).First();
+            var delta = best.MeanScore - baselineAvg;
+            var pct = baselineAvg > 0 ? best.MeanScore / baselineAvg * 100 : 0;
+            sb.AppendLine($"- **{targetModel}:** Use `{best.Profile.ToSummary()}` → {best.MeanScore:F1} ({pct:F0}% of baseline, {delta:+0.0;-0.0} delta)");
         }
 
         return sb.ToString();
@@ -143,7 +143,7 @@ public static class SweepReportGenerator
         targets = result.TargetResults.Select(kvp => new
         {
             model = kvp.Key,
-            bestConfig = kvp.Value.OrderByDescending(e => e.AverageScore).Select(e => new
+            bestConfig = kvp.Value.OrderByDescending(e => e.MeanScore).Select(e => new
             {
                 parameters = new
                 {
@@ -153,11 +153,14 @@ public static class SweepReportGenerator
                     e.Profile.TopP,
                     e.Profile.RepeatPenalty
                 },
-                averageScore = e.AverageScore,
+                meanScore = e.MeanScore,
+                scoreVariance = e.ScoreVariance,
+                minRunMean = e.MinRunMean,
+                runCount = e.AllRunResults.Count,
                 averageLatencyMs = e.AverageLatencyMs,
                 agents = e.Results.Select(r => new { r.AgentName, r.OverallScore })
             }).FirstOrDefault(),
-            allConfigs = kvp.Value.OrderByDescending(e => e.AverageScore).Select(e => new
+            allConfigs = kvp.Value.OrderByDescending(e => e.MeanScore).Select(e => new
             {
                 parameters = new
                 {
@@ -166,7 +169,9 @@ public static class SweepReportGenerator
                     e.Profile.TopP,
                     e.Profile.RepeatPenalty
                 },
-                averageScore = e.AverageScore,
+                meanScore = e.MeanScore,
+                scoreVariance = e.ScoreVariance,
+                runCount = e.AllRunResults.Count,
                 averageLatencyMs = e.AverageLatencyMs
             })
         })
