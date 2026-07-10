@@ -127,6 +127,30 @@ public sealed class SqliteConfigStoreWriterTests : IDisposable
         Assert.Null(result);
     }
 
+    [Fact]
+    public async Task GetAllEntriesAsync_PreservesUtcKindOnUpdatedAt()
+    {
+        // Fixed instant avoids timing-precision issues; Kind=Utc is the critical invariant.
+        var expectedUtc = new DateTime(2024, 6, 15, 10, 30, 45, DateTimeKind.Utc);
+        await _writer.InsertManyAsync(
+        [
+            new ConfigEntry
+            {
+                Key = "Utc:RoundTrip",
+                Value = "v",
+                Section = "Utc",
+                UpdatedAt = expectedUtc,
+                UpdatedBy = "test"
+            }
+        ]);
+
+        var entries = await _writer.GetAllEntriesAsync();
+        var entry = Assert.Single(entries, e => e.Key == "Utc:RoundTrip");
+
+        Assert.Equal(DateTimeKind.Utc, entry.UpdatedAt.Kind);
+        Assert.Equal(expectedUtc, entry.UpdatedAt);
+    }
+
     public void Dispose()
     {
         _helper.Dispose();

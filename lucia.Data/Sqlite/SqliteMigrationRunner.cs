@@ -1,3 +1,5 @@
+using System.Globalization;
+
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -12,8 +14,8 @@ namespace lucia.Data.Sqlite;
 public sealed class SqliteMigrationRunner : IHostedService
 {
     private const int ConfigSchemaVersion = 2;
-    private const int TracesSchemaVersion = 1;
-    private const int TasksSchemaVersion = 1;
+    private const int TracesSchemaVersion = 2;
+    private const int TasksSchemaVersion = 2;
 
     private readonly SqliteConnectionFactory _configFactory;
     private readonly SqliteConnectionFactory _tracesFactory;
@@ -35,8 +37,8 @@ public sealed class SqliteMigrationRunner : IHostedService
     public Task StartAsync(CancellationToken cancellationToken)
     {
         MigrateDatabase(_configFactory, "config", ConfigSchemaVersion, ApplyConfigV1, ApplyConfigV2);
-        MigrateDatabase(_tracesFactory, "traces", TracesSchemaVersion, ApplyTracesV1);
-        MigrateDatabase(_tasksFactory, "tasks", TasksSchemaVersion, ApplyTasksV1);
+        MigrateDatabase(_tracesFactory, "traces", TracesSchemaVersion, ApplyTracesV1, ApplyTracesV2);
+        MigrateDatabase(_tasksFactory, "tasks", TasksSchemaVersion, ApplyTasksV1, ApplyTasksV2);
         return Task.CompletedTask;
     }
 
@@ -283,6 +285,38 @@ public sealed class SqliteMigrationRunner : IHostedService
         cmd.ExecuteNonQuery();
     }
 
+    /// <summary>
+    /// Normalizes all existing <c>command_traces.timestamp</c> values to canonical UTC
+    /// (<c>+00:00</c> suffix) so that lexicographic range filter comparisons against
+    /// <see cref="DateTimeOffset"/>-formatted bounds are always correct.
+    /// </summary>
+    private static void ApplyTracesV2(SqliteConnection connection)
+    {
+        var updates = new List<(string Id, string Timestamp)>();
+
+        using (var selectCmd = connection.CreateCommand())
+        {
+            selectCmd.CommandText = "SELECT id, timestamp FROM command_traces;";
+            using var reader = selectCmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var id = reader.GetString(0);
+                var raw = reader.GetString(1);
+                if (DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var dto))
+                    updates.Add((id, dto.ToUniversalTime().ToString("O")));
+            }
+        }
+
+        foreach (var (id, ts) in updates)
+        {
+            using var updateCmd = connection.CreateCommand();
+            updateCmd.CommandText = "UPDATE command_traces SET timestamp = @ts WHERE id = @id;";
+            updateCmd.Parameters.AddWithValue("@ts", ts);
+            updateCmd.Parameters.AddWithValue("@id", id);
+            updateCmd.ExecuteNonQuery();
+        }
+    }
+
     // ── luciatasks database migrations ───────────────────────────────────────
 
     private static void ApplyTasksV1(SqliteConnection connection)
@@ -321,6 +355,38 @@ public sealed class SqliteMigrationRunner : IHostedService
             CREATE INDEX IF NOT EXISTS idx_archived_at ON archived_tasks(archived_at DESC);
             """;
         cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// Normalizes all existing <c>scheduled_tasks.fire_at</c> values to canonical UTC
+    /// (<c>+00:00</c> suffix) so that lexicographic <c>fire_at &lt; @cutoff</c> comparisons
+    /// against <see cref="DateTimeOffset"/>-formatted bounds are always correct.
+    /// </summary>
+    private static void ApplyTasksV2(SqliteConnection connection)
+    {
+        var updates = new List<(string Id, string FireAt)>();
+
+        using (var selectCmd = connection.CreateCommand())
+        {
+            selectCmd.CommandText = "SELECT id, fire_at FROM scheduled_tasks WHERE fire_at IS NOT NULL;";
+            using var reader = selectCmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var id = reader.GetString(0);
+                var raw = reader.GetString(1);
+                if (DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var dto))
+                    updates.Add((id, dto.ToUniversalTime().ToString("O")));
+            }
+        }
+
+        foreach (var (id, fireAt) in updates)
+        {
+            using var updateCmd = connection.CreateCommand();
+            updateCmd.CommandText = "UPDATE scheduled_tasks SET fire_at = @fireAt WHERE id = @id;";
+            updateCmd.Parameters.AddWithValue("@fireAt", fireAt);
+            updateCmd.Parameters.AddWithValue("@id", id);
+            updateCmd.ExecuteNonQuery();
+        }
     }
 }
 

@@ -187,13 +187,13 @@ public sealed class SqliteCommandTraceRepository : ICommandTraceRepository
         if (filter.FromDate is not null)
         {
             clauses.Add("timestamp >= @fromDate");
-            parameters["@fromDate"] = filter.FromDate.Value.ToUniversalTime().ToString("O");
+            parameters["@fromDate"] = new DateTimeOffset(filter.FromDate.Value.ToUniversalTime()).ToString("O");
         }
 
         if (filter.ToDate is not null)
         {
             clauses.Add("timestamp <= @toDate");
-            parameters["@toDate"] = filter.ToDate.Value.AddDays(1).ToUniversalTime().ToString("O");
+            parameters["@toDate"] = new DateTimeOffset(filter.ToDate.Value.AddDays(1).ToUniversalTime()).ToString("O");
         }
 
         var whereClause = clauses.Count > 0 ? " WHERE " + string.Join(" AND ", clauses) : "";
