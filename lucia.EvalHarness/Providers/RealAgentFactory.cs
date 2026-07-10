@@ -56,6 +56,8 @@ public sealed class RealAgentFactory : IAsyncDisposable
     private readonly IDeviceCacheService _deviceCache;
     private readonly TracingChatClientFactory _tracingFactory;
 
+    private readonly List<IChatClient> _chatClients = [];
+
     /// <summary>
     /// The inference backend this factory targets.
     /// </summary>
@@ -314,6 +316,7 @@ public sealed class RealAgentFactory : IAsyncDisposable
             chatClient = tracer;
         }
 
+        _chatClients.Add(chatClient);
         var resolver = A.Fake<IChatClientResolver>();
         A.CallTo(() => resolver.ResolveAsync(A<string?>._, A<CancellationToken>._))
             .Returns(chatClient);
@@ -354,10 +357,20 @@ public sealed class RealAgentFactory : IAsyncDisposable
         return resolver;
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         if (_haClient is IDisposable disposable)
             disposable.Dispose();
-        return ValueTask.CompletedTask;
+
+        // Dispose all chat clients created by CreateOllamaResolverWithTracer.
+        // Each OllamaApiClient / OpenAIClient wrapper owns an HttpClient; releasing
+        // them avoids socket/handle exhaustion on long eval sweeps.
+        foreach (var client in _chatClients)
+        {
+            if (client is IAsyncDisposable asyncDisposable)
+                await asyncDisposable.DisposeAsync();
+            else if (client is IDisposable syncDisposable)
+                syncDisposable.Dispose();
+        }
     }
 }
