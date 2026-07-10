@@ -109,7 +109,7 @@
 
 **Fix Complete — PR pending**
 - **Root cause:** `WyomingServer.RunSessionAsync` held `_sttConcurrency` (default 4) for the ENTIRE session lifetime. The 30-connection wake-word accept limit let connections in, but only 4 could enter their read loop; the rest blocked with sockets unread — silently hanging clients.
-- **Fix:** Passed `_sttConcurrency` as optional `SemaphoreSlim?` to `WyomingSession` constructor. Semaphore acquire/release now wraps only `ISttSession.GetFinalResultAsync()` in both `HandleAudioStopEventAsync` and `SendPendingTranscriptAsync`. `RunSessionAsync` in the server has no semaphore logic at all.
+- **Fix (final design):** Passed `_sttConcurrency` as optional `SemaphoreSlim?` to `WyomingSession`. Acquire happens at the Connected→Transcribing and WakeListening→Transcribing state transitions in `HandleAudioChunkEventAsync` (covering streaming decode). Release is centralized in `DisposeCurrentSttSession()`. `ReTranscribeEnhancedClipAsync` has its own acquire+release around enhanced-clip inference. Slot is NEVER held across diarization or client response writes.
 - **Key pattern:** `if (_sttConcurrency is not null) await _sttConcurrency.WaitAsync(ct)` + `try/finally { _sttConcurrency?.Release(); }` — null-safe, backward compatible with tests that don't pass a semaphore.
 - **Timing accuracy:** `_sttFinalizationMs` now measures pure inference time (stopwatch starts after semaphore acquire), consistent with Decision #17's timing snapshot principle.
 - Build: 0 warnings, 0 errors. Wyoming tests: 296 passed, 10 skipped (hardware model tests), 0 failed.
@@ -126,3 +126,18 @@
 - **Key insight (SemaphoreSlim.Dispose gotcha):** `SemaphoreSlim.Dispose()` does NOT cancel pending `WaitAsync` tasks — it nulls the internal linked list but leaves TCS in WaitingForActivation state. Waiters only unblock if the associated `CancellationToken` fires. This means `Dispose` alone cannot unblock a waiter; the test must rely on the acquire-then-dispose-then-release pattern instead.
 - **Key insight (test design):** TCP backpressure is a real concern in session integration tests. If the server writes a `TranscriptEvent` and the client isn't draining, the `WriteEventAsync` call can block. Always start a background drain reader before sending audio events.
 - Build: 0 warnings, 0 errors. Wyoming tests: 297 passed, 10 skipped, 0 failed.
+
+### 2026-07-10: STT Semaphore Definitive Design (PR #220 round-2 review)
+
+**Fix Complete — committed to squad/178-stt-semaphore-scope**
+- **Abandon-leak (bug):** `HandleDetectEventAsync` could dispose the STT session and return to wake listening without releasing the slot. Centralizing teardown in `DisposeCurrentSttSession()` (which now calls `ReleaseSttSlot()` at its start) ensures ALL paths — cancel, error, restart mid-utterance — release the permit exactly once. `ReleaseSttSlot()` is idempotent; double-call is safe.
+- **Held-too-long (bug):** Prior round held the slot through ALL of `ProcessTranscriptAsync` (diarization + client write). Fixed by moving the release point to inside `DisposeCurrentSttSession()`, which is called right after `GetFinalResultAsync` completes and BEFORE diarization/client writes. Net effect: STT slot is held only while inference runs.
+- **Enhanced-clip re-transcription:** `ReTranscribeEnhancedClipAsync` acquires its own separate slot around the `GetFinalResultAsync` call and releases in `try/finally`. OCE propagates (not swallowed), other inference exceptions are caught+logged and return null.
+- **DEFINITIVE acquire/release points:**
+  - Acquire: `HandleAudioChunkEventAsync` at the Connected→Transcribing and WakeListening→Transcribing state transitions (covers streaming decode in `AcceptAudioChunk`)
+  - Release: `DisposeCurrentSttSession()` — the single teardown point, called by all paths
+  - Re-acquire/release: `ReTranscribeEnhancedClipAsync` for enhanced-clip inference only
+  - Belt-and-suspenders: `RunAsync` finally block calls `ReleaseSttSlot()` before `DisposeEngineSessions`
+- **Concurrency regression test:** `RunAsync_FourConcurrentSessions_InferenceBoundedBySemaphoreLimit` — limit=2 semaphore, 4 concurrent sessions, `ConcurrencyTrackingTestSttSession` with 100ms inference delay tracks peak concurrent count. Asserts `peak ≤ 2` (slot bounded) and all 4 sessions return transcripts (no hang).
+- **stt.queue_wait_ms telemetry:** `AcquireSttSlotAsync` records queue-wait in `_sttQueueWaitMs` field; `wyoming.stt.finalize` span carries `stt.queue_wait_ms` tag. Contention vs inference latency now distinguishable.
+- Build: 0 warnings, 0 errors. Wyoming tests: 298 passed, 10 skipped, 0 failed.
