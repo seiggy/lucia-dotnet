@@ -19,9 +19,14 @@ export function useActivityStream() {
   const sourceRef = useRef<EventSource | null>(null)
   const connectRef = useRef<(() => void) | null>(null)
   const retriesRef = useRef(0)
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const maxRetries = 10
 
   const connect = useCallback(() => {
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current)
+      retryTimerRef.current = null
+    }
     if (sourceRef.current) {
       sourceRef.current.close()
     }
@@ -55,7 +60,7 @@ export function useActivityStream() {
         setConnectionState('reconnecting')
         const delay = Math.min(1000 * Math.pow(2, retriesRef.current), 30000)
         retriesRef.current++
-        setTimeout(() => connectRef.current?.(), delay)
+        retryTimerRef.current = setTimeout(() => connectRef.current?.(), delay)
       } else {
         setConnectionState('disconnected')
       }
@@ -74,6 +79,10 @@ export function useActivityStream() {
   useEffect(() => {
     connect()
     return () => {
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current)
+        retryTimerRef.current = null
+      }
       sourceRef.current?.close()
       sourceRef.current = null
     }
