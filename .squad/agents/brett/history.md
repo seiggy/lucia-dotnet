@@ -113,3 +113,16 @@
 - **Key pattern:** `if (_sttConcurrency is not null) await _sttConcurrency.WaitAsync(ct)` + `try/finally { _sttConcurrency?.Release(); }` — null-safe, backward compatible with tests that don't pass a semaphore.
 - **Timing accuracy:** `_sttFinalizationMs` now measures pure inference time (stopwatch starts after semaphore acquire), consistent with Decision #17's timing snapshot principle.
 - Build: 0 warnings, 0 errors. Wyoming tests: 296 passed, 10 skipped (hardware model tests), 0 failed.
+
+### 2026-07-10: STT Semaphore Shutdown Race Fix (PR #220 follow-up)
+
+**Fix Complete — committed to squad/178-stt-semaphore-scope**
+- **Problem:** Automated review flagged that `_sttConcurrency` is disposed in `WyomingServer.Dispose()` while sessions can still be mid-finalization. `WaitAsync`/`Release` on a disposed `SemaphoreSlim` throw `ObjectDisposedException`, which surfaced as unhandled session errors during shutdown.
+- **Approach chosen:** Option 2 (guard at acquire/release sites) rather than Option 1 (track in-flight sessions in StopAsync). Option 1 cannot guarantee safety when the host's shutdown deadline fires before tasks complete; Option 2 handles all shutdown scenarios including forced timeout.
+- **WaitAsync guard:** `catch (ObjectDisposedException) when (ct.IsCancellationRequested)` → normalize to `OperationCanceledException` via `ct.ThrowIfCancellationRequested()`. If the token isn't cancelled (should not happen but defensive), re-throw ODE.
+- **Release guard:** `try { _sttConcurrency!.Release(); } catch (ObjectDisposedException) { }` inside `finally` — the disposed semaphore has already reclaimed its slot.
+- **sttSlotAcquired flag:** prevents Release being called if WaitAsync didn't succeed (no acquire = no release).
+- **Test strategy:** Replaced flaky timing-based test (`SemaphoreSlim(0)` + `Task.Delay(100)`) with a deterministic `BlockingTestSttSession` + `SemaphoreSlim(1)` approach. New file `BlockingTestSttSession.cs` (one class per file). `InferenceStarted` TCS fires when `GetFinalResultAsync` is invoked; test disposes semaphore at that synchronisation point, unblocks inference, verifies no ODE surfaces.
+- **Key insight (SemaphoreSlim.Dispose gotcha):** `SemaphoreSlim.Dispose()` does NOT cancel pending `WaitAsync` tasks — it nulls the internal linked list but leaves TCS in WaitingForActivation state. Waiters only unblock if the associated `CancellationToken` fires. This means `Dispose` alone cannot unblock a waiter; the test must rely on the acquire-then-dispose-then-release pattern instead.
+- **Key insight (test design):** TCP backpressure is a real concern in session integration tests. If the server writes a `TranscriptEvent` and the client isn't draining, the `WriteEventAsync` call can block. Always start a background drain reader before sending audio events.
+- Build: 0 warnings, 0 errors. Wyoming tests: 297 passed, 10 skipped, 0 failed.
