@@ -9,7 +9,7 @@
 # Stages:
 #   0. assets         — Pre-built OCI image with all binary downloads
 #   0b. node-build    — Build the React SPA dashboard with Node.js
-#    1. base          — NVIDIA CUDA 12.8 runtime with .NET ASP.NET 10.0
+#    1. base          — NVIDIA CUDA 12.8.1 runtime with .NET ASP.NET 10.0
 #    2. build         — Restore and build the .NET application with SDK
 #    3. publish       — Publish optimized ReadyToRun release build
 #    4. final         — Production image with health checks, security, and voice models
@@ -63,9 +63,14 @@ COPY lucia-dashboard/ ./
 RUN npm run build
 
 # ============================================================================
-# Stage 1: Base Runtime Image (NVIDIA CUDA 12.6 + cuDNN 9 for GPU ONNX)
+# Stage 1: Base Runtime Image (NVIDIA CUDA 12.8 + cuDNN 9 for GPU ONNX)
 # ============================================================================
-FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04@sha256:8aef630a54bc5c5146ae5ce68e6af5caa3df0fb690bb91544175c91f307e4356 AS base
+# CUDA 12.8.1 is required: ORT 1.23.2 GPU libs (csukuangfj patched) are
+# compiled against CUDA 12.8 symbols. Using 12.6 causes cudaErrorInsufficientDriver
+# (error 35) at cudaSetDevice(). Also ensures Blackwell (sm_120, RTX 5090)
+# and later GPUs receive proper support. Minimum host driver: 570.86.10.
+# See: https://github.com/seiggy/lucia-dotnet/issues/207
+FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04@sha256:ac55d124da4882b497f732d8dfd9a702d5447a5f29d08d56da6f64f0a1eb34bc AS base
 
 # Install .NET ASP.NET 10.0 runtime + curl for healthcheck
 # + python3 + huggingface-hub[cli] (pinned) for runtime HF model downloads via the `hf` CLI

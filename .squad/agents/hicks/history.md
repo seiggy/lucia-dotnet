@@ -47,6 +47,33 @@
 
 <!-- Append new learnings below. -->
 
+### 2026-07-10: CUDA/ORT Version Compatibility — Issue #207 (PR squad/207-docker-voice-cuda)
+
+**Root cause:** `Dockerfile.voice` Stage 1 base image was pinned to `nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04`
+while ORT 1.23.2 GPU libs (csukuangfj patched, from `asset.lock`) are compiled against CUDA 12.8 symbols.
+Loading a CUDA 12.8-linked `libonnxruntime_providers_cuda.so` inside a CUDA 12.6 container causes
+`cudaErrorInsufficientDriver` (error 35) at `cudaSetDevice()` because the 12.6 runtime lacks the
+required symbol versions. The Dockerfile header comment already stated 12.8.1 as the intended target —
+the FROM line was never updated to match.
+
+**Secondary factor:** CUDA 12.8 is the first release with full Blackwell (sm_120 / GB202) support.
+RTX 5090 users on driver 590.xx hit both the symbol mismatch and the architecture gap simultaneously.
+
+**Fix:** Updated Stage 1 FROM to `nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04@sha256:ac55d124da4882b497f732d8dfd9a702d5447a5f29d08d56da6f64f0a1eb34bc`.
+Validated: `docker build --target base` succeeded against the new digest.
+
+**CUDA/ORT Compatibility Matrix (ORT 1.23.x):**
+- ORT 1.23.2 → CUDA 12.8.x → cuDNN 9.x → min driver 570.86.10 → Blackwell sm_120 ✅
+- ORT 1.23.2 on CUDA 12.6.x → cudaErrorInsufficientDriver on Blackwell or symbol mismatch ⚠️
+
+**Rule:** When bumping ORT GPU version, verify the CUDA base image matches what the ORT libs link against.
+Use `readelf -d libonnxruntime_providers_cuda.so | grep NEEDED` or check csukuangfj release notes.
+Always keep `asset.lock` onnxruntime-gpu version and base image CUDA version in sync.
+Minimum host driver for CUDA 12.8 is **570.86.10** (user's 590.48.01 is compatible).
+
+**CPU fallback:** `:voice-cpu` tag uses `mcr.microsoft.com/dotnet/aspnet:10.0` — no CUDA dependency.
+Recommend documenting this as the explicit fallback for non-NVIDIA hosts or unsupported GPU generations.
+
 ### 2026-05-31: Jetson Non-Voice Deploy — RETRY SUCCESS (full on-device build & validate)
 
 **Connectivity resolution**: The 192.168.0.x→192.168.1.x subnet gap from the previous run was resolved by Zack bouncing the Jetson. SSH to `zackw@192.168.1.239` connected cleanly with key-based auth (BatchMode=yes, ConnectTimeout=10). L3 ping RTT: 3–23ms.
