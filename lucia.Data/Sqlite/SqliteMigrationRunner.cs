@@ -290,7 +290,7 @@ public sealed class SqliteMigrationRunner : IHostedService
     /// (<c>+00:00</c> suffix) so that lexicographic range filter comparisons against
     /// <see cref="DateTimeOffset"/>-formatted bounds are always correct.
     /// </summary>
-    private static void ApplyTracesV2(SqliteConnection connection)
+    internal static void ApplyTracesV2(SqliteConnection connection)
     {
         var updates = new List<(string Id, string Timestamp)>();
 
@@ -302,7 +302,7 @@ public sealed class SqliteMigrationRunner : IHostedService
             {
                 var id = reader.GetString(0);
                 var raw = reader.GetString(1);
-                if (DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var dto))
+                if (DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dto))
                     updates.Add((id, dto.ToUniversalTime().ToString("O")));
             }
         }
@@ -362,7 +362,7 @@ public sealed class SqliteMigrationRunner : IHostedService
     /// (<c>+00:00</c> suffix) so that lexicographic <c>fire_at &lt; @cutoff</c> comparisons
     /// against <see cref="DateTimeOffset"/>-formatted bounds are always correct.
     /// </summary>
-    private static void ApplyTasksV2(SqliteConnection connection)
+    internal static void ApplyTasksV2(SqliteConnection connection)
     {
         var updates = new List<(string Id, string FireAt)>();
 
@@ -374,7 +374,7 @@ public sealed class SqliteMigrationRunner : IHostedService
             {
                 var id = reader.GetString(0);
                 var raw = reader.GetString(1);
-                if (DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var dto))
+                if (DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dto))
                     updates.Add((id, dto.ToUniversalTime().ToString("O")));
             }
         }
