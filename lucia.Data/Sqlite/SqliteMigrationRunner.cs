@@ -348,7 +348,9 @@ public sealed class SqliteMigrationRunner : IHostedService
     /// parsing each <paramref name="column"/> value as a <see cref="DateTimeOffset"/> and
     /// rewriting non-canonical entries to the UTC <c>+00:00</c> format produced by
     /// <c>DateTimeOffset.ToString("O")</c>.  Rows that are already canonical are skipped to
-    /// avoid unnecessary writes.
+    /// avoid unnecessary writes.  Each batch is wrapped in a SQLite SAVEPOINT (works whether
+    /// or not an outer transaction exists) and reuses a single prepared UPDATE statement to
+    /// avoid per-row compilation and autocommit overhead.
     /// </summary>
     private static void NormalizeTimestampsInBatches(
         SqliteConnection connection,
@@ -375,32 +377,60 @@ public sealed class SqliteMigrationRunner : IHostedService
 
                 using var reader = selectCmd.ExecuteReader();
                 while (reader.Read())
+                {
                     batch.Add((reader.GetInt64(0), reader.GetString(1), reader.GetString(2)));
+                }
             }
 
             if (batch.Count == 0)
                 break;
 
-            foreach (var (rowId, id, raw) in batch)
+            // One SAVEPOINT per batch: atomic whether or not an outer transaction exists.
+            // The UPDATE command is prepared once per batch so SQLite compiles the statement
+            // a single time instead of once per row.
+            ExecSql(connection, "SAVEPOINT normalize_batch;");
+            try
             {
-                lastRowId = rowId;
-
-                if (!DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dto))
-                    continue;
-
-                var normalized = dto.ToUniversalTime().ToString("O");
-                if (string.Equals(normalized, raw, StringComparison.Ordinal))
-                    continue; // already canonical — skip unnecessary write
-
                 using var updateCmd = connection.CreateCommand();
                 updateCmd.CommandText = $"UPDATE {table} SET {column} = @val WHERE id = @id;";
-                updateCmd.Parameters.AddWithValue("@val", normalized);
-                updateCmd.Parameters.AddWithValue("@id", id);
-                updateCmd.ExecuteNonQuery();
+                var valParam = updateCmd.Parameters.Add("@val", SqliteType.Text);
+                var idParam = updateCmd.Parameters.Add("@id", SqliteType.Text);
+                updateCmd.Prepare();
+
+                foreach (var (rowId, id, raw) in batch)
+                {
+                    lastRowId = rowId;
+
+                    if (!DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dto))
+                        continue;
+
+                    var normalized = dto.ToUniversalTime().ToString("O");
+                    if (string.Equals(normalized, raw, StringComparison.Ordinal))
+                        continue; // already canonical — skip unnecessary write
+
+                    valParam.Value = normalized;
+                    idParam.Value = id;
+                    updateCmd.ExecuteNonQuery();
+                }
+
+                ExecSql(connection, "RELEASE SAVEPOINT normalize_batch;");
+            }
+            catch
+            {
+                ExecSql(connection, "ROLLBACK TO SAVEPOINT normalize_batch;");
+                ExecSql(connection, "RELEASE SAVEPOINT normalize_batch;");
+                throw;
             }
 
             if (batch.Count < batchSize)
                 break;
         }
+    }
+
+    private static void ExecSql(SqliteConnection connection, string sql)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = sql;
+        cmd.ExecuteNonQuery();
     }
 }

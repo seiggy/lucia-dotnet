@@ -162,7 +162,7 @@
 **What I Fixed:**
 Nine built-in agents (`LightAgent`, `ClimateAgent`, `SceneAgent`, `GeneralAgent`, `ListsAgent`, `SecurityAgent`, `SensorAgent`, `MusicAgent`, `TimerAgent`) used `DateTime.Now` (machine-local) for `_lastConfigUpdate`, compared against MongoDB-stored `UpdatedAt` (UTC). In US Eastern time (UTC-4), every request triggered a full agent rebuild. Changed all to `DateTime.UtcNow`.
 
-SQLite data layer normalized: `SqliteScheduledTaskRepository` stores `FireAt.ToUniversalTime()` so purge text comparisons are correct. `SqliteCommandTraceRepository` normalizes `Timestamp` and filter date params to UTC. `SqliteConfigStoreWriter` now parses `updated_at` with `DateTimeStyles.RoundtripKind` matching the `SqliteMemoryStore` pattern.
+SQLite data layer normalized: `SqliteScheduledTaskRepository` stores `FireAt.ToUniversalTime()` so purge text comparisons are correct. `SqliteCommandTraceRepository` normalizes `Timestamp` and filter date params to UTC. `SqliteConfigStoreWriter` now parses `updated_at` via `DateTimeOffset.TryParse(AssumeUniversal | AllowWhiteSpaces)` + `.UtcDateTime`, correctly handling both offset-less legacy `datetime('now')` values (treated as UTC) and explicit-offset strings (shifted to UTC).
 
 **Key Learnings:**
 1. `DateTime.Now` vs `DateTime.UtcNow` comparison bugs are silent — the wrong kind is always a valid `DateTime`, so no runtime exception. The only symptom is behavioral (always-rebuild or never-rebuild depending on timezone).
