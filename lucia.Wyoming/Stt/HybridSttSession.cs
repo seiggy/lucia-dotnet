@@ -60,8 +60,6 @@ public sealed class HybridSttSession : ISttSession, IAsyncDisposable
     internal Action? BeforeProgressivePublishSeam;
     internal Action? AfterProgressivePublishSeam;
 
-    private readonly struct ForTestOnly { }
-
     public HybridSttSession(
         OfflineRecognizer recognizer,
         int modelSampleRate,
@@ -75,7 +73,7 @@ public sealed class HybridSttSession : ISttSession, IAsyncDisposable
             modelSampleRate, refreshIntervalMs, minAudioMs,
             maxContextSeconds, progressiveThresholdSeconds,
             logger ?? throw new ArgumentNullException(nameof(logger)),
-            default(ForTestOnly)) { }
+            forTestOnly: false) { }
 
     /// <summary>
     /// Creates a <see cref="HybridSttSession"/> for testing without a real
@@ -92,11 +90,12 @@ public sealed class HybridSttSession : ISttSession, IAsyncDisposable
         ILogger? logger = null)
         => new(null, modelSampleRate, refreshIntervalMs, minAudioMs,
                maxContextSeconds, progressiveThresholdSeconds,
-               logger ?? NullLogger.Instance, default);
+               logger ?? NullLogger.Instance, forTestOnly: true);
 
-    // Private constructor: accepts null recognizer; RunTranscription no-ops safely.
-    // ForTestOnly tag differentiates this from the public constructor at the IL level
-    // (C# treats OfflineRecognizer / OfflineRecognizer? as the same runtime type).
+    // Private constructor: accepts null recognizer (test instances only).
+    // The trailing bool discriminator differentiates this overload from the public constructor
+    // at the IL level — C# nullability (OfflineRecognizer vs OfflineRecognizer?) is compile-time
+    // only and both map to the same runtime type.
     private HybridSttSession(
         OfflineRecognizer? recognizer,
         int modelSampleRate,
@@ -105,7 +104,7 @@ public sealed class HybridSttSession : ISttSession, IAsyncDisposable
         double maxContextSeconds,
         double progressiveThresholdSeconds,
         ILogger logger,
-        ForTestOnly _)
+        bool forTestOnly)
     {
         _recognizer = recognizer;
         _modelSampleRate = modelSampleRate;
