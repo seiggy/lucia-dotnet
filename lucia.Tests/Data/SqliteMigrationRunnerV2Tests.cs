@@ -60,20 +60,41 @@ public sealed class SqliteMigrationRunnerV2Tests : IDisposable
     }
 
     [Fact]
-    public void ApplyTracesV2_MultipleRows_AllNormalized()
+    public void ApplyTracesV2_MultiBatchRows_AllConvertedAndCountPreserved()
     {
         CreateCommandTracesTable();
 
-        // Insert rows with varied offsets to exercise the keyset-paged batch path.
-        InsertCommandTrace("trace-a", "2025-01-01T14:00:00.0000000+02:00"); // UTC: 12:00
-        InsertCommandTrace("trace-b", "2025-01-01T09:00:00.0000000-05:00"); // UTC: 14:00
-        InsertCommandTrace("trace-c", "2025-01-01T12:00:00.0000000+00:00"); // already canonical
+        // Seed 1200 rows — spans three 500-row keyset-paged batches (500 + 500 + 200).
+        // All carry a +02:00 offset; UTC equivalent is 12:00.
+        const int rowCount = 1200;
+        const string nonUtcTs = "2025-06-15T14:00:00.0000000+02:00";
+        const string canonicalUtcTs = "2025-06-15T12:00:00.0000000+00:00";
+
+        using (var tx = _connection.BeginTransaction())
+        {
+            for (var i = 0; i < rowCount; i++)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText = "INSERT INTO command_traces (id, timestamp) VALUES (@id, @ts);";
+                cmd.Parameters.AddWithValue("@id", $"bt-{i:D4}");
+                cmd.Parameters.AddWithValue("@ts", nonUtcTs);
+                cmd.ExecuteNonQuery();
+            }
+            tx.Commit();
+        }
 
         SqliteMigrationRunner.ApplyTracesV2(_connection);
 
-        Assert.Equal("2025-01-01T12:00:00.0000000+00:00", ReadCommandTraceTimestamp("trace-a"));
-        Assert.Equal("2025-01-01T14:00:00.0000000+00:00", ReadCommandTraceTimestamp("trace-b"));
-        Assert.Equal("2025-01-01T12:00:00.0000000+00:00", ReadCommandTraceTimestamp("trace-c")); // unchanged
+        // Row count must be unchanged.
+        using var countCmd = _connection.CreateCommand();
+        countCmd.CommandText = "SELECT COUNT(*) FROM command_traces;";
+        Assert.Equal((long)rowCount, (long)countCmd.ExecuteScalar()!);
+
+        // Every row must carry the canonical UTC +00:00 representation.
+        using var utcCmd = _connection.CreateCommand();
+        utcCmd.CommandText = $"SELECT COUNT(*) FROM command_traces WHERE timestamp = '{canonicalUtcTs}';";
+        Assert.Equal((long)rowCount, (long)utcCmd.ExecuteScalar()!);
     }
 
     // ── ApplyTasksV2 ──────────────────────────────────────────────────────────
@@ -121,6 +142,43 @@ public sealed class SqliteMigrationRunnerV2Tests : IDisposable
         using var check = _connection.CreateCommand();
         check.CommandText = "SELECT fire_at FROM scheduled_tasks WHERE id = 'task-3';";
         Assert.True(check.ExecuteScalar() is DBNull or null);
+    }
+
+    [Fact]
+    public void ApplyTasksV2_MultiBatchRows_AllConvertedAndCountPreserved()
+    {
+        CreateScheduledTasksTable();
+
+        // Seed 1200 rows — spans three 500-row keyset-paged batches (500 + 500 + 200).
+        const int rowCount = 1200;
+        const string nonUtcTs = "2025-06-15T09:00:00.0000000-05:00"; // UTC equivalent: 14:00
+        const string canonicalUtcTs = "2025-06-15T14:00:00.0000000+00:00";
+
+        using (var tx = _connection.BeginTransaction())
+        {
+            for (var i = 0; i < rowCount; i++)
+            {
+                using var cmd = _connection.CreateCommand();
+                cmd.Transaction = tx;
+                cmd.CommandText = "INSERT INTO scheduled_tasks (id, fire_at) VALUES (@id, @ts);";
+                cmd.Parameters.AddWithValue("@id", $"bt-{i:D4}");
+                cmd.Parameters.AddWithValue("@ts", nonUtcTs);
+                cmd.ExecuteNonQuery();
+            }
+            tx.Commit();
+        }
+
+        SqliteMigrationRunner.ApplyTasksV2(_connection);
+
+        // Row count must be unchanged.
+        using var countCmd = _connection.CreateCommand();
+        countCmd.CommandText = "SELECT COUNT(*) FROM scheduled_tasks;";
+        Assert.Equal((long)rowCount, (long)countCmd.ExecuteScalar()!);
+
+        // Every row must carry the canonical UTC +00:00 representation.
+        using var utcCmd = _connection.CreateCommand();
+        utcCmd.CommandText = $"SELECT COUNT(*) FROM scheduled_tasks WHERE fire_at = '{canonicalUtcTs}';";
+        Assert.Equal((long)rowCount, (long)utcCmd.ExecuteScalar()!);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
