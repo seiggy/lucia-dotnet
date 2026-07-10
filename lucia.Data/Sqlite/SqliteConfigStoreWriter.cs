@@ -177,7 +177,9 @@ public sealed class SqliteConfigStoreWriter : IConfigStoreWriter
                 Key = reader.GetString(0),
                 Value = reader.IsDBNull(1) ? null : reader.GetString(1),
                 Section = reader.GetString(2),
-                UpdatedAt = DateTime.TryParse(reader.GetString(3), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var dt) ? dt : DateTime.UtcNow,
+                UpdatedAt = DateTimeOffset.TryParse(reader.GetString(3), CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AllowWhiteSpaces, out var dto)
+                    ? dto.UtcDateTime : DateTime.UtcNow,
                 UpdatedBy = reader.GetString(4),
                 IsSensitive = reader.GetInt32(5) != 0
             });

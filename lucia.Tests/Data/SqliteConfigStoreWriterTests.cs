@@ -151,6 +151,46 @@ public sealed class SqliteConfigStoreWriterTests : IDisposable
         Assert.Equal(expectedUtc, entry.UpdatedAt);
     }
 
+    [Fact]
+    public async Task GetAllEntriesAsync_LegacyOffsetlessTimestamp_ReturnsUtcKind()
+    {
+        // Simulate a legacy row whose updated_at was written by SQLite datetime('now')
+        // — no offset, space separator. AssumeUniversal must treat it as UTC.
+        using var connection = _helper.ConnectionFactory.CreateConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO configuration (key, value, section, updated_at, updated_by, is_sensitive)
+            VALUES ('Legacy:Key', 'v', 'Legacy', '2025-01-01 12:00:00', 'system', 0);
+            """;
+        cmd.ExecuteNonQuery();
+
+        var entries = await _writer.GetAllEntriesAsync();
+        var entry = Assert.Single(entries, e => e.Key == "Legacy:Key");
+
+        Assert.Equal(DateTimeKind.Utc, entry.UpdatedAt.Kind);
+        Assert.Equal(new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc), entry.UpdatedAt);
+    }
+
+    [Fact]
+    public async Task GetAllEntriesAsync_ExplicitPlusOffset_ConvertsToUtc()
+    {
+        // Row stored with +02:00 offset must be shifted to UTC on read.
+        using var connection = _helper.ConnectionFactory.CreateConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO configuration (key, value, section, updated_at, updated_by, is_sensitive)
+            VALUES ('Offset:Key', 'v', 'Offset', '2025-01-01T14:00:00.0000000+02:00', 'system', 0);
+            """;
+        cmd.ExecuteNonQuery();
+
+        var entries = await _writer.GetAllEntriesAsync();
+        var entry = Assert.Single(entries, e => e.Key == "Offset:Key");
+
+        Assert.Equal(DateTimeKind.Utc, entry.UpdatedAt.Kind);
+        // 14:00 +02:00 = 12:00 UTC
+        Assert.Equal(new DateTime(2025, 1, 1, 12, 0, 0, DateTimeKind.Utc), entry.UpdatedAt);
+    }
+
     public void Dispose()
     {
         _helper.Dispose();

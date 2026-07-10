@@ -289,33 +289,10 @@ public sealed class SqliteMigrationRunner : IHostedService
     /// Normalizes all existing <c>command_traces.timestamp</c> values to canonical UTC
     /// (<c>+00:00</c> suffix) so that lexicographic range filter comparisons against
     /// <see cref="DateTimeOffset"/>-formatted bounds are always correct.
+    /// Processes rows in bounded keyset-paged batches to keep memory use bounded.
     /// </summary>
-    internal static void ApplyTracesV2(SqliteConnection connection)
-    {
-        var updates = new List<(string Id, string Timestamp)>();
-
-        using (var selectCmd = connection.CreateCommand())
-        {
-            selectCmd.CommandText = "SELECT id, timestamp FROM command_traces;";
-            using var reader = selectCmd.ExecuteReader();
-            while (reader.Read())
-            {
-                var id = reader.GetString(0);
-                var raw = reader.GetString(1);
-                if (DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dto))
-                    updates.Add((id, dto.ToUniversalTime().ToString("O")));
-            }
-        }
-
-        foreach (var (id, ts) in updates)
-        {
-            using var updateCmd = connection.CreateCommand();
-            updateCmd.CommandText = "UPDATE command_traces SET timestamp = @ts WHERE id = @id;";
-            updateCmd.Parameters.AddWithValue("@ts", ts);
-            updateCmd.Parameters.AddWithValue("@id", id);
-            updateCmd.ExecuteNonQuery();
-        }
-    }
+    internal static void ApplyTracesV2(SqliteConnection connection) =>
+        NormalizeTimestampsInBatches(connection, "command_traces", "timestamp");
 
     // ── luciatasks database migrations ───────────────────────────────────────
 
@@ -361,32 +338,69 @@ public sealed class SqliteMigrationRunner : IHostedService
     /// Normalizes all existing <c>scheduled_tasks.fire_at</c> values to canonical UTC
     /// (<c>+00:00</c> suffix) so that lexicographic <c>fire_at &lt; @cutoff</c> comparisons
     /// against <see cref="DateTimeOffset"/>-formatted bounds are always correct.
+    /// Processes rows in bounded keyset-paged batches to keep memory use bounded.
     /// </summary>
-    internal static void ApplyTasksV2(SqliteConnection connection)
+    internal static void ApplyTasksV2(SqliteConnection connection) =>
+        NormalizeTimestampsInBatches(connection, "scheduled_tasks", "fire_at");
+
+    /// <summary>
+    /// Iterates <paramref name="table"/> in keyset-paged batches of 500 rows (by <c>rowid</c>),
+    /// parsing each <paramref name="column"/> value as a <see cref="DateTimeOffset"/> and
+    /// rewriting non-canonical entries to the UTC <c>+00:00</c> format produced by
+    /// <c>DateTimeOffset.ToString("O")</c>.  Rows that are already canonical are skipped to
+    /// avoid unnecessary writes.
+    /// </summary>
+    private static void NormalizeTimestampsInBatches(
+        SqliteConnection connection,
+        string table,
+        string column)
     {
-        var updates = new List<(string Id, string FireAt)>();
+        const int batchSize = 500;
+        long lastRowId = 0;
 
-        using (var selectCmd = connection.CreateCommand())
+        while (true)
         {
-            selectCmd.CommandText = "SELECT id, fire_at FROM scheduled_tasks WHERE fire_at IS NOT NULL;";
-            using var reader = selectCmd.ExecuteReader();
-            while (reader.Read())
+            var batch = new List<(long RowId, string Id, string Raw)>(batchSize);
+
+            using (var selectCmd = connection.CreateCommand())
             {
-                var id = reader.GetString(0);
-                var raw = reader.GetString(1);
-                if (DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dto))
-                    updates.Add((id, dto.ToUniversalTime().ToString("O")));
-            }
-        }
+                selectCmd.CommandText = $"""
+                    SELECT rowid, id, {column} FROM {table}
+                    WHERE rowid > @lastRowId AND {column} IS NOT NULL
+                    ORDER BY rowid
+                    LIMIT @batchSize;
+                    """;
+                selectCmd.Parameters.AddWithValue("@lastRowId", lastRowId);
+                selectCmd.Parameters.AddWithValue("@batchSize", batchSize);
 
-        foreach (var (id, fireAt) in updates)
-        {
-            using var updateCmd = connection.CreateCommand();
-            updateCmd.CommandText = "UPDATE scheduled_tasks SET fire_at = @fireAt WHERE id = @id;";
-            updateCmd.Parameters.AddWithValue("@fireAt", fireAt);
-            updateCmd.Parameters.AddWithValue("@id", id);
-            updateCmd.ExecuteNonQuery();
+                using var reader = selectCmd.ExecuteReader();
+                while (reader.Read())
+                    batch.Add((reader.GetInt64(0), reader.GetString(1), reader.GetString(2)));
+            }
+
+            if (batch.Count == 0)
+                break;
+
+            foreach (var (rowId, id, raw) in batch)
+            {
+                lastRowId = rowId;
+
+                if (!DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dto))
+                    continue;
+
+                var normalized = dto.ToUniversalTime().ToString("O");
+                if (string.Equals(normalized, raw, StringComparison.Ordinal))
+                    continue; // already canonical — skip unnecessary write
+
+                using var updateCmd = connection.CreateCommand();
+                updateCmd.CommandText = $"UPDATE {table} SET {column} = @val WHERE id = @id;";
+                updateCmd.Parameters.AddWithValue("@val", normalized);
+                updateCmd.Parameters.AddWithValue("@id", id);
+                updateCmd.ExecuteNonQuery();
+            }
+
+            if (batch.Count < batchSize)
+                break;
         }
     }
 }
-

@@ -59,6 +59,23 @@ public sealed class SqliteMigrationRunnerV2Tests : IDisposable
         SqliteMigrationRunner.ApplyTracesV2(_connection);
     }
 
+    [Fact]
+    public void ApplyTracesV2_MultipleRows_AllNormalized()
+    {
+        CreateCommandTracesTable();
+
+        // Insert rows with varied offsets to exercise the keyset-paged batch path.
+        InsertCommandTrace("trace-a", "2025-01-01T14:00:00.0000000+02:00"); // UTC: 12:00
+        InsertCommandTrace("trace-b", "2025-01-01T09:00:00.0000000-05:00"); // UTC: 14:00
+        InsertCommandTrace("trace-c", "2025-01-01T12:00:00.0000000+00:00"); // already canonical
+
+        SqliteMigrationRunner.ApplyTracesV2(_connection);
+
+        Assert.Equal("2025-01-01T12:00:00.0000000+00:00", ReadCommandTraceTimestamp("trace-a"));
+        Assert.Equal("2025-01-01T14:00:00.0000000+00:00", ReadCommandTraceTimestamp("trace-b"));
+        Assert.Equal("2025-01-01T12:00:00.0000000+00:00", ReadCommandTraceTimestamp("trace-c")); // unchanged
+    }
+
     // ── ApplyTasksV2 ──────────────────────────────────────────────────────────
 
     [Fact]
