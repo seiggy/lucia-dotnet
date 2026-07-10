@@ -203,13 +203,22 @@ public sealed class SqliteCommandTraceRepository : ICommandTraceRepository
     /// <summary>
     /// Converts a filter <see cref="DateTime"/> to a canonical UTC ISO-8601 string (<c>+00:00</c>)
     /// suitable for lexicographic comparison against stored timestamps.
-    /// <para>
-    /// <see cref="DateTimeKind.Unspecified"/> is treated as UTC explicitly so that date-only
-    /// query parameters bound by ASP.NET Core (which produces <c>Unspecified</c>) are not
-    /// shifted by the host's local timezone — which would cause different trace results
-    /// across deployments in different timezones.
-    /// </para>
+    /// <list type="bullet">
+    ///   <item><description><see cref="DateTimeKind.Unspecified"/> — reinterpreted as UTC (no shift),
+    ///   so date-only API parameters bound by ASP.NET Core are not drifted by the host timezone.</description></item>
+    ///   <item><description><see cref="DateTimeKind.Local"/> — converted to UTC via <see cref="DateTime.ToUniversalTime()"/>
+    ///   so a timezone-qualified bound is correctly shifted to the equivalent UTC instant.</description></item>
+    ///   <item><description><see cref="DateTimeKind.Utc"/> — used as-is; already UTC.</description></item>
+    /// </list>
     /// </summary>
-    internal static string ToUtcBoundString(DateTime dt) =>
-        new DateTimeOffset(DateTime.SpecifyKind(dt, DateTimeKind.Utc)).ToString("O");
+    internal static string ToUtcBoundString(DateTime dt)
+    {
+        var utc = dt.Kind switch
+        {
+            DateTimeKind.Utc => dt,
+            DateTimeKind.Local => dt.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(dt, DateTimeKind.Utc) // Unspecified → reinterpret as UTC
+        };
+        return new DateTimeOffset(utc).ToString("O");
+    }
 }

@@ -4,23 +4,21 @@ namespace lucia.Tests.Data;
 
 /// <summary>
 /// Tests for SqliteCommandTraceRepository.ToUtcBoundString — the filter-bound formatter
-/// that must treat DateTimeKind.Unspecified as UTC to avoid host-timezone drift on
-/// date-only API parameters (which ASP.NET Core binds as Unspecified).
+/// that must correctly handle all three DateTimeKind values.
 /// </summary>
 public sealed class SqliteCommandTraceFilterBoundTests
 {
-    // ── Kind.Unspecified — the primary regression guard ───────────────────────
+    // ── Kind.Unspecified — reinterpreted as UTC, no shift ────────────────────
 
     [Fact]
     public void ToUtcBoundString_UnspecifiedKind_TreatedAsUtcNotLocal()
     {
         // ASP.NET Core binds fromDate=2025-06-15 as Kind.Unspecified.
-        // This MUST produce midnight UTC, not midnight-shifted-by-host-tz.
+        // Must produce midnight UTC regardless of host timezone.
         var unspecified = new DateTime(2025, 6, 15, 0, 0, 0, DateTimeKind.Unspecified);
 
         var result = SqliteCommandTraceRepository.ToUtcBoundString(unspecified);
 
-        // Regardless of the machine's local timezone, Unspecified is treated as UTC.
         Assert.Equal("2025-06-15T00:00:00.0000000+00:00", result);
     }
 
@@ -34,7 +32,46 @@ public sealed class SqliteCommandTraceFilterBoundTests
         Assert.Equal("2025-06-15T14:30:00.0000000+00:00", result);
     }
 
-    // ── Kind.Utc — must remain stable (no double-conversion) ─────────────────
+    // ── Kind.Local — CONVERTED (shifted) to UTC, not relabeled ───────────────
+
+    [Fact]
+    public void ToUtcBoundString_LocalKind_ConvertsToUtc()
+    {
+        // Construct a Local DateTime and derive the expected UTC instant the same way
+        // ToUniversalTime() does — keeps the test timezone-agnostic on any CI host.
+        var local = new DateTime(2025, 6, 15, 10, 0, 0, DateTimeKind.Local);
+        var expectedUtcInstant = local.ToUniversalTime();
+
+        var result = SqliteCommandTraceRepository.ToUtcBoundString(local);
+
+        // The result must equal the actual UTC conversion of the local time.
+        var parsedBack = DateTimeOffset.Parse(result).UtcDateTime;
+        Assert.Equal(expectedUtcInstant, parsedBack);
+    }
+
+    [Fact]
+    public void ToUtcBoundString_LocalKind_DiffersFromUnspecifiedWhenOffsetNonZero()
+    {
+        // A Local and an Unspecified DateTime with the same wall-clock digits must
+        // produce the SAME string only on UTC hosts. On any offset host they differ,
+        // proving Local is converted while Unspecified is reinterpreted.
+        // We can assert structural correctness (correct UTC instant) without knowing host tz.
+        var wallClock = new DateTime(2025, 6, 15, 10, 0, 0);
+        var local = DateTime.SpecifyKind(wallClock, DateTimeKind.Local);
+        var unspecified = DateTime.SpecifyKind(wallClock, DateTimeKind.Unspecified);
+
+        var localResult = SqliteCommandTraceRepository.ToUtcBoundString(local);
+        var unspecifiedResult = SqliteCommandTraceRepository.ToUtcBoundString(unspecified);
+
+        // Unspecified always yields the wall-clock digits as UTC.
+        Assert.Equal("2025-06-15T10:00:00.0000000+00:00", unspecifiedResult);
+
+        // Local yields the actual UTC conversion — equals what ToUniversalTime() produces.
+        var expectedLocalUtc = new DateTimeOffset(local.ToUniversalTime()).ToString("O");
+        Assert.Equal(expectedLocalUtc, localResult);
+    }
+
+    // ── Kind.Utc — used as-is, no double-conversion ───────────────────────────
 
     [Fact]
     public void ToUtcBoundString_UtcKind_RemainsUnchanged()
