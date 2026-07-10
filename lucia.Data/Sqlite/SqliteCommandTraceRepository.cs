@@ -187,16 +187,29 @@ public sealed class SqliteCommandTraceRepository : ICommandTraceRepository
         if (filter.FromDate is not null)
         {
             clauses.Add("timestamp >= @fromDate");
-            parameters["@fromDate"] = new DateTimeOffset(filter.FromDate.Value.ToUniversalTime()).ToString("O");
+            parameters["@fromDate"] = ToUtcBoundString(filter.FromDate.Value);
         }
 
         if (filter.ToDate is not null)
         {
             clauses.Add("timestamp <= @toDate");
-            parameters["@toDate"] = new DateTimeOffset(filter.ToDate.Value.AddDays(1).ToUniversalTime()).ToString("O");
+            parameters["@toDate"] = ToUtcBoundString(filter.ToDate.Value.AddDays(1));
         }
 
         var whereClause = clauses.Count > 0 ? " WHERE " + string.Join(" AND ", clauses) : "";
         return (whereClause, parameters);
     }
+
+    /// <summary>
+    /// Converts a filter <see cref="DateTime"/> to a canonical UTC ISO-8601 string (<c>+00:00</c>)
+    /// suitable for lexicographic comparison against stored timestamps.
+    /// <para>
+    /// <see cref="DateTimeKind.Unspecified"/> is treated as UTC explicitly so that date-only
+    /// query parameters bound by ASP.NET Core (which produces <c>Unspecified</c>) are not
+    /// shifted by the host's local timezone — which would cause different trace results
+    /// across deployments in different timezones.
+    /// </para>
+    /// </summary>
+    internal static string ToUtcBoundString(DateTime dt) =>
+        new DateTimeOffset(DateTime.SpecifyKind(dt, DateTimeKind.Utc)).ToString("O");
 }
