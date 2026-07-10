@@ -156,3 +156,20 @@
 ---
 
 **Update from Ripley (2026-05-30):** Inbox retriage complete. You have been assigned issues from the 2026-05-30 batch. Review .squad/decisions/decisions.md for details.
+
+### 2026-07-10: UTC Timestamp Normalization (Issue #163, PR #221)
+
+**What I Fixed:**
+Nine built-in agents (`LightAgent`, `ClimateAgent`, `SceneAgent`, `GeneralAgent`, `ListsAgent`, `SecurityAgent`, `SensorAgent`, `MusicAgent`, `TimerAgent`) used `DateTime.Now` (machine-local) for `_lastConfigUpdate`, compared against MongoDB-stored `UpdatedAt` (UTC). In US Eastern time (UTC-4), every request triggered a full agent rebuild. Changed all to `DateTime.UtcNow`.
+
+SQLite data layer normalized: `SqliteScheduledTaskRepository` stores `FireAt.ToUniversalTime()` so purge text comparisons are correct. `SqliteCommandTraceRepository` normalizes `Timestamp` and filter date params to UTC. `SqliteConfigStoreWriter` now parses `updated_at` with `DateTimeStyles.RoundtripKind` matching the `SqliteMemoryStore` pattern.
+
+**Key Learnings:**
+1. `DateTime.Now` vs `DateTime.UtcNow` comparison bugs are silent — the wrong kind is always a valid `DateTime`, so no runtime exception. The only symptom is behavioral (always-rebuild or never-rebuild depending on timezone).
+2. SQLite text comparison of ISO-8601 timestamps is only safe when ALL stored values use the same UTC offset (`+00:00` or `Z`). `DateTimeOffset.ToString("O")` preserves the original offset, so normalization at write time is essential.
+3. `DateTimeStyles.RoundtripKind` in `DateTime.TryParse` is the correct flag to preserve `Kind=Utc` when reading ISO-8601 strings that end in `Z` or `+00:00`. Without it, `Kind=Unspecified` is returned.
+4. MongoDB's .NET driver always returns `DateTime` with `Kind=Utc` — safe to compare with `DateTime.UtcNow` directly without conversion.
+5. Display-only `DateTime.Now` usages (e.g., report folder names) are intentional and should not be changed — scope control matters.
+
+**Build:** 0 errors, 0 warnings. 1047 tests passing (3 pre-existing failures in deprecated API, unrelated).
+
