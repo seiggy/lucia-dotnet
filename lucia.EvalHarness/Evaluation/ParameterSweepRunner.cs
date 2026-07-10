@@ -82,11 +82,18 @@ public sealed class SweepEntry
     public double AverageScore => MeanScore;
 
     /// <summary>
-    /// Average latency in milliseconds from the first run (representative sample).
+    /// Mean latency in milliseconds averaged across all N runs and all agents.
     /// </summary>
-    public double AverageLatencyMs => Results.Count > 0
-        ? Results.Average(r => r.Performance.MeanLatency.TotalMilliseconds)
-        : 0;
+    public double AverageLatencyMs
+    {
+        get
+        {
+            var all = AllRunResults.SelectMany(run => run).ToList();
+            return all.Count > 0
+                ? all.Average(r => r.Performance.MeanLatency.TotalMilliseconds)
+                : 0;
+        }
+    }
 }
 
 /// <summary>

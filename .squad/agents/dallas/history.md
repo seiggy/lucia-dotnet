@@ -188,7 +188,7 @@
 - `SweepRunAggregator` — pure static class with no external dependencies: `ComputeMean`, `ComputeVariance`, `ComputeMinRunMean`, `SelectWinner`, `DeriveRunSeed`.
 - `SweepEntry` updated: `AllRunResults` (all N run results), `MeanScore`, `ScoreVariance`, `MinRunMean`. `AverageScore` is now an alias for `MeanScore` for backward compatibility with report generators.
 - `ParameterSweepRunner.RunAsync` loops N times per combination; each run gets `baseSeed + runIndex` when a seed is configured.
-- New `lucia.EvalHarness.Tests` project (18 fast provider-free tests).
+- New `lucia.EvalHarness.Tests` project (30 fast provider-free tests).
 
 **Aggregation strategy:**
 - Primary criterion: highest mean score across N runs
@@ -203,7 +203,7 @@
 
 **Build verification:**
 - `dotnet build lucia-dotnet.slnx -v minimal` — 0 warnings, 0 errors
-- `dotnet test lucia.EvalHarness.Tests` — 18/18 passed, 154ms
+- `dotnet test lucia.EvalHarness.Tests` — 30/30 passed
 ---
 
 **Update from Ripley (2026-05-30):** Inbox retriage complete. You have been assigned issues from the 2026-05-30 batch. Review .squad/decisions/decisions.md for details.

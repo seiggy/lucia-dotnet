@@ -147,30 +147,8 @@ public static class SweepReportGenerator
         targets = result.TargetResults.Select(kvp => new
         {
             model = kvp.Key,
-            // Use SelectWinner so the JSON best-config matches what the runner chose
-            bestConfig = kvp.Value
-                .OrderByDescending(e => e.MeanScore)
-                .ThenBy(e => e.ScoreVariance)
-                .Select(e => new
-                {
-                    parameters = new
-                    {
-                        e.Profile.Name,
-                        e.Profile.Temperature,
-                        e.Profile.TopK,
-                        e.Profile.TopP,
-                        e.Profile.RepeatPenalty
-                    },
-                    // Emit both averageScore (backward compat) and meanScore (new)
-                    averageScore = e.AverageScore,
-                    meanScore = e.MeanScore,
-                    scoreVariance = e.ScoreVariance,
-                    scoreStdDev = e.ScoreStdDev,
-                    minRunMean = e.MinRunMean,
-                    runCount = e.AllRunResults.Count,
-                    averageLatencyMs = e.AverageLatencyMs,
-                    agents = e.Results.Select(r => new { r.AgentName, r.OverallScore })
-                }).FirstOrDefault(),
+            // Use SelectWinner so bestConfig exactly matches what the runner chose
+            bestConfig = BuildBestConfigJson(kvp.Value),
             allConfigs = kvp.Value.OrderByDescending(e => e.MeanScore).ThenBy(e => e.ScoreVariance).Select(e => new
             {
                 parameters = new
@@ -190,4 +168,36 @@ public static class SweepReportGenerator
             })
         })
     };
+
+    /// <summary>
+    /// Projects the winning <see cref="SweepEntry"/> (chosen via
+    /// <see cref="SweepRunAggregator.SelectWinner"/>) into the JSON bestConfig shape.
+    /// Returns null for an empty entry list so the JSON field is omitted.
+    /// </summary>
+    private static object? BuildBestConfigJson(IReadOnlyList<SweepEntry> entries)
+    {
+        if (entries.Count == 0) return null;
+
+        var w = SweepRunAggregator.SelectWinner(entries);
+        return new
+        {
+            parameters = new
+            {
+                w.Profile.Name,
+                w.Profile.Temperature,
+                w.Profile.TopK,
+                w.Profile.TopP,
+                w.Profile.RepeatPenalty
+            },
+            // Emit both averageScore (backward compat) and meanScore (new)
+            averageScore = w.AverageScore,
+            meanScore = w.MeanScore,
+            scoreVariance = w.ScoreVariance,
+            scoreStdDev = w.ScoreStdDev,
+            minRunMean = w.MinRunMean,
+            runCount = w.AllRunResults.Count,
+            averageLatencyMs = w.AverageLatencyMs,
+            agents = w.Results.Select(r => new { r.AgentName, r.OverallScore })
+        };
+    }
 }
