@@ -178,6 +178,32 @@
 <!-- Append new learnings below. Each entry is something lasting about the project. -->
 
 - Participated in 2026-05-29 health review
+
+## Learnings
+
+### 2026-07-10: Multi-run sweep aggregation (issue #134)
+
+**What I implemented:**
+- `ParameterSweepConfig.RunsPerCombination` (default 3) — configures how many times each sweep combination is evaluated before a winner is selected.
+- `SweepRunAggregator` — pure static class with no external dependencies: `ComputeMean`, `ComputeVariance`, `ComputeMinRunMean`, `SelectWinner`, `DeriveRunSeed`.
+- `SweepEntry` updated: `AllRunResults` (all N run results), `MeanScore`, `ScoreVariance`, `MinRunMean`. `AverageScore` is now an alias for `MeanScore` for backward compatibility with report generators.
+- `ParameterSweepRunner.RunAsync` loops N times per combination; each run gets `baseSeed + runIndex` when a seed is configured.
+- New `lucia.EvalHarness.Tests` project (18 fast provider-free tests).
+
+**Aggregation strategy:**
+- Primary criterion: highest mean score across N runs
+- Tie-breaker: lower score variance (stable config beats volatile one on equal means)
+- This prevents a single lucky run from being misreported as the best configuration.
+
+**Architectural patterns:**
+- `lucia.EvalHarness` (Exe) cannot be a test project itself — created `lucia.EvalHarness.Tests` as a separate csproj in the solution's Tests folder.
+- `lucia.EvalHarness.Tests` references `lucia.EvalHarness` but NOT `lucia.Tests` — avoids circular dependency.
+- Global using `<Using Include="Xunit" />` needed in the new test project (not inherited from Directory.Build.props).
+- Collection expression syntax `[item1, item2]` inside `new List<T> { ... }` initializers is parsed as indexer access, NOT a collection expression — use explicit `new List<T> { item1, item2 }` instead.
+
+**Build verification:**
+- `dotnet build lucia-dotnet.slnx -v minimal` — 0 warnings, 0 errors
+- `dotnet test lucia.EvalHarness.Tests` — 18/18 passed, 154ms
 ---
 
 **Update from Ripley (2026-05-30):** Inbox retriage complete. You have been assigned issues from the 2026-05-30 batch. Review .squad/decisions/decisions.md for details.
