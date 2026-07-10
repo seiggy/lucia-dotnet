@@ -49,6 +49,8 @@ public sealed partial class WyomingSession : IDisposable
     private IOptionsMonitor<SpeechEnhancementOptions>? _speechEnhancementOptions;
     private readonly SessionEventBus? _eventBus;
     private readonly SemaphoreSlim? _sttConcurrency;
+    private bool _sttSlotAcquired;
+    private long _sttQueueWaitMs;
     private DateTimeOffset _lastAudioLevelEvent;
     private long _enhancementTotalMs;
     private long _sttFinalizationMs;
@@ -233,6 +235,7 @@ public sealed partial class WyomingSession : IDisposable
         }
         finally
         {
+            ReleaseSttSlot();
             SetState(WyomingSessionState.Disconnected);
             if (_backgroundTasks.Count > 0)
             {
@@ -363,6 +366,7 @@ public sealed partial class WyomingSession : IDisposable
 
                 TryCreateEnhancerSession();
                 SetState(WyomingSessionState.Transcribing);
+                await AcquireSttSlotAsync(ct).ConfigureAwait(false);
                 ProcessSpeechSamples(samples);
                 break;
 
@@ -403,6 +407,7 @@ public sealed partial class WyomingSession : IDisposable
 
                 TryCreateEnhancerSession();
                 SetState(WyomingSessionState.Transcribing);
+                await AcquireSttSlotAsync(ct).ConfigureAwait(false);
 
                 await writer.WriteEventAsync(
                         new DetectionEvent
@@ -449,40 +454,16 @@ public sealed partial class WyomingSession : IDisposable
                     SttResult sttResult;
                     using (var sttActivity = WyomingActivitySource.StartActivity("wyoming.stt.finalize"))
                     {
-                        var sttSlotAcquired = false;
-                        if (_sttConcurrency is not null)
-                        {
-                            try
-                            {
-                                await _sttConcurrency.WaitAsync(ct).ConfigureAwait(false);
-                                sttSlotAcquired = true;
-                            }
-                            catch (ObjectDisposedException) when (ct.IsCancellationRequested)
-                            {
-                                // Semaphore disposed during server shutdown — normalize to cancellation
-                                ct.ThrowIfCancellationRequested();
-                            }
-                        }
-                        try
-                        {
-                            var sttSw = System.Diagnostics.Stopwatch.StartNew();
-                            sttResult = await _currentSttSession.GetFinalResultAsync().ConfigureAwait(false);
-                            sttSw.Stop();
-                            _sttFinalizationMs = sttSw.ElapsedMilliseconds;
-                            sttActivity?.SetTag("stt.duration_ms", sttSw.ElapsedMilliseconds);
-                            sttActivity?.SetTag("stt.text", sttResult.Text);
-                            _logger.LogInformation(
-                                "Session {SessionId} STT finalized in {SttMs}ms → \"{Text}\"",
-                                Id, sttSw.ElapsedMilliseconds, sttResult.Text);
-                        }
-                        finally
-                        {
-                            if (sttSlotAcquired)
-                            {
-                                try { _sttConcurrency!.Release(); }
-                                catch (ObjectDisposedException) { /* Disposed during shutdown — slot already reclaimed */ }
-                            }
-                        }
+                        sttActivity?.SetTag("stt.queue_wait_ms", _sttQueueWaitMs);
+                        var sttSw = System.Diagnostics.Stopwatch.StartNew();
+                        sttResult = await _currentSttSession.GetFinalResultAsync().ConfigureAwait(false);
+                        sttSw.Stop();
+                        _sttFinalizationMs = sttSw.ElapsedMilliseconds;
+                        sttActivity?.SetTag("stt.duration_ms", sttSw.ElapsedMilliseconds);
+                        sttActivity?.SetTag("stt.text", sttResult.Text);
+                        _logger.LogInformation(
+                            "Session {SessionId} STT finalized in {SttMs}ms → \"{Text}\"",
+                            Id, sttSw.ElapsedMilliseconds, sttResult.Text);
                     }
 
                     _pendingTranscript = sttResult;
@@ -517,6 +498,9 @@ public sealed partial class WyomingSession : IDisposable
 
                     _pendingTranscript = null;
                     ResetUtteranceAudio();
+                    // Release the STT concurrency slot now that all STT work is done,
+                    // including any enhanced-clip re-transcription inside ProcessTranscriptAsync.
+                    ReleaseSttSlot();
                     SetState(WyomingSessionState.Connected);
                 }
                 break;
@@ -569,32 +553,11 @@ public sealed partial class WyomingSession : IDisposable
         if (_pendingTranscript is null && _currentSttSession is not null)
         {
             _currentVadSession?.Flush();
-            var sttSlotAcquired = false;
-            if (_sttConcurrency is not null)
-            {
-                try
-                {
-                    await _sttConcurrency.WaitAsync(ct).ConfigureAwait(false);
-                    sttSlotAcquired = true;
-                }
-                catch (ObjectDisposedException) when (ct.IsCancellationRequested)
-                {
-                    // Semaphore disposed during server shutdown — normalize to cancellation
-                    ct.ThrowIfCancellationRequested();
-                }
-            }
-            try
-            {
-                _pendingTranscript = await _currentSttSession.GetFinalResultAsync().ConfigureAwait(false);
-            }
-            finally
-            {
-                if (sttSlotAcquired)
-                {
-                    try { _sttConcurrency!.Release(); }
-                    catch (ObjectDisposedException) { /* Disposed during shutdown — slot already reclaimed */ }
-                }
-            }
+            // Slot should already be acquired from the Transcribing state transition, but
+            // acquire here as a safety net for any edge case where TranscribeEvent arrives
+            // without a prior AudioChunk-driven transition.
+            await AcquireSttSlotAsync(ct).ConfigureAwait(false);
+            _pendingTranscript = await _currentSttSession.GetFinalResultAsync().ConfigureAwait(false);
             DisposeCurrentSttSession();
             DisposeCurrentVadSession();
         }
@@ -608,6 +571,9 @@ public sealed partial class WyomingSession : IDisposable
         await ProcessTranscriptAsync(transcript.Text, transcript.Confidence, utteranceAudio, writer, ct)
             .ConfigureAwait(false);
 
+        // Release the STT concurrency slot now that all STT work is done,
+        // including any enhanced-clip re-transcription inside ProcessTranscriptAsync.
+        ReleaseSttSlot();
         _pendingTranscript = null;
         ResetUtteranceAudio();
         SetState(WyomingSessionState.Connected);
@@ -811,6 +777,41 @@ public sealed partial class WyomingSession : IDisposable
             SherpaSttEngine sherpaEngine => sherpaEngine.IsReady,
             _ => true,
         };
+
+    /// <summary>
+    /// Acquires the STT concurrency slot if not already held. Records queue-wait duration
+    /// in <see cref="_sttQueueWaitMs"/> for telemetry. No-op when no semaphore is configured.
+    /// </summary>
+    private async Task AcquireSttSlotAsync(CancellationToken ct)
+    {
+        if (_sttSlotAcquired || _sttConcurrency is null) return;
+        var waitSw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            await _sttConcurrency.WaitAsync(ct).ConfigureAwait(false);
+            waitSw.Stop();
+            _sttSlotAcquired = true;
+            _sttQueueWaitMs = waitSw.ElapsedMilliseconds;
+        }
+        catch (ObjectDisposedException) when (ct.IsCancellationRequested)
+        {
+            // Semaphore disposed during server shutdown — normalize to cancellation.
+            ct.ThrowIfCancellationRequested();
+        }
+    }
+
+    /// <summary>
+    /// Releases the STT concurrency slot if currently held. Safe to call from <c>finally</c>
+    /// during shutdown; swallows <see cref="ObjectDisposedException"/> if the semaphore was
+    /// disposed by <see cref="WyomingServer"/> before this session finished.
+    /// </summary>
+    private void ReleaseSttSlot()
+    {
+        if (!_sttSlotAcquired || _sttConcurrency is null) return;
+        try { _sttConcurrency.Release(); }
+        catch (ObjectDisposedException) { /* Disposed during shutdown — slot already reclaimed */ }
+        _sttSlotAcquired = false;
+    }
 
     private string _lastPartialText = string.Empty;
     private DateTimeOffset _lastPartialPublish;
