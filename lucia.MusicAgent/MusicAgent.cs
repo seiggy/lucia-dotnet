@@ -196,7 +196,7 @@ public class MusicAgent : ILuciaAgent, ISkillConfigProvider
 
         activity?.SetStatus(ActivityStatusCode.Ok);
         _logger.LogInformation("MusicAgent initialized successfully");
-        _lastConfigUpdate = DateTime.Now;
+        _lastConfigUpdate = DateTime.UtcNow;
     }
 
     /// <inheritdoc />
@@ -215,7 +215,7 @@ public class MusicAgent : ILuciaAgent, ISkillConfigProvider
             var client = await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
             _aiAgent = BuildAgent(client);
             _logger.LogInformation("MusicAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
-            _lastConfigUpdate = DateTime.Now;
+            _lastConfigUpdate = DateTime.UtcNow;
         }
     }
 

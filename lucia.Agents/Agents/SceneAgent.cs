@@ -124,7 +124,7 @@ public sealed class SceneAgent : ILuciaAgent, ISkillConfigProvider
         await _sceneSkill.InitializeAsync(cancellationToken).ConfigureAwait(false);
         await ApplyDefinitionAsync(cancellationToken).ConfigureAwait(false);
         _logger.LogInformation("SceneAgent initialized successfully");
-        _lastConfigUpdate = DateTime.Now;
+        _lastConfigUpdate = DateTime.UtcNow;
     }
 
     public async Task RefreshConfigAsync(CancellationToken cancellationToken = default)
@@ -150,7 +150,7 @@ public sealed class SceneAgent : ILuciaAgent, ISkillConfigProvider
                 .Build();
             _logger.LogInformation("SceneAgent: using model provider '{Provider}'",
                 newConnectionName ?? "default-chat");
-            _lastConfigUpdate = DateTime.Now;
+            _lastConfigUpdate = DateTime.UtcNow;
         }
     }
 

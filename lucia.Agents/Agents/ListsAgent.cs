@@ -105,7 +105,7 @@ public sealed class ListsAgent : ILuciaAgent
         await _listSkill.InitializeAsync(cancellationToken).ConfigureAwait(false);
         await ApplyDefinitionAsync(cancellationToken).ConfigureAwait(false);
         _logger.LogInformation("ListsAgent initialized successfully");
-        _lastConfigUpdate = DateTime.Now;
+        _lastConfigUpdate = DateTime.UtcNow;
     }
 
     private async Task ApplyDefinitionAsync(CancellationToken cancellationToken)
@@ -126,7 +126,7 @@ public sealed class ListsAgent : ILuciaAgent
             _lastModelConnectionName = newConnectionName;
             _logger.LogInformation("ListsAgent: using model provider '{Provider}'",
                 newConnectionName ?? "default-chat");
-            _lastConfigUpdate = DateTime.Now;
+            _lastConfigUpdate = DateTime.UtcNow;
         }
     }
 

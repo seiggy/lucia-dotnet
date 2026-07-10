@@ -148,7 +148,7 @@ public sealed class SecurityAgent : ILuciaAgent, ISkillConfigProvider
         await _securitySkill.InitializeAsync(cancellationToken).ConfigureAwait(false);
         await ApplyDefinitionAsync(cancellationToken).ConfigureAwait(false);
         _logger.LogInformation("SecurityAgent initialized successfully");
-        _lastConfigUpdate = DateTime.Now;
+        _lastConfigUpdate = DateTime.UtcNow;
     }
 
     /// <inheritdoc />
@@ -175,7 +175,7 @@ public sealed class SecurityAgent : ILuciaAgent, ISkillConfigProvider
                 .UseOpenTelemetry()
                 .Build();
             _logger.LogInformation("SecurityAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
-            _lastConfigUpdate = DateTime.Now;
+            _lastConfigUpdate = DateTime.UtcNow;
         }
     }
 

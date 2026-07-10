@@ -39,7 +39,7 @@ public sealed class SqliteCommandTraceRepository : ICommandTraceRepository
             VALUES (@id, @timestamp, @cleanText, @outcome, @skillId, @confidence, @totalDurationMs, @data);
             """;
         cmd.Parameters.AddWithValue("@id", trace.Id);
-        cmd.Parameters.AddWithValue("@timestamp", trace.Timestamp.ToString("O"));
+        cmd.Parameters.AddWithValue("@timestamp", trace.Timestamp.ToUniversalTime().ToString("O"));
         cmd.Parameters.AddWithValue("@cleanText", trace.CleanText);
         cmd.Parameters.AddWithValue("@outcome", trace.Outcome.ToString());
         cmd.Parameters.AddWithValue("@skillId", (object?)trace.Match.SkillId ?? DBNull.Value);
@@ -187,16 +187,38 @@ public sealed class SqliteCommandTraceRepository : ICommandTraceRepository
         if (filter.FromDate is not null)
         {
             clauses.Add("timestamp >= @fromDate");
-            parameters["@fromDate"] = filter.FromDate.Value.ToString("O");
+            parameters["@fromDate"] = ToUtcBoundString(filter.FromDate.Value);
         }
 
         if (filter.ToDate is not null)
         {
             clauses.Add("timestamp <= @toDate");
-            parameters["@toDate"] = filter.ToDate.Value.AddDays(1).ToString("O");
+            parameters["@toDate"] = ToUtcBoundString(filter.ToDate.Value.AddDays(1));
         }
 
         var whereClause = clauses.Count > 0 ? " WHERE " + string.Join(" AND ", clauses) : "";
         return (whereClause, parameters);
+    }
+
+    /// <summary>
+    /// Converts a filter <see cref="DateTime"/> to a canonical UTC ISO-8601 string (<c>+00:00</c>)
+    /// suitable for lexicographic comparison against stored timestamps.
+    /// <list type="bullet">
+    ///   <item><description><see cref="DateTimeKind.Unspecified"/> — reinterpreted as UTC (no shift),
+    ///   so date-only API parameters bound by ASP.NET Core are not drifted by the host timezone.</description></item>
+    ///   <item><description><see cref="DateTimeKind.Local"/> — converted to UTC via <see cref="DateTime.ToUniversalTime()"/>
+    ///   so a timezone-qualified bound is correctly shifted to the equivalent UTC instant.</description></item>
+    ///   <item><description><see cref="DateTimeKind.Utc"/> — used as-is; already UTC.</description></item>
+    /// </list>
+    /// </summary>
+    internal static string ToUtcBoundString(DateTime dt)
+    {
+        var utc = dt.Kind switch
+        {
+            DateTimeKind.Utc => dt,
+            DateTimeKind.Local => dt.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(dt, DateTimeKind.Utc) // Unspecified → reinterpret as UTC
+        };
+        return new DateTimeOffset(utc).ToString("O");
     }
 }
