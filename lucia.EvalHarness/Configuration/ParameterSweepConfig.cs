@@ -56,13 +56,24 @@ public sealed class ParameterSweepConfig
     public int RunsPerCombination { get; set; } = 3;
 
     /// <summary>
+    /// Optional base seed for deterministic sweeps. When set, each generated
+    /// combination receives <c>Seed = BaseSeed + comboIndex * RunsPerCombination</c>,
+    /// and the sweep runner offsets that by run index so every individual run is
+    /// reproducible yet distinct. When null (default), runs are non-deterministic.
+    /// </summary>
+    public int? BaseSeed { get; set; }
+
+    /// <summary>
     /// Generates the parameter combinations to test, applying <see cref="MaxCombinations"/> limit.
     /// Uses systematic sampling when the full grid is too large.
+    /// When <see cref="BaseSeed"/> is set, each profile's <see cref="ModelParameterProfile.Seed"/>
+    /// is pre-populated so the sweep runner can derive per-run seeds from it.
     /// </summary>
     public IReadOnlyList<ModelParameterProfile> GenerateCombinations()
     {
         var fullGrid = new List<ModelParameterProfile>();
         var index = 0;
+        var runsPerCombo = Math.Max(1, RunsPerCombination);
 
         foreach (var temp in TemperatureValues)
         foreach (var topK in TopKValues)
@@ -71,12 +82,17 @@ public sealed class ParameterSweepConfig
         {
             fullGrid.Add(new ModelParameterProfile
             {
-                Name = $"sweep-{index++}",
+                Name = $"sweep-{index}",
                 Temperature = temp,
                 TopK = topK,
                 TopP = topP,
-                RepeatPenalty = repeat
+                RepeatPenalty = repeat,
+                // Allocate a non-overlapping seed block per combination so that
+                // DeriveRunSeed(profile.Seed, runIndex) yields distinct seeds for
+                // every (combo, run) pair.
+                Seed = BaseSeed.HasValue ? BaseSeed.Value + index * runsPerCombo : null
             });
+            index++;
         }
 
         if (fullGrid.Count <= MaxCombinations)
@@ -86,7 +102,12 @@ public sealed class ParameterSweepConfig
         var step = (double)fullGrid.Count / MaxCombinations;
         return Enumerable.Range(0, MaxCombinations)
             .Select(i => fullGrid[(int)(i * step)])
-            .Select((p, i) => p with { Name = $"sweep-{i}" })
+            .Select((p, i) => p with
+            {
+                Name = $"sweep-{i}",
+                // Recompute seed for the sampled index so blocks stay non-overlapping
+                Seed = BaseSeed.HasValue ? BaseSeed.Value + i * runsPerCombo : null
+            })
             .ToList();
     }
 }
