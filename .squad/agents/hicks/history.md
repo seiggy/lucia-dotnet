@@ -55,8 +55,9 @@ line was never updated to match. The csukuangfj ORT 1.23.2 artifact repackages t
 changing SONAMEs rather than rebuilding; its exact runtime CUDA version requirement was not independently
 verified from the artifact metadata.
 
-**CONFIRMED:** CUDA 12.8 is required for full Blackwell (sm_120 / GB202) support. RTX 5090 users would
-fail to initialise the CUDA device regardless of the ORT library loading behaviour.
+**CONFIRMED (per NVIDIA release notes):** CUDA 12.8 is the first toolkit release with native sm_120
+(Blackwell / GB202) support. A CUDA 12.6 runtime is not a supported configuration for Blackwell; while
+driver forward-compat may allow some operations in specific cases, native sm_120 support requires 12.8+.
 
 **HYPOTHESIZED (unverified — needs GPU-host runtime test):** The exact mechanism producing
 `cudaErrorInsufficientDriver` (error 35) at `cudaSetDevice()`. `cudaErrorInsufficientDriver` indicates the
@@ -70,8 +71,8 @@ all base-stage layers build. This does NOT load the overlaid ORT GPU libs or cal
 Full runtime validation (ONNX CUDAExecutionProvider init on a physical GPU) still needed.
 
 **CUDA/ORT Compatibility Matrix (ORT 1.23.x) — based on upstream docs, not locally verified:**
-- ORT 1.23.2 + CUDA 12.8.x + cuDNN 9.x: Blackwell sm_120 ✅ (per NVIDIA release notes)
-- ORT 1.23.2 + CUDA 12.6.x: Blackwell sm_120 ⚠️ fails; ORT runtime behaviour unverified
+- CUDA 12.8.x: native sm_120 (Blackwell) support per NVIDIA release notes; this image not yet runtime-tested on GPU host
+- CUDA 12.6.x: sm_120 not natively supported per NVIDIA release notes; not a supported configuration for Blackwell
 
 **Rule:** When bumping ORT GPU version, verify the CUDA base image against the upstream ORT release notes
 and the csukuangfj artifact build logs/metadata to confirm the target CUDA version. `readelf -d` reports
