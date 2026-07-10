@@ -43,11 +43,12 @@ public static class ServiceCollectionExtensions
             client.DefaultRequestHeaders.Add("Accept", "application/json");
             client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds > 0 ? options.TimeoutSeconds : 60);
 
-            // Only set BaseAddress if fully configured (URL + token).
-            // During wizard flow, these are empty at DI time and will be set
-            // per-request via EnsureHttpClientConfigured() once the wizard saves config.
-            // Authorization is set per-request by HomeAssistantAuthorizationHandler.
-            if (string.IsNullOrWhiteSpace(options.BaseUrl)) return;
+            // BaseAddress can only be set before the first request. Omit during wizard flow
+            // (when BaseUrl is not yet configured); EnsureHttpClientConfigured() will apply it
+            // on the first real call. Authorization is handled per-request by
+            // HomeAssistantAuthorizationHandler and does not need to be set here.
+            if (string.IsNullOrWhiteSpace(options.BaseUrl))
+                return;
             client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/') + '/');
         })
         .ConfigurePrimaryHttpMessageHandler(sp =>

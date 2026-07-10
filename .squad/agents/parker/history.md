@@ -91,3 +91,29 @@ All three pins added to the `Misc` ItemGroup (SQLitePCLRaw, MessagePack) and `Mi
 **Build:** 0 warnings, 0 errors  
 
 **Deployment guidance:** Non-voice deployments (chat UI, async input) should override via configuration to suit their response cadence.
+
+### 2026-07-10: HttpClient Lifetime — Authorization Race + Eval Handle Leak (branch: squad/140-httpclient-lifetime, PR #224)
+
+**Root cause A — HomeAssistant Authorization race (intermittent 401s):**  
+`HomeAssistantClient.EnsureHttpClientConfigured()` called before every HTTP request and performed a non-atomic `DefaultRequestHeaders.Remove("Authorization")` + `TryAddWithoutValidation("Authorization", ...)`. Between Remove and Add, a concurrent request could dispatch without the auth header.
+
+**Root cause B — Eval IChatClient handle leak:**  
+`BackendChatClientFactory.CreateChatClient` creates a new `OllamaApiClient`/`OpenAIClient` per `(model × agentName × profile)` combination during parameter sweeps. `RealAgentFactory.DisposeAsync()` only disposed `_haClient`; the chat clients were never released, leaking sockets/handles.
+
+**Fix A — `HomeAssistantAuthorizationHandler` (new `DelegatingHandler`):**  
+Reads current token from `IOptionsMonitor<HomeAssistantOptions>` and sets `Authorization` header directly on each `HttpRequestMessage` before delegating. Atomic, always current. Registered as transient via `.AddHttpMessageHandler<HomeAssistantAuthorizationHandler>()` in both `lucia.Agents` and `lucia.HomeAssistant` registrations. `EnsureHttpClientConfigured()` now only manages `BaseAddress`.
+
+**Fix B — `RealAgentFactory._chatClients` tracking:**  
+Added `List<IChatClient> _chatClients`; `CreateOllamaResolverWithTracer` tracks the outer client; `DisposeAsync()` disposes all of them (async-first, sync fallback).
+
+**Key files:**
+- `lucia.HomeAssistant/Services/HomeAssistantAuthorizationHandler.cs` — new per-request auth handler
+- `lucia.HomeAssistant/Services/HomeAssistantClient.cs` — removed non-atomic Remove/Add from `EnsureHttpClientConfigured`
+- `lucia.Agents/Extensions/ServiceCollectionExtensions.cs` — register handler, remove static auth header from factory
+- `lucia.HomeAssistant/Extensions/ServiceCollectionExtensions.cs` — same registration for the test-facing `AddHomeAssistant` path
+- `lucia.EvalHarness/Providers/RealAgentFactory.cs` — `_chatClients` list + disposal
+
+**Out of scope (follow-up):** Captive dependency — singleton `EntityLocationService`/`PresenceDetectionService` capture a transient typed `IHomeAssistantClient`, preventing `IHttpClientFactory` handler rotation for DNS changes. Requires broader refactor; noted in PR.
+
+**Pattern:**  
+Use `DelegatingHandler` registered via `.AddHttpMessageHandler<T>()` for per-request concerns (auth, correlation IDs, retry policies) instead of mutating `DefaultRequestHeaders` from application code.
