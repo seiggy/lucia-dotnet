@@ -141,3 +141,18 @@
 - **Concurrency regression test:** `RunAsync_FourConcurrentSessions_InferenceBoundedBySemaphoreLimit` — limit=2 semaphore, 4 concurrent sessions, `ConcurrencyTrackingTestSttSession` with 100ms inference delay tracks peak concurrent count. Asserts `peak ≤ 2` (slot bounded) and all 4 sessions return transcripts (no hang).
 - **stt.queue_wait_ms telemetry:** `AcquireSttSlotAsync` records queue-wait in `_sttQueueWaitMs` field; `wyoming.stt.finalize` span carries `stt.queue_wait_ms` tag. Contention vs inference latency now distinguishable.
 - Build: 0 warnings, 0 errors. Wyoming tests: 298 passed, 10 skipped, 0 failed.
+
+### 2026-07-10: STT Semaphore Correctness Pass (PR #220 round-3 review)
+
+**Fix Complete — committed to squad/178-stt-semaphore-scope**
+- **Atomic release (Bug 1 — double-release race):** `_sttSlotAcquired` changed from `bool` to `int`. `ReleaseSttSlot()` uses `Interlocked.Exchange(ref _sttSlotAcquired, 0) != 1` as the gate — exactly ONE caller wins (RunAsync-finally OR Dispose), eliminating the race that could inflate the semaphore count above `MaxConcurrentSttSessions`.
+- **Await background inference before permit release (Bug 2 — permit released while decode runs):** `HybridSttSession` now implements `IAsyncDisposable.DisposeAsync()`, which awaits any pending background `RunTranscription` task. New `DisposeCurrentSttSessionAsync()` helper calls `DisposeAsync()` on sessions that implement it, then `ReleaseSttSlot()`. All async teardown paths use the async helper. Sync `Dispose()`/`DisposeEngineSessions()` retains the sync path as an inherent limitation.
+- **Detection response before slot acquisition (Bug 3 — slow client holds slot):** In the WakeListening→Transcribing path, `WriteEventAsync(DetectionEvent)` now executes BEFORE `AcquireSttSlotAsync`. A backpressured client can no longer occupy an STT slot while no inference is running.
+- **Updated DEFINITIVE acquire/release points:**
+  - Acquire: `HandleAudioChunkEventAsync` at Connected→Transcribing and WakeListening→Transcribing transitions (AFTER sending DetectionEvent for wake path)
+  - Release: `DisposeCurrentSttSessionAsync()` — single async teardown point; awaits `IAsyncDisposable.DisposeAsync()` THEN calls `ReleaseSttSlot()`
+  - Re-acquire/release: `ReTranscribeEnhancedClipAsync` for enhanced-clip inference (unchanged)
+  - No belt-and-suspenders `ReleaseSttSlot()` in `RunAsync` finally — the `await DisposeCurrentSttSessionAsync()` there handles all cases
+- **Concurrency test updated (Bug 4):** `ConcurrencyTrackingTestSttSession` now implements `IAsyncDisposable`. Counter increments on FIRST `AcceptAudioChunk` (models background decode starting) and decrements only after `DisposeAsync` completes (100ms simulated delay — models awaiting RunTranscription). This proves the slot is not returned while background work is in flight.
+- **Key insight (SemaphoreSlim.Release() after Dispose is idempotent):** The Interlocked gate means `Release()` is called at most once per permit. Combined with the ODE guard (`catch ObjectDisposedException`) on Release, the dispose race is fully covered.
+- Build: 0 warnings, 0 errors. Wyoming tests: 298 passed, 10 skipped, 0 failed.
