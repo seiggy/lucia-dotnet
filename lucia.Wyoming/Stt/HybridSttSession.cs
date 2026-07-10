@@ -13,7 +13,7 @@ namespace lucia.Wyoming.Stt;
 /// Re-transcription runs on a background thread to avoid blocking the audio
 /// ingestion path. Only GetFinalResult() blocks until the last transcription completes.
 /// </summary>
-public sealed class HybridSttSession : ISttSession
+public sealed class HybridSttSession : ISttSession, IAsyncDisposable
 {
     private readonly OfflineRecognizer _recognizer;
     private readonly int _modelSampleRate;
@@ -139,6 +139,22 @@ public sealed class HybridSttSession : ISttSession
     {
         if (_disposed) return;
         _disposed = true;
+    }
+
+    /// <summary>
+    /// Cancels any pending background transcription and awaits its completion before
+    /// returning, so callers can safely release the STT concurrency slot knowing
+    /// no inference is still running on a thread-pool thread.
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_pendingTranscription is { IsCompleted: false } pending)
+        {
+            try { await pending.ConfigureAwait(false); }
+            catch { /* inference fault during teardown — discard */ }
+        }
     }
 
     private void RunTranscription()

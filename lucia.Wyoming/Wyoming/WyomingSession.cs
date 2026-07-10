@@ -49,7 +49,7 @@ public sealed partial class WyomingSession : IDisposable
     private IOptionsMonitor<SpeechEnhancementOptions>? _speechEnhancementOptions;
     private readonly SessionEventBus? _eventBus;
     private readonly SemaphoreSlim? _sttConcurrency;
-    private bool _sttSlotAcquired;
+    private int _sttSlotAcquired;  // 0 = not held, 1 = held; use Interlocked for atomic release
     private long _sttQueueWaitMs;
     private DateTimeOffset _lastAudioLevelEvent;
     private long _enhancementTotalMs;
@@ -235,7 +235,6 @@ public sealed partial class WyomingSession : IDisposable
         }
         finally
         {
-            ReleaseSttSlot();
             SetState(WyomingSessionState.Disconnected);
             if (_backgroundTasks.Count > 0)
             {
@@ -248,7 +247,17 @@ public sealed partial class WyomingSession : IDisposable
                     _logger.LogWarning(ex, "Background task in Wyoming session {SessionId} failed", Id);
                 }
             }
-            DisposeEngineSessions();
+            // Await background STT work (e.g. HybridSttSession RunTranscription) BEFORE
+            // releasing the slot so no inference outlives its permit.
+            await DisposeCurrentSttSessionAsync().ConfigureAwait(false);
+            DisposeCurrentVadSession();
+            _currentEnhancerSession?.Dispose();
+            _currentEnhancerSession = null;
+            _currentWakeWordSession?.Dispose();
+            _currentWakeWordSession = null;
+            _pendingTranscript = null;
+            _currentAudioFormat = null;
+            ResetUtteranceAudio();
         }
     }
 
@@ -277,7 +286,7 @@ public sealed partial class WyomingSession : IDisposable
 
         _pendingTranscript = null;
         ResetUtteranceAudio();
-        DisposeCurrentSttSession();
+        await DisposeCurrentSttSessionAsync().ConfigureAwait(false);
         DisposeCurrentVadSession();
 
         _currentWakeWordSession?.Dispose();
@@ -407,8 +416,9 @@ public sealed partial class WyomingSession : IDisposable
 
                 TryCreateEnhancerSession();
                 SetState(WyomingSessionState.Transcribing);
-                await AcquireSttSlotAsync(ct).ConfigureAwait(false);
 
+                // Send the detection response BEFORE acquiring the STT slot — a backpressured
+                // client must not occupy an STT permit while no inference is running.
                 await writer.WriteEventAsync(
                         new DetectionEvent
                         {
@@ -418,6 +428,7 @@ public sealed partial class WyomingSession : IDisposable
                         ct)
                     .ConfigureAwait(false);
 
+                await AcquireSttSlotAsync(ct).ConfigureAwait(false);
                 ProcessSpeechSamples(samples);
                 break;
 
@@ -429,7 +440,7 @@ public sealed partial class WyomingSession : IDisposable
 
                 if (_currentSttSession is null)
                 {
-                    DisposeCurrentSttSession();
+                    await DisposeCurrentSttSessionAsync().ConfigureAwait(false);
                     DisposeCurrentVadSession();
                     return;
                 }
@@ -467,7 +478,7 @@ public sealed partial class WyomingSession : IDisposable
                     }
 
                     _pendingTranscript = sttResult;
-                    DisposeCurrentSttSession();
+                    await DisposeCurrentSttSessionAsync().ConfigureAwait(false);
                     DisposeCurrentVadSession();
                     SetState(WyomingSessionState.Processing);
 
@@ -555,7 +566,7 @@ public sealed partial class WyomingSession : IDisposable
             // without a prior AudioChunk-driven transition.
             await AcquireSttSlotAsync(ct).ConfigureAwait(false);
             _pendingTranscript = await _currentSttSession.GetFinalResultAsync().ConfigureAwait(false);
-            DisposeCurrentSttSession();
+            await DisposeCurrentSttSessionAsync().ConfigureAwait(false);
             DisposeCurrentVadSession();
         }
 
@@ -724,11 +735,26 @@ public sealed partial class WyomingSession : IDisposable
 
     private void DisposeCurrentSttSession()
     {
-        // Release the STT slot whenever the session is torn down (abandon, error, or normal
-        // completion). ReleaseSttSlot() is idempotent — safe even if the slot isn't held.
-        ReleaseSttSlot();
+        // Sync dispose path — used only from Dispose() and DisposeEngineSessions().
+        // In async contexts use DisposeCurrentSttSessionAsync() to await background work.
         _currentSttSession?.Dispose();
         _currentSttSession = null;
+        ReleaseSttSlot();
+    }
+
+    /// <summary>
+    /// Awaits any pending background STT inference (e.g. <see cref="HybridSttSession"/>'s
+    /// progressive RunTranscription task), then releases the concurrency slot atomically.
+    /// Must be used in place of <see cref="DisposeCurrentSttSession"/> on every async path.
+    /// </summary>
+    private async ValueTask DisposeCurrentSttSessionAsync()
+    {
+        if (_currentSttSession is IAsyncDisposable asyncSession)
+            await asyncSession.DisposeAsync().ConfigureAwait(false);
+        else
+            _currentSttSession?.Dispose();
+        _currentSttSession = null;
+        ReleaseSttSlot();
     }
 
     private void DisposeCurrentVadSession()
@@ -761,7 +787,15 @@ public sealed partial class WyomingSession : IDisposable
         CancellationToken ct)
     {
         await TryWriteErrorAsync(writer, message, code, ct).ConfigureAwait(false);
-        DisposeEngineSessions();
+        await DisposeCurrentSttSessionAsync().ConfigureAwait(false);
+        DisposeCurrentVadSession();
+        _currentEnhancerSession?.Dispose();
+        _currentEnhancerSession = null;
+        _currentWakeWordSession?.Dispose();
+        _currentWakeWordSession = null;
+        _pendingTranscript = null;
+        _currentAudioFormat = null;
+        ResetUtteranceAudio();
         if (State != WyomingSessionState.Disconnected)
         {
             SetState(WyomingSessionState.Connected);
@@ -781,13 +815,13 @@ public sealed partial class WyomingSession : IDisposable
     /// </summary>
     private async Task AcquireSttSlotAsync(CancellationToken ct)
     {
-        if (_sttSlotAcquired || _sttConcurrency is null) return;
+        if (Volatile.Read(ref _sttSlotAcquired) == 1 || _sttConcurrency is null) return;
         var waitSw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             await _sttConcurrency.WaitAsync(ct).ConfigureAwait(false);
             waitSw.Stop();
-            _sttSlotAcquired = true;
+            Interlocked.Exchange(ref _sttSlotAcquired, 1);
             _sttQueueWaitMs = waitSw.ElapsedMilliseconds;
         }
         catch (ObjectDisposedException) when (ct.IsCancellationRequested)
@@ -798,16 +832,15 @@ public sealed partial class WyomingSession : IDisposable
     }
 
     /// <summary>
-    /// Releases the STT concurrency slot if currently held. Safe to call from <c>finally</c>
-    /// during shutdown; swallows <see cref="ObjectDisposedException"/> if the semaphore was
-    /// disposed by <see cref="WyomingServer"/> before this session finished.
+    /// Releases the STT concurrency slot atomically. Safe to call from concurrent paths
+    /// (e.g. <c>RunAsync</c> finally vs <c>Dispose()</c>): exactly ONE caller performs
+    /// the <see cref="SemaphoreSlim.Release()"/>.
     /// </summary>
     private void ReleaseSttSlot()
     {
-        if (!_sttSlotAcquired || _sttConcurrency is null) return;
+        if (_sttConcurrency is null || Interlocked.Exchange(ref _sttSlotAcquired, 0) != 1) return;
         try { _sttConcurrency.Release(); }
         catch (ObjectDisposedException) { /* Disposed during shutdown — slot already reclaimed */ }
-        _sttSlotAcquired = false;
     }
 
     private string _lastPartialText = string.Empty;
