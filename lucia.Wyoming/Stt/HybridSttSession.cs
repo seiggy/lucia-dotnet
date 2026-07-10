@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using lucia.Wyoming.Audio;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using SherpaOnnx;
 
 namespace lucia.Wyoming.Stt;
@@ -21,16 +22,16 @@ namespace lucia.Wyoming.Stt;
 /// when <see cref="DisposeAsync"/> races with the final synchronous decode pass.
 ///
 /// <see cref="AcceptAudioChunk"/> also acquires <see cref="_disposeLock"/> before
-/// publishing a new progressive <see cref="_pendingTranscription"/> task, so
-/// <see cref="DisposeCore"/> cannot complete (observing no pending task) between the
-/// initial disposed-check and the <c>Task.Run</c> publish — which would otherwise allow
-/// <c>RunTranscription</c> to execute after the STT permit has been released.
-/// The lock is released immediately after <c>Task.Run</c> returns the scheduled task,
-/// so ONNX inference never executes inside the critical section.
+/// publishing a new progressive <see cref="_pendingTranscription"/> task: the disposed
+/// re-check and the <c>Task.Run</c> enqueue are atomic under the lock. The threadpool
+/// may begin executing <c>RunTranscription</c> concurrently before the lock is released,
+/// but <see cref="DisposeCore"/> captures and awaits <see cref="_pendingTranscription"/>
+/// (published before the lock is released) so it always awaits any inference scheduled
+/// by <see cref="AcceptAudioChunk"/> — preventing early permit release.
 /// </summary>
 public sealed class HybridSttSession : ISttSession, IAsyncDisposable
 {
-    private readonly OfflineRecognizer _recognizer;
+    private readonly OfflineRecognizer? _recognizer;
     private readonly int _modelSampleRate;
     private readonly int _refreshIntervalSamples;
     private readonly int _minAudioSamples;
@@ -53,6 +54,14 @@ public sealed class HybridSttSession : ISttSession, IAsyncDisposable
     private readonly object _disposeLock = new();
     private Task<SttResult>? _finalizationTask;
 
+    // Test seams — null in production; set only by HybridSttSession.CreateForTest callers.
+    // BeforeProgressivePublishSeam is called BEFORE _disposeLock is acquired (the race window).
+    // AfterProgressivePublishSeam is called inside the lock AFTER Task.Run is enqueued.
+    internal Action? BeforeProgressivePublishSeam;
+    internal Action? AfterProgressivePublishSeam;
+
+    private readonly struct ForTestOnly { }
+
     public HybridSttSession(
         OfflineRecognizer recognizer,
         int modelSampleRate,
@@ -61,10 +70,43 @@ public sealed class HybridSttSession : ISttSession, IAsyncDisposable
         double maxContextSeconds,
         double progressiveThresholdSeconds,
         ILogger logger)
-    {
-        ArgumentNullException.ThrowIfNull(recognizer);
-        ArgumentNullException.ThrowIfNull(logger);
+        : this(
+            recognizer ?? throw new ArgumentNullException(nameof(recognizer)),
+            modelSampleRate, refreshIntervalMs, minAudioMs,
+            maxContextSeconds, progressiveThresholdSeconds,
+            logger ?? throw new ArgumentNullException(nameof(logger)),
+            default(ForTestOnly)) { }
 
+    /// <summary>
+    /// Creates a <see cref="HybridSttSession"/> for testing without a real
+    /// <see cref="OfflineRecognizer"/>. <see cref="RunTranscription"/> is a no-op when
+    /// no recognizer is provided; tests use <see cref="BeforeProgressivePublishSeam"/> and
+    /// <see cref="AfterProgressivePublishSeam"/> to probe the disposal race window.
+    /// </summary>
+    internal static HybridSttSession CreateForTest(
+        int modelSampleRate = 16_000,
+        int refreshIntervalMs = 1,
+        int minAudioMs = 0,
+        double maxContextSeconds = 0,
+        double progressiveThresholdSeconds = 0.001,
+        ILogger? logger = null)
+        => new(null, modelSampleRate, refreshIntervalMs, minAudioMs,
+               maxContextSeconds, progressiveThresholdSeconds,
+               logger ?? NullLogger.Instance, default);
+
+    // Private constructor: accepts null recognizer; RunTranscription no-ops safely.
+    // ForTestOnly tag differentiates this from the public constructor at the IL level
+    // (C# treats OfflineRecognizer / OfflineRecognizer? as the same runtime type).
+    private HybridSttSession(
+        OfflineRecognizer? recognizer,
+        int modelSampleRate,
+        int refreshIntervalMs,
+        int minAudioMs,
+        double maxContextSeconds,
+        double progressiveThresholdSeconds,
+        ILogger logger,
+        ForTestOnly _)
+    {
         _recognizer = recognizer;
         _modelSampleRate = modelSampleRate;
         _refreshIntervalSamples = refreshIntervalMs * modelSampleRate / 1000;
@@ -116,17 +158,27 @@ public sealed class HybridSttSession : ISttSession, IAsyncDisposable
 
             if (bufferCount >= _progressiveThresholdSamples)
             {
-                // Serialize the disposed re-check and publish under _disposeLock so DisposeCore
-                // cannot complete (reading _pendingTranscription as null) between the fast-path
-                // ObjectDisposedException check above and the Task.Run call here — which would
-                // cause RunTranscription to execute after the STT permit is released. The lock is
-                // released immediately after Task.Run returns (the scheduled Task), so ONNX decode
-                // runs entirely outside the critical section.
+                // Test seam: fires BEFORE the lock, placing execution in the race window
+                // (between the fast-path _disposed check above and the lock acquisition below).
+                // Null in production; set only by CreateForTest callers.
+                BeforeProgressivePublishSeam?.Invoke();
+
+                // Serialize the disposed re-check and publish under _disposeLock: the _disposed
+                // check and the _pendingTranscription assignment are atomic under this lock.
+                // Task.Run ENQUEUES the work inside the lock; the threadpool MAY begin executing
+                // RunTranscription on another thread before the lock block exits, but that is
+                // safe — DisposeCore captures and awaits _pendingTranscription (published before
+                // the lock releases) so it always awaits any inference scheduled here.
+                // Without this lock, DisposeCore could complete (seeing _pendingTranscription as
+                // null) and release the STT permit before Task.Run fires.
                 lock (_disposeLock)
                 {
                     if (_disposed) return;
                     _samplesSinceLastRefresh = 0;
                     _pendingTranscription = Task.Run(RunTranscription);
+                    // Test seam: fires inside the lock AFTER Task.Run; signals that the progressive
+                    // publish happened. If this fires post-disposal, the _disposed guard was bypassed.
+                    AfterProgressivePublishSeam?.Invoke();
                 }
             }
         }
@@ -229,6 +281,9 @@ public sealed class HybridSttSession : ISttSession, IAsyncDisposable
 
     private void RunTranscription()
     {
+        // Test instances (created via CreateForTest) have null _recognizer; no-op safely.
+        if (_recognizer is null) return;
+
         var sw = Stopwatch.StartNew();
 
         float[] audio;

@@ -196,3 +196,22 @@
 - **Key insight (sealed class / no model = WyomingSession-level test):** `HybridSttSession` is sealed and requires a real `OfflineRecognizer` (sherpa-onnx native type). Writing a deterministic unit test of its `_disposeLock` AcceptAudioChunk fix directly is not practical without a test hook or model file. The mock (`GatableAcceptSttSession`) models the same lock-protected pattern at the WyomingSession integration level. The test verifies the invariant holds at the observable level (semaphore count, inference counter).
 - Build: 0 warnings, 0 errors. Wyoming tests: 301 passed, 10 skipped, 0 failed.
 
+### 2026-07-10: Vasquez Round 10 — replace fake-session disposal race test with real HybridSttSession seam (commit cefb515)
+
+**Fix Complete — committed to squad/178-stt-semaphore-scope (commit cefb515)**
+- **Problem (Vasquez item 1):** `GatableAcceptSttSession` (the mock used in round 9) reimplemented the `_disposeLock` check+publish pattern itself, so the integration test `AcceptAudioChunk_DisposalRace_DoesNotScheduleInferenceAfterSlotReleased` would still PASS even if the production `if (_disposed) return;` guard was deleted from `HybridSttSession`. It tested the mock's correctness, not the production code. Also used a 100 ms `Task.Delay` (timing-dependent).
+- **Fix — production seam approach:** `HybridSttSession` (sealed, requires native sherpa-onnx) was NOT testable in isolation due to the `OfflineRecognizer` hard dependency. Solution:
+  - Added `[assembly: InternalsVisibleTo("lucia.Tests")]` via new `Properties/AssemblyInfo.cs`.
+  - Added private `ForTestOnly` tag struct to disambiguate the test constructor from the public one at IL level (both would have the same parameter types otherwise, since nullability is compile-time only).
+  - Public constructor chains via `: this(recognizer ?? throw ..., ..., default(ForTestOnly))` — null validation before chaining is valid via `?? throw` in the argument list.
+  - Private test constructor accepts `OfflineRecognizer?` (null) — `RunTranscription` no-ops on null recognizer (`if (_recognizer is null) return;` guard).
+  - `internal static HybridSttSession CreateForTest(...)` factory creates test instances.
+  - `internal Action? BeforeProgressivePublishSeam` — called BEFORE `_disposeLock` is acquired (the race window). Null in production, zero overhead.
+  - `internal Action? AfterProgressivePublishSeam` — called INSIDE the lock AFTER `Task.Run`; signals if publish happened post-disposal (guard bypassed).
+- **New test `HybridSttSessionDisposalRaceTests`:** `AcceptAudioChunk_ProgressivePublish_IsDroppedWhenDisposalWinsRace` — deterministic via `ManualResetEventSlim` gate + `TaskCompletionSource`, no timing delays. Verified: test FAILS (publishCount=1) when `if (_disposed) return;` is removed from AcceptAudioChunk's lock block; passes (publishCount=0) with guard in place. Test exercises REAL production `HybridSttSession` code.
+- **Comment fix (Vasquez item 2):** Replaced "ONNX decode runs entirely outside the critical section" (inaccurate) with accurate description: check+publish are atomic under `_disposeLock`; `Task.Run` enqueues the work inside the lock; the threadpool MAY begin executing `RunTranscription` concurrently before the lock exits, but that is safe — `DisposeCore` captures and awaits `_pendingTranscription` (published before lock release) so it always awaits any scheduled inference. Updated class-level XML doc to match.
+- **Removed:** `GatableAcceptSttSession.cs` (mock-level test replaced); removed the associated integration test from `WyomingSessionIntegrationTests.cs`.
+- **Key insight:** `OfflineRecognizer` (sherpa-onnx) is sealed with no public mock seam and cannot be created without model files. Internal seams (`ForTestOnly` constructor tag + `BeforeProgressivePublishSeam`/`AfterProgressivePublishSeam`) provide the necessary test hook without altering production behavior. This is the correct approach when a native dependency blocks direct unit testing.
+- **Key insight:** C# nullability (`T` vs `T?`) is compile-time only — both map to the same IL type. When a public and private constructor share all parameter types except nullability, a private tag type (zero-size struct) is needed to create a distinct overload. Using `?? throw` in the `: this(...)` call enables null validation before the private constructor runs.
+- Build: 0 warnings, 0 errors. Wyoming tests: 301 passed, 10 skipped, 0 failed.
+
