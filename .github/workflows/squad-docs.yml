@@ -4,19 +4,21 @@ name: Squad Docs — Build & Deploy
 on:
   workflow_dispatch:
   push:
-    branches: [master]
+    branches: [preview]
     paths:
       - 'docs/**'
       - '.github/workflows/squad-docs.yml'
 
 permissions:
   contents: read
+  pages: write
+  id-token: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@v4
 
       - name: Build docs
         run: |

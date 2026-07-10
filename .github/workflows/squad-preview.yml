@@ -2,7 +2,8 @@ name: Squad Preview Validation
 # dotnet project — configure build, test, and validation commands below
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [preview]
 
 permissions:
   contents: read

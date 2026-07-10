@@ -1,14 +1,9 @@
 {
   "version": 1,
+  "worktrees": "true",
   "agentModelOverrides": {
     "ripley": "claude-opus-4.8",
     "dallas": "claude-opus-4.8",
-    "ash": "claude-opus-4.8",
-    "lambert": "claude-opus-4.8",
-    "kane": "claude-opus-4.8",
-    "parker": "claude-opus-4.8",
-    "brett": "claude-opus-4.8",
-    "hicks": "claude-opus-4.8",
-    "bishop": "claude-opus-4.8"
+    "brett": "claude-opus-4.8"
   }
 }
