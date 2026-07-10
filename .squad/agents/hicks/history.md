@@ -77,7 +77,7 @@ Full runtime validation (ONNX CUDAExecutionProvider init on a physical GPU) stil
 **Rule:** When bumping ORT GPU version, verify the CUDA base image against the upstream ORT release notes
 and the csukuangfj artifact build logs/metadata to confirm the target CUDA version. `readelf -d` reports
 major-version SONAMEs only (e.g. `libcudart.so.12`) and cannot distinguish minor versions.
-Always keep `asset.lock` onnxruntime-gpu version and base image CUDA version in sync.
+Always keep the ORT version in `asset.lock` in sync with the CUDA base image version (note: `asset.lock` records the ORT release version, not a CUDA minor version — verify the required CUDA target from ORT release notes or artifact build metadata).
 Host driver requirements vary by GPU family and CUDA minor version — consult
 https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/ rather than assuming a single minimum.
 
