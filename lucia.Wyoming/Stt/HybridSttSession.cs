@@ -142,7 +142,7 @@ public sealed class HybridSttSession : ISttSession, IAsyncDisposable
     }
 
     /// <summary>
-    /// Cancels any pending background transcription and awaits its completion before
+    /// Awaits any pending background transcription task to completion before
     /// returning, so callers can safely release the STT concurrency slot knowing
     /// no inference is still running on a thread-pool thread.
     /// </summary>

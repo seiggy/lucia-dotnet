@@ -236,6 +236,18 @@ public sealed partial class WyomingSession : IDisposable
         finally
         {
             SetState(WyomingSessionState.Disconnected);
+            // Release STT slot FIRST — transcript-storage fire-and-forget tasks are
+            // unrelated to STT capacity. Another session's utterance must not be gated
+            // on this session's MongoDB/audio-clip write completing.
+            await DisposeCurrentSttSessionAsync().ConfigureAwait(false);
+            DisposeCurrentVadSession();
+            _currentEnhancerSession?.Dispose();
+            _currentEnhancerSession = null;
+            _currentWakeWordSession?.Dispose();
+            _currentWakeWordSession = null;
+            _pendingTranscript = null;
+            _currentAudioFormat = null;
+            ResetUtteranceAudio();
             if (_backgroundTasks.Count > 0)
             {
                 try
@@ -247,17 +259,6 @@ public sealed partial class WyomingSession : IDisposable
                     _logger.LogWarning(ex, "Background task in Wyoming session {SessionId} failed", Id);
                 }
             }
-            // Await background STT work (e.g. HybridSttSession RunTranscription) BEFORE
-            // releasing the slot so no inference outlives its permit.
-            await DisposeCurrentSttSessionAsync().ConfigureAwait(false);
-            DisposeCurrentVadSession();
-            _currentEnhancerSession?.Dispose();
-            _currentEnhancerSession = null;
-            _currentWakeWordSession?.Dispose();
-            _currentWakeWordSession = null;
-            _pendingTranscript = null;
-            _currentAudioFormat = null;
-            ResetUtteranceAudio();
         }
     }
 
@@ -736,8 +737,14 @@ public sealed partial class WyomingSession : IDisposable
     private void DisposeCurrentSttSession()
     {
         // Sync dispose path — used only from Dispose() and DisposeEngineSessions().
-        // In async contexts use DisposeCurrentSttSessionAsync() to await background work.
-        _currentSttSession?.Dispose();
+        // Block on DisposeAsync for sessions that implement it so any pending background
+        // inference is awaited before the STT slot is released, even during synchronous
+        // shutdown. HybridSttSession.DisposeAsync only awaits a thread-pool Task
+        // (ConfigureAwait(false)), so GetAwaiter().GetResult() is deadlock-safe here.
+        if (_currentSttSession is IAsyncDisposable asyncSession)
+            asyncSession.DisposeAsync().GetAwaiter().GetResult();
+        else
+            _currentSttSession?.Dispose();
         _currentSttSession = null;
         ReleaseSttSlot();
     }

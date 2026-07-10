@@ -541,6 +541,110 @@ public sealed class WyomingSessionIntegrationTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// Regression test for issue #178: STT semaphore MUST NOT gate the entire connection.
+    /// With limit=2 STT sessions active (holding slots via BlockingTestSttSession), two
+    /// further sessions that skip STT entirely (AudioStart + AudioStop with no chunks)
+    /// must receive their empty TranscriptEvent immediately — they must not block waiting
+    /// for a slot that is unrelated to their work.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_NonSttEventsHandled_WhenAllSttSlotsExhausted()
+    {
+        const int limit = 2;
+        var semaphore = new SemaphoreSlim(limit, limit);
+        var blocking1 = new BlockingTestSttSession(new SttResult { Text = "stt1", Confidence = 1f });
+        var blocking2 = new BlockingTestSttSession(new SttResult { Text = "stt2", Confidence = 1f });
+        var options = new WyomingOptions { ReadTimeoutSeconds = 10 };
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+        // Two sessions that will block inside GetFinalResultAsync (holding the STT slots).
+        var (l1, c1, sc1, svc1, s1, w1, p1) = await CreateConnectedSessionAsync(
+            options, sttEngine: new TestSttEngine(blocking1), sttConcurrency: semaphore);
+        var (l2, c2, sc2, svc2, s2, w2, p2) = await CreateConnectedSessionAsync(
+            options, sttEngine: new TestSttEngine(blocking2), sttConcurrency: semaphore);
+        // Two sessions with no STT engine — they will receive an empty TranscriptEvent
+        // from HandleAudioStopEventAsync (Connected + format set, no chunks = no STT).
+        var (l3, c3, sc3, svc3, s3, w3, p3) = await CreateConnectedSessionAsync(
+            options, sttConcurrency: semaphore);
+        var (l4, c4, sc4, svc4, s4, w4, p4) = await CreateConnectedSessionAsync(
+            options, sttConcurrency: semaphore);
+
+        try
+        {
+            var run1 = s1.RunAsync(cts.Token);
+            var run2 = s2.RunAsync(cts.Token);
+            var run3 = s3.RunAsync(cts.Token);
+            var run4 = s4.RunAsync(cts.Token);
+
+            // Drive STT sessions into GetFinalResultAsync to occupy both slots.
+            var audioChunkPayload = PcmConverter.Float32ToInt16([0.1f, -0.1f]);
+            await w1.WriteEventAsync(new AudioStartEvent { Rate = 16_000, Width = 2, Channels = 1 }, cts.Token);
+            await w1.WriteEventAsync(new AudioChunkEvent { Rate = 16_000, Width = 2, Channels = 1, Payload = audioChunkPayload }, cts.Token);
+            await w1.WriteEventAsync(new AudioStopEvent(), cts.Token);
+
+            await w2.WriteEventAsync(new AudioStartEvent { Rate = 16_000, Width = 2, Channels = 1 }, cts.Token);
+            await w2.WriteEventAsync(new AudioChunkEvent { Rate = 16_000, Width = 2, Channels = 1, Payload = audioChunkPayload }, cts.Token);
+            await w2.WriteEventAsync(new AudioStopEvent(), cts.Token);
+
+            // Wait until both STT sessions are provably inside GetFinalResultAsync.
+            var r1 = await Task.WhenAny(blocking1.InferenceStarted.Task, Task.Delay(TimeSpan.FromSeconds(5), cts.Token));
+            var r2 = await Task.WhenAny(blocking2.InferenceStarted.Task, Task.Delay(TimeSpan.FromSeconds(5), cts.Token));
+            Assert.True(r1 == blocking1.InferenceStarted.Task && r2 == blocking2.InferenceStarted.Task,
+                "STT sessions did not reach inference within 5 s — slot may not be held");
+
+            // Both STT slots are now occupied. Non-STT sessions send AudioStart + AudioStop
+            // with NO audio chunks; this triggers the Connected-state path in
+            // HandleAudioStopEventAsync, which writes an empty TranscriptEvent with NO
+            // semaphore involvement. If the semaphore were still gating whole connections
+            // (the original #178 bug), these reads would deadlock.
+            await w3.WriteEventAsync(new AudioStartEvent { Rate = 16_000, Width = 2, Channels = 1 }, cts.Token);
+            await w3.WriteEventAsync(new AudioStopEvent(), cts.Token);
+            await w4.WriteEventAsync(new AudioStartEvent { Rate = 16_000, Width = 2, Channels = 1 }, cts.Token);
+            await w4.WriteEventAsync(new AudioStopEvent(), cts.Token);
+
+            var evt3 = await p3.ReadEventAsync(cts.Token);
+            var evt4 = await p4.ReadEventAsync(cts.Token);
+            Assert.IsType<TranscriptEvent>(evt3);
+            Assert.IsType<TranscriptEvent>(evt4);
+
+            // Unblock the STT sessions so they can complete cleanly.
+            blocking1.Unblock();
+            blocking2.Unblock();
+
+            // Drain STT-session responses so they can exit.
+            _ = Task.Run(async () =>
+            {
+                try { while (await p1.ReadEventAsync(cts.Token) is not null) { } }
+                catch (Exception ex) when (ex is OperationCanceledException or IOException or ObjectDisposedException) { }
+            });
+            _ = Task.Run(async () =>
+            {
+                try { while (await p2.ReadEventAsync(cts.Token) is not null) { } }
+                catch (Exception ex) when (ex is OperationCanceledException or IOException or ObjectDisposedException) { }
+            });
+
+            c1.Close(); await run1;
+            c2.Close(); await run2;
+            c3.Close(); await run3;
+            c4.Close(); await run4;
+        }
+        finally
+        {
+            foreach (var (l, c, sc, svc) in new[] {
+                (l1, c1, sc1, svc1), (l2, c2, sc2, svc2),
+                (l3, c3, sc3, svc3), (l4, c4, sc4, svc4) })
+            {
+                try { c.Close(); } catch (Exception) { }
+                c.Dispose();
+                sc.Dispose();
+                l.Stop();
+                await svc.DisposeAsync();
+            }
+            semaphore.Dispose();
+        }
+    }
+
+    /// <summary>
     /// Verifies that <c>MaxConcurrentSttSessions = 2</c> actually bounds STT inference
     /// when 4 sessions drive STT simultaneously. All 4 sessions must complete (no hang),
     /// and the peak concurrent inference count must never exceed the configured limit.
