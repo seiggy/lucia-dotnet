@@ -117,3 +117,35 @@ Added `List<IChatClient> _chatClients`; `CreateOllamaResolverWithTracer` tracks 
 
 **Pattern:**  
 Use `DelegatingHandler` registered via `.AddHttpMessageHandler<T>()` for per-request concerns (auth, correlation IDs, retry policies) instead of mutating `DefaultRequestHeaders` from application code.
+
+### 2026-07-10: HttpClient Lifetime — PR #224 Round 3 Review (branch: squad/140-httpclient-lifetime)
+
+**Copilot threads addressed:**
+
+**Thread 1 — A2AHost missed the handler (real bug):**
+lucia.A2AHost/Program.cs registered HomeAssistantClient with a static Authorization header
+in DefaultRequestHeaders and no HomeAssistantAuthorizationHandler in the chain.  A2AHost
+therefore used a startup-time token forever and was exposed to the same DefaultRequestHeaders
+race fixed for AgentHost.  All three registration paths now use the handler:
+- lucia.Agents/Extensions/ServiceCollectionExtensions.cs::AddLuciaAgents() — AgentHost
+- lucia.A2AHost/Program.cs inline — A2AHost (fixed here)
+- lucia.HomeAssistant/Extensions/ServiceCollectionExtensions.cs::AddHomeAssistant() — Tests
+
+**Thread 2 — Regression tests (confirmed present):**
+HomeAssistantAuthorizationHandlerTests.cs (added in round 2) already covers (a) per-request
+token, (b) rotation, (c) 50 concurrent requests.  All 5 pass.  Thread was pre-existing from
+Copilot's review of the initial commit; the fix was already committed.
+
+**Thread 3 — Per-instance IChatClient disposal:**
+Extracted RealAgentInstance to its own file (RealAgentInstance.cs, one-class-per-file).
+Added IAsyncDisposable with Interlocked idempotency guard and OwnedChatClient internal
+property.  RealAgentFactory now tracks _instances (not _chatClients); DisposeAsync
+delegates to each instance.  When PR #223 (Dallas/squad/134) lands, the sweep runner can dispose
+instances per-evaluation without any factory change.  Until then, factory teardown is the
+guaranteed fallback.
+
+**Key lessons:**
+- Audit ALL host registration paths when centralizing infrastructure patterns — one-off inline
+  registrations in secondary hosts (A2AHost, satellite containers) can silently miss the fix.
+- IAsyncDisposable + Interlocked exchange flag = safe idempotent async disposal pattern.
+- Extract nested classes to own files as part of the same PR when they gain behaviour (new interface).
