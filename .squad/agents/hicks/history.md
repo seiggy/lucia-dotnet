@@ -49,27 +49,36 @@
 
 ### 2026-07-10: CUDA/ORT Version Compatibility — Issue #207 (PR squad/207-docker-voice-cuda)
 
-**Root cause:** `Dockerfile.voice` Stage 1 base image was pinned to `nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04`
-while ORT 1.23.2 GPU libs (csukuangfj patched, from `asset.lock`) are compiled against CUDA 12.8 symbols.
-Loading a CUDA 12.8-linked `libonnxruntime_providers_cuda.so` inside a CUDA 12.6 container causes
-`cudaErrorInsufficientDriver` (error 35) at `cudaSetDevice()` because the 12.6 runtime lacks the
-required symbol versions. The Dockerfile header comment already stated 12.8.1 as the intended target —
-the FROM line was never updated to match.
+**CONFIRMED:** `Dockerfile.voice` Stage 1 base image was pinned to `nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04`
+while the intended target (already documented in the Dockerfile header comment) was `12.8.1` — the FROM
+line was never updated to match. The csukuangfj ORT 1.23.2 artifact repackages the upstream release by
+changing SONAMEs rather than rebuilding; its exact runtime CUDA version requirement was not independently
+verified from the artifact metadata.
 
-**Secondary factor:** CUDA 12.8 is the first release with full Blackwell (sm_120 / GB202) support.
-RTX 5090 users on driver 590.xx hit both the symbol mismatch and the architecture gap simultaneously.
+**CONFIRMED:** CUDA 12.8 is required for full Blackwell (sm_120 / GB202) support. RTX 5090 users would
+fail to initialise the CUDA device regardless of the ORT library loading behaviour.
+
+**HYPOTHESIZED (unverified — needs GPU-host runtime test):** The exact mechanism producing
+`cudaErrorInsufficientDriver` (error 35) at `cudaSetDevice()`. `cudaErrorInsufficientDriver` indicates the
+loaded CUDA runtime cannot use the driver — distinct from a missing-symbol load failure. The true trigger
+(version mismatch, Blackwell arch, or both) requires a physical GPU-host test to confirm.
 
 **Fix:** Updated Stage 1 FROM to `nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04@sha256:ac55d124da4882b497f732d8dfd9a702d5447a5f29d08d56da6f64f0a1eb34bc`.
-Validated: `docker build --target base` succeeded against the new digest.
 
-**CUDA/ORT Compatibility Matrix (ORT 1.23.x):**
-- ORT 1.23.2 → CUDA 12.8.x → cuDNN 9.x → min driver 570.86.10 → Blackwell sm_120 ✅
-- ORT 1.23.2 on CUDA 12.6.x → cudaErrorInsufficientDriver on Blackwell or symbol mismatch ⚠️
+**Validated (confirmed):** `docker build --target base` succeeded — new CUDA 12.8.1 base image pulls and
+all base-stage layers build. This does NOT load the overlaid ORT GPU libs or call `cudaSetDevice()`.
+Full runtime validation (ONNX CUDAExecutionProvider init on a physical GPU) still needed.
 
-**Rule:** When bumping ORT GPU version, verify the CUDA base image matches what the ORT libs link against.
-Use `readelf -d libonnxruntime_providers_cuda.so | grep NEEDED` or check csukuangfj release notes.
+**CUDA/ORT Compatibility Matrix (ORT 1.23.x) — based on upstream docs, not locally verified:**
+- ORT 1.23.2 + CUDA 12.8.x + cuDNN 9.x: Blackwell sm_120 ✅ (per NVIDIA release notes)
+- ORT 1.23.2 + CUDA 12.6.x: Blackwell sm_120 ⚠️ fails; ORT runtime behaviour unverified
+
+**Rule:** When bumping ORT GPU version, verify the CUDA base image against the upstream ORT release notes
+and the csukuangfj artifact build logs/metadata to confirm the target CUDA version. `readelf -d` reports
+major-version SONAMEs only (e.g. `libcudart.so.12`) and cannot distinguish minor versions.
 Always keep `asset.lock` onnxruntime-gpu version and base image CUDA version in sync.
-Minimum host driver for CUDA 12.8 is **570.86.10** (user's 590.48.01 is compatible).
+Host driver requirements vary by GPU family and CUDA minor version — consult
+https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/ rather than assuming a single minimum.
 
 **CPU fallback:** `:voice-cpu` tag uses `mcr.microsoft.com/dotnet/aspnet:10.0` — no CUDA dependency.
 Recommend documenting this as the explicit fallback for non-NVIDIA hosts or unsupported GPU generations.

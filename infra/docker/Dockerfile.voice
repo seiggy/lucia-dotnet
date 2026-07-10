@@ -65,10 +65,15 @@ RUN npm run build
 # ============================================================================
 # Stage 1: Base Runtime Image (NVIDIA CUDA 12.8 + cuDNN 9 for GPU ONNX)
 # ============================================================================
-# CUDA 12.8.1 is required: ORT 1.23.2 GPU libs (csukuangfj patched) are
-# compiled against CUDA 12.8 symbols. Using 12.6 causes cudaErrorInsufficientDriver
-# (error 35) at cudaSetDevice(). Also ensures Blackwell (sm_120, RTX 5090)
-# and later GPUs receive proper support. Minimum host driver: 570.86.10.
+# CUDA 12.8.1 is required for two confirmed reasons:
+#   1. Version alignment: the prior 12.6.3 base was a mismatch against the ORT
+#      1.23.2 GPU artifact (asset.lock) — exact runtime failure mechanism on a
+#      GPU host is still unverified (needs runtime test); see issue #207.
+#   2. Blackwell support: CUDA 12.8 is the first release with full sm_120
+#      (RTX 5090 / GB202) support. CUDA 12.6 containers fail to initialise on
+#      Blackwell hardware regardless of host driver version.
+# Host driver requirements vary by GPU family and CUDA minor version; consult
+# https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/ for your GPU.
 # See: https://github.com/seiggy/lucia-dotnet/issues/207
 FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04@sha256:ac55d124da4882b497f732d8dfd9a702d5447a5f29d08d56da6f64f0a1eb34bc AS base
 
