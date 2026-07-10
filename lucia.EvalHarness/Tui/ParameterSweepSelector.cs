@@ -76,9 +76,17 @@ public static class ParameterSweepSelector
             new TextPrompt<int>("[cornflowerblue]Max parameter combinations per model[/]:")
                 .DefaultValue(config.MaxCombinations));
 
+        config.RunsPerCombination = AnsiConsole.Prompt(
+            new TextPrompt<int>("[cornflowerblue]Runs per combination[/] (1 = single-run, 3 = default noise-resistant):")
+                .DefaultValue(config.RunsPerCombination)
+                .Validate(n => n >= 1
+                    ? ValidationResult.Success()
+                    : ValidationResult.Error("Must be at least 1")));
+
         var totalCombinations = config.GenerateCombinations().Count;
-        var totalRuns = totalCombinations * targetModels.Count * agents.Count;
-        AnsiConsole.MarkupLine($"[dim]  {totalCombinations} parameter combinations × {targetModels.Count} models × {agents.Count} agents = {totalRuns} total evaluation runs[/]");
+        var runsEach = config.RunsPerCombination;
+        var totalRuns = totalCombinations * targetModels.Count * agents.Count * runsEach;
+        AnsiConsole.MarkupLine($"[dim]  {totalCombinations} combos × {targetModels.Count} models × {agents.Count} agents × {runsEach} runs each = {totalRuns} total eval calls[/]");
         AnsiConsole.WriteLine();
 
         if (!AnsiConsole.Confirm("[bold]Proceed with sweep?[/]"))

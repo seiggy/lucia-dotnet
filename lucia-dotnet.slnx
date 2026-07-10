@@ -35,6 +35,7 @@
   <Folder Name="/Tests/">
     <Project Path="lucia.Tests/lucia.Tests.csproj" />
     <Project Path="lucia.EvalHarness/lucia.EvalHarness.csproj" />
+    <Project Path="lucia.EvalHarness.Tests/lucia.EvalHarness.Tests.csproj" />
   </Folder>
   <Folder Name="/Voice/">
     <Project Path="lucia.Wyoming/lucia.Wyoming.csproj" />
