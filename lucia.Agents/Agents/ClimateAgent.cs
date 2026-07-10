@@ -223,7 +223,7 @@ public sealed class ClimateAgent : ILuciaAgent, ISkillConfigProvider
         await ApplyDefinitionAsync(cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation("ClimateAgent initialized successfully");
-        _lastConfigUpdate = DateTime.Now;
+        _lastConfigUpdate = DateTime.UtcNow;
     }
 
     /// <inheritdoc />
@@ -250,7 +250,7 @@ public sealed class ClimateAgent : ILuciaAgent, ISkillConfigProvider
                 .UseOpenTelemetry()
                 .Build();
             _logger.LogInformation("ClimateAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
-            _lastConfigUpdate = DateTime.Now;
+            _lastConfigUpdate = DateTime.UtcNow;
         }
 
         if (!string.Equals(_lastEmbeddingProviderName, newEmbeddingName, StringComparison.Ordinal))

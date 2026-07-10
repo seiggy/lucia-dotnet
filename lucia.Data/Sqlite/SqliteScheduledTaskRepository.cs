@@ -35,7 +35,7 @@ public sealed class SqliteScheduledTaskRepository : IScheduledTaskRepository
             """;
         cmd.Parameters.AddWithValue("@id", document.Id);
         cmd.Parameters.AddWithValue("@status", document.Status.ToString());
-        cmd.Parameters.AddWithValue("@fireAt", document.FireAt.ToString("O"));
+        cmd.Parameters.AddWithValue("@fireAt", document.FireAt.ToUniversalTime().ToString("O"));
         cmd.Parameters.AddWithValue("@taskType", document.TaskType.ToString());
         cmd.Parameters.AddWithValue("@data", JsonSerializer.Serialize(document, JsonOptions));
 

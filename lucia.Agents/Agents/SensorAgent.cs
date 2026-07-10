@@ -169,7 +169,7 @@ public sealed class SensorAgent : ILuciaAgent, ISkillConfigProvider
         await ApplyDefinitionAsync(cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation("SensorAgent initialized successfully");
-        _lastConfigUpdate = DateTime.Now;
+        _lastConfigUpdate = DateTime.UtcNow;
     }
 
     /// <inheritdoc />
@@ -196,7 +196,7 @@ public sealed class SensorAgent : ILuciaAgent, ISkillConfigProvider
                 .UseOpenTelemetry()
                 .Build();
             _logger.LogInformation("SensorAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
-            _lastConfigUpdate = DateTime.Now;
+            _lastConfigUpdate = DateTime.UtcNow;
         }
 
         if (!string.Equals(_lastEmbeddingProviderName, newEmbeddingName, StringComparison.Ordinal))

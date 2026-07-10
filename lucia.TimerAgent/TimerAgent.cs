@@ -225,7 +225,7 @@ public sealed class TimerAgent : ILuciaAgent
 
         activity?.SetStatus(ActivityStatusCode.Ok);
         _logger.LogInformation("TimerAgent initialized successfully");
-        _lastConfigUpdate = DateTime.Now;
+        _lastConfigUpdate = DateTime.UtcNow;
     }
 
     public async Task RefreshConfigAsync(CancellationToken cancellationToken = default)
@@ -245,7 +245,7 @@ public sealed class TimerAgent : ILuciaAgent
             _logger.LogInformation("TimerAgent: using model provider '{Provider}'",
                 newConnectionName ?? "default-chat");
             _lastModelConnectionName = newConnectionName;
-            _lastConfigUpdate = DateTime.Now;
+            _lastConfigUpdate = DateTime.UtcNow;
         }
     }
 

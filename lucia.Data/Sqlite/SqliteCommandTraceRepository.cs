@@ -39,7 +39,7 @@ public sealed class SqliteCommandTraceRepository : ICommandTraceRepository
             VALUES (@id, @timestamp, @cleanText, @outcome, @skillId, @confidence, @totalDurationMs, @data);
             """;
         cmd.Parameters.AddWithValue("@id", trace.Id);
-        cmd.Parameters.AddWithValue("@timestamp", trace.Timestamp.ToString("O"));
+        cmd.Parameters.AddWithValue("@timestamp", trace.Timestamp.ToUniversalTime().ToString("O"));
         cmd.Parameters.AddWithValue("@cleanText", trace.CleanText);
         cmd.Parameters.AddWithValue("@outcome", trace.Outcome.ToString());
         cmd.Parameters.AddWithValue("@skillId", (object?)trace.Match.SkillId ?? DBNull.Value);
@@ -187,13 +187,13 @@ public sealed class SqliteCommandTraceRepository : ICommandTraceRepository
         if (filter.FromDate is not null)
         {
             clauses.Add("timestamp >= @fromDate");
-            parameters["@fromDate"] = filter.FromDate.Value.ToString("O");
+            parameters["@fromDate"] = filter.FromDate.Value.ToUniversalTime().ToString("O");
         }
 
         if (filter.ToDate is not null)
         {
             clauses.Add("timestamp <= @toDate");
-            parameters["@toDate"] = filter.ToDate.Value.AddDays(1).ToString("O");
+            parameters["@toDate"] = filter.ToDate.Value.AddDays(1).ToUniversalTime().ToString("O");
         }
 
         var whereClause = clauses.Count > 0 ? " WHERE " + string.Join(" AND ", clauses) : "";

@@ -132,7 +132,7 @@ public sealed class GeneralAgent : ILuciaAgent
         await ApplyDefinitionAsync(cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation("General Knowledge initialized successfully");
-        _lastConfigUpdate = DateTime.Now;
+        _lastConfigUpdate = DateTime.UtcNow;
     }
 
     /// <inheritdoc />
@@ -175,7 +175,7 @@ public sealed class GeneralAgent : ILuciaAgent
                 .Build();
             _logger.LogInformation("GeneralAgent: using model provider '{Provider}'",
                 newConnectionName ?? "default-chat");
-            _lastConfigUpdate = DateTime.Now;
+            _lastConfigUpdate = DateTime.UtcNow;
         }
     }
 

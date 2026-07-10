@@ -1,3 +1,5 @@
+using System.Globalization;
+
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration.UserConfiguration;
 using Microsoft.Data.Sqlite;
@@ -175,7 +177,7 @@ public sealed class SqliteConfigStoreWriter : IConfigStoreWriter
                 Key = reader.GetString(0),
                 Value = reader.IsDBNull(1) ? null : reader.GetString(1),
                 Section = reader.GetString(2),
-                UpdatedAt = DateTime.TryParse(reader.GetString(3), out var dt) ? dt : DateTime.UtcNow,
+                UpdatedAt = DateTime.TryParse(reader.GetString(3), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var dt) ? dt : DateTime.UtcNow,
                 UpdatedBy = reader.GetString(4),
                 IsSensitive = reader.GetInt32(5) != 0
             });

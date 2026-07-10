@@ -159,7 +159,7 @@ public sealed class LightAgent : ILuciaAgent, ISkillConfigProvider
         await ApplyDefinitionAsync(cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation("LightAgent initialized successfully");
-        _lastConfigUpdate = DateTime.Now;
+        _lastConfigUpdate = DateTime.UtcNow;
     }
 
     /// <inheritdoc />
@@ -186,7 +186,7 @@ public sealed class LightAgent : ILuciaAgent, ISkillConfigProvider
                 .UseOpenTelemetry()
                 .Build();
             _logger.LogInformation("LightAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
-            _lastConfigUpdate = DateTime.Now;
+            _lastConfigUpdate = DateTime.UtcNow;
         }
     }
 
