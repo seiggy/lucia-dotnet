@@ -3,3 +3,8 @@
 .squad/agents/*/history.md merge=union
 .squad/log/** merge=union
 .squad/orchestration-log/** merge=union
+
+# Squad review gate: shell hook must stay LF
+.squad/gate/pre-push text eol=lf
+.squad/gate/Approve-Branch.ps1 text eol=crlf
+

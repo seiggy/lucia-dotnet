@@ -1,0 +1,70 @@
+#!/bin/sh
+#
+# Squad pre-push review gate.
+#
+# Blocks pushing any `squad/*` branch unless Vasquez (the PR Review Gatekeeper)
+# has recorded an approval for the EXACT commit being pushed. Approvals live in
+# the shared git common dir at:  <git-common-dir>/squad-approvals/<sha>
+#
+# Vasquez writes an approval only after a clean review, via
+# .squad/gate/Approve-Branch.ps1. Any new commit changes the tip SHA and
+# therefore requires a fresh review + approval. This hook is shared by every
+# worktree (worktrees share the common .git/hooks).
+#
+# Scope: only refs/heads/squad/* are gated. master and non-squad branches are
+# left alone so the owner can push normally.
+#
+# Escape hatch (owner only, use sparingly): set SQUAD_GATE_BYPASS=1 in the
+# environment for a single push, e.g.  SQUAD_GATE_BYPASS=1 git push ...
+
+if [ "${SQUAD_GATE_BYPASS:-0}" = "1" ]; then
+    echo "squad-gate: SQUAD_GATE_BYPASS=1 set — skipping review gate for this push." >&2
+    exit 0
+fi
+
+common_dir=$(git rev-parse --git-common-dir 2>/dev/null)
+[ -z "$common_dir" ] && common_dir=".git"
+approval_dir="$common_dir/squad-approvals"
+
+blocked=0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    # Skip empty lines and branch deletions (all-zero local sha) — no external tools.
+    [ -z "$local_sha" ] && continue
+    case "$local_sha" in
+        *[!0]*) : ;;     # contains a non-zero char -> a real push
+        *) continue ;;   # all zeros -> branch deletion, allow
+    esac
+
+    case "$local_ref" in
+        refs/heads/squad/*)
+            branch=${local_ref#refs/heads/}
+            if [ -f "$approval_dir/$local_sha" ]; then
+                : # approved — allow
+            else
+                echo "" >&2
+                echo "==================================================================" >&2
+                echo " PUSH BLOCKED by the Squad pre-push review gate" >&2
+                echo "------------------------------------------------------------------" >&2
+                echo " Branch : $branch" >&2
+                echo " Commit : $local_sha" >&2
+                echo "" >&2
+                echo " Vasquez (PR Review Gatekeeper) has NOT approved this commit." >&2
+                echo " No squad/* branch may be pushed until Vasquez reviews the branch" >&2
+                echo " changes and all blocking problems are resolved." >&2
+                echo "" >&2
+                echo " To unblock: have the Squad coordinator run Vasquez on this branch." >&2
+                echo " On a clean review Vasquez records approval at:" >&2
+                echo "   $approval_dir/$local_sha" >&2
+                echo "==================================================================" >&2
+                echo "" >&2
+                blocked=1
+            fi
+            ;;
+        *)
+            : # non-squad branch — not gated
+            ;;
+    esac
+done
+
+exit $blocked

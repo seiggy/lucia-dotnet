@@ -52,4 +52,8 @@
 
 **Summary:** Added retryable inline error UI to `ResponseTemplatesPage` and `SkillOptimizerPage`. ResponseTemplatesPage shows full-page error panel and inline banner; SkillOptimizerPage shows loading skeleton and retryable error panel. Consistent with project error handling patterns. PR #190. See full document below.
 
+### 24. Hire Vasquez as PR Review Gatekeeper + mandatory pre-push review gate (Squad, 2026-07-10)
+
+**Summary:** Owner (Zack Way) hired a dedicated review agent, **Vasquez** (Alien universe, diegetic-expansion overflow), model-locked to **`gpt-5.6-sol`** (no fallback) via `.squad/config.json`. Established a **mandatory pre-push review gate**: no `squad/*` branch may be pushed to the remote, turned into a PR, or merged to `master` until Vasquez has reviewed the branch diff and every blocking problem is resolved. Enforced two ways — (1) **governance**: coordinator routes every `squad/*` branch to Vasquez before push/PR (see `routing.md` Pre-Push Review Gate + Rule 8, and the `Pre-Push Review Gate` ceremony); (2) **mechanical**: a shared git `pre-push` hook (`.git/hooks/pre-push`; reference + docs + `Approve-Branch.ps1` in `.squad/gate/`) that blocks any `refs/heads/squad/*` push whose HEAD SHA lacks a Vasquez approval marker in `<git-common-dir>/squad-approvals/<sha>`. Approvals are per-commit, so any new commit invalidates approval and forces re-review. Worktrees share `.git/hooks`, so one hook covers all current and future worktrees. Owner escape hatch: `SQUAD_GATE_BYPASS=1`. `master` and non-`squad/*` branches are not gated.
+
 

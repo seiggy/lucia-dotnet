@@ -21,6 +21,7 @@
 | Brett | Voice / Speech Engineer | .squad/agents/brett/charter.md | 🎙️ Active |
 | Hicks | DevOps / Infrastructure | .squad/agents/hicks/charter.md | ⚙️ Active |
 | Bishop | HA Integration Engineer | .squad/agents/bishop/charter.md | 🏠 Active |
+| Vasquez | PR Review Gatekeeper (Merge Gate) — **model: GPT-5.6 Sol (locked)** | .squad/agents/vasquez/charter.md | 🔒 Active |
 | Scribe | Session Logger | .squad/agents/scribe/charter.md | 📋 Active |
 | Ralph | Work Monitor | .squad/agents/ralph/charter.md | 🔄 Active |
 
