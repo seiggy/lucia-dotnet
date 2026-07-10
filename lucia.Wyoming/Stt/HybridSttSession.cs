@@ -11,11 +11,14 @@ namespace lucia.Wyoming.Stt;
 /// progressively refined partial transcripts in near-real-time.
 ///
 /// Re-transcription runs on a background thread to avoid blocking the audio
-/// ingestion path. Both <see cref="GetFinalResultAsync"/> and <see cref="DisposeAsync"/>
-/// await the pending background transcription to completion before returning,
-/// ensuring the STT concurrency slot is only released after all inference has stopped.
-/// Concurrent callers of <see cref="DisposeAsync"/> share a single completion task so
-/// no caller returns while inference is still running.
+/// ingestion path. <see cref="DisposeAsync"/> awaits the complete active finalization —
+/// both any in-progress progressive background transcription AND the final synchronous
+/// decode pass inside <see cref="GetFinalResultAsync"/> — so the STT concurrency slot
+/// is only released after ALL inference for this session has genuinely stopped.
+/// <see cref="GetFinalResultAsync"/> and <see cref="DisposeCore"/> share a
+/// <see cref="_disposeLock"/>-protected <see cref="_finalizationTask"/> to serialize
+/// "finalization started" and "disposal started", preventing an early slot release even
+/// when <see cref="DisposeAsync"/> races with the final synchronous decode pass.
 /// </summary>
 public sealed class HybridSttSession : ISttSession, IAsyncDisposable
 {
@@ -37,6 +40,10 @@ public sealed class HybridSttSession : ISttSession, IAsyncDisposable
     private volatile bool _disposed;
     private readonly Lazy<Task> _disposeTask;
     private bool _inputFinished;
+    // Serializes "finalization started" (GetFinalResultAsync) with "disposal started" (DisposeCore)
+    // so DisposeCore can find and await the full finalization task, including the final sync decode.
+    private readonly object _disposeLock = new();
+    private Task<SttResult>? _finalizationTask;
 
     public HybridSttSession(
         OfflineRecognizer recognizer,
@@ -117,18 +124,40 @@ public sealed class HybridSttSession : ISttSession, IAsyncDisposable
         };
     }
 
-    public async Task<SttResult> GetFinalResultAsync()
+    /// <summary>
+    /// Returns the finalization task, creating it on first call. The task covers BOTH
+    /// the progressive background transcription wait AND the final synchronous decode pass,
+    /// so <see cref="DisposeCore"/> can await it to guarantee all inference has stopped.
+    /// Thread-safe: concurrent calls return the same task under <see cref="_disposeLock"/>.
+    /// </summary>
+    public Task<SttResult> GetFinalResultAsync()
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        _inputFinished = true;
-
-        // Await any pending background transcription instead of spinning
-        if (_pendingTranscription is not null && !_pendingTranscription.IsCompleted)
+        lock (_disposeLock)
         {
-            await _pendingTranscription.ConfigureAwait(false);
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_finalizationTask is null)
+            {
+                _inputFinished = true;
+                // FinalizeCore() starts synchronously up to its first await.
+                // The lock is held while FinalizeCore runs its synchronous prefix,
+                // which prevents DisposeCore from reading _finalizationTask as null
+                // while the final decode is already executing.
+                _finalizationTask = FinalizeCore();
+            }
+            return _finalizationTask;
+        }
+    }
+
+    private async Task<SttResult> FinalizeCore()
+    {
+        // Await any in-progress progressive background transcription first.
+        if (_pendingTranscription is { IsCompleted: false } pending)
+        {
+            try { await pending.ConfigureAwait(false); }
+            catch { /* fault in progressive pass — proceed with accumulated transcript */ }
         }
 
-        // Run one final transcription on the complete buffer
+        // Final synchronous decode on the complete buffer.
         int bufferCount;
         lock (_bufferLock) { bufferCount = _audioBuffer.Count; }
         if (bufferCount > 0)
@@ -155,11 +184,28 @@ public sealed class HybridSttSession : ISttSession, IAsyncDisposable
 
     private async Task DisposeCore()
     {
-        _disposed = true;
+        Task<SttResult>? finTask;
+        lock (_disposeLock)
+        {
+            _disposed = true;
+            // Capture whatever finalization was started (may be null if AudioStop never arrived).
+            finTask = _finalizationTask;
+        }
+
+        if (finTask is not null)
+        {
+            // Await the full finalization: covers both _pendingTranscription AND the final decode.
+            // If it already completed, this returns immediately (no overhead).
+            try { await finTask.ConfigureAwait(false); }
+            catch { /* fault during finalization — slot still released by caller's finally */ }
+            return;
+        }
+
+        // No finalization was started; still await any running progressive background task.
         if (_pendingTranscription is { IsCompleted: false } pending)
         {
             try { await pending.ConfigureAwait(false); }
-            catch { /* inference fault during teardown — discard */ }
+            catch { }
         }
     }
 

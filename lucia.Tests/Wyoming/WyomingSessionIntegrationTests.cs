@@ -716,14 +716,17 @@ public sealed class WyomingSessionIntegrationTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Regression for Vasquez gate review (round 6, item 2): WyomingServer.StopAsync calls
-    /// <c>session.Dispose()</c> concurrently with an in-flight <c>GetFinalResultAsync</c>.
-    /// <c>DisposeCurrentSttSession</c> routes through <see cref="IAsyncDisposable.DisposeAsync"/>
-    /// which blocks on the shared disposal-completion task (same gate as GetFinalResultAsync),
-    /// so the STT permit MUST remain held until the gate is unblocked.
+    /// Regression for Vasquez gate review (round 7, items 1–2): drives a session into the
+    /// <em>final-inference</em> gate inside <see cref="BlockingTestSttSession.FinalizeAsync"/>
+    /// (i.e., the same phase as <see cref="HybridSttSession"/>'s final synchronous
+    /// <c>RunTranscription()</c> pass), then concurrently calls <c>session.Dispose()</c>
+    /// (simulating WyomingServer.StopAsync) and asserts the STT permit remains held
+    /// throughout — releasing to 1 only AFTER the gate is unblocked.
+    /// The assertion is made BEFORE <c>await runTask</c> so it cannot be masked by
+    /// RunAsync.finally independently releasing the slot.
     /// </summary>
     [Fact]
-    public async Task Dispose_WaitsForInferenceBeforeReleasingSlot_WhenRacingWithRunAsync()
+    public async Task Dispose_WaitsForFinalInferenceBeforeReleasingSlot_WhenRacingWithRunAsync()
     {
         var semaphore = new SemaphoreSlim(1, 1);
         var blocking = new BlockingTestSttSession(new SttResult { Text = "stopasync race", Confidence = 1.0f });
@@ -773,40 +776,45 @@ public sealed class WyomingSessionIntegrationTests(ITestOutputHelper output)
 
             var runTask = session.RunAsync(cts.Token);
 
-            // Drive the session into Transcribing → GetFinalResultAsync.
+            // Drive the session into Transcribing → GetFinalResultAsync → final-inference gate.
             var audioPayload = PcmConverter.Float32ToInt16([0.1f, -0.1f, 0.1f, -0.1f]);
             await writer.WriteEventAsync(new AudioStartEvent { Rate = 16_000, Width = 2, Channels = 1 }, cts.Token);
             await writer.WriteEventAsync(new AudioChunkEvent { Rate = 16_000, Width = 2, Channels = 1, Payload = audioPayload }, cts.Token);
             await writer.WriteEventAsync(new AudioStopEvent(), cts.Token);
 
-            // Wait until provably inside GetFinalResultAsync (slot must be held).
+            // InferenceStarted fires inside FinalizeAsync — we are provably at the final-inference gate.
             var reached = await Task.WhenAny(blocking.InferenceStarted.Task, Task.Delay(TimeSpan.FromSeconds(5), cts.Token));
             Assert.True(reached == blocking.InferenceStarted.Task,
-                "Session did not reach STT inference within 5 s");
+                "Session did not reach final-inference gate within 5 s");
 
-            // Slot is held while inference is blocked.
+            // ASSERT: slot is held while final inference is gated.
             Assert.Equal(0, semaphore.CurrentCount);
 
-            // Simulate WyomingServer.StopAsync: synchronous Dispose() concurrent with RunAsync.
-            // DisposeCurrentSttSession → DisposeAsync().GetAwaiter().GetResult() → blocks on gate.
-            // The permit MUST NOT be released until the gate fires.
+            // Simulate WyomingServer.StopAsync: synchronous Dispose() racing final inference.
+            // DisposeCurrentSttSession → DisposeAsync().GetAwaiter().GetResult() reads
+            // _finalizationTask (set under _disposeLock) and blocks on the same gate.
             var disposeTask = Task.Run(() => session.Dispose());
 
-            // Give the background thread time to enter DisposeCurrentSttSession (block at gate).
+            // Give the background thread time to enter DisposeCurrentSttSession.
             await Task.Delay(TimeSpan.FromMilliseconds(150), cts.Token);
 
-            // ASSERT: permit still held — synchronous Dispose must not release early.
+            // ASSERT: permit STILL held — the fix ensures Dispose waits for the final
+            // inference gate rather than returning as soon as _pendingTranscription is done.
+            // This assertion fails WITHOUT the _disposeLock + _finalizationTask fix.
             Assert.Equal(0, semaphore.CurrentCount);
 
-            // Unblock inference — gate fires; DisposeAsync completes; permit released exactly once.
+            // Unblock final inference → FinalizeAsync completes → DisposeAsync unblocks
+            // → DisposeCurrentSttSession returns → ReleaseSttSlot fires (exactly once).
             blocking.Unblock();
             await disposeTask;
 
+            // ASSERT immediately — BEFORE awaiting runTask — so this cannot be masked
+            // by RunAsync.finally independently releasing the slot.
+            Assert.Equal(1, semaphore.CurrentCount);
+
+            // Cleanup: RunAsync exits once _client is disposed or CTS fires.
             var exited = await Task.WhenAny(runTask, Task.Delay(TimeSpan.FromSeconds(5))) == runTask;
             Assert.True(exited, "RunAsync did not exit after dispose and unblock");
-
-            // ASSERT: permit released (exactly once via Interlocked.Exchange in ReleaseSttSlot).
-            Assert.Equal(1, semaphore.CurrentCount);
         }
         finally
         {
