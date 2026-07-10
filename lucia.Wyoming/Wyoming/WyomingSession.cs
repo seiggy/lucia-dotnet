@@ -741,12 +741,18 @@ public sealed partial class WyomingSession : IDisposable
         // inference is awaited before the STT slot is released, even during synchronous
         // shutdown. HybridSttSession.DisposeAsync only awaits a thread-pool Task
         // (ConfigureAwait(false)), so GetAwaiter().GetResult() is deadlock-safe here.
-        if (_currentSttSession is IAsyncDisposable asyncSession)
-            asyncSession.DisposeAsync().GetAwaiter().GetResult();
-        else
-            _currentSttSession?.Dispose();
-        _currentSttSession = null;
-        ReleaseSttSlot();
+        try
+        {
+            if (_currentSttSession is IAsyncDisposable asyncSession)
+                asyncSession.DisposeAsync().GetAwaiter().GetResult();
+            else
+                _currentSttSession?.Dispose();
+        }
+        finally
+        {
+            _currentSttSession = null;
+            ReleaseSttSlot();
+        }
     }
 
     /// <summary>
@@ -756,12 +762,18 @@ public sealed partial class WyomingSession : IDisposable
     /// </summary>
     private async ValueTask DisposeCurrentSttSessionAsync()
     {
-        if (_currentSttSession is IAsyncDisposable asyncSession)
-            await asyncSession.DisposeAsync().ConfigureAwait(false);
-        else
-            _currentSttSession?.Dispose();
-        _currentSttSession = null;
-        ReleaseSttSlot();
+        try
+        {
+            if (_currentSttSession is IAsyncDisposable asyncSession)
+                await asyncSession.DisposeAsync().ConfigureAwait(false);
+            else
+                _currentSttSession?.Dispose();
+        }
+        finally
+        {
+            _currentSttSession = null;
+            ReleaseSttSlot();
+        }
     }
 
     private void DisposeCurrentVadSession()

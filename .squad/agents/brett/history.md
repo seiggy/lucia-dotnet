@@ -156,3 +156,23 @@
 - **Concurrency test updated (Bug 4):** `ConcurrencyTrackingTestSttSession` now implements `IAsyncDisposable`. Counter increments on FIRST `AcceptAudioChunk` (models background decode starting) and decrements only after `DisposeAsync` completes (100ms simulated delay — models awaiting RunTranscription). This proves the slot is not returned while background work is in flight.
 - **Key insight (SemaphoreSlim.Release() after Dispose is idempotent):** The Interlocked gate means `Release()` is called at most once per permit. Combined with the ODE guard (`catch ObjectDisposedException`) on Release, the dispose race is fully covered.
 - Build: 0 warnings, 0 errors. Wyoming tests: 298 passed, 10 skipped, 0 failed.
+
+### 2026-07-10: STT Semaphore Vasquez Gate Review (PR #220 round-4 review)
+
+**Fix Complete — committed to squad/178-stt-semaphore-scope (sha: 30daee6c1847f23837888772493b9c064f51f0e0)**
+- **Shared disposal task — no concurrent DisposeAsync early return (Bug 1):** `HybridSttSession` replaces `bool _disposed` guard with `Lazy<Task> _disposeTask` (LazyThreadSafetyMode.ExecutionAndPublication). `DisposeCore()` is the one-time factory: sets `_disposed = true` synchronously, then awaits `_pendingTranscription`. `DisposeAsync()` returns `new ValueTask(_disposeTask.Value)` — all concurrent callers share the SAME task. No caller returns until inference has actually finished. `_disposed` is now `volatile` for cross-thread visibility.
+- **try/finally guarantees slot release on faulted disposal (Bug 3):** `DisposeCurrentSttSession()` and `DisposeCurrentSttSessionAsync()` now wrap disposal in `try/finally` with `ReleaseSttSlot()` in the `finally` block. Even if `DisposeAsync` throws, the STT slot is returned.
+- **BlockingTestSttSession implements IAsyncDisposable:** `Lazy<Task>` backed by gate TCS. `DisposeAsync()` returns the gate task — all concurrent callers (RunAsync finally + session.Dispose()) await the same gate, faithfully modeling `HybridSttSession` semantics.
+- **StopAsync race regression test (Bug 2):** `Dispose_WaitsForInferenceBeforeReleasingSlot_WhenRacingWithRunAsync` — asserts slot held before unblock, STILL held 150 ms after background Dispose() starts, then released exactly once after unblock.
+- **XML doc fix (Bug 4):** `HybridSttSession` class summary now documents that BOTH `GetFinalResultAsync` and `DisposeAsync` await pending background transcription; no cancellation claim.
+- **FINAL acquire/release invariant:** Acquire at Connected→Transcribing / WakeListening→Transcribing (after DetectionEvent write). Release in `DisposeCurrentSttSession{Async}()` try/finally via `Interlocked.Exchange` atomic gate. `HybridSttSession.DisposeAsync()` (via shared `Lazy<Task>`) awaits background RunTranscription BEFORE release fires.
+- Build: 0 warnings, 0 errors. Wyoming tests: 300 passed, 10 skipped, 0 failed.
+
+## Learnings
+
+- **`Lazy<Task>` + `LazyThreadSafetyMode.ExecutionAndPublication` is the correct pattern for a shared async disposal task.** The factory runs synchronously until its first `await`, returning the `Task` to the Lazy. All concurrent callers get the same Task and await it. Strictly safer than a `bool _disposed` flag which leaves a window where a concurrent caller sees `_disposed == true` and returns early while the first caller is still awaiting.
+- **`volatile bool` for cross-thread disposal guards** — Any `bool` field set from one thread and read from another (e.g. `_disposed`) must be `volatile` to prevent stale cached reads. Without it, the JIT can hoist the read out of loops or keep it in a register.
+- **test design: mock `Lazy<Task>` must match production semantics** — `BlockingTestSttSession` uses `Lazy<Task>` so concurrent `DisposeAsync` callers (RunAsync finally + session.Dispose()) await the same task, exactly as with the real `HybridSttSession`. The test actually exercises the concurrent-caller invariant.
+- **`try/finally` around `DisposeAsync` in cleanup helpers is non-negotiable** — If a session's `DisposeAsync` throws, the STT slot must still be released. Omitting the `finally` gives a permanent capacity leak that only manifests under error conditions.
+- **Brief `Task.Delay` before "still held" assertions** — for tests checking that a concurrent background Dispose() is blocking, ~150 ms is wide enough to be reliable without making the test slow.
+

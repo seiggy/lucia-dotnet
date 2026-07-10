@@ -715,6 +715,109 @@ public sealed class WyomingSessionIntegrationTests(ITestOutputHelper output)
         Assert.InRange(counters[1], 1, limit);
     }
 
+    /// <summary>
+    /// Regression for Vasquez gate review (round 6, item 2): WyomingServer.StopAsync calls
+    /// <c>session.Dispose()</c> concurrently with an in-flight <c>GetFinalResultAsync</c>.
+    /// <c>DisposeCurrentSttSession</c> routes through <see cref="IAsyncDisposable.DisposeAsync"/>
+    /// which blocks on the shared disposal-completion task (same gate as GetFinalResultAsync),
+    /// so the STT permit MUST remain held until the gate is unblocked.
+    /// </summary>
+    [Fact]
+    public async Task Dispose_WaitsForInferenceBeforeReleasingSlot_WhenRacingWithRunAsync()
+    {
+        var semaphore = new SemaphoreSlim(1, 1);
+        var blocking = new BlockingTestSttSession(new SttResult { Text = "stopasync race", Confidence = 1.0f });
+        var sttEngine = new TestSttEngine(blocking);
+        var options = new WyomingOptions { ReadTimeoutSeconds = 10 };
+
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        TcpClient? client = null;
+        TcpClient? serverClient = null;
+
+        try
+        {
+            var endpoint = (IPEndPoint)listener.LocalEndpoint;
+            var acceptTask = listener.AcceptTcpClientAsync();
+            client = new TcpClient();
+            await client.ConnectAsync(endpoint.Address, endpoint.Port);
+            serverClient = await acceptTask;
+
+            await using var serviceProvider = new ServiceCollection()
+                .AddSingleton<IOptions<WyomingOptions>>(Options.Create(options))
+                .AddSingleton<ISttEngine>(sttEngine)
+                .BuildServiceProvider();
+
+            var session = new WyomingSession(
+                serverClient,
+                serviceProvider,
+                NullLogger<WyomingSession>.Instance,
+                options,
+                eventBus: null,
+                sttConcurrency: semaphore);
+
+            var clientStream = client.GetStream();
+            var writer = new WyomingEventWriter(clientStream);
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+
+            // Drain server→client bytes so WriteEventAsync never back-pressures.
+            _ = Task.Run(async () =>
+            {
+                var drainParser = new WyomingEventParser(clientStream, options);
+                try
+                {
+                    while (await drainParser.ReadEventAsync(cts.Token) is not null) { }
+                }
+                catch (Exception ex) when (ex is OperationCanceledException or IOException or ObjectDisposedException) { }
+            });
+
+            var runTask = session.RunAsync(cts.Token);
+
+            // Drive the session into Transcribing → GetFinalResultAsync.
+            var audioPayload = PcmConverter.Float32ToInt16([0.1f, -0.1f, 0.1f, -0.1f]);
+            await writer.WriteEventAsync(new AudioStartEvent { Rate = 16_000, Width = 2, Channels = 1 }, cts.Token);
+            await writer.WriteEventAsync(new AudioChunkEvent { Rate = 16_000, Width = 2, Channels = 1, Payload = audioPayload }, cts.Token);
+            await writer.WriteEventAsync(new AudioStopEvent(), cts.Token);
+
+            // Wait until provably inside GetFinalResultAsync (slot must be held).
+            var reached = await Task.WhenAny(blocking.InferenceStarted.Task, Task.Delay(TimeSpan.FromSeconds(5), cts.Token));
+            Assert.True(reached == blocking.InferenceStarted.Task,
+                "Session did not reach STT inference within 5 s");
+
+            // Slot is held while inference is blocked.
+            Assert.Equal(0, semaphore.CurrentCount);
+
+            // Simulate WyomingServer.StopAsync: synchronous Dispose() concurrent with RunAsync.
+            // DisposeCurrentSttSession → DisposeAsync().GetAwaiter().GetResult() → blocks on gate.
+            // The permit MUST NOT be released until the gate fires.
+            var disposeTask = Task.Run(() => session.Dispose());
+
+            // Give the background thread time to enter DisposeCurrentSttSession (block at gate).
+            await Task.Delay(TimeSpan.FromMilliseconds(150), cts.Token);
+
+            // ASSERT: permit still held — synchronous Dispose must not release early.
+            Assert.Equal(0, semaphore.CurrentCount);
+
+            // Unblock inference — gate fires; DisposeAsync completes; permit released exactly once.
+            blocking.Unblock();
+            await disposeTask;
+
+            var exited = await Task.WhenAny(runTask, Task.Delay(TimeSpan.FromSeconds(5))) == runTask;
+            Assert.True(exited, "RunAsync did not exit after dispose and unblock");
+
+            // ASSERT: permit released (exactly once via Interlocked.Exchange in ReleaseSttSlot).
+            Assert.Equal(1, semaphore.CurrentCount);
+        }
+        finally
+        {
+            try { client?.Close(); } catch (Exception) { }
+            client?.Dispose();
+            serverClient?.Dispose();
+            listener.Stop();
+            semaphore.Dispose();
+        }
+    }
+
     private static async Task<(
         TcpListener Listener,
         TcpClient Client,

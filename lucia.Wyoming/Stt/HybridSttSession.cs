@@ -11,7 +11,11 @@ namespace lucia.Wyoming.Stt;
 /// progressively refined partial transcripts in near-real-time.
 ///
 /// Re-transcription runs on a background thread to avoid blocking the audio
-/// ingestion path. Only GetFinalResult() blocks until the last transcription completes.
+/// ingestion path. Both <see cref="GetFinalResultAsync"/> and <see cref="DisposeAsync"/>
+/// await the pending background transcription to completion before returning,
+/// ensuring the STT concurrency slot is only released after all inference has stopped.
+/// Concurrent callers of <see cref="DisposeAsync"/> share a single completion task so
+/// no caller returns while inference is still running.
 /// </summary>
 public sealed class HybridSttSession : ISttSession, IAsyncDisposable
 {
@@ -30,7 +34,8 @@ public sealed class HybridSttSession : ISttSession, IAsyncDisposable
     private volatile string _latestTranscript = string.Empty;
     private volatile int _transcriptionCount;
     private Task? _pendingTranscription;
-    private bool _disposed;
+    private volatile bool _disposed;
+    private readonly Lazy<Task> _disposeTask;
     private bool _inputFinished;
 
     public HybridSttSession(
@@ -54,6 +59,7 @@ public sealed class HybridSttSession : ISttSession, IAsyncDisposable
             ? (int)(maxContextSeconds * modelSampleRate)
             : int.MaxValue;
         _logger = logger;
+        _disposeTask = new Lazy<Task>(DisposeCore, LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     public bool IsEndOfUtterance => _inputFinished;
@@ -135,20 +141,20 @@ public sealed class HybridSttSession : ISttSession, IAsyncDisposable
         };
     }
 
-    public void Dispose()
-    {
-        if (_disposed) return;
-        _disposed = true;
-    }
+    /// <summary>
+    /// Triggers the shared disposal task (non-blocking). Inference may still be running;
+    /// use <see cref="DisposeAsync"/> to await completion.
+    /// </summary>
+    public void Dispose() => _ = _disposeTask.Value;
 
     /// <summary>
-    /// Awaits any pending background transcription task to completion before
-    /// returning, so callers can safely release the STT concurrency slot knowing
-    /// no inference is still running on a thread-pool thread.
+    /// Returns the shared disposal-completion task. All concurrent callers await the SAME
+    /// task so no caller returns until the pending background transcription has finished.
     /// </summary>
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync() => new ValueTask(_disposeTask.Value);
+
+    private async Task DisposeCore()
     {
-        if (_disposed) return;
         _disposed = true;
         if (_pendingTranscription is { IsCompleted: false } pending)
         {
