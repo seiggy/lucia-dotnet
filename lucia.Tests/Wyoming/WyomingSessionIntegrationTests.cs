@@ -826,6 +826,116 @@ public sealed class WyomingSessionIntegrationTests(ITestOutputHelper output)
         }
     }
 
+    /// <summary>
+    /// Regression for the <c>AcceptAudioChunk</c>/disposal race found in Vasquez round 9:
+    /// <c>HybridSttSession.AcceptAudioChunk</c> can pass the fast-path
+    /// <see cref="ObjectDisposedException"/> check, then <c>DisposeCore</c> runs and releases
+    /// the STT permit, and THEN the in-flight <c>AcceptAudioChunk</c> publishes a new
+    /// progressive <c>_pendingTranscription</c> — so inference runs after the permit was
+    /// released, violating <c>MaxConcurrentSttSessions</c>. The fix serializes the re-check
+    /// and publish under <c>_disposeLock</c> (same lock used by <c>DisposeCore</c>).
+    ///
+    /// <c>GatableAcceptSttSession</c> models the race deterministically:
+    /// <c>AcceptAudioChunk</c> blocks at the gate (simulating being BETWEEN the fast-path
+    /// check and the lock-protected publish), then after the gate is released it acquires
+    /// <c>_lock</c>, re-checks <c>_disposed</c>, and skips the publish if disposed. The test
+    /// asserts <c>InferenceScheduledCount == 0</c> when disposal completes before the gate
+    /// is released. Without the lock re-check pattern, <c>InferenceScheduledCount</c> would
+    /// be 1 even after disposal (the race fires).
+    /// </summary>
+    [Fact]
+    public async Task AcceptAudioChunk_DisposalRace_DoesNotScheduleInferenceAfterSlotReleased()
+    {
+        var semaphore = new SemaphoreSlim(1, 1);
+        var gatableSession = new GatableAcceptSttSession();
+        var sttEngine = new TestSttEngine(gatableSession);
+        var options = new WyomingOptions { ReadTimeoutSeconds = 10 };
+
+        var (listener, client, serverClient, services, session, writer, _) =
+            await CreateConnectedSessionAsync(options, sttEngine: sttEngine, sttConcurrency: semaphore);
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+
+        try
+        {
+            var clientStream = client.GetStream();
+
+            // Drain server→client bytes so WriteEventAsync never back-pressures.
+            _ = Task.Run(async () =>
+            {
+                var drainParser = new WyomingEventParser(clientStream, options);
+                try
+                {
+                    while (await drainParser.ReadEventAsync(cts.Token) is not null) { }
+                }
+                catch (Exception ex) when (ex is OperationCanceledException or IOException or ObjectDisposedException) { }
+            });
+
+            var runTask = session.RunAsync(cts.Token);
+
+            // Drive into Connected → Transcribing → AcquireSttSlot → ProcessSpeechSamples
+            // → AcceptAudioChunk (which blocks at the gate).
+            await writer.WriteEventAsync(
+                new AudioStartEvent { Rate = 16_000, Width = 2, Channels = 1 }, cts.Token);
+            await writer.WriteEventAsync(
+                new AudioChunkEvent
+                {
+                    Rate = 16_000, Width = 2, Channels = 1,
+                    Payload = PcmConverter.Float32ToInt16([0.1f, -0.1f]),
+                },
+                cts.Token);
+
+            // Wait until AcceptAudioChunk is at the gate (between the ODE fast-check and the
+            // lock-protected publish — the precise race window the _disposeLock fix closes).
+            var reached = await Task.WhenAny(
+                gatableSession.AcceptReachedGate.Task,
+                Task.Delay(TimeSpan.FromSeconds(5), cts.Token));
+            Assert.True(reached == gatableSession.AcceptReachedGate.Task,
+                "AcceptAudioChunk did not reach the gate within 5 s — session may not have entered Transcribing");
+
+            // STT slot is acquired (Connected→Transcribing transition acquired it).
+            Assert.Equal(0, semaphore.CurrentCount);
+
+            // Simulate WyomingServer.StopAsync → session.Dispose() racing AcceptAudioChunk.
+            // DisposeCurrentSttSession calls asyncSession.DisposeAsync() which returns
+            // immediately (no pending finalization) — releasing the permit BEFORE the gate
+            // is unblocked. This is the exact race: permit released while AcceptAudioChunk
+            // is still mid-execution.
+            session.Dispose();
+
+            // Permit must be released now (DisposeCurrentSttSession completed synchronously).
+            Assert.Equal(1, semaphore.CurrentCount);
+
+            // Release the gate: AcceptAudioChunk resumes, acquires _lock, sees _disposed=true
+            // (set by DisposeAsync under the same lock), and returns without incrementing.
+            gatableSession.ReleaseGate();
+
+            // Allow AcceptAudioChunk to finish its lock block.
+            await Task.Delay(TimeSpan.FromMilliseconds(100), cts.Token);
+
+            // ASSERT: no inference was scheduled after the slot was released.
+            // Without the _disposeLock re-check, InferenceScheduledCount would be 1 here.
+            Assert.Equal(0, gatableSession.InferenceScheduledCount);
+
+            // ASSERT: permit count still 1 — no extra release from the unblocked path.
+            Assert.Equal(1, semaphore.CurrentCount);
+
+            // RunAsync will fault with ObjectDisposedException when it tries to read
+            // from the disposed _client (closed by session.Dispose()). That is expected
+            // for this test scenario; just wait for it to exit.
+            await Task.WhenAny(runTask, Task.Delay(TimeSpan.FromSeconds(5)));
+        }
+        finally
+        {
+            try { client.Close(); } catch (Exception) { }
+            client.Dispose();
+            serverClient.Dispose();
+            listener.Stop();
+            await services.DisposeAsync();
+            semaphore.Dispose();
+        }
+    }
+
     private static async Task<(
         TcpListener Listener,
         TcpClient Client,

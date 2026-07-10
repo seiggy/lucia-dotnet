@@ -19,6 +19,14 @@ namespace lucia.Wyoming.Stt;
 /// <see cref="_disposeLock"/>-protected <see cref="_finalizationTask"/> to serialize
 /// "finalization started" and "disposal started", preventing an early slot release even
 /// when <see cref="DisposeAsync"/> races with the final synchronous decode pass.
+///
+/// <see cref="AcceptAudioChunk"/> also acquires <see cref="_disposeLock"/> before
+/// publishing a new progressive <see cref="_pendingTranscription"/> task, so
+/// <see cref="DisposeCore"/> cannot complete (observing no pending task) between the
+/// initial disposed-check and the <c>Task.Run</c> publish — which would otherwise allow
+/// <c>RunTranscription</c> to execute after the STT permit has been released.
+/// The lock is released immediately after <c>Task.Run</c> returns the scheduled task,
+/// so ONNX inference never executes inside the critical section.
 /// </summary>
 public sealed class HybridSttSession : ISttSession, IAsyncDisposable
 {
@@ -108,8 +116,18 @@ public sealed class HybridSttSession : ISttSession, IAsyncDisposable
 
             if (bufferCount >= _progressiveThresholdSamples)
             {
-                _samplesSinceLastRefresh = 0;
-                _pendingTranscription = Task.Run(RunTranscription);
+                // Serialize the disposed re-check and publish under _disposeLock so DisposeCore
+                // cannot complete (reading _pendingTranscription as null) between the fast-path
+                // ObjectDisposedException check above and the Task.Run call here — which would
+                // cause RunTranscription to execute after the STT permit is released. The lock is
+                // released immediately after Task.Run returns (the scheduled Task), so ONNX decode
+                // runs entirely outside the critical section.
+                lock (_disposeLock)
+                {
+                    if (_disposed) return;
+                    _samplesSinceLastRefresh = 0;
+                    _pendingTranscription = Task.Run(RunTranscription);
+                }
             }
         }
     }
