@@ -415,12 +415,415 @@ public sealed class WyomingSessionIntegrationTests(ITestOutputHelper output)
 
     }
 
+    /// <summary>
+    /// Verifies that when WyomingServer.Dispose() calls _sttConcurrency.Dispose() while a
+    /// session has already acquired the semaphore slot and is inside GetFinalResultAsync(),
+    /// ReleaseSttSlot() catches ObjectDisposedException and does NOT surface it as an
+    /// unhandled session error.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_SttSemaphoreDisposedWhileSlotHeld_ReleaseHandlesDisposedSemaphore()
+    {
+        // SemaphoreSlim(1): WaitAsync succeeds immediately so the session acquires the slot
+        // (now at Transcribing transition) and enters GetFinalResultAsync. BlockingTestSttSession
+        // gives a deterministic synchronisation point to dispose the semaphore while held.
+        var semaphore = new SemaphoreSlim(1, 4);
+        var blockingSession = new BlockingTestSttSession(
+            new SttResult { Text = "shutdown test", Confidence = 1.0f });
+        var sttEngine = new TestSttEngine(blockingSession);
+        var options = CreateOptions();
+
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        TcpClient? client = null;
+        TcpClient? serverClient = null;
+
+        try
+        {
+            var endpoint = (IPEndPoint)listener.LocalEndpoint;
+            var acceptTask = listener.AcceptTcpClientAsync();
+            client = new TcpClient();
+            await client.ConnectAsync(endpoint.Address, endpoint.Port);
+            serverClient = await acceptTask;
+
+            await using var serviceProvider = new ServiceCollection()
+                .AddSingleton<IOptions<WyomingOptions>>(Options.Create(options))
+                .AddSingleton<ISttEngine>(sttEngine)
+                .BuildServiceProvider();
+
+            var session = new WyomingSession(
+                serverClient,
+                serviceProvider,
+                NullLogger<WyomingSession>.Instance,
+                options,
+                eventBus: null,
+                sttConcurrency: semaphore);
+
+            var clientStream = client.GetStream();
+            var writer = new WyomingEventWriter(clientStream);
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+            // Drain server responses in the background to prevent TCP backpressure from
+            // blocking the session's WriteEventAsync calls.
+            _ = Task.Run(async () =>
+            {
+                var drainParser = new WyomingEventParser(clientStream, options);
+                try
+                {
+                    while (await drainParser.ReadEventAsync(cts.Token) is not null) { }
+                }
+                catch (Exception ex) when (ex is OperationCanceledException or IOException or ObjectDisposedException) { }
+            });
+
+            var runTask = session.RunAsync(cts.Token);
+
+            // Drive the session into Transcribing state; the slot is acquired at the
+            // Connected→Transcribing transition in HandleAudioChunkEventAsync.
+            await writer.WriteEventAsync(
+                new AudioStartEvent { Rate = 16_000, Width = 2, Channels = 1 }, cts.Token);
+            await writer.WriteEventAsync(
+                new AudioChunkEvent
+                {
+                    Rate = 16_000, Width = 2, Channels = 1,
+                    Payload = PcmConverter.Float32ToInt16([0.1f, -0.1f, 0.1f, -0.1f]),
+                },
+                cts.Token);
+            await writer.WriteEventAsync(new AudioStopEvent(), cts.Token);
+
+            // Wait until GetFinalResultAsync is executing (semaphore slot is acquired).
+            // This is deterministic — no polling or arbitrary delays.
+            var inferenceReached = await Task.WhenAny(
+                blockingSession.InferenceStarted.Task,
+                Task.Delay(TimeSpan.FromSeconds(5), cts.Token));
+            Assert.True(
+                inferenceReached == blockingSession.InferenceStarted.Task,
+                "Session did not reach STT inference within 5 s — AudioStop may not have been processed");
+
+            // Simulate WyomingServer.Dispose() racing with the in-flight STT session.
+            // The slot is held; ReleaseSttSlot() must catch ObjectDisposedException.
+            semaphore.Dispose();
+
+            // Unblock inference so the session proceeds to ReleaseSttSlot().
+            blockingSession.Unblock();
+
+            // Close the client connection after a brief yield so the session can write
+            // the TranscriptEvent; ReadEventAsync then sees EOF and RunAsync exits cleanly.
+            await Task.Delay(TimeSpan.FromMilliseconds(200), cts.Token);
+            client.Close();
+
+            var completed = await Task.WhenAny(runTask, Task.Delay(TimeSpan.FromSeconds(5))) == runTask;
+            Assert.True(completed, "RunAsync did not complete after inference unblock and connection close");
+
+            if (runTask.Exception is { } aggregateEx)
+            {
+                var innerEx = aggregateEx.InnerException ?? aggregateEx;
+                Assert.False(
+                    innerEx is ObjectDisposedException,
+                    $"Session must not surface ObjectDisposedException on ReleaseSttSlot(); got: {innerEx.GetType().Name}: {innerEx.Message}");
+            }
+        }
+        finally
+        {
+            try { client?.Close(); } catch (Exception) { }
+            try { client?.Dispose(); } catch (Exception) { }
+            try { serverClient?.Dispose(); } catch (Exception) { }
+            listener.Stop();
+        }
+    }
+
     private static WyomingOptions CreateOptions()
     {
         return new WyomingOptions
         {
             ReadTimeoutSeconds = 5,
         };
+    }
+
+    /// <summary>
+    /// Regression test for issue #178: STT semaphore MUST NOT gate the entire connection.
+    /// With limit=2 STT sessions active (holding slots via BlockingTestSttSession), two
+    /// further sessions that skip STT entirely (AudioStart + AudioStop with no chunks)
+    /// must receive their empty TranscriptEvent immediately — they must not block waiting
+    /// for a slot that is unrelated to their work.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_NonSttEventsHandled_WhenAllSttSlotsExhausted()
+    {
+        const int limit = 2;
+        var semaphore = new SemaphoreSlim(limit, limit);
+        var blocking1 = new BlockingTestSttSession(new SttResult { Text = "stt1", Confidence = 1f });
+        var blocking2 = new BlockingTestSttSession(new SttResult { Text = "stt2", Confidence = 1f });
+        var options = new WyomingOptions { ReadTimeoutSeconds = 10 };
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+        // Two sessions that will block inside GetFinalResultAsync (holding the STT slots).
+        var (l1, c1, sc1, svc1, s1, w1, p1) = await CreateConnectedSessionAsync(
+            options, sttEngine: new TestSttEngine(blocking1), sttConcurrency: semaphore);
+        var (l2, c2, sc2, svc2, s2, w2, p2) = await CreateConnectedSessionAsync(
+            options, sttEngine: new TestSttEngine(blocking2), sttConcurrency: semaphore);
+        // Two sessions with no STT engine — they will receive an empty TranscriptEvent
+        // from HandleAudioStopEventAsync (Connected + format set, no chunks = no STT).
+        var (l3, c3, sc3, svc3, s3, w3, p3) = await CreateConnectedSessionAsync(
+            options, sttConcurrency: semaphore);
+        var (l4, c4, sc4, svc4, s4, w4, p4) = await CreateConnectedSessionAsync(
+            options, sttConcurrency: semaphore);
+
+        try
+        {
+            var run1 = s1.RunAsync(cts.Token);
+            var run2 = s2.RunAsync(cts.Token);
+            var run3 = s3.RunAsync(cts.Token);
+            var run4 = s4.RunAsync(cts.Token);
+
+            // Drive STT sessions into GetFinalResultAsync to occupy both slots.
+            var audioChunkPayload = PcmConverter.Float32ToInt16([0.1f, -0.1f]);
+            await w1.WriteEventAsync(new AudioStartEvent { Rate = 16_000, Width = 2, Channels = 1 }, cts.Token);
+            await w1.WriteEventAsync(new AudioChunkEvent { Rate = 16_000, Width = 2, Channels = 1, Payload = audioChunkPayload }, cts.Token);
+            await w1.WriteEventAsync(new AudioStopEvent(), cts.Token);
+
+            await w2.WriteEventAsync(new AudioStartEvent { Rate = 16_000, Width = 2, Channels = 1 }, cts.Token);
+            await w2.WriteEventAsync(new AudioChunkEvent { Rate = 16_000, Width = 2, Channels = 1, Payload = audioChunkPayload }, cts.Token);
+            await w2.WriteEventAsync(new AudioStopEvent(), cts.Token);
+
+            // Wait until both STT sessions are provably inside GetFinalResultAsync.
+            var r1 = await Task.WhenAny(blocking1.InferenceStarted.Task, Task.Delay(TimeSpan.FromSeconds(5), cts.Token));
+            var r2 = await Task.WhenAny(blocking2.InferenceStarted.Task, Task.Delay(TimeSpan.FromSeconds(5), cts.Token));
+            Assert.True(r1 == blocking1.InferenceStarted.Task && r2 == blocking2.InferenceStarted.Task,
+                "STT sessions did not reach inference within 5 s — slot may not be held");
+
+            // Both STT slots are now occupied. Non-STT sessions send AudioStart + AudioStop
+            // with NO audio chunks; this triggers the Connected-state path in
+            // HandleAudioStopEventAsync, which writes an empty TranscriptEvent with NO
+            // semaphore involvement. If the semaphore were still gating whole connections
+            // (the original #178 bug), these reads would deadlock.
+            await w3.WriteEventAsync(new AudioStartEvent { Rate = 16_000, Width = 2, Channels = 1 }, cts.Token);
+            await w3.WriteEventAsync(new AudioStopEvent(), cts.Token);
+            await w4.WriteEventAsync(new AudioStartEvent { Rate = 16_000, Width = 2, Channels = 1 }, cts.Token);
+            await w4.WriteEventAsync(new AudioStopEvent(), cts.Token);
+
+            var evt3 = await p3.ReadEventAsync(cts.Token);
+            var evt4 = await p4.ReadEventAsync(cts.Token);
+            Assert.IsType<TranscriptEvent>(evt3);
+            Assert.IsType<TranscriptEvent>(evt4);
+
+            // Unblock the STT sessions so they can complete cleanly.
+            blocking1.Unblock();
+            blocking2.Unblock();
+
+            // Drain STT-session responses so they can exit.
+            _ = Task.Run(async () =>
+            {
+                try { while (await p1.ReadEventAsync(cts.Token) is not null) { } }
+                catch (Exception ex) when (ex is OperationCanceledException or IOException or ObjectDisposedException) { }
+            });
+            _ = Task.Run(async () =>
+            {
+                try { while (await p2.ReadEventAsync(cts.Token) is not null) { } }
+                catch (Exception ex) when (ex is OperationCanceledException or IOException or ObjectDisposedException) { }
+            });
+
+            c1.Close(); await run1;
+            c2.Close(); await run2;
+            c3.Close(); await run3;
+            c4.Close(); await run4;
+        }
+        finally
+        {
+            foreach (var (l, c, sc, svc) in new[] {
+                (l1, c1, sc1, svc1), (l2, c2, sc2, svc2),
+                (l3, c3, sc3, svc3), (l4, c4, sc4, svc4) })
+            {
+                try { c.Close(); } catch (Exception) { }
+                c.Dispose();
+                sc.Dispose();
+                l.Stop();
+                await svc.DisposeAsync();
+            }
+            semaphore.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Verifies that <c>MaxConcurrentSttSessions = 2</c> actually bounds STT inference
+    /// when 4 sessions drive STT simultaneously. All 4 sessions must complete (no hang),
+    /// and the peak concurrent inference count must never exceed the configured limit.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_FourConcurrentSessions_InferenceBoundedBySemaphoreLimit()
+    {
+        const int limit = 2;
+        const int sessionCount = 4;
+
+        // Shared semaphore — mirrors what WyomingServer passes to each WyomingSession.
+        var semaphore = new SemaphoreSlim(limit, limit);
+        // Shared counter array: [0] = current concurrent, [1] = peak observed.
+        var counters = new int[2];
+        var options = new WyomingOptions { ReadTimeoutSeconds = 10 };
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+        // Launch all sessions concurrently, each with its own TCP connection.
+        var sessionTasks = Enumerable.Range(0, sessionCount).Select(async _ =>
+        {
+            // Each call to CreateSession() produces a fresh tracker instance that increments
+            // the shared counters when inference is running.
+            var engine = new FactoryTestSttEngine(
+                () => new ConcurrencyTrackingTestSttSession(counters, inferenceDelayMs: 100));
+
+            var (listener, client, serverClient, services, session, writer, parser) =
+                await CreateConnectedSessionAsync(options, sttEngine: engine, sttConcurrency: semaphore);
+
+            try
+            {
+                using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
+                var runTask = session.RunAsync(sessionCts.Token);
+
+                // Drive the session through a full STT pass.
+                await writer.WriteEventAsync(
+                    new AudioStartEvent { Rate = 16_000, Width = 2, Channels = 1 }, cts.Token);
+                await writer.WriteEventAsync(
+                    new AudioChunkEvent
+                    {
+                        Rate = 16_000, Width = 2, Channels = 1,
+                        Payload = PcmConverter.Float32ToInt16([0.1f, -0.1f]),
+                    },
+                    cts.Token);
+                await writer.WriteEventAsync(new AudioStopEvent(), cts.Token);
+
+                // Confirm the session produced a transcript (speaker tag may be prepended).
+                var transcript = Assert.IsType<TranscriptEvent>(await parser.ReadEventAsync(cts.Token));
+                Assert.Contains("concurrent test", transcript.Text, StringComparison.Ordinal);
+
+                client.Close();
+                await runTask;
+                return transcript;
+            }
+            finally
+            {
+                try { client.Close(); } catch (Exception) { }
+                client.Dispose();
+                serverClient.Dispose();
+                listener.Stop();
+                await services.DisposeAsync();
+            }
+        }).ToList();
+
+        // All 4 must complete without hanging.
+        await Task.WhenAll(sessionTasks);
+
+        // Peak concurrent STT must never exceed the semaphore limit.
+        Assert.InRange(counters[1], 1, limit);
+    }
+
+    /// <summary>
+    /// Regression for Vasquez gate review (round 7, items 1–2): drives a session into the
+    /// <em>final-inference</em> gate inside <see cref="BlockingTestSttSession.FinalizeAsync"/>
+    /// (i.e., the same phase as <see cref="HybridSttSession"/>'s final synchronous
+    /// <c>RunTranscription()</c> pass), then concurrently calls <c>session.Dispose()</c>
+    /// (simulating WyomingServer.StopAsync) and asserts the STT permit remains held
+    /// throughout — releasing to 1 only AFTER the gate is unblocked.
+    /// The assertion is made BEFORE <c>await runTask</c> so it cannot be masked by
+    /// RunAsync.finally independently releasing the slot.
+    /// </summary>
+    [Fact]
+    public async Task Dispose_WaitsForFinalInferenceBeforeReleasingSlot_WhenRacingWithRunAsync()
+    {
+        var semaphore = new SemaphoreSlim(1, 1);
+        var blocking = new BlockingTestSttSession(new SttResult { Text = "stopasync race", Confidence = 1.0f });
+        var sttEngine = new TestSttEngine(blocking);
+        var options = new WyomingOptions { ReadTimeoutSeconds = 10 };
+
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        TcpClient? client = null;
+        TcpClient? serverClient = null;
+
+        try
+        {
+            var endpoint = (IPEndPoint)listener.LocalEndpoint;
+            var acceptTask = listener.AcceptTcpClientAsync();
+            client = new TcpClient();
+            await client.ConnectAsync(endpoint.Address, endpoint.Port);
+            serverClient = await acceptTask;
+
+            await using var serviceProvider = new ServiceCollection()
+                .AddSingleton<IOptions<WyomingOptions>>(Options.Create(options))
+                .AddSingleton<ISttEngine>(sttEngine)
+                .BuildServiceProvider();
+
+            var session = new WyomingSession(
+                serverClient,
+                serviceProvider,
+                NullLogger<WyomingSession>.Instance,
+                options,
+                eventBus: null,
+                sttConcurrency: semaphore);
+
+            var clientStream = client.GetStream();
+            var writer = new WyomingEventWriter(clientStream);
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+
+            // Drain server→client bytes so WriteEventAsync never back-pressures.
+            _ = Task.Run(async () =>
+            {
+                var drainParser = new WyomingEventParser(clientStream, options);
+                try
+                {
+                    while (await drainParser.ReadEventAsync(cts.Token) is not null) { }
+                }
+                catch (Exception ex) when (ex is OperationCanceledException or IOException or ObjectDisposedException) { }
+            });
+
+            var runTask = session.RunAsync(cts.Token);
+
+            // Drive the session into Transcribing → GetFinalResultAsync → final-inference gate.
+            var audioPayload = PcmConverter.Float32ToInt16([0.1f, -0.1f, 0.1f, -0.1f]);
+            await writer.WriteEventAsync(new AudioStartEvent { Rate = 16_000, Width = 2, Channels = 1 }, cts.Token);
+            await writer.WriteEventAsync(new AudioChunkEvent { Rate = 16_000, Width = 2, Channels = 1, Payload = audioPayload }, cts.Token);
+            await writer.WriteEventAsync(new AudioStopEvent(), cts.Token);
+
+            // InferenceStarted fires inside FinalizeAsync — we are provably at the final-inference gate.
+            var reached = await Task.WhenAny(blocking.InferenceStarted.Task, Task.Delay(TimeSpan.FromSeconds(5), cts.Token));
+            Assert.True(reached == blocking.InferenceStarted.Task,
+                "Session did not reach final-inference gate within 5 s");
+
+            // ASSERT: slot is held while final inference is gated.
+            Assert.Equal(0, semaphore.CurrentCount);
+
+            // Simulate WyomingServer.StopAsync: synchronous Dispose() racing final inference.
+            // DisposeCurrentSttSession → DisposeAsync().GetAwaiter().GetResult() reads
+            // _finalizationTask (set under _disposeLock) and blocks on the same gate.
+            var disposeTask = Task.Run(() => session.Dispose());
+
+            // Give the background thread time to enter DisposeCurrentSttSession.
+            await Task.Delay(TimeSpan.FromMilliseconds(150), cts.Token);
+
+            // ASSERT: permit STILL held — the fix ensures Dispose waits for the final
+            // inference gate rather than returning as soon as _pendingTranscription is done.
+            // This assertion fails WITHOUT the _disposeLock + _finalizationTask fix.
+            Assert.Equal(0, semaphore.CurrentCount);
+
+            // Unblock final inference → FinalizeAsync completes → DisposeAsync unblocks
+            // → DisposeCurrentSttSession returns → ReleaseSttSlot fires (exactly once).
+            blocking.Unblock();
+            await disposeTask;
+
+            // ASSERT immediately — BEFORE awaiting runTask — so this cannot be masked
+            // by RunAsync.finally independently releasing the slot.
+            Assert.Equal(1, semaphore.CurrentCount);
+
+            // Cleanup: RunAsync exits once _client is disposed or CTS fires.
+            var exited = await Task.WhenAny(runTask, Task.Delay(TimeSpan.FromSeconds(5))) == runTask;
+            Assert.True(exited, "RunAsync did not exit after dispose and unblock");
+        }
+        finally
+        {
+            try { client?.Close(); } catch (Exception) { }
+            client?.Dispose();
+            serverClient?.Dispose();
+            listener.Stop();
+            semaphore.Dispose();
+        }
     }
 
     private static async Task<(
@@ -435,7 +838,8 @@ public sealed class WyomingSessionIntegrationTests(ITestOutputHelper output)
         IWakeWordDetector? wakeWordDetector = null,
         ISttEngine? sttEngine = null,
         IVadEngine? vadEngine = null,
-        Action<ServiceCollection>? configureServices = null)
+        Action<ServiceCollection>? configureServices = null,
+        SemaphoreSlim? sttConcurrency = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton<IOptions<WyomingOptions>>(Options.Create(options));
@@ -467,7 +871,13 @@ public sealed class WyomingSessionIntegrationTests(ITestOutputHelper output)
         await client.ConnectAsync(endpoint.Address, endpoint.Port);
         var serverClient = await acceptTask;
 
-        var session = new WyomingSession(serverClient, serviceProvider, NullLogger<WyomingSession>.Instance, options);
+        var session = new WyomingSession(
+            serverClient,
+            serviceProvider,
+            NullLogger<WyomingSession>.Instance,
+            options,
+            eventBus: null,
+            sttConcurrency: sttConcurrency);
         var stream = client.GetStream();
 
         return (

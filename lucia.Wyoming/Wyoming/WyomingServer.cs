@@ -124,12 +124,11 @@ public sealed class WyomingServer : IHostedService, IDisposable
     private WyomingSession CreateSession(TcpClient client)
     {
         var logger = _serviceProvider.GetRequiredService<ILogger<WyomingSession>>();
-        return new WyomingSession(client, _serviceProvider, logger, _options, _eventBus);
+        return new WyomingSession(client, _serviceProvider, logger, _options, _eventBus, _sttConcurrency);
     }
 
     private async Task RunSessionAsync(WyomingSession session, CancellationToken ct)
     {
-        await _sttConcurrency.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             await session.RunAsync(ct).ConfigureAwait(false);
@@ -144,7 +143,6 @@ public sealed class WyomingServer : IHostedService, IDisposable
         }
         finally
         {
-            _sttConcurrency.Release();
             _sessions.TryRemove(session.Id, out _);
             _eventBus.Publish(new SessionDisconnectedEvent { SessionId = session.Id });
             session.Dispose();
