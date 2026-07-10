@@ -32,18 +32,24 @@ public static class ServiceCollectionExtensions
     public static void AddLuciaAgents(
         this IHostApplicationBuilder builder)
     {
+        // Register per-request authorization handler so the token is always current
+        // and set atomically on each HttpRequestMessage (fixes the race condition where
+        // DefaultRequestHeaders.Remove + Add could leave concurrent requests unauthenticated).
+        builder.Services.AddTransient<HomeAssistantAuthorizationHandler>();
+
         builder.Services.AddHttpClient<IHomeAssistantClient, HomeAssistantClient>((sp, client) =>
         {
             var options = sp.GetRequiredService<IOptions<HomeAssistantOptions>>().Value;
             client.DefaultRequestHeaders.Add("Accept", "application/json");
             client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds > 0 ? options.TimeoutSeconds : 60);
 
-            // Only set BaseAddress if fully configured (URL + token).
-            // During wizard flow, these are empty at DI time and will be set
-            // per-request via EnsureHttpClientConfigured() once the wizard saves config.
-            if (string.IsNullOrWhiteSpace(options.BaseUrl) || string.IsNullOrWhiteSpace(options.AccessToken)) return;
-            client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/') + "/");
-            client.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", $"Bearer {options.AccessToken}");
+            // BaseAddress can only be set before the first request. Omit during wizard flow
+            // (when BaseUrl is not yet configured); EnsureHttpClientConfigured() will apply it
+            // on the first real call. Authorization is handled per-request by
+            // HomeAssistantAuthorizationHandler and does not need to be set here.
+            if (string.IsNullOrWhiteSpace(options.BaseUrl))
+                return;
+            client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/') + '/');
         })
         .ConfigurePrimaryHttpMessageHandler(sp =>
         {
@@ -53,12 +59,13 @@ public static class ServiceCollectionExtensions
             if (!options.ValidateSSL)
             {
                 handler.ServerCertificateCustomValidationCallback =
-                    (_, _, _, _) => 
+                    (_, _, _, _) =>
                         true;
             }
 
             return handler;
-        });
+        })
+        .AddHttpMessageHandler<HomeAssistantAuthorizationHandler>();
 
         // Register core services
         builder.Services.AddSingleton<IAgentRegistry, LocalAgentRegistry>();

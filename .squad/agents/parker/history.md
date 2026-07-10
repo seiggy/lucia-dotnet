@@ -91,3 +91,84 @@ All three pins added to the `Misc` ItemGroup (SQLitePCLRaw, MessagePack) and `Mi
 **Build:** 0 warnings, 0 errors  
 
 **Deployment guidance:** Non-voice deployments (chat UI, async input) should override via configuration to suit their response cadence.
+
+### 2026-07-10: HttpClient Lifetime — Authorization Race + Eval Handle Leak (branch: squad/140-httpclient-lifetime, PR #224)
+
+**Root cause A — HomeAssistant Authorization race (intermittent 401s):**  
+`HomeAssistantClient.EnsureHttpClientConfigured()` called before every HTTP request and performed a non-atomic `DefaultRequestHeaders.Remove("Authorization")` + `TryAddWithoutValidation("Authorization", ...)`. Between Remove and Add, a concurrent request could dispatch without the auth header.
+
+**Root cause B — Eval IChatClient handle leak:**  
+`BackendChatClientFactory.CreateChatClient` creates a new `OllamaApiClient`/`OpenAIClient` per `(model × agentName × profile)` combination during parameter sweeps. `RealAgentFactory.DisposeAsync()` only disposed `_haClient`; the chat clients were never released, leaking sockets/handles.
+
+**Fix A — `HomeAssistantAuthorizationHandler` (new `DelegatingHandler`):**  
+Reads current token from `IOptionsMonitor<HomeAssistantOptions>` and sets `Authorization` header directly on each `HttpRequestMessage` before delegating. Atomic, always current. Registered as transient via `.AddHttpMessageHandler<HomeAssistantAuthorizationHandler>()` in both `lucia.Agents` and `lucia.HomeAssistant` registrations. `EnsureHttpClientConfigured()` now only manages `BaseAddress`.
+
+**Fix B — `RealAgentInstance` IAsyncDisposable + `RealAgentFactory._instances` tracking:**
+Added per-instance ownership: `RealAgentInstance` (extracted to its own file) implements `IAsyncDisposable` with an `Interlocked` idempotency guard and an `OwnedChatClient` property. `RealAgentFactory` now tracks `List<RealAgentInstance> _instances`; `DisposeAsync()` cascades to each instance. Idempotent, so safe for per-evaluation disposal when PR #223 (squad/134) lands.
+
+**Key files:**
+- `lucia.HomeAssistant/Services/HomeAssistantAuthorizationHandler.cs` — new per-request auth handler
+- `lucia.HomeAssistant/Services/HomeAssistantClient.cs` — removed non-atomic Remove/Add from `EnsureHttpClientConfigured`
+- `lucia.Agents/Extensions/ServiceCollectionExtensions.cs` — register handler, remove static auth header from factory
+- `lucia.HomeAssistant/Extensions/ServiceCollectionExtensions.cs` — same registration for the test-facing `AddHomeAssistant` path
+- `lucia.EvalHarness/Providers/RealAgentInstance.cs` — new file, `IAsyncDisposable` + `OwnedChatClient`; extracted from `RealAgentFactory.cs` (one-class-per-file)
+- `lucia.EvalHarness/Providers/RealAgentFactory.cs` — `_instances` list + `DisposeAsync` cascade to each `RealAgentInstance`
+
+**Out of scope (follow-up):** Captive dependency — singleton `EntityLocationService`/`PresenceDetectionService` capture a transient typed `IHomeAssistantClient`, preventing `IHttpClientFactory` handler rotation for DNS changes. Requires broader refactor; noted in PR.
+
+**Pattern:**  
+Use `DelegatingHandler` registered via `.AddHttpMessageHandler<T>()` for per-request concerns (auth, correlation IDs, retry policies) instead of mutating `DefaultRequestHeaders` from application code.
+
+### 2026-07-10: HttpClient Lifetime — PR #224 Round 3 Review (branch: squad/140-httpclient-lifetime)
+
+**Copilot threads addressed:**
+
+**Thread 1 — A2AHost missed the handler (real bug):**
+lucia.A2AHost/Program.cs registered HomeAssistantClient with a static Authorization header
+in DefaultRequestHeaders and no HomeAssistantAuthorizationHandler in the chain.  A2AHost
+therefore used a startup-time token forever and was exposed to the same DefaultRequestHeaders
+race fixed for AgentHost.  All three registration paths now use the handler:
+- lucia.Agents/Extensions/ServiceCollectionExtensions.cs::AddLuciaAgents() — AgentHost
+- lucia.A2AHost/Program.cs inline — A2AHost (fixed here)
+- lucia.HomeAssistant/Extensions/ServiceCollectionExtensions.cs::AddHomeAssistant() — Tests
+
+**Thread 2 — Regression tests (confirmed present):**
+HomeAssistantAuthorizationHandlerTests.cs (added in round 2) already covers (a) per-request
+token, (b) rotation, (c) 50 concurrent requests.  All 5 pass.  Thread was pre-existing from
+Copilot's review of the initial commit; the fix was already committed.
+
+**Thread 3 — Per-instance IChatClient disposal:**
+Extracted RealAgentInstance to its own file (RealAgentInstance.cs, one-class-per-file).
+Added IAsyncDisposable with Interlocked idempotency guard and OwnedChatClient internal
+property.  RealAgentFactory now tracks _instances (not _chatClients); DisposeAsync
+delegates to each instance.  When PR #223 (Dallas/squad/134) lands, the sweep runner can dispose
+instances per-evaluation without any factory change.  Until then, factory teardown is the
+guaranteed fallback.
+
+**Key lessons:**
+- Audit ALL host registration paths when centralizing infrastructure patterns — one-off inline
+  registrations in secondary hosts (A2AHost, satellite containers) can silently miss the fix.
+- IAsyncDisposable + Interlocked exchange flag = safe idempotent async disposal pattern.
+- Extract nested classes to own files as part of the same PR when they gain behaviour (new interface).
+
+### 2026-07-10: HttpClient Lifetime — PR #224 Round 6 Review (branch: squad/140-httpclient-lifetime)
+
+**Thread 1 — Resource leak on InitializeAsync exception (real bug):**
+All 7 Create*AgentAsync methods added RealAgentInstance to _instances AFTER InitializeAsync.
+On exception, the ownedClient was never tracked and factory disposal could not release sockets.
+- Standard methods: moved _instances.Add(instance) BEFORE InitializeAsync.
+- CreateDynamicAgentAsync: wrapped in try/catch; disposes ownedClient directly on exception.
+
+**Thread 2 — One class per file (non-negotiable repo rule):**
+Extracted MutableOptionsMonitor, NullDisposable, CapturingHandler from the test file into:
+lucia.Tests/TestDoubles/MutableOptionsMonitor.cs, NullDisposable.cs, CapturingHandler.cs.
+Test file now adds using lucia.Tests.TestDoubles; and has only one class.
+
+**Thread 3 — Remove stale PR #223 parenthetical from DisposeAsync comment:**
+Updated to: factory disposal is the guaranteed cleanup path; per-evaluation disposal is a future follow-up.
+
+**Key files:** lucia.Tests/TestDoubles/{MutableOptionsMonitor,NullDisposable,CapturingHandler}.cs (new),
+lucia.Tests/HomeAssistantAuthorizationHandlerTests.cs (removed inline classes),
+lucia.EvalHarness/Providers/RealAgentFactory.cs (leak fix + doc).
+
+**Result:** 7/7 auth tests pass, 0 build warnings.

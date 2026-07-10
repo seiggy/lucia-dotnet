@@ -1,4 +1,4 @@
-using A2A;
+﻿using A2A;
 using lucia.A2AHost.AgentRegistry;
 using lucia.A2AHost.Extensions;
 using lucia.A2AHost.Services;
@@ -107,13 +107,15 @@ builder.Services.AddSingleton<IChatClientResolver, ChatClientResolver>();
 builder.Services.Configure<HomeAssistantOptions>(
     builder.Configuration.GetSection("HomeAssistant"));
 builder.Services.AddSingleton(TimeProvider.System);
+// Per-request authorization handler: reads the current token from IOptionsMonitor<HomeAssistantOptions>
+// and sets it atomically on each HttpRequestMessage, avoiding the DefaultRequestHeaders race condition.
+builder.Services.AddTransient<HomeAssistantAuthorizationHandler>();
 builder.Services.AddHttpClient<IHomeAssistantClient, HomeAssistantClient>((sp, client) =>
 {
     var options = sp.GetRequiredService<IOptions<HomeAssistantOptions>>().Value;
     if (!string.IsNullOrWhiteSpace(options.BaseUrl))
     {
         client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/'));
-        client.DefaultRequestHeaders.Add("Authorization", $"Bearer {options.AccessToken}");
         client.DefaultRequestHeaders.Add("Accept", "application/json");
         client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
     }
@@ -130,7 +132,8 @@ builder.Services.AddHttpClient<IHomeAssistantClient, HomeAssistantClient>((sp, c
     }
 
     return handler;
-});
+})
+.AddHttpMessageHandler<HomeAssistantAuthorizationHandler>();
 if (useRedis)
 {
     builder.Services.AddSingleton<IDeviceCacheService, RedisDeviceCacheService>();

@@ -2,8 +2,6 @@ using lucia.HomeAssistant.Configuration;
 using lucia.HomeAssistant.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
-using System.Net.Security;
-using System.Security.Cryptography.X509Certificates;
 
 namespace lucia.HomeAssistant.Extensions;
 
@@ -13,31 +11,33 @@ public static class ServiceCollectionExtensions
     {
         services.Configure(configureOptions);
         services.AddSingleton<IValidateOptions<HomeAssistantOptions>, HomeAssistantOptionsValidator>();
-        
+
+        // Register per-request authorization handler so the token is always current
+        // and set atomically on each HttpRequestMessage.
+        services.AddTransient<HomeAssistantAuthorizationHandler>();
+
         services.AddHttpClient<IHomeAssistantClient, HomeAssistantClient>((serviceProvider, client) =>
         {
             var options = serviceProvider.GetRequiredService<IOptions<HomeAssistantOptions>>().Value;
-            client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/'));
-            client.DefaultRequestHeaders.Add("Authorization", $"Bearer {options.AccessToken}");
             client.DefaultRequestHeaders.Add("Accept", "application/json");
             client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+            // Authorization is set per-request by HomeAssistantAuthorizationHandler.
+            if (!string.IsNullOrWhiteSpace(options.BaseUrl))
+                client.BaseAddress = new Uri(options.BaseUrl.TrimEnd('/'));
         })
         .ConfigurePrimaryHttpMessageHandler(serviceProvider =>
         {
             var options = serviceProvider.GetRequiredService<IOptions<HomeAssistantOptions>>().Value;
             var handler = new HttpClientHandler();
-            
+
             if (!options.ValidateSSL)
             {
-                handler.ServerCertificateCustomValidationCallback = (HttpRequestMessage message, X509Certificate2? certificate, X509Chain? chain, SslPolicyErrors sslPolicyErrors) =>
-                {
-                    // Accept all certificates when SSL validation is disabled
-                    return true;
-                };
+                handler.ServerCertificateCustomValidationCallback = (_, _, _, _) => true;
             }
-            
+
             return handler;
-        });
+        })
+        .AddHttpMessageHandler<HomeAssistantAuthorizationHandler>();
 
         return services;
     }

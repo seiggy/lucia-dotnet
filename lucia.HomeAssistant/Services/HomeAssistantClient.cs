@@ -31,9 +31,11 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
     }
 
     /// <summary>
-    /// Ensures the HttpClient has the latest BaseAddress and Authorization header
-    /// from the current options. Called before every HTTP request so wizard-configured
-    /// credentials are picked up without restarting the app.
+    /// Ensures the HttpClient BaseAddress reflects the latest configured URL.
+    /// Called before every HTTP request so wizard-configured URLs are picked up
+    /// without restarting the app.
+    /// Authorization is now injected per-request by <see cref="HomeAssistantAuthorizationHandler"/>,
+    /// which eliminates the race condition of mutating DefaultRequestHeaders concurrently.
     /// </summary>
     private void EnsureHttpClientConfigured()
     {
@@ -41,7 +43,7 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
         if (string.IsNullOrWhiteSpace(options.BaseUrl))
             return;
 
-        var expected = new Uri(options.BaseUrl.TrimEnd('/') + "/");
+        var expected = new Uri(options.BaseUrl.TrimEnd('/') + '/');
 
         // BaseAddress can only be set before the first request, so wrap in try/catch
         // for the case where the URL changed after the client was already used.
@@ -57,11 +59,6 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
                 // This is expected when config changes after first use.
             }
         }
-
-        // Auth header can always be refreshed
-        _httpClient.DefaultRequestHeaders.Remove("Authorization");
-        if (!string.IsNullOrWhiteSpace(options.AccessToken))
-            _httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", $"Bearer {options.AccessToken}");
     }
 
     // ── Status & Config ─────────────────────────────────────────────
