@@ -498,9 +498,6 @@ public sealed partial class WyomingSession : IDisposable
 
                     _pendingTranscript = null;
                     ResetUtteranceAudio();
-                    // Release the STT concurrency slot now that all STT work is done,
-                    // including any enhanced-clip re-transcription inside ProcessTranscriptAsync.
-                    ReleaseSttSlot();
                     SetState(WyomingSessionState.Connected);
                 }
                 break;
@@ -571,9 +568,6 @@ public sealed partial class WyomingSession : IDisposable
         await ProcessTranscriptAsync(transcript.Text, transcript.Confidence, utteranceAudio, writer, ct)
             .ConfigureAwait(false);
 
-        // Release the STT concurrency slot now that all STT work is done,
-        // including any enhanced-clip re-transcription inside ProcessTranscriptAsync.
-        ReleaseSttSlot();
         _pendingTranscript = null;
         ResetUtteranceAudio();
         SetState(WyomingSessionState.Connected);
@@ -730,6 +724,9 @@ public sealed partial class WyomingSession : IDisposable
 
     private void DisposeCurrentSttSession()
     {
+        // Release the STT slot whenever the session is torn down (abandon, error, or normal
+        // completion). ReleaseSttSlot() is idempotent — safe even if the slot isn't held.
+        ReleaseSttSlot();
         _currentSttSession?.Dispose();
         _currentSttSession = null;
     }
@@ -1104,21 +1101,26 @@ public sealed partial class WyomingSession : IDisposable
         float[] enhancedClip,
         CancellationToken ct)
     {
+        var engines = _serviceProvider.GetServices<ISttEngine>().ToArray();
+        var engine = engines
+                .OfType<HybridSttEngine>()
+                .FirstOrDefault(static e => IsSttEngineReady(e)) as ISttEngine
+            ?? engines.FirstOrDefault(static e => IsSttEngineReady(e));
+
+        if (engine is null)
+        {
+            _logger.LogDebug(
+                "No STT engine available for enhanced clip re-transcription in session {SessionId}", Id);
+            return null;
+        }
+
+        // Acquire a fresh slot for this secondary inference pass.
+        // The primary slot was already released in DisposeCurrentSttSession() after
+        // the main GetFinalResultAsync() call; this guarantees the enhanced-clip pass
+        // is also bounded by MaxConcurrentSttSessions.
+        await AcquireSttSlotAsync(ct).ConfigureAwait(false);
         try
         {
-            var engines = _serviceProvider.GetServices<ISttEngine>().ToArray();
-            var engine = engines
-                    .OfType<HybridSttEngine>()
-                    .FirstOrDefault(static e => IsSttEngineReady(e)) as ISttEngine
-                ?? engines.FirstOrDefault(static e => IsSttEngineReady(e));
-
-            if (engine is null)
-            {
-                _logger.LogDebug(
-                    "No STT engine available for enhanced clip re-transcription in session {SessionId}", Id);
-                return null;
-            }
-
             using var session = engine.CreateSession();
             var sw = Stopwatch.StartNew();
             session.AcceptAudioChunk(enhancedClip, _utteranceSampleRate);
@@ -1132,6 +1134,10 @@ public sealed partial class WyomingSession : IDisposable
                 DurationMs = sw.ElapsedMilliseconds,
             };
         }
+        catch (OperationCanceledException)
+        {
+            throw; // let cancellation propagate; finally still releases the slot
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(
@@ -1139,6 +1145,10 @@ public sealed partial class WyomingSession : IDisposable
                 "Enhanced clip re-transcription failed for session {SessionId}, falling back to raw STT result",
                 Id);
             return null;
+        }
+        finally
+        {
+            ReleaseSttSlot(); // release immediately after enhanced-clip inference
         }
     }
 

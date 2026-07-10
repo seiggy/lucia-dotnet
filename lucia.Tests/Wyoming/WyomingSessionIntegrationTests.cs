@@ -540,6 +540,77 @@ public sealed class WyomingSessionIntegrationTests(ITestOutputHelper output)
         };
     }
 
+    /// <summary>
+    /// Verifies that <c>MaxConcurrentSttSessions = 2</c> actually bounds STT inference
+    /// when 4 sessions drive STT simultaneously. All 4 sessions must complete (no hang),
+    /// and the peak concurrent inference count must never exceed the configured limit.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_FourConcurrentSessions_InferenceBoundedBySemaphoreLimit()
+    {
+        const int limit = 2;
+        const int sessionCount = 4;
+
+        // Shared semaphore — mirrors what WyomingServer passes to each WyomingSession.
+        var semaphore = new SemaphoreSlim(limit, limit);
+        // Shared counter array: [0] = current concurrent, [1] = peak observed.
+        var counters = new int[2];
+        var options = new WyomingOptions { ReadTimeoutSeconds = 10 };
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+        // Launch all sessions concurrently, each with its own TCP connection.
+        var sessionTasks = Enumerable.Range(0, sessionCount).Select(async _ =>
+        {
+            // Each call to CreateSession() produces a fresh tracker instance that increments
+            // the shared counters when inference is running.
+            var engine = new FactoryTestSttEngine(
+                () => new ConcurrencyTrackingTestSttSession(counters, inferenceDelayMs: 100));
+
+            var (listener, client, serverClient, services, session, writer, parser) =
+                await CreateConnectedSessionAsync(options, sttEngine: engine, sttConcurrency: semaphore);
+
+            try
+            {
+                using var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
+                var runTask = session.RunAsync(sessionCts.Token);
+
+                // Drive the session through a full STT pass.
+                await writer.WriteEventAsync(
+                    new AudioStartEvent { Rate = 16_000, Width = 2, Channels = 1 }, cts.Token);
+                await writer.WriteEventAsync(
+                    new AudioChunkEvent
+                    {
+                        Rate = 16_000, Width = 2, Channels = 1,
+                        Payload = PcmConverter.Float32ToInt16([0.1f, -0.1f]),
+                    },
+                    cts.Token);
+                await writer.WriteEventAsync(new AudioStopEvent(), cts.Token);
+
+                // Confirm the session produced a transcript (speaker tag may be prepended).
+                var transcript = Assert.IsType<TranscriptEvent>(await parser.ReadEventAsync(cts.Token));
+                Assert.Contains("concurrent test", transcript.Text, StringComparison.Ordinal);
+
+                client.Close();
+                await runTask;
+                return transcript;
+            }
+            finally
+            {
+                try { client.Close(); } catch (Exception) { }
+                client.Dispose();
+                serverClient.Dispose();
+                listener.Stop();
+                await services.DisposeAsync();
+            }
+        }).ToList();
+
+        // All 4 must complete without hanging.
+        await Task.WhenAll(sessionTasks);
+
+        // Peak concurrent STT must never exceed the semaphore limit.
+        Assert.InRange(counters[1], 1, limit);
+    }
+
     private static async Task<(
         TcpListener Listener,
         TcpClient Client,
@@ -552,7 +623,8 @@ public sealed class WyomingSessionIntegrationTests(ITestOutputHelper output)
         IWakeWordDetector? wakeWordDetector = null,
         ISttEngine? sttEngine = null,
         IVadEngine? vadEngine = null,
-        Action<ServiceCollection>? configureServices = null)
+        Action<ServiceCollection>? configureServices = null,
+        SemaphoreSlim? sttConcurrency = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton<IOptions<WyomingOptions>>(Options.Create(options));
@@ -584,7 +656,13 @@ public sealed class WyomingSessionIntegrationTests(ITestOutputHelper output)
         await client.ConnectAsync(endpoint.Address, endpoint.Port);
         var serverClient = await acceptTask;
 
-        var session = new WyomingSession(serverClient, serviceProvider, NullLogger<WyomingSession>.Instance, options);
+        var session = new WyomingSession(
+            serverClient,
+            serviceProvider,
+            NullLogger<WyomingSession>.Instance,
+            options,
+            eventBus: null,
+            sttConcurrency: sttConcurrency);
         var stream = client.GetStream();
 
         return (
