@@ -106,6 +106,26 @@ public sealed class HomeAssistantAuthorizationHandlerTests
         Assert.Equal(secondToken, afterAuth[scheme.Length..]);
     }
 
+    /// <summary>Edge case: token cleared after a prior send must not leave a stale Authorization header.</summary>
+    [Fact]
+    public async Task SendAsync_TokenClearedAfterPriorSend_RemovesAuthorizationHeader()
+    {
+        var monitor = new MutableOptionsMonitor { AccessToken = "token-to-clear" };
+        var inner = new CapturingHandler();
+        using var invoker = BuildInvoker(monitor, inner);
+
+        // First send stamps an Authorization header onto the request.
+        var request = NewGet("/api/clear-test");
+        await invoker.SendAsync(request, default);
+
+        // Token revoked / wizard reset — handler must clear the stale header.
+        monitor.AccessToken = string.Empty;
+        await invoker.SendAsync(request, default);
+
+        Assert.False(request.Headers.Contains("Authorization"),
+            "Stale Authorization header must be cleared when the token becomes empty.");
+    }
+
     /// <summary>(c) Concurrent requests each get the correct current token without racing.</summary>
     [Fact]
     public async Task SendAsync_ConcurrentRequests_AllGetCurrentToken()
