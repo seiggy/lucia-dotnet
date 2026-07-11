@@ -2,6 +2,28 @@
 
 How to decide who handles what.
 
+## Pre-Push Review Gate (MANDATORY — applies to ALL members)
+
+**No `squad/*` branch is pushed to the remote, turned into a PR, or merged to
+`master` until Vasquez has reviewed the branch diff and every blocking problem is
+resolved.** This is non-negotiable and is enforced two ways:
+
+1. **Governance (coordinator):** Before any agent runs `git push` or `gh pr
+   create` on a `squad/*` branch, the coordinator routes the branch to **Vasquez**
+   for review. Work only proceeds to push/PR/merge on a Vasquez **APPROVE**.
+2. **Mechanical (git hook):** The version-controlled `.githooks/pre-push` hook
+   (activated via `core.hooksPath`; see `scripts/install-git-hooks.sh`) blocks
+   pushing any commit whose destination is a `squad/*` branch and that lacks a
+   Vasquez approval marker for that exact SHA. See `.squad/gate/README.md`.
+
+Flow for every branch:
+`author finishes work` → **Vasquez reviews** (`gpt-5.6-sol`) → REQUEST-CHANGES →
+author fixes → re-review … → **APPROVE** → Vasquez records approval → push / PR /
+merge. Any new commit after approval invalidates it and requires a fresh review.
+
+Vasquez runs on **GPT-5.6 Sol only** (locked in `.squad/config.json`); a review on
+any other model is not valid.
+
 ## Routing Table
 
 | Work Type | Route To | Examples |
@@ -15,6 +37,7 @@ How to decide who handles what.
 | Voice pipeline, STT, TTS, Wyoming | Brett | Audio pipeline, wake word, VAD, model management |
 | Deployment, containers, CI/CD | Hicks | Docker, K8s, Helm, systemd, GitHub Actions |
 | HA integration, Python component, entity matching | Bishop | Custom component, .NET HA client, entity visibility |
+| **Pre-push code review, branch approval, merge gate** | **Vasquez** | Review any `squad/*` worktree diff before push/PR; block until clean; record approval |
 | Scope & priorities | Ripley | What to build next, trade-offs, decisions |
 | Session logging | Scribe | Automatic — never needs routing |
 
@@ -53,6 +76,7 @@ How to decide who handles what.
 | "voice", "speech", "STT", "TTS", "Wyoming", "wake word", "audio", "VAD", "diarization" | Brett |
 | "Docker", "Kubernetes", "Helm", "deploy", "CI/CD", "container", "systemd", "infra" | Hicks |
 | "Home Assistant", "HA", "custom component", "entity matching", "conversation platform", "Python" | Bishop |
+| "review", "PR review", "pre-push", "approve branch", "merge gate", "gate", "sign off", "review gate" | Vasquez |
 
 ## Multi-Agent Patterns
 
@@ -80,6 +104,7 @@ How to decide who handles what.
 | "Brett" | Brett |
 | "Hicks" | Hicks |
 | "Bishop" | Bishop |
+| "Vasquez" | Vasquez |
 
 ## Rules
 
@@ -90,3 +115,4 @@ How to decide who handles what.
 5. **"Team, ..." → fan-out.** Spawn all relevant agents in parallel as `mode: "background"`.
 6. **Anticipate downstream work.** If a feature is being built, spawn the tester to write test cases from requirements simultaneously.
 7. **Issue-labeled work** — when a `squad:{member}` label is applied to an issue, route to that member. Ripley handles all `squad` (base label) triage.
+8. **Pre-push review gate is mandatory.** Never let an agent push a `squad/*` branch or open a PR before Vasquez has reviewed it and recorded an APPROVE. On REQUEST-CHANGES, the branch author fixes and Vasquez re-reviews. The git `pre-push` hook mechanically blocks the push — the prerequisite for any PR — as a backstop. Vasquez is model-locked to `gpt-5.6-sol`.

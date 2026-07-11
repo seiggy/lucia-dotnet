@@ -5,6 +5,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
 chmod +x .githooks/pre-commit
+chmod +x .githooks/pre-push
 chmod +x scripts/validate-ha-commit.sh
 chmod +x scripts/check_utf8_no_bom.py
 

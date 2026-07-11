@@ -3,3 +3,9 @@
 .squad/agents/*/history.md merge=union
 .squad/log/** merge=union
 .squad/orchestration-log/** merge=union
+
+# Git hooks are shell scripts and must stay LF to run on all platforms
+.githooks/** text eol=lf
+# Shell scripts (invoked by the hooks and directly) must stay LF too
+*.sh text eol=lf
+.squad/gate/Approve-Branch.ps1 text eol=crlf

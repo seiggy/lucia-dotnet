@@ -4,6 +4,7 @@
   "agentModelOverrides": {
     "ripley": "claude-opus-4.8",
     "dallas": "claude-opus-4.8",
-    "brett": "claude-opus-4.8"
+    "brett": "claude-opus-4.8",
+    "vasquez": "gpt-5.6-sol"
   }
 }

@@ -1,3 +1,111 @@
 #!/bin/sh
-command -v git-lfs >/dev/null 2>&1 || { printf >&2 "\n%s\n\n" "This repository is configured for Git LFS but 'git-lfs' was not found on your path. If you no longer wish to use Git LFS, remove this hook by deleting the 'pre-push' file in the hooks directory (set by 'core.hookspath'; usually '.git/hooks')."; exit 2; }
-git lfs pre-push "$@"
+#
+# Combined pre-push hook for this repository:
+#   1. Squad pre-push review gate — blocks unapproved squad/* pushes.
+#   2. Git LFS pre-push — preserved from the stock Git LFS hook.
+#
+# This hook is version-controlled and activated via `core.hooksPath=.githooks`
+# (see scripts/install-git-hooks.sh). Because core.hooksPath is a *relative* path,
+# each worktree runs its own checked-out copy of this file, so the gate is active
+# in any worktree whose checkout contains this hook (every squad/* worktree created
+# from master after this change lands will). It is NOT retroactively shared into a
+# pre-existing worktree on a stale branch that predates this file.
+#
+# --- Review gate ---
+# Blocks pushing any branch whose DESTINATION ref is refs/heads/squad/* unless
+# Vasquez (the PR Review Gatekeeper, model gpt-5.6-sol) has recorded an approval
+# for the EXACT commit being pushed. Approvals live in the shared git common dir
+# at:  <git-common-dir>/squad-approvals/<sha>
+#
+# The destination (remote) ref is used for classification so that a push such as
+#   git push origin HEAD:refs/heads/squad/foo
+# is still gated even when the local ref is not itself under squad/*.
+#
+# Vasquez writes an approval only after a clean review, via
+# .squad/gate/Approve-Branch.ps1. Any new commit changes the tip SHA and
+# therefore requires a fresh review + approval. `master` and non-squad branches
+# are never gated.
+#
+# Escape hatch (owner only, use sparingly): set SQUAD_GATE_BYPASS=1 for a single
+# push, e.g.  SQUAD_GATE_BYPASS=1 git push ...
+
+# Resolve the shared git common dir (worktrees share it) and capture stdin once.
+# The ref list on stdin is consumed by both the gate and git-lfs, so buffer it
+# to a temp file and feed each of them from that file.
+common_dir=$(git rev-parse --git-common-dir 2>/dev/null)
+[ -z "$common_dir" ] && common_dir=".git"
+tmp="$common_dir/squad-prepush.$$"
+cleanup() { rm -f "$tmp"; }
+
+# Buffer stdin fail-CLOSED: if the write is truncated (e.g. disk full), $tmp
+# would hold only a partial ref list and a gated squad/* line in the dropped
+# tail would be silently skipped — an unapproved push would sail through. Abort
+# unless stdin was captured completely.
+if ! cat > "$tmp"; then
+    echo "squad-gate: failed to buffer the push ref list (disk full?) — aborting push." >&2
+    cleanup
+    exit 1
+fi
+
+if [ "${SQUAD_GATE_BYPASS:-0}" = "1" ]; then
+    echo "squad-gate: SQUAD_GATE_BYPASS=1 set — skipping review gate for this push." >&2
+else
+    approval_dir="$common_dir/squad-approvals"
+    blocked=0
+
+    while read -r local_ref local_sha remote_ref remote_sha; do
+        # Classify by the DESTINATION (remote) ref, not the local ref, so a push
+        # into refs/heads/squad/* is gated regardless of the source ref name.
+        case "$remote_ref" in
+            refs/heads/squad/*) : ;;
+            *) continue ;;   # destination is not a gated branch
+        esac
+
+        # Skip branch deletions (all-zero local sha) — no external tools.
+        [ -z "$local_sha" ] && continue
+        case "$local_sha" in
+            *[!0]*) : ;;     # contains a non-zero char -> a real push
+            *) continue ;;   # all zeros -> branch deletion, allow
+        esac
+
+        branch=${remote_ref#refs/heads/}
+        if [ -f "$approval_dir/$local_sha" ]; then
+            : # approved — allow
+        else
+            echo "" >&2
+            echo "==================================================================" >&2
+            echo " PUSH BLOCKED by the Squad pre-push review gate" >&2
+            echo "------------------------------------------------------------------" >&2
+            echo " Branch : $branch" >&2
+            echo " Commit : $local_sha" >&2
+            echo "" >&2
+            echo " Vasquez (PR Review Gatekeeper) has NOT approved this commit." >&2
+            echo " No squad/* branch may be pushed until Vasquez reviews the branch" >&2
+            echo " changes and all blocking problems are resolved." >&2
+            echo "" >&2
+            echo " To unblock: have the Squad coordinator run Vasquez on this branch." >&2
+            echo " On a clean review Vasquez records approval at:" >&2
+            echo "   $approval_dir/$local_sha" >&2
+            echo "==================================================================" >&2
+            echo "" >&2
+            blocked=1
+        fi
+    done < "$tmp"
+
+    if [ "$blocked" -ne 0 ]; then
+        cleanup
+        exit 1
+    fi
+fi
+
+# --- Git LFS (preserved) ---
+if ! command -v git-lfs >/dev/null 2>&1; then
+    printf >&2 "\n%s\n\n" "This repository is configured for Git LFS but 'git-lfs' was not found on your path. If you no longer wish to use Git LFS, remove this hook by deleting the 'pre-push' file in the hooks directory (set by 'core.hookspath'; usually '.git/hooks')."
+    cleanup
+    exit 2
+fi
+
+git lfs pre-push "$@" < "$tmp"
+status=$?
+cleanup
+exit $status
