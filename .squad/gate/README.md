@@ -9,14 +9,27 @@ branch and recorded an approval for the exact commit being pushed.
 1. **The hook** — the gate lives in the version-controlled `.githooks/pre-push`,
    which is the repo's active pre-push hook (see *Installing* below). It runs the
    review gate first and then the stock **Git LFS** `pre-push` step, so LFS keeps
-   working. Because git worktrees share the common git dir, this one hook
-   enforces the gate across **every** worktree. It blocks any push whose
-   **destination** ref is `refs/heads/squad/*` and whose commit SHA has no
-   approval marker. `master` and non-`squad/*` branches are never gated.
+   working. It blocks any push whose **destination** ref is `refs/heads/squad/*`
+   and whose commit SHA has no approval marker. `master` and non-`squad/*`
+   branches are never gated.
 
    > The gate classifies by the *destination* (remote) ref, so
    > `git push origin HEAD:refs/heads/squad/foo` is gated even though the local
    > ref isn't under `squad/*`.
+
+   > **Coverage & limits.** Because `core.hooksPath` is a *relative* path, each
+   > worktree runs *its own* checked-out `.githooks/pre-push` — the hook is not
+   > a single copy shared across worktrees. The gate is therefore active in any
+   > clone/worktree that (a) has a checkout containing this hook and (b) has run
+   > the installer once. Every `squad/*` worktree branches from `master` (which
+   > carries the hook), so all future worktrees are covered automatically. It is
+   > **not** retroactively injected into a pre-existing worktree sitting on a
+   > stale branch without the hook — that worktree must merge/rebase this commit
+   > (or re-run the installer) to be gated. The *approval markers*, by contrast,
+   > live in the shared `<git-common-dir>/squad-approvals/` and are common to all
+   > worktrees. The primary enforcement remains governance: the coordinator
+   > routes every `squad/*` branch to Vasquez before push/PR; the hook is
+   > mechanical backup.
 
 2. **Approvals** — stored in `<git-common-dir>/squad-approvals/<sha>` (i.e.
    `.git/squad-approvals/<sha>`). Keyed by commit SHA, so any new commit
@@ -32,7 +45,9 @@ branch and recorded an approval for the exact commit being pushed.
 
 The gate is part of `.githooks/pre-push`, and the repo activates its hooks via
 `core.hooksPath=.githooks`. Run the standard installer once per clone — it sets
-`core.hooksPath` and makes the hooks executable, covering all worktrees:
+`core.hooksPath` and makes the hooks executable. Because `core.hooksPath` is
+relative, each worktree uses its own checked-out hook, so a worktree is gated
+once its checkout contains this hook (all worktrees branched from `master` do):
 
 ```sh
 ./scripts/install-git-hooks.sh
