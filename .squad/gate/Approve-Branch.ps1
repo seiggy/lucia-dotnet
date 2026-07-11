@@ -54,7 +54,11 @@ if ($Branch -notlike 'squad/*') {
 
 $commonDir = (git rev-parse --git-common-dir).Trim()
 if (-not [System.IO.Path]::IsPathRooted($commonDir)) {
-    $commonDir = Join-Path (git rev-parse --show-toplevel).Trim() $commonDir
+    # --git-common-dir is relative to the CURRENT directory, not the repo root,
+    # so resolve it against the invocation directory. Git always runs the
+    # pre-push hook from the worktree root, so resolving here the same way keeps
+    # the marker path identical to the one the hook writes/reads.
+    $commonDir = (Resolve-Path -LiteralPath $commonDir).Path
 }
 $approvalDir = Join-Path $commonDir 'squad-approvals'
 New-Item -ItemType Directory -Force -Path $approvalDir | Out-Null

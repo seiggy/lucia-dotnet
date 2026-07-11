@@ -20,19 +20,25 @@ branch and recorded an approval for the exact commit being pushed.
    > **Coverage & limits.** Because `core.hooksPath` is a *relative* path, each
    > worktree runs *its own* checked-out `.githooks/pre-push` — the hook is not
    > a single copy shared across worktrees. The gate is therefore active in any
-   > clone/worktree that (a) has a checkout containing this hook and (b) has run
-   > the installer once. Every `squad/*` worktree branches from `master` (which
-   > carries the hook), so all future worktrees are covered automatically. It is
+   > worktree that (a) has a checkout containing this hook (tracked executable,
+   > mode `100755`, so it runs as checked out) and (b) is in a clone whose
+   > `core.hooksPath` the installer has set (a shared, per-clone setting). Every future `squad/*` worktree branches from `master`
+   > (which carries the hook once this change lands), so all such worktrees are
+   > covered automatically. It is
    > **not** retroactively injected into a pre-existing worktree sitting on a
-   > stale branch without the hook — that worktree must merge/rebase this commit
-   > (or re-run the installer) to be gated. The *approval markers*, by contrast,
+   > stale branch without the hook — that worktree must merge/rebase (or
+   > otherwise check out) this commit to be gated. Re-running the installer alone
+   > is **not** enough: it only sets `core.hooksPath` and marks the hook
+   > executable; it does not check out the hook file into a stale branch. The
+   > *approval markers*, by contrast,
    > live in the shared `<git-common-dir>/squad-approvals/` and are common to all
    > worktrees. The primary enforcement remains governance: the coordinator
    > routes every `squad/*` branch to Vasquez before push/PR; the hook is
    > mechanical backup.
 
-2. **Approvals** — stored in `<git-common-dir>/squad-approvals/<sha>` (i.e.
-   `.git/squad-approvals/<sha>`). Keyed by commit SHA, so any new commit
+2. **Approvals** — stored in `<git-common-dir>/squad-approvals/<sha>` (in the
+   main worktree, `.git/squad-approvals/<sha>`; linked worktrees share that same
+   common dir). Keyed by commit SHA, so any new commit
    invalidates the approval and forces a fresh review.
 
 3. **Recording an approval** — Vasquez runs, from the branch's worktree, after a
@@ -45,9 +51,11 @@ branch and recorded an approval for the exact commit being pushed.
 
 The gate is part of `.githooks/pre-push`, and the repo activates its hooks via
 `core.hooksPath=.githooks`. Run the standard installer once per clone — it sets
-`core.hooksPath` and makes the hooks executable. Because `core.hooksPath` is
-relative, each worktree uses its own checked-out hook, so a worktree is gated
-once its checkout contains this hook (all worktrees branched from `master` do):
+`core.hooksPath`, a per-clone config that all of that clone's worktrees share.
+The hook is tracked executable (mode `100755`), so it runs as soon as a checkout
+contains it (the installer also re-applies the executable bit as a safety net).
+A worktree is therefore gated once its checkout contains this hook (every
+`squad/*` worktree created from `master` after this change lands will):
 
 ```sh
 ./scripts/install-git-hooks.sh
@@ -69,5 +77,6 @@ $env:SQUAD_GATE_BYPASS = "1"; git push; Remove-Item Env:SQUAD_GATE_BYPASS
 
 No `squad/*` branch is pushed, turned into a PR, or merged to `master` until
 Vasquez has reviewed the branch diff and every blocking problem is resolved.
-This is enforced both by the coordinator (governance — see `routing.md` and
-`decisions.md`) and mechanically by the `.githooks/pre-push` hook.
+This is enforced by the coordinator (governance — see `routing.md` and
+`decisions.md`); the `.githooks/pre-push` hook is the mechanical backstop that
+blocks the push itself — the prerequisite for any PR or merge.

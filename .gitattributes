@@ -9,4 +9,3 @@
 # Shell scripts (invoked by the hooks and directly) must stay LF too
 *.sh text eol=lf
 .squad/gate/Approve-Branch.ps1 text eol=crlf
-

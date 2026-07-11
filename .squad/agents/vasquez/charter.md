@@ -42,7 +42,7 @@ For each branch under review (run from inside that branch's worktree):
 
 ## Approval Mechanism
 
-The hard gate is a git `pre-push` hook shared by all worktrees. It blocks any push of a `refs/heads/squad/*` branch whose HEAD SHA has no recorded approval.
+The hard gate is a git `pre-push` hook (`.githooks/pre-push`, activated via `core.hooksPath=.githooks`). Because `core.hooksPath` is a relative path, each worktree runs its own checked-out copy, so the gate is active in any worktree whose checkout contains the hook (every `squad/*` worktree created from `master` after this change lands will). It blocks any push of a `refs/heads/squad/*` branch whose pushed commit's SHA has no recorded approval.
 
 - **Approve a clean branch** (run from the branch's worktree, after a clean review):
   `pwsh -File <TEAM_ROOT>/.squad/gate/Approve-Branch.ps1` (approves current HEAD), or

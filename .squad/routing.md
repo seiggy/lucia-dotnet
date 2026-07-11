@@ -115,4 +115,4 @@ any other model is not valid.
 5. **"Team, ..." → fan-out.** Spawn all relevant agents in parallel as `mode: "background"`.
 6. **Anticipate downstream work.** If a feature is being built, spawn the tester to write test cases from requirements simultaneously.
 7. **Issue-labeled work** — when a `squad:{member}` label is applied to an issue, route to that member. Ripley handles all `squad` (base label) triage.
-8. **Pre-push review gate is mandatory.** Never let an agent push a `squad/*` branch or open a PR before Vasquez has reviewed it and recorded an APPROVE. On REQUEST-CHANGES, the branch author fixes and Vasquez re-reviews. The git `pre-push` hook enforces this mechanically as a backstop. Vasquez is model-locked to `gpt-5.6-sol`.
+8. **Pre-push review gate is mandatory.** Never let an agent push a `squad/*` branch or open a PR before Vasquez has reviewed it and recorded an APPROVE. On REQUEST-CHANGES, the branch author fixes and Vasquez re-reviews. The git `pre-push` hook mechanically blocks the push — the prerequisite for any PR — as a backstop. Vasquez is model-locked to `gpt-5.6-sol`.
