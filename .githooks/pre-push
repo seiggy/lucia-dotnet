@@ -35,9 +35,17 @@
 common_dir=$(git rev-parse --git-common-dir 2>/dev/null)
 [ -z "$common_dir" ] && common_dir=".git"
 tmp="$common_dir/squad-prepush.$$"
-cat > "$tmp"
-
 cleanup() { rm -f "$tmp"; }
+
+# Buffer stdin fail-CLOSED: if the write is truncated (e.g. disk full), $tmp
+# would hold only a partial ref list and a gated squad/* line in the dropped
+# tail would be silently skipped — an unapproved push would sail through. Abort
+# unless stdin was captured completely.
+if ! cat > "$tmp"; then
+    echo "squad-gate: failed to buffer the push ref list (disk full?) — aborting push." >&2
+    cleanup
+    exit 1
+fi
 
 if [ "${SQUAD_GATE_BYPASS:-0}" = "1" ]; then
     echo "squad-gate: SQUAD_GATE_BYPASS=1 set — skipping review gate for this push." >&2
