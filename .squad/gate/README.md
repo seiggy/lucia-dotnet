@@ -6,11 +6,17 @@ branch and recorded an approval for the exact commit being pushed.
 
 ## How it works
 
-1. **The hook** — `pre-push` (this folder holds the reference copy; the active
-   copy is installed at `.git/hooks/pre-push`). Because git worktrees share the
-   common `.git/hooks`, this one hook enforces the gate across **every** worktree.
-   It blocks any push of `refs/heads/squad/*` whose HEAD SHA has no approval
-   marker. `master` and non-`squad/*` branches are never gated.
+1. **The hook** — the gate lives in the version-controlled `.githooks/pre-push`,
+   which is the repo's active pre-push hook (see *Installing* below). It runs the
+   review gate first and then the stock **Git LFS** `pre-push` step, so LFS keeps
+   working. Because git worktrees share the common git dir, this one hook
+   enforces the gate across **every** worktree. It blocks any push whose
+   **destination** ref is `refs/heads/squad/*` and whose commit SHA has no
+   approval marker. `master` and non-`squad/*` branches are never gated.
+
+   > The gate classifies by the *destination* (remote) ref, so
+   > `git push origin HEAD:refs/heads/squad/foo` is gated even though the local
+   > ref isn't under `squad/*`.
 
 2. **Approvals** — stored in `<git-common-dir>/squad-approvals/<sha>` (i.e.
    `.git/squad-approvals/<sha>`). Keyed by commit SHA, so any new commit
@@ -24,14 +30,17 @@ branch and recorded an approval for the exact commit being pushed.
 
 ## Installing / reinstalling the hook
 
-Worktrees share `.git/hooks`, so installing once covers all of them:
+The gate is part of `.githooks/pre-push`, and the repo activates its hooks via
+`core.hooksPath=.githooks`. Run the standard installer once per clone — it sets
+`core.hooksPath` and makes the hooks executable, covering all worktrees:
 
-```pwsh
-Copy-Item .squad/gate/pre-push .git/hooks/pre-push -Force
+```sh
+./scripts/install-git-hooks.sh
 ```
 
-On a fresh clone or another machine, re-run that copy. No `core.hooksPath`
-change is required.
+Because the hook is version-controlled, a fresh clone only needs that one command
+(no manual copying into `.git/hooks`). New commits to `.githooks/pre-push` take
+effect automatically once pulled.
 
 ## Owner escape hatch
 
@@ -46,4 +55,4 @@ $env:SQUAD_GATE_BYPASS = "1"; git push; Remove-Item Env:SQUAD_GATE_BYPASS
 No `squad/*` branch is pushed, turned into a PR, or merged to `master` until
 Vasquez has reviewed the branch diff and every blocking problem is resolved.
 This is enforced both by the coordinator (governance — see `routing.md` and
-`decisions.md`) and mechanically by the `pre-push` hook.
+`decisions.md`) and mechanically by the `.githooks/pre-push` hook.

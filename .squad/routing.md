@@ -11,8 +11,9 @@ resolved.** This is non-negotiable and is enforced two ways:
 1. **Governance (coordinator):** Before any agent runs `git push` or `gh pr
    create` on a `squad/*` branch, the coordinator routes the branch to **Vasquez**
    for review. Work only proceeds to push/PR/merge on a Vasquez **APPROVE**.
-2. **Mechanical (git hook):** A shared `pre-push` hook (`.git/hooks/pre-push`,
-   reference in `.squad/gate/`) blocks pushing any `squad/*` commit that lacks a
+2. **Mechanical (git hook):** The version-controlled `.githooks/pre-push` hook
+   (activated via `core.hooksPath`; see `scripts/install-git-hooks.sh`) blocks
+   pushing any commit whose destination is a `squad/*` branch and that lacks a
    Vasquez approval marker for that exact SHA. See `.squad/gate/README.md`.
 
 Flow for every branch:
