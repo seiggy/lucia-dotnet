@@ -21,7 +21,7 @@
 
 ### 2026-07-12: Orchestration span disposal — using var closes all exit paths (branch: squad/165-dispose-orchestration-spans)
 
-`LuciaEngine.ProcessRequestAsync` and `WorkflowFactory.ResolveAgentsAsync` both started an `Activity` with `ActivitySource.StartActivity()` but stored it in a plain `var`, so `Dispose()` was never called on any return or catch path. Undisposed activities remain in the ActivityListener's `ActivityStack` until the process ends, making spans appear as never-ending in the OpenTelemetry dashboard and in exporters.
+`LuciaEngine.ProcessRequestAsync` and `WorkflowFactory.ResolveAgentsAsync` both started an `Activity` with `ActivitySource.StartActivity()` but stored it in a plain `var`, so `Dispose()` was never called on any return or catch path. Disposing an `Activity` is what stops it and fires the listener's stop/export callback, so failing to dispose meant the stop/export callback and the accurate final duration were never emitted.
 
 **Fix:** `var activity` → `using var activity` in both methods. The C# compiler lowers `using var` into a try/finally that calls `Dispose()` at every exit point, including early returns and exceptions. Two characters changed per file, zero logic altered.
 
