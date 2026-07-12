@@ -83,7 +83,7 @@ public sealed class WorkflowFactory
     /// </summary>
     public async Task<IReadOnlyList<AIAgent>> ResolveAgentsAsync(CancellationToken cancellationToken)
     {
-        var activity = _telemetrySource.ActivitySource.StartActivity();
+        using var activity = _telemetrySource.ActivitySource.StartActivity();
         if (_agentProvider is not null)
             return _agentProvider.GetAgentsAsync(cancellationToken);
 
