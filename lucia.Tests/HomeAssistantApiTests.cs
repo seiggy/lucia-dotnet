@@ -2,6 +2,10 @@ using lucia.HomeAssistant.Services;
 
 namespace lucia.Tests;
 
+// Tests in this class require a live Home Assistant instance configured via
+// HA_ENDPOINT and HA_TOKEN. They are excluded from CI via [Trait("Category","LiveEval")]
+// and only run when explicitly requested with --filter "Category=LiveEval".
+[Trait("Category", "LiveEval")]
 public class HomeAssistantApiTests
 {
     private readonly HomeAssistantClient? _client;

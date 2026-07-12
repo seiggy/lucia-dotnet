@@ -66,3 +66,20 @@ WyomingSession integration test pattern for feature flag validation:
 - Combine both into allAgents list for assertion
 
 - Participated in 2026-05-29 health review
+
+### Issue #148: Provider-free eval opt-in (2026-07-12)
+
+**Problem:** Behavior-critical routing/aggregation paths were only covered by `Category=Eval` tests that skip under CI placeholder credentials, so regressions in `RouterExecutor` fallback/clarification/normalization and `ResultAggregatorExecutor` composition were invisible to ordinary CI.
+
+**What changed:**
+- `RouterExecutorFallbackTests.cs` (new, 7 tests) — deterministic coverage of: no-agents fallback, unknown-agent fallback, confidence-below-threshold clarification, max-retry exhaustion, NormalizeAdditionalAgents filtering/dedup, OriginalUserText propagation.
+- `ResultAggregatorExecutorTests.cs` (new, 13 test cases) — deterministic coverage of: single success, empty-content template, single failure format, multi-failure format, mixed success+failure, empty-responses fallback, NeedsInput flag, multi-success join, priority ordering, agent name title-casing.
+- `HomeAssistantApiTests.cs` — added `[Trait("Category","LiveEval")]` at class level to make the HA-live opt-in explicit (previously silently skipped).
+- `squad-ci.yml` — added `&Category!=LiveEval` to the CI filter so HA live tests are excluded by policy, not just luck.
+
+**Key decisions:**
+- Reused `StubChatClient`, `AgentsTelemetrySource`, `FakeItEasy` fakes — no new infrastructure.
+- `DurableTaskPersistenceTests` left as-is (Docker/Redis available in CI, not credential-gated, tests pass).
+- All 20 new tests pass in < 1 second total; CI test count 1124 → 1130, skipped 21 → 7.
+- Slopwatch: not installed as local tool; manual checks confirmed no disabled tests, warning suppressions, empty catch blocks, or arbitrary delays.
+- One class per file maintained.
