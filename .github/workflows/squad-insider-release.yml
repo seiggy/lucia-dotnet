@@ -4,7 +4,8 @@ name: Squad Insider Release
 on:
   push:
     tags:
-      - 'v[0-9]*.[0-9]*.[0-9]*'  # Semantic version tags (matches docker-build-push.yml)
+      - 'v*-preview*'  # preview channel pre-releases
+      - 'v*-insider*'  # insider channel pre-releases
 
 permissions:
   contents: write
@@ -13,7 +14,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
 
@@ -39,8 +40,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ github.ref_name }}"
-          if [[ "$VERSION" != *-preview* && "$VERSION" != *-insider* ]]; then
-            echo "ℹ️ $VERSION is a stable tag — handled by squad-release.yml"
+          # Require exact vMAJOR.MINOR.PATCH-(preview|insider) prefix — reject stable tags and unrecognized formats
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-(preview|insider) ]]; then
+            echo "ℹ️ $VERSION is not a recognized insider/preview tag — skipping"
             exit 0
           fi
           if gh release view "$VERSION" >/dev/null 2>&1; then

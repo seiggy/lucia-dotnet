@@ -5,6 +5,7 @@ on:
   push:
     tags:
       - 'v[0-9]*.[0-9]*.[0-9]*'  # Semantic version tags (matches docker-build-push.yml)
+      - '!v*-*'                   # Exclude prerelease/suffixed tags at trigger level; runtime guard below enforces exact semver
 
 permissions:
   contents: write
@@ -13,7 +14,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
 
@@ -39,8 +40,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ github.ref_name }}"
-          if [[ "$VERSION" == *-preview* || "$VERSION" == *-insider* ]]; then
-            echo "ℹ️ $VERSION is a pre-release tag — handled by squad-insider-release.yml"
+          # Require exact vMAJOR.MINOR.PATCH — no suffix, no prerelease, no malformed tags
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "ℹ️ $VERSION is not a stable release tag — skipping"
             exit 0
           fi
           if gh release view "$VERSION" >/dev/null 2>&1; then
