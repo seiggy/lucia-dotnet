@@ -10,7 +10,7 @@ public static class OrchestrationTelemetry
     /// <summary>
     /// ActivitySource for orchestration tracing.
     /// </summary>
-    public static readonly ActivitySource Source = new("Lucia.Orchestration", "1.0.0");
+    public static readonly ActivitySource Source = new("lucia.Orchestration", "1.0.0");
     
     /// <summary>
     /// Standard tag names for orchestration activities.
