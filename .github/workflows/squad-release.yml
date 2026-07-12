@@ -16,19 +16,37 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Build and test
+      - name: Set up .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: '10.x'
+
+      - name: Restore dependencies
+        run: dotnet restore lucia-dotnet.slnx
+
+      - name: Build
+        run: dotnet build lucia-dotnet.slnx --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test lucia.Tests --no-build --configuration Release --filter "Category!=Eval&Category!=Integration" --logger "console;verbosity=normal"
+
+      - name: Test EvalHarness (provider-free)
+        run: dotnet test lucia.EvalHarness.Tests --no-build --configuration Release --logger "console;verbosity=normal"
+
+      - name: Extract version from git tag
+        id: version
         run: |
-          # TODO: Add your dotnet build/test commands here
-          # Go:            go test ./...
-          # Python:        pip install -r requirements.txt && pytest
-          # .NET:          dotnet test
-          # Java (Maven):  mvn test
-          # Java (Gradle): ./gradlew test
-          echo "No build commands configured — update squad-release.yml"
+          VERSION=$(git describe --tags --always)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # TODO: Add your release commands here (e.g., git tag, gh release create)
-          echo "No release commands configured — update squad-release.yml"
+          VERSION="${{ steps.version.outputs.version }}"
+          if [[ "$VERSION" == v* ]]; then
+            gh release create "$VERSION" --generate-notes --latest
+            echo "✅ Created release $VERSION"
+          else
+            echo "ℹ️ No git tag found — skipping release creation"
+          fi
