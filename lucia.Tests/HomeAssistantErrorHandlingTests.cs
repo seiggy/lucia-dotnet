@@ -66,7 +66,7 @@ public class HomeAssistantErrorHandlingTests
     private void SkipIfNotConfigured() =>
         Skip.If(!HomeAssistantTestConfig.IsConfigured, "HA_ENDPOINT and HA_TOKEN not configured.");
 
-    [SkippableFact]
+    [SkippableFact, Trait("Category", "LiveEval")]
     public async Task GetStatesAsync_WithInvalidToken_ShouldThrowUnauthorized()
     {
         SkipIfNotConfigured();
@@ -75,7 +75,7 @@ public class HomeAssistantErrorHandlingTests
         Assert.Contains("401", exception.Message);
     }
 
-    [SkippableFact]
+    [SkippableFact, Trait("Category", "LiveEval")]
     public async Task GetStateAsync_WithInvalidToken_ShouldThrowUnauthorized()
     {
         SkipIfNotConfigured();
@@ -84,7 +84,7 @@ public class HomeAssistantErrorHandlingTests
         Assert.Contains("401", exception.Message);
     }
 
-    [SkippableFact]
+    [SkippableFact, Trait("Category", "LiveEval")]
     public async Task GetConfigAsync_WithInvalidToken_ShouldThrowUnauthorized()
     {
         SkipIfNotConfigured();
@@ -93,7 +93,7 @@ public class HomeAssistantErrorHandlingTests
         Assert.Contains("401", exception.Message);
     }
 
-    [SkippableFact]
+    [SkippableFact, Trait("Category", "LiveEval")]
     public async Task CallServiceAsync_WithInvalidToken_ShouldThrowUnauthorized()
     {
         SkipIfNotConfigured();
@@ -126,7 +126,7 @@ public class HomeAssistantErrorHandlingTests
             $"Expected HttpRequestException or TaskCanceledException, but got {exception.GetType().Name}");
     }
 
-    [SkippableFact]
+    [SkippableFact, Trait("Category", "LiveEval")]
     public async Task CallServiceAsync_WithInvalidDomain_ShouldThrowHttpRequestException()
     {
         SkipIfNotConfigured();
@@ -137,7 +137,7 @@ public class HomeAssistantErrorHandlingTests
         Assert.Contains("400", exception.Message);
     }
 
-    [SkippableFact]
+    [SkippableFact, Trait("Category", "LiveEval")]
     public async Task GetStateAsync_WithNonExistentEntity_ShouldReturnNull()
     {
         SkipIfNotConfigured();
@@ -147,7 +147,7 @@ public class HomeAssistantErrorHandlingTests
         Assert.Null(result);
     }
 
-    [SkippableFact]
+    [SkippableFact, Trait("Category", "LiveEval")]
     public async Task FireEventAsync_WithInvalidEventType_ShouldStillSucceed()
     {
         SkipIfNotConfigured();
