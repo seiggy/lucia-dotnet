@@ -157,11 +157,13 @@ public sealed class ParameterSweepRunner
         var baselineAllRuns = new List<IReadOnlyList<ModelEvalResult>>(runsPerCombination);
         for (var runIndex = 0; runIndex < runsPerCombination; runIndex++)
         {
-            // Derive a seed for each baseline run when BaseSeed is configured
-            var baselineRunProfile = sweepConfig.BaseSeed.HasValue
-                ? ModelParameterProfile.Default with
-                  { Seed = SweepRunAggregator.DeriveRunSeed(sweepConfig.BaseSeed, runIndex) }
-                : ModelParameterProfile.Default;
+            // Derive a per-run baseline seed. DeriveRunSeed returns null when
+            // BaseSeed is null, so an explicit caller opt-out propagates to the
+            // baseline runs too instead of falling back to the profile's default seed.
+            var baselineRunProfile = ModelParameterProfile.Default with
+            {
+                Seed = SweepRunAggregator.DeriveRunSeed(sweepConfig.BaseSeed, runIndex)
+            };
 
             var run = await EvalAsync(baselineModel, agentNames, testCaseLoader,
                 maxCasesPerAgent, baselineRunProfile, ct);
