@@ -187,10 +187,13 @@ if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 
+    // Scalar API reference is development-only; production security comes from
+    // route absence rather than runtime authorization checks.
+    app.MapScalarApiReference();
+
     app.UseHttpsRedirection();
 }
 
-app.MapScalarApiReference();
 app.UseForwardedHeaders();
 
 app.MapAgentPlugins();

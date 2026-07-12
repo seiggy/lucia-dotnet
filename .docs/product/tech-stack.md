@@ -92,6 +92,7 @@
 - **Framework:** xUnit
 - **Mocking:** FakeItEasy
 - **Integration:** Aspire.Hosting.Testing
+- **Host integration:** Microsoft.AspNetCore.Mvc.Testing (WebApplicationFactory) for in-process host-boot tests
 
 ### CI/CD Pipeline
 - **Platform:** GitHub Actions

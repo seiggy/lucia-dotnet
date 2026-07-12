@@ -17,6 +17,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="FakeItEasy" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
@@ -72,6 +73,7 @@
     <ProjectReference Include="..\lucia.TimerAgent\lucia.TimerAgent.csproj" />
     <ProjectReference Include="..\lucia.Wyoming\lucia.Wyoming.csproj" />
     <ProjectReference Include="..\lucia.Data\lucia.Data.csproj" />
+    <ProjectReference Include="..\lucia.A2AHost\lucia.A2AHost.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="AgentTests\" />

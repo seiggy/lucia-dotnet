@@ -418,10 +418,16 @@ await using (var seedScope = app.Services.CreateAsyncScope())
 foreach (var initializable in app.Services.GetServices<IAsyncInitializable>())
     await initializable.InitializeAsync(CancellationToken.None).ConfigureAwait(false);
 
-app.MapOpenApi()
-    .CacheOutput();
+// API documentation (OpenAPI + Scalar) is development-only. In non-development
+// environments these routes are never mapped, so production security comes from
+// route absence rather than runtime authorization checks.
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi()
+        .CacheOutput();
 
-app.MapScalarApiReference();
+    app.MapScalarApiReference();
+}
 
 app.UseForwardedHeaders();
 app.UseAntiforgery();
