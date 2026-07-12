@@ -19,6 +19,20 @@
 
 ## Learnings
 
+### 2026-07-12: Orchestration span disposal — using var closes all exit paths (branch: squad/165-dispose-orchestration-spans)
+
+`LuciaEngine.ProcessRequestAsync` and `WorkflowFactory.ResolveAgentsAsync` both started an `Activity` with `ActivitySource.StartActivity()` but stored it in a plain `var`, so `Dispose()` was never called on any return or catch path. Disposing an `Activity` is what stops it and fires the listener's stop/export callback, so failing to dispose meant the stop/export callback and the accurate final duration were never emitted.
+
+**Fix:** `var activity` → `using var activity` in both methods. The C# compiler lowers `using var` into a try/finally that calls `Dispose()` at every exit point, including early returns and exceptions. Two characters changed per file, zero logic altered.
+
+**Note:** `WorkflowFactory.ExecuteWorkflowAsync` already used `using var activity` correctly — no change needed there.
+
+**Pre-commit hook:** The repo `.githooks/pre-commit` runs `dotnet build` on every commit; the hook passed clean (0 warnings, 0 errors).
+
+**Key files:**
+- `lucia.Agents/Orchestration/LuciaEngine.cs` — `ProcessRequestAsync` line 63
+- `lucia.Agents/Orchestration/WorkflowFactory.cs` — `ResolveAgentsAsync` line 86
+
 ### 2026-06-01: InputRequired Task Timeout — Background Sweeper
 
 **Task system location:** `TaskState.InputRequired` is set in `lucia.Agents/Orchestration/LuciaEngine.cs:188` when `workflowResult.NeedsInput == true`. State is persisted via `ITaskStore` (A2A package) — backed in production by `ArchivingTaskStore → RedisTaskStore` (`lucia.Agents/Integration/RedisTaskStore.cs`).
