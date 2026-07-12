@@ -3,7 +3,8 @@ name: Squad Insider Release
 
 on:
   push:
-    branches: [insider]
+    tags:
+      - 'v[0-9]*.[0-9]*.[0-9]*'  # Semantic version tags (matches docker-build-push.yml)
 
 permissions:
   contents: write
@@ -33,22 +34,18 @@ jobs:
       - name: Test EvalHarness (provider-free)
         run: dotnet test lucia.EvalHarness.Tests --no-build --configuration Release --logger "console;verbosity=normal"
 
-      - name: Extract version from git tag
-        id: version
-        run: |
-          VERSION=$(git describe --tags --always)
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Create insider release
+      - name: Create insider pre-release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          if [[ "$VERSION" == v*-preview* ]] || [[ "$VERSION" == v*-insider* ]]; then
+          VERSION="${{ github.ref_name }}"
+          if [[ "$VERSION" != *-preview* && "$VERSION" != *-insider* ]]; then
+            echo "ℹ️ $VERSION is a stable tag — handled by squad-release.yml"
+            exit 0
+          fi
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "ℹ️ Pre-release $VERSION already exists — skipping (idempotent)"
+          else
             gh release create "$VERSION" --generate-notes --prerelease
             echo "✅ Created insider pre-release $VERSION"
-          elif [[ "$VERSION" == v* ]]; then
-            echo "ℹ️ Tag is not a preview/insider tag — skipping insider release"
-          else
-            echo "ℹ️ No git tag found — skipping release creation"
           fi
