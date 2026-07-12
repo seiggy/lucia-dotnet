@@ -14,7 +14,7 @@ namespace lucia.Agents.Orchestration;
 /// </summary>
 public sealed class AgentDispatchExecutor : Executor
 {
-    private static readonly ActivitySource DispatchActivitySource = new("Lucia.AgentDispatch", "1.0.0");
+    private static readonly ActivitySource DispatchActivitySource = new("lucia.AgentDispatch", "1.0.0");
     private const string OriginalUserTextPropertyName = "lucia.originalUserText";
     private const string ClarificationSystemPrompt =
         """
