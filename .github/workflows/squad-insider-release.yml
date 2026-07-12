@@ -3,7 +3,9 @@ name: Squad Insider Release
 
 on:
   push:
-    branches: [insider]
+    tags:
+      - 'v*-preview*'  # preview channel pre-releases
+      - 'v*-insider*'  # insider channel pre-releases
 
 permissions:
   contents: write
@@ -12,23 +14,42 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
 
-      - name: Build and test
-        run: |
-          # TODO: Add your dotnet build/test commands here
-          # Go:            go test ./...
-          # Python:        pip install -r requirements.txt && pytest
-          # .NET:          dotnet test
-          # Java (Maven):  mvn test
-          # Java (Gradle): ./gradlew test
-          echo "No build commands configured — update squad-insider-release.yml"
+      - name: Set up .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: '10.x'
 
-      - name: Create insider release
+      - name: Restore dependencies
+        run: dotnet restore lucia-dotnet.slnx
+
+      - name: Build
+        run: dotnet build lucia-dotnet.slnx --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test lucia.Tests --no-build --configuration Release --filter "Category!=Eval&Category!=Integration" --logger "console;verbosity=normal"
+
+      - name: Test EvalHarness (provider-free)
+        run: dotnet test lucia.EvalHarness.Tests --no-build --configuration Release --logger "console;verbosity=normal"
+
+      - name: Create insider pre-release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # TODO: Add your insider/pre-release commands here
-          echo "No release commands configured — update squad-insider-release.yml"
+          VERSION="${{ github.ref_name }}"
+          # Require exact vMAJOR.MINOR.PATCH-(preview|insider) with an optional dotted numeric suffix
+          # (e.g. v1.2.0-preview / v1.2.0-preview.14). Fully anchored to reject stable tags, arbitrary
+          # suffixes (v1.2.3-previewBAD, -insiderfoo), and malformed suffixes (-preview., -preview..1, -preview-1).
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-(preview|insider)(\.[0-9]+)?$ ]]; then
+            echo "ℹ️ $VERSION is not a recognized insider/preview tag — skipping"
+            exit 0
+          fi
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "ℹ️ Pre-release $VERSION already exists — skipping (idempotent)"
+          else
+            gh release create "$VERSION" --generate-notes --prerelease
+            echo "✅ Created insider pre-release $VERSION"
+          fi
