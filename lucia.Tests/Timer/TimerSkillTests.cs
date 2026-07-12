@@ -205,6 +205,89 @@ public sealed class TimerSkillTests
             .MustHaveHappenedOnceExactly();
     }
 
+    [Fact]
+    public async Task SetTimerAsync_PropagatesCallerToken_ToRepository()
+    {
+        using var cts = new CancellationTokenSource();
+
+        await _skill.SetTimerAsync(120, "Token flows", "assist_satellite.kitchen", cts.Token);
+
+        A.CallTo(() => _taskRepository.UpsertAsync(
+            A<ScheduledTaskDocument>._,
+            A<CancellationToken>.That.IsEqualTo(cts.Token)))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task SetTimerAsync_PropagatesCallerToken_ToEntityLocationService()
+    {
+        using var cts = new CancellationTokenSource();
+
+        // A bare location name (no dot) forces resolution via the entity location service.
+        await _skill.SetTimerAsync(120, "Locate me", "office", cts.Token);
+
+        A.CallTo(() => _entityLocationService.FindEntitiesByLocationAsync(
+            "office",
+            A<IReadOnlyList<string>?>._,
+            A<CancellationToken>.That.IsEqualTo(cts.Token)))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task SetTimerAsync_CallerCancelled_RepositoryOce_IsNotSwallowed()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        A.CallTo(() => _taskRepository.UpsertAsync(A<ScheduledTaskDocument>._, A<CancellationToken>._))
+            .ThrowsAsync(new OperationCanceledException(cts.Token));
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => _skill.SetTimerAsync(120, "Cancel me", "assist_satellite.kitchen", cts.Token));
+
+        // Caller cancellation must abort — the timer is not silently created in-memory.
+        Assert.Equal(0, _skill.ActiveTimerCount);
+    }
+
+    [Fact]
+    public async Task SetTimerAsync_NonCallerOce_IsSwallowed_TimerRunsInMemory()
+    {
+        // A repository OCE that is NOT the caller's cancellation (e.g. Mongo internal timeout)
+        // must be treated as a persistence failure and fall back to the in-memory timer.
+        A.CallTo(() => _taskRepository.UpsertAsync(A<ScheduledTaskDocument>._, A<CancellationToken>._))
+            .ThrowsAsync(new OperationCanceledException());
+
+        var result = await _skill.SetTimerAsync(120, "Fallback", "assist_satellite.kitchen", CancellationToken.None);
+
+        Assert.Contains("set for", result);
+        Assert.Equal(1, _skill.ActiveTimerCount);
+    }
+
+    [Fact]
+    public async Task CancelTimerAsync_PropagatesCallerToken_ToRepository()
+    {
+        var setResult = await _skill.SetTimerAsync(300, "Cancel me", "assist_satellite.kitchen");
+        var timerId = ExtractTimerId(setResult);
+        using var cts = new CancellationTokenSource();
+
+        await _skill.CancelTimerAsync(timerId, cts.Token);
+
+        A.CallTo(() => _taskRepository.UpdateStatusAsync(
+            timerId,
+            ScheduledTaskStatus.Cancelled,
+            A<CancellationToken>.That.IsEqualTo(cts.Token)))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task ListTimers_CallerCancelled_Throws()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => _skill.ListTimers(cts.Token));
+    }
+
     /// <summary>
     /// Extracts the timer ID from a SetTimer result string like "Timer 'abc12345' set for ...".
     /// </summary>

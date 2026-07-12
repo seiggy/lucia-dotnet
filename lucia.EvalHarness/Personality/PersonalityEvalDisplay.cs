@@ -21,9 +21,12 @@ public static class PersonalityEvalDisplay
         string judgeModelName,
         IReadOnlyList<PersonalityEvalScenario> scenarios,
         IReadOnlyList<PersonalityProfile> selectedProfiles,
+        TimeSpan agentTimeout,
+        TimeSpan judgeTimeout,
+        TimeProvider? timeProvider = null,
         CancellationToken ct = default)
     {
-        var runner = new PersonalityEvalRunner();
+        var runner = new PersonalityEvalRunner(agentTimeout, judgeTimeout, timeProvider);
         var reports = new List<PersonalityEvalReport>();
         var totalCombinations = PersonalityEvalRunner.CountCombinations(scenarios, selectedProfiles);
 

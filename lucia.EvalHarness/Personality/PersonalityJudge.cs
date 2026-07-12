@@ -1,4 +1,5 @@
 using System.Text.Json;
+using lucia.EvalHarness.Infrastructure;
 using Microsoft.Extensions.AI;
 
 namespace lucia.EvalHarness.Personality;
@@ -34,11 +35,15 @@ public sealed class PersonalityJudge
         """;
 
     private readonly IChatClient _judgeChatClient;
+    private readonly TimeSpan _judgeTimeout;
+    private readonly TimeProvider _timeProvider;
     private readonly string? _traceDir;
 
-    public PersonalityJudge(IChatClient judgeChatClient, string? traceOutputDir = null)
+    public PersonalityJudge(IChatClient judgeChatClient, TimeSpan judgeTimeout, string? traceOutputDir = null, TimeProvider? timeProvider = null)
     {
         _judgeChatClient = judgeChatClient;
+        _judgeTimeout = judgeTimeout;
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _traceDir = traceOutputDir;
         if (_traceDir is not null)
             Directory.CreateDirectory(_traceDir);
@@ -61,11 +66,26 @@ public sealed class PersonalityJudge
 
         try
         {
-            var response = await _judgeChatClient.GetResponseAsync(messages, cancellationToken: ct);
+            var response = await LlmDeadline.RunAsync(
+                token => _judgeChatClient.GetResponseAsync(messages, cancellationToken: token),
+                _judgeTimeout, _timeProvider, ct,
+                $"Judge call exceeded the {_judgeTimeout.TotalSeconds:0}s deadline for scenario '{scenarioId ?? "unknown"}'.");
             var text = response.Text ?? string.Empty;
             var result = ParseJudgeResponse(text);
             DumpTrace(scenarioId, formattedTrace, text, null);
             return result;
+        }
+        catch (TimeoutException tex)
+        {
+            DumpTrace(scenarioId, formattedTrace, null, tex);
+            return new JudgeResult
+            {
+                PersonalityScore = 0,
+                PersonalityReason = $"Judge call timed out: {tex.Message}",
+                MeaningScore = 0,
+                MeaningReason = $"Judge call timed out: {tex.Message}",
+                TimedOut = true
+            };
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
