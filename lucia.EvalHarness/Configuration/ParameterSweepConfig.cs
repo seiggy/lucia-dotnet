@@ -59,9 +59,10 @@ public sealed class ParameterSweepConfig
     /// Optional base seed for deterministic sweeps. When set, each generated
     /// combination receives <c>Seed = BaseSeed + comboIndex * RunsPerCombination</c>,
     /// and the sweep runner offsets that by run index so every individual run is
-    /// reproducible yet distinct. When null (default), runs are non-deterministic.
+    /// reproducible yet distinct. Defaults to <see cref="ModelParameterProfile.DefaultSeed"/>
+    /// so sweeps are deterministic by default. Set to null to opt out of seeding.
     /// </summary>
-    public int? BaseSeed { get; set; }
+    public int? BaseSeed { get; set; } = ModelParameterProfile.DefaultSeed;
 
     /// <summary>
     /// Generates the parameter combinations to test, applying <see cref="MaxCombinations"/> limit.
