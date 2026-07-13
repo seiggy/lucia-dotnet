@@ -1,4 +1,6 @@
+using System.ClientModel;
 using System.Diagnostics;
+using Azure;
 using System.Text.Json;
 using lucia.EvalHarness.Evaluation;
 using Microsoft.Extensions.AI;
@@ -139,7 +141,8 @@ public sealed class PersonalityEvalRunner
             llmResponse = response.Text ?? string.Empty;
         }
         catch (Exception exception)
-            when (JudgeAvailability.TryClassify(exception, ct, out var status))
+            when (exception is HttpRequestException or RequestFailedException or ClientResultException or TimeoutException ||
+                  exception is OperationCanceledException && !ct.IsCancellationRequested)
         {
             sw.Stop();
             return new PersonalityScenarioResult
@@ -153,7 +156,7 @@ public sealed class PersonalityEvalRunner
                 Score = null,
                 LlmResponse = string.Empty,
                 DurationMs = sw.ElapsedMilliseconds,
-                ErrorMessage = status == JudgeAvailability.Timeout
+                ErrorMessage = exception is OperationCanceledException or TimeoutException
                     ? "Model provider request timed out."
                     : "Model provider request failed."
             };

@@ -6,9 +6,9 @@ public sealed class ModelEvalResult
 {
     public required string ModelName { get; init; }
     public required string AgentName { get; init; }
-    public required double ToolSelectionScore { get; init; }
-    public required double ToolSuccessScore { get; init; }
-    public required double ToolEfficiencyScore { get; init; }
+    public required double? ToolSelectionScore { get; init; }
+    public required double? ToolSuccessScore { get; init; }
+    public required double? ToolEfficiencyScore { get; init; }
     public required double? TaskCompletionScore { get; init; }
     public string? TaskCompletionStatus { get; init; }
     public string? TaskCompletionReason { get; init; }

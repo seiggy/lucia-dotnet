@@ -14,8 +14,9 @@ public static class JudgeClientFactory
 
         var hasEndpoint = !string.IsNullOrWhiteSpace(settings.Endpoint);
         var hasApiKey = !string.IsNullOrWhiteSpace(settings.ApiKey);
+        var hasDeployment = !string.IsNullOrWhiteSpace(settings.JudgeDeployment);
 
-        if (!hasEndpoint && !hasApiKey)
+        if (!hasEndpoint && !hasApiKey && !hasDeployment)
         {
             return null;
         }
@@ -32,7 +33,7 @@ public static class JudgeClientFactory
                 "AzureOpenAI.Endpoint must be a valid absolute URI.");
         }
 
-        if (string.IsNullOrWhiteSpace(settings.JudgeDeployment))
+        if (!hasDeployment)
         {
             throw new InvalidOperationException(
                 "AzureOpenAI.JudgeDeployment is required when judge configuration is present.");

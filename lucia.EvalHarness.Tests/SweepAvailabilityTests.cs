@@ -46,6 +46,11 @@ public sealed class SweepAvailabilityTests
             Assert.Contains("No winner", markdown, StringComparison.Ordinal);
             Assert.Contains("\"bestConfigStatus\": \"unavailable\"", json, StringComparison.Ordinal);
             Assert.Contains("\"scoreStatus\": \"unavailable\"", json, StringComparison.Ordinal);
+            using var document = System.Text.Json.JsonDocument.Parse(json);
+            var configElement = document.RootElement.GetProperty("targets")[0].GetProperty("allConfigs")[0];
+            Assert.False(configElement.TryGetProperty("scoreVariance", out _));
+            Assert.False(configElement.TryGetProperty("scoreStdDev", out _));
+            Assert.False(configElement.TryGetProperty("averageLatencyMs", out _));
         }
         finally
         {
@@ -63,5 +68,37 @@ public sealed class SweepAvailabilityTests
         ];
 
         Assert.Equal(50, SweepRunAggregator.ComputeMean(runs));
+    }
+
+    [Fact]
+    public void SweepEntry_AllUnavailable_HasNoVarianceOrLatency()
+    {
+        var entry = new SweepEntry
+        {
+            Profile = new ModelParameterProfile { Name = "unavailable" },
+            Results = [EvalResultFactory.Create(null)],
+            AllRunResults =
+            [
+                [EvalResultFactory.Create(null)],
+                [EvalResultFactory.Create(null)]
+            ]
+        };
+
+        Assert.True((object?)entry.ScoreVariance is null);
+        Assert.True((object?)entry.ScoreStdDev is null);
+        Assert.True((object?)entry.AverageLatencyMs is null);
+    }
+
+    [Fact]
+    public void SweepEntry_GenuineZero_HasMeasuredZeroVariance()
+    {
+        var entry = new SweepEntry
+        {
+            Profile = new ModelParameterProfile { Name = "zero" },
+            Results = [EvalResultFactory.Create(0)],
+            AllRunResults = [[EvalResultFactory.Create(0)]]
+        };
+
+        Assert.Equal(0, entry.ScoreVariance);
     }
 }

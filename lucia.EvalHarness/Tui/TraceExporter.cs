@@ -49,7 +49,9 @@ public static class TraceExporter
                         Failed = modelResult.TestCaseCount - modelResult.PassedCount,
                         OverallScore = modelResult.OverallScore,
                         OverallScoreStatus = modelResult.OverallScoreStatus,
-                        MeanLatencyMs = modelResult.Performance.MeanLatency.TotalMilliseconds
+                        MeanLatencyMs = modelResult.Performance.RunCount > 0
+                            ? modelResult.Performance.MeanLatency.TotalMilliseconds
+                            : null
                     },
                     TestCases = modelResult.TestCaseResults.Select(tc => new TraceTestCase
                     {
@@ -102,8 +104,11 @@ public static class TraceExporter
 
                 foreach (var tc in modelResult.TestCaseResults)
                 {
-                    var icon = tc.Passed ? "[green]\u2713[/]" : "[red]\u2717[/]";
-                    AnsiConsole.MarkupLine($"  {icon} [bold]{Markup.Escape(tc.TestCaseId)}[/] (score: {tc.Score:F0}, {tc.Latency.TotalMilliseconds:F0}ms)");
+                    var icon = tc.Score.HasValue
+                        ? tc.Passed ? "[green]\u2713[/]" : "[red]\u2717[/]"
+                        : "[dim]?[/]";
+                    var score = tc.Score.HasValue ? $"{tc.Score.Value:F0}" : "N/A";
+                    AnsiConsole.MarkupLine($"  {icon} [bold]{Markup.Escape(tc.TestCaseId)}[/] (score: {score}, {tc.Latency.TotalMilliseconds:F0}ms)");
 
                     if (tc.ConversationHistory is { Count: > 0 })
                     {

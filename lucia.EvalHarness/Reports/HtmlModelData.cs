@@ -17,13 +17,13 @@ public sealed class HtmlModelData
     public string? OverallScoreReason { get; init; }
 
     [JsonPropertyName("toolSelectionScore")]
-    public double ToolSelectionScore { get; init; }
+    public double? ToolSelectionScore { get; init; }
 
     [JsonPropertyName("toolSuccessScore")]
-    public double ToolSuccessScore { get; init; }
+    public double? ToolSuccessScore { get; init; }
 
     [JsonPropertyName("toolEfficiencyScore")]
-    public double ToolEfficiencyScore { get; init; }
+    public double? ToolEfficiencyScore { get; init; }
 
     [JsonPropertyName("taskCompletionScore")]
     public double? TaskCompletionScore { get; init; }

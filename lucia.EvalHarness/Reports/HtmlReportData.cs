@@ -80,9 +80,9 @@ public sealed class HtmlReportData
                                 RepeatPenalty = pg.First().ParameterProfile!.RepeatPenalty
                             },
                             AvgOverall = Average(pg.Select(m => m.OverallScore)),
-                            AvgToolSelection = pg.Average(m => m.ToolSelectionScore),
-                            AvgToolSuccess = pg.Average(m => m.ToolSuccessScore),
-                            AvgToolEfficiency = pg.Average(m => m.ToolEfficiencyScore),
+                            AvgToolSelection = Average(pg.Select(m => m.ToolSelectionScore)),
+                            AvgToolSuccess = Average(pg.Select(m => m.ToolSuccessScore)),
+                            AvgToolEfficiency = Average(pg.Select(m => m.ToolEfficiencyScore)),
                             AvgTaskCompletion = Average(pg.Select(m => m.TaskCompletionScore)),
                             PassRate = pg.Sum(m => m.TestCaseCount) > 0
                                 ? (double)pg.Sum(m => m.PassedCount) / pg.Sum(m => m.TestCaseCount)

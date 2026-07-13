@@ -1,6 +1,7 @@
-using System.IO;
 using System.Net.Http;
 using System.Text.Json;
+using Azure;
+using System.ClientModel;
 
 namespace lucia.EvalHarness.Evaluation;
 
@@ -39,21 +40,19 @@ public static class JudgeAvailability
             return true;
         }
 
-        if (Contains<TimeoutException>(exception))
+        if (exception is TimeoutException)
         {
             status = Timeout;
             return true;
         }
 
-        if (Contains<JsonException>(exception) || Contains<FormatException>(exception))
+        if (exception is JsonException or FormatException)
         {
             status = InvalidResponse;
             return true;
         }
 
-        if (Contains<HttpRequestException>(exception) ||
-            Contains<IOException>(exception) ||
-            ContainsProviderSdkException(exception))
+        if (exception is HttpRequestException or ClientResultException or RequestFailedException)
         {
             status = ProviderError;
             return true;
@@ -62,30 +61,4 @@ public static class JudgeAvailability
         return false;
     }
 
-    private static bool Contains<TException>(Exception exception)
-        where TException : Exception
-    {
-        for (Exception? current = exception; current is not null; current = current.InnerException)
-        {
-            if (current is TException)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static bool ContainsProviderSdkException(Exception exception)
-    {
-        for (Exception? current = exception; current is not null; current = current.InnerException)
-        {
-            if (current.GetType().Name is "ClientResultException" or "RequestFailedException")
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
 }

@@ -70,9 +70,9 @@ public static class ProfileComparisonRenderer
                 table.AddRow(
                     $"{Markup.Escape(pr.ProfileName)}{marker}",
                     $"[{color}]{FormatScore(pr.AvgOverall)}[/]",
-                    $"{pr.AvgToolSelection:F1}",
-                    $"{pr.AvgToolSuccess:F1}",
-                    $"{pr.AvgToolEfficiency:F1}",
+                    FormatScore(pr.AvgToolSelection),
+                    FormatScore(pr.AvgToolSuccess),
+                    FormatScore(pr.AvgToolEfficiency),
                     $"{FormatScore(pr.AvgTaskCompletion)}",
                     $"{pr.PassRate:P0}",
                     FormatMs(pr.AvgLatencyMs));
@@ -137,8 +137,8 @@ public static class ProfileComparisonRenderer
                 var star = delta.HasValue && Math.Abs(delta.Value) < 0.01 ? " \u2b50" : "";
                 sb.AppendLine(
                     $"| {pr.ProfileName}{star} | {FormatScore(pr.AvgOverall)} | " +
-                    $"{pr.AvgToolSelection:F1} | {pr.AvgToolSuccess:F1} | " +
-                    $"{pr.AvgToolEfficiency:F1} | {FormatScore(pr.AvgTaskCompletion)} | " +
+                    $"{FormatScore(pr.AvgToolSelection)} | {FormatScore(pr.AvgToolSuccess)} | " +
+                    $"{FormatScore(pr.AvgToolEfficiency)} | {FormatScore(pr.AvgTaskCompletion)} | " +
                     $"{pr.PassRate:P0} | {FormatMs(pr.AvgLatencyMs)} | " +
                     $"{FormatDelta(delta)} |");
             }
@@ -238,9 +238,9 @@ public static class ProfileComparisonRenderer
                         ProfileName = profileGroup.Key,
                         Profile = profileGroup.First().ParameterProfile!,
                         AvgOverall = Average(profileGroup.Select(m => m.OverallScore)),
-                        AvgToolSelection = profileGroup.Average(m => m.ToolSelectionScore),
-                        AvgToolSuccess = profileGroup.Average(m => m.ToolSuccessScore),
-                        AvgToolEfficiency = profileGroup.Average(m => m.ToolEfficiencyScore),
+                        AvgToolSelection = Average(profileGroup.Select(m => m.ToolSelectionScore)),
+                        AvgToolSuccess = Average(profileGroup.Select(m => m.ToolSuccessScore)),
+                        AvgToolEfficiency = Average(profileGroup.Select(m => m.ToolEfficiencyScore)),
                         AvgTaskCompletion = Average(profileGroup.Select(m => m.TaskCompletionScore)),
                         TotalPassed = profileGroup.Sum(m => m.PassedCount),
                         TotalTests = profileGroup.Sum(m => m.TestCaseCount),

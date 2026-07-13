@@ -25,17 +25,16 @@ public static class SweepRunAggregator
     /// Low variance indicates the combination is stable; high variance means
     /// the result is noisy and the mean is less trustworthy.
     /// </summary>
-    public static double ComputeVariance(IReadOnlyList<IReadOnlyList<ModelEvalResult>> allRunResults)
+    public static double? ComputeVariance(IReadOnlyList<IReadOnlyList<ModelEvalResult>> allRunResults)
     {
-        if (allRunResults.Count < 2)
-            return 0.0;
-
         var runMeans = allRunResults
             .Select(run => run.Select(result => result.OverallScore).OfType<double>().ToList())
             .Where(scores => scores.Count > 0)
             .Select(scores => scores.Average())
             .ToList();
-        if (runMeans.Count < 2)
+        if (runMeans.Count == 0)
+            return null;
+        if (runMeans.Count == 1)
             return 0.0;
 
         var mean = runMeans.Average();
@@ -64,7 +63,7 @@ public static class SweepRunAggregator
         entries
             .Where(entry => entry.MeanScore.HasValue)
             .OrderByDescending(e => e.MeanScore)
-            .ThenBy(e => e.ScoreVariance)
+            .ThenBy(e => e.ScoreVariance ?? double.MaxValue)
             .FirstOrDefault();
 
     /// <summary>

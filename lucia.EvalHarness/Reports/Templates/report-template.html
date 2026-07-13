@@ -236,13 +236,13 @@ function modelSummaries() {
   (data.agents||[]).forEach(a => (a.models||[]).forEach(m => {
     if (!map[m.modelName]) map[m.modelName] = { scores: [], latencies: [], name: m.modelName, passed: 0, total: 0 };
     if (m.overallScore != null) map[m.modelName].scores.push(m.overallScore);
-    map[m.modelName].latencies.push(m.performance?.meanLatencyMs ?? 0);
+    if (m.overallScore != null && m.performance?.meanLatencyMs != null) map[m.modelName].latencies.push(m.performance.meanLatencyMs);
     map[m.modelName].passed += m.passedCount ?? 0;
     map[m.modelName].total  += m.testCaseCount ?? 0;
   }));
   Object.values(map).forEach(v => {
     v.avgScore   = v.scores.length ? v.scores.reduce((a,b)=>a+b,0) / v.scores.length : null;
-    v.avgLatency = v.latencies.reduce((a,b)=>a+b,0) / v.latencies.length;
+    v.avgLatency = v.latencies.length ? v.latencies.reduce((a,b)=>a+b,0) / v.latencies.length : null;
   });
   return map;
 }
@@ -253,7 +253,7 @@ function bestModel() {
 }
 function fastestModel() {
   const m = modelSummaries();
-  return Object.values(m).sort((a,b)=>a.avgLatency - b.avgLatency)[0];
+  return Object.values(m).filter(x => x.avgLatency != null).sort((a,b)=>a.avgLatency - b.avgLatency)[0];
 }
 
 function totalStats() {
@@ -525,7 +525,7 @@ function renderAgentModels(agent, ai) {
   return (agent.models||[]).map((model, mi) => {
     const pr = model.performance || {};
     const tc = model.testCases || [];
-    const passRate = model.testCaseCount ? ((model.passedCount / model.testCaseCount) * 100) : 0;
+    const passRate = model.testCaseCount ? ((model.passedCount / model.testCaseCount) * 100) : null;
 
     return `
     <div class="mt-4 ${mi > 0 ? 'pt-4' : ''}" ${mi > 0 ? 'style="border-top:1px solid var(--c-border)"' : ''}>
@@ -537,15 +537,15 @@ function renderAgentModels(agent, ai) {
       <!-- Scores row -->
       <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 mb-4">
         ${[
-          ['Overall', model.overallScore],
-          ['Tool Select', model.toolSelectionScore],
-          ['Tool Success', model.toolSuccessScore],
-          ['Tool Efficiency', model.toolEfficiencyScore],
+          ['Overall', model.overallScore, model.overallScoreStatus],
+          ['Tool Select', model.toolSelectionScore, model.overallScoreStatus],
+          ['Tool Success', model.toolSuccessScore, model.overallScoreStatus],
+          ['Tool Efficiency', model.toolEfficiencyScore, model.overallScoreStatus],
           ['Task Completion', model.taskCompletionScore, model.taskCompletionStatus],
           ['Pass Rate', passRate],
         ].map(([label, val, status]) => `
           <div class="rounded-lg px-3 py-2 text-center" style="background:var(--c-surface2)">
-            <div class="text-lg font-bold font-mono" style="color:${scoreHsl(val,1)}">${label === 'Task Completion' ? fmtScore(val, status) : fmtNum(val,1)}</div>
+            <div class="text-lg font-bold font-mono" style="color:${scoreHsl(val,1)}">${fmtScore(val, status)}</div>
             <div class="text-[10px] uppercase tracking-wider mt-0.5" style="color:var(--c-text3)">${label}</div>
           </div>
         `).join('')}

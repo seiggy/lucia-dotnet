@@ -20,5 +20,5 @@ internal sealed class TraceSummary
     public string? OverallScoreStatus { get; init; }
 
     [JsonPropertyName("mean_latency_ms")]
-    public required double MeanLatencyMs { get; init; }
+    public required double? MeanLatencyMs { get; init; }
 }

@@ -15,7 +15,7 @@ public static class ReportExporter
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
-        DefaultIgnoreCondition = JsonIgnoreCondition.Never,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         Converters = { new TimeSpanJsonConverter() }
     };
 
@@ -122,7 +122,7 @@ public static class ReportExporter
             foreach (var m in agentResult.ModelResults.OrderByDescending(m => m.OverallScore))
             {
                 var passRate = m.TestCaseCount > 0 ? (double)m.PassedCount / m.TestCaseCount : 0;
-                sb.AppendLine($"| {m.ModelName} | {passRate:P0} | {FormatScore(m.OverallScore, m.OverallScoreStatus)} | {m.ToolSelectionScore:F1} | {m.ToolSuccessScore:F1} | {m.ToolEfficiencyScore:F1} | {FormatScore(m.TaskCompletionScore, m.TaskCompletionStatus)} | {FormatMs(m.Performance.MeanLatency.TotalMilliseconds)} |");
+                sb.AppendLine($"| {m.ModelName} | {passRate:P0} | {FormatScore(m.OverallScore, m.OverallScoreStatus)} | {FormatScore(m.ToolSelectionScore, m.OverallScoreStatus)} | {FormatScore(m.ToolSuccessScore, m.OverallScoreStatus)} | {FormatScore(m.ToolEfficiencyScore, m.OverallScoreStatus)} | {FormatScore(m.TaskCompletionScore, m.TaskCompletionStatus)} | {FormatMs(m.Performance.MeanLatency.TotalMilliseconds)} |");
             }
             sb.AppendLine();
 

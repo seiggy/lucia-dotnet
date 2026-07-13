@@ -85,7 +85,7 @@ public static class SweepReportGenerator
                 .Where(entry => entry.MeanScore.HasValue)
                 .OrderBy(entry => entry.MeanScore)
                 .First();
-            sb.AppendLine($"- **Best config:** {bestEntry.Profile.ToSummary()} -> **{FormatScore(bestEntry.MeanScore)}** (delta from baseline mean: {FormatDelta(bestEntry.MeanScore, baselineMean)}, σ={bestEntry.ScoreStdDev:F2})");
+            sb.AppendLine($"- **Best config:** {bestEntry.Profile.ToSummary()} -> **{FormatScore(bestEntry.MeanScore)}** (delta from baseline mean: {FormatDelta(bestEntry.MeanScore, baselineMean)}, σ={FormatNumber(bestEntry.ScoreStdDev)})");
             sb.AppendLine($"- **Worst config:** {worstEntry.Profile.ToSummary()} -> **{FormatScore(worstEntry.MeanScore)}**");
             sb.AppendLine($"- **Score range:** {FormatScore(worstEntry.MeanScore)} - {FormatScore(bestEntry.MeanScore)}");
             sb.AppendLine();
@@ -95,14 +95,14 @@ public static class SweepReportGenerator
             sb.AppendLine("|---|-------------|-------|-------|--------|------------|---|---------------------|-------------|");
 
             var rank = 1;
-            foreach (var entry in entries.OrderByDescending(e => e.MeanScore).ThenBy(e => e.ScoreVariance))
+            foreach (var entry in entries.OrderByDescending(e => e.MeanScore).ThenBy(e => e.ScoreVariance ?? double.MaxValue))
             {
                 var delta = FormatDelta(entry.MeanScore, baselineMean);
                 var marker = entry == bestEntry ? " *" : "";
                 sb.AppendLine(
                     $"| {rank++}{marker} | {entry.Profile.Temperature} | {entry.Profile.TopK} | " +
                     $"{entry.Profile.TopP} | {entry.Profile.RepeatPenalty} | " +
-                    $"{FormatScore(entry.MeanScore)} | {entry.ScoreStdDev:F2} | {delta} | {entry.AverageLatencyMs:F0}ms |");
+                    $"{FormatScore(entry.MeanScore)} | {FormatNumber(entry.ScoreStdDev)} | {delta} | {FormatLatency(entry.AverageLatencyMs)} |");
             }
             sb.AppendLine();
 
@@ -175,7 +175,7 @@ public static class SweepReportGenerator
             bestConfigStatus = SweepRunAggregator.SelectWinner(kvp.Value) is null
                 ? "unavailable"
                 : "available",
-            allConfigs = kvp.Value.OrderByDescending(e => e.MeanScore).ThenBy(e => e.ScoreVariance).Select(e => new
+            allConfigs = kvp.Value.OrderByDescending(e => e.MeanScore).ThenBy(e => e.ScoreVariance ?? double.MaxValue).Select(e => new
             {
                 parameters = new
                 {
@@ -239,4 +239,10 @@ public static class SweepReportGenerator
 
     private static string FormatPercent(double? percentage) =>
         percentage.HasValue ? $"{percentage.Value:F0}%" : "N/A";
+
+    private static string FormatNumber(double? value) =>
+        value.HasValue ? value.Value.ToString("F2") : "N/A";
+
+    private static string FormatLatency(double? milliseconds) =>
+        milliseconds.HasValue ? $"{milliseconds.Value:F0}ms" : "N/A";
 }

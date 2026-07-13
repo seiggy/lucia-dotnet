@@ -111,7 +111,7 @@ public sealed class ParameterSweepAggregationTests
     {
         var allRuns = Runs(Run(75.0), Run(75.0), Run(75.0));
         var variance = SweepRunAggregator.ComputeVariance(allRuns);
-        Assert.Equal(0.0, variance, precision: 6);
+        Assert.Equal(0.0, variance!.Value, precision: 6);
     }
 
     [Fact]

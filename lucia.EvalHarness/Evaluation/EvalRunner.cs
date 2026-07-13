@@ -1,7 +1,9 @@
+using System.ClientModel;
 using AgentEval.Core;
 using AgentEval.MAF;
 using AgentEval.Metrics.Agentic;
 using AgentEval.Models;
+using Azure;
 using lucia.Agents.Abstractions;
 using lucia.EvalHarness.Configuration;
 using lucia.EvalHarness.Providers;
@@ -112,7 +114,8 @@ public sealed class EvalRunner
                 perfSnapshots.Add(perf);
             }
             catch (Exception exception)
-                when (JudgeAvailability.TryClassify(exception, ct, out var status))
+                when (exception is HttpRequestException or RequestFailedException or ClientResultException or TimeoutException ||
+                      exception is OperationCanceledException && !ct.IsCancellationRequested)
             {
                 testCaseResults.Add(new TestCaseResult
                 {
@@ -120,7 +123,7 @@ public sealed class EvalRunner
                     Passed = false,
                     Score = null,
                     Latency = TimeSpan.Zero,
-                    FailureReason = status == JudgeAvailability.Timeout
+                    FailureReason = exception is OperationCanceledException or TimeoutException
                         ? "Agent provider request timed out."
                         : "Agent provider request failed.",
                     Input = tc.Input
@@ -213,9 +216,9 @@ public sealed class EvalRunner
         {
             ModelName = modelName,
             AgentName = agentInstance.AgentName,
-            ToolSelectionScore = Average(metricScores["tool_selection"]),
-            ToolSuccessScore = Average(metricScores["tool_success"]),
-            ToolEfficiencyScore = Average(metricScores["tool_efficiency"]),
+            ToolSelectionScore = AverageOrNull(metricScores["tool_selection"]),
+            ToolSuccessScore = AverageOrNull(metricScores["tool_success"]),
+            ToolEfficiencyScore = AverageOrNull(metricScores["tool_efficiency"]),
             TaskCompletionScore = AverageOrNull(metricScores["task_completion"]),
             TaskCompletionStatus = taskCompletionStatus,
             TaskCompletionReason = taskCompletionStatus is null
@@ -226,7 +229,7 @@ public sealed class EvalRunner
             OverallScoreReason = allMetricScores.Count > 0
                 ? null
                 : JudgeAvailability.Reason(JudgeAvailability.Unavailable),
-            TestCaseCount = testCases.Count,
+            TestCaseCount = metricScores["tool_selection"].Count,
             PassedCount = testCaseResults.Count(r => r.Passed),
             Performance = perfSummary,
             TestCaseResults = testCaseResults,
@@ -250,9 +253,6 @@ public sealed class EvalRunner
             new ToolEfficiencyMetric()
         ];
     }
-
-    private static double Average(List<double> values) =>
-        values.Count > 0 ? values.Average() : 0;
 
     private IAgenticMetric? CreateJudgeMetric() =>
         _judgeChatClient is null
@@ -436,15 +436,19 @@ public sealed class EvalRunner
                     FailureReason = validation.Passed ? null : validation.Summary
                 });
             }
-            catch (Exception ex)
+            catch (Exception exception)
+                when (exception is HttpRequestException or RequestFailedException or ClientResultException or TimeoutException ||
+                      exception is OperationCanceledException && !ct.IsCancellationRequested)
             {
                 testCaseResults.Add(new TestCaseResult
                 {
                     TestCaseId = scenario.Id,
                     Passed = false,
-                    Score = 0,
+                    Score = null,
                     Latency = TimeSpan.Zero,
-                    FailureReason = ex.Message,
+                    FailureReason = exception is OperationCanceledException or TimeoutException
+                        ? "Provider request timed out."
+                        : "Provider request failed.",
                     Input = scenario.UserPrompt
                 });
             }
@@ -462,9 +466,9 @@ public sealed class EvalRunner
         {
             ModelName = modelName,
             AgentName = agentInstance.AgentName,
-            ToolSelectionScore = aggregateScore ?? 0,
-            ToolSuccessScore = aggregateScore ?? 0,
-            ToolEfficiencyScore = aggregateScore ?? 0,
+            ToolSelectionScore = aggregateScore,
+            ToolSuccessScore = aggregateScore,
+            ToolEfficiencyScore = aggregateScore,
             TaskCompletionScore = aggregateScore,
             TaskCompletionStatus = aggregateScore.HasValue ? null : JudgeAvailability.Unavailable,
             TaskCompletionReason = aggregateScore.HasValue
@@ -475,7 +479,7 @@ public sealed class EvalRunner
             OverallScoreReason = aggregateScore.HasValue
                 ? null
                 : JudgeAvailability.Reason(JudgeAvailability.Unavailable),
-            TestCaseCount = scenarios.Count,
+            TestCaseCount = scores.Count,
             PassedCount = passedCount,
             Performance = perfSummary,
             TestCaseResults = testCaseResults,
