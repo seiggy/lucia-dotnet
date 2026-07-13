@@ -65,11 +65,12 @@ public static class BackendComparisonRenderer
             table.AddEmptyRow();
             var qualityRow = new List<string> { "[dim]Overall Score[/]" };
             var scores = backendResults.Select(br => br.AvgOverall).ToList();
-            var bestScore = scores.Max();
+            var bestScore = scores.OfType<double>().DefaultIfEmpty().Max();
             foreach (var br in backendResults)
             {
-                var color = Math.Abs(br.AvgOverall - bestScore) < 0.01 ? "green" : "dim";
-                qualityRow.Add($"[{color}]{br.AvgOverall:F1}[/]");
+                var color = br.AvgOverall.HasValue &&
+                    Math.Abs(br.AvgOverall.Value - bestScore) < 0.01 ? "green" : "dim";
+                qualityRow.Add($"[{color}]{FormatScore(br.AvgOverall)}[/]");
             }
             qualityRow.Add(FormatScoreDelta(backendResults));
             table.AddRow(qualityRow.ToArray());
@@ -112,7 +113,7 @@ public static class BackendComparisonRenderer
 
             // Quality row
             sb.Append("| **Overall Score** |");
-            foreach (var br in backendResults) sb.Append($" {br.AvgOverall:F1} |");
+            foreach (var br in backendResults) sb.Append($" {FormatScore(br.AvgOverall)} |");
             sb.AppendLine($" {FormatScoreDeltaPlain(backendResults)} |");
 
             sb.AppendLine();
@@ -207,7 +208,11 @@ public static class BackendComparisonRenderer
     private static string FormatScoreDelta(List<BackendAggregation> backends)
     {
         if (backends.Count != 2) return "";
-        var delta = backends[0].AvgOverall - backends[1].AvgOverall;
+        var first = backends[0].AvgOverall;
+        var second = backends[1].AvgOverall;
+        if (!first.HasValue || !second.HasValue)
+            return "[dim]N/A[/]";
+        var delta = first.Value - second.Value;
         if (Math.Abs(delta) < 0.1) return "[dim]—[/]";
         var winner = delta > 0 ? backends[0].BackendName : backends[1].BackendName;
         return $"[green]{Markup.Escape(winner)} +{Math.Abs(delta):F1}[/]";
@@ -216,7 +221,11 @@ public static class BackendComparisonRenderer
     private static string FormatScoreDeltaPlain(List<BackendAggregation> backends)
     {
         if (backends.Count != 2) return "";
-        var delta = backends[0].AvgOverall - backends[1].AvgOverall;
+        var first = backends[0].AvgOverall;
+        var second = backends[1].AvgOverall;
+        if (!first.HasValue || !second.HasValue)
+            return "N/A";
+        var delta = first.Value - second.Value;
         if (Math.Abs(delta) < 0.1) return "—";
         var winner = delta > 0 ? backends[0].BackendName : backends[1].BackendName;
         return $"{winner} +{Math.Abs(delta):F1}";
@@ -259,7 +268,7 @@ public static class BackendComparisonRenderer
                         return new BackendAggregation
                         {
                             BackendName = backendGroup.Key,
-                            AvgOverall = results.Average(r => r.OverallScore),
+                            AvgOverall = Average(results.Select(result => result.OverallScore)),
                             TotalPassed = results.Sum(r => r.PassedCount),
                             TotalTests = results.Sum(r => r.TestCaseCount),
                             Performance = new ModelPerformanceSummary
@@ -280,4 +289,13 @@ public static class BackendComparisonRenderer
     }
 
     private static string FormatMs(double ms) => ms >= 1000 ? $"{ms / 1000:F1}s" : $"{ms:F0}ms";
+
+    private static string FormatScore(double? score) =>
+        score.HasValue ? score.Value.ToString("F1") : "N/A";
+
+    private static double? Average(IEnumerable<double?> scores)
+    {
+        var available = scores.OfType<double>().ToList();
+        return available.Count > 0 ? available.Average() : null;
+    }
 }

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using lucia.EvalHarness.Evaluation;
 using Microsoft.Extensions.AI;
 
 namespace lucia.EvalHarness.Personality;
@@ -33,10 +34,10 @@ public sealed class PersonalityJudge
         {"personalityScore": <1-5>, "personalityReason": "<1 sentence>", "meaningScore": <1-5>, "meaningReason": "<1 sentence>"}
         """;
 
-    private readonly IChatClient _judgeChatClient;
+    private readonly IChatClient? _judgeChatClient;
     private readonly string? _traceDir;
 
-    public PersonalityJudge(IChatClient judgeChatClient, string? traceOutputDir = null)
+    public PersonalityJudge(IChatClient? judgeChatClient, string? traceOutputDir = null)
     {
         _judgeChatClient = judgeChatClient;
         _traceDir = traceOutputDir;
@@ -59,6 +60,11 @@ public sealed class PersonalityJudge
             new(ChatRole.User, formattedTrace)
         };
 
+        if (_judgeChatClient is null)
+        {
+            return Unavailable(JudgeAvailability.NotConfigured);
+        }
+
         try
         {
             var response = await _judgeChatClient.GetResponseAsync(messages, cancellationToken: ct);
@@ -67,16 +73,11 @@ public sealed class PersonalityJudge
             DumpTrace(scenarioId, formattedTrace, text, null);
             return result;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception exception)
+            when (JudgeAvailability.TryClassify(exception, ct, out var status))
         {
-            DumpTrace(scenarioId, formattedTrace, null, ex);
-            return new JudgeResult
-            {
-                PersonalityScore = 0,
-                PersonalityReason = $"Judge call failed: {ex.Message}",
-                MeaningScore = 0,
-                MeaningReason = $"Judge call failed: {ex.Message}"
-            };
+            DumpTrace(scenarioId, formattedTrace, null, exception);
+            return Unavailable(status);
         }
     }
 
@@ -107,9 +108,10 @@ public sealed class PersonalityJudge
                 """;
             File.WriteAllText(path, content);
         }
-        catch
+        catch (Exception exception)
+            when (exception is IOException or UnauthorizedAccessException or System.Security.SecurityException)
         {
-            // Don't let trace dumping crash the eval
+            Console.Error.WriteLine($"Personality judge trace could not be written: {exception.GetType().Name}");
         }
     }
 
@@ -121,52 +123,64 @@ public sealed class PersonalityJudge
 
         if (jsonStart < 0 || jsonEnd < 0 || jsonEnd <= jsonStart)
         {
-            return new JudgeResult
-            {
-                PersonalityScore = 0,
-                PersonalityReason = "Judge returned unparseable response",
-                MeaningScore = 0,
-                MeaningReason = $"Raw response: {Truncate(text, 200)}"
-            };
+            return Unavailable(JudgeAvailability.InvalidResponse);
         }
 
         var json = text[jsonStart..(jsonEnd + 1)];
 
         try
         {
-            var result = JsonSerializer.Deserialize<JudgeResult>(json);
-            if (result is null)
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+            if (root.ValueKind is not JsonValueKind.Object ||
+                !TryReadScore(root, "personalityScore", out var personalityScore) ||
+                !TryReadScore(root, "meaningScore", out var meaningScore) ||
+                !TryReadReason(root, "personalityReason", out var personalityReason) ||
+                !TryReadReason(root, "meaningReason", out var meaningReason))
             {
-                return new JudgeResult
-                {
-                    PersonalityScore = 0,
-                    PersonalityReason = "Judge returned null JSON",
-                    MeaningScore = 0,
-                    MeaningReason = "Judge returned null JSON"
-                };
+                return Unavailable(JudgeAvailability.InvalidResponse);
             }
 
-            // Clamp scores to valid range
-            result.PersonalityScore = Math.Clamp(result.PersonalityScore, 0, 5);
-            result.MeaningScore = Math.Clamp(result.MeaningScore, 0, 5);
-            return result;
+            return new JudgeResult
+            {
+                PersonalityScore = personalityScore,
+                PersonalityReason = personalityReason,
+                MeaningScore = meaningScore,
+                MeaningReason = meaningReason
+            };
         }
         catch (JsonException)
         {
-            return new JudgeResult
-            {
-                PersonalityScore = 0,
-                PersonalityReason = "Judge returned invalid JSON",
-                MeaningScore = 0,
-                MeaningReason = $"Raw JSON: {Truncate(json, 200)}"
-            };
+            return Unavailable(JudgeAvailability.InvalidResponse);
         }
     }
 
-    private static string Truncate(string text, int maxLength)
+    private static bool TryReadScore(JsonElement root, string propertyName, out int score)
     {
-        if (string.IsNullOrEmpty(text))
-            return string.Empty;
-        return text.Length <= maxLength ? text : text[..maxLength] + "\u2026";
+        score = 0;
+        return root.TryGetProperty(propertyName, out var element) &&
+            element.ValueKind is JsonValueKind.Number &&
+            element.TryGetInt32(out score) &&
+            score is >= 1 and <= 5;
     }
+
+    private static bool TryReadReason(JsonElement root, string propertyName, out string reason)
+    {
+        reason = string.Empty;
+        if (!root.TryGetProperty(propertyName, out var element) ||
+            element.ValueKind is not JsonValueKind.String)
+        {
+            return false;
+        }
+
+        reason = element.GetString() ?? string.Empty;
+        return !string.IsNullOrWhiteSpace(reason);
+    }
+
+    private static JudgeResult Unavailable(string status) =>
+        new()
+        {
+            Status = status,
+            UnavailableReason = JudgeAvailability.Reason(status)
+        };
 }

@@ -78,14 +78,7 @@ public static class ReportRenderer
                     continue;
                 }
 
-                var score = modelResult.OverallScore;
-                var color = score switch
-                {
-                    >= 80 => "green",
-                    >= 60 => "yellow",
-                    _ => "red"
-                };
-                row.Add($"[{color}]{score:F1}[/]");
+                row.Add(ScoreCell(modelResult.OverallScore));
             }
 
             table.AddRow(row.ToArray());
@@ -109,16 +102,11 @@ public static class ReportRenderer
                         "TaskCompletionScore" => m.TaskCompletionScore,
                         _ => 0
                     })
-                    .DefaultIfEmpty(0)
                     .Average();
 
-                var color = avgScore switch
-                {
-                    >= 80 => "green",
-                    >= 60 => "yellow",
-                    _ => "red"
-                };
-                row.Add($"[dim {color}]{avgScore:F1}[/]");
+                row.Add(avgScore.HasValue
+                    ? $"[dim]{ScoreCell(avgScore)}[/]"
+                    : "[dim]N/A[/]");
             }
             table.AddRow(row.ToArray());
         }
@@ -241,6 +229,7 @@ public static class ReportRenderer
                 TotalPassed = g.Sum(m => m.PassedCount),
                 TotalTests = g.Sum(m => m.TestCaseCount)
             })
+            .Where(model => model.AvgScore.HasValue)
             .ToList();
 
         // Best quality
@@ -270,15 +259,18 @@ public static class ReportRenderer
         AnsiConsole.WriteLine();
     }
 
-    private static string ScoreCell(double score)
+    private static string ScoreCell(double? score)
     {
-        var color = score switch
+        if (!score.HasValue)
+            return "[dim]N/A[/]";
+
+        var color = score.Value switch
         {
             >= 80 => "green",
             >= 60 => "yellow",
             _ => "red"
         };
-        return $"[{color}]{score:F1}[/]";
+        return $"[{color}]{score.Value:F1}[/]";
     }
 
     private static string FormatMs(double ms)

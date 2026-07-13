@@ -48,6 +48,7 @@ public static class TraceExporter
                         Passed = modelResult.PassedCount,
                         Failed = modelResult.TestCaseCount - modelResult.PassedCount,
                         OverallScore = modelResult.OverallScore,
+                        OverallScoreStatus = modelResult.OverallScoreStatus,
                         MeanLatencyMs = modelResult.Performance.MeanLatency.TotalMilliseconds
                     },
                     TestCases = modelResult.TestCaseResults.Select(tc => new TraceTestCase
@@ -55,6 +56,8 @@ public static class TraceExporter
                         Id = tc.TestCaseId,
                         Passed = tc.Passed,
                         Score = tc.Score,
+                        JudgeStatus = tc.JudgeStatus,
+                        JudgeReason = tc.JudgeReason,
                         LatencyMs = tc.Latency.TotalMilliseconds,
                         FailureReason = tc.FailureReason,
                         Conversation = tc.ConversationHistory?.Select(turn => new TraceConversationTurn
@@ -179,98 +182,4 @@ public static class TraceExporter
 
     private static string SanitizeFileName(string name) =>
         string.Concat(name.Select(c => char.IsLetterOrDigit(c) || c == '-' || c == '_' ? c : '_'));
-}
-
-// ── Trace document models ─────────────────────────────────────────
-
-file sealed class TraceDocument
-{
-    [JsonPropertyName("model")]
-    public required string Model { get; init; }
-
-    [JsonPropertyName("agent")]
-    public required string Agent { get; init; }
-
-    [JsonPropertyName("timestamp")]
-    public required DateTimeOffset Timestamp { get; init; }
-
-    [JsonPropertyName("summary")]
-    public required TraceSummary Summary { get; init; }
-
-    [JsonPropertyName("test_cases")]
-    public required List<TraceTestCase> TestCases { get; init; }
-}
-
-file sealed class TraceSummary
-{
-    [JsonPropertyName("total_tests")]
-    public required int TotalTests { get; init; }
-
-    [JsonPropertyName("passed")]
-    public required int Passed { get; init; }
-
-    [JsonPropertyName("failed")]
-    public required int Failed { get; init; }
-
-    [JsonPropertyName("overall_score")]
-    public required double OverallScore { get; init; }
-
-    [JsonPropertyName("mean_latency_ms")]
-    public required double MeanLatencyMs { get; init; }
-}
-
-file sealed class TraceTestCase
-{
-    [JsonPropertyName("id")]
-    public required string Id { get; init; }
-
-    [JsonPropertyName("passed")]
-    public required bool Passed { get; init; }
-
-    [JsonPropertyName("score")]
-    public required double Score { get; init; }
-
-    [JsonPropertyName("latency_ms")]
-    public required double LatencyMs { get; init; }
-
-    [JsonPropertyName("failure_reason")]
-    public string? FailureReason { get; init; }
-
-    [JsonPropertyName("conversation")]
-    public required List<TraceConversationTurn> Conversation { get; init; }
-}
-
-sealed class TraceConversationTurn
-{
-    [JsonPropertyName("role")]
-    public required string Role { get; init; }
-
-    [JsonPropertyName("content")]
-    public string? Content { get; init; }
-
-    [JsonPropertyName("tool_calls")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<TraceConversationToolCall>? ToolCalls { get; init; }
-
-    [JsonPropertyName("tool_call_id")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? ToolCallId { get; init; }
-
-    [JsonPropertyName("tool_name")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? ToolName { get; init; }
-}
-
-sealed class TraceConversationToolCall
-{
-    [JsonPropertyName("call_id")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? CallId { get; init; }
-
-    [JsonPropertyName("name")]
-    public required string Name { get; init; }
-
-    [JsonPropertyName("arguments")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public Dictionary<string, string?>? Arguments { get; init; }
 }

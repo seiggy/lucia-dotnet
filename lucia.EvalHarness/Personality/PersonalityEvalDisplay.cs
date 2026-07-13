@@ -1,6 +1,7 @@
 using Microsoft.Extensions.AI;
 using OllamaSharp;
 using Spectre.Console;
+using lucia.EvalHarness.Evaluation;
 
 namespace lucia.EvalHarness.Personality;
 
@@ -17,7 +18,7 @@ public static class PersonalityEvalDisplay
     public static async Task<IReadOnlyList<PersonalityEvalReport>> RunWithProgressAsync(
         string ollamaEndpoint,
         IReadOnlyList<string> selectedModels,
-        IChatClient judgeChatClient,
+        IChatClient? judgeChatClient,
         string judgeModelName,
         IReadOnlyList<PersonalityEvalScenario> scenarios,
         IReadOnlyList<PersonalityProfile> selectedProfiles,
@@ -107,42 +108,27 @@ public static class PersonalityEvalDisplay
 
         foreach (var group in profileGroups)
         {
-            var scored = group.Where(r => r.JudgeResult is not null).ToList();
-            var personalityAvg = scored.Count > 0
-                ? scored.Average(r => r.JudgeResult!.PersonalityScore)
-                : 0.0;
-            var meaningAvg = scored.Count > 0
-                ? scored.Average(r => r.JudgeResult!.MeaningScore)
-                : 0.0;
-            var combinedAvg = scored.Count > 0
-                ? scored.Average(r => r.JudgeResult!.CombinedScore)
-                : 0.0;
-
-            var personalityColor = personalityAvg >= 4 ? "green" : personalityAvg >= 3 ? "yellow" : "red";
-            var meaningColor = meaningAvg >= 4 ? "green" : meaningAvg >= 3 ? "yellow" : "red";
-            var combinedColor = combinedAvg >= 4 ? "green" : combinedAvg >= 3 ? "yellow" : "red";
+            var personalityAvg = Average(group.Select(result => result.JudgeResult?.PersonalityScore));
+            var meaningAvg = Average(group.Select(result => result.JudgeResult?.MeaningScore));
+            var combinedAvg = Average(group.Select(result => result.JudgeResult?.CombinedScore));
 
             table.AddRow(
                 Markup.Escape(group.Key.ProfileName),
-                $"[{personalityColor}]{personalityAvg:F1}/5[/]",
-                $"[{meaningColor}]{meaningAvg:F1}/5[/]",
-                $"[{combinedColor}]{combinedAvg:F1}/5[/]");
+                ScoreCell(personalityAvg),
+                ScoreCell(meaningAvg),
+                ScoreCell(combinedAvg));
         }
 
         // Overall row
         var overallPersonality = report.AveragePersonalityScore;
         var overallMeaning = report.AverageMeaningScore;
         var overallCombined = report.AverageCombinedScore;
-        var opColor = overallPersonality >= 4 ? "green" : overallPersonality >= 3 ? "yellow" : "red";
-        var omColor = overallMeaning >= 4 ? "green" : overallMeaning >= 3 ? "yellow" : "red";
-        var ocColor = overallCombined >= 4 ? "green" : overallCombined >= 3 ? "yellow" : "red";
-
         table.AddEmptyRow();
         table.AddRow(
             "[bold]Overall[/]",
-            $"[bold][{opColor}]{overallPersonality:F1}/5[/][/]",
-            $"[bold][{omColor}]{overallMeaning:F1}/5[/][/]",
-            $"[bold][{ocColor}]{overallCombined:F1}/5[/][/]");
+            $"[bold]{ScoreCell(overallPersonality)}[/]",
+            $"[bold]{ScoreCell(overallMeaning)}[/]",
+            $"[bold]{ScoreCell(overallCombined)}[/]");
 
         AnsiConsole.Write(table);
     }
@@ -158,15 +144,13 @@ public static class PersonalityEvalDisplay
 
         foreach (var category in categories)
         {
-            var scored = category.Where(r => r.JudgeResult is not null).ToList();
-            var pAvg = scored.Count > 0 ? scored.Average(r => r.JudgeResult!.PersonalityScore) : 0.0;
-            var mAvg = scored.Count > 0 ? scored.Average(r => r.JudgeResult!.MeaningScore) : 0.0;
-            var combined = scored.Count > 0 ? scored.Average(r => r.JudgeResult!.CombinedScore) : 0.0;
-            var color = combined >= 4 ? "green" : combined >= 3 ? "yellow" : "red";
+            var pAvg = Average(category.Select(result => result.JudgeResult?.PersonalityScore));
+            var mAvg = Average(category.Select(result => result.JudgeResult?.MeaningScore));
+            var combined = Average(category.Select(result => result.JudgeResult?.CombinedScore));
 
             AnsiConsole.MarkupLine(
-                $"  [{color}]{combined,4:F1}/5[/] {Markup.Escape(category.Key)} " +
-                $"[dim](P:{pAvg:F1} M:{mAvg:F1})[/]");
+                $"  {ScoreCell(combined)} {Markup.Escape(category.Key)} " +
+                $"[dim](P:{FormatScore(pAvg)} M:{FormatScore(mAvg)})[/]");
         }
     }
 
@@ -187,27 +171,38 @@ public static class PersonalityEvalDisplay
         foreach (var result in ordered)
         {
             AnsiConsole.WriteLine();
-            var pScore = result.JudgeResult?.PersonalityScore ?? 0;
-            var mScore = result.JudgeResult?.MeaningScore ?? 0;
-            var combined = result.JudgeResult?.CombinedScore ?? 0;
-            var icon = combined >= 4 ? "[green]\u2714[/]" : combined >= 3 ? "[yellow]\u25cf[/]" : "[red]\u2718[/]";
-            var combinedColor = combined >= 4 ? "green" : combined >= 3 ? "yellow" : "red";
+            var pScore = result.JudgeResult?.PersonalityScore;
+            var mScore = result.JudgeResult?.MeaningScore;
+            var combined = result.JudgeResult?.CombinedScore;
+            var icon = combined switch
+            {
+                >= 4 => "[green]\u2714[/]",
+                >= 3 => "[yellow]\u25cf[/]",
+                null => "[dim]?[/]",
+                _ => "[red]\u2718[/]"
+            };
 
             AnsiConsole.MarkupLine(
                 $"  {icon} [bold]{Markup.Escape(result.ScenarioId)}[/] \u00d7 " +
                 $"[yellow]{Markup.Escape(result.ProfileName)}[/] " +
-                $"[{combinedColor}]{combined:F1}/5[/] " +
+                $"{ScoreCell(combined)} " +
                 $"[dim]({result.DurationMs}ms)[/]");
 
             if (result.JudgeResult is not null)
             {
-                var pColor = pScore >= 4 ? "green" : pScore >= 3 ? "yellow" : "red";
-                var mColor = mScore >= 4 ? "green" : mScore >= 3 ? "yellow" : "red";
-
-                AnsiConsole.MarkupLine(
-                    $"     Personality: [{pColor}]{pScore}/5[/] \u2014 {Markup.Escape(result.JudgeResult.PersonalityReason)}");
-                AnsiConsole.MarkupLine(
-                    $"     Meaning:     [{mColor}]{mScore}/5[/] \u2014 {Markup.Escape(result.JudgeResult.MeaningReason)}");
+                if (combined.HasValue)
+                {
+                    AnsiConsole.MarkupLine(
+                        $"     Personality: {ScoreCell(pScore)} \u2014 {Markup.Escape(result.JudgeResult.PersonalityReason ?? string.Empty)}");
+                    AnsiConsole.MarkupLine(
+                        $"     Meaning:     {ScoreCell(mScore)} \u2014 {Markup.Escape(result.JudgeResult.MeaningReason ?? string.Empty)}");
+                }
+                else
+                {
+                    AnsiConsole.MarkupLine(
+                        $"     [dim]N/A ({Markup.Escape(result.JudgeStatus ?? JudgeAvailability.Unavailable)}): " +
+                        $"{Markup.Escape(result.JudgeReason ?? JudgeAvailability.Reason(JudgeAvailability.Unavailable))}[/]");
+                }
             }
 
             if (result.ErrorMessage is not null)
@@ -243,7 +238,7 @@ public static class PersonalityEvalDisplay
             if (result.JudgeResult is not null)
             {
                 AnsiConsole.MarkupLine(
-                    $"     Meaning: [red]{result.JudgeResult.MeaningScore}/5[/] \u2014 {Markup.Escape(result.JudgeResult.MeaningReason)}");
+                    $"     Meaning: [red]{result.JudgeResult.MeaningScore}/5[/] \u2014 {Markup.Escape(result.JudgeResult.MeaningReason ?? string.Empty)}");
             }
 
             if (result.Trace is not null)
@@ -272,16 +267,13 @@ public static class PersonalityEvalDisplay
         foreach (var report in reports)
         {
             var totalMs = report.Results.Sum(r => r.DurationMs);
-            var combinedColor = report.AverageCombinedScore >= 4 ? "green" : report.AverageCombinedScore >= 3 ? "yellow" : "red";
-            var pColor = report.AveragePersonalityScore >= 4 ? "green" : report.AveragePersonalityScore >= 3 ? "yellow" : "red";
-            var mColor = report.AverageMeaningScore >= 4 ? "green" : report.AverageMeaningScore >= 3 ? "yellow" : "red";
             var failColor = report.MeaningFailures.Count > 0 ? "red" : "green";
 
             table.AddRow(
                 Markup.Escape(report.ModelName),
-                $"[{pColor}]{report.AveragePersonalityScore:F1}/5[/]",
-                $"[{mColor}]{report.AverageMeaningScore:F1}/5[/]",
-                $"[{combinedColor}]{report.AverageCombinedScore:F1}/5[/]",
+                ScoreCell(report.AveragePersonalityScore),
+                ScoreCell(report.AverageMeaningScore),
+                ScoreCell(report.AverageCombinedScore),
                 $"[{failColor}]{report.MeaningFailures.Count}[/]",
                 $"{totalMs / 1000.0:F1}s");
         }
@@ -295,4 +287,28 @@ public static class PersonalityEvalDisplay
             return string.Empty;
         return text.Length <= maxLength ? text : text[..maxLength] + "\u2026";
     }
+
+    private static double? Average(IEnumerable<int?> scores)
+    {
+        var available = scores.OfType<int>().ToList();
+        return available.Count > 0 ? available.Average() : null;
+    }
+
+    private static double? Average(IEnumerable<double?> scores)
+    {
+        var available = scores.OfType<double>().ToList();
+        return available.Count > 0 ? available.Average() : null;
+    }
+
+    private static string ScoreCell(double? score)
+    {
+        if (!score.HasValue)
+            return "[dim]N/A[/]";
+
+        var color = score.Value >= 4 ? "green" : score.Value >= 3 ? "yellow" : "red";
+        return $"[{color}]{score.Value:F1}/5[/]";
+    }
+
+    private static string FormatScore(double? score) =>
+        score.HasValue ? score.Value.ToString("F1") : "N/A";
 }

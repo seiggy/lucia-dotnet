@@ -8,7 +8,13 @@ public sealed class HtmlModelData
     public required string ModelName { get; init; }
 
     [JsonPropertyName("overallScore")]
-    public double OverallScore { get; init; }
+    public double? OverallScore { get; init; }
+
+    [JsonPropertyName("overallScoreStatus")]
+    public string? OverallScoreStatus { get; init; }
+
+    [JsonPropertyName("overallScoreReason")]
+    public string? OverallScoreReason { get; init; }
 
     [JsonPropertyName("toolSelectionScore")]
     public double ToolSelectionScore { get; init; }
@@ -20,7 +26,13 @@ public sealed class HtmlModelData
     public double ToolEfficiencyScore { get; init; }
 
     [JsonPropertyName("taskCompletionScore")]
-    public double TaskCompletionScore { get; init; }
+    public double? TaskCompletionScore { get; init; }
+
+    [JsonPropertyName("taskCompletionStatus")]
+    public string? TaskCompletionStatus { get; init; }
+
+    [JsonPropertyName("taskCompletionReason")]
+    public string? TaskCompletionReason { get; init; }
 
     [JsonPropertyName("testCaseCount")]
     public int TestCaseCount { get; init; }

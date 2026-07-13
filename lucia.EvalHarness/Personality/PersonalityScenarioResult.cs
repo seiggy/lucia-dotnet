@@ -15,7 +15,9 @@ public sealed class PersonalityScenarioResult
     /// <summary>
     /// Combined score from LLM judge (1–5 scale, average of personality + meaning).
     /// </summary>
-    public required double Score { get; init; }
+    public required double? Score { get; init; }
+    public string? JudgeStatus { get; init; }
+    public string? JudgeReason { get; init; }
     public required string LlmResponse { get; init; }
     public required long DurationMs { get; init; }
 

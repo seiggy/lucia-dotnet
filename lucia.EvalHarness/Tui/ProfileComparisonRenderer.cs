@@ -53,22 +53,27 @@ public static class ProfileComparisonRenderer
                 .AddColumn(new TableColumn("[bold]Pass Rate[/]").RightAligned())
                 .AddColumn(new TableColumn("[bold]Latency[/]").RightAligned());
 
-            var bestScore = profileResults.Max(p => p.AvgOverall);
+            var bestScore = profileResults
+                .Select(profile => profile.AvgOverall)
+                .OfType<double>()
+                .DefaultIfEmpty()
+                .Max();
 
             foreach (var pr in profileResults.OrderByDescending(p => p.AvgOverall))
             {
-                var isBest = Math.Abs(pr.AvgOverall - bestScore) < 0.01;
+                var isBest = pr.AvgOverall.HasValue &&
+                    Math.Abs(pr.AvgOverall.Value - bestScore) < 0.01;
                 var marker = isBest ? " [green]\u2b50[/]" : "";
                 var color = pr.AvgOverall >= bestScore * 0.95 ? "green"
                     : pr.AvgOverall >= bestScore * 0.8 ? "yellow" : "red";
 
                 table.AddRow(
                     $"{Markup.Escape(pr.ProfileName)}{marker}",
-                    $"[{color}]{pr.AvgOverall:F1}[/]",
+                    $"[{color}]{FormatScore(pr.AvgOverall)}[/]",
                     $"{pr.AvgToolSelection:F1}",
                     $"{pr.AvgToolSuccess:F1}",
                     $"{pr.AvgToolEfficiency:F1}",
-                    $"{pr.AvgTaskCompletion:F1}",
+                    $"{FormatScore(pr.AvgTaskCompletion)}",
                     $"{pr.PassRate:P0}",
                     FormatMs(pr.AvgLatencyMs));
             }
@@ -76,7 +81,9 @@ public static class ProfileComparisonRenderer
             // Variance row
             if (profileResults.Count > 1)
             {
-                var scores = profileResults.Select(p => p.AvgOverall).ToList();
+                var scores = profileResults.Select(p => p.AvgOverall).OfType<double>().ToList();
+                if (scores.Count == 0)
+                    continue;
                 var variance = CalculateVariance(scores);
                 var range = scores.Max() - scores.Min();
                 table.AddEmptyRow();
@@ -105,8 +112,17 @@ public static class ProfileComparisonRenderer
 
         foreach (var (modelName, profileResults) in groups)
         {
-            var bestScore = profileResults.Max(p => p.AvgOverall);
-            var bestProfile = profileResults.First(p => Math.Abs(p.AvgOverall - bestScore) < 0.01);
+            var availableProfiles = profileResults.Where(profile => profile.AvgOverall.HasValue).ToList();
+            if (availableProfiles.Count == 0)
+            {
+                sb.AppendLine($"### {modelName} (scores unavailable)");
+                sb.AppendLine();
+                continue;
+            }
+
+            var bestScore = availableProfiles.Max(profile => profile.AvgOverall!.Value);
+            var bestProfile = availableProfiles.First(
+                profile => Math.Abs(profile.AvgOverall!.Value - bestScore) < 0.01);
 
             sb.AppendLine($"### {modelName} (best: {bestProfile.ProfileName} @ {bestScore:F1})");
             sb.AppendLine();
@@ -115,12 +131,14 @@ public static class ProfileComparisonRenderer
 
             foreach (var pr in profileResults.OrderByDescending(p => p.AvgOverall))
             {
-                var delta = pr.AvgOverall - bestScore;
-                var star = Math.Abs(delta) < 0.01 ? " \u2b50" : "";
+                var delta = pr.AvgOverall.HasValue
+                    ? pr.AvgOverall.Value - bestScore
+                    : (double?)null;
+                var star = delta.HasValue && Math.Abs(delta.Value) < 0.01 ? " \u2b50" : "";
                 sb.AppendLine(
-                    $"| {pr.ProfileName}{star} | {pr.AvgOverall:F1} | " +
+                    $"| {pr.ProfileName}{star} | {FormatScore(pr.AvgOverall)} | " +
                     $"{pr.AvgToolSelection:F1} | {pr.AvgToolSuccess:F1} | " +
-                    $"{pr.AvgToolEfficiency:F1} | {pr.AvgTaskCompletion:F1} | " +
+                    $"{pr.AvgToolEfficiency:F1} | {FormatScore(pr.AvgTaskCompletion)} | " +
                     $"{pr.PassRate:P0} | {FormatMs(pr.AvgLatencyMs)} | " +
                     $"{FormatDelta(delta)} |");
             }
@@ -128,7 +146,9 @@ public static class ProfileComparisonRenderer
             // Statistics
             if (profileResults.Count > 1)
             {
-                var scores = profileResults.Select(p => p.AvgOverall).ToList();
+                var scores = profileResults.Select(p => p.AvgOverall).OfType<double>().ToList();
+                if (scores.Count == 0)
+                    continue;
                 var variance = CalculateVariance(scores);
                 var stdDev = Math.Sqrt(variance);
                 sb.AppendLine();
@@ -179,11 +199,11 @@ public static class ProfileComparisonRenderer
                     .SelectMany(m => m.TestCaseResults)
                     .FirstOrDefault(tc => tc.TestCaseId == tcId);
 
-                if (tcResult is not null)
+                if (tcResult?.Score is { } score)
                 {
                     var icon = tcResult.Passed ? "\u2705" : "\u274c";
                     sb.Append($" {icon} {tcResult.Score:F0} |");
-                    scores.Add(tcResult.Score);
+                    scores.Add(score);
                 }
                 else
                 {
@@ -217,11 +237,11 @@ public static class ProfileComparisonRenderer
                     {
                         ProfileName = profileGroup.Key,
                         Profile = profileGroup.First().ParameterProfile!,
-                        AvgOverall = profileGroup.Average(m => m.OverallScore),
+                        AvgOverall = Average(profileGroup.Select(m => m.OverallScore)),
                         AvgToolSelection = profileGroup.Average(m => m.ToolSelectionScore),
                         AvgToolSuccess = profileGroup.Average(m => m.ToolSuccessScore),
                         AvgToolEfficiency = profileGroup.Average(m => m.ToolEfficiencyScore),
-                        AvgTaskCompletion = profileGroup.Average(m => m.TaskCompletionScore),
+                        AvgTaskCompletion = Average(profileGroup.Select(m => m.TaskCompletionScore)),
                         TotalPassed = profileGroup.Sum(m => m.PassedCount),
                         TotalTests = profileGroup.Sum(m => m.TestCaseCount),
                         AvgLatencyMs = profileGroup.Average(m => m.Performance.MeanLatency.TotalMilliseconds)
@@ -237,12 +257,22 @@ public static class ProfileComparisonRenderer
         return values.Sum(v => (v - mean) * (v - mean)) / (values.Count - 1);
     }
 
+    private static double? Average(IEnumerable<double?> scores)
+    {
+        var available = scores.OfType<double>().ToList();
+        return available.Count > 0 ? available.Average() : null;
+    }
+
     private static string FormatMs(double ms) => ms >= 1000 ? $"{ms / 1000:F1}s" : $"{ms:F0}ms";
 
-    private static string FormatDelta(double delta) => delta switch
+    private static string FormatDelta(double? delta) => delta switch
     {
+        null => "N/A",
         >= -0.01 and <= 0.01 => "\u2014",
         > 0 => $"+{delta:F1}",
         _ => $"{delta:F1}"
     };
+
+    private static string FormatScore(double? score) =>
+        score.HasValue ? score.Value.ToString("F1") : "N/A";
 }

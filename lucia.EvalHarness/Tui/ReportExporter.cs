@@ -15,7 +15,7 @@ public static class ReportExporter
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        DefaultIgnoreCondition = JsonIgnoreCondition.Never,
         Converters = { new TimeSpanJsonConverter() }
     };
 
@@ -78,7 +78,9 @@ public static class ReportExporter
             foreach (var model in allModels)
             {
                 var mr = agentResult.ModelResults.FirstOrDefault(m => m.ModelName == model);
-                sb.Append(mr is not null ? $" {mr.OverallScore:F1} |" : " N/A |");
+                sb.Append(mr is not null
+                    ? $" {FormatScore(mr.OverallScore, mr.OverallScoreStatus)} |"
+                    : " N/A |");
             }
             sb.AppendLine();
         }
@@ -120,7 +122,7 @@ public static class ReportExporter
             foreach (var m in agentResult.ModelResults.OrderByDescending(m => m.OverallScore))
             {
                 var passRate = m.TestCaseCount > 0 ? (double)m.PassedCount / m.TestCaseCount : 0;
-                sb.AppendLine($"| {m.ModelName} | {passRate:P0} | {m.OverallScore:F1} | {m.ToolSelectionScore:F1} | {m.ToolSuccessScore:F1} | {m.ToolEfficiencyScore:F1} | {m.TaskCompletionScore:F1} | {FormatMs(m.Performance.MeanLatency.TotalMilliseconds)} |");
+                sb.AppendLine($"| {m.ModelName} | {passRate:P0} | {FormatScore(m.OverallScore, m.OverallScoreStatus)} | {m.ToolSelectionScore:F1} | {m.ToolSuccessScore:F1} | {m.ToolEfficiencyScore:F1} | {FormatScore(m.TaskCompletionScore, m.TaskCompletionStatus)} | {FormatMs(m.Performance.MeanLatency.TotalMilliseconds)} |");
             }
             sb.AppendLine();
 
@@ -146,10 +148,11 @@ public static class ReportExporter
             .GroupBy(m => m.ModelName)
             .Select(g => (
                 Name: g.Key,
-                AvgScore: g.Average(m => m.OverallScore),
+                AvgScore: Average(g.Select(model => model.OverallScore)),
                 AvgLatencyMs: g.Average(m => m.Performance.MeanLatency.TotalMilliseconds),
                 TotalPassed: g.Sum(m => m.PassedCount),
                 TotalTests: g.Sum(m => m.TestCaseCount)))
+            .Where(model => model.AvgScore.HasValue)
             .ToList();
 
         var best = allModelScores.OrderByDescending(m => m.AvgScore).FirstOrDefault();
@@ -202,7 +205,7 @@ public static class ReportExporter
                 var failure = tc.FailureReason is not null
                     ? Truncate(tc.FailureReason, 80)
                     : "–";
-                sb.AppendLine($"| {i++} | {tc.TestCaseId} | {icon} | {tc.Score:F0} | {FormatMs(tc.Latency.TotalMilliseconds)} | {failure} |");
+                sb.AppendLine($"| {i++} | {tc.TestCaseId} | {icon} | {FormatScore(tc.Score, tc.JudgeStatus)} | {FormatMs(tc.Latency.TotalMilliseconds)} | {failure} |");
             }
             sb.AppendLine();
         }
@@ -224,8 +227,14 @@ public static class ReportExporter
         // Find best score per agent
         foreach (var agentResult in result.AgentResults)
         {
-            var bestScore = agentResult.ModelResults.Max(m => m.OverallScore);
-            var bestModel = agentResult.ModelResults.First(m => m.OverallScore == bestScore).ModelName;
+            var availableResults = agentResult.ModelResults
+                .Where(model => model.OverallScore.HasValue)
+                .ToList();
+            if (availableResults.Count == 0)
+                continue;
+
+            var bestScore = availableResults.Max(model => model.OverallScore!.Value);
+            var bestModel = availableResults.First(model => model.OverallScore == bestScore).ModelName;
 
             sb.AppendLine($"### {agentResult.AgentName} (baseline: {bestModel} @ {bestScore:F1})");
             sb.AppendLine();
@@ -236,13 +245,17 @@ public static class ReportExporter
 
             foreach (var m in agentResult.ModelResults.OrderByDescending(m => m.OverallScore))
             {
-                var delta = m.OverallScore - bestScore;
+                var delta = m.OverallScore.HasValue
+                    ? m.OverallScore.Value - bestScore
+                    : (double?)null;
                 var selDelta = m.ToolSelectionScore - bestResult.ToolSelectionScore;
                 var succDelta = m.ToolSuccessScore - bestResult.ToolSuccessScore;
                 var effDelta = m.ToolEfficiencyScore - bestResult.ToolEfficiencyScore;
-                var compDelta = m.TaskCompletionScore - bestResult.TaskCompletionScore;
+                var compDelta = m.TaskCompletionScore.HasValue && bestResult.TaskCompletionScore.HasValue
+                    ? m.TaskCompletionScore.Value - bestResult.TaskCompletionScore.Value
+                    : (double?)null;
 
-                sb.AppendLine($"| {m.ModelName} | {m.OverallScore:F1} | {FormatDelta(delta)} | {FormatDelta(selDelta)} | {FormatDelta(succDelta)} | {FormatDelta(effDelta)} | {FormatDelta(compDelta)} |");
+                sb.AppendLine($"| {m.ModelName} | {FormatScore(m.OverallScore, m.OverallScoreStatus)} | {FormatDelta(delta)} | {FormatDelta(selDelta)} | {FormatDelta(succDelta)} | {FormatDelta(effDelta)} | {FormatDelta(compDelta)} |");
             }
             sb.AppendLine();
         }
@@ -266,6 +279,10 @@ public static class ReportExporter
                 toolSuccessScore = m.ToolSuccessScore,
                 toolEfficiencyScore = m.ToolEfficiencyScore,
                 taskCompletionScore = m.TaskCompletionScore,
+                taskCompletionStatus = m.TaskCompletionStatus,
+                taskCompletionReason = m.TaskCompletionReason,
+                overallScoreStatus = m.OverallScoreStatus,
+                overallScoreReason = m.OverallScoreReason,
                 testCaseCount = m.TestCaseCount,
                 passedCount = m.PassedCount,
                 modelParameters = m.ParameterProfile is not null ? new
@@ -292,6 +309,8 @@ public static class ReportExporter
                     id = tc.TestCaseId,
                     passed = tc.Passed,
                     score = tc.Score,
+                    judgeStatus = tc.JudgeStatus,
+                    judgeReason = tc.JudgeReason,
                     latencyMs = tc.Latency.TotalMilliseconds,
                     failureReason = tc.FailureReason
                 })
@@ -301,8 +320,9 @@ public static class ReportExporter
 
     private static string FormatMs(double ms) => ms >= 1000 ? $"{ms / 1000:F1}s" : $"{ms:F0}ms";
 
-    private static string FormatDelta(double delta) => delta switch
+    private static string FormatDelta(double? delta) => delta switch
     {
+        null => "N/A",
         0 => "—",
         > 0 => $"+{delta:F1}",
         _ => $"{delta:F1}"
@@ -311,12 +331,14 @@ public static class ReportExporter
     private static string Truncate(string text, int maxLen) =>
         text.Length <= maxLen ? text : text[..maxLen] + "…";
 
-    private sealed class TimeSpanJsonConverter : JsonConverter<TimeSpan>
-    {
-        public override TimeSpan Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-            => TimeSpan.FromMilliseconds(reader.GetDouble());
+    private static string FormatScore(double? score, string? status) =>
+        score.HasValue
+            ? score.Value.ToString("F1")
+            : status is null ? "N/A" : $"N/A ({status})";
 
-        public override void Write(Utf8JsonWriter writer, TimeSpan value, JsonSerializerOptions options)
-            => writer.WriteNumberValue(value.TotalMilliseconds);
+    private static double? Average(IEnumerable<double?> scores)
+    {
+        var available = scores.OfType<double>().ToList();
+        return available.Count > 0 ? available.Average() : null;
     }
 }
