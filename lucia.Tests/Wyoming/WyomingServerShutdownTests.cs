@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using System.Reflection;
 using FakeItEasy;
 using lucia.Wyoming.Stt;
 using lucia.Wyoming.Wyoming;
@@ -90,6 +91,62 @@ public sealed class WyomingServerShutdownTests
     }
 
     [Fact]
+    public async Task StopAsync_SynchronousCancellationCallbackCannotExceedShutdownDeadline()
+    {
+        var (server, services, _, serverLogger, _) = await StartServerAsync(
+            new TestSttSession(new SttResult()));
+        var cancellation = GetServerCancellation(server);
+        using var callbackRelease = new ManualResetEventSlim();
+        var callbackStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var lateFaultObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        A.CallTo(serverLogger)
+            .Where(call =>
+                call.Method.Name == nameof(ILogger.Log)
+                && Equals(call.Arguments[1], new EventId(18004)))
+            .Invokes(_ => lateFaultObserved.TrySetResult());
+        using var registration = cancellation.Token.Register(() =>
+        {
+            callbackStarted.TrySetResult();
+            callbackRelease.Wait();
+            throw new InvalidOperationException("late cancellation failure");
+        });
+
+        var stopTask = Task.Run(() => server.StopAsync(CancellationToken.None));
+        await callbackStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        try
+        {
+            await stopTask.WaitAsync(TimeSpan.FromSeconds(7));
+        }
+        finally
+        {
+            callbackRelease.Set();
+            await lateFaultObserved.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            await stopTask;
+            Assert.Equal(1, CountLogs(serverLogger, LogLevel.Error, 18004));
+            await DisposeServerAsync(server, services);
+        }
+    }
+
+    [Fact]
+    public async Task StopAsync_LateCompletionAfterTimeoutDisposesSessionOnce()
+    {
+        var sttSession = new GatedTestSttSession();
+        var (server, services, options, _, _) = await StartServerAsync(sttSession);
+        using var client = await ConnectAndStartFinalizationAsync(options, sttSession);
+
+        await server.StopAsync(CancellationToken.None);
+
+        Assert.Equal(0, server.ActiveSessionCount);
+        Assert.Equal(1, sttSession.DisposeCount);
+
+        sttSession.Unblock();
+        await sttSession.DisposalCompleted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal(1, sttSession.DisposeCount);
+        await DisposeServerAsync(server, services);
+    }
+
+    [Fact]
     public async Task Dispose_BeforeStopAsyncCoordinatesWithoutBlocking()
     {
         var sttSession = new GatedTestSttSession();
@@ -121,6 +178,73 @@ public sealed class WyomingServerShutdownTests
         Assert.Equal(0, server.ActiveSessionCount);
         Assert.Equal(1, sttSession.DisposeCount);
         await services.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task AcceptedSessionPublishesConnectedBeforeDisconnected()
+    {
+        var eventBus = new SessionEventBus();
+        var eventsTask = CollectConnectionEventsAsync(eventBus);
+        var (server, services, options, _, _) = await StartServerAsync(
+            new TestSttSession(new SttResult()),
+            eventBus);
+
+        using (var client = new TcpClient())
+        {
+            await client.ConnectAsync(options.Host, options.Port);
+        }
+
+        var events = await eventsTask.WaitAsync(TimeSpan.FromSeconds(2));
+
+        var connected = Assert.IsType<SessionConnectedEvent>(events[0]);
+        var disconnected = Assert.IsType<SessionDisconnectedEvent>(events[1]);
+        Assert.Equal(connected.SessionId, disconnected.SessionId);
+        await DisposeServerAsync(server, services);
+    }
+
+    [Fact]
+    public async Task StartAsync_FailedBindRollsBackAndCanRetry()
+    {
+        using var occupiedListener = new TcpListener(IPAddress.Loopback, 0);
+        occupiedListener.Start();
+        var options = new WyomingOptions
+        {
+            Host = IPAddress.Loopback.ToString(),
+            Port = ((IPEndPoint)occupiedListener.LocalEndpoint).Port,
+            ReadTimeoutSeconds = 30,
+        };
+        var (server, services, _, _, _) = CreateServer(
+            new TestSttSession(new SttResult()),
+            options: options);
+
+        await Assert.ThrowsAsync<SocketException>(
+            () => server.StartAsync(CancellationToken.None));
+
+        occupiedListener.Stop();
+        await server.StartAsync(CancellationToken.None);
+        using var client = new TcpClient();
+        await client.ConnectAsync(options.Host, options.Port);
+
+        await server.StopAsync(CancellationToken.None);
+        await DisposeServerAsync(server, services);
+    }
+
+    [Fact]
+    public async Task StartAsync_ConcurrentCallsStartOneListenerAndStopIsIdempotent()
+    {
+        var (server, services, options, _, _) = CreateServer(
+            new TestSttSession(new SttResult()));
+
+        await Task.WhenAll(Enumerable.Range(0, 8)
+            .Select(_ => Task.Run(() => server.StartAsync(CancellationToken.None))));
+
+        using var client = new TcpClient();
+        await client.ConnectAsync(options.Host, options.Port);
+        await Task.WhenAll(Enumerable.Range(0, 8)
+            .Select(_ => server.StopAsync(CancellationToken.None)));
+
+        Assert.Equal(0, server.ActiveSessionCount);
+        await DisposeServerAsync(server, services);
     }
 
     [Fact]
@@ -189,7 +313,22 @@ public sealed class WyomingServerShutdownTests
         ISttSession sttSession,
         SessionEventBus? eventBus = null)
     {
-        var options = new WyomingOptions
+        var result = CreateServer(sttSession, eventBus);
+        await result.Server.StartAsync(CancellationToken.None);
+        return result;
+    }
+
+    private static (
+        WyomingServer Server,
+        ServiceProvider Services,
+        WyomingOptions Options,
+        ILogger<WyomingServer> ServerLogger,
+        ILogger<WyomingSession> SessionLogger) CreateServer(
+        ISttSession sttSession,
+        SessionEventBus? eventBus = null,
+        WyomingOptions? options = null)
+    {
+        options ??= new WyomingOptions
         {
             Host = IPAddress.Loopback.ToString(),
             Port = GetAvailablePort(),
@@ -210,7 +349,6 @@ public sealed class WyomingServerShutdownTests
             serverLogger,
             eventBus ?? new SessionEventBus());
 
-        await server.StartAsync(CancellationToken.None);
         return (server, services, options, serverLogger, sessionLogger);
     }
 
@@ -257,6 +395,34 @@ public sealed class WyomingServerShutdownTests
         }
 
         throw new InvalidOperationException($"Event {typeof(TEvent).Name} was not published.");
+    }
+
+    private static async Task<SessionEvent[]> CollectConnectionEventsAsync(SessionEventBus eventBus)
+    {
+        var events = new List<SessionEvent>(2);
+        await foreach (var evt in eventBus.SubscribeAsync())
+        {
+            if (evt is not (SessionConnectedEvent or SessionDisconnectedEvent))
+            {
+                continue;
+            }
+
+            events.Add(evt);
+            if (events.Count == 2)
+            {
+                return [.. events];
+            }
+        }
+
+        throw new InvalidOperationException("The connection event stream ended early.");
+    }
+
+    private static CancellationTokenSource GetServerCancellation(WyomingServer server)
+    {
+        var field = typeof(WyomingServer).GetField("_cts", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("WyomingServer cancellation field was not found.");
+        return (CancellationTokenSource?)field.GetValue(server)
+            ?? throw new InvalidOperationException("WyomingServer has not started.");
     }
 
     private static int CountLogs<T>(
