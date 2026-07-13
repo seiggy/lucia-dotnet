@@ -216,6 +216,17 @@ public sealed partial class WyomingSession : IDisposable
             SetState(WyomingSessionState.Disconnected);
             _logger.LogDebug("Wyoming session {SessionId} cancelled", Id);
         }
+        catch (ObjectDisposedException) when (ct.IsCancellationRequested)
+        {
+            SetState(WyomingSessionState.Disconnected);
+            _logger.LogDebug("Wyoming session {SessionId} disposed during shutdown", Id);
+        }
+        catch (IOException) when (ct.IsCancellationRequested)
+        {
+            SetState(WyomingSessionState.Disconnected);
+            _pendingTranscript = null;
+            _logger.LogDebug("I/O cancelled for Wyoming session {SessionId}", Id);
+        }
         catch (IOException ex)
         {
             SetState(WyomingSessionState.Disconnected);
@@ -273,6 +284,16 @@ public sealed partial class WyomingSession : IDisposable
         State = WyomingSessionState.Disconnected;
         DisposeEngineSessions();
         _client.Dispose();
+    }
+
+    internal void ForceDispose()
+    {
+        State = WyomingSessionState.Disconnected;
+        _client.Dispose();
+        _currentSttSession?.Dispose();
+        _currentVadSession?.Dispose();
+        _currentEnhancerSession?.Dispose();
+        _currentWakeWordSession?.Dispose();
     }
 
     private async Task HandleDetectEventAsync(
@@ -859,7 +880,10 @@ public sealed partial class WyomingSession : IDisposable
     {
         if (_sttConcurrency is null || Interlocked.Exchange(ref _sttSlotAcquired, 0) != 1) return;
         try { _sttConcurrency.Release(); }
-        catch (ObjectDisposedException) { /* Disposed during shutdown — slot already reclaimed */ }
+        catch (ObjectDisposedException)
+        {
+            _logger.LogDebug("STT concurrency slot for session {SessionId} was disposed during shutdown", Id);
+        }
     }
 
     private string _lastPartialText = string.Empty;
