@@ -77,7 +77,7 @@ public sealed class PostgresMigrationRunnerTests(PostgresMigrationFixture fixtur
         await using var databases = await fixture.CreateDatabasesAsync();
         await CreateRunner(databases).StartAsync(CancellationToken.None);
         await BreakIndexAsync(databases.Tasks, "idx_archived_tasks_data_trgm", "archived_at");
-        var limitedTasks = await CreateLimitedFactoryAsync(databases.Tasks);
+        var limitedTasks = await CreateLimitedFactoryAsync(databases.Tasks, "archived_tasks");
         await using (limitedTasks)
         {
             var runner = CreateRunner(databases.Config, databases.Traces, limitedTasks);
@@ -96,12 +96,16 @@ public sealed class PostgresMigrationRunnerTests(PostgresMigrationFixture fixtur
         await using var databases = await fixture.CreateDatabasesAsync();
         await CreateRunner(databases).StartAsync(CancellationToken.None);
         await BreakIndexAsync(databases.Traces, "idx_command_traces_clean_text_trgm", "timestamp");
-        var limitedTraces = await CreateLimitedFactoryAsync(databases.Traces);
+        var limitedTraces = await CreateLimitedFactoryAsync(databases.Traces, "command_traces");
         await using (limitedTraces)
         {
-            await Assert.ThrowsAnyAsync<PostgresException>(
+            var exception = await Assert.ThrowsAnyAsync<PostgresException>(
                 () => CreateRunner(databases.Config, limitedTraces, databases.Tasks)
                     .StartAsync(CancellationToken.None));
+            Assert.Contains("blocked limited-role index creation", exception.MessageText, StringComparison.Ordinal);
+            Assert.False(
+                await RelationExistsAsync(databases.Traces, "public.idx_command_traces_clean_text_trgm"),
+                exception.MessageText);
         }
         Assert.Equal(1, await VersionAsync(databases.Traces));
 
@@ -119,7 +123,7 @@ public sealed class PostgresMigrationRunnerTests(PostgresMigrationFixture fixtur
         await CreateRunner(databases).StartAsync(CancellationToken.None);
         await BreakIndexAsync(databases.Traces, "idx_command_traces_clean_text_trgm", "timestamp");
         await BreakIndexAsync(databases.Tasks, "idx_archived_tasks_data_trgm", "archived_at");
-        var limitedTasks = await CreateLimitedFactoryAsync(databases.Tasks);
+        var limitedTasks = await CreateLimitedFactoryAsync(databases.Tasks, "archived_tasks");
         await using (limitedTasks)
         {
             await Assert.ThrowsAnyAsync<PostgresException>(
@@ -205,12 +209,17 @@ public sealed class PostgresMigrationRunnerTests(PostgresMigrationFixture fixtur
         await CreateRunner(databases).StartAsync(CancellationToken.None);
         await SeedCommandTracesAsync(databases.Traces);
 
-        var plan = await ExplainAsync(
+        using var countPlan = await ExplainAsync(
             databases.Traces,
-            "SELECT * FROM public.command_traces WHERE clean_text ILIKE '%' || @search || '%';",
+            "SELECT COUNT(*) FROM command_traces WHERE clean_text ILIKE '%' || @search || '%';",
+            "needle-129");
+        using var listPlan = await ExplainAsync(
+            databases.Traces,
+            "SELECT data::text FROM command_traces WHERE clean_text ILIKE '%' || @search || '%' ORDER BY timestamp DESC LIMIT @limit OFFSET @offset;",
             "needle-129");
 
-        Assert.True(PlanUsesIndex(plan, "idx_command_traces_clean_text_trgm"), plan.RootElement.ToString());
+        Assert.True(PlanUsesIndex(countPlan, "idx_command_traces_clean_text_trgm"), countPlan.RootElement.ToString());
+        Assert.True(PlanUsesIndex(listPlan, "idx_command_traces_clean_text_trgm"), listPlan.RootElement.ToString());
     }
 
     [Fact]
@@ -221,12 +230,17 @@ public sealed class PostgresMigrationRunnerTests(PostgresMigrationFixture fixtur
         await CreateRunner(databases).StartAsync(CancellationToken.None);
         await SeedArchivedTasksAsync(databases.Tasks);
 
-        var plan = await ExplainAsync(
+        using var countPlan = await ExplainAsync(
             databases.Tasks,
-            "SELECT * FROM public.archived_tasks WHERE data::text ILIKE '%' || @search || '%';",
+            "SELECT COUNT(*) FROM archived_tasks WHERE data::text ILIKE '%' || @search || '%';",
+            "needle-129");
+        using var listPlan = await ExplainAsync(
+            databases.Tasks,
+            "SELECT data::text FROM archived_tasks WHERE data::text ILIKE '%' || @search || '%' ORDER BY archived_at DESC LIMIT @limit OFFSET @offset;",
             "needle-129");
 
-        Assert.True(PlanUsesIndex(plan, "idx_archived_tasks_data_trgm"), plan.RootElement.ToString());
+        Assert.True(PlanUsesIndex(countPlan, "idx_archived_tasks_data_trgm"), countPlan.RootElement.ToString());
+        Assert.True(PlanUsesIndex(listPlan, "idx_archived_tasks_data_trgm"), listPlan.RootElement.ToString());
     }
 
     [Fact]
@@ -357,7 +371,9 @@ public sealed class PostgresMigrationRunnerTests(PostgresMigrationFixture fixtur
         await command.ExecuteNonQueryAsync();
     }
 
-    private static async Task<PostgresConnectionFactory> CreateLimitedFactoryAsync(PostgresConnectionFactory factory)
+    private static async Task<PostgresConnectionFactory> CreateLimitedFactoryAsync(
+        PostgresConnectionFactory factory,
+        string tableName)
     {
         var role = $"limited_{Guid.NewGuid():N}";
         var password = Guid.NewGuid().ToString("N");
@@ -367,8 +383,20 @@ public sealed class PostgresMigrationRunnerTests(PostgresMigrationFixture fixtur
             $"""
             CREATE ROLE {role} LOGIN PASSWORD '{password}';
             GRANT CONNECT ON DATABASE "{factoryBuilder.Database}" TO {role};
-            GRANT USAGE ON SCHEMA public TO {role};
+            GRANT USAGE, CREATE ON SCHEMA public TO {role};
             GRANT SELECT, UPDATE ON public.schema_version TO {role};
+            ALTER TABLE public.{tableName} OWNER TO {role};
+            CREATE FUNCTION public.block_limited_index_create() RETURNS event_trigger
+            LANGUAGE plpgsql AS $$
+            BEGIN
+                IF session_user = '{role}' THEN
+                    RAISE EXCEPTION 'blocked limited-role index creation';
+                END IF;
+            END;
+            $$;
+            CREATE EVENT TRIGGER block_limited_index_create
+            ON ddl_command_start WHEN TAG IN ('CREATE INDEX')
+            EXECUTE FUNCTION public.block_limited_index_create();
             """);
         var builder = new NpgsqlConnectionStringBuilder(factory.ConnectionString)
         {
@@ -422,6 +450,8 @@ public sealed class PostgresMigrationRunnerTests(PostgresMigrationFixture fixtur
         await using var command = connection.CreateCommand();
         command.CommandText = $"EXPLAIN (FORMAT JSON) {query}";
         command.Parameters.AddWithValue("search", search);
+        command.Parameters.AddWithValue("limit", 50);
+        command.Parameters.AddWithValue("offset", 0);
         var json = (string)(await command.ExecuteScalarAsync())!;
         return JsonDocument.Parse(json);
     }

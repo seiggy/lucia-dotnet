@@ -186,3 +186,11 @@ lucia.Tests/HomeAssistantAuthorizationHandlerTests.cs (removed inline classes),
 lucia.EvalHarness/Providers/RealAgentFactory.cs (leak fix + doc).
 
 **Result:** 7/7 auth tests pass, 0 build warnings.
+
+### 2026-07-13: PostgreSQL trigram index review fixes (branch: squad/129-pg-trgm-search-indexes-v9)
+
+The production trace/archive search path executes both a filtered `COUNT(*)` and a paged list query. Index-plan integration tests must EXPLAIN both exact parameterized shapes; simplified `SELECT *` probes do not prove the production paths.
+
+For deterministic interrupted concurrent-index recovery tests, the limited role must own the target table/index and have enough schema access to reach `CREATE INDEX`. A test event trigger can then block that command after the old index is dropped, proving the next migration run repairs the absent index rather than merely recovering from an unrelated permission failure.
+
+CI now runs `PostgresMigrationRunnerTests` explicitly because the provider-free test filter intentionally excludes every `Integration` test.
