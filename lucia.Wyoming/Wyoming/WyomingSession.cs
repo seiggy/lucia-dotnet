@@ -57,7 +57,7 @@ public sealed partial class WyomingSession : IDisposable
     private long _diarizationMs;
     private long _enhancedClipRetranscriptionMs;
     private long _audioStreamStartedAt;
-    private bool _disposed;
+    private int _disposed;
 
     public WyomingSession(
         TcpClient client,
@@ -115,7 +115,7 @@ public sealed partial class WyomingSession : IDisposable
 
     public async Task RunAsync(CancellationToken ct)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         using var sessionActivity = WyomingActivitySource.StartActivity("wyoming.session");
         sessionActivity?.SetTag("session.id", Id);
 
@@ -219,13 +219,11 @@ public sealed partial class WyomingSession : IDisposable
         catch (ObjectDisposedException) when (ct.IsCancellationRequested)
         {
             SetState(WyomingSessionState.Disconnected);
-            _logger.LogDebug("Wyoming session {SessionId} disposed during shutdown", Id);
         }
         catch (IOException) when (ct.IsCancellationRequested)
         {
             SetState(WyomingSessionState.Disconnected);
             _pendingTranscript = null;
-            _logger.LogDebug("I/O cancelled for Wyoming session {SessionId}", Id);
         }
         catch (IOException ex)
         {
@@ -238,9 +236,8 @@ public sealed partial class WyomingSession : IDisposable
             _logger.LogWarning(ex, "Protocol error in Wyoming session {SessionId}", Id);
             await TryWriteErrorAsync(writer, ex.Message, "protocol_error", ct).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            _logger.LogError(ex, "Unhandled error in Wyoming session {SessionId}", Id);
             await TryWriteErrorAsync(writer, "Internal Wyoming session error.", "internal_error", ct).ConfigureAwait(false);
             throw;
         }
@@ -252,10 +249,8 @@ public sealed partial class WyomingSession : IDisposable
             // on this session's MongoDB/audio-clip write completing.
             await DisposeCurrentSttSessionAsync().ConfigureAwait(false);
             DisposeCurrentVadSession();
-            _currentEnhancerSession?.Dispose();
-            _currentEnhancerSession = null;
-            _currentWakeWordSession?.Dispose();
-            _currentWakeWordSession = null;
+            Interlocked.Exchange(ref _currentEnhancerSession, null)?.Dispose();
+            Interlocked.Exchange(ref _currentWakeWordSession, null)?.Dispose();
             _pendingTranscript = null;
             _currentAudioFormat = null;
             ResetUtteranceAudio();
@@ -275,25 +270,14 @@ public sealed partial class WyomingSession : IDisposable
 
     public void Dispose()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
         {
             return;
         }
 
-        _disposed = true;
         State = WyomingSessionState.Disconnected;
+        _client.Dispose();
         DisposeEngineSessions();
-        _client.Dispose();
-    }
-
-    internal void ForceDispose()
-    {
-        State = WyomingSessionState.Disconnected;
-        _client.Dispose();
-        _currentSttSession?.Dispose();
-        _currentVadSession?.Dispose();
-        _currentEnhancerSession?.Dispose();
-        _currentWakeWordSession?.Dispose();
     }
 
     private async Task HandleDetectEventAsync(
@@ -744,11 +728,9 @@ public sealed partial class WyomingSession : IDisposable
         DisposeCurrentSttSession();
         DisposeCurrentVadSession();
 
-        _currentEnhancerSession?.Dispose();
-        _currentEnhancerSession = null;
+        Interlocked.Exchange(ref _currentEnhancerSession, null)?.Dispose();
 
-        _currentWakeWordSession?.Dispose();
-        _currentWakeWordSession = null;
+        Interlocked.Exchange(ref _currentWakeWordSession, null)?.Dispose();
 
         _pendingTranscript = null;
         _currentAudioFormat = null;
@@ -757,6 +739,12 @@ public sealed partial class WyomingSession : IDisposable
 
     private void DisposeCurrentSttSession()
     {
+        var sttSession = Interlocked.Exchange(ref _currentSttSession, null);
+        if (sttSession is null)
+        {
+            return;
+        }
+
         // Sync dispose path — used only from Dispose() and DisposeEngineSessions().
         // Block on DisposeAsync for sessions that implement it so any pending background
         // inference is awaited before the STT slot is released, even during synchronous
@@ -764,14 +752,13 @@ public sealed partial class WyomingSession : IDisposable
         // (ConfigureAwait(false)), so GetAwaiter().GetResult() is deadlock-safe here.
         try
         {
-            if (_currentSttSession is IAsyncDisposable asyncSession)
+            if (sttSession is IAsyncDisposable asyncSession)
                 asyncSession.DisposeAsync().GetAwaiter().GetResult();
             else
-                _currentSttSession?.Dispose();
+                sttSession.Dispose();
         }
         finally
         {
-            _currentSttSession = null;
             ReleaseSttSlot();
         }
     }
@@ -783,24 +770,28 @@ public sealed partial class WyomingSession : IDisposable
     /// </summary>
     private async ValueTask DisposeCurrentSttSessionAsync()
     {
+        var sttSession = Interlocked.Exchange(ref _currentSttSession, null);
+        if (sttSession is null)
+        {
+            return;
+        }
+
         try
         {
-            if (_currentSttSession is IAsyncDisposable asyncSession)
+            if (sttSession is IAsyncDisposable asyncSession)
                 await asyncSession.DisposeAsync().ConfigureAwait(false);
             else
-                _currentSttSession?.Dispose();
+                sttSession.Dispose();
         }
         finally
         {
-            _currentSttSession = null;
             ReleaseSttSlot();
         }
     }
 
     private void DisposeCurrentVadSession()
     {
-        _currentVadSession?.Dispose();
-        _currentVadSession = null;
+        Interlocked.Exchange(ref _currentVadSession, null)?.Dispose();
     }
 
     private void TryCreateEnhancerSession()
@@ -882,7 +873,7 @@ public sealed partial class WyomingSession : IDisposable
         try { _sttConcurrency.Release(); }
         catch (ObjectDisposedException)
         {
-            _logger.LogDebug("STT concurrency slot for session {SessionId} was disposed during shutdown", Id);
+            return;
         }
     }
 

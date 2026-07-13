@@ -4,7 +4,6 @@ using lucia.Wyoming.Stt;
 using lucia.Wyoming.Wyoming;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Microsoft.Extensions.Time.Testing;
 
 namespace lucia.Tests.Wyoming;
 
@@ -30,95 +29,135 @@ public sealed class WyomingServerShutdownTests
     }
 
     [Fact]
-    public async Task StopAsync_WaitsForInFlightSession()
+    public async Task StopAsync_RepeatedAndConcurrentCallsShareShutdown()
+    {
+        var sttSession = new GatedTestSttSession();
+        var (server, services, options, _, _) = await StartServerAsync(sttSession);
+        using var client = await ConnectAndStartFinalizationAsync(options, sttSession);
+
+        var stopTasks = Enumerable.Range(0, 8)
+            .Select(_ => server.StopAsync(CancellationToken.None))
+            .ToArray();
+
+        Assert.All(stopTasks, task => Assert.False(task.IsCompleted));
+        sttSession.Unblock();
+        await Task.WhenAll(stopTasks);
+
+        Assert.Equal(0, server.ActiveSessionCount);
+        Assert.Equal(1, sttSession.DisposeCount);
+        await DisposeServerAsync(server, services);
+    }
+
+    [Fact]
+    public async Task StopAsync_TimeoutRemovesTrackingAndObservesLateFaultOnce()
+    {
+        var sttSession = new GatedTestSttSession(blockDisposal: true);
+        var eventBus = new SessionEventBus();
+        using var testTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var disconnected = WaitForEventAsync<SessionDisconnectedEvent>(eventBus, testTimeout.Token);
+        var (server, services, options, serverLogger, sessionLogger) =
+            await StartServerAsync(sttSession, eventBus);
+        using var client = await ConnectAndStartFinalizationAsync(options, sttSession);
+
+        try
+        {
+            await server.StopAsync(CancellationToken.None).WaitAsync(testTimeout.Token);
+
+            Assert.Equal(0, server.ActiveSessionCount);
+            Assert.Equal(1, sttSession.DisposeCount);
+            await sttSession.DisposalStarted.Task.WaitAsync(testTimeout.Token);
+            Assert.False(sttSession.DisposalCompleted.Task.IsCompleted);
+
+            sttSession.Fail(new InvalidOperationException("late STT failure"));
+            await disconnected;
+
+            Assert.Equal(1, CountLogs(serverLogger, LogLevel.Warning, 18001));
+            Assert.Equal(
+                1,
+                CountExceptionLogs(serverLogger, "late STT failure")
+                + CountExceptionLogs(sessionLogger, "late STT failure"));
+            Assert.Equal(1, sttSession.DisposeCount);
+
+            sttSession.UnblockDisposal();
+            await sttSession.DisposalCompleted.Task.WaitAsync(testTimeout.Token);
+        }
+        finally
+        {
+            sttSession.Unblock();
+            sttSession.UnblockDisposal();
+            await DisposeServerAsync(server, services);
+        }
+    }
+
+    [Fact]
+    public async Task Dispose_BeforeStopAsyncCoordinatesWithoutBlocking()
+    {
+        var sttSession = new GatedTestSttSession();
+        var (server, services, options, _, _) = await StartServerAsync(sttSession);
+        using var client = await ConnectAndStartFinalizationAsync(options, sttSession);
+
+        server.Dispose();
+        var stopTask = server.StopAsync(CancellationToken.None);
+        sttSession.Unblock();
+        await stopTask;
+
+        Assert.Equal(0, server.ActiveSessionCount);
+        Assert.Equal(1, sttSession.DisposeCount);
+        await services.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Dispose_DuringStopAsyncSharesShutdown()
     {
         var sttSession = new GatedTestSttSession();
         var (server, services, options, _, _) = await StartServerAsync(sttSession);
         using var client = await ConnectAndStartFinalizationAsync(options, sttSession);
 
         var stopTask = server.StopAsync(CancellationToken.None);
-        Assert.False(stopTask.IsCompleted);
-
+        server.Dispose();
         sttSession.Unblock();
         await stopTask;
 
-        Assert.Equal(0, server.TrackedSessionTaskCount);
-        await DisposeServerAsync(server, services);
-    }
-
-    [Fact]
-    public async Task StopAsync_DrainTimeoutForcesSessionCleanup()
-    {
-        var timeProvider = new FakeTimeProvider();
-        var sttSession = new GatedTestSttSession();
-        var eventBus = new SessionEventBus();
-        using var testTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        var disconnected = WaitForEventAsync<SessionDisconnectedEvent>(eventBus, testTimeout.Token);
-        var (server, services, options, _, _) = await StartServerAsync(sttSession, timeProvider, eventBus);
-        using var client = await ConnectAndStartFinalizationAsync(options, sttSession);
-
-        var stopTask = server.StopAsync(CancellationToken.None);
-        Assert.False(stopTask.IsCompleted);
-
-        while (!server.IsDrainStarted)
-        {
-            testTimeout.Token.ThrowIfCancellationRequested();
-            await Task.Yield();
-        }
-
-        timeProvider.Advance(TimeSpan.FromSeconds(10));
-        await stopTask.WaitAsync(testTimeout.Token);
-
+        Assert.Equal(0, server.ActiveSessionCount);
         Assert.Equal(1, sttSession.DisposeCount);
-        Assert.Equal(1, server.TrackedSessionTaskCount);
-
-        sttSession.Unblock();
-        await disconnected;
-        Assert.Equal(0, server.TrackedSessionTaskCount);
-        await DisposeServerAsync(server, services);
+        await services.DisposeAsync();
     }
 
     [Fact]
-    public async Task NaturalCompletion_RemovesTrackedSessionTask()
+    public async Task StopAsync_AcceptRaceLeavesNoSessionsAndRejectsNewConnections()
     {
-        var eventBus = new SessionEventBus();
-        using var testTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        var disconnected = WaitForEventAsync<SessionDisconnectedEvent>(eventBus, testTimeout.Token);
         var (server, services, options, _, _) = await StartServerAsync(
-            new TestSttSession(new SttResult()),
-            eventBus: eventBus);
-        var client = new TcpClient();
-        await client.ConnectAsync(options.Host, options.Port, testTimeout.Token);
-
-        client.Dispose();
-        await disconnected;
-
-        Assert.Equal(0, server.TrackedSessionTaskCount);
-        await server.StopAsync(CancellationToken.None);
-        await DisposeServerAsync(server, services);
-    }
-
-    [Fact]
-    public async Task UnexpectedSessionFault_IsObservedAndLoggedOnce()
-    {
-        var eventBus = new SessionEventBus();
+            new TestSttSession(new SttResult()));
         using var testTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        var disconnected = WaitForEventAsync<SessionDisconnectedEvent>(eventBus, testTimeout.Token);
-        var (server, services, options, serverLogger, _) = await StartServerAsync(
-            new ThrowingTestSttSession(),
-            eventBus: eventBus);
-        using var client = new TcpClient();
-        await client.ConnectAsync(options.Host, options.Port, testTimeout.Token);
-        var writer = new WyomingEventWriter(client.GetStream());
+        var clients = Enumerable.Range(0, 16).Select(_ => new TcpClient()).ToArray();
 
-        await WriteAudioAsync(writer, testTimeout.Token);
-        await disconnected;
+        try
+        {
+            var connections = clients
+                .Select(client => client.ConnectAsync(options.Host, options.Port, testTimeout.Token).AsTask())
+                .ToArray();
+            var stopTask = server.StopAsync(CancellationToken.None);
 
-        Assert.Equal(
-            1,
-            CountLogs(serverLogger, LogLevel.Warning, "terminated with error"));
-        await server.StopAsync(CancellationToken.None);
-        await DisposeServerAsync(server, services);
+            await Task.WhenAll(connections.Select(IgnoreConnectionFailureAsync));
+            await stopTask.WaitAsync(testTimeout.Token);
+
+            Assert.Equal(0, server.ActiveSessionCount);
+            using var rejectedClient = new TcpClient();
+            await Assert.ThrowsAnyAsync<SocketException>(
+                async () => await rejectedClient.ConnectAsync(
+                    options.Host,
+                    options.Port,
+                    testTimeout.Token));
+        }
+        finally
+        {
+            foreach (var client in clients)
+            {
+                client.Dispose();
+            }
+
+            await DisposeServerAsync(server, services);
+        }
     }
 
     [Fact]
@@ -136,9 +175,8 @@ public sealed class WyomingServerShutdownTests
         sttSession.Unblock();
         await server.StopAsync(CancellationToken.None);
 
-        Assert.Equal(0, CountLogs(serverLogger, LogLevel.Warning, "terminated with error"));
-        Assert.Equal(0, CountLogs(sessionLogger, LogLevel.Error, "Unhandled error"));
-        Assert.Equal(0, CountLogs(sessionLogger, LogLevel.Information, "I/O ended"));
+        Assert.Equal(0, CountLogs(serverLogger, LogLevel.Warning, 18001));
+        Assert.Equal(0, CountExceptionLogs(sessionLogger, "late STT failure"));
         await DisposeServerAsync(server, services);
     }
 
@@ -149,7 +187,6 @@ public sealed class WyomingServerShutdownTests
         ILogger<WyomingServer> ServerLogger,
         ILogger<WyomingSession> SessionLogger)> StartServerAsync(
         ISttSession sttSession,
-        TimeProvider? timeProvider = null,
         SessionEventBus? eventBus = null)
     {
         var options = new WyomingOptions
@@ -160,6 +197,8 @@ public sealed class WyomingServerShutdownTests
         };
         var serverLogger = A.Fake<ILogger<WyomingServer>>();
         var sessionLogger = A.Fake<ILogger<WyomingSession>>();
+        A.CallTo(() => serverLogger.IsEnabled(A<LogLevel>._)).Returns(true);
+        A.CallTo(() => sessionLogger.IsEnabled(A<LogLevel>._)).Returns(true);
         var services = new ServiceCollection()
             .AddSingleton<IOptions<WyomingOptions>>(Options.Create(options))
             .AddSingleton<ILogger<WyomingSession>>(sessionLogger)
@@ -169,8 +208,7 @@ public sealed class WyomingServerShutdownTests
             Options.Create(options),
             services,
             serverLogger,
-            eventBus ?? new SessionEventBus(),
-            timeProvider);
+            eventBus ?? new SessionEventBus());
 
         await server.StartAsync(CancellationToken.None);
         return (server, services, options, serverLogger, sessionLogger);
@@ -224,13 +262,23 @@ public sealed class WyomingServerShutdownTests
     private static int CountLogs<T>(
         ILogger<T> logger,
         LogLevel level,
-        string message)
+        int eventId)
     {
         return Fake.GetCalls(logger)
             .Count(call =>
                 call.Method.Name == nameof(ILogger.Log)
                 && Equals(call.Arguments[0], level)
-                && call.Arguments[2]?.ToString()?.Contains(message, StringComparison.Ordinal) is true);
+                && call.Arguments[1] is EventId actualEventId
+                && actualEventId.Id == eventId);
+    }
+
+    private static int CountExceptionLogs<T>(ILogger<T> logger, string message)
+    {
+        return Fake.GetCalls(logger)
+            .Count(call =>
+                call.Method.Name == nameof(ILogger.Log)
+                && call.Arguments[3] is Exception exception
+                && exception.Message.Contains(message, StringComparison.Ordinal));
     }
 
     private static async Task DisposeServerAsync(WyomingServer server, ServiceProvider services)
@@ -244,5 +292,17 @@ public sealed class WyomingServerShutdownTests
         using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
         return ((IPEndPoint)listener.LocalEndpoint).Port;
+    }
+
+    private static async Task IgnoreConnectionFailureAsync(Task connection)
+    {
+        try
+        {
+            await connection;
+        }
+        catch (Exception ex) when (ex is SocketException or OperationCanceledException)
+        {
+            return;
+        }
     }
 }
