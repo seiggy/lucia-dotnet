@@ -21,6 +21,7 @@
     <PackageVersion Include="A2A.AspNetCore" Version="1.0.0-preview" />
     <PackageVersion Include="Aspire.Hosting.PostgreSQL" Version="13.4.2" />
     <PackageVersion Include="Npgsql" Version="10.0.2" />
+    <PackageVersion Include="Testcontainers.PostgreSql" Version="4.11.0" />
   </ItemGroup>
   <!-- ── .NET Aspire Hosting (AppHost orchestration) ──────────── -->
   <ItemGroup Label="Aspire Hosting">
