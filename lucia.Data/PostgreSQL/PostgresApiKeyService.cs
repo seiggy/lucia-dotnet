@@ -138,23 +138,6 @@ public sealed partial class PostgresApiKeyService : IApiKeyService
             return null;
         }
 
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await using var conn = await _connectionFactory.CreateConnectionAsync(CancellationToken.None).ConfigureAwait(false);
-                await using var updateCmd = conn.CreateCommand();
-                updateCmd.CommandText = "UPDATE api_keys SET last_used_at = @lastUsedAt WHERE id = @id;";
-                updateCmd.Parameters.AddWithValue("lastUsedAt", DateTime.UtcNow);
-                updateCmd.Parameters.AddWithValue("id", entry.Id);
-                await updateCmd.ExecuteNonQueryAsync(CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                LogLastUsedUpdateFailed(_logger, ex, entry.Id);
-            }
-        });
-
         return entry;
     }
 
@@ -378,9 +361,6 @@ public sealed partial class PostgresApiKeyService : IApiKeyService
 
     [LoggerMessage(EventId = 2, Level = LogLevel.Information, Message = "Created API key '{Name}' from env (prefix {Prefix})")]
     private static partial void LogCreatedEnvKey(ILogger logger, string name, string prefix);
-
-    [LoggerMessage(EventId = 3, Level = LogLevel.Warning, Message = "Failed to update LastUsedAt for API key '{KeyId}'")]
-    private static partial void LogLastUsedUpdateFailed(ILogger logger, Exception exception, string keyId);
 
     [LoggerMessage(EventId = 4, Level = LogLevel.Information, Message = "Revoked API key '{Name}' ({Prefix})")]
     private static partial void LogRevokedKey(ILogger logger, string name, string prefix);

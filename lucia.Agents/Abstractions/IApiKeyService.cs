@@ -20,7 +20,7 @@ public interface IApiKeyService
 
     /// <summary>
     /// Validates an API key. Returns the entry if valid, null if invalid/revoked/expired.
-    /// Updates LastUsedAt on success.
+    /// Validation is read-only and does not update LastUsedAt.
     /// </summary>
     Task<ApiKeyEntry?> ValidateKeyAsync(string plaintextKey, CancellationToken cancellationToken = default);
 
