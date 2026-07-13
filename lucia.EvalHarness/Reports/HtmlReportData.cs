@@ -79,11 +79,11 @@ public sealed class HtmlReportData
                                 TopP = pg.First().ParameterProfile!.TopP,
                                 RepeatPenalty = pg.First().ParameterProfile!.RepeatPenalty
                             },
-                            AvgOverall = pg.Average(m => m.OverallScore),
-                            AvgToolSelection = pg.Average(m => m.ToolSelectionScore),
-                            AvgToolSuccess = pg.Average(m => m.ToolSuccessScore),
-                            AvgToolEfficiency = pg.Average(m => m.ToolEfficiencyScore),
-                            AvgTaskCompletion = pg.Average(m => m.TaskCompletionScore),
+                            AvgOverall = Average(pg.Select(m => m.OverallScore)),
+                            AvgToolSelection = Average(pg.Select(m => m.ToolSelectionScore)),
+                            AvgToolSuccess = Average(pg.Select(m => m.ToolSuccessScore)),
+                            AvgToolEfficiency = Average(pg.Select(m => m.ToolEfficiencyScore)),
+                            AvgTaskCompletion = Average(pg.Select(m => m.TaskCompletionScore)),
                             PassRate = pg.Sum(m => m.TestCaseCount) > 0
                                 ? (double)pg.Sum(m => m.PassedCount) / pg.Sum(m => m.TestCaseCount)
                                 : 0,
@@ -114,10 +114,14 @@ public sealed class HtmlReportData
                 {
                     ModelName = m.ModelName,
                     OverallScore = m.OverallScore,
+                    OverallScoreStatus = m.OverallScoreStatus,
+                    OverallScoreReason = m.OverallScoreReason,
                     ToolSelectionScore = m.ToolSelectionScore,
                     ToolSuccessScore = m.ToolSuccessScore,
                     ToolEfficiencyScore = m.ToolEfficiencyScore,
                     TaskCompletionScore = m.TaskCompletionScore,
+                    TaskCompletionStatus = m.TaskCompletionStatus,
+                    TaskCompletionReason = m.TaskCompletionReason,
                     TestCaseCount = m.TestCaseCount,
                     PassedCount = m.PassedCount,
                     Parameters = m.ParameterProfile is not null
@@ -133,6 +137,7 @@ public sealed class HtmlReportData
                         : null,
                     Performance = new HtmlPerformanceData
                     {
+                        RunCount = m.Performance.RunCount,
                         MeanLatencyMs = m.Performance.MeanLatency.TotalMilliseconds,
                         MedianLatencyMs = m.Performance.MedianLatency.TotalMilliseconds,
                         P95LatencyMs = m.Performance.P95Latency.TotalMilliseconds,
@@ -144,6 +149,8 @@ public sealed class HtmlReportData
                         Id = tc.TestCaseId,
                         Passed = tc.Passed,
                         Score = tc.Score,
+                        JudgeStatus = tc.JudgeStatus,
+                        JudgeReason = tc.JudgeReason,
                         LatencyMs = tc.Latency.TotalMilliseconds,
                         FailureReason = tc.FailureReason,
                         Conversation = tc.ConversationHistory?.Select(turn => new HtmlConversationTurn
@@ -161,5 +168,11 @@ public sealed class HtmlReportData
             }).ToList(),
             ProfileComparison = profileComparison
         };
+    }
+
+    private static double? Average(IEnumerable<double?> scores)
+    {
+        var available = scores.OfType<double>().ToList();
+        return available.Count > 0 ? available.Average() : null;
     }
 }

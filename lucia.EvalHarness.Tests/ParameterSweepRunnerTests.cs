@@ -9,6 +9,7 @@ namespace lucia.EvalHarness.Tests;
 /// that the per-run profile (including seed offset) is propagated to the backend,
 /// and that the baseline is also run N times before deltas are computed.
 /// </summary>
+[Collection("Parameter sweep")]
 public sealed class ParameterSweepRunnerTests
 {
     [Fact]
@@ -176,7 +177,7 @@ public sealed class ParameterSweepRunnerTests
         // The first 3 calls are baseline (scores 60, 80, 100 → mean=80)
         var result = await RunSweepAsync(runner, config, "baseline-model", ["target-model"]);
 
-        Assert.Equal(80.0, result.BaselineMeanScore, precision: 6);
+        Assert.Equal(80.0, result.BaselineMeanScore!.Value, precision: 6);
     }
 
     [Fact]
@@ -227,7 +228,7 @@ public sealed class ParameterSweepRunnerTests
 
         // Combo 0 mean = (90+50+50)/3 = 63.3, combo 1 mean = 75 → combo 1 should win
         var winner = SweepRunAggregator.SelectWinner(entries);
-        Assert.Equal(75.0, winner.MeanScore, precision: 1);
+        Assert.Equal(75.0, Assert.IsType<SweepEntry>(winner).MeanScore!.Value, precision: 1);
     }
 
     [Fact]

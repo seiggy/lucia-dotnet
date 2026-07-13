@@ -33,10 +33,10 @@ public sealed class ParameterSweepAggregationTests
     // ──────────────────────────────────────────────────────────────
 
     [Fact]
-    public void ComputeMean_ReturnsZero_WhenNoRuns()
+    public void ComputeMean_ReturnsNull_WhenNoRuns()
     {
         var mean = SweepRunAggregator.ComputeMean(new List<IReadOnlyList<ModelEvalResult>>());
-        Assert.Equal(0.0, mean);
+        Assert.Null(mean);
     }
 
     [Fact]
@@ -53,7 +53,7 @@ public sealed class ParameterSweepAggregationTests
         // 3 runs: 60, 80, 100 -> mean = 80
         var allRuns = Runs(Run(60.0), Run(80.0), Run(100.0));
         var mean = SweepRunAggregator.ComputeMean(allRuns);
-        Assert.Equal(80.0, mean, precision: 6);
+        Assert.Equal(80.0, mean!.Value, precision: 6);
     }
 
     [Fact]
@@ -66,7 +66,7 @@ public sealed class ParameterSweepAggregationTests
             new List<ModelEvalResult> { MakeResult(60.0), MakeResult(80.0) }
         };
         var mean = SweepRunAggregator.ComputeMean(allRuns);
-        Assert.Equal(65.0, mean, precision: 6);
+        Assert.Equal(65.0, mean!.Value, precision: 6);
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -74,17 +74,17 @@ public sealed class ParameterSweepAggregationTests
     // ──────────────────────────────────────────────────────────────
 
     [Fact]
-    public void ComputeMinRunMean_ReturnsZero_WhenNoRuns()
+    public void ComputeMinRunMean_ReturnsNull_WhenNoRuns()
     {
         var minMean = SweepRunAggregator.ComputeMinRunMean(new List<IReadOnlyList<ModelEvalResult>>());
-        Assert.Equal(0.0, minMean);
+        Assert.Null(minMean);
     }
 
     [Fact]
     public void ComputeMinRunMean_SingleRun_ReturnsRunMean()
     {
         var minMean = SweepRunAggregator.ComputeMinRunMean(Runs(Run(73.0)));
-        Assert.Equal(73.0, minMean, precision: 6);
+        Assert.Equal(73.0, minMean!.Value, precision: 6);
     }
 
     [Fact]
@@ -92,7 +92,7 @@ public sealed class ParameterSweepAggregationTests
     {
         // 3 runs with means 60, 80, 100 — min is 60
         var minMean = SweepRunAggregator.ComputeMinRunMean(Runs(Run(100.0), Run(60.0), Run(80.0)));
-        Assert.Equal(60.0, minMean, precision: 6);
+        Assert.Equal(60.0, minMean!.Value, precision: 6);
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -111,7 +111,7 @@ public sealed class ParameterSweepAggregationTests
     {
         var allRuns = Runs(Run(75.0), Run(75.0), Run(75.0));
         var variance = SweepRunAggregator.ComputeVariance(allRuns);
-        Assert.Equal(0.0, variance, precision: 6);
+        Assert.Equal(0.0, variance!.Value, precision: 6);
     }
 
     [Fact]
@@ -136,7 +136,7 @@ public sealed class ParameterSweepAggregationTests
 
         var winner = SweepRunAggregator.SelectWinner(new List<SweepEntry> { entryA, entryB });
 
-        Assert.Equal("B", winner.Profile.Name);
+        Assert.Equal("B", Assert.IsType<SweepEntry>(winner).Profile.Name);
     }
 
     [Fact]
@@ -148,7 +148,7 @@ public sealed class ParameterSweepAggregationTests
 
         var winner = SweepRunAggregator.SelectWinner(new List<SweepEntry> { entryA, entryB });
 
-        Assert.Equal("B", winner.Profile.Name);
+        Assert.Equal("B", Assert.IsType<SweepEntry>(winner).Profile.Name);
     }
 
     [Fact]
@@ -156,7 +156,7 @@ public sealed class ParameterSweepAggregationTests
     {
         var entry = MakeSweepEntry(MakeProfile("only"), 65.0);
         var winner = SweepRunAggregator.SelectWinner(new List<SweepEntry> { entry });
-        Assert.Equal("only", winner.Profile.Name);
+        Assert.Equal("only", Assert.IsType<SweepEntry>(winner).Profile.Name);
     }
 
     // ──────────────────────────────────────────────────────────────
@@ -196,7 +196,7 @@ public sealed class ParameterSweepAggregationTests
     public void SweepEntry_MeanScore_ReflectsAllRuns()
     {
         var entry = MakeSweepEntry(MakeProfile("test"), 60.0, 80.0, 100.0);
-        Assert.Equal(80.0, entry.MeanScore, precision: 6);
+        Assert.Equal(80.0, entry.MeanScore!.Value, precision: 6);
     }
 
     [Fact]

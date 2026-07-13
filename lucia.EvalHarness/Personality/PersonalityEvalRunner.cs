@@ -1,5 +1,8 @@
+using System.ClientModel;
 using System.Diagnostics;
+using Azure;
 using System.Text.Json;
+using lucia.EvalHarness.Evaluation;
 using Microsoft.Extensions.AI;
 
 namespace lucia.EvalHarness.Personality;
@@ -50,7 +53,7 @@ public sealed class PersonalityEvalRunner
     public async Task<PersonalityEvalReport> RunAsync(
         IChatClient chatClient,
         string modelName,
-        IChatClient judgeChatClient,
+        IChatClient? judgeChatClient,
         string judgeModelName,
         IReadOnlyList<PersonalityEvalScenario> scenarios,
         IReadOnlyList<PersonalityProfile> profiles,
@@ -137,7 +140,9 @@ public sealed class PersonalityEvalRunner
             var response = await chatClient.GetResponseAsync(messages, cancellationToken: ct);
             llmResponse = response.Text ?? string.Empty;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception exception)
+            when (exception is HttpRequestException or RequestFailedException or ClientResultException or TimeoutException ||
+                  exception is OperationCanceledException && !ct.IsCancellationRequested)
         {
             sw.Stop();
             return new PersonalityScenarioResult
@@ -148,10 +153,12 @@ public sealed class PersonalityEvalRunner
                 ProfileId = profile.Id,
                 ProfileName = profile.Name,
                 ModelName = modelName,
-                Score = 0,
+                Score = null,
                 LlmResponse = string.Empty,
                 DurationMs = sw.ElapsedMilliseconds,
-                ErrorMessage = $"Model call failed: {ex.Message}"
+                ErrorMessage = exception is OperationCanceledException or TimeoutException
+                    ? "Model provider request timed out."
+                    : "Model provider request failed."
             };
         }
 
@@ -177,6 +184,8 @@ public sealed class PersonalityEvalRunner
             ProfileName = profile.Name,
             ModelName = modelName,
             Score = judgeResult.CombinedScore,
+            JudgeStatus = judgeResult.Status,
+            JudgeReason = judgeResult.UnavailableReason,
             LlmResponse = llmResponse,
             DurationMs = sw.ElapsedMilliseconds,
             JudgeResult = judgeResult,

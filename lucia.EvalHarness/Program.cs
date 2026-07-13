@@ -1,14 +1,12 @@
 using AgentEval.DataLoaders;
 using AgentEval.Models;
-using Azure;
-using Azure.AI.OpenAI;
+using lucia.EvalHarness;
 using lucia.EvalHarness.Configuration;
 using lucia.EvalHarness.Evaluation;
 using lucia.EvalHarness.Infrastructure;
 using lucia.EvalHarness.Providers;
 using lucia.EvalHarness.Reports;
 using lucia.EvalHarness.Tui;
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
@@ -80,7 +78,15 @@ foreach (var backend in selectedBackends)
 
 // Also discover via legacy Ollama path for backward compat
 IReadOnlyList<OllamaModelInfo> models = [];
-try { models = await discovery.ListModelsAsync(); } catch { /* swallow */ }
+try
+{
+    models = await discovery.ListModelsAsync();
+}
+catch (Exception exception)
+    when (exception is HttpRequestException or TimeoutException or OperationCanceledException)
+{
+    AnsiConsole.MarkupLine("[yellow]\u26a0[/] Legacy Ollama model discovery unavailable.");
+}
 foreach (var m in models)
 {
     allDiscoveredModels.TryAdd(m.Name, new DiscoveredModel
@@ -109,39 +115,17 @@ if (selectedModels.Count == 0) return 0;
 
 // ─── Eval Type Selection ──────────────────────────────────────────────
 // ─── Create Judge Client (Azure OpenAI) ──────────────────────────────
-IChatClient? judgeChatClient = null;
-if (!string.IsNullOrWhiteSpace(config.AzureOpenAI.Endpoint))
+var judgeChatClient = JudgeClientFactory.Create(config.AzureOpenAI);
+if (judgeChatClient is not null)
 {
-    try
-    {
-        var azureClient = !string.IsNullOrWhiteSpace(config.AzureOpenAI.ApiKey)
-            ? new AzureOpenAIClient(
-                new Uri(config.AzureOpenAI.Endpoint),
-                new AzureKeyCredential(config.AzureOpenAI.ApiKey))
-            : new AzureOpenAIClient(
-                new Uri(config.AzureOpenAI.Endpoint),
-                new Azure.Identity.AzureCliCredential());
-
-        judgeChatClient = azureClient
-            .GetChatClient(config.AzureOpenAI.JudgeDeployment)
-            .AsIChatClient();
-
-        AnsiConsole.MarkupLine($"[green]\u2713[/] Azure judge model connected: {Markup.Escape(config.AzureOpenAI.JudgeDeployment)}");
-    }
-    catch (Exception ex)
-    {
-        AnsiConsole.MarkupLine($"[yellow]\u26a0[/] Azure judge unavailable: {Markup.Escape(ex.Message)}");
-        AnsiConsole.MarkupLine("[dim]  LLM-as-judge metrics (TaskCompletion) will be skipped.[/]");
-    }
+    AnsiConsole.MarkupLine(
+        $"[green]\u2713[/] Azure judge model configured: {Markup.Escape(config.AzureOpenAI.JudgeDeployment)}");
 }
 else
 {
     AnsiConsole.MarkupLine("[yellow]\u26a0[/] No Azure OpenAI judge configured. LLM-evaluated metrics disabled.");
 }
 AnsiConsole.WriteLine();
-
-// Use a no-op judge if Azure isn't configured
-judgeChatClient ??= new NoOpChatClient();
 
 var evalType = EvalTypeSelector.Select();
 
@@ -166,14 +150,13 @@ if (evalType == EvalTypeSelector.PersonalityEval)
     AnsiConsole.WriteLine();
 
     // ─── Judge: reuse Azure OpenAI judge from main config ────────────
-    if (judgeChatClient is NoOpChatClient)
-    {
-        AnsiConsole.MarkupLine("[red]\u2717[/] Personality eval requires an Azure OpenAI judge model. Configure AzureOpenAI settings.");
-        return 1;
-    }
-
-    var judgeModelName = config.AzureOpenAI.JudgeDeployment;
-    AnsiConsole.MarkupLine($"[green]\u2713[/] Judge: [bold]{Markup.Escape(judgeModelName)}[/] (Azure OpenAI)");
+    var judgeModelName = judgeChatClient is null
+        ? "not configured"
+        : config.AzureOpenAI.JudgeDeployment;
+    AnsiConsole.MarkupLine(
+        judgeChatClient is null
+            ? "[yellow]\u26a0[/] Judge unavailable; scores will be reported as N/A."
+            : $"[green]\u2713[/] Judge: [bold]{Markup.Escape(judgeModelName)}[/] (Azure OpenAI)");
     AnsiConsole.WriteLine();
 
     var personalityProfiles = lucia.EvalHarness.Personality.PersonalityProfileSelector.Select(allProfiles);
@@ -334,7 +317,7 @@ if (sweepSelection is not null)
 }
 
 // ─── Meta-Prompt Optimization (optional) ────────────────────────────
-if (judgeChatClient is not NoOpChatClient &&
+if (judgeChatClient is not null &&
     AnsiConsole.Confirm(
         "[cornflowerblue]Run prompt optimization analysis?[/] (uses GPT-5.4 to suggest system prompt improvements)",
         defaultValue: false))
@@ -350,8 +333,16 @@ if (judgeChatClient is not NoOpChatClient &&
     var bestModelName = result.AgentResults
         .SelectMany(a => a.ModelResults)
         .GroupBy(m => m.ModelName)
-        .OrderByDescending(g => g.Average(m => m.OverallScore))
-        .First().Key;
+        .Where(group => group.Any(model => model.OverallScore.HasValue))
+        .OrderByDescending(group => group.Select(model => model.OverallScore).OfType<double>().Average())
+        .FirstOrDefault()?.Key;
+    if (bestModelName is null)
+    {
+        AnsiConsole.MarkupLine("[yellow]\u26a0[/] Prompt optimization skipped: no available model scores.");
+        foreach (var factory in disposableFactories)
+            await factory.DisposeAsync();
+        return 0;
+    }
     var baselineResults = result.AgentResults
         .SelectMany(a => a.ModelResults)
         .Where(m => m.ModelName == bestModelName)
@@ -361,7 +352,8 @@ if (judgeChatClient is not NoOpChatClient &&
     var targetModelNames = result.AgentResults
         .SelectMany(a => a.ModelResults)
         .GroupBy(m => m.ModelName)
-        .OrderBy(g => g.Average(m => m.OverallScore))
+        .Where(group => group.Any(model => model.OverallScore.HasValue))
+        .OrderBy(group => group.Select(model => model.OverallScore).OfType<double>().Average())
         .Take(2)
         .Select(g => g.Key)
         .ToList();
@@ -448,34 +440,4 @@ static string ExtractInstructions(lucia.Agents.Abstractions.ILuciaAgent agent)
     // All concrete agents have an Instructions property, but it's not on ILuciaAgent
     var prop = agent.GetType().GetProperty("Instructions");
     return prop?.GetValue(agent) as string ?? "No system prompt available";
-}
-
-/// <summary>
-/// No-op chat client used when Azure OpenAI judge is not configured.
-/// Returns a neutral response so code-based metrics still work.
-/// </summary>
-file sealed class NoOpChatClient : IChatClient
-{
-    public ChatClientMetadata Metadata { get; } = new("NoOp");
-
-    public Task<ChatResponse> GetResponseAsync(
-        IEnumerable<ChatMessage> messages,
-        ChatOptions? options = null,
-        CancellationToken cancellationToken = default)
-    {
-        return Task.FromResult(new ChatResponse(
-            [new ChatMessage(ChatRole.Assistant, """{"score": 50, "reasoning": "Judge not configured"}""")]));
-    }
-
-    public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
-        IEnumerable<ChatMessage> messages,
-        ChatOptions? options = null,
-        CancellationToken cancellationToken = default)
-    {
-        return AsyncEnumerable.Empty<ChatResponseUpdate>();
-    }
-
-    public object? GetService(Type serviceType, object? serviceKey = null) => null;
-
-    public void Dispose() { }
 }

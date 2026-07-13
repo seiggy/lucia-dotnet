@@ -11,7 +11,13 @@ public sealed class HtmlTestCaseData
     public bool Passed { get; init; }
 
     [JsonPropertyName("score")]
-    public double Score { get; init; }
+    public double? Score { get; init; }
+
+    [JsonPropertyName("judgeStatus")]
+    public string? JudgeStatus { get; init; }
+
+    [JsonPropertyName("judgeReason")]
+    public string? JudgeReason { get; init; }
 
     [JsonPropertyName("latencyMs")]
     public double LatencyMs { get; init; }

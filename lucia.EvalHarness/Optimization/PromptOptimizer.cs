@@ -51,8 +51,8 @@ public sealed class PromptOptimizer
 
         return ParseResponse(
             agentName, targetModel, currentSystemPrompt,
-            targetResult?.OverallScore ?? 0,
-            baselineResult?.OverallScore ?? 0,
+            targetResult?.OverallScore,
+            baselineResult?.OverallScore,
             responseText);
     }
 
@@ -60,8 +60,8 @@ public sealed class PromptOptimizer
         string agentName,
         string targetModel,
         string currentSystemPrompt,
-        double currentScore,
-        double baselineScore,
+        double? currentScore,
+        double? baselineScore,
         string responseText)
     {
         try

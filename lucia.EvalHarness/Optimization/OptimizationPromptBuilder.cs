@@ -46,11 +46,11 @@ public static class OptimizationPromptBuilder
         if (targetResult is not null)
         {
             sb.AppendLine($"## Target Model: {targetModel} on {agentName}");
-            sb.AppendLine($"- Overall Score: {targetResult.OverallScore:F1}/100");
-            sb.AppendLine($"- Tool Selection: {targetResult.ToolSelectionScore:F1}");
-            sb.AppendLine($"- Tool Success: {targetResult.ToolSuccessScore:F1}");
-            sb.AppendLine($"- Tool Efficiency: {targetResult.ToolEfficiencyScore:F1}");
-            sb.AppendLine($"- Task Completion: {targetResult.TaskCompletionScore:F1}");
+            sb.AppendLine($"- Overall Score: {FormatScore(targetResult.OverallScore)}/100");
+            sb.AppendLine($"- Tool Selection: {FormatScore(targetResult.ToolSelectionScore)}");
+            sb.AppendLine($"- Tool Success: {FormatScore(targetResult.ToolSuccessScore)}");
+            sb.AppendLine($"- Tool Efficiency: {FormatScore(targetResult.ToolEfficiencyScore)}");
+            sb.AppendLine($"- Task Completion: {FormatScore(targetResult.TaskCompletionScore)}");
             sb.AppendLine($"- Pass Rate: {targetResult.PassedCount}/{targetResult.TestCaseCount}");
             sb.AppendLine();
 
@@ -101,7 +101,7 @@ public static class OptimizationPromptBuilder
         if (baselineResult is not null)
         {
             sb.AppendLine($"## Baseline Model: {baselineResult.ModelName} (target to match)");
-            sb.AppendLine($"- Overall Score: {baselineResult.OverallScore:F1}/100");
+            sb.AppendLine($"- Overall Score: {FormatScore(baselineResult.OverallScore)}/100");
             sb.AppendLine($"- Pass Rate: {baselineResult.PassedCount}/{baselineResult.TestCaseCount}");
             sb.AppendLine();
         }
@@ -141,4 +141,7 @@ public static class OptimizationPromptBuilder
 
         return sb.ToString();
     }
+
+    private static string FormatScore(double? score) =>
+        score.HasValue ? score.Value.ToString("F1") : "N/A";
 }
