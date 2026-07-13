@@ -4,6 +4,9 @@ namespace lucia.EvalHarness.Reports;
 
 public sealed class HtmlPerformanceData
 {
+    [JsonPropertyName("runCount")]
+    public int RunCount { get; init; }
+
     [JsonPropertyName("meanLatencyMs")]
     public double MeanLatencyMs { get; init; }
 

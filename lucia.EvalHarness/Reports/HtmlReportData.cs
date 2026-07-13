@@ -137,6 +137,7 @@ public sealed class HtmlReportData
                         : null,
                     Performance = new HtmlPerformanceData
                     {
+                        RunCount = m.Performance.RunCount,
                         MeanLatencyMs = m.Performance.MeanLatency.TotalMilliseconds,
                         MedianLatencyMs = m.Performance.MedianLatency.TotalMilliseconds,
                         P95LatencyMs = m.Performance.P95Latency.TotalMilliseconds,

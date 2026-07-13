@@ -121,8 +121,8 @@ public static class ReportExporter
 
             foreach (var m in agentResult.ModelResults.OrderByDescending(m => m.OverallScore))
             {
-                var passRate = m.TestCaseCount > 0 ? (double)m.PassedCount / m.TestCaseCount : 0;
-                sb.AppendLine($"| {m.ModelName} | {passRate:P0} | {FormatScore(m.OverallScore, m.OverallScoreStatus)} | {FormatScore(m.ToolSelectionScore, m.OverallScoreStatus)} | {FormatScore(m.ToolSuccessScore, m.OverallScoreStatus)} | {FormatScore(m.ToolEfficiencyScore, m.OverallScoreStatus)} | {FormatScore(m.TaskCompletionScore, m.TaskCompletionStatus)} | {FormatMs(m.Performance.MeanLatency.TotalMilliseconds)} |");
+                var passRate = m.TestCaseCount > 0 ? (double?)m.PassedCount / m.TestCaseCount : null;
+                sb.AppendLine($"| {m.ModelName} | {(passRate.HasValue ? $"{passRate:P0}" : "N/A")} | {FormatScore(m.OverallScore, m.OverallScoreStatus)} | {FormatScore(m.ToolSelectionScore, m.OverallScoreStatus)} | {FormatScore(m.ToolSuccessScore, m.OverallScoreStatus)} | {FormatScore(m.ToolEfficiencyScore, m.OverallScoreStatus)} | {FormatScore(m.TaskCompletionScore, m.TaskCompletionStatus)} | {FormatMs(m.Performance.MeanLatency.TotalMilliseconds)} |");
             }
             sb.AppendLine();
 

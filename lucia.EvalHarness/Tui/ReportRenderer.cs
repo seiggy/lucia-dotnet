@@ -187,19 +187,20 @@ public static class ReportRenderer
             foreach (var m in agentResult.ModelResults.OrderByDescending(m => m.OverallScore))
             {
                 var passRate = m.TestCaseCount > 0
-                    ? (double)m.PassedCount / m.TestCaseCount
-                    : 0;
-
-                var passColor = passRate switch
-                {
-                    >= 0.8 => "green",
-                    >= 0.5 => "yellow",
-                    _ => "red"
-                };
+                    ? (double?)m.PassedCount / m.TestCaseCount
+                    : null;
+                var passRateCell = passRate.HasValue
+                    ? $"[{passRate.Value switch
+                    {
+                        >= 0.8 => "green",
+                        >= 0.5 => "yellow",
+                        _ => "red"
+                    }}]{passRate:P0}[/]"
+                    : "[dim]N/A[/]";
 
                 table.AddRow(
                     Markup.Escape(m.ModelName),
-                    $"[{passColor}]{passRate:P0}[/]",
+                    passRateCell,
                     ScoreCell(m.OverallScore),
                     ScoreCell(m.ToolSelectionScore),
                     ScoreCell(m.ToolSuccessScore),

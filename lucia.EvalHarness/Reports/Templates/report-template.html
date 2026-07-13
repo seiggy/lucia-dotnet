@@ -236,7 +236,7 @@ function modelSummaries() {
   (data.agents||[]).forEach(a => (a.models||[]).forEach(m => {
     if (!map[m.modelName]) map[m.modelName] = { scores: [], latencies: [], name: m.modelName, passed: 0, total: 0 };
     if (m.overallScore != null) map[m.modelName].scores.push(m.overallScore);
-    if (m.overallScore != null && m.performance?.meanLatencyMs != null) map[m.modelName].latencies.push(m.performance.meanLatencyMs);
+    if (m.performance?.runCount > 0 && m.performance?.meanLatencyMs != null) map[m.modelName].latencies.push(m.performance.meanLatencyMs);
     map[m.modelName].passed += m.passedCount ?? 0;
     map[m.modelName].total  += m.testCaseCount ?? 0;
   }));
@@ -795,8 +795,8 @@ function renderComparison() {
     // Augment models with computed fields
     const augmented = models.map(m => ({
       ...m,
-      _passRate: m.testCaseCount ? (m.passedCount / m.testCaseCount) * 100 : 0,
-      _meanLatency: m.performance?.meanLatencyMs ?? 0,
+      _passRate: m.testCaseCount ? (m.passedCount / m.testCaseCount) * 100 : null,
+      _meanLatency: m.performance?.runCount > 0 ? m.performance.meanLatencyMs : null,
     }));
 
     // Find best for each metric
@@ -867,7 +867,8 @@ function renderComparison() {
     const summ = modelSummaries();
     const availableSummaries = Object.values(summ).filter(s => s.avgScore != null);
     const bestAvg = availableSummaries.length ? Math.max(...availableSummaries.map(s=>s.avgScore)) : null;
-    const fastAvg = Math.min(...Object.values(summ).map(s=>s.avgLatency));
+    const availableLatencies = Object.values(summ).filter(s => s.avgLatency != null);
+    const fastAvg = availableLatencies.length ? Math.min(...availableLatencies.map(s=>s.avgLatency)) : null;
 
     html += `<div class="card card-inner">
       <h3 class="font-semibold text-sm mb-4">Cross-Agent Aggregate</h3>
@@ -886,14 +887,14 @@ function renderComparison() {
           <tbody>
             ${Object.values(summ).sort((a,b)=>(b.avgScore ?? -Infinity)-(a.avgScore ?? -Infinity)).map(m => {
               const dScore = bestAvg == null || m.avgScore == null ? null : bestAvg - m.avgScore;
-              const dLat = m.avgLatency - fastAvg;
+              const dLat = fastAvg == null || m.avgLatency == null ? null : m.avgLatency - fastAvg;
               return `<tr style="border-top:1px solid var(--c-border)">
                 <td class="px-3 py-2 font-mono font-medium">${esc(m.name)}</td>
                 <td class="px-3 py-2 text-right font-mono" style="color:${scoreHsl(m.avgScore,1)}">${fmtScore(m.avgScore)}</td>
                 <td class="px-3 py-2 text-right font-mono" style="color:${dScore===0?scoreHsl(100,1):scoreHsl(50,1)}">${dScore == null ? 'N/A' : dScore===0?'★ best':'-'+fmtNum(dScore,1)}</td>
-                <td class="px-3 py-2 text-right font-mono" style="color:var(--c-text2)">${fmtMs(m.avgLatency)}</td>
-                <td class="px-3 py-2 text-right font-mono" style="color:${dLat<1?scoreHsl(100,1):scoreHsl(50,1)}">${dLat<1?'★ best':'+'+fmtMs(dLat)}</td>
-                <td class="px-3 py-2 text-right font-mono">${m.total?fmtNum((m.passed/m.total)*100,1)+'%':'—'}</td>
+                <td class="px-3 py-2 text-right font-mono" style="color:var(--c-text2)">${m.avgLatency == null ? 'N/A' : fmtMs(m.avgLatency)}</td>
+                <td class="px-3 py-2 text-right font-mono" style="color:${dLat == null ? 'var(--c-text3)' : dLat<1?scoreHsl(100,1):scoreHsl(50,1)}">${dLat == null ? 'N/A' : dLat<1?'★ best':'+'+fmtMs(dLat)}</td>
+                <td class="px-3 py-2 text-right font-mono">${m.total?fmtNum((m.passed/m.total)*100,1)+'%':'N/A'}</td>
               </tr>`;
             }).join('')}
           </tbody>

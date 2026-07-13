@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using AgentEval.Core;
 using AgentEval.Models;
@@ -85,6 +86,47 @@ public sealed class ReportAvailabilityTests
     }
 
     [Fact]
+    public void Export_PassRate_DistinguishesUnavailableFromGenuineZero()
+    {
+        var directory = CreateDirectory();
+        try
+        {
+            var unavailable = CreateRun(CreateModelResult("unavailable", null, 0, []));
+            var unavailablePaths = ReportExporter.Export(unavailable, new GpuInfo("test"), directory);
+            var unavailableMarkdown = File.ReadAllText(
+                unavailablePaths.Single(path => path.EndsWith(".md", StringComparison.Ordinal)));
+
+            var genuineZero = CreateRun(CreateModelResult("genuine-zero", 0, 1, []));
+            var genuineZeroPaths = ReportExporter.Export(genuineZero, new GpuInfo("test"), directory);
+            var genuineZeroMarkdown = File.ReadAllText(
+                genuineZeroPaths.Single(path => path.EndsWith(".md", StringComparison.Ordinal)));
+
+            Assert.Contains("| unavailable | N/A |", unavailableMarkdown, StringComparison.Ordinal);
+            Assert.Contains("| genuine-zero | 0% |", genuineZeroMarkdown, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public void Render_PassRate_DistinguishesUnavailableFromGenuineZero()
+    {
+        var unavailable = CreateRun(CreateModelResult("unavailable", null, 0, []));
+        var genuineZero = CreateRun(CreateModelResult("genuine-zero", 0, 1, []));
+
+        var unavailableOutput = CaptureConsole(
+            () => ReportRenderer.Render(unavailable, new GpuInfo("test")));
+        var genuineZeroOutput = CaptureConsole(
+            () => ReportRenderer.Render(genuineZero, new GpuInfo("test")));
+
+        Assert.DoesNotContain("0%", unavailableOutput, StringComparison.Ordinal);
+        Assert.Contains("N/A", unavailableOutput, StringComparison.Ordinal);
+        Assert.Contains("0%", genuineZeroOutput, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Exporters_AllUnavailable_DoNotRenderValidResultOrWinner()
     {
         var directory = CreateDirectory();
@@ -106,24 +148,27 @@ public sealed class ReportAvailabilityTests
                 "unavailable-model",
                 agent,
                 [new TestCase { Name = "case", Input = "input" }]);
-            var run = CreateRun(modelResult);
+            var secondModelResult = await runner.EvaluateRealAgentAsync(
+                "other-unavailable-model",
+                agent,
+                [new TestCase { Name = "case", Input = "input" }]);
+            var run = CreateRun([modelResult, secondModelResult]);
 
             var htmlPath = HtmlReportGenerator.Generate(run, new GpuInfo("test"), directory);
-            var html = File.ReadAllText(htmlPath);
-            Assert.Contains("filter(x => x.avgScore != null)", html, StringComparison.Ordinal);
-            Assert.Contains("filter(x => x.avgLatency != null)", html, StringComparison.Ordinal);
-            Assert.Contains("['Overall', model.overallScore, model.overallScoreStatus]", html, StringComparison.Ordinal);
-            Assert.Contains("${fmtScore(val, status)}", html, StringComparison.Ordinal);
+            var comparison = RenderHtmlComparison(htmlPath, directory);
+            Assert.Contains("N/A", comparison, StringComparison.Ordinal);
+            Assert.DoesNotContain("best</span>", comparison, StringComparison.Ordinal);
+            Assert.DoesNotContain("0ms", comparison, StringComparison.Ordinal);
 
-            var reportPath = ReportExporter.Export(run, new GpuInfo("test"), directory)
-                .Single(path => path.EndsWith(".json", StringComparison.Ordinal));
+            var reportPaths = ReportExporter.Export(run, new GpuInfo("test"), directory);
+            var reportPath = reportPaths.Single(path => path.EndsWith(".json", StringComparison.Ordinal));
             using var report = JsonDocument.Parse(File.ReadAllText(reportPath));
             var reportModel = report.RootElement.GetProperty("agents")[0].GetProperty("models")[0];
             Assert.False(reportModel.TryGetProperty("toolSelectionScore", out _));
             Assert.False(reportModel.TryGetProperty("toolSuccessScore", out _));
             Assert.False(reportModel.TryGetProperty("toolEfficiencyScore", out _));
 
-            var tracePath = TraceExporter.Export(run, directory).Single();
+            var tracePath = TraceExporter.Export(run, directory).First();
             using var trace = JsonDocument.Parse(File.ReadAllText(tracePath));
             var summary = trace.RootElement.GetProperty("summary");
             Assert.False(summary.TryGetProperty("overall_score", out _));
@@ -132,25 +177,41 @@ public sealed class ReportAvailabilityTests
                 summary.GetProperty("overall_score_status").GetString());
             Assert.False(summary.TryGetProperty("mean_latency_ms", out _));
 
-            var previousConsole = AnsiConsole.Console;
-            using var writer = new StringWriter();
-            AnsiConsole.Console = AnsiConsole.Create(new AnsiConsoleSettings
-            {
-                Ansi = AnsiSupport.No,
-                ColorSystem = ColorSystemSupport.NoColors,
-                Out = new AnsiConsoleOutput(writer)
-            });
-            try
-            {
-                TraceExporter.RenderTraceSummary(run);
-            }
-            finally
-            {
-                AnsiConsole.Console = previousConsole;
-            }
+            var renderedTrace = CaptureConsole(() => TraceExporter.RenderTraceSummary(run));
+            Assert.Contains("score: N/A", renderedTrace, StringComparison.Ordinal);
+            Assert.DoesNotContain("score: 0", renderedTrace, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, true);
+        }
+    }
 
-            Assert.Contains("score: N/A", writer.ToString(), StringComparison.Ordinal);
-            Assert.DoesNotContain("score: 0", writer.ToString(), StringComparison.Ordinal);
+    [Fact]
+    public void GenerateComparison_UnavailableAndMeasuredZero_RenderDistinctly()
+    {
+        var directory = CreateDirectory();
+        try
+        {
+            var unavailable = CreateModelResult("unavailable", null, 0, []);
+            var measuredZero = CreateModelResult(
+                "measured-zero",
+                0,
+                1,
+                [new PerformanceSnapshot { TotalDuration = TimeSpan.Zero }]);
+            var htmlPath = HtmlReportGenerator.Generate(
+                CreateRun([unavailable, measuredZero]),
+                new GpuInfo("test"),
+                directory);
+
+            var comparison = RenderHtmlComparison(htmlPath, directory);
+            var unavailableRow = GetComparisonRow(comparison, unavailable.ModelName);
+            var measuredZeroRow = GetComparisonRow(comparison, measuredZero.ModelName);
+
+            Assert.Contains("N/A", unavailableRow, StringComparison.Ordinal);
+            Assert.DoesNotContain("best</span>", unavailableRow, StringComparison.Ordinal);
+            Assert.DoesNotContain("N/A", measuredZeroRow, StringComparison.Ordinal);
+            Assert.Equal(7, CountOccurrences(measuredZeroRow, "best</span>"));
         }
         finally
         {
@@ -159,26 +220,131 @@ public sealed class ReportAvailabilityTests
     }
 
     private static EvalRunResult CreateRun(ModelEvalResult? modelResult = null) =>
+        CreateRun(
+        [
+            modelResult ?? EvalResultFactory.Create(
+                100,
+                taskCompletionScore: null,
+                taskCompletionStatus: JudgeAvailability.ProviderError)
+        ]);
+
+    private static EvalRunResult CreateRun(IReadOnlyList<ModelEvalResult> modelResults) =>
         new()
         {
             RunId = "run",
             StartedAt = DateTimeOffset.UnixEpoch,
             CompletedAt = DateTimeOffset.UnixEpoch.AddSeconds(1),
-            AgentResults =
-            [
-                new AgentEvalResult
+            AgentResults = modelResults
+                .Select((result, index) => new AgentEvalResult
                 {
-                    AgentName = "agent",
-                    ModelResults =
-                    [
-                        modelResult ?? EvalResultFactory.Create(
-                            100,
-                            taskCompletionScore: null,
-                            taskCompletionStatus: JudgeAvailability.ProviderError)
-                    ]
-                }
-            ]
+                    AgentName = $"agent-{index}",
+                    ModelResults = [result]
+                })
+                .ToList()
         };
+
+    private static ModelEvalResult CreateModelResult(
+        string modelName,
+        double? score,
+        int testCaseCount,
+        IReadOnlyList<PerformanceSnapshot> snapshots) =>
+        new()
+        {
+            ModelName = modelName,
+            AgentName = "agent",
+            ToolSelectionScore = score,
+            ToolSuccessScore = score,
+            ToolEfficiencyScore = score,
+            TaskCompletionScore = score,
+            OverallScore = score,
+            OverallScoreStatus = score.HasValue ? null : JudgeAvailability.Unavailable,
+            OverallScoreReason = score.HasValue ? null : JudgeAvailability.Reason(JudgeAvailability.Unavailable),
+            TestCaseCount = testCaseCount,
+            PassedCount = 0,
+            Performance = ModelPerformanceSummary.FromSnapshots(modelName, snapshots),
+            TestCaseResults = []
+        };
+
+    private static string RenderHtmlComparison(string htmlPath, string directory)
+    {
+        const string ScriptStart = "<script>";
+        const string ScriptEnd = "</script>";
+        var html = File.ReadAllText(htmlPath);
+        var scriptStart = html.LastIndexOf(ScriptStart, StringComparison.Ordinal) + ScriptStart.Length;
+        var scriptEnd = html.IndexOf(ScriptEnd, scriptStart, StringComparison.Ordinal);
+        var script = """
+            const elements = new Map();
+            global.window = {};
+            global.localStorage = { getItem() { return null; }, setItem() {} };
+            global.document = {
+              querySelector(selector) {
+                if (!elements.has(selector)) elements.set(selector, { innerHTML: '', addEventListener() {} });
+                return elements.get(selector);
+              },
+              querySelectorAll() { return []; },
+              addEventListener() {},
+              getElementById() { return null; },
+              documentElement: {
+                classList: { add() {}, remove() {}, toggle() {}, contains() { return true; } }
+              }
+            };
+            """ + html[scriptStart..scriptEnd] + """
+
+            renderComparison();
+            process.stdout.write(document.querySelector('#tab-comparison').innerHTML);
+            """;
+        var scriptPath = Path.Combine(directory, "render-comparison.js");
+        File.WriteAllText(scriptPath, script);
+
+        var startInfo = new ProcessStartInfo("node")
+        {
+            CreateNoWindow = true,
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false
+        };
+        startInfo.ArgumentList.Add(scriptPath);
+
+        using var process = Process.Start(startInfo)!;
+        var output = process.StandardOutput.ReadToEnd();
+        var error = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        Assert.True(process.ExitCode == 0, error);
+        return output;
+    }
+
+    private static string GetComparisonRow(string comparison, string modelName)
+    {
+        var modelIndex = comparison.IndexOf($">{modelName}</td>", StringComparison.Ordinal);
+        var rowStart = comparison.LastIndexOf("<tr", modelIndex, StringComparison.Ordinal);
+        var rowEnd = comparison.IndexOf("</tr>", modelIndex, StringComparison.Ordinal) + "</tr>".Length;
+        return comparison[rowStart..rowEnd];
+    }
+
+    private static int CountOccurrences(string value, string search) =>
+        (value.Length - value.Replace(search, string.Empty, StringComparison.Ordinal).Length) / search.Length;
+
+    private static string CaptureConsole(Action render)
+    {
+        var previousConsole = AnsiConsole.Console;
+        using var writer = new StringWriter();
+        AnsiConsole.Console = AnsiConsole.Create(new AnsiConsoleSettings
+        {
+            Ansi = AnsiSupport.No,
+            ColorSystem = ColorSystemSupport.NoColors,
+            Out = new AnsiConsoleOutput(writer)
+        });
+        try
+        {
+            render();
+        }
+        finally
+        {
+            AnsiConsole.Console = previousConsole;
+        }
+
+        return writer.ToString();
+    }
 
     private static string CreateDirectory()
     {
