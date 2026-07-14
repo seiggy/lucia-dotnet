@@ -88,6 +88,72 @@ public sealed class GtcrnStreamingSessionTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task Retire_WaitsForActiveStreamAndDisposesSessionExactlyOnce()
+    {
+        var onnxSession = CreateOnnxSession();
+        var disposeCount = 0;
+        var holder = new InferenceSessionHolder(
+            onnxSession,
+            session =>
+            {
+                Interlocked.Increment(ref disposeCount);
+                session.Dispose();
+            });
+        using var runEntered = new ManualResetEventSlim();
+        using var releaseRun = new ManualResetEventSlim();
+        var stream = new GtcrnStreamingSession(
+            holder,
+            () =>
+            {
+                runEntered.Set();
+                releaseRun.Wait();
+            },
+            null);
+
+        var processTask = Task.Run(() => stream.Process(CreateSamples(HopSize * 2)));
+        Assert.True(runEntered.Wait(TimeSpan.FromSeconds(10)), "Process did not reach OrtRun.");
+
+        holder.Retire();
+        Assert.Equal(0, Volatile.Read(ref disposeCount));
+
+        releaseRun.Set();
+        Assert.Equal(HopSize, (await processTask).Length);
+        Assert.Equal(HopSize, stream.Process(CreateSamples(HopSize)).Length);
+
+        stream.Dispose();
+        holder.Retire();
+
+        Assert.Equal(1, Volatile.Read(ref disposeCount));
+        Assert.Throws<ObjectDisposedException>(() => stream.Process([0.1f]));
+    }
+
+    [Fact]
+    public async Task Retire_ConcurrentWithStreamDisposal_DoesNotLeakOrDoubleDispose()
+    {
+        var onnxSession = CreateOnnxSession();
+        var disposeCount = 0;
+        var holder = new InferenceSessionHolder(
+            onnxSession,
+            session =>
+            {
+                Interlocked.Increment(ref disposeCount);
+                session.Dispose();
+            });
+        var streams = Enumerable.Range(0, 16)
+            .Select(_ => new GtcrnStreamingSession(holder, null, null))
+            .ToArray();
+
+        await Task.WhenAll(
+            Enumerable.Range(0, 16).Select(index => Task.Run(streams[index].Dispose))
+                .Append(Task.Run(holder.Retire))
+                .Append(Task.Run(holder.Retire)));
+
+        Assert.Equal(1, Volatile.Read(ref disposeCount));
+        Assert.All(streams, stream =>
+            Assert.Throws<ObjectDisposedException>(() => stream.Process([0.1f])));
+    }
+
+    [Fact]
     public void Process_WarmHopAllocationsRemainMeaningfullyBelowReference()
     {
         var hop = CreateSamples(HopSize);
@@ -117,10 +183,30 @@ public sealed class GtcrnStreamingSessionTests(ITestOutputHelper output)
         output.WriteLine(
             $"Warm allocations: reference {referenceBytesPerHop:N0}, optimized {bytesPerHop:N0} " +
             $"bytes per {HopSize}-sample hop");
-        Assert.True(bytesPerHop < 10_000, $"Allocated {bytesPerHop:N0} bytes per hop.");
+        Assert.True(bytesPerHop <= 1_400, $"Allocated {bytesPerHop:N0} bytes per hop.");
         Assert.True(
             bytesPerHop * 20 < referenceBytesPerHop,
             $"Optimized {bytesPerHop:N0} vs reference {referenceBytesPerHop:N0} bytes per hop.");
+    }
+
+    [Fact]
+    public void SessionLifetimeLease_DoesNotAllocate()
+    {
+        var onnxSession = CreateOnnxSession();
+        var holder = new InferenceSessionHolder(onnxSession);
+
+        const int Iterations = 1_000;
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        for (var i = 0; i < Iterations; i++)
+        {
+            _ = holder.Acquire();
+            holder.Release();
+        }
+        var bytesPerLease = (GC.GetAllocatedBytesForCurrentThread() - before) / Iterations;
+        holder.Retire();
+
+        output.WriteLine($"Session-lifetime lease allocation: {bytesPerLease:N0} bytes.");
+        Assert.Equal(0, bytesPerLease);
     }
 
     [Fact]

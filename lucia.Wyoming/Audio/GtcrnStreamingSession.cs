@@ -26,6 +26,7 @@ public sealed class GtcrnStreamingSession : ISpeechEnhancerSession
     private readonly float[] _enhancedOutput;
     private readonly FixedBufferOnnxValue[] _inputValues;
     private readonly FixedBufferOnnxValue[] _outputValues;
+    private readonly InferenceSessionHolder? _sessionHolder;
 
     // STFT overlap buffers
     private readonly float[] _inputBuffer;
@@ -46,7 +47,7 @@ public sealed class GtcrnStreamingSession : ISpeechEnhancerSession
     private bool _disposed;
 
     public GtcrnStreamingSession(InferenceSession session)
-        : this(session, null, null)
+        : this(session, null, null, null)
     {
     }
 
@@ -54,48 +55,74 @@ public sealed class GtcrnStreamingSession : ISpeechEnhancerSession
         InferenceSession session,
         Action? beforeRun,
         Action? beforeDispose)
+        : this(session, beforeRun, beforeDispose, null)
     {
-        ArgumentNullException.ThrowIfNull(session);
-        _session = session;
-        _beforeRun = beforeRun;
-        _beforeDispose = beforeDispose;
+    }
 
-        // sqrt(hanning) window
-        _window = new float[WindowSize];
-        for (var i = 0; i < WindowSize; i++)
+    internal GtcrnStreamingSession(
+        InferenceSessionHolder sessionHolder,
+        Action? beforeRun = null,
+        Action? beforeDispose = null)
+        : this(sessionHolder.Acquire(), beforeRun, beforeDispose, sessionHolder)
+    {
+    }
+
+    private GtcrnStreamingSession(
+        InferenceSession session,
+        Action? beforeRun,
+        Action? beforeDispose,
+        InferenceSessionHolder? sessionHolder)
+    {
+        try
         {
-            _window[i] = MathF.Sqrt(0.5f * (1.0f - MathF.Cos(2.0f * MathF.PI * i / WindowSize)));
+            ArgumentNullException.ThrowIfNull(session);
+            _session = session;
+            _sessionHolder = sessionHolder;
+            _beforeRun = beforeRun;
+            _beforeDispose = beforeDispose;
+
+            // sqrt(hanning) window
+            _window = new float[WindowSize];
+            for (var i = 0; i < WindowSize; i++)
+            {
+                _window[i] = MathF.Sqrt(0.5f * (1.0f - MathF.Cos(2.0f * MathF.PI * i / WindowSize)));
+            }
+
+            _inputBuffer = new float[WindowSize];
+            _inputBufferPos = 0;
+            _outputOverlapBuffer = new float[WindowSize];
+            _fftBuffer = new Complex[Nfft];
+            _modelInput = new float[FreqBins * 2];
+            _enhancedOutput = new float[FreqBins * 2];
+
+            // Initialize caches to zeros
+            _convCache = new float[2 * 1 * 16 * 16 * 33];
+            _traCache = new float[2 * 3 * 1 * 1 * 16];
+            _interCache = new float[2 * 1 * 33 * 16];
+            _convCacheOutput = new float[_convCache.Length];
+            _traCacheOutput = new float[_traCache.Length];
+            _interCacheOutput = new float[_interCache.Length];
+
+            _inputValues =
+            [
+                FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_modelInput, [1, FreqBins, 1, 2])),
+                FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_convCache, [2, 1, 16, 16, 33])),
+                FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_traCache, [2, 3, 1, 1, 16])),
+                FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_interCache, [2, 1, 33, 16])),
+            ];
+            _outputValues =
+            [
+                FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_enhancedOutput, [1, FreqBins, 1, 2])),
+                FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_convCacheOutput, [2, 1, 16, 16, 33])),
+                FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_traCacheOutput, [2, 3, 1, 1, 16])),
+                FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_interCacheOutput, [2, 1, 33, 16])),
+            ];
         }
-
-        _inputBuffer = new float[WindowSize];
-        _inputBufferPos = 0;
-        _outputOverlapBuffer = new float[WindowSize];
-        _fftBuffer = new Complex[Nfft];
-        _modelInput = new float[FreqBins * 2];
-        _enhancedOutput = new float[FreqBins * 2];
-
-        // Initialize caches to zeros
-        _convCache = new float[2 * 1 * 16 * 16 * 33];
-        _traCache = new float[2 * 3 * 1 * 1 * 16];
-        _interCache = new float[2 * 1 * 33 * 16];
-        _convCacheOutput = new float[_convCache.Length];
-        _traCacheOutput = new float[_traCache.Length];
-        _interCacheOutput = new float[_interCache.Length];
-
-        _inputValues =
-        [
-            FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_modelInput, [1, FreqBins, 1, 2])),
-            FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_convCache, [2, 1, 16, 16, 33])),
-            FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_traCache, [2, 3, 1, 1, 16])),
-            FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_interCache, [2, 1, 33, 16])),
-        ];
-        _outputValues =
-        [
-            FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_enhancedOutput, [1, FreqBins, 1, 2])),
-            FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_convCacheOutput, [2, 1, 16, 16, 33])),
-            FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_traCacheOutput, [2, 3, 1, 1, 16])),
-            FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_interCacheOutput, [2, 1, 33, 16])),
-        ];
+        catch
+        {
+            sessionHolder?.Release();
+            throw;
+        }
     }
 
     public float[] Process(float[] samples)
@@ -252,15 +279,21 @@ public sealed class GtcrnStreamingSession : ISpeechEnhancerSession
         {
             if (_disposed) return;
             _disposed = true;
-            foreach (var value in _outputValues)
+            try
             {
-                value.Dispose();
+                foreach (var value in _outputValues)
+                {
+                    value.Dispose();
+                }
+                foreach (var value in _inputValues)
+                {
+                    value.Dispose();
+                }
             }
-            foreach (var value in _inputValues)
+            finally
             {
-                value.Dispose();
+                _sessionHolder?.Release();
             }
         }
-        // InferenceSession is shared — don't dispose it here
     }
 }

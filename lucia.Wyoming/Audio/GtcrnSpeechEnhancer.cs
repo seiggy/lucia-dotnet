@@ -16,9 +16,19 @@ public sealed class GtcrnSpeechEnhancer : ISpeechEnhancer, IDisposable
     private readonly SpeechEnhancementOptions _options;
     private readonly ILogger<GtcrnSpeechEnhancer> _logger;
     private readonly object _lock = new();
-    private InferenceSession? _onnxSession;
+    private InferenceSessionHolder? _sessionHolder;
+    private bool _disposed;
 
-    public bool IsReady => _onnxSession is not null;
+    public bool IsReady
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return !_disposed && _sessionHolder is not null;
+            }
+        }
+    }
 
     public GtcrnSpeechEnhancer(
         IOptions<SpeechEnhancementOptions> options,
@@ -48,23 +58,32 @@ public sealed class GtcrnSpeechEnhancer : ISpeechEnhancer, IDisposable
     {
         lock (_lock)
         {
-            if (_onnxSession is null)
+            if (_disposed || _sessionHolder is null)
             {
                 throw new InvalidOperationException("Speech enhancement engine is not ready.");
             }
 
-            return new GtcrnStreamingSession(_onnxSession);
+            return new GtcrnStreamingSession(_sessionHolder);
         }
     }
 
     public void Dispose()
     {
         _modelChangeNotifier.ActiveModelChanged -= OnActiveModelChanged;
+        InferenceSessionHolder? sessionHolder;
         lock (_lock)
         {
-            _onnxSession?.Dispose();
-            _onnxSession = null;
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            sessionHolder = _sessionHolder;
+            _sessionHolder = null;
         }
+
+        sessionHolder?.Retire();
     }
 
     private void OnActiveModelChanged(ActiveModelChangedEvent evt)
@@ -85,17 +104,23 @@ public sealed class GtcrnSpeechEnhancer : ISpeechEnhancer, IDisposable
 
         lock (_lock)
         {
+            if (_disposed)
+            {
+                return;
+            }
+
             try
             {
-                var sessionOptions = new SessionOptions();
+                using var sessionOptions = new SessionOptions();
                 sessionOptions.InterOpNumThreads = 1;
                 sessionOptions.IntraOpNumThreads = 2;
                 sessionOptions.LogSeverityLevel = OrtLoggingLevel.ORT_LOGGING_LEVEL_ERROR;
                 _providerDetector.ConfigureSessionOptions(sessionOptions, _logger);
 
-                var oldSession = _onnxSession;
-                _onnxSession = new InferenceSession(onnxFile, sessionOptions);
-                oldSession?.Dispose();
+                var oldSessionHolder = _sessionHolder;
+                _sessionHolder = new InferenceSessionHolder(
+                    new InferenceSession(onnxFile, sessionOptions));
+                oldSessionHolder?.Retire();
 
                 _logger.LogInformation(
                     "Speech enhancement engine loaded streaming GTCRN model from {Path}",
