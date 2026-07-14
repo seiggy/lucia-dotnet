@@ -140,7 +140,15 @@ public sealed class ParameterSweepRunnerTests
 
         await RunSweepAsync(runner, config, "baseline-model", ["target-model"]);
 
+        // Explicit BaseSeed = null must opt BOTH baseline and target runs out of
+        // seeding, not just the target sweep. Baseline runs previously fell back to
+        // ModelParameterProfile.Default (Seed = DefaultSeed), silently ignoring the opt-out.
+        var baselineCalls = callLog.Where(c => c.ModelName == "baseline-model").ToList();
         var targetCalls = callLog.Where(c => c.ModelName == "target-model").ToList();
+
+        Assert.NotEmpty(baselineCalls);
+        Assert.NotEmpty(targetCalls);
+        Assert.All(baselineCalls, c => Assert.Null(c.Profile.Seed));
         Assert.All(targetCalls, c => Assert.Null(c.Profile.Seed));
     }
 
