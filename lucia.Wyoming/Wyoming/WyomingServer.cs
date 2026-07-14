@@ -120,39 +120,50 @@ public sealed partial class WyomingServer : IHostedService, IDisposable
         _logger.LogInformation("Wyoming server shutting down, draining {Count} sessions", _sessions.Count);
         listener?.Stop();
         var cancellationTask = cts?.CancelAsync() ?? Task.CompletedTask;
+        var drainTask = DrainAsync(cancellationTask, acceptLoopTask, _sessions.Keys.ToArray());
 
         try
         {
-            await DrainAsync(cancellationTask, acceptLoopTask)
-                .WaitAsync(gracefulTimeout)
+            await drainTask
+                .WaitAsync(Remaining(startedAt, gracefulTimeout))
                 .ConfigureAwait(false);
         }
         catch (TimeoutException)
         {
             LogDrainTimeout(_logger, ShutdownTimeout, _sessions.Count);
+            var lateSessions = RemoveSessions();
+            var cleanupTask = AbortSessionsAsync(lateSessions);
             if (cts is not null)
             {
-                ObserveCancellationAndDispose(cancellationTask, cts);
+                ObserveLateShutdown(drainTask, cleanupTask, lateSessions, cts);
                 cts = null;
             }
 
-            await ForceCleanupAsync(Remaining(startedAt)).ConfigureAwait(false);
+            if (!cleanupTask.IsCompleted)
+            {
+                try
+                {
+                    await cleanupTask
+                        .WaitAsync(Remaining(startedAt, ShutdownTimeout))
+                        .ConfigureAwait(false);
+                }
+                catch (TimeoutException)
+                {
+                    return;
+                }
+            }
         }
         catch (Exception ex)
         {
             LogShutdownFailure(_logger, ex);
-            await ForceCleanupAsync(Remaining(startedAt)).ConfigureAwait(false);
+            foreach (var entry in RemoveSessions())
+            {
+                DisposeSession(entry.Value);
+            }
         }
         finally
         {
-            if (cancellationTask.IsCompleted)
-            {
-                cts?.Dispose();
-            }
-            else if (cts is not null)
-            {
-                ObserveCancellationAndDispose(cancellationTask, cts);
-            }
+            cts?.Dispose();
 
             _sttConcurrency.Dispose();
             _ttsConcurrency.Dispose();
@@ -166,47 +177,82 @@ public sealed partial class WyomingServer : IHostedService, IDisposable
         }
     }
 
-    private async Task DrainAsync(Task cancellationTask, Task? acceptLoopTask)
+    private static Task DrainAsync(
+        Task cancellationTask,
+        Task? acceptLoopTask,
+        Task[] sessionTasks)
     {
-        await cancellationTask.ConfigureAwait(false);
+        var tasks = new List<Task>(sessionTasks.Length + 2)
+        {
+            cancellationTask,
+        };
         if (acceptLoopTask is not null)
         {
-            await acceptLoopTask.ConfigureAwait(false);
+            tasks.Add(acceptLoopTask);
         }
 
-        var sessionTasks = _sessions.Keys.ToArray();
-        if (sessionTasks.Length > 0)
-        {
-            await Task.WhenAll(sessionTasks).ConfigureAwait(false);
-        }
+        tasks.AddRange(sessionTasks);
+        return Task.WhenAll(tasks);
     }
 
-    private async Task ForceCleanupAsync(TimeSpan remaining)
+    private KeyValuePair<Task, WyomingSession>[] RemoveSessions()
     {
-        var cleanupTasks = new List<Task>();
+        var removed = new List<KeyValuePair<Task, WyomingSession>>();
         foreach (var entry in _sessions.ToArray())
         {
             if (_sessions.TryRemove(entry.Key, out var session))
             {
-                cleanupTasks.Add(Task.Run(() => DisposeSession(session)));
+                removed.Add(new KeyValuePair<Task, WyomingSession>(entry.Key, session));
             }
         }
 
-        if (cleanupTasks.Count == 0 || remaining <= TimeSpan.Zero)
+        return [.. removed];
+    }
+
+    private Task AbortSessionsAsync(KeyValuePair<Task, WyomingSession>[] sessions)
+    {
+        return Task.WhenAll(sessions.Select(entry => Task.Run(() =>
         {
-            return;
+            try
+            {
+                entry.Value.AbortTransport();
+            }
+            catch (Exception ex)
+            {
+                LogSessionCleanupFailure(_logger, entry.Value.Id, ex);
+            }
+        })));
+    }
+
+    private void ObserveLateShutdown(
+        Task drainTask,
+        Task cleanupTask,
+        KeyValuePair<Task, WyomingSession>[] sessions,
+        CancellationTokenSource cts)
+    {
+        async Task ObserveAsync()
+        {
+            try
+            {
+                await cleanupTask.ConfigureAwait(false);
+                await drainTask.ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogShutdownFailure(_logger, ex);
+            }
+            finally
+            {
+                foreach (var entry in sessions)
+                {
+                    DisposeSession(entry.Value);
+                }
+
+                cts.Dispose();
+            }
         }
 
-        try
-        {
-            await Task.WhenAll(cleanupTasks)
-                .WaitAsync(remaining)
-                .ConfigureAwait(false);
-        }
-        catch (TimeoutException)
-        {
-            return;
-        }
+        _ = ObserveAsync();
     }
 
     private async Task AcceptConnectionsAsync(TcpListener listener, CancellationToken ct)
@@ -356,33 +402,10 @@ public sealed partial class WyomingServer : IHostedService, IDisposable
         }
     }
 
-    private TimeSpan Remaining(long startedAt)
+    private static TimeSpan Remaining(long startedAt, TimeSpan deadline)
     {
-        var remaining = ShutdownTimeout - Stopwatch.GetElapsedTime(startedAt);
+        var remaining = deadline - Stopwatch.GetElapsedTime(startedAt);
         return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
-    }
-
-    private void ObserveCancellationAndDispose(
-        Task cancellationTask,
-        CancellationTokenSource cts)
-    {
-        async Task ObserveAsync()
-        {
-            try
-            {
-                await cancellationTask.ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                LogShutdownFailure(_logger, ex);
-            }
-            finally
-            {
-                cts.Dispose();
-            }
-        }
-
-        _ = ObserveAsync();
     }
 
     public void Dispose()

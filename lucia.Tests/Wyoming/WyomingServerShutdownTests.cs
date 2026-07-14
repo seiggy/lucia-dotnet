@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Sockets;
 using System.Reflection;
 using FakeItEasy;
@@ -52,7 +53,7 @@ public sealed class WyomingServerShutdownTests
     [Fact]
     public async Task StopAsync_TimeoutRemovesTrackingAndObservesLateFaultOnce()
     {
-        var sttSession = new GatedTestSttSession(blockDisposal: true);
+        var sttSession = new GatedTestSttSession();
         var eventBus = new SessionEventBus();
         using var testTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var disconnected = WaitForEventAsync<SessionDisconnectedEvent>(eventBus, testTimeout.Token);
@@ -65,12 +66,12 @@ public sealed class WyomingServerShutdownTests
             await server.StopAsync(CancellationToken.None).WaitAsync(testTimeout.Token);
 
             Assert.Equal(0, server.ActiveSessionCount);
-            Assert.Equal(1, sttSession.DisposeCount);
-            await sttSession.DisposalStarted.Task.WaitAsync(testTimeout.Token);
-            Assert.False(sttSession.DisposalCompleted.Task.IsCompleted);
+            Assert.Equal(0, sttSession.DisposeCount);
+            Assert.False(sttSession.DisposalStarted.Task.IsCompleted);
 
             sttSession.Fail(new InvalidOperationException("late STT failure"));
             await disconnected;
+            await sttSession.DisposalCompleted.Task.WaitAsync(testTimeout.Token);
 
             Assert.Equal(1, CountLogs(serverLogger, LogLevel.Warning, 18001));
             Assert.Equal(
@@ -78,9 +79,6 @@ public sealed class WyomingServerShutdownTests
                 CountExceptionLogs(serverLogger, "late STT failure")
                 + CountExceptionLogs(sessionLogger, "late STT failure"));
             Assert.Equal(1, sttSession.DisposeCount);
-
-            sttSession.UnblockDisposal();
-            await sttSession.DisposalCompleted.Task.WaitAsync(testTimeout.Token);
         }
         finally
         {
@@ -93,8 +91,9 @@ public sealed class WyomingServerShutdownTests
     [Fact]
     public async Task StopAsync_SynchronousCancellationCallbackCannotExceedShutdownDeadline()
     {
-        var (server, services, _, serverLogger, _) = await StartServerAsync(
-            new TestSttSession(new SttResult()));
+        var sttSession = new GatedTestSttSession(blockDisposal: true);
+        var (server, services, options, serverLogger, _) = await StartServerAsync(sttSession);
+        using var client = await ConnectAndStartFinalizationAsync(options, sttSession);
         var cancellation = GetServerCancellation(server);
         using var callbackRelease = new ManualResetEventSlim();
         var callbackStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -111,16 +110,25 @@ public sealed class WyomingServerShutdownTests
             throw new InvalidOperationException("late cancellation failure");
         });
 
+        var stopwatch = Stopwatch.StartNew();
         var stopTask = Task.Run(() => server.StopAsync(CancellationToken.None));
         await callbackStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
         try
         {
-            await stopTask.WaitAsync(TimeSpan.FromSeconds(7));
+            await stopTask.WaitAsync(TimeSpan.FromMilliseconds(4_900));
+            stopwatch.Stop();
+            Assert.True(
+                stopwatch.Elapsed < TimeSpan.FromMilliseconds(4_900),
+                $"Shutdown exceeded its total deadline: {stopwatch.Elapsed}.");
         }
         finally
         {
             callbackRelease.Set();
+            sttSession.Unblock();
+            await sttSession.DisposalStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            sttSession.UnblockDisposal();
+            await sttSession.DisposalCompleted.Task.WaitAsync(TimeSpan.FromSeconds(2));
             await lateFaultObserved.Task.WaitAsync(TimeSpan.FromSeconds(2));
             await stopTask;
             Assert.Equal(1, CountLogs(serverLogger, LogLevel.Error, 18004));
@@ -129,7 +137,7 @@ public sealed class WyomingServerShutdownTests
     }
 
     [Fact]
-    public async Task StopAsync_LateCompletionAfterTimeoutDisposesSessionOnce()
+    public async Task StopAsync_TimeoutHandsOffBeforeLateCompletionAndDisposesOnce()
     {
         var sttSession = new GatedTestSttSession();
         var (server, services, options, _, _) = await StartServerAsync(sttSession);
@@ -138,7 +146,8 @@ public sealed class WyomingServerShutdownTests
         await server.StopAsync(CancellationToken.None);
 
         Assert.Equal(0, server.ActiveSessionCount);
-        Assert.Equal(1, sttSession.DisposeCount);
+        Assert.Equal(0, sttSession.DisposeCount);
+        Assert.False(sttSession.DisposalStarted.Task.IsCompleted);
 
         sttSession.Unblock();
         await sttSession.DisposalCompleted.Task.WaitAsync(TimeSpan.FromSeconds(2));

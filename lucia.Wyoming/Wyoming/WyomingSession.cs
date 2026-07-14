@@ -57,6 +57,7 @@ public sealed partial class WyomingSession : IDisposable
     private long _diarizationMs;
     private long _enhancedClipRetranscriptionMs;
     private long _audioStreamStartedAt;
+    private int _clientDisposed;
     private int _disposed;
 
     public WyomingSession(
@@ -216,15 +217,6 @@ public sealed partial class WyomingSession : IDisposable
             SetState(WyomingSessionState.Disconnected);
             _logger.LogDebug("Wyoming session {SessionId} cancelled", Id);
         }
-        catch (ObjectDisposedException) when (ct.IsCancellationRequested)
-        {
-            SetState(WyomingSessionState.Disconnected);
-        }
-        catch (IOException) when (ct.IsCancellationRequested)
-        {
-            SetState(WyomingSessionState.Disconnected);
-            _pendingTranscript = null;
-        }
         catch (IOException ex)
         {
             SetState(WyomingSessionState.Disconnected);
@@ -249,8 +241,10 @@ public sealed partial class WyomingSession : IDisposable
             // on this session's MongoDB/audio-clip write completing.
             await DisposeCurrentSttSessionAsync().ConfigureAwait(false);
             DisposeCurrentVadSession();
-            Interlocked.Exchange(ref _currentEnhancerSession, null)?.Dispose();
-            Interlocked.Exchange(ref _currentWakeWordSession, null)?.Dispose();
+            _currentEnhancerSession?.Dispose();
+            _currentEnhancerSession = null;
+            _currentWakeWordSession?.Dispose();
+            _currentWakeWordSession = null;
             _pendingTranscript = null;
             _currentAudioFormat = null;
             ResetUtteranceAudio();
@@ -276,8 +270,16 @@ public sealed partial class WyomingSession : IDisposable
         }
 
         State = WyomingSessionState.Disconnected;
-        _client.Dispose();
         DisposeEngineSessions();
+        AbortTransport();
+    }
+
+    internal void AbortTransport()
+    {
+        if (Interlocked.Exchange(ref _clientDisposed, 1) == 0)
+        {
+            _client.Dispose();
+        }
     }
 
     private async Task HandleDetectEventAsync(
@@ -728,9 +730,11 @@ public sealed partial class WyomingSession : IDisposable
         DisposeCurrentSttSession();
         DisposeCurrentVadSession();
 
-        Interlocked.Exchange(ref _currentEnhancerSession, null)?.Dispose();
+        _currentEnhancerSession?.Dispose();
+        _currentEnhancerSession = null;
 
-        Interlocked.Exchange(ref _currentWakeWordSession, null)?.Dispose();
+        _currentWakeWordSession?.Dispose();
+        _currentWakeWordSession = null;
 
         _pendingTranscript = null;
         _currentAudioFormat = null;
@@ -739,12 +743,6 @@ public sealed partial class WyomingSession : IDisposable
 
     private void DisposeCurrentSttSession()
     {
-        var sttSession = Interlocked.Exchange(ref _currentSttSession, null);
-        if (sttSession is null)
-        {
-            return;
-        }
-
         // Sync dispose path — used only from Dispose() and DisposeEngineSessions().
         // Block on DisposeAsync for sessions that implement it so any pending background
         // inference is awaited before the STT slot is released, even during synchronous
@@ -752,13 +750,14 @@ public sealed partial class WyomingSession : IDisposable
         // (ConfigureAwait(false)), so GetAwaiter().GetResult() is deadlock-safe here.
         try
         {
-            if (sttSession is IAsyncDisposable asyncSession)
+            if (_currentSttSession is IAsyncDisposable asyncSession)
                 asyncSession.DisposeAsync().GetAwaiter().GetResult();
             else
-                sttSession.Dispose();
+                _currentSttSession?.Dispose();
         }
         finally
         {
+            _currentSttSession = null;
             ReleaseSttSlot();
         }
     }
@@ -770,28 +769,24 @@ public sealed partial class WyomingSession : IDisposable
     /// </summary>
     private async ValueTask DisposeCurrentSttSessionAsync()
     {
-        var sttSession = Interlocked.Exchange(ref _currentSttSession, null);
-        if (sttSession is null)
-        {
-            return;
-        }
-
         try
         {
-            if (sttSession is IAsyncDisposable asyncSession)
+            if (_currentSttSession is IAsyncDisposable asyncSession)
                 await asyncSession.DisposeAsync().ConfigureAwait(false);
             else
-                sttSession.Dispose();
+                _currentSttSession?.Dispose();
         }
         finally
         {
+            _currentSttSession = null;
             ReleaseSttSlot();
         }
     }
 
     private void DisposeCurrentVadSession()
     {
-        Interlocked.Exchange(ref _currentVadSession, null)?.Dispose();
+        _currentVadSession?.Dispose();
+        _currentVadSession = null;
     }
 
     private void TryCreateEnhancerSession()
@@ -1217,16 +1212,6 @@ public sealed partial class WyomingSession : IDisposable
         {
             ReleaseSttSlot(); // release immediately after enhanced-clip inference
         }
-    }
-
-    /// <summary>
-    /// Result of re-transcribing a GTCRN-enhanced utterance clip, with timing metadata.
-    /// </summary>
-    private sealed class EnhancedClipSttResult
-    {
-        public required string Text { get; init; }
-        public float Confidence { get; init; }
-        public long DurationMs { get; init; }
     }
 
     /// <summary>
