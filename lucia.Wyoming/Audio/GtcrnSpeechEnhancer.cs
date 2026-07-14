@@ -15,6 +15,7 @@ public sealed class GtcrnSpeechEnhancer : ISpeechEnhancer, IDisposable
     private readonly OnnxProviderDetector _providerDetector;
     private readonly SpeechEnhancementOptions _options;
     private readonly ILogger<GtcrnSpeechEnhancer> _logger;
+    private readonly Func<string, SessionOptions, InferenceSessionHolder> _sessionHolderFactory;
     private readonly object _lock = new();
     private InferenceSessionHolder? _sessionHolder;
     private bool _disposed;
@@ -35,16 +36,34 @@ public sealed class GtcrnSpeechEnhancer : ISpeechEnhancer, IDisposable
         IModelChangeNotifier modelChangeNotifier,
         OnnxProviderDetector providerDetector,
         ILogger<GtcrnSpeechEnhancer> logger)
+        : this(
+            options,
+            modelChangeNotifier,
+            providerDetector,
+            logger,
+            static (modelPath, sessionOptions) =>
+                new InferenceSessionHolder(new InferenceSession(modelPath, sessionOptions)))
+    {
+    }
+
+    internal GtcrnSpeechEnhancer(
+        IOptions<SpeechEnhancementOptions> options,
+        IModelChangeNotifier modelChangeNotifier,
+        OnnxProviderDetector providerDetector,
+        ILogger<GtcrnSpeechEnhancer> logger,
+        Func<string, SessionOptions, InferenceSessionHolder> sessionHolderFactory)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(modelChangeNotifier);
         ArgumentNullException.ThrowIfNull(providerDetector);
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(sessionHolderFactory);
 
         _options = options.Value;
         _modelChangeNotifier = modelChangeNotifier;
         _providerDetector = providerDetector;
         _logger = logger;
+        _sessionHolderFactory = sessionHolderFactory;
 
         if (_options.Enabled)
         {
@@ -55,6 +74,9 @@ public sealed class GtcrnSpeechEnhancer : ISpeechEnhancer, IDisposable
     }
 
     public ISpeechEnhancerSession CreateSession()
+        => CreateSession(null);
+
+    internal GtcrnStreamingSession CreateSession(Action? beforeRun)
     {
         lock (_lock)
         {
@@ -63,7 +85,7 @@ public sealed class GtcrnSpeechEnhancer : ISpeechEnhancer, IDisposable
                 throw new InvalidOperationException("Speech enhancement engine is not ready.");
             }
 
-            return new GtcrnStreamingSession(_sessionHolder);
+            return new GtcrnStreamingSession(_sessionHolder, beforeRun);
         }
     }
 
@@ -118,8 +140,7 @@ public sealed class GtcrnSpeechEnhancer : ISpeechEnhancer, IDisposable
                 _providerDetector.ConfigureSessionOptions(sessionOptions, _logger);
 
                 var oldSessionHolder = _sessionHolder;
-                _sessionHolder = new InferenceSessionHolder(
-                    new InferenceSession(onnxFile, sessionOptions));
+                _sessionHolder = _sessionHolderFactory(onnxFile, sessionOptions);
                 oldSessionHolder?.Retire();
 
                 _logger.LogInformation(
