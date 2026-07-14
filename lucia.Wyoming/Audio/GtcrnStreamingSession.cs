@@ -8,7 +8,7 @@ namespace lucia.Wyoming.Audio;
 /// Per-stream GTCRN speech enhancement session.
 /// Processes audio through STFT → GTCRN ONNX → iSTFT with overlap-add.
 /// Maintains internal frame buffers and GTCRN cache state across calls.
-/// A session belongs to one audio stream and must be processed sequentially.
+/// Process calls are serialized. Dispose waits for an active call and rejects later calls.
 /// </summary>
 public sealed class GtcrnStreamingSession : ISpeechEnhancerSession
 {
@@ -39,13 +39,26 @@ public sealed class GtcrnStreamingSession : ISpeechEnhancerSession
     private readonly float[] _convCacheOutput;
     private readonly float[] _traCacheOutput;
     private readonly float[] _interCacheOutput;
+    private readonly object _sync = new();
+    private readonly Action? _beforeRun;
+    private readonly Action? _beforeDispose;
 
     private bool _disposed;
 
     public GtcrnStreamingSession(InferenceSession session)
+        : this(session, null, null)
+    {
+    }
+
+    internal GtcrnStreamingSession(
+        InferenceSession session,
+        Action? beforeRun,
+        Action? beforeDispose)
     {
         ArgumentNullException.ThrowIfNull(session);
         _session = session;
+        _beforeRun = beforeRun;
+        _beforeDispose = beforeDispose;
 
         // sqrt(hanning) window
         _window = new float[WindowSize];
@@ -87,7 +100,15 @@ public sealed class GtcrnStreamingSession : ISpeechEnhancerSession
 
     public float[] Process(float[] samples)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        lock (_sync)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return ProcessCore(samples);
+        }
+    }
+
+    private float[] ProcessCore(float[] samples)
+    {
         if (samples.Length == 0) return [];
 
         var availableSamples = (long)_inputBufferPos + samples.Length;
@@ -144,6 +165,7 @@ public sealed class GtcrnStreamingSession : ISpeechEnhancerSession
         }
 
         // Run inference
+        _beforeRun?.Invoke();
         _session.Run(s_inputNames, _inputValues, s_outputNames, _outputValues);
 
         // Update caches for next frame
@@ -225,15 +247,19 @@ public sealed class GtcrnStreamingSession : ISpeechEnhancerSession
 
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
-        foreach (var value in _outputValues)
+        _beforeDispose?.Invoke();
+        lock (_sync)
         {
-            value.Dispose();
-        }
-        foreach (var value in _inputValues)
-        {
-            value.Dispose();
+            if (_disposed) return;
+            _disposed = true;
+            foreach (var value in _outputValues)
+            {
+                value.Dispose();
+            }
+            foreach (var value in _inputValues)
+            {
+                value.Dispose();
+            }
         }
         // InferenceSession is shared — don't dispose it here
     }
