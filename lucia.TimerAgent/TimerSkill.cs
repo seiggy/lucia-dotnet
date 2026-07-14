@@ -148,8 +148,9 @@ public sealed class TimerSkill
     /// <summary>
     /// Cancels an active timer.
     /// </summary>
-    public async Task<string> CancelTimerAsync(string timerId, CancellationToken cancellationToken = default)
+public async Task<string> CancelTimerAsync(string timerId, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (_taskStore.TryRemove(timerId, out _))
         {
             try
