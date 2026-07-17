@@ -152,7 +152,7 @@ public sealed class TimerSkill
     public async Task<string> CancelTimerAsync(string timerId, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (_taskStore.TryRemove(timerId, out var removedTask))
+        if (_taskStore.TryRemove(timerId, out _))
         {
             try
             {
@@ -160,33 +160,19 @@ public sealed class TimerSkill
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                // Mongo may have durably committed Cancelled and *still* surfaced an OCE as the
-                // caller's token unwound. Blindly restoring would resurrect a ghost timer that fires
-                // despite being cancelled. Read the persisted status back (uncancellable) and only
-                // restore when the write clearly did not land — i.e. the record is still recoverable
-                // (Pending/Active), which is exactly what ScheduledTaskRecoveryService would resurrect.
-                // Leave it removed for Cancelled, any terminal state, or a missing document.
-                ScheduledTaskStatus? persistedStatus;
+                // The caller cancelled while the first write was in-flight. That write may commit
+                // Cancelled after the OCE surfaces (late-commit). Writing the same terminal state
+                // with an uncancellable token is idempotent: both the original write and this
+                // compensation converge on Cancelled regardless of ordering, so the in-memory
+                // removal cannot reintroduce a live timer.
                 try
                 {
-                    var persisted = await _taskRepository.GetByIdAsync(timerId, CancellationToken.None).ConfigureAwait(false);
-                    persistedStatus = persisted?.Status;
+                    await _taskRepository.UpdateStatusAsync(timerId, ScheduledTaskStatus.Cancelled, CancellationToken.None).ConfigureAwait(false);
                 }
-                catch (Exception readEx)
+                catch (Exception compensationEx)
                 {
-                    // The read-back itself failed, so the persisted status is unknown. Prefer leaving
-                    // the task removed: this avoids ghost firing in-process if Cancelled did commit,
-                    // and defers to durable recovery to resurrect it on restart if it was still
-                    // Pending/Active. Resurrecting here risks an unwanted announcement with no undo.
-                    _logger.LogWarning(readEx, "Failed to read back task {TimerId} after cancelled status update — leaving it removed", timerId);
-                    persistedStatus = null;
+                    _logger.LogWarning(compensationEx, "Failed to converge task {TimerId} to Cancelled after caller cancellation; durable recovery will reconcile on restart", timerId);
                 }
-
-                if (persistedStatus is ScheduledTaskStatus.Pending or ScheduledTaskStatus.Active)
-                {
-                    _taskStore.Add(removedTask!);
-                }
-
                 throw;
             }
             catch (Exception ex)
