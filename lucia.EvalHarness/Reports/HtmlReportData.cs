@@ -143,6 +143,7 @@ public sealed class HtmlReportData
                     {
                         Id = tc.TestCaseId,
                         Passed = tc.Passed,
+                        TimedOut = tc.TimedOut,
                         Score = tc.Score,
                         LatencyMs = tc.Latency.TotalMilliseconds,
                         FailureReason = tc.FailureReason,

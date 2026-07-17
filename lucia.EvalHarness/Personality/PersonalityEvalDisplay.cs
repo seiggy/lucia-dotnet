@@ -85,6 +85,7 @@ public static class PersonalityEvalDisplay
             RenderCategorySummary(report);
             RenderDetailedResults(report);
             RenderMeaningFailures(report);
+            RenderTimeouts(report);
         }
 
         if (reports.Count > 1)
@@ -110,7 +111,7 @@ public static class PersonalityEvalDisplay
 
         foreach (var group in profileGroups)
         {
-            var scored = group.Where(r => r.JudgeResult is not null).ToList();
+            var scored = group.Where(r => r.JudgeResult is { TimedOut: false }).ToList();
             var personalityAvg = scored.Count > 0
                 ? scored.Average(r => r.JudgeResult!.PersonalityScore)
                 : 0.0;
@@ -161,7 +162,7 @@ public static class PersonalityEvalDisplay
 
         foreach (var category in categories)
         {
-            var scored = category.Where(r => r.JudgeResult is not null).ToList();
+            var scored = category.Where(r => r.JudgeResult is { TimedOut: false }).ToList();
             var pAvg = scored.Count > 0 ? scored.Average(r => r.JudgeResult!.PersonalityScore) : 0.0;
             var mAvg = scored.Count > 0 ? scored.Average(r => r.JudgeResult!.MeaningScore) : 0.0;
             var combined = scored.Count > 0 ? scored.Average(r => r.JudgeResult!.CombinedScore) : 0.0;
@@ -254,6 +255,30 @@ public static class PersonalityEvalDisplay
                 AnsiConsole.MarkupLine($"     [dim]Original:  {Markup.Escape(Truncate(result.Trace.OriginalResponse, 120))}[/]");
                 AnsiConsole.MarkupLine($"     [dim]Rewritten: {Markup.Escape(Truncate(result.LlmResponse, 120))}[/]");
             }
+        }
+    }
+
+    private static void RenderTimeouts(PersonalityEvalReport report)
+    {
+        var timeouts = report.Timeouts;
+        if (timeouts.Count == 0)
+            return;
+
+        AnsiConsole.WriteLine();
+        AnsiConsole.Write(new Rule("[yellow bold]\u23f1 Timeouts (excluded from scores)[/]").LeftJustified());
+        AnsiConsole.MarkupLine("[yellow]These scenarios exceeded their deadline \u2014 they are not scored as failures.[/]");
+
+        foreach (var result in timeouts)
+        {
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine(
+                $"  [yellow bold]\u23f1[/] [bold]{Markup.Escape(result.ScenarioId)}[/] \u00d7 " +
+                $"[yellow]{Markup.Escape(result.ProfileName)}[/] " +
+                $"[dim]({result.DurationMs}ms)[/]");
+
+            var reason = result.ErrorMessage ?? result.JudgeResult?.MeaningReason;
+            if (reason is not null)
+                AnsiConsole.MarkupLine($"     [dim]{Markup.Escape(reason)}[/]");
         }
     }
 

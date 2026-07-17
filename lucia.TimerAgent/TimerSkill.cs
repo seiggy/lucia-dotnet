@@ -152,7 +152,7 @@ public sealed class TimerSkill
     public async Task<string> CancelTimerAsync(string timerId, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (_taskStore.TryRemove(timerId, out _))
+        if (_taskStore.TryRemove(timerId, out var removedTask))
         {
             try
             {
@@ -160,6 +160,10 @@ public sealed class TimerSkill
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
+                // Restore the removed task so the in-memory store stays consistent with the
+                // persisted Pending/Active status; prevents ScheduledTaskRecoveryService from
+                // resurrecting the task after a restart.
+                _taskStore.Add(removedTask!);
                 throw;
             }
             catch (Exception ex)

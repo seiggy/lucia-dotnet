@@ -250,15 +250,22 @@ public sealed class TimerSkillTests
     [Fact]
     public async Task SetTimerAsync_CallerCancelled_RepositoryOce_IsNotSwallowed()
     {
+        // Cancel from inside UpsertAsync so the entry ThrowIfCancellationRequested guard is
+        // bypassed and the catch/rethrow branch in SetTimerAsync is actually exercised.
         using var cts = new CancellationTokenSource();
-        cts.Cancel();
 
         A.CallTo(() => _taskRepository.UpsertAsync(A<ScheduledTaskDocument>._, A<CancellationToken>._))
-            .ThrowsAsync(new OperationCanceledException(cts.Token));
+            .ReturnsLazily(call =>
+            {
+                cts.Cancel();
+                return Task.FromException(new OperationCanceledException(cts.Token));
+            });
 
-        await Assert.ThrowsAsync<OperationCanceledException>(
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => _skill.SetTimerAsync(120, "Cancel me", "assist_satellite.kitchen", cts.Token));
 
+        A.CallTo(() => _taskRepository.UpsertAsync(A<ScheduledTaskDocument>._, A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
         // Caller cancellation must abort — the timer is not silently created in-memory.
         Assert.Equal(0, _skill.ActiveTimerCount);
     }
@@ -291,6 +298,31 @@ public sealed class TimerSkillTests
             ScheduledTaskStatus.Cancelled,
             A<CancellationToken>.That.IsEqualTo(cts.Token)))
             .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
+    public async Task CancelTimerAsync_CallerCancelled_DuringStatusUpdate_RestoresTaskToStore()
+    {
+        // If the caller's token fires while UpdateStatusAsync is in-flight, TryRemove has already
+        // removed the task from the in-memory store.  Without a restore the task disappears from
+        // memory while MongoDB still holds a Pending/Active document, and
+        // ScheduledTaskRecoveryService would resurrect it as a ghost on restart.
+        var setResult = await _skill.SetTimerAsync(300, "Restore me", "assist_satellite.kitchen");
+        var timerId = ExtractTimerId(setResult);
+        using var cts = new CancellationTokenSource();
+
+        A.CallTo(() => _taskRepository.UpdateStatusAsync(timerId, ScheduledTaskStatus.Cancelled, A<CancellationToken>._))
+            .ReturnsLazily(call =>
+            {
+                cts.Cancel();
+                return Task.FromException(new OperationCanceledException(cts.Token));
+            });
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => _skill.CancelTimerAsync(timerId, cts.Token));
+
+        // Task must be back in the store so it still fires and the stores stay consistent.
+        Assert.Equal(1, _skill.ActiveTimerCount);
     }
 
     [Fact]
