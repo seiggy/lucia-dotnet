@@ -19,15 +19,17 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
     private readonly HttpClient _httpClient;
     private readonly ILogger<HomeAssistantClient> _logger;
     private readonly IOptionsMonitor<HomeAssistantOptions> _optionsMonitor;
+    private readonly TimeProvider _timeProvider;
 
     /// <summary>Current config snapshot — always reads latest from the options monitor.</summary>
     private HomeAssistantOptions Options => _optionsMonitor.CurrentValue;
 
-    public HomeAssistantClient(HttpClient httpClient, ILogger<HomeAssistantClient> logger, IOptionsMonitor<HomeAssistantOptions> optionsMonitor)
+    public HomeAssistantClient(HttpClient httpClient, ILogger<HomeAssistantClient> logger, IOptionsMonitor<HomeAssistantOptions> optionsMonitor, TimeProvider? timeProvider = null)
     {
         _httpClient = httpClient;
         _logger = logger;
         _optionsMonitor = optionsMonitor;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     /// <summary>
@@ -737,54 +739,62 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
 
         _logger.WebSocketConnecting(wsUri.ToString());
 
-        using var ws = new ClientWebSocket();
-        await ws.ConnectAsync(wsUri, ct);
+        // Internal deadline: the configured timeout bounds the whole connect →
+        // auth → command → read sequence, independent of the caller's token.
+        var timeout = TimeSpan.FromSeconds(Options.TimeoutSeconds);
 
+        using var ws = new ClientWebSocket();
         try
         {
-            // Step 1: Receive auth_required message
-            var authRequired = await WsReadJsonAsync(ws, ct);
-            var msgType = GetJsonStringProperty(authRequired, "type");
-            if (msgType != "auth_required")
-                throw new InvalidOperationException($"Expected 'auth_required', got '{msgType}'");
-
-            // Step 2: Send auth
-            await WsWriteJsonAsync(ws, new { type = "auth", access_token = Options.AccessToken }, ct);
-
-            // Step 3: Receive auth result
-            var authResult = await WsReadJsonAsync(ws, ct);
-            msgType = GetJsonStringProperty(authResult, "type");
-            if (msgType != "auth_ok")
+            return await AsyncDeadline.RunAsync<T?>(async token =>
             {
-                var authMsg = GetJsonStringProperty(authResult, "message");
-                throw new InvalidOperationException($"WebSocket auth failed: {authMsg}");
-            }
+                await ws.ConnectAsync(wsUri, token);
 
-            // Step 4: Send command (merge payload properties into command message)
-            _logger.WebSocketCommand(commandType);
-            var command = BuildWsCommand(1, commandType, payload);
-            await WsWriteJsonAsync(ws, command, ct);
+                // Step 1: Receive auth_required message
+                var authRequired = await WsReadJsonAsync(ws, token);
+                var msgType = GetJsonStringProperty(authRequired, "type");
+                if (msgType != "auth_required")
+                    throw new InvalidOperationException($"Expected 'auth_required', got '{msgType}'");
 
-            // Step 5: Receive command result
-            var result = await WsReadJsonAsync(ws, ct);
-            var success = result.RootElement.TryGetProperty("success", out var successProp)
-                          && successProp.GetBoolean();
+                // Step 2: Send auth
+                await WsWriteJsonAsync(ws, new { type = "auth", access_token = Options.AccessToken }, token);
 
-            if (!success)
-            {
-                var errorMsg = result.RootElement.TryGetProperty("error", out var errorProp)
-                    ? errorProp.ToString()
-                    : "Unknown WebSocket error";
-                _logger.WebSocketCommandFailed(commandType, errorMsg);
-                throw new InvalidOperationException($"WebSocket command '{commandType}' failed: {errorMsg}");
-            }
+                // Step 3: Receive auth result
+                var authResult = await WsReadJsonAsync(ws, token);
+                msgType = GetJsonStringProperty(authResult, "type");
+                if (msgType != "auth_ok")
+                {
+                    var authMsg = GetJsonStringProperty(authResult, "message");
+                    throw new InvalidOperationException($"WebSocket auth failed: {authMsg}");
+                }
 
-            if (result.RootElement.TryGetProperty("result", out var resultProp))
-            {
-                return JsonSerializer.Deserialize<T>(resultProp.GetRawText(), HomeAssistantJsonOptions.Default);
-            }
+                // Step 4: Send command (merge payload properties into command message)
+                _logger.WebSocketCommand(commandType);
+                var command = BuildWsCommand(1, commandType, payload);
+                await WsWriteJsonAsync(ws, command, token);
 
-            return default;
+                // Step 5: Receive command result
+                var result = await WsReadJsonAsync(ws, token);
+                var success = result.RootElement.TryGetProperty("success", out var successProp)
+                              && successProp.GetBoolean();
+
+                if (!success)
+                {
+                    var errorMsg = result.RootElement.TryGetProperty("error", out var errorProp)
+                        ? errorProp.ToString()
+                        : "Unknown WebSocket error";
+                    _logger.WebSocketCommandFailed(commandType, errorMsg);
+                    throw new InvalidOperationException($"WebSocket command '{commandType}' failed: {errorMsg}");
+                }
+
+                if (result.RootElement.TryGetProperty("result", out var resultProp))
+                {
+                    return JsonSerializer.Deserialize<T>(resultProp.GetRawText(), HomeAssistantJsonOptions.Default);
+                }
+
+                return default;
+            }, timeout, _timeProvider, ct,
+            $"Home Assistant WebSocket command '{commandType}' did not complete within {Options.TimeoutSeconds}s.");
         }
         finally
         {
@@ -792,7 +802,12 @@ public sealed class HomeAssistantClient : IHomeAssistantClient
             {
                 try
                 {
-                    await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None);
+                    // Bound close/cleanup with its own deadline so a wedged socket
+                    // can't hang the caller indefinitely during teardown.
+                    using var closeCts = timeout > TimeSpan.Zero
+                        ? new CancellationTokenSource(timeout, _timeProvider)
+                        : new CancellationTokenSource();
+                    await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "", closeCts.Token);
                 }
                 catch
                 {

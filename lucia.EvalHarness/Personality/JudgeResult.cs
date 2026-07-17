@@ -24,4 +24,11 @@ public sealed class JudgeResult
     /// </summary>
     [JsonIgnore]
     public double CombinedScore => (PersonalityScore + MeaningScore) / 2.0;
+
+    /// <summary>
+    /// True when the judge call exceeded its configured deadline. Distinguishes a
+    /// timeout from a genuine zero-score judgement so reports don't conflate the two.
+    /// </summary>
+    [JsonIgnore]
+    public bool TimedOut { get; set; }
 }

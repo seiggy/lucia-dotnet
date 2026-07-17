@@ -54,6 +54,7 @@ public static class TraceExporter
                     {
                         Id = tc.TestCaseId,
                         Passed = tc.Passed,
+                        TimedOut = tc.TimedOut,
                         Score = tc.Score,
                         LatencyMs = tc.Latency.TotalMilliseconds,
                         FailureReason = tc.FailureReason,
@@ -226,6 +227,9 @@ file sealed class TraceTestCase
 
     [JsonPropertyName("passed")]
     public required bool Passed { get; init; }
+
+    [JsonPropertyName("timed_out")]
+    public required bool TimedOut { get; init; }
 
     [JsonPropertyName("score")]
     public required double Score { get; init; }

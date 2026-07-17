@@ -4,6 +4,7 @@ using AgentEval.Metrics.Agentic;
 using AgentEval.Models;
 using lucia.Agents.Abstractions;
 using lucia.EvalHarness.Configuration;
+using lucia.EvalHarness.Infrastructure;
 using lucia.EvalHarness.Providers;
 using lucia.HomeAssistant.Services;
 using Microsoft.Extensions.AI;
@@ -65,6 +66,12 @@ public sealed class TestCaseResult
     public string? FailureReason { get; init; }
 
     /// <summary>
+    /// True when this test case failed because an LLM call exceeded its configured
+    /// deadline. Distinguishes a genuine timeout from an ordinary zero-score failure.
+    /// </summary>
+    public bool TimedOut { get; init; }
+
+    /// <summary>
     /// The agent's full text response for this test case.
     /// </summary>
     public string? AgentOutput { get; init; }
@@ -111,14 +118,17 @@ public sealed class EvalRunner
 {
     private readonly HarnessConfiguration _config;
     private readonly IChatClient _judgeChatClient;
+    private readonly TimeProvider _timeProvider;
     private readonly PerformanceCollector _perfCollector = new();
 
     public EvalRunner(
         HarnessConfiguration config,
-        IChatClient judgeChatClient)
+        IChatClient judgeChatClient,
+        TimeProvider? timeProvider = null)
     {
         _config = config;
         _judgeChatClient = judgeChatClient;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     /// <summary>
@@ -168,7 +178,11 @@ public sealed class EvalRunner
             try
             {
                 var (evalResult, perf) = await _perfCollector.MeasureAsync(async () =>
-                    await harness.RunEvaluationAsync(evaluableAgent, tc, options, ct), ct);
+                    await LlmDeadline.RunAsync(
+                        token => harness.RunEvaluationAsync(evaluableAgent, tc, options, token),
+                        _config.AgentTimeout, _timeProvider, ct,
+                        $"Agent '{agentInstance.AgentName}' on model '{modelName}' exceeded the {_config.AgentTimeoutSeconds}s deadline for test case '{tc.Name ?? $"test_{i}"}'."),
+                    ct);
 
                 perfSnapshots.Add(perf);
 
@@ -186,7 +200,13 @@ public sealed class EvalRunner
 
                 foreach (var metric in metrics)
                 {
-                    var metricResult = await metric.EvaluateAsync(context, ct);
+                    // The LLM-as-judge metric gets the judge deadline; code metrics are local/fast.
+                    var metricResult = metric.Name == "llm_task_completion"
+                        ? await LlmDeadline.RunAsync(
+                            token => metric.EvaluateAsync(context, token),
+                            _config.JudgeTimeout, _timeProvider, ct,
+                            $"Judge metric 'llm_task_completion' exceeded the {_config.JudgeTimeoutSeconds}s deadline for test case '{tc.Name ?? $"test_{i}"}'.")
+                        : await metric.EvaluateAsync(context, ct);
                     switch (metric.Name)
                     {
                         case "code_tool_selection":
@@ -219,6 +239,25 @@ public sealed class EvalRunner
                     AgentOutput = evalResult.ActualOutput,
                     ToolCalls = CaptureToolCalls(evalResult.ToolUsage),
                     ConversationHistory = agentInstance.Tracer?.Turns.ToList()
+                });
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                // Caller-requested cancellation must abort the whole run, never be
+                // recorded as a per-test-case failure.
+                throw;
+            }
+            catch (TimeoutException tex)
+            {
+                testCaseResults.Add(new TestCaseResult
+                {
+                    TestCaseId = tc.Name ?? $"test_{i}",
+                    Passed = false,
+                    Score = 0,
+                    Latency = TimeSpan.Zero,
+                    TimedOut = true,
+                    FailureReason = tex.Message,
+                    Input = tc.Input
                 });
             }
             catch (Exception ex)
@@ -406,7 +445,11 @@ public sealed class EvalRunner
 
                 // Run the agent
                 var (evalResult, perf) = await _perfCollector.MeasureAsync(async () =>
-                    await harness.RunEvaluationAsync(evaluableAgent, testCase, options, ct), ct);
+                    await LlmDeadline.RunAsync(
+                        token => harness.RunEvaluationAsync(evaluableAgent, testCase, options, token),
+                        _config.AgentTimeout, _timeProvider, ct,
+                        $"Agent '{agentInstance.AgentName}' on model '{modelName}' exceeded the {_config.AgentTimeoutSeconds}s deadline for scenario '{scenario.Id}'."),
+                    ct);
 
                 perfSnapshots.Add(perf);
 
@@ -428,6 +471,23 @@ public sealed class EvalRunner
                     ToolCalls = CaptureToolCalls(evalResult.ToolUsage),
                     ConversationHistory = conversation,
                     FailureReason = validation.Passed ? null : validation.Summary
+                });
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (TimeoutException tex)
+            {
+                testCaseResults.Add(new TestCaseResult
+                {
+                    TestCaseId = scenario.Id,
+                    Passed = false,
+                    Score = 0,
+                    Latency = TimeSpan.Zero,
+                    TimedOut = true,
+                    FailureReason = tex.Message,
+                    Input = scenario.UserPrompt
                 });
             }
             catch (Exception ex)

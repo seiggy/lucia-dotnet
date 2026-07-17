@@ -73,8 +73,9 @@ public sealed class TimerSkill
     /// Sets a timer that will play a TTS announcement on the specified satellite device when it expires.
     /// The timer is added to <see cref="ScheduledTaskStore"/> and executed by <see cref="ScheduledTaskService"/>.
     /// </summary>
-    public async Task<string> SetTimerAsync(int durationSeconds, string message, string entityId)
+    public async Task<string> SetTimerAsync(int durationSeconds, string message, string entityId, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         using var activity = ActivitySource.StartActivity("TimerSkill.SetTimer", ActivityKind.Internal);
 
         if (durationSeconds <= 0)
@@ -93,7 +94,7 @@ public sealed class TimerSkill
         }
 
         // Resolve location name to an actual assist_satellite entity_id
-        var resolvedEntityId = await ResolveSatelliteEntityAsync(entityId).ConfigureAwait(false);
+        var resolvedEntityId = await ResolveSatelliteEntityAsync(entityId, cancellationToken).ConfigureAwait(false);
         if (resolvedEntityId is null)
         {
             return $"Could not find an assist_satellite device in '{entityId}'. Available satellites can be found in areas with voice assistant devices.";
@@ -124,7 +125,11 @@ public sealed class TimerSkill
         // Persist to MongoDB for crash recovery
         try
         {
-            await _taskRepository.UpsertAsync(timerTask.ToDocument()).ConfigureAwait(false);
+            await _taskRepository.UpsertAsync(timerTask.ToDocument(), cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -144,13 +149,31 @@ public sealed class TimerSkill
     /// <summary>
     /// Cancels an active timer.
     /// </summary>
-    public async Task<string> CancelTimerAsync(string timerId)
+    public async Task<string> CancelTimerAsync(string timerId, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (_taskStore.TryRemove(timerId, out _))
         {
             try
             {
-                await _taskRepository.UpdateStatusAsync(timerId, ScheduledTaskStatus.Cancelled).ConfigureAwait(false);
+                await _taskRepository.UpdateStatusAsync(timerId, ScheduledTaskStatus.Cancelled, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // The caller cancelled while the first write was in-flight. That write may commit
+                // Cancelled after the OCE surfaces (late-commit). Writing the same terminal state
+                // with an uncancellable token is idempotent: both the original write and this
+                // compensation converge on Cancelled regardless of ordering, so the in-memory
+                // removal cannot reintroduce a live timer.
+                try
+                {
+                    await _taskRepository.UpdateStatusAsync(timerId, ScheduledTaskStatus.Cancelled, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception compensationEx)
+                {
+                    _logger.LogWarning(compensationEx, "Failed to converge task {TimerId} to Cancelled after caller cancellation; durable recovery will reconcile on restart", timerId);
+                }
+                throw;
             }
             catch (Exception ex)
             {
@@ -167,8 +190,10 @@ public sealed class TimerSkill
     /// <summary>
     /// Lists all active timers.
     /// </summary>
-    public Task<string> ListTimers()
+    public Task<string> ListTimers(CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var timers = _taskStore.GetByType(ScheduledTaskType.Timer);
         if (timers.Count == 0)
         {
@@ -204,7 +229,7 @@ public sealed class TimerSkill
     /// Otherwise, searches the entity location service for assist_satellite entities in that area,
     /// filtering to those that support the <see cref="AssistSatelliteFeature.Announce"/> capability.
     /// </summary>
-    private async Task<string?> ResolveSatelliteEntityAsync(string input)
+    private async Task<string?> ResolveSatelliteEntityAsync(string input, CancellationToken cancellationToken)
     {
         // Already a full entity_id — use as-is
         if (input.Contains('.'))
@@ -216,7 +241,7 @@ public sealed class TimerSkill
         var entities = await _entityLocationService.FindEntitiesByLocationAsync(
             input,
             domainFilter: ["assist_satellite"],
-            ct: default).ConfigureAwait(false);
+            ct: cancellationToken).ConfigureAwait(false);
 
         if (entities.Count > 0)
         {

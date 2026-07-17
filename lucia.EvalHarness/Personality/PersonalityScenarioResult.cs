@@ -34,4 +34,10 @@ public sealed class PersonalityScenarioResult
     /// Error message when the model-under-test or judge call fails.
     /// </summary>
     public string? ErrorMessage { get; init; }
+
+    /// <summary>
+    /// True when this result failed because the model-under-test or judge call
+    /// exceeded its configured deadline, as opposed to an ordinary failure.
+    /// </summary>
+    public bool TimedOut { get; init; }
 }

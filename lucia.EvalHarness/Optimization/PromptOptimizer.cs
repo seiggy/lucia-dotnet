@@ -1,6 +1,7 @@
 using System.Text.Json;
 using lucia.Agents.Abstractions;
 using lucia.EvalHarness.Evaluation;
+using lucia.EvalHarness.Infrastructure;
 using Microsoft.Extensions.AI;
 
 namespace lucia.EvalHarness.Optimization;
@@ -12,10 +13,14 @@ namespace lucia.EvalHarness.Optimization;
 public sealed class PromptOptimizer
 {
     private readonly IChatClient _judgeChatClient;
+    private readonly TimeSpan _judgeTimeout;
+    private readonly TimeProvider _timeProvider;
 
-    public PromptOptimizer(IChatClient judgeChatClient)
+    public PromptOptimizer(IChatClient judgeChatClient, TimeSpan judgeTimeout, TimeProvider? timeProvider = null)
     {
         _judgeChatClient = judgeChatClient;
+        _judgeTimeout = judgeTimeout;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     /// <summary>
@@ -46,7 +51,10 @@ public sealed class PromptOptimizer
             ResponseFormat = ChatResponseFormat.Json
         };
 
-        var response = await _judgeChatClient.GetResponseAsync(messages, options, ct);
+        var response = await LlmDeadline.RunAsync(
+            token => _judgeChatClient.GetResponseAsync(messages, options, token),
+            _judgeTimeout, _timeProvider, ct,
+            $"Prompt optimizer judge call exceeded the {_judgeTimeout.TotalSeconds:0}s deadline for agent '{agentName}' on model '{targetModel}'.");
         var responseText = response.Text ?? "";
 
         return ParseResponse(

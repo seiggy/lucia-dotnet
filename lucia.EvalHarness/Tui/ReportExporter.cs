@@ -291,6 +291,7 @@ public static class ReportExporter
                 {
                     id = tc.TestCaseId,
                     passed = tc.Passed,
+                    timedOut = tc.TimedOut,
                     score = tc.Score,
                     latencyMs = tc.Latency.TotalMilliseconds,
                     failureReason = tc.FailureReason

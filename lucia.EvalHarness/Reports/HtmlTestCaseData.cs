@@ -10,6 +10,9 @@ public sealed class HtmlTestCaseData
     [JsonPropertyName("passed")]
     public bool Passed { get; init; }
 
+    [JsonPropertyName("timedOut")]
+    public bool TimedOut { get; init; }
+
     [JsonPropertyName("score")]
     public double Score { get; init; }
 
