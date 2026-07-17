@@ -58,10 +58,11 @@ public class MongoApiKeyServiceTests
     }
 
     [Fact]
-    public async Task ValidateKeyAsync_ReturnsEntryForValidKey()
+    public async Task ValidateKeyAsync_ReturnsEntryForValidKeyWithoutWriting()
     {
         var plaintextKey = "lk_test-valid-key-abc123";
         var hash = ComputeSha256Hash(plaintextKey);
+        var lastUsedAt = new DateTime(2025, 1, 2, 3, 4, 5, DateTimeKind.Utc);
         var entry = new ApiKeyEntry
         {
             Id = "entry-1",
@@ -69,15 +70,21 @@ public class MongoApiKeyServiceTests
             KeyPrefix = "lk_test-vali...",
             Name = "Valid Key",
             IsRevoked = false,
+            LastUsedAt = lastUsedAt,
+            Scopes = ["read:test"],
         };
 
         SetupFindAsync(entry);
-        SetupUpdateOneAsync(1);
 
         var result = await _service.ValidateKeyAsync(plaintextKey);
 
         Assert.NotNull(result);
         Assert.Equal("entry-1", result.Id);
+        Assert.Equal(lastUsedAt, result.LastUsedAt);
+        Assert.Equal(["read:test"], result.Scopes);
+        A.CallTo(_collection)
+            .Where(call => call.Method.Name == "UpdateOneAsync")
+            .MustNotHaveHappened();
     }
 
     [Fact]

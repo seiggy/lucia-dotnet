@@ -41,7 +41,7 @@ public sealed class ApiKeyEntry
     public DateTime CreatedAt { get; init; } = DateTime.UtcNow;
 
     /// <summary>
-    /// When this key was last used for authentication. Null if never used.
+    /// Historical last-used authentication timestamp. Validation does not update this field.
     /// </summary>
     [BsonElement("lastUsedAt")]
     public DateTime? LastUsedAt { get; set; }
