@@ -160,10 +160,33 @@ public sealed class TimerSkill
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                // Restore the removed task so the in-memory store stays consistent with the
-                // persisted Pending/Active status; prevents ScheduledTaskRecoveryService from
-                // resurrecting the task after a restart.
-                _taskStore.Add(removedTask!);
+                // Mongo may have durably committed Cancelled and *still* surfaced an OCE as the
+                // caller's token unwound. Blindly restoring would resurrect a ghost timer that fires
+                // despite being cancelled. Read the persisted status back (uncancellable) and only
+                // restore when the write clearly did not land — i.e. the record is still recoverable
+                // (Pending/Active), which is exactly what ScheduledTaskRecoveryService would resurrect.
+                // Leave it removed for Cancelled, any terminal state, or a missing document.
+                ScheduledTaskStatus? persistedStatus;
+                try
+                {
+                    var persisted = await _taskRepository.GetByIdAsync(timerId, CancellationToken.None).ConfigureAwait(false);
+                    persistedStatus = persisted?.Status;
+                }
+                catch (Exception readEx)
+                {
+                    // The read-back itself failed, so the persisted status is unknown. Prefer leaving
+                    // the task removed: this avoids ghost firing in-process if Cancelled did commit,
+                    // and defers to durable recovery to resurrect it on restart if it was still
+                    // Pending/Active. Resurrecting here risks an unwanted announcement with no undo.
+                    _logger.LogWarning(readEx, "Failed to read back task {TimerId} after cancelled status update — leaving it removed", timerId);
+                    persistedStatus = null;
+                }
+
+                if (persistedStatus is ScheduledTaskStatus.Pending or ScheduledTaskStatus.Active)
+                {
+                    _taskStore.Add(removedTask!);
+                }
+
                 throw;
             }
             catch (Exception ex)

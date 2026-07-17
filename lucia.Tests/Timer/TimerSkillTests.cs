@@ -318,11 +318,43 @@ public sealed class TimerSkillTests
                 return Task.FromException(new OperationCanceledException(cts.Token));
             });
 
+        // The OCE arrived before the write committed, so the persisted status is still Pending.
+        A.CallTo(() => _taskRepository.GetByIdAsync(timerId, A<CancellationToken>._))
+            .Returns(BuildTimerDocument(timerId, ScheduledTaskStatus.Pending));
+
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => _skill.CancelTimerAsync(timerId, cts.Token));
 
         // Task must be back in the store so it still fires and the stores stay consistent.
         Assert.Equal(1, _skill.ActiveTimerCount);
+    }
+
+    [Fact]
+    public async Task CancelTimerAsync_CallerCancelled_StatusDurablyCancelled_LeavesTaskRemoved()
+    {
+        // Mongo can durably commit Cancelled and *still* surface an OperationCanceledException when
+        // the caller's token trips as the reply unwinds.  Blindly restoring the in-memory task here
+        // resurrects a ghost timer that fires despite the durable record saying it was cancelled.
+        // Reading the persisted status back reveals Cancelled, so the task must stay removed.
+        var setResult = await _skill.SetTimerAsync(300, "Ghost me", "assist_satellite.kitchen");
+        var timerId = ExtractTimerId(setResult);
+        using var cts = new CancellationTokenSource();
+
+        A.CallTo(() => _taskRepository.UpdateStatusAsync(timerId, ScheduledTaskStatus.Cancelled, A<CancellationToken>._))
+            .ReturnsLazily(call =>
+            {
+                cts.Cancel();
+                return Task.FromException(new OperationCanceledException(cts.Token));
+            });
+
+        A.CallTo(() => _taskRepository.GetByIdAsync(timerId, A<CancellationToken>._))
+            .Returns(BuildTimerDocument(timerId, ScheduledTaskStatus.Cancelled));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => _skill.CancelTimerAsync(timerId, cts.Token));
+
+        // Durable state is Cancelled — the in-memory task must not be resurrected as a ghost.
+        Assert.Equal(0, _skill.ActiveTimerCount);
     }
 
     [Fact]
@@ -333,6 +365,20 @@ public sealed class TimerSkillTests
 
         await Assert.ThrowsAsync<OperationCanceledException>(() => _skill.ListTimers(cts.Token));
     }
+
+    /// <summary>
+    /// Builds a minimal timer document with a given persisted status for read-back reconciliation tests.
+    /// </summary>
+    private static ScheduledTaskDocument BuildTimerDocument(string id, ScheduledTaskStatus status)
+        => new()
+        {
+            Id = id,
+            TaskId = Guid.NewGuid().ToString("N"),
+            Label = "Timer",
+            FireAt = DateTimeOffset.UtcNow.AddMinutes(5),
+            TaskType = ScheduledTaskType.Timer,
+            Status = status
+        };
 
     /// <summary>
     /// Extracts the timer ID from a SetTimer result string like "Timer 'abc12345' set for ...".

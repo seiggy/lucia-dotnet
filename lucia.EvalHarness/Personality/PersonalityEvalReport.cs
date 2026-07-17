@@ -15,7 +15,7 @@ public sealed class PersonalityEvalReport
     public int TotalCombinations => Results.Count;
 
     /// <summary>
-    /// Average combined score across all successfully judged results (1–5 scale).
+    /// Average combined score across all successfully judged results (1-5 scale).
     /// Timed-out judge results are excluded so a judge outage doesn't lower scores.
     /// </summary>
     public double AverageCombinedScore =>
