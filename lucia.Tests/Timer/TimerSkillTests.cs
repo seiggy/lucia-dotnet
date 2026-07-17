@@ -234,6 +234,20 @@ public sealed class TimerSkillTests
     }
 
     [Fact]
+    public async Task SetTimerAsync_PreCancelledToken_ThrowsWithoutPersistingOrScheduling()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => _skill.SetTimerAsync(120, "Never fires", "assist_satellite.kitchen", cts.Token));
+
+        A.CallTo(() => _taskRepository.UpsertAsync(A<ScheduledTaskDocument>._, A<CancellationToken>._))
+            .MustNotHaveHappened();
+        Assert.Equal(0, _skill.ActiveTimerCount);
+    }
+
+    [Fact]
     public async Task SetTimerAsync_CallerCancelled_RepositoryOce_IsNotSwallowed()
     {
         using var cts = new CancellationTokenSource();

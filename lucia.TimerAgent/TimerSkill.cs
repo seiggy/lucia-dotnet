@@ -75,6 +75,7 @@ public sealed class TimerSkill
     /// </summary>
     public async Task<string> SetTimerAsync(int durationSeconds, string message, string entityId, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         using var activity = ActivitySource.StartActivity("TimerSkill.SetTimer", ActivityKind.Internal);
 
         if (durationSeconds <= 0)
