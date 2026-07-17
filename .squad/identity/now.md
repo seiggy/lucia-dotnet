@@ -16,3 +16,4 @@ Target hardware: Jetson Orin Nano Super Developer Kit, 8GB LPDDR5, 67 INT8 TOPS,
 2. Define the smallest viable C++, Rust, or C#-interop architecture.
 3. Preserve Lucia and Home Assistant integration contracts while replacing the runtime.
 4. Define a reproducible single-build Jetson deployment image.
+5. Cross-compile all native ARM64/CUDA artifacts off-device; the Jetson installs prebuilt binaries only.

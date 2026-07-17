@@ -85,3 +85,32 @@
 **ARM64 build-time correction (Brett, 2026-07-17T14:49:02-04:00):** Reproduced the linux-arm64 build failure reported by Zack Way as `Microsoft.ML.OnnxRuntime.Gpu.Linux` 1.23.2 attempting to copy nonexistent `runtimes/win-arm64/native/onnxruntime.dll` (MSB3030). Root cause: the package is gated on `IsOSPlatform('Linux')` (build-host OS), not target RID. Windows hosts exclude it; Linux hosts (including Jetson, Zack's scenario) include it. Empirical validation: cross-compiling `lucia.AgentHost` with `-r linux-arm64 -p:CpuOnly=true` (excludes only `Gpu.Linux`) **succeeds** and ships AArch64 ELF binaries: `libsherpa-onnx-c-api.so` (5.4 MB), `libonnxruntime.so` (31.4 MB, ORT 1.23.2), and `sherpa-onnx.dll`. The managed sherpa wrapper is **not** the blocker and arm64 **has** real native libs today (sherpa 1.12.34 bundles them). Hicks' parallel Docker BuildX investigation confirmed the same finding: the GPU package is x64-only. **No P/Invoke layer needed;** the wrapper's C ABI is provider-agnostic (`config.ModelConfig.Provider` runtime selector). **Smallest code fix (not implemented):** gate `Microsoft.ML.OnnxRuntime.Gpu.Linux` on target RID `linux-x64` instead of `IsOSPlatform('Linux')`, so arm64 speech builds do not fail. For GPU on Jetson: overlay aarch64 GPU-built `libonnxruntime.so` and `libsherpa-onnx-c-api.so` into `runtimes/linux-arm64/native/` (existing Docker overlay pattern for x64). Runtime CUDA EP registration and managed GTCRN `onnxruntime` P/Invoke binding the bundled arm64 `.so` remain Decision 27 gates K1–K3.
 
 
+### 28. Jetson Off-Device ARM64/CUDA Build Strategy — Native Cross-Compile + QEMU Fallback (Brett/Zack, 2026-07-17)
+
+**Summary:** Production ARM64 CUDA artifacts (native sherpa-onnx + ONNX Runtime) must be built off-device because 8GB Jetson Orin Nano exhausts RAM during compilation. Authoritative findings from Brett resolve a version-conflict between sherpa-onnx (ORT 1.18.1) and managed `Microsoft.ML.OnnxRuntime` (1.23.2) by validating two tracks: (A) production-grade Track A aligns managed 1.18.1 for linux-arm64 only, or (B) PoC-shortcut Track B overlays community 1.23.2 arm64 CUDA native with explicit hardware gates. Both tracks execute via native x64→arm64 cross-compile (preferred, fast) or QEMU emulation on 64GB desktop (fallback, slow). Never compile on the target device.
+
+**Build-host policy (per Zack's directives 2026-07-17T15:29:05Z + T15:31:40Z):** (1) Off-device only — no on-Jetson compilation; (2) Native x64→arm64 cross-toolchain preferred (native-builder-xc via `gcc-aarch64-linux-gnu`); (3) QEMU emulation (native-builder-qemu) accepted as fallback only on 64GB desktop after binfmt registration; (4) Hard constraint: never move build to 8GB Jetson.
+
+**Authoritative artifact findings (Brett, primary sources):**
+- sherpa NuGet v1.12.34 (`build-aarch64-linux-gnu.sh`) is a **true x86_64→aarch64 cross-compile** script (requires `aarch64-linux-gnu-*` toolchain, exits otherwise). Does NOT compile ORT from source; instead fetches prebuilt tarball.
+- ORT 1.18.1 prebuilt tarball (documented, SHA256-verified): `https://github.com/csukuangfj/onnxruntime-libs/releases/download/v1.18.1/onnxruntime-linux-aarch64-gpu-cuda12-1.18.1.tar.bz2` SHA256 `1e91064ec13a6fabb6b670da8a2da4f369c1dbd50a5be77a879b2473e7afc0a6` (51.6 MB, contains `libonnxruntime.so.1.18.1` 20.6 MB + provider `.so`s 325 MB).
+- **API version conflict:** Managed `Microsoft.ML.OnnxRuntime` 1.23.2 calls `OrtGetApiBase()->GetApi(23)` (ORT API v23). Native ORT 1.18.1 only implements API v18 → `GetApi(23)` returns null → managed init fails. sherpa (built against ORT 1.18) runs on native ≥1.18 via C-API back-compat (append-only design).
+- Community 1.23.2 arm64 CUDA native (from wheel): `libonnxruntime.so.1.23.2` (24.9 MB) + providers (171 MB CUDA) exist in `onnxruntime_gpu-1.23.2-cp310-cp310-linux_aarch64.whl`; no Python runtime needed (extract `.so`s with `unzip`).
+
+**Track A — Production (recommended):** RID-conditional package pin: `Microsoft.ML.OnnxRuntime.Managed` → 1.18.1 for `linux-arm64` only (other RIDs stay 1.23.2). Managed/native/sherpa all 1.18.1 (zero version skew). `.NET`/GTCRN APIs used (InferenceSession, SessionOptions, threads, logging, providers) all exist in 1.18.1; no code change. Cross-build sherpa v1.12.34 GPU off-device against ORT 1.18.1 tarball; overlay native into `runtimes/linux-arm64/native/`.
+
+**Track B — PoC shortcut:** Keep managed 1.23.2 everywhere (no package changes). Overlay community 1.23.2 arm64 CUDA native into `runtimes/linux-arm64/native/`. sherpa-built-1.18 loads on native 1.23.2 via back-compat; symlink `libonnxruntime.so` → `libonnxruntime.so.1.23.2` so both sherpa DT_NEEDED and managed dlopen resolve. On-device gate: managed/sherpa/native P/Invoke resolution + CUDA EP registration succeeds.
+
+**Build commands (both paths):**
+- **Preferred:** `docker buildx build --platform linux/arm64` (native cross; no QEMU) — detects `aarch64-linux-gnu-g++`, emits AArch64 ELF.
+- **Fallback:** `docker buildx build --platform linux/arm64` after `docker run --privileged tonistiigi/binfmt --install arm64` (QEMU emulation; slower, desktop only).
+
+**Rejected inaccuracies from preliminary Hicks proposal:** Do not include (1) `nvidia-smi` probes for Jetson (use `tegrastats` instead); (2) invented performance/thermal numeric targets without hardware validation; (3) `latest` production tags (pin exact versions); (4) unsupported L4T/CUDA version combinations; (5) unverified multi-file Dockerfile implementation design.
+
+**Managed wrapper artifact set (unchanged):** `sherpa-onnx.dll` (1.12.34, wraps C ABI only) + `Microsoft.ML.OnnxRuntime.dll` (Track A 1.18.1 / Track B 1.23.2, RID-conditional). No P/Invoke layer needed; C ABI is provider-agnostic.
+
+**No go-conditions:** (1) On-device compilation attempted; (2) managed ORT API version mismatch; (3) cross-compile toolchain missing on CI/CD with no QEMU fallback available; (4) native artifacts not verified locally before deployment.
+
+**User directives preserved:** (1) Off-device compilation only; (2) QEMU fallback accepted on 64GB desktop, never on 8GB Jetson; (3) no Python production runtime at inference.
+
+
