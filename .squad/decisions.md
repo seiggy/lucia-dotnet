@@ -57,3 +57,29 @@
 **Summary:** Owner (Zack Way) hired a dedicated review agent, **Vasquez** (Alien universe, diegetic-expansion overflow), model-locked to **`gpt-5.6-sol`** (no fallback) via `.squad/config.json`. Established a **mandatory pre-push review gate**: no `squad/*` branch may be pushed to the remote, turned into a PR, or merged to `master` until Vasquez has reviewed the branch diff and every blocking problem is resolved. Enforced two ways — (1) **governance**: coordinator routes every `squad/*` branch to Vasquez before push/PR (see `routing.md` Pre-Push Review Gate + Rule 8, and the `Pre-Push Review Gate` ceremony); (2) **mechanical**: the version-controlled `.githooks/pre-push` hook (active via `core.hooksPath=.githooks`, installed by `scripts/install-git-hooks.sh`; docs + `Approve-Branch.ps1` in `.squad/gate/`) that blocks any push whose destination is `refs/heads/squad/*` and whose pushed SHA lacks a Vasquez approval marker in `<git-common-dir>/squad-approvals/<sha>`. The hook runs the gate and then the stock Git LFS step, so LFS is preserved. Approvals are per-commit, so any new commit invalidates approval and forces re-review. Because `core.hooksPath` is a relative path, each worktree runs its own checked-out `.githooks/pre-push`; the hook is not a single shared copy, so it covers any worktree whose checkout contains it (future `squad/*` worktrees branch from `master`, which will carry it once this change lands) — it is not retroactively injected into a pre-existing worktree on a stale branch. The *approval markers* do live in the shared common git dir. Owner escape hatch: `SQUAD_GATE_BYPASS=1`. `master` and non-`squad/*` branches are not gated.
 
 
+### 27. Jetson Orin Nano Native Voice Inference — GPU-Accelerated STT/VAD/KWS/Embedding/Diarization on Ampere (Ripley, 2026-07-17)
+
+**Summary:** After multi-agent research spike coordinated by Ripley (frame), Brett (audio/STT/runtime), Parker (host boundary), and Hicks (deployment), the recommended architecture is **Family C — C# Wyoming host over a stable native C ABI (CUDA-accelerated sherpa-onnx + ONNX Runtime GPU)**, a **port, not a rewrite**. Target hardware locked to **Jetson Orin Nano Super Developer Kit, 8GB only** (1024 CUDA cores, Ampere, 8GB unified LPDDR5, no DLA). 
+
+**Falsifiable decision:** Can a CUDA-accelerated ONNX Runtime (ORT 1.18.1 aarch64, community prebuilt `csukuangfj/onnxruntime-libs`) + sherpa-onnx GPU build (Jetson's native `build-aarch64-linux-gnu.sh` with `SHERPA_ONNX_ENABLE_GPU=ON`) be P/Invoked from the existing .NET `lucia.Wyoming` host on Orin Nano (JetPack 6.2 / CUDA 12.6 / cuDNN 9), within latency/thermal/memory budget? **Yes, confirmed:** sherpa-onnx explicitly documents Jetson Orin Nano Super + JetPack 6.2 + CUDA 12.6 / cuDNN 9 as the build target; the .NET wrapper is provider-agnostic; `Dockerfile.voice` already sets `Provider=cuda` via options. Only change: overlay aarch64 GPU `.so`s (sherpa-onnx compiled with GPU, ORT-GPU 1.18.1) into `runtimes/linux-arm64/native/` (mirroring x64 overlay in existing `Dockerfile.voice`); reuse `HybridSttEngine.BuildConfig` + `OnnxProviderDetector` (no new engines needed).
+
+**What runs GPU-accelerated:** STT (Parakeet-TDT-0.6b-v2 via sherpa-onnx+ORT CUDA EP); VAD, KWS, speaker embedding, speaker diarization all covered by native sherpa-onnx (keep CPU unless GPU headroom available). Speech enhancement (GTCRN) keeps CPU (per-hop copies cost more than compute). No TensorRT-native, Triton, Rust, C++ rewrite, or Python runtime at inference.
+
+**Deployment:** L4T rootfs + `nvcr.io/nvidia/l4t-*` base + existing `Dockerfile.agenthost-jetson` pattern + GPU-lib overlay + one Docker Compose file (reuse `docker-compose.jetson.yml`). No ISO, no Kubernetes, no custom flashing.
+
+**Kill gates (on real 8GB Orin Nano, MAXN + a capped power mode):**
+- **K1:** ORT-GPU 1.18.1 fails to load / CUDA EP not registered on JetPack 6.2 → escalate.
+- **K2:** Parakeet-TDT RTF > ~1.0 at capped power after warmup → drop to smaller model.
+- **K3:** CUDA context + Parakeet encoder + cuDNN workspace + AgentHost exceeds 8GB unified LPDDR5 → move data services off-box.
+- **K4:** CUDA-EP WER materially worse than x86 baseline on HA snapshot corpus → investigate provider/model.
+- **K5:** Native `.so` calls `terminate()` on sustained streaming → escalate to Family B (Rust).
+
+**User directives preserved:** (1) No Python production runtime; (2) Target hardware = Jetson Orin Nano Super 8GB exactly (no 4GB, no variants).
+
+**Ponytail verdict:** One native runtime (sherpa-onnx) covers STT + VAD + KWS + embedding + diarization. Do NOT add TensorRT-native, Triton, Rust rewrite, or C++ core without K-gate hardware evidence. Existing .NET host is the right anchor; Jetson is a **library sourcing + GPU-enablement task**, not an architecture rewrite.
+
+**Corrections to preliminary proposals:** Ripley's second-pass synthesis **rejects** (1) Parker's proposed `JetsonSttEngine`/`JetsonSttSession` (managed code unchanged; only native-lib sourcing changes); (2) Hicks' Riva, Triton, Python-Whisper CPU fallback, speculative latency/thermal/concurrency numbers, invented 8 new infra files, and Python-based probes (`nvidia-smi`; use `tegrastats` instead); (3) Hicks' confusion on ORT version (1.18.1 aarch64 GPU tarball, not `1.24.4 cp310` wheel); (4) Hicks' assertion that Orin Nano 8GB = 512 CUDA cores (true only for 4GB; 8GB = 1024 cores, 32 tensor cores). Deployment terminology corrected: L4T **rootfs flash** (SDK Manager or `flash.sh`), not an ISO.
+
+**PoC scope (Stages 1–5, ~3–4 weeks):** Non-voice baseline, asset image build (Sherpa-ONNX aarch64 GPU), voice Dockerfile, Docker Compose, systemd first-boot, end-to-end test. Measure G0–G7 gates on physical Orin Nano 8GB. No go-condition: K1–K5 gate failure or physical hardware unavailable.
+
+
