@@ -31,5 +31,8 @@ jobs:
       - name: Test
         run: dotnet test lucia.Tests --no-build --configuration Release --filter "Category!=Eval&Category!=Integration&Category!=LiveEval" --logger "console;verbosity=normal"
 
+      - name: Test PostgreSQL migrations
+        run: dotnet test lucia.Tests --no-build --configuration Release --filter "FullyQualifiedName~PostgresMigrationRunnerTests" --logger "console;verbosity=normal"
+
       - name: Test EvalHarness (provider-free)
         run: dotnet test lucia.EvalHarness.Tests --no-build --configuration Release --logger "console;verbosity=normal"

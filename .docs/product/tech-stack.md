@@ -91,7 +91,7 @@
 ### Testing
 - **Framework:** xUnit
 - **Mocking:** FakeItEasy
-- **Integration:** Aspire.Hosting.Testing
+- **Integration:** Aspire.Hosting.Testing; Testcontainers 4.11 (PostgreSQL and Redis)
 
 ### CI/CD Pipeline
 - **Platform:** GitHub Actions
