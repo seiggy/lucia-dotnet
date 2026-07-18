@@ -132,4 +132,22 @@
 
 **No code changes to .NET app or production routing.** Only infrastructure files changed (Dockerfile, Compose, deploy script). Decision 27 scope (managed Wyoming host + K-gate design) **fully confirmed by live deployment**.
 
+---
+
+## CORRECTION: Decision 29 Deployment Status (2026-07-18T13:40)
+
+**Authoritative state (Zack Way directive, 2026-07-18T13:40):**
+
+R4 live deployment **FAILED**. First attempt loaded image on device; container crashed at startup: `libcublasLt.so.12` not found. Root cause identified: JetPack 6 NVIDIA Container Toolkit 1.16.2 CSV mode injects only the CUDA driver (`libcuda.so.1.1`); CUDA runtime user-space libs (cuBLAS, cuBLASLt, cudart, cuFFT, cuDNN, TensorRT) **must be baked into the app image**, not mounted. Attempted fix deployed but no stable AgentHost remained on device after R4. Jetson was migrated by user to NVMe and is currently online but idle.
+
+R6 canonical candidate was built and locally/QEMU validated off-device (image `lucia-agenthost-voice:r36.4.7-ort1.23.2-poc-r6`). This R6 was then corrected and committed at implementation commit `4e81ecf430771e87be435465934de92c12562b16`. **R6 has NOT been deployed yet.** A cached canonical provenance rebuild from the clean committed revision is required before next deployment attempt.
+
+**K-gate status (CORRECTED from Decision 29 main text):**
+- **K1 (CUDA-EP registration):** OPEN. Requires live on-device deployment + verified CUDA kernel execution in logs.
+- **K2–K5 (RTF, thermal, memory, WER, sustained streaming):** OPEN. Cannot be tested off-device.
+
+**User directives preserved:** (1) Off-device build only; (2) single Compose file; (3) PostgreSQL acceptable; (4) Ponytail minimal; (5) no Python production runtime.
+
+**Next action:** Deploy R6 (or rebuild R7 from committed revision) to physical Jetson on NVMe; capture K1–K5 gate evidence before POC approval.
+
 
