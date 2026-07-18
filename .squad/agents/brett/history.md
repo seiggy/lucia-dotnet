@@ -167,3 +167,23 @@ Live failure on the Jetson (`zackw@192.168.1.239`, L4T R36.4.7, `Dockerfile.agen
 ## Next Steps
 - Await coordinator approval for PoC hardware allocation (Jetson Orin Nano 8GB)
 - Stages 1–5 validation on physical hardware (~3–4 weeks)
+
+### 2026-07-18: Jetson Bootstrap Live Deployment
+
+**What I Executed:**
+- Copied exact committed `deploy-jetson.sh` to physical Jetson (zackw@192.168.1.239); SHA256 verified
+- Executed `--dry-run` bootstrap; passed validation
+- Executed real bootstrap; exited 0; all 3 services (AgentHost, Redis, PostgreSQL) deployed and healthy
+- Verified: AgentHost `/health` 200, setup wizard redirects, Wyoming 10400 reachable, volumes preserved
+
+**Image Details:**
+- Canonical config: `sha256:be790abcba91dc1981f9fc9d2ad149e940d2aa223630cf94e260718ac58291c6`
+- Tag: `lucia-voice:latest` (unified Compose project name)
+
+**Gate Status:**
+- **Bootstrap complete (B1–B3):** ✓
+- **K1 (CUDA-EP):** DEFERRED (requires post-setup strict validation)
+- **K2–K5:** Open
+
+**Key Learning:** Three-service unified Compose (AgentHost + Redis + PostgreSQL) bootstraps reliably when CUDA runtime user-space libs are baked into image + `/opt/cuda/lib` overlay.
+

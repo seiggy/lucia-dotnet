@@ -35,6 +35,26 @@
 
 **Status:** All review gates cleared. Image deployed and running on Jetson. K1 (CUDA-EP registration) confirmed in logs. Ready for on-device stress testing (K2–K5).
 
+### 2026-07-18 — Bootstrap Validation Hardening Review
+
+**Responsibility:** Independent review of bootstrap script and test hardening cycle (Ash).
+
+**Findings:**
+- SIGPIPE detection bug eliminated (pipe/grep replaced with direct Bash string matching)
+- 105-case production-coupled test suite validates real `deploy-jetson.sh` via `--dry-run`; no regex duplication
+- All 105 test cases pass; bash -n syntax clean
+- Commit touches only `infra/docker/deploy-jetson.sh` and `test-deploy-jetson-validation.sh`
+
+**Verdict:** APPROVE. Bootstrap validation is hardened and ready for deployment.
+
+**Deployment Follow-up (Brett):**
+- Dry-run: passed
+- Real bootstrap: passed (exit 0)
+- All 3 services healthy/running (AgentHost, Redis, PostgreSQL)
+- Setup wizard accessible; Wyoming reachable
+
+**Status:** Bootstrap gates B1–B3 complete. User must complete HA setup wizard. K1 gate deferred to next cycle.
+
 ## Archived Work
 - See `history-archive.md` for prior STT semaphore, HTTPClient lifetime, and PR review entries (7 major review cycles 2026-07-10)
 

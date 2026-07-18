@@ -173,3 +173,21 @@ SQLite data layer normalized: `SqliteScheduledTaskRepository` stores `FireAt.ToU
 
 **Build:** 0 errors, 0 warnings. 1047 tests passing (3 pre-existing failures in deprecated API, unrelated).
 
+### 2026-07-18: Jetson Bootstrap Validation Hardening
+
+**What I Fixed:**
+- SIGPIPE failure in `deploy-jetson.sh` bootstrap marker detection. Original used `printf|grep -qF`, allowing pipe to fail if grep exited early. Replaced with direct Bash fixed-string matching (`[[ ... == *... ]]`) — no subprocesses, no pipe races.
+- Added comprehensive production-coupled regression test suite to `infra/docker/test-deploy-jetson-validation.sh`: 105 test cases covering valid/invalid image refs, bootstrap flow, repeated runs, health checks. All passing; bash -n clean.
+
+**Live Deployment Result (Brett):**
+- Dry-run: passed
+- Real bootstrap: passed (exit 0)
+- All 3 services healthy/running (AgentHost, Redis, PostgreSQL)
+- AgentHost `/health` returns 200; setup wizard accessible
+- Wyoming 10400 reachable; volumes preserved
+- Canonical image config: `sha256:be790abcba91dc1981f9fc9d2ad149e940d2aa223630cf94e260718ac58291c6`
+
+**Key Learning:** Bootstrap marker detection via pipe/grep is inherently racy; direct string matching in Bash is safer and faster. Test suite uses production script directly (`--dry-run`); no regex duplication.
+
+**Next Gate:** K1 (CUDA-EP verification) deferred to next cycle after HA setup wizard completion.
+
