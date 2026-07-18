@@ -98,7 +98,8 @@ case "${1:-}" in
         trace PS_AGENT_CS_UNSET; exit 1
       fi
       trace PS_AGENT_CS_OK
-      [[ -n "${STUB_PRIOR_IMAGE:-}" ]] && printf 'agent-cid\n'
+      # -q: running containers (includes newly-started by current deploy)
+      { [[ -n "${STUB_PRIOR_IMAGE:-}" ]] || [[ "${STUB_AGENTHOST_RUNNING:-0}" == "1" ]]; } && printf 'agent-cid\n'
       exit 0
     fi
     [[ "$argv" == *"ps -q lucia-postgres"* ]] && { printf 'pg-cid\n'; exit 0; }
@@ -121,8 +122,19 @@ case "${1:-}" in
       fi
       exit 0
     fi
+    if [[ "$argv" == *stop* && "$argv" == *lucia-agenthost-voice* ]]; then trace AGENTHOST_STOP; exit 0; fi
+    if [[ "$argv" == *" rm "* && "$argv" == *lucia-agenthost-voice* ]]; then trace AGENTHOST_RM; exit 0; fi
     { [[ "$argv" == *stop* ]] || [[ "$argv" == *" rm "* ]]; } && exit 0
     exit 0 ;;
+  ps)
+    # docker ps -aq --filter label= — bootstrap pre-deploy container guard
+    if [[ "$argv" == *"-aq"* && "$argv" == *"label=com.docker.compose"* ]]; then
+      trace "BOOTSTRAP_GUARD_CHECK"
+      { [[ -n "${STUB_PRIOR_IMAGE:-}" ]] || [[ "${STUB_AGENTHOST_STOPPED:-0}" == "1" ]]; } && printf 'agent-cid\n'
+      exit 0
+    fi
+    exit 0 ;;
+  logs) [[ -n "${STUB_AGENTHOST_LOGS:-}" ]] && printf '%s\n' "${STUB_AGENTHOST_LOGS}"; exit 0 ;;
   *) exit 0 ;;
 esac
 STUB
@@ -133,7 +145,7 @@ cat > "$STUBBIN/curl" <<'STUB'
 url=""
 for a in "$@"; do case "$a" in http://*|https://*) url="$a";; esac; done
 case "$url" in
-  */health) exit 0 ;;
+  */health) [[ "${STUB_HEALTH_FAIL:-0}" == "1" ]] && exit 1 || exit 0 ;;
   */api/wyoming/status)
     if [[ -n "${STUB_WYOMING_BODY:-}" ]]; then
       printf '%s' "${STUB_WYOMING_BODY}"
@@ -147,6 +159,26 @@ case "$url" in
 esac
 STUB
 chmod +x "$STUBBIN/curl"
+
+cat > "$STUBBIN/wget" <<'STUB'
+#!/usr/bin/env bash
+url=""
+for a in "$@"; do case "$a" in http://*|https://*) url="$a";; esac; done
+case "$url" in
+  */health) [[ "${STUB_HEALTH_FAIL:-0}" == "1" ]] && exit 1 || exit 0 ;;
+  */api/wyoming/status)
+    if [[ -n "${STUB_WYOMING_BODY:-}" ]]; then
+      printf '%s' "${STUB_WYOMING_BODY}"
+    elif [[ "${STUB_ACCEL:-1}" == "1" ]]; then
+      printf '%s' '{"stt":{"ready":true},"onnxProvider":{"selected":"CUDAExecutionProvider","sherpaProvider":"cuda","isAccelerated":true,"available":["CUDAExecutionProvider","CPUExecutionProvider"]},"configured":true}'
+    else
+      printf '%s' '{"stt":{"ready":true},"onnxProvider":{"selected":"CPUExecutionProvider","sherpaProvider":"cpu","isAccelerated":false,"available":["CPUExecutionProvider"]},"configured":true}'
+    fi
+    exit 0 ;;
+  *) exit 1 ;;
+esac
+STUB
+chmod +x "$STUBBIN/wget"
 
 cat > "$STUBBIN/uname" <<'STUB'
 #!/usr/bin/env bash
@@ -574,6 +606,257 @@ grep -qiE '(^|\s)build:' "$VOICE_COMPOSE" && fail "build: present (must use immu
 grep -qi 'mongo' "$VOICE_COMPOSE" && fail "unexpected mongo service" || pass "no mongo service"
 
 # ---------------------------------------------------------------------------
+echo "== No python in deploy-jetson.sh =="
+if grep -qF 'python' "$DEPLOY_SCRIPT"; then
+  fail "python reference in deploy-jetson.sh (on-device Python dependency not removed)"
+else
+  pass "no python in deploy-jetson.sh"
+fi
+
+# ---------------------------------------------------------------------------
+echo "== Bootstrap: verify_bootstrap (real function, controlled stub) =="
+# Invoke real verify_bootstrap with controlled /health and docker logs output.
+bootstrap_verify() { # logs_content -> 0 if verify_bootstrap passes
+  STUB_AGENTHOST_RUNNING=1 STUB_AGENTHOST_LOGS="$1" BOOTSTRAP_LOG_TIMEOUT=3 \
+    PATH="$STUBBIN:$PATH" bash -c \
+      '_s="$1"; set --; source "$_s"; verify_bootstrap' _ "$DEPLOY_SCRIPT" >/dev/null 2>&1
+}
+
+BOOT_MARKER='[AgentInitializationService] Waiting for Home Assistant configuration... (BaseUrl and AccessToken must be set. Complete the setup wizard to continue.)'
+
+bootstrap_verify "$BOOT_MARKER" \
+  && pass "bootstrap verify: exact HA wait marker accepted" \
+  || fail "bootstrap verify: exact HA wait marker rejected (must accept)"
+
+bootstrap_verify 'Waiting for Home Assistant configuration' \
+  && fail "bootstrap verify: only first marker — must reject (second missing)" \
+  || pass "bootstrap verify: only first marker correctly rejected"
+
+bootstrap_verify 'BaseUrl and AccessToken must be set' \
+  && fail "bootstrap verify: only second marker — must reject (first missing)" \
+  || pass "bootstrap verify: only second marker correctly rejected"
+
+bootstrap_verify '' \
+  && fail "bootstrap verify: empty logs — must reject" \
+  || pass "bootstrap verify: empty logs correctly rejected"
+
+bootstrap_verify 'AgentHost started OK. Wyoming ready.' \
+  && fail "bootstrap verify: wrong content — must reject" \
+  || pass "bootstrap verify: wrong log content correctly rejected"
+
+# Cross-line: message split across two log lines — single-line grep must reject both halves.
+bootstrap_verify $'Waiting for Home Assistant configuration... (BaseUrl and AccessToken must be set.\nComplete the setup wizard to continue.)' \
+  && fail "bootstrap verify: split cross-line message — must reject" \
+  || pass "bootstrap verify: split cross-line message correctly rejected"
+
+# Stale fragment: partial message without the closing clause — must reject.
+bootstrap_verify 'Waiting for Home Assistant configuration... (BaseUrl and AccessToken must be set. Complete the setup wizard to continue' \
+  && fail "bootstrap verify: truncated stale-fragment — must reject" \
+  || pass "bootstrap verify: truncated stale-fragment correctly rejected"
+
+# Large-log SIGPIPE regression: >=400 KB log with exact marker at mid-point (500-line
+# prefix, then marker, then 4500-line suffix).  The fix — a direct [[ "$logs" == *marker* ]]
+# glob — avoids all pipes so no SIGPIPE under set -o pipefail regardless of marker position.
+# Log is written to a file; only LL_LOG_FILE (a short path) is exported so execve's
+# env-var ARG_MAX ceiling is not hit (~440 KB would fail with "Argument list too long").
+_ll_log="$WORK/large_boot.log"
+{
+  for _ll_i in $(seq 1 500); do
+    printf 'INFO: AgentHost startup log line %d -- routine boot noise (400 KB prefix/suffix large-log regression)\n' "$_ll_i"
+  done
+  printf '%s\n' '[AgentInitializationService] Waiting for Home Assistant configuration... (BaseUrl and AccessToken must be set. Complete the setup wizard to continue.)'
+  for _ll_i in $(seq 501 5000); do
+    printf 'INFO: AgentHost startup log line %d -- routine boot noise (400 KB prefix/suffix large-log regression)\n' "$_ll_i"
+  done
+} > "$_ll_log"
+_ll_bin="$WORK/llbin"; mkdir -p "$_ll_bin"
+for _llf in curl wget uname python3; do [[ -f "$STUBBIN/$_llf" ]] && cp "$STUBBIN/$_llf" "$_ll_bin/$_llf"; done
+cat > "$_ll_bin/docker" <<'LLSTUB'
+#!/usr/bin/env bash
+set -u
+argv="$*"
+case "${1:-}" in
+  compose) [[ "$argv" == *"ps -q lucia-agenthost-voice"* ]] && printf 'agent-cid\n'; exit 0 ;;
+  logs) cat "${LL_LOG_FILE}"; exit 0 ;;
+  *) exit 0 ;;
+esac
+LLSTUB
+chmod +x "$_ll_bin/docker"
+_ll_rc=0
+BOOTSTRAP_LOG_TIMEOUT=5 LL_LOG_FILE="$_ll_log" PATH="$_ll_bin:$PATH" bash -c \
+  '_s="$1"; set --; source "$_s"; verify_bootstrap' _ "$DEPLOY_SCRIPT" >/dev/null 2>&1 \
+  || _ll_rc=$?
+[[ "$_ll_rc" -eq 0 ]] \
+  && pass "large-log SIGPIPE regression: >=400 KB prefix/suffix log with exact marker accepted" \
+  || fail "large-log SIGPIPE regression: FAILED (rc=${_ll_rc}) — glob check may have regressed to a pipe"
+
+# Pipeline regression proof: reintroducing printf|grep-qF under pipefail fails on this
+# same content (grep exits after the mid-point match; printf still writing >200 KB suffix
+# gets SIGPIPE).  Read from file in this shell — no child-process env-var ARG_MAX limit.
+_ll_content="$(cat "$_ll_log")"
+_old_pipeline_rc=0
+( set -o pipefail
+  printf '%s' "$_ll_content" | grep -qF \
+    'Waiting for Home Assistant configuration... (BaseUrl and AccessToken must be set. Complete the setup wizard to continue.)'
+) 2>/dev/null || _old_pipeline_rc=$?
+if [[ "$_old_pipeline_rc" -ne 0 ]]; then
+  pass "pipeline regression proof: printf|grep-qF exits non-zero (rc=${_old_pipeline_rc}) on >=400 KB mid-match log under pipefail"
+else
+  skip "pipeline regression proof: no SIGPIPE on this platform — coverage provided by the large-log bootstrap_verify test"
+fi
+
+# ---------------------------------------------------------------------------
+echo "== Bootstrap: integration (real script, controlled stubs) =="
+
+# Fresh bootstrap success: exit 0, BOOTSTRAP REQUIRED output, no rollback file, AGENTUP once.
+d="$(prep_rundir)"
+( export STUB_TRACE="$d/trace" STUB_STATE="$d" \
+         STUB_AGENTHOST_RUNNING=1 \
+         STUB_AGENTHOST_LOGS="$BOOT_MARKER" \
+         BOOTSTRAP_LOG_TIMEOUT=3 \
+         POSTGRES_PASSWORD=pw PATH="$STUBBIN:$PATH"
+  bash "$d/deploy-jetson.sh" --image "$VALID_ID" --bootstrap ) >"$d/out" 2>&1
+rc=$?
+check "bootstrap fresh: exit 0 on verified wait state" "$rc" 0
+grep -q 'BOOTSTRAP REQUIRED' "$d/out" \
+  && pass "bootstrap fresh: BOOTSTRAP REQUIRED in output" \
+  || fail "bootstrap fresh: BOOTSTRAP REQUIRED missing from output"
+[[ ! -f "$d/.rollback-image" ]] \
+  && pass "bootstrap fresh: rollback record not retained" \
+  || fail "bootstrap fresh: rollback record incorrectly retained"
+upcount="$(cat "$d/agent_up_count" 2>/dev/null || echo 0)"
+check "bootstrap fresh: AgentHost started exactly once (no rollback)" "$upcount" 1
+grep -q 'BOOTSTRAP_GUARD_CHECK' "$d/trace" 2>/dev/null \
+  && pass "bootstrap fresh: container guard ran (genuine fresh — would fail if guard removed)" \
+  || fail "bootstrap fresh: container guard trace missing (guard regression)"
+
+# Normal mode (no --bootstrap) with CPU provider: verify_new fails, rolls back.
+d="$(prep_rundir)"
+( export STUB_TRACE="$d/trace" STUB_STATE="$d" \
+         STUB_ACCEL=0 \
+         POSTGRES_PASSWORD=pw PATH="$STUBBIN:$PATH"
+  bash "$d/deploy-jetson.sh" --image "$VALID_ID" ) >"$d/out" 2>&1
+rc=$?
+check "normal mode without --bootstrap with CPU provider: exit 1 (--bootstrap required)" "$rc" 1
+
+# Bootstrap with prior AgentHost: rejected before mutation (no DATAUP in trace).
+d="$(prep_rundir)"
+( export STUB_TRACE="$d/trace" STUB_STATE="$d" STUB_PRIOR_IMAGE="$PRIOR_ID" \
+         BOOTSTRAP_LOG_TIMEOUT=3 \
+         POSTGRES_PASSWORD=pw PATH="$STUBBIN:$PATH"
+  bash "$d/deploy-jetson.sh" --image "$VALID_ID" --bootstrap ) >"$d/out" 2>&1
+rc=$?
+check "bootstrap with prior AgentHost: rejected (exit 1)" "$rc" 1
+grep -q 'DATAUP' "$d/trace" 2>/dev/null \
+  && fail "bootstrap with prior AgentHost: data services started (mutation occurred)" \
+  || pass "bootstrap with prior AgentHost: rejected before mutation (no DATAUP)"
+
+# Bootstrap with stopped AgentHost (ps -aq detects it; ps -q would miss a stopped container).
+d="$(prep_rundir)"
+( export STUB_TRACE="$d/trace" STUB_STATE="$d" \
+         STUB_AGENTHOST_STOPPED=1 \
+         BOOTSTRAP_LOG_TIMEOUT=3 \
+         POSTGRES_PASSWORD=pw PATH="$STUBBIN:$PATH"
+  bash "$d/deploy-jetson.sh" --image "$VALID_ID" --bootstrap ) >"$d/out" 2>&1
+rc=$?
+check "bootstrap with stopped AgentHost: rejected (exit 1)" "$rc" 1
+grep -q 'DATAUP' "$d/trace" 2>/dev/null \
+  && fail "bootstrap with stopped AgentHost: data services started (mutation occurred)" \
+  || pass "bootstrap with stopped AgentHost: rejected before mutation (no DATAUP)"
+
+# Bootstrap with wrong log marker: verify_bootstrap fails, rolls back.
+d="$(prep_rundir)"
+( export STUB_TRACE="$d/trace" STUB_STATE="$d" \
+         STUB_AGENTHOST_RUNNING=1 \
+         STUB_AGENTHOST_LOGS="AgentHost started OK. Wyoming ready." \
+         BOOTSTRAP_LOG_TIMEOUT=3 \
+         POSTGRES_PASSWORD=pw PATH="$STUBBIN:$PATH"
+  bash "$d/deploy-jetson.sh" --image "$VALID_ID" --bootstrap ) >"$d/out" 2>&1
+rc=$?
+check "bootstrap with wrong log marker: exit 1 (rollback)" "$rc" 1
+grep -q 'AGENTHOST_STOP' "$d/trace" 2>/dev/null \
+  && pass "bootstrap wrong log marker: stop issued in fresh rollback" \
+  || fail "bootstrap wrong log marker: stop not found in trace"
+grep -q 'AGENTHOST_RM' "$d/trace" 2>/dev/null \
+  && pass "bootstrap wrong log marker: rm issued in fresh rollback" \
+  || fail "bootstrap wrong log marker: rm not found in trace"
+[[ ! -f "$d/.rollback-image" ]] \
+  && pass "bootstrap wrong log marker: rollback file cleaned up" \
+  || fail "bootstrap wrong log marker: rollback file not cleaned up"
+
+# Bootstrap with /health failure: verify_bootstrap fails, rolls back.
+d="$(prep_rundir)"
+( export STUB_TRACE="$d/trace" STUB_STATE="$d" \
+         STUB_AGENTHOST_RUNNING=1 \
+         STUB_AGENTHOST_LOGS="$BOOT_MARKER" \
+         STUB_HEALTH_FAIL=1 \
+         BOOTSTRAP_LOG_TIMEOUT=3 \
+         POSTGRES_PASSWORD=pw PATH="$STUBBIN:$PATH"
+  bash "$d/deploy-jetson.sh" --image "$VALID_ID" --bootstrap --health-timeout 5 ) >"$d/out" 2>&1
+rc=$?
+check "bootstrap with /health failure: exit 1 (rollback)" "$rc" 1
+grep -q 'AGENTHOST_STOP' "$d/trace" 2>/dev/null \
+  && pass "bootstrap health failure: stop issued in fresh rollback" \
+  || fail "bootstrap health failure: stop not found in trace"
+grep -q 'AGENTHOST_RM' "$d/trace" 2>/dev/null \
+  && pass "bootstrap health failure: rm issued in fresh rollback" \
+  || fail "bootstrap health failure: rm not found in trace"
+[[ ! -f "$d/.rollback-image" ]] \
+  && pass "bootstrap health failure: rollback file cleaned up" \
+  || fail "bootstrap health failure: rollback file not cleaned up"
+
+# Bootstrap compose-up crash: error path triggers rollback before verify_bootstrap.
+d="$(prep_rundir)"
+( export STUB_TRACE="$d/trace" STUB_STATE="$d" \
+         STUB_AGENTHOST_LOGS="$BOOT_MARKER" \
+         BOOTSTRAP_LOG_TIMEOUT=3 \
+         STUB_AGENT_UP_FAIL_ON=1 \
+         POSTGRES_PASSWORD=pw PATH="$STUBBIN:$PATH"
+  bash "$d/deploy-jetson.sh" --image "$VALID_ID" --bootstrap ) >"$d/out" 2>&1
+rc=$?
+check "bootstrap compose-up crash: exit 1 (rollback)" "$rc" 1
+grep -q 'AGENTHOST_STOP' "$d/trace" 2>/dev/null \
+  && pass "bootstrap compose-up crash: stop issued in fresh rollback" \
+  || fail "bootstrap compose-up crash: stop not found in trace"
+grep -q 'AGENTHOST_RM' "$d/trace" 2>/dev/null \
+  && pass "bootstrap compose-up crash: rm issued in fresh rollback" \
+  || fail "bootstrap compose-up crash: rm not found in trace"
+[[ ! -f "$d/.rollback-image" ]] \
+  && pass "bootstrap compose-up crash: rollback file cleaned up" \
+  || fail "bootstrap compose-up crash: rollback file not cleaned up"
+
+# --dry-run --bootstrap: exit 0, mentions BOOTSTRAP in output.
+DRY_BOOT_RC=0
+DRY_BOOT_OUT="$(PATH="$STUBBIN:$PATH" REAL_DOCKER="$REAL_DOCKER" POSTGRES_PASSWORD=pw \
+  bash "$DEPLOY_SCRIPT" --image "$VALID_ID" --dry-run --bootstrap 2>&1)" || DRY_BOOT_RC=$?
+check "--dry-run --bootstrap: exit 0" "$DRY_BOOT_RC" 0
+printf '%s' "$DRY_BOOT_OUT" | grep -qi 'BOOTSTRAP' \
+  && pass "--dry-run --bootstrap: BOOTSTRAP mentioned in output" \
+  || fail "--dry-run --bootstrap: BOOTSTRAP not mentioned in output"
+
+# Bootstrap SIGTERM before verify_bootstrap: trap fires, rollback, exit 130.
+d="$(prep_rundir)"
+STUB_TRACE="$d/trace" STUB_STATE="$d" \
+  STUB_AGENTHOST_LOGS="$BOOT_MARKER" BOOTSTRAP_LOG_TIMEOUT=3 \
+  STUB_AGENT_UP_SLEEP=4 \
+  POSTGRES_PASSWORD=pw PATH="$STUBBIN:$PATH" \
+  bash "$d/deploy-jetson.sh" --image "$VALID_ID" --bootstrap >"$d/out" 2>&1 &
+dpid=$!
+for _ in $(seq 1 100); do [[ -f "$d/agent_up_started" ]] && break; sleep 0.1; done
+kill -TERM "$dpid" 2>/dev/null || true
+wait "$dpid"; rc=$?
+check "bootstrap: SIGTERM before verify triggers rollback (exit 130)" "$rc" 130
+grep -q 'AGENTHOST_STOP' "$d/trace" 2>/dev/null \
+  && pass "bootstrap SIGTERM: stop issued in fresh rollback" \
+  || fail "bootstrap SIGTERM: stop not found in trace"
+grep -q 'AGENTHOST_RM' "$d/trace" 2>/dev/null \
+  && pass "bootstrap SIGTERM: rm issued in fresh rollback" \
+  || fail "bootstrap SIGTERM: rm not found in trace"
+[[ ! -f "$d/.rollback-image" ]] \
+  && pass "bootstrap SIGTERM: rollback file cleaned up" \
+  || fail "bootstrap SIGTERM: rollback file not cleaned up"
+
+# ---------------------------------------------------------------------------
 echo "== No leaked docker containers / networks / volumes =="
 if [[ $HAVE_DOCKER -eq 1 ]]; then
   c1="$(inv c)"; v1="$(inv v)"; n1="$(inv n)"
@@ -585,14 +868,6 @@ if [[ $HAVE_DOCKER -eq 1 ]]; then
     || fail "network leak: $(comm -13 <(printf '%s\n' "$INV_N0") <(printf '%s\n' "$n1") | tr '\n' ' ')"
 else
   skip "docker inventory leak guard (docker unavailable)"
-fi
-
-# ---------------------------------------------------------------------------
-echo "== No python in deploy-jetson.sh =="
-if grep -qF 'python' "$DEPLOY_SCRIPT"; then
-  fail "python reference in deploy-jetson.sh (on-device Python dependency not removed)"
-else
-  pass "no python in deploy-jetson.sh"
 fi
 
 # ---------------------------------------------------------------------------

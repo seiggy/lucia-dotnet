@@ -20,6 +20,7 @@
 #   ./deploy-jetson.sh --image lucia-agenthost-voice@sha256:<64hex>   # registry digest
 #   ./deploy-jetson.sh --image sha256:<64hex>                         # local image ID
 #   ./deploy-jetson.sh --image <ref> --dry-run                        # no mutations
+#   ./deploy-jetson.sh --image <ref> --bootstrap                      # first-run: skip Wyoming CUDA gate
 #   ./deploy-jetson.sh --rollback                                      # redeploy prior image
 #
 # Options:
@@ -28,6 +29,12 @@
 #   --rollback         Redeploy the AgentHost image recorded before the last deployment.
 #   --dry-run          Print planned actions + compose config (password redacted); no mutations.
 #   --health-timeout N Seconds to wait for /health + Wyoming CUDA-EP (default 180).
+#   --bootstrap        First-run mode: skip Wyoming CUDA gate; keep AgentHost running when
+#                      exact HA configuration wait marker appears in logs. Requires /health
+#                      PASS. Only valid with no prior AgentHost container in any state
+#                      (running/stopped/exited/unhealthy). Fresh means no container object.
+#                      Exit 0 = verified waiting state ("BOOTSTRAP REQUIRED"). Rollback
+#                      record not retained. Combine with --dry-run to preview.
 
 set -euo pipefail
 
@@ -39,6 +46,7 @@ ROLLBACK_FILE="$SCRIPT_DIR/.rollback-image"
 IMAGE_NAME=""
 ROLLBACK=0
 DRY_RUN=0
+BOOTSTRAP=0
 HEALTH_TIMEOUT=180
 
 while [[ $# -gt 0 ]]; do
@@ -46,6 +54,7 @@ while [[ $# -gt 0 ]]; do
     --image)          IMAGE_NAME="${2:-}"; shift 2 ;;
     --rollback)       ROLLBACK=1; shift ;;
     --dry-run)        DRY_RUN=1; shift ;;
+    --bootstrap)      BOOTSTRAP=1; shift ;;
     --health-timeout) HEALTH_TIMEOUT="${2:-}"; shift 2 ;;
     *) echo "ERROR: unknown option: $1" >&2; exit 2 ;;
   esac
@@ -242,6 +251,43 @@ verify_new() {
 }
 
 # ---------------------------------------------------------------------------
+# Bootstrap verify: /health PASS + exact HA configuration wait-marker in logs.
+# Called only when --bootstrap is set (fresh first-run, no prior AgentHost).
+# ---------------------------------------------------------------------------
+verify_bootstrap() {
+    echo "==> Bootstrap: verifying /health (timeout ${HEALTH_TIMEOUT}s)"
+    local deadline=$(( SECONDS + HEALTH_TIMEOUT )) healthy=0
+    while (( SECONDS < deadline )); do
+        if curl -fsS --max-time 5 http://localhost:7233/health >/dev/null 2>&1 \
+           || wget -q --timeout=5 -O- http://localhost:7233/health >/dev/null 2>&1; then
+            healthy=1; break
+        fi
+        sleep 3
+    done
+    [[ "$healthy" -eq 1 ]] || { echo "    /health did not become ready within ${HEALTH_TIMEOUT}s" >&2; return 1; }
+    echo "    /health: PASS"
+
+    echo "==> Bootstrap: checking AgentHost logs for HA configuration wait marker (timeout ${BOOTSTRAP_LOG_TIMEOUT:-30}s)"
+    local cid
+    cid="$(docker compose -p "$DEPLOY_PROJECT" -f "$VOICE_COMPOSE" ps -q lucia-agenthost-voice 2>/dev/null || true)"
+    [[ -n "$cid" ]] || { echo "    AgentHost container not found" >&2; return 1; }
+
+    local log_deadline=$(( SECONDS + ${BOOTSTRAP_LOG_TIMEOUT:-30} )) found=0
+    while (( SECONDS < log_deadline )); do
+        local logs; logs="$(docker logs "$cid" 2>&1 || true)"
+        # Direct glob: no pipe, so no SIGPIPE under set -o pipefail on large logs.
+        # Logger prefix/suffix on the same line are permitted; split cross-line and
+        # truncated forms are rejected because the full contiguous literal must be present.
+        [[ "$logs" == *'Waiting for Home Assistant configuration... (BaseUrl and AccessToken must be set. Complete the setup wizard to continue.)'* ]] \
+            && { found=1; break; }
+        sleep 2
+    done
+    [[ "$found" -eq 1 ]] || { echo "    HA configuration wait marker not found in AgentHost logs — unexpected state" >&2; return 1; }
+    echo "    HA wait marker: confirmed (intentional first-run state)"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # Interruption handler: attempt safe AgentHost rollback exactly once.
 # Set only after the rollback record has been written (mutations have begun).
 # ---------------------------------------------------------------------------
@@ -281,6 +327,7 @@ do_deploy() {
 
   if [[ $DRY_RUN -eq 1 ]]; then
     echo "=== DRY RUN (no changes) ==="
+    [[ $BOOTSTRAP -eq 1 ]] && echo "Mode:         BOOTSTRAP (Wyoming CUDA gate replaced by HA wait-marker check; no prior AgentHost allowed)"
     echo "Image:        $IMAGE_NAME"
     echo "Compose:      $VOICE_COMPOSE"
     echo "Project:      $DEPLOY_PROJECT"
@@ -312,6 +359,18 @@ do_deploy() {
     echo "==> No existing AgentHost (fresh deploy)"
   fi
 
+  # Bootstrap guard: query Docker labels directly to find any AgentHost container in any
+  # state (running/stopped/exited/unhealthy). Does not depend on image inspection success.
+  # Fail-closed: if Docker is unavailable the check itself fails and bootstrap is rejected.
+  if [[ $BOOTSTRAP -eq 1 ]]; then
+    local _bs_cids _bs_rc=0
+    _bs_cids="$(docker ps -aq \
+      --filter "label=com.docker.compose.project=${DEPLOY_PROJECT}" \
+      --filter "label=com.docker.compose.service=lucia-agenthost-voice" 2>/dev/null)" || _bs_rc=$?
+    [[ $_bs_rc -ne 0 ]] && die "--bootstrap: could not check for existing AgentHost containers (Docker daemon error). Refusing to proceed."
+    [[ -n "$_bs_cids" ]] && die "--bootstrap rejected: existing AgentHost container detected (any state: running/stopped/exited/unhealthy). Bootstrap requires a fully fresh environment. Remove it first: docker compose -p $DEPLOY_PROJECT -f $VOICE_COMPOSE rm -f lucia-agenthost-voice"
+  fi
+
   # Write rollback record before any mutation.
   printf '%s\n' "${prior_image}" > "$ROLLBACK_FILE" \
     || die "could not write rollback record to $ROLLBACK_FILE"
@@ -338,7 +397,26 @@ do_deploy() {
       up -d --no-build --no-deps lucia-agenthost-voice \
     || { echo "ERROR: docker compose up FAILED — rolling back" >&2; _rollback_live; exit 1; }
 
-  # Verify /health + Wyoming CUDA-EP.
+  # Verify /health + Wyoming CUDA-EP (normal) or HA configuration wait marker (bootstrap).
+  if [[ $BOOTSTRAP -eq 1 ]]; then
+    verify_bootstrap \
+      || { echo "==> Bootstrap verification FAILED — rolling back" >&2
+           docker compose -p "$DEPLOY_PROJECT" -f "$VOICE_COMPOSE" logs --tail=20 lucia-agenthost-voice 2>&1 || true
+           _rollback_live; exit 1; }
+    trap - INT TERM HUP    # clear trap — verified waiting state
+    rm -f "$ROLLBACK_FILE"
+    echo ""
+    echo "=== BOOTSTRAP REQUIRED ==="
+    echo "AgentHost is running and waiting for Home Assistant configuration."
+    echo "Next steps:"
+    echo "  1. Open the setup wizard: http://<jetson-ip>:7233/"
+    echo "  2. Configure Home Assistant Base URL and Access Token."
+    echo "  3. Re-run normal deploy (without --bootstrap) using the same image after setup:"
+    echo "     ./deploy-jetson.sh --image $IMAGE_NAME"
+    echo ""
+    exit 0
+  fi
+
   verify_new \
     || { echo "==> Verification FAILED — rolling back" >&2
          docker compose -p "$DEPLOY_PROJECT" -f "$VOICE_COMPOSE" logs --tail=20 lucia-agenthost-voice 2>&1 || true
