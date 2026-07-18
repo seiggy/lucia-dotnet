@@ -103,6 +103,64 @@ Resolved a critical ORT version-conflict between sherpa-onnx (1.18.1) and manage
 
 **Status:** Research complete. Merged into Decision 28 with authoritative status over preliminary Hicks proposal.
 
+### IMPLEMENTED off-device native builder + end-to-end validation (2026-07-17T16:51:45-04:00 — Zack)
+Authored `infra/docker/Dockerfile.jetson-voice-assets` (my file only) and **actually cross-built it** on
+this x64 Windows PC via Docker BuildX (empty context, `--target export`). Durable, empirically-confirmed facts:
+- **True x86→aarch64 cross-compile of sherpa v1.12.34 GPU works off-device, no QEMU.** Build host
+  `ubuntu:22.04` (pinned digest) + `g++-aarch64-linux-gnu` + upstream `toolchains/aarch64-linux-gnu.toolchain.cmake`.
+  sherpa pinned tag v1.12.34 AND asserted commit `12e81142d6fac7182a2cea847a4b7f2170a086a4`.
+- **ORT is fetched prebuilt, never compiled.** The exact `onnxruntime-linux-aarch64-gpu-cuda12-1.18.1.tar.bz2`
+  is downloaded, `sha256sum -c` verified (`1e91064…`) BEFORE use, and dropped at `/tmp/<name>` — a path
+  sherpa's aarch64-gpu cmake treats as a trusted local source and re-hashes via FetchContent URL_HASH.
+- **Build only the `sherpa-onnx-c-api` target**; PortAudio/WebSocket/tests/python OFF (drops the alsa-lib
+  cross-compile entirely — smaller/faster/more reliable). TTS (espeak/piper) kept ON so the emitted `.so`
+  is a drop-in for the NuGet-bundled C API surface.
+- **Ubuntu 22.04 build host is deliberate**: (a) glibc 2.35 == JP6.2 userspace; the emitted sherpa `.so`
+  requires **max GLIBC_2.34** (verified `readelf -V`) → loads on L4T 36.4.x; a Debian bookworm host
+  (glibc 2.36) would have demanded GLIBC_2.36 and broken on-device. (b) Its CMake 3.22 still supports the
+  bare `FetchContent_Populate()` sherpa's ORT cmake uses (removed in CMake 3.30+).
+- **Validated artifacts (readelf/file):** `libsherpa-onnx-c-api.so` = ELF64 AArch64, stripped, 4,123,208 B,
+  SONAME `libsherpa-onnx-c-api.so`, **NEEDED `libonnxruntime.so.1.18.1`** (+libm/libstdc++/libgcc_s/libc/ld);
+  no CUDA at link time (providers dlopened at runtime). ORT set: `libonnxruntime.so → .so.1.18.1`
+  (SONAME `libonnxruntime.so.1.18.1`, 20,563,104 B), `_providers_cuda.so` 324,966,384 B, `_tensorrt.so`
+  839,872 B, `_shared.so` 8,496 B. Export = `FROM scratch` → `/native/` only (no compiler/source/cache).
+- **Deploy contract facts for Hicks/Kane:** overlay `/native/*.so*` into `runtimes/linux-arm64/native/`.
+  Keep the `libonnxruntime.so → libonnxruntime.so.1.18.1` symlink (managed `Microsoft.ML.OnnxRuntime`
+  dlopens `libonnxruntime.so`; sherpa DT_NEEDED targets the versioned soname). This is **Track A** (native
+  1.18.1 → managed ORT must be pinned 1.18.1 on linux-arm64). CUDA/cuDNN/TensorRT are NOT bundled — they
+  come from the L4T base at runtime.
+- **Windows export gotcha:** `--output type=local` fails on NTFS (`A required privilege is not held`) because
+  of the ORT symlink; use `--output type=tar,dest=native.tar` (preserves the symlink). Build itself is
+  unaffected.
+
+**Status:** Builder implemented + validated off-device. On-device gates (K1 CUDA-EP load, RTF, memory) still
+require physical Jetson. No app/package files touched (only my Dockerfile). Coordination note filed to inbox.
+
+### ROOT CAUSE — JetPack 6 CSV mounts ONLY the driver; CUDA runtime must be baked in (2026-07-18T08:37:59-04:00 — Ralph)
+Live failure on the Jetson (`zackw@192.168.1.239`, L4T R36.4.7, `Dockerfile.agenthost-jetson-voice`):
+`Failed to load library libonnxruntime_providers_cuda.so ... libcublasLt.so.12: cannot open shared object file`.
+- **Corrects the prior wrong assumption** ("CUDA/cuDNN/TensorRT ... come from the L4T base at runtime"). On
+  JetPack 6 / L4T r36 with `nvidia-container-toolkit` 1.16.2, **CSV mode injects ONLY the CUDA *driver***
+  (`libcuda.so.1.1` via `drivers.csv`). `/etc/nvidia-container-runtime/host-files-for-container.d/` had ONLY
+  `devices.csv` + `drivers.csv` — **no cuda.csv/cudnn.csv**. This is a change from JP4/5 where CSV mounted
+  CUDA/cuDNN. So the CUDA **math/runtime** libs (cuBLAS/cuBLASLt, cudart, cuFFT, cuDNN) are NOT host-provided
+  and must ship in-image. Proven read-only via `ldd` inside the deployed container: **5 libs "not found"
+  identically with AND without `--runtime nvidia`** — `libcublas/libcublasLt.so.12`, `libcudart.so.12`,
+  `libcudnn.so.9`, `libcufft.so.11`. Cross-verified off-device under QEMU (same 5 missing).
+- **Fix (Dockerfile-only, minimal):** new `cuda-runtime` stage sources the DT_NEEDED + dlopen closure from the
+  **same digest-pinned base ORT was compiled against** (`nvcr.io/nvidia/l4t-jetpack:r36.4.0@sha256:34ccf0…bb673`)
+  → ABI/version-exact, matches the host 1:1 (CUDA 12.6.11 / cudart 12.6.68 / cublas 12.6.1.4 / cufft 11.2.6.59 /
+  cuDNN 9.3.0), no apt/network/version-guessing. `COPY --from=cuda-runtime /cuda-runtime/lib/ /opt/cuda/lib/`
+  into the runtime image + `LD_LIBRARY_PATH=…/native:/opt/cuda/lib`. Overlay ≈1.7 GB (cublasLt 337 MB, cufft
+  274 MB, cudnn engines/ops, cublas 124 MB, nvrtc). `libcuda` is NOT baked (correct — host driver via CSV).
+- **Validated (complete image `lucia-agenthost-voice:r36.4.7-ort1.23.2-poc-r5`, QEMU, baked ENV):** provider +
+  ORT-core + sherpa ldd closures fully resolve (zero "not found"); non-root `appuser` uid 1100; ports 8080/10400;
+  entrypoint intact; no python/gcc/nvcc/make/cmake, no .NET SDK dir; 37 model files present. Built by overlaying
+  the CUDA runtime onto the already-compiled `-poc-r4` (identical ORT/sherpa layers) to avoid a redundant
+  multi-hour QEMU ORT recompile (BuildKit `ort-build` cache was evicted); filesystem-identical to the canonical
+  runtime stage. **Still gated by K1:** off-device `ldd` proves load-time symbol resolution ONLY — CUDA-EP
+  *registration/kernel execution* on the real GPU still requires physical Jetson with `--runtime nvidia`.
+
 ## Archived Work
 - See `history-archive.md` for prior entries (STT semaphore fixes, enhanced-clip pipeline, idle CPU investigation, model app/ audit)
 
