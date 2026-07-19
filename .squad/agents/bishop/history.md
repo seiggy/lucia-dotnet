@@ -33,6 +33,13 @@
 
 <!-- Append new learnings below. -->
 
+### 2026-07-18 — docker save/load preserves config digest; sha256:<hex> is a valid Compose image ref
+
+- `docker save | docker load` of a single-arch image preserves the image config digest exactly. The config ID (`sha256:<64hex>`) is a valid immutable reference accepted by both `docker image inspect` and `docker compose` (passed directly to the Docker daemon).
+- `docker compose config` with `image: sha256:<64hex>` renders correctly (exit 0, Docker 29.4.1). No registry is needed; the daemon resolves by local config ID.
+- ERE `[[ "$ref" =~ ^sha256:[0-9a-f]{64}$ ]]` in bash correctly enforces full 64-char hex (abbreviations rejected).
+- If `docker save | docker load` of a single-arch image produces a *different* config ID on the remote host, the cause is NOT an OCI index child relationship — the images are genuinely different. Retransfer and re-verify before deploying.
+
 ### 2026-05-29 — HA integration health review (whole-solution review)
 
 - **WebSocket calls have no internal timeout.** `HomeAssistantClient.SendWebSocketCommandAsync` (registry/area/floor/expose/media) relies solely on the caller's `CancellationToken`, and several public methods default it to `None`. `EntityLocationService` fires three registry WS calls in parallel on a 30s warm-up/poll loop — a stalled HA hangs cache refresh indefinitely. Top risk.

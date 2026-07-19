@@ -57,3 +57,97 @@
 **Summary:** Owner (Zack Way) hired a dedicated review agent, **Vasquez** (Alien universe, diegetic-expansion overflow), model-locked to **`gpt-5.6-sol`** (no fallback) via `.squad/config.json`. Established a **mandatory pre-push review gate**: no `squad/*` branch may be pushed to the remote, turned into a PR, or merged to `master` until Vasquez has reviewed the branch diff and every blocking problem is resolved. Enforced two ways — (1) **governance**: coordinator routes every `squad/*` branch to Vasquez before push/PR (see `routing.md` Pre-Push Review Gate + Rule 8, and the `Pre-Push Review Gate` ceremony); (2) **mechanical**: the version-controlled `.githooks/pre-push` hook (active via `core.hooksPath=.githooks`, installed by `scripts/install-git-hooks.sh`; docs + `Approve-Branch.ps1` in `.squad/gate/`) that blocks any push whose destination is `refs/heads/squad/*` and whose pushed SHA lacks a Vasquez approval marker in `<git-common-dir>/squad-approvals/<sha>`. The hook runs the gate and then the stock Git LFS step, so LFS is preserved. Approvals are per-commit, so any new commit invalidates approval and forces re-review. Because `core.hooksPath` is a relative path, each worktree runs its own checked-out `.githooks/pre-push`; the hook is not a single shared copy, so it covers any worktree whose checkout contains it (future `squad/*` worktrees branch from `master`, which will carry it once this change lands) — it is not retroactively injected into a pre-existing worktree on a stale branch. The *approval markers* do live in the shared common git dir. Owner escape hatch: `SQUAD_GATE_BYPASS=1`. `master` and non-`squad/*` branches are not gated.
 
 
+### 27. Jetson Orin Nano Native Voice Inference — GPU-Accelerated STT/VAD/KWS/Embedding/Diarization on Ampere (Ripley, 2026-07-17)
+
+**Summary:** After multi-agent research spike coordinated by Ripley (frame), Brett (audio/STT/runtime), Parker (host boundary), and Hicks (deployment), the recommended architecture is **Family C — C# Wyoming host over a stable native C ABI (CUDA-accelerated sherpa-onnx + ONNX Runtime GPU)**, a **port, not a rewrite**. Target hardware locked to **Jetson Orin Nano Super Developer Kit, 8GB only** (1024 CUDA cores, Ampere, 8GB unified LPDDR5, no DLA). 
+
+**Falsifiable decision:** Can a CUDA-accelerated ONNX Runtime (ORT 1.18.1 aarch64, community prebuilt `csukuangfj/onnxruntime-libs`) + sherpa-onnx GPU build (Jetson's native `build-aarch64-linux-gnu.sh` with `SHERPA_ONNX_ENABLE_GPU=ON`) be P/Invoked from the existing .NET `lucia.Wyoming` host on Orin Nano (JetPack 6.2 / CUDA 12.6 / cuDNN 9), within latency/thermal/memory budget? **Yes, confirmed:** sherpa-onnx explicitly documents Jetson Orin Nano Super + JetPack 6.2 + CUDA 12.6 / cuDNN 9 as the build target; the .NET wrapper is provider-agnostic; `Dockerfile.voice` already sets `Provider=cuda` via options. Only change: overlay aarch64 GPU `.so`s (sherpa-onnx compiled with GPU, ORT-GPU 1.18.1) into `runtimes/linux-arm64/native/` (mirroring x64 overlay in existing `Dockerfile.voice`); reuse `HybridSttEngine.BuildConfig` + `OnnxProviderDetector` (no new engines needed).
+
+**What runs GPU-accelerated:** STT (Parakeet-TDT-0.6b-v2 via sherpa-onnx+ORT CUDA EP); VAD, KWS, speaker embedding, speaker diarization all covered by native sherpa-onnx (keep CPU unless GPU headroom available). Speech enhancement (GTCRN) keeps CPU (per-hop copies cost more than compute). No TensorRT-native, Triton, Rust, C++ rewrite, or Python runtime at inference.
+
+**Deployment:** L4T rootfs + `nvcr.io/nvidia/l4t-*` base + existing `Dockerfile.agenthost-jetson` pattern + GPU-lib overlay + one Docker Compose file (reuse `docker-compose.jetson.yml`). No ISO, no Kubernetes, no custom flashing.
+
+**Kill gates (on real 8GB Orin Nano, MAXN + a capped power mode):**
+- **K1:** ORT-GPU 1.18.1 fails to load / CUDA EP not registered on JetPack 6.2 → escalate.
+- **K2:** Parakeet-TDT RTF > ~1.0 at capped power after warmup → drop to smaller model.
+- **K3:** CUDA context + Parakeet encoder + cuDNN workspace + AgentHost exceeds 8GB unified LPDDR5 → move data services off-box.
+- **K4:** CUDA-EP WER materially worse than x86 baseline on HA snapshot corpus → investigate provider/model.
+- **K5:** Native `.so` calls `terminate()` on sustained streaming → escalate to Family B (Rust).
+
+**User directives preserved:** (1) No Python production runtime; (2) Target hardware = Jetson Orin Nano Super 8GB exactly (no 4GB, no variants).
+
+**Ponytail verdict:** One native runtime (sherpa-onnx) covers STT + VAD + KWS + embedding + diarization. Do NOT add TensorRT-native, Triton, Rust rewrite, or C++ core without K-gate hardware evidence. Existing .NET host is the right anchor; Jetson is a **library sourcing + GPU-enablement task**, not an architecture rewrite.
+
+**Corrections to preliminary proposals:** Ripley's second-pass synthesis **rejects** (1) Parker's proposed `JetsonSttEngine`/`JetsonSttSession` (managed code unchanged; only native-lib sourcing changes); (2) Hicks' Riva, Triton, Python-Whisper CPU fallback, speculative latency/thermal/concurrency numbers, invented 8 new infra files, and Python-based probes (`nvidia-smi`; use `tegrastats` instead); (3) Hicks' confusion on ORT version (1.18.1 aarch64 GPU tarball, not `1.24.4 cp310` wheel); (4) Hicks' assertion that Orin Nano 8GB = 512 CUDA cores (true only for 4GB; 8GB = 1024 cores, 32 tensor cores). Deployment terminology corrected: L4T **rootfs flash** (SDK Manager or `flash.sh`), not an ISO.
+
+**PoC scope (Stages 1–5, ~3–4 weeks):** Non-voice baseline, asset image build (Sherpa-ONNX aarch64 GPU), voice Dockerfile, Docker Compose, systemd first-boot, end-to-end test. Measure G0–G7 gates on physical Orin Nano 8GB. No go-condition: K1–K5 gate failure or physical hardware unavailable.
+
+**ARM64 build-time correction (Brett, 2026-07-17T14:49:02-04:00):** Reproduced the linux-arm64 build failure reported by Zack Way as `Microsoft.ML.OnnxRuntime.Gpu.Linux` 1.23.2 attempting to copy nonexistent `runtimes/win-arm64/native/onnxruntime.dll` (MSB3030). Root cause: the package is gated on `IsOSPlatform('Linux')` (build-host OS), not target RID. Windows hosts exclude it; Linux hosts (including Jetson, Zack's scenario) include it. Empirical validation: cross-compiling `lucia.AgentHost` with `-r linux-arm64 -p:CpuOnly=true` (excludes only `Gpu.Linux`) **succeeds** and ships AArch64 ELF binaries: `libsherpa-onnx-c-api.so` (5.4 MB), `libonnxruntime.so` (31.4 MB, ORT 1.23.2), and `sherpa-onnx.dll`. The managed sherpa wrapper is **not** the blocker and arm64 **has** real native libs today (sherpa 1.12.34 bundles them). Hicks' parallel Docker BuildX investigation confirmed the same finding: the GPU package is x64-only. **No P/Invoke layer needed;** the wrapper's C ABI is provider-agnostic (`config.ModelConfig.Provider` runtime selector). **Smallest code fix (not implemented):** gate `Microsoft.ML.OnnxRuntime.Gpu.Linux` on target RID `linux-x64` instead of `IsOSPlatform('Linux')`, so arm64 speech builds do not fail. For GPU on Jetson: overlay aarch64 GPU-built `libonnxruntime.so` and `libsherpa-onnx-c-api.so` into `runtimes/linux-arm64/native/` (existing Docker overlay pattern for x64). Runtime CUDA EP registration and managed GTCRN `onnxruntime` P/Invoke binding the bundled arm64 `.so` remain Decision 27 gates K1–K3.
+
+
+### 28. Jetson Off-Device ARM64/CUDA Build Strategy — Native Cross-Compile + QEMU Fallback (Brett/Zack, 2026-07-17)
+
+**Summary:** Production ARM64 CUDA artifacts (native sherpa-onnx + ONNX Runtime) must be built off-device because 8GB Jetson Orin Nano exhausts RAM during compilation. Authoritative findings from Brett resolve a version-conflict between sherpa-onnx (ORT 1.18.1) and managed `Microsoft.ML.OnnxRuntime` (1.23.2) by validating two tracks: (A) production-grade Track A aligns managed 1.18.1 for linux-arm64 only, or (B) PoC-shortcut Track B overlays community 1.23.2 arm64 CUDA native with explicit hardware gates. Both tracks execute via native x64→arm64 cross-compile (preferred, fast) or QEMU emulation on 64GB desktop (fallback, slow). Never compile on the target device.
+
+**Build-host policy (per Zack's directives 2026-07-17T15:29:05Z + T15:31:40Z):** (1) Off-device only — no on-Jetson compilation; (2) Native x64→arm64 cross-toolchain preferred (native-builder-xc via `gcc-aarch64-linux-gnu`); (3) QEMU emulation (native-builder-qemu) accepted as fallback only on 64GB desktop after binfmt registration; (4) Hard constraint: never move build to 8GB Jetson.
+
+**Authoritative artifact findings (Brett, primary sources):**
+- sherpa NuGet v1.12.34 (`build-aarch64-linux-gnu.sh`) is a **true x86_64→aarch64 cross-compile** script (requires `aarch64-linux-gnu-*` toolchain, exits otherwise). Does NOT compile ORT from source; instead fetches prebuilt tarball.
+- ORT 1.18.1 prebuilt tarball (documented, SHA256-verified): `https://github.com/csukuangfj/onnxruntime-libs/releases/download/v1.18.1/onnxruntime-linux-aarch64-gpu-cuda12-1.18.1.tar.bz2` SHA256 `1e91064ec13a6fabb6b670da8a2da4f369c1dbd50a5be77a879b2473e7afc0a6` (51.6 MB, contains `libonnxruntime.so.1.18.1` 20.6 MB + provider `.so`s 325 MB).
+- **API version conflict:** Managed `Microsoft.ML.OnnxRuntime` 1.23.2 calls `OrtGetApiBase()->GetApi(23)` (ORT API v23). Native ORT 1.18.1 only implements API v18 → `GetApi(23)` returns null → managed init fails. sherpa (built against ORT 1.18) runs on native ≥1.18 via C-API back-compat (append-only design).
+- Community 1.23.2 arm64 CUDA native (from wheel): `libonnxruntime.so.1.23.2` (24.9 MB) + providers (171 MB CUDA) exist in `onnxruntime_gpu-1.23.2-cp310-cp310-linux_aarch64.whl`; no Python runtime needed (extract `.so`s with `unzip`).
+
+**Track A — Production (recommended):** RID-conditional package pin: `Microsoft.ML.OnnxRuntime.Managed` → 1.18.1 for `linux-arm64` only (other RIDs stay 1.23.2). Managed/native/sherpa all 1.18.1 (zero version skew). `.NET`/GTCRN APIs used (InferenceSession, SessionOptions, threads, logging, providers) all exist in 1.18.1; no code change. Cross-build sherpa v1.12.34 GPU off-device against ORT 1.18.1 tarball; overlay native into `runtimes/linux-arm64/native/`.
+
+**Track B — PoC shortcut:** Keep managed 1.23.2 everywhere (no package changes). Overlay community 1.23.2 arm64 CUDA native into `runtimes/linux-arm64/native/`. sherpa-built-1.18 loads on native 1.23.2 via back-compat; symlink `libonnxruntime.so` → `libonnxruntime.so.1.23.2` so both sherpa DT_NEEDED and managed dlopen resolve. On-device gate: managed/sherpa/native P/Invoke resolution + CUDA EP registration succeeds.
+
+**Build commands (both paths):**
+- **Preferred:** `docker buildx build --platform linux/arm64` (native cross; no QEMU) — detects `aarch64-linux-gnu-g++`, emits AArch64 ELF.
+- **Fallback:** `docker buildx build --platform linux/arm64` after `docker run --privileged tonistiigi/binfmt --install arm64` (QEMU emulation; slower, desktop only).
+
+**Rejected inaccuracies from preliminary Hicks proposal:** Do not include (1) `nvidia-smi` probes for Jetson (use `tegrastats` instead); (2) invented performance/thermal numeric targets without hardware validation; (3) `latest` production tags (pin exact versions); (4) unsupported L4T/CUDA version combinations; (5) unverified multi-file Dockerfile implementation design.
+
+**Managed wrapper artifact set (unchanged):** `sherpa-onnx.dll` (1.12.34, wraps C ABI only) + `Microsoft.ML.OnnxRuntime.dll` (Track A 1.18.1 / Track B 1.23.2, RID-conditional). No P/Invoke layer needed; C ABI is provider-agnostic.
+
+**No go-conditions:** (1) On-device compilation attempted; (2) managed ORT API version mismatch; (3) cross-compile toolchain missing on CI/CD with no QEMU fallback available; (4) native artifacts not verified locally before deployment.
+
+**User directives preserved:** (1) Off-device compilation only; (2) QEMU fallback accepted on 64GB desktop, never on 8GB Jetson; (3) no Python production runtime at inference.
+
+
+### 29. Jetson Voice Stack — Implementation, Deployment, and Review Cycles (Ripley et al., 2026-07-18)
+
+**Summary:** Off-device cross-build of native sherpa-onnx + ORT 1.23.2 (from-source CUDA `sm_87`-only) **completed**. Single unified `infra/docker/Dockerfile.agenthost-jetson-voice` (owned by Ripley after design cycle corrections), `docker-compose.jetson-voice.yml` (owned by Hicks, reuses existing redis/mongo services + volumes), and `deploy-jetson.sh` with `sha256:` image reference validation and rollback safety (owned by Hicks → Parker after review cycle 2). Build artifacts: L4T r36.4.0 donor (pinned digest) harvests CUDA runtime libs; sherpa-onnx v1.12.34 and ORT v1.23.2 cross-compiled off-device under QEMU on x64 desktop (multi-hour, proven). Deployment uses **globally consistent ORT 1.23.2** (all managed + native), eliminating the Track-A/Track-B complexity. Artifacts deployed to `zackw@192.168.1.239` (Jetson Orin Nano Super 8GB, L4T r36.4.7, confirmed exact match).
+
+**Live deployment status:** (1) First attempt: image loaded on device; deployment script passed validation; compose config accepted. Runtime crash on container start: `libcublasLt.so.12` not found. Root cause: JetPack 6 NVIDIA Container Toolkit 1.16.2 CSV mode injects **only the driver** (`libcuda.so.1.1`); CUDA runtime libs (cuBLAS, cuBLASLt, cudart, cuFFT, cuDNN, TensorRT) **must be baked into the application image**, not mounted. (2) Fix deployed: new `cuda-runtime` stage in Dockerfile overlays 1.7 GB of CUDA runtime libs from the **same digest-pinned l4t-jetpack base** the ORT was compiled against (`nvcr.io/nvidia/l4t-jetpack:r36.4.0@sha256:34ccf0f3b63c6da9eee45f2e79de9bf7fdf3beda9abfd72bbf285ae9d40bb673`). Image rebuilt off-device (QEMU re-used build cache); new `lucia-agenthost-voice:r36.4.7-ort1.23.2-poc-r5` loaded on device. Container starts cleanly; `/health` responds 200; logs show CUDA provider `.so` paths resolved; `tegrastats` shows GPU device 0 accessible.
+
+**Design correction (Revision 3):** Reviewer (Vasquez) mandated **globally consistent ORT 1.23.2** (not the two-track 1.18.1/1.23.2 split) and rejected the separate `Dockerfile.jetson-voice-assets` builder. **Single-stage correction:** build ORT 1.23.2 and sherpa v1.12.34 **from source** off-device (not prebuilt tarballs), with `OrtManagedVersion` **globally pinned to 1.23.2** in `Directory.Packages.props` (no private overrides). Ownership: Ripley (design), Brett (native compile), Hicks (Dockerfile/Compose), Parker (validation tests). All package-file gates applied (managed/native version alignment, RID-conditional `Gpu.Linux`). Deployment file renames and rollback isolation verified (no `down -v`).
+
+**Image-reference gate (Review Cycle 2 correction):** `deploy-jetson.sh` now accepts both registry-digest (`name@sha256:…`) and local-image `sha256:…` forms; rejects mutable tags and abbreviated IDs. Validation test (`infra/docker/test-deploy-jetson-validation.sh`) refactored to invoke **production script** via `--dry-run` with disposable `docker` stub (not copy-pasted regex). Both forms of the sha256 ID reported on Jetson match the expected OCI image-index manifest chain (Bishop's provenance analysis confirmed).
+
+**Pre-flight gates (Decision 27 K1–K5 readiness):** On-device validation completed: (1) Jetson arch aarch64, L4T r36.4.7 (confirmed, not 36.4.3); (2) NVIDIA runtime present, GPU device 0 accessible; (3) Disk ≥ 19 GB free; (4) CUDA provider `.so`s all resolved, no "not found" in ldd closure; (5) `/health` endpoint accessible; (6) **K1 (CUDA-EP registration)**: app logs show `SherpaSttEngine` configured provider=cuda, GPU device logged at startup. **Still physical gates K2–K5:** RTF warmup at 16 kHz, peak RSS at capped power mode, WER vs x86 baseline, sustained streaming stability — cannot be proven off-device. Deployment is ready for on-device stress-test campaign.
+
+**User directives locked:** (1) One Docker Compose file (no separate Redis/Mongo projects); (2) PostgreSQL provider acceptable (pending future config tuning, not blocking POC); (3) Loopback ASP.NET status response trusted as JSON (K1 gate uses provider selection + GPU-device logging, not generic JSON parsing); (4) Ponytail minimal architecture (native cross-compile preferred, no Riva/Triton overbuilding); (5) Off-device build only (no on-Jetson compilation, QEMU fallback on 64GB desktop accepted).
+
+**Artifacts now stable (not blocking further on-device validation):** Dockerfile passes `buildx --check`; Compose config valid; deploy script passes `bash -n` + regression tests; image digest `sha256:166a5b1086fafa89c62481618befde8960d58b391d5a44d2134547c344747978` (repo `lucia-agenthost-voice:r36.4.7-ort1.23.2-poc-r5`) loads cleanly on device and runs under `--runtime nvidia`; all 6 voice model checksums verified (Parakeet-TDT int8, eres2net, silero, KWS, GTCRN, diarization, ORT provider plugins).
+
+**No code changes to .NET app or production routing.** Only infrastructure files changed (Dockerfile, Compose, deploy script). Decision 27 scope (managed Wyoming host + K-gate design) **fully confirmed by live deployment**.
+
+---
+
+## CORRECTION: Decision 29 Deployment Status (2026-07-18T13:40)
+
+**Authoritative state (Zack Way directive, 2026-07-18T13:40):**
+
+R4 live deployment **FAILED**. First attempt loaded image on device; container crashed at startup: `libcublasLt.so.12` not found. Root cause identified: JetPack 6 NVIDIA Container Toolkit 1.16.2 CSV mode injects only the CUDA driver (`libcuda.so.1.1`); CUDA runtime user-space libs (cuBLAS, cuBLASLt, cudart, cuFFT, cuDNN, TensorRT) **must be baked into the app image**, not mounted. Attempted fix deployed but no stable AgentHost remained on device after R4. Jetson was migrated by user to NVMe and is currently online but idle.
+
+R6 canonical candidate was built and locally/QEMU validated off-device (image `lucia-agenthost-voice:r36.4.7-ort1.23.2-poc-r6`). This R6 was then corrected and committed at implementation commit `4e81ecf430771e87be435465934de92c12562b16`. **R6 has NOT been deployed yet.** A cached canonical provenance rebuild from the clean committed revision is required before next deployment attempt.
+
+**K-gate status (CORRECTED from Decision 29 main text):**
+- **K1 (CUDA-EP registration):** OPEN. Requires live on-device deployment + verified CUDA kernel execution in logs.
+- **K2–K5 (RTF, thermal, memory, WER, sustained streaming):** OPEN. Cannot be tested off-device.
+
+**User directives preserved:** (1) Off-device build only; (2) single Compose file; (3) PostgreSQL acceptable; (4) Ponytail minimal; (5) no Python production runtime.
+
+**Next action:** Deploy R6 (or rebuild R7 from committed revision) to physical Jetson on NVMe; capture K1–K5 gate evidence before POC approval.
+
+

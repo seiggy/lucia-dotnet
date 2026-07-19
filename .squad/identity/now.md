@@ -1,19 +1,22 @@
 ---
-updated_at: 2026-03-27T14:00:00Z
-focus_area: Cascading Entity Resolution pipeline implementation
-active_issues: []
+updated_at: 2026-07-18T15:31:35.572-04:00
+focus_area: Jetson bootstrap deployment + K1 CUDA-EP verification gate
+active_issues:
+  - K1 (CUDA provider registration and kernel execution on physical device)
+  - HA setup wizard configuration (Base URL, token)
 ---
 
 # What We're Focused On
 
-Implementing the cascading entity resolution pipeline — a 4-step deterministic fast-path for voice command entity/area matching. Targets <50ms resolution for 80%+ of commands, with graceful fallback to LLM for ambiguous/complex cases.
+Bootstrap deployment of three-service unified Docker Compose (AgentHost + Redis + PostgreSQL) to physical Jetson Orin Nano Super 8GB succeeded. All services healthy, setup wizard accessible. Next phase: user completes HA configuration; strict K1 (CUDA-EP) gate validation.
+
+Target hardware: Jetson Orin Nano Super Developer Kit, 8GB LPDDR5, 67 INT8 TOPS, 1024 CUDA cores, 32 tensor cores, 7W-25W power envelope.
 
 ## Current Priority
 
-**Cascading Entity Resolution Pipeline Implementation**
+1. **Bootstrap gates (B1–B3):** ✓ Complete (hardware confirmed, services running, setup wizard live)
+2. **HA setup wizard:** PENDING (user: Base URL, token, entity mappings)
+3. **K1 CUDA-EP verification:** Deferred (strict validation after wizard; requires kernel execution confirmation)
+4. **K2–K5 stress testing:** Open (RTF, thermal, memory, WER, sustained streaming)
+5. **Remaining architecture validation:** Data pipeline integration, Wyoming speech round-trip
 
-1. **Design Approved** — 4-step deterministic pipeline (Query Decomposition → Location Grounding → Domain Filtering → Entity Matching)
-2. **User Directive** — Integrate speaker identity for possessive resolution ("my light", "my office")
-3. **Performance Target** — <50ms p99 for cache-hit resolution
-4. **Implementation Phase** — Feature flag, full test coverage, performance benchmarks
-5. **Validation Phase** — Parallel execution telemetry, LLM fallback rate monitoring (<5% regression)
