@@ -23,6 +23,7 @@ public sealed class GeneralAgent : ILuciaAgent
     private readonly ILogger<GeneralAgent> _logger;
     private volatile AIAgent _aiAgent;
     private DateTime? _lastConfigUpdate;
+    private readonly SemaphoreSlim _reloadGate = new(1, 1);
 
     /// <summary>
     /// The system instructions used by this agent.
@@ -132,7 +133,6 @@ public sealed class GeneralAgent : ILuciaAgent
         await ApplyDefinitionAsync(cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation("General Knowledge initialized successfully");
-        _lastConfigUpdate = DateTime.UtcNow;
     }
 
     /// <inheritdoc />
@@ -143,39 +143,47 @@ public sealed class GeneralAgent : ILuciaAgent
 
     private async Task ApplyDefinitionAsync(CancellationToken cancellationToken)
     {
-        var definition = await _definitionRepository.GetAgentDefinitionAsync(AgentId, cancellationToken).ConfigureAwait(false);
-        var newConnectionName = definition?.ModelConnectionName;
-
-        if (!string.IsNullOrEmpty(definition?.Instructions))
-            Instructions = definition.Instructions;
-
-        // Resolve MCP tools from the agent definition and merge with plugin-provided tools
-        var pluginTools = _webSearchSkill?.GetTools() ?? [];
-        var mcpTools = definition?.Tools.Count > 0
-            ? await _toolRegistry.ResolveToolsAsync(definition.Tools, cancellationToken).ConfigureAwait(false)
-            : [];
-
-        var allTools = new List<AITool>(pluginTools);
-        allTools.AddRange(mcpTools);
-        Tools = allTools;
-
-        if (allTools.Count > 0)
-            _logger.LogInformation("GeneralAgent: resolved {Count} tools ({Plugin} plugin, {Mcp} MCP)",
-                allTools.Count, pluginTools.Count, mcpTools.Count);
-
-        if (_lastConfigUpdate == null || _lastConfigUpdate < definition?.UpdatedAt)
+        await _reloadGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
+            var definition = await _definitionRepository.GetAgentDefinitionAsync(AgentId, cancellationToken).ConfigureAwait(false);
+            var newConnectionName = definition?.ModelConnectionName;
 
-            var copilotAgent = await _clientResolver.ResolveAIAgentAsync(newConnectionName, cancellationToken)
-                .ConfigureAwait(false);
-            _aiAgent = copilotAgent ?? BuildAgent(
-                    await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false))
-                .AsBuilder()
-                .UseOpenTelemetry()
-                .Build();
-            _logger.LogInformation("GeneralAgent: using model provider '{Provider}'",
-                newConnectionName ?? "default-chat");
-            _lastConfigUpdate = DateTime.UtcNow;
+            if (!string.IsNullOrEmpty(definition?.Instructions))
+                Instructions = definition.Instructions;
+
+            // Resolve MCP tools from the agent definition and merge with plugin-provided tools
+            var pluginTools = _webSearchSkill?.GetTools() ?? [];
+            var mcpTools = definition?.Tools.Count > 0
+                ? await _toolRegistry.ResolveToolsAsync(definition.Tools, cancellationToken).ConfigureAwait(false)
+                : [];
+
+            var allTools = new List<AITool>(pluginTools);
+            allTools.AddRange(mcpTools);
+            Tools = allTools;
+
+            if (allTools.Count > 0)
+                _logger.LogInformation("GeneralAgent: resolved {Count} tools ({Plugin} plugin, {Mcp} MCP)",
+                    allTools.Count, pluginTools.Count, mcpTools.Count);
+
+            if (_aiAgent is null
+                || definition is not null && (_lastConfigUpdate is null || _lastConfigUpdate < definition.UpdatedAt))
+            {
+                var copilotAgent = await _clientResolver.ResolveAIAgentAsync(newConnectionName, cancellationToken)
+                    .ConfigureAwait(false);
+                _aiAgent = copilotAgent ?? BuildAgent(
+                        await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false))
+                    .AsBuilder()
+                    .UseOpenTelemetry()
+                    .Build();
+                _logger.LogInformation("GeneralAgent: using model provider '{Provider}'",
+                    newConnectionName ?? "default-chat");
+                _lastConfigUpdate = definition?.UpdatedAt;
+            }
+        }
+        finally
+        {
+            _reloadGate.Release();
         }
     }
 

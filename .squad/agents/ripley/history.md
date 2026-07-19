@@ -91,6 +91,33 @@ The solution's biggest risk is **intent-vs-enforcement drift**, not localized bu
 - Personality response pipeline: production-ready with IPersonalityResponseRenderer
 
 - Participated in 2026-05-29 health review
+## 2026-07-17 — PR #239 Design Review: applied-config checkpoint races
+
+Reviewed all 9 Copilot inline threads (agents: Timer, Music, Sensor, Security, Scene, Lists,
+Light, General, Climate) — **all RIGHT, one root cause**. PR #239 v6 correctly fixes the
+definition-vs-wall-clock race (marker = `definition.UpdatedAt`, `_aiAgent is null` first-build
+guard, marker write moved after embedding rebuild so failed apply retries), but does NOT make
+`ApplyDefinitionAsync` atomic against concurrent callers.
+
+Verified the concurrency is real, not theoretical: agents + `WorkflowFactory` + `LuciaEngine`
+are all singletons; `ResolveAgentsAsync` runs `RefreshConfigAsync` before every request;
+`LuciaEngine.ProcessRequestAsync` has no lock and is driven concurrently from three entry points
+(ConversationApi HTTP, AgentScheduledTask timer, Wyoming SkillDispatcher voice). Failure modes:
+torn Instructions+Tools reads, last-writer-wins `_aiAgent` + checkpoint regression (transient,
+self-heals next cycle), and Sensor/Climate embedding double-rebuild (costliest).
+
+Decision: serialize the whole `ApplyDefinitionAsync` per agent with a `SemaphoreSlim(1,1)` gate;
+centralize the lock logic in one tiny internal helper (`AgentRefreshGate`) reused by all 9 agents
+rather than copy-pasting the semaphore. Rejected a global `WorkflowFactory` lock (over-locks,
+wrong granularity) and a full base-class refactor (too big for this fix). Flagged the missing
+overlapping-refresh regression test. Mongo/SQLite/Postgres marker changes are out of scope (no
+comments there). Decision written to `.squad/decisions/inbox/ripley-pr239-atomicity.md`; handed to
+Parker for implementation (I own review, not implementation).
+
+**Learning:** "checkpoint marker fixes the clock race" and "the apply is atomic" are independent
+properties — a monotonic marker prevents *permanent* staleness but not *torn/last-writer-wins*
+state under concurrency. Always separate the two when reviewing reload-sequencing PRs.
+
 ## 2026-05-31 — PR #195 Copilot Comment Resolution
 
 Triaged full review-comment batch, established pre-push review gate (decision #24), and fixed EvalHarness Reports issues (E1-E7). Consolidated with Hicks/Parker into commit 9809a36.

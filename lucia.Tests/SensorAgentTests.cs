@@ -20,6 +20,123 @@ namespace lucia.Tests;
 public sealed class SensorAgentTests
 {
     [Fact]
+    public async Task RefreshConfigAsync_WhenEmbeddingUpdateFails_RetriesEntireDefinition()
+    {
+        var embeddingResolver = A.Fake<IEmbeddingProviderResolver>();
+        var newProviderAttempts = 0;
+        A.CallTo(() => embeddingResolver.ResolveAsync(A<string?>._, A<CancellationToken>._))
+            .ReturnsLazily(call =>
+            {
+                if (call.GetArgument<string?>(0) == "new-provider" && newProviderAttempts++ == 0)
+                {
+                    return Task.FromException<IEmbeddingGenerator<string, Embedding<float>>?>(
+                        new InvalidOperationException("Embedding provider unavailable."));
+                }
+
+                return Task.FromResult<IEmbeddingGenerator<string, Embedding<float>>?>(null);
+            });
+
+        var deviceCache = A.Fake<IDeviceCacheService>();
+        A.CallTo(() => deviceCache.GetCachedSensorsAsync(A<CancellationToken>._))
+            .Returns(Task.FromResult<List<SensorEntity>?>([]));
+        var skill = new SensorControlSkill(
+            new FakeHomeAssistantClient(),
+            embeddingResolver,
+            NullLogger<SensorControlSkill>.Instance,
+            deviceCache,
+            A.Fake<IEntityLocationService>(),
+            A.Fake<IHybridEntityMatcher>(),
+            new TestOptionsMonitor<SensorControlSkillOptions>(new SensorControlSkillOptions()));
+
+        var oldDefinition = CreateDefinition(null, DateTime.UtcNow, "old-model");
+        var newDefinition = CreateDefinition("new-provider", oldDefinition.UpdatedAt.AddMinutes(1), "new-model");
+        var currentDefinition = oldDefinition;
+        var repository = A.Fake<IAgentDefinitionRepository>();
+        A.CallTo(() => repository.GetAgentDefinitionAsync("sensor-agent", A<CancellationToken>._))
+            .ReturnsLazily(() => Task.FromResult<AgentDefinition?>(currentDefinition));
+
+        var appliedModels = new List<string?>();
+        var chatClientResolver = A.Fake<IChatClientResolver>();
+        A.CallTo(() => chatClientResolver.ResolveAIAgentAsync(A<string?>._, A<CancellationToken>._))
+            .ReturnsLazily(call =>
+            {
+                appliedModels.Add(call.GetArgument<string?>(0));
+                return Task.FromResult<AIAgent?>(A.Fake<AIAgent>());
+            });
+
+        var agent = new SensorAgent(
+            chatClientResolver,
+            repository,
+            skill,
+            new TracingChatClientFactory(A.Fake<ITraceRepository>(), NullLoggerFactory.Instance),
+            NullLoggerFactory.Instance);
+
+        await agent.InitializeAsync();
+        currentDefinition = newDefinition;
+        await Assert.ThrowsAsync<InvalidOperationException>(() => agent.RefreshConfigAsync());
+        await agent.RefreshConfigAsync();
+
+        Assert.Equal(["old-model", "new-model", "new-model"], appliedModels);
+    }
+
+    [Fact]
+    public async Task RefreshConfigAsync_WhenTwoCallsOverlapOnEmbeddingUpdate_EmbeddingUpdatedOnlyOnce()
+    {
+        var embeddingUpdateCount = 0;
+        var firstUpdateStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowFirstUpdateToComplete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var embeddingResolver = A.Fake<IEmbeddingProviderResolver>();
+        A.CallTo(() => embeddingResolver.ResolveAsync(A<string?>._, A<CancellationToken>._))
+            .ReturnsLazily(async call =>
+            {
+                Interlocked.Increment(ref embeddingUpdateCount);
+                firstUpdateStarted.TrySetResult();
+                await allowFirstUpdateToComplete.Task;
+                return (IEmbeddingGenerator<string, Embedding<float>>?)null;
+            });
+
+        var deviceCache = A.Fake<IDeviceCacheService>();
+        A.CallTo(() => deviceCache.GetCachedSensorsAsync(A<CancellationToken>._))
+            .Returns(Task.FromResult<List<SensorEntity>?>([]));
+
+        var skill = new SensorControlSkill(
+            new FakeHomeAssistantClient(),
+            embeddingResolver,
+            NullLogger<SensorControlSkill>.Instance,
+            deviceCache,
+            A.Fake<IEntityLocationService>(),
+            A.Fake<IHybridEntityMatcher>(),
+            new TestOptionsMonitor<SensorControlSkillOptions>(new SensorControlSkillOptions()));
+
+        var definition = CreateDefinition("new-provider", DateTime.UtcNow.AddMinutes(1));
+        var repository = A.Fake<IAgentDefinitionRepository>();
+        A.CallTo(() => repository.GetAgentDefinitionAsync("sensor-agent", A<CancellationToken>._))
+            .Returns(Task.FromResult<AgentDefinition?>(definition));
+
+        var chatClientResolver = A.Fake<IChatClientResolver>();
+        A.CallTo(() => chatClientResolver.ResolveAIAgentAsync(A<string?>._, A<CancellationToken>._))
+            .Returns(Task.FromResult<AIAgent?>(A.Fake<AIAgent>()));
+
+        var agent = new SensorAgent(
+            chatClientResolver,
+            repository,
+            skill,
+            new TracingChatClientFactory(A.Fake<ITraceRepository>(), NullLoggerFactory.Instance),
+            NullLoggerFactory.Instance);
+
+        var first = agent.RefreshConfigAsync();
+        await firstUpdateStarted.Task;
+        var second = agent.RefreshConfigAsync();
+        allowFirstUpdateToComplete.SetResult();
+        await Task.WhenAll(first, second);
+
+        // The reload gate serializes both calls; the second sees _lastEmbeddingProviderName
+        // already set by the first and skips the embedding update entirely.
+        Assert.Equal(1, embeddingUpdateCount);
+    }
+
+    [Fact]
     public async Task RefreshConfigAsync_WhenEmbeddingProviderChanges_RebuildsSensorEmbeddings()
     {
         var homeAssistantClient = new FakeHomeAssistantClient();
@@ -123,7 +240,10 @@ public sealed class SensorAgentTests
         Assert.Equal([1f, 2f], seenEmbeddings);
     }
 
-    private static AgentDefinition CreateDefinition(string? embeddingProviderName, DateTime updatedAt)
+    private static AgentDefinition CreateDefinition(
+        string? embeddingProviderName,
+        DateTime updatedAt,
+        string? modelConnectionName = null)
     {
         return new AgentDefinition
         {
@@ -133,6 +253,7 @@ public sealed class SensorAgentTests
             Description = "Sensor agent",
             Instructions = "Use tools",
             EmbeddingProviderName = embeddingProviderName,
+            ModelConnectionName = modelConnectionName,
             UpdatedAt = updatedAt,
         };
     }
@@ -142,3 +263,4 @@ public sealed class SensorAgentTests
         return new FixedEmbeddingGenerator(embedding);
     }
 }
+

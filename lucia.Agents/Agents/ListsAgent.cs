@@ -26,6 +26,7 @@ public sealed class ListsAgent : ILuciaAgent
     private volatile AIAgent _aiAgent = null!;
     private string? _lastModelConnectionName;
     private DateTime? _lastConfigUpdate;
+    private readonly SemaphoreSlim _reloadGate = new(1, 1);
 
     public string Instructions { get; set; }
     public IList<AITool> Tools { get; }
@@ -105,28 +106,41 @@ public sealed class ListsAgent : ILuciaAgent
         await _listSkill.InitializeAsync(cancellationToken).ConfigureAwait(false);
         await ApplyDefinitionAsync(cancellationToken).ConfigureAwait(false);
         _logger.LogInformation("ListsAgent initialized successfully");
-        _lastConfigUpdate = DateTime.UtcNow;
+    }
+
+    public async Task RefreshConfigAsync(CancellationToken cancellationToken = default)
+    {
+        await ApplyDefinitionAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private async Task ApplyDefinitionAsync(CancellationToken cancellationToken)
     {
-        var definition = await _definitionRepository.GetAgentDefinitionAsync(AgentId, cancellationToken).ConfigureAwait(false);
-        var newConnectionName = definition?.ModelConnectionName;
-        if (!string.IsNullOrEmpty(definition?.Instructions))
-            Instructions = definition.Instructions;
-        if (_lastConfigUpdate == null || _lastConfigUpdate < definition?.UpdatedAt)
+        await _reloadGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            var copilotAgent = await _clientResolver.ResolveAIAgentAsync(newConnectionName, cancellationToken)
-                .ConfigureAwait(false);
-            _aiAgent = copilotAgent ?? BuildAgent(
-                    await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false))
-                .AsBuilder()
-                .UseOpenTelemetry()
-                .Build();
-            _lastModelConnectionName = newConnectionName;
-            _logger.LogInformation("ListsAgent: using model provider '{Provider}'",
-                newConnectionName ?? "default-chat");
-            _lastConfigUpdate = DateTime.UtcNow;
+            var definition = await _definitionRepository.GetAgentDefinitionAsync(AgentId, cancellationToken).ConfigureAwait(false);
+            var newConnectionName = definition?.ModelConnectionName;
+            if (!string.IsNullOrEmpty(definition?.Instructions))
+                Instructions = definition.Instructions;
+            if (_aiAgent is null
+                || definition is not null && (_lastConfigUpdate is null || _lastConfigUpdate < definition.UpdatedAt))
+            {
+                var copilotAgent = await _clientResolver.ResolveAIAgentAsync(newConnectionName, cancellationToken)
+                    .ConfigureAwait(false);
+                _aiAgent = copilotAgent ?? BuildAgent(
+                        await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false))
+                    .AsBuilder()
+                    .UseOpenTelemetry()
+                    .Build();
+                _lastModelConnectionName = newConnectionName;
+                _logger.LogInformation("ListsAgent: using model provider '{Provider}'",
+                    newConnectionName ?? "default-chat");
+                _lastConfigUpdate = definition?.UpdatedAt;
+            }
+        }
+        finally
+        {
+            _reloadGate.Release();
         }
     }
 
