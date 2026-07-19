@@ -73,6 +73,7 @@ public sealed class GtcrnStreamingSession : ISpeechEnhancerSession
         Action? beforeDispose,
         InferenceSessionHolder? sessionHolder)
     {
+        List<FixedBufferOnnxValue>? created = null;
         try
         {
             ArgumentNullException.ThrowIfNull(session);
@@ -103,23 +104,24 @@ public sealed class GtcrnStreamingSession : ISpeechEnhancerSession
             _traCacheOutput = new float[_traCache.Length];
             _interCacheOutput = new float[_interCache.Length];
 
-            _inputValues =
-            [
-                FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_modelInput, [1, FreqBins, 1, 2])),
-                FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_convCache, [2, 1, 16, 16, 33])),
-                FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_traCache, [2, 3, 1, 1, 16])),
-                FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_interCache, [2, 1, 33, 16])),
-            ];
-            _outputValues =
-            [
-                FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_enhancedOutput, [1, FreqBins, 1, 2])),
-                FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_convCacheOutput, [2, 1, 16, 16, 33])),
-                FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_traCacheOutput, [2, 3, 1, 1, 16])),
-                FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_interCacheOutput, [2, 1, 33, 16])),
-            ];
+            created = new List<FixedBufferOnnxValue>(8);
+            created.Add(FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_modelInput, [1, FreqBins, 1, 2])));
+            created.Add(FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_convCache, [2, 1, 16, 16, 33])));
+            created.Add(FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_traCache, [2, 3, 1, 1, 16])));
+            created.Add(FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_interCache, [2, 1, 33, 16])));
+            created.Add(FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_enhancedOutput, [1, FreqBins, 1, 2])));
+            created.Add(FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_convCacheOutput, [2, 1, 16, 16, 33])));
+            created.Add(FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_traCacheOutput, [2, 3, 1, 1, 16])));
+            created.Add(FixedBufferOnnxValue.CreateFromTensor(new DenseTensor<float>(_interCacheOutput, [2, 1, 33, 16])));
+            _inputValues = [created[0], created[1], created[2], created[3]];
+            _outputValues = [created[4], created[5], created[6], created[7]];
         }
         catch
         {
+            if (created != null)
+            {
+                foreach (var v in created) v.Dispose();
+            }
             sessionHolder?.Release();
             throw;
         }
