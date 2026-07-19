@@ -295,8 +295,7 @@ if [[ $HAVE_DOTNET -eq 1 ]]; then
   QUOTED="$(run_prod_fn _npgsql_quote "$RAWPW")"
   CSVAL="Host=lucia-postgres;Port=5432;Username=postgres;Password=${QUOTED};Database=luciatasks"
   cat > "$WORK/parse.cs" <<'CS'
-#:package Npgsql@10.0.2
-#:property ManagePackageVersionsCentrally=false
+#:package Npgsql
 using Npgsql;
 var cs = Environment.GetEnvironmentVariable("CSVAL") ?? "";
 var expect = Environment.GetEnvironmentVariable("EXPECT") ?? "";
@@ -322,7 +321,7 @@ CS
     fail "Npgsql parse failed: $(printf '%s' "$PARSE_OUT" | grep -m1 'NPGSQL_PARSE=' || echo "$PARSE_OUT" | tail -n1)"
   fi
 else
-  skip "Npgsql parse check (dotnet unavailable)"
+  fail "Npgsql parse check requires dotnet — install dotnet SDK to validate production quoting"
 fi
 
 # ---------------------------------------------------------------------------
