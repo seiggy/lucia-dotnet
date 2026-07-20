@@ -57,7 +57,8 @@ public sealed partial class WyomingSession : IDisposable
     private long _diarizationMs;
     private long _enhancedClipRetranscriptionMs;
     private long _audioStreamStartedAt;
-    private bool _disposed;
+    private int _clientDisposed;
+    private int _disposed;
 
     public WyomingSession(
         TcpClient client,
@@ -115,7 +116,7 @@ public sealed partial class WyomingSession : IDisposable
 
     public async Task RunAsync(CancellationToken ct)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         using var sessionActivity = WyomingActivitySource.StartActivity("wyoming.session");
         sessionActivity?.SetTag("session.id", Id);
 
@@ -227,9 +228,8 @@ public sealed partial class WyomingSession : IDisposable
             _logger.LogWarning(ex, "Protocol error in Wyoming session {SessionId}", Id);
             await TryWriteErrorAsync(writer, ex.Message, "protocol_error", ct).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            _logger.LogError(ex, "Unhandled error in Wyoming session {SessionId}", Id);
             await TryWriteErrorAsync(writer, "Internal Wyoming session error.", "internal_error", ct).ConfigureAwait(false);
             throw;
         }
@@ -264,15 +264,22 @@ public sealed partial class WyomingSession : IDisposable
 
     public void Dispose()
     {
-        if (_disposed)
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
         {
             return;
         }
 
-        _disposed = true;
         State = WyomingSessionState.Disconnected;
         DisposeEngineSessions();
-        _client.Dispose();
+        AbortTransport();
+    }
+
+    internal void AbortTransport()
+    {
+        if (Interlocked.Exchange(ref _clientDisposed, 1) == 0)
+        {
+            _client.Dispose();
+        }
     }
 
     private async Task HandleDetectEventAsync(
@@ -859,7 +866,10 @@ public sealed partial class WyomingSession : IDisposable
     {
         if (_sttConcurrency is null || Interlocked.Exchange(ref _sttSlotAcquired, 0) != 1) return;
         try { _sttConcurrency.Release(); }
-        catch (ObjectDisposedException) { /* Disposed during shutdown — slot already reclaimed */ }
+        catch (ObjectDisposedException)
+        {
+            return;
+        }
     }
 
     private string _lastPartialText = string.Empty;
@@ -1202,16 +1212,6 @@ public sealed partial class WyomingSession : IDisposable
         {
             ReleaseSttSlot(); // release immediately after enhanced-clip inference
         }
-    }
-
-    /// <summary>
-    /// Result of re-transcribing a GTCRN-enhanced utterance clip, with timing metadata.
-    /// </summary>
-    private sealed class EnhancedClipSttResult
-    {
-        public required string Text { get; init; }
-        public float Confidence { get; init; }
-        public long DurationMs { get; init; }
     }
 
     /// <summary>
@@ -1631,7 +1631,7 @@ public sealed partial class WyomingSession : IDisposable
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException)
         {
             SetState(WyomingSessionState.Disconnected);
-            _client.Dispose();
+            AbortTransport();
             _logger.LogDebug(ex, "Failed to send Wyoming error event for session {SessionId}", Id);
         }
     }
