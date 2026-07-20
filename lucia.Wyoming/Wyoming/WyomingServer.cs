@@ -130,7 +130,7 @@ public sealed partial class WyomingServer : IHostedService, IDisposable
         }
         catch (TimeoutException)
         {
-            LogDrainTimeout(_logger, ShutdownTimeout, _sessions.Count);
+            LogDrainTimeout(_logger, gracefulTimeout, _sessions.Count);
             var lateSessions = RemoveSessions();
             var cleanupTask = AbortSessionsAsync(lateSessions);
             if (cts is not null)

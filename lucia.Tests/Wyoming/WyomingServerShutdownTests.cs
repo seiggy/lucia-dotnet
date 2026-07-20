@@ -110,8 +110,12 @@ public sealed class WyomingServerShutdownTests
             throw new InvalidOperationException("late cancellation failure");
         });
 
-        var stopwatch = Stopwatch.StartNew();
-        var stopTask = Task.Run(() => server.StopAsync(CancellationToken.None));
+        var stopwatch = new Stopwatch();
+        var stopTask = Task.Run(() =>
+        {
+            stopwatch.Start();
+            return server.StopAsync(CancellationToken.None);
+        });
         await callbackStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
         try

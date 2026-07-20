@@ -1631,7 +1631,7 @@ public sealed partial class WyomingSession : IDisposable
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException)
         {
             SetState(WyomingSessionState.Disconnected);
-            _client.Dispose();
+            AbortTransport();
             _logger.LogDebug(ex, "Failed to send Wyoming error event for session {SessionId}", Id);
         }
     }
