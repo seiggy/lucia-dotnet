@@ -21,18 +21,22 @@ if (useRedis)
 {
     redis = builder.AddRedis("redis")
         .WithDataVolume()
-        .WithLifetime(ContainerLifetime.Persistent)
+        // ContainerLifetime.Session is required here. Persistent lifetime forces DCP into
+        // proxyless endpoint mode (GetEffectiveIsProxied returns false when HasPersistentLifetime
+        // is true). Proxyless services never get AllocatedPort set through DCP's proxy
+        // allocation path, so AreResourceEndpointsAllocated stays false, and Aspire never
+        // publishes ConnectionStringAvailableEvent. The redis_check health check closure
+        // therefore always throws "Connection string is unavailable". Session lifetime uses
+        // the proxied allocation path which sets AllocatedEndpoint → event fires → health
+        // check resolves. Data is preserved via the named data volume between sessions.
+        .WithLifetime(ContainerLifetime.Session)
         .WithRedisInsight()
         .WithPersistence()
         .WithContainerName("redis")
-        // Aspire 13.4 split certificate handling into two independent APIs:
-        //   1. Server HTTPS cert  → WithoutHttpsCertificate()
-        //   2. Client cert trust  → WithCertificateTrustScope(CertificateTrustScope.None)
-        // Disabling only the server side still injects "--tls-ca-cert-file ..." into the
-        // container command, leaving the endpoint flagged for TLS.  The built-in redis_check
-        // health check then attempts a TLS handshake against the plaintext server → EOF →
-        // UNHEALTHY.  Both calls are required for a fully plaintext Redis endpoint.
-        // Production TLS is handled by the infra/Helm Redis chart's own TLS configuration.
+        // WithoutHttpsCertificate + WithCertificateTrustScope(None): prevent Aspire from
+        // injecting TLS cert config into the container and flagging the endpoint for TLS.
+        // Without both calls the redis_check health check attempts a TLS handshake against
+        // the plaintext server (EOF). Production TLS is via the infra/Helm Redis chart.
         .WithoutHttpsCertificate()
         .WithCertificateTrustScope(CertificateTrustScope.None);
 }

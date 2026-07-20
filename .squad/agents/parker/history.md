@@ -163,6 +163,31 @@ Replaced the Bishop-authored disconnected test (rejected by Vasquez) with a prod
 
 ## Learnings
 
+### Runtime Diagnostics: redis_check Failure + AgentHost Waiting (2026-07-20)
+
+**Symptoms:** `redis_check` perpetually Unhealthy; AgentHost stuck Waiting; reported 100% CPU + ~5 GB memory.
+
+**Root causes (two, independent):**
+
+1. **Orphaned `dotnet watch` trees (memory/CPU):** Three orphaned `dotnet watch --non-interactive` process trees from prior sessions each consumed 435–479 MB WS. Their AuxiliaryBackchannel connections also sent SocketException (10054) crashes into the active AppHost. Killed 9 PIDs individually (Stop-Process -Id). ~1.63 GB freed. No code change needed.
+
+2. **`ContainerLifetime.Persistent` → proxyless DCP endpoints → `ConnectionStringAvailableEvent` never fires (health check failure):** This is the definitive root cause of the health check perpetually throwing `System.InvalidOperationException: Connection string is unavailable`. The code path:
+   - `ContainerLifetime.Persistent` → `DcpExecutor.GetEffectiveIsProxied` returns `false` (line 685: `return endpoint.IsExplicitlyProxied ?? (!resource.HasPersistentLifetime())`)
+   - Proxyless → `Service.Spec.AddressAllocationMode = "Proxyless"` → excluded from DCP proxy allocation loop
+   - `DcpModelUtilities.AreResourceEndpointsAllocated` always returns `false` (no `AllocatedPort` ever set for proxyless)
+   - `DcpExecutor.PublishConnectionStringAvailableEventAsync` only fires if `AreResourceEndpointsAllocated` → NEVER fires
+   - `AddRedis()` health check factory `(sp) => connectionString ?? throw InvalidOperationException("Connection string is unavailable")` — `connectionString` stays `null` forever
+   - **Fix:** `ContainerLifetime.Persistent` → `ContainerLifetime.Session` in `AppHost.cs`. Data preserved via `WithDataVolume()` named volume.
+
+**Fix also required:** After switching to Session lifetime, DCP creates a DCP proxy endpoint for Redis. However, an existing Persistent container is NOT automatically recreated by DCP on session reconnect — its port bindings don't route through the new proxy. Must manually delete the Docker container so DCP creates a fresh one. After deletion, AppHost restart causes DCP to create the container fresh with correct proxy setup → health check passes.
+
+**CPU baseline (AgentHost, PID 39760, after fix):** 17 MB WS, 53 MB PM, 5.92 s total CPU, 16 threads. No 100% CPU issue. The reported load was entirely the orphaned processes.
+
+**Version mismatch noted:** Aspire.Hosting NuGet 13.4.2 vs Aspire CLI 13.4.6. Not causal to this bug but worth aligning in future maintenance.
+
+**Aspire MCP useful for:** Confirming exact exception text in health check results (not just Unhealthy/Healthy). The Aspire `list_resources` tool shows the last health check exception string, which was key to tracing the root cause.
+
+
 ### 2026-07-12: Orchestration span disposal — using var closes all exit paths (branch: squad/165-dispose-orchestration-spans)
 
 `LuciaEngine.ProcessRequestAsync` and `WorkflowFactory.ResolveAgentsAsync` both started an `Activity` with `ActivitySource.StartActivity()` but stored it in a plain `var`, so `Dispose()` was never called on any return or catch path. Disposing an `Activity` is what stops it and fires the listener's stop/export callback, so failing to dispose meant the stop/export callback and the accurate final duration were never emitted.
