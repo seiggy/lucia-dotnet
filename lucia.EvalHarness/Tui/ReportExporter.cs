@@ -129,7 +129,7 @@ public static class ReportExporter
                 var meanLatency = m.Performance.RunCount > 0
                     ? (double?)m.Performance.MeanLatency.TotalMilliseconds
                     : null;
-                sb.AppendLine($"| {m.ModelName} | {(passRate.HasValue ? $"{passRate:P0}" : "N/A")} | {FormatScore(m.OverallScore, m.OverallScoreStatus)} | {FormatScore(m.ToolSelectionScore, m.OverallScoreStatus)} | {FormatScore(m.ToolSuccessScore, m.OverallScoreStatus)} | {FormatScore(m.ToolEfficiencyScore, m.OverallScoreStatus)} | {FormatScore(m.TaskCompletionScore, m.TaskCompletionStatus)} | {FormatMs(meanLatency)} |");
+                sb.AppendLine($"| {m.ModelName} | {FormatPercent(passRate)} | {FormatScore(m.OverallScore, m.OverallScoreStatus)} | {FormatScore(m.ToolSelectionScore, m.OverallScoreStatus)} | {FormatScore(m.ToolSuccessScore, m.OverallScoreStatus)} | {FormatScore(m.ToolEfficiencyScore, m.OverallScoreStatus)} | {FormatScore(m.TaskCompletionScore, m.TaskCompletionStatus)} | {FormatMs(meanLatency)} |");
             }
             sb.AppendLine();
 
@@ -347,6 +347,9 @@ public static class ReportExporter
         > 0 => $"+{delta:F1}",
         _ => $"{delta:F1}"
     };
+
+    private static string FormatPercent(double? value) =>
+        value.HasValue ? $"{value.Value * 100:F0}%" : "N/A";
 
     private static string Truncate(string text, int maxLen) =>
         text.Length <= maxLen ? text : text[..maxLen] + "…";

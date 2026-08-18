@@ -198,7 +198,7 @@ public static class ReportRenderer
                         >= 0.8 => "green",
                         >= 0.5 => "yellow",
                         _ => "red"
-                    }}]{passRate:P0}[/]"
+                    }}]{passRate.Value * 100:F0}%[/]"
                     : "[dim]N/A[/]";
 
                 table.AddRow(

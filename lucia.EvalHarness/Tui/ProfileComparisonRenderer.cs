@@ -279,7 +279,7 @@ public static class ProfileComparisonRenderer
     };
 
     private static string FormatPercent(double? value) =>
-        value.HasValue ? $"{value:P0}" : "N/A";
+        value.HasValue ? $"{value.Value * 100:F0}%" : "N/A";
 
     private static string FormatDelta(double? delta) => delta switch
     {
