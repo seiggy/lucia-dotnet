@@ -17,6 +17,6 @@ internal sealed class ProfileAggregation
     public double? AvgTaskCompletion { get; init; }
     public int TotalPassed { get; init; }
     public int TotalTests { get; init; }
-    public double AvgLatencyMs { get; init; }
-    public double PassRate => TotalTests > 0 ? (double)TotalPassed / TotalTests : 0;
+    public double? AvgLatencyMs { get; init; }
+    public double? PassRate => TotalTests > 0 ? (double)TotalPassed / TotalTests : null;
 }

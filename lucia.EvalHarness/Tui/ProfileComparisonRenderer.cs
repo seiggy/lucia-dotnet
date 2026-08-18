@@ -74,7 +74,7 @@ public static class ProfileComparisonRenderer
                     FormatScore(pr.AvgToolSuccess),
                     FormatScore(pr.AvgToolEfficiency),
                     $"{FormatScore(pr.AvgTaskCompletion)}",
-                    $"{pr.PassRate:P0}",
+                    FormatPercent(pr.PassRate),
                     FormatMs(pr.AvgLatencyMs));
             }
 
@@ -139,7 +139,7 @@ public static class ProfileComparisonRenderer
                     $"| {pr.ProfileName}{star} | {FormatScore(pr.AvgOverall)} | " +
                     $"{FormatScore(pr.AvgToolSelection)} | {FormatScore(pr.AvgToolSuccess)} | " +
                     $"{FormatScore(pr.AvgToolEfficiency)} | {FormatScore(pr.AvgTaskCompletion)} | " +
-                    $"{pr.PassRate:P0} | {FormatMs(pr.AvgLatencyMs)} | " +
+                    $"{FormatPercent(pr.PassRate)} | {FormatMs(pr.AvgLatencyMs)} | " +
                     $"{FormatDelta(delta)} |");
             }
 
@@ -244,7 +244,9 @@ public static class ProfileComparisonRenderer
                         AvgTaskCompletion = Average(profileGroup.Select(m => m.TaskCompletionScore)),
                         TotalPassed = profileGroup.Sum(m => m.PassedCount),
                         TotalTests = profileGroup.Sum(m => m.ScoredTestCaseCount),
-                        AvgLatencyMs = profileGroup.Average(m => m.Performance.MeanLatency.TotalMilliseconds)
+                        AvgLatencyMs = Average(profileGroup
+                            .Where(m => m.Performance.RunCount > 0)
+                            .Select(m => (double?)m.Performance.MeanLatency.TotalMilliseconds))
                     })
                     .ToList()))
             .ToList();
@@ -263,7 +265,15 @@ public static class ProfileComparisonRenderer
         return available.Count > 0 ? available.Average() : null;
     }
 
-    private static string FormatMs(double ms) => ms >= 1000 ? $"{ms / 1000:F1}s" : $"{ms:F0}ms";
+    private static string FormatMs(double? ms) => ms switch
+    {
+        null => "N/A",
+        >= 1000 => $"{ms / 1000:F1}s",
+        _ => $"{ms:F0}ms"
+    };
+
+    private static string FormatPercent(double? value) =>
+        value.HasValue ? $"{value:P0}" : "N/A";
 
     private static string FormatDelta(double? delta) => delta switch
     {
