@@ -67,3 +67,23 @@
 - `AddProcessInstrumentation()` is available and complements runtime instrumentation for process CPU/memory. Runtime instrumentation, not process instrumentation, provides GC/allocation/thread-pool/exception metrics; team history must describe that split accurately.
 - `.slopwatch/` is generated initialization debris (including a 52 KB baseline of unrelated pre-existing/worktree findings), not part of the runtime fix.
 - Existing persistent Redis containers require a one-time removal before the Session-lifetime proxy path works; this migration step needs durable user-facing placement, not only a squad inbox note.
+
+
+## 2026-08-18 — Eval Unavailable-Result Invariant: Re-Review Gate & Reviewer Lockout
+
+**Status:** RE-REVIEWER (Locked out from authorship per Decision #32)
+
+**Situation:** Previous REQUEST-CHANGES (commit b1841ac) identified nullable judge scores and deadline tracking correctly merged, but revealed aggregation boundary failure: unavailable results (RunCount == 0) incorrectly averaged in latency and pass-rate dimensions. Profile aggregation renders all-unavailable as 0% (indistinguishable from real 0%), and BackendComparisonRenderer picks unavailable backends as fastest (0 ms).
+
+**Ripley's retrospective:** Root cause identified as value-level contract (nullable scores) without aggregation-boundary invariant enforcement. Single invariant needed: exclude RunCount==0 from ALL aggregates uniformly; aggregates become nullable; null surfaces N/A.
+
+**Your charter assignment:** RE-REVIEW gate after Dallas completes revision.
+
+**Re-review checklist (blocking Dallas's merge):**
+- Build + all EvalHarness tests green.
+- New/updated test proves: (1) unavailable result does NOT poison real latency average (does not lower it), (2) unavailable never appears as fastest, (3) all-unavailable renders N/A, not 0%.
+- Commit message references Decision #32 and backlinks to b1841ac (the change you rejected).
+
+**Reviewer lockout clarification:** You are explicitly NOT PERMITTED to author the revision code; your role is approval-gate-keeper only. Dallas owns the .NET changes and test additions. You approve or request further changes, but do not commit changes yourself.
+
+**Context:** This was a process gap — the invariant needed to be enforced at a single choke point (aggregation boundary), not re-implemented separately by each renderer. Your REQUEST-CHANGES correctly identified the breakage; the retrospective ensures the fix is systemic and prevents future similar gaps.
