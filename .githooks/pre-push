@@ -121,7 +121,11 @@ done < "$tmp"
 
 if [ "$has_updates" -eq 1 ]; then
     repo_root=$(git rev-parse --show-toplevel)
-    if [ -n "$(git status --porcelain --untracked-files=normal)" ]; then
+    if ! worktree_status=$(git status --porcelain --untracked-files=normal); then
+        echo "[pre-push] Could not inspect working-tree state; push aborted." >&2
+        exit 1
+    fi
+    if [ -n "$worktree_status" ]; then
         echo "[pre-push] Working tree is not clean; tests would not represent pushed HEAD $head_sha." >&2
         echo "[pre-push] Commit or remove local changes before pushing." >&2
         exit 1
