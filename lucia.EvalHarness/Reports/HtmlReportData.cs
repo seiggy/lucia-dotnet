@@ -68,26 +68,34 @@ public sealed class HtmlReportData
                     ModelName = modelGroup.Key,
                     Profiles = modelGroup
                         .GroupBy(m => m.ParameterProfile!.Name)
-                        .Select(pg => new HtmlProfileScore
+                        .Select(pg =>
                         {
-                            ProfileName = pg.Key,
-                            Parameters = new HtmlParameterData
+                            var measured = pg
+                                .Where(result => result.Performance.RunCount > 0)
+                                .ToList();
+                            var scoredCount = measured.Sum(result => result.ScoredTestCaseCount);
+                            return new HtmlProfileScore
                             {
-                                Name = pg.Key,
-                                Temperature = pg.First().ParameterProfile!.Temperature,
-                                TopK = pg.First().ParameterProfile!.TopK,
-                                TopP = pg.First().ParameterProfile!.TopP,
-                                RepeatPenalty = pg.First().ParameterProfile!.RepeatPenalty
-                            },
-                            AvgOverall = Average(pg.Select(m => m.OverallScore)),
-                            AvgToolSelection = Average(pg.Select(m => m.ToolSelectionScore)),
-                            AvgToolSuccess = Average(pg.Select(m => m.ToolSuccessScore)),
-                            AvgToolEfficiency = Average(pg.Select(m => m.ToolEfficiencyScore)),
-                            AvgTaskCompletion = Average(pg.Select(m => m.TaskCompletionScore)),
-                            PassRate = pg.Sum(m => m.ScoredTestCaseCount) > 0
-                                ? (double)pg.Sum(m => m.PassedCount) / pg.Sum(m => m.ScoredTestCaseCount)
-                                : 0,
-                            AvgLatencyMs = pg.Average(m => m.Performance.MeanLatency.TotalMilliseconds)
+                                ProfileName = pg.Key,
+                                Parameters = new HtmlParameterData
+                                {
+                                    Name = pg.Key,
+                                    Temperature = pg.First().ParameterProfile!.Temperature,
+                                    TopK = pg.First().ParameterProfile!.TopK,
+                                    TopP = pg.First().ParameterProfile!.TopP,
+                                    RepeatPenalty = pg.First().ParameterProfile!.RepeatPenalty
+                                },
+                                AvgOverall = Average(measured.Select(m => m.OverallScore)),
+                                AvgToolSelection = Average(measured.Select(m => m.ToolSelectionScore)),
+                                AvgToolSuccess = Average(measured.Select(m => m.ToolSuccessScore)),
+                                AvgToolEfficiency = Average(measured.Select(m => m.ToolEfficiencyScore)),
+                                AvgTaskCompletion = Average(measured.Select(m => m.TaskCompletionScore)),
+                                PassRate = scoredCount > 0
+                                    ? (double)measured.Sum(m => m.PassedCount) / scoredCount
+                                    : null,
+                                AvgLatencyMs = Average(measured
+                                    .Select(m => (double?)m.Performance.MeanLatency.TotalMilliseconds))
+                            };
                         })
                         .OrderByDescending(p => p.AvgOverall)
                         .ToList()

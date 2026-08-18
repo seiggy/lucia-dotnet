@@ -233,20 +233,25 @@ public static class ProfileComparisonRenderer
                 ModelName: modelGroup.Key,
                 Profiles: modelGroup
                     .GroupBy(m => m.ParameterProfile!.Name)
-                    .Select(profileGroup => new ProfileAggregation
+                    .Select(profileGroup =>
                     {
-                        ProfileName = profileGroup.Key,
-                        Profile = profileGroup.First().ParameterProfile!,
-                        AvgOverall = Average(profileGroup.Select(m => m.OverallScore)),
-                        AvgToolSelection = Average(profileGroup.Select(m => m.ToolSelectionScore)),
-                        AvgToolSuccess = Average(profileGroup.Select(m => m.ToolSuccessScore)),
-                        AvgToolEfficiency = Average(profileGroup.Select(m => m.ToolEfficiencyScore)),
-                        AvgTaskCompletion = Average(profileGroup.Select(m => m.TaskCompletionScore)),
-                        TotalPassed = profileGroup.Sum(m => m.PassedCount),
-                        TotalTests = profileGroup.Sum(m => m.ScoredTestCaseCount),
-                        AvgLatencyMs = Average(profileGroup
-                            .Where(m => m.Performance.RunCount > 0)
-                            .Select(m => (double?)m.Performance.MeanLatency.TotalMilliseconds))
+                        var measured = profileGroup
+                            .Where(result => result.Performance.RunCount > 0)
+                            .ToList();
+                        return new ProfileAggregation
+                        {
+                            ProfileName = profileGroup.Key,
+                            Profile = profileGroup.First().ParameterProfile!,
+                            AvgOverall = Average(measured.Select(m => m.OverallScore)),
+                            AvgToolSelection = Average(measured.Select(m => m.ToolSelectionScore)),
+                            AvgToolSuccess = Average(measured.Select(m => m.ToolSuccessScore)),
+                            AvgToolEfficiency = Average(measured.Select(m => m.ToolEfficiencyScore)),
+                            AvgTaskCompletion = Average(measured.Select(m => m.TaskCompletionScore)),
+                            TotalPassed = measured.Sum(m => m.PassedCount),
+                            TotalTests = measured.Sum(m => m.ScoredTestCaseCount),
+                            AvgLatencyMs = Average(measured
+                                .Select(m => (double?)m.Performance.MeanLatency.TotalMilliseconds))
+                        };
                     })
                     .ToList()))
             .ToList();

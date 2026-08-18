@@ -29,8 +29,8 @@ public sealed class HtmlProfileScore
     public double? AvgTaskCompletion { get; init; }
 
     [JsonPropertyName("passRate")]
-    public double PassRate { get; init; }
+    public double? PassRate { get; init; }
 
     [JsonPropertyName("avgLatencyMs")]
-    public double AvgLatencyMs { get; init; }
+    public double? AvgLatencyMs { get; init; }
 }

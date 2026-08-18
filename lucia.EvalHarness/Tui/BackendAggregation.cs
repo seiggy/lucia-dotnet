@@ -13,5 +13,5 @@ internal sealed class BackendAggregation
     public int TotalPassed { get; init; }
     public int TotalTests { get; init; }
     public required ModelPerformanceSummary Performance { get; init; }
-    public double PassRate => TotalTests > 0 ? (double)TotalPassed / TotalTests : 0;
+    public double? PassRate => TotalTests > 0 ? (double)TotalPassed / TotalTests : null;
 }

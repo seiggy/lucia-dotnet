@@ -19,7 +19,7 @@ public sealed class SweepEntry
         {
             var all = AllRunResults
                 .SelectMany(run => run)
-                .Where(result => result.OverallScore.HasValue)
+                .Where(result => result.OverallScore.HasValue && result.Performance.RunCount > 0)
                 .ToList();
             return all.Count > 0
                 ? all.Average(result => result.Performance.MeanLatency.TotalMilliseconds)

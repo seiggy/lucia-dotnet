@@ -269,16 +269,18 @@ public static class BackendComparisonRenderer
                     .Select(backendGroup =>
                     {
                         var results = backendGroup.ToList();
-                        var allPerf = results
+                        var measured = results
+                            .Where(result => result.Performance.RunCount > 0)
+                            .ToList();
+                        var allPerf = measured
                             .Select(r => r.Performance)
-                            .Where(performance => performance.RunCount > 0)
                             .ToList();
                         return new BackendAggregation
                         {
                             BackendName = backendGroup.Key,
-                            AvgOverall = Average(results.Select(result => result.OverallScore)),
-                            TotalPassed = results.Sum(r => r.PassedCount),
-                            TotalTests = results.Sum(r => r.ScoredTestCaseCount),
+                            AvgOverall = Average(measured.Select(result => result.OverallScore)),
+                            TotalPassed = measured.Sum(r => r.PassedCount),
+                            TotalTests = measured.Sum(r => r.ScoredTestCaseCount),
                             Performance = new ModelPerformanceSummary
                             {
                                 ModelName = modelGroup.Key,
