@@ -40,7 +40,7 @@ When economy mode is **active**, Layer 3 auto-selection uses this table instead 
 
 | Task Output | Normal Mode | Economy Mode |
 |-------------|-------------|--------------|
-| Writing code (implementation, refactoring, bug fixes) | `claude-sonnet-4.5` | `gpt-4.1` or `gpt-5-mini` |
+| Writing code (implementation, refactoring, bug fixes) | `mai-code-1.1-flash` | `gpt-4.1` or `gpt-5-mini` |
 | Writing prompts or agent designs | `claude-sonnet-4.5` | `gpt-4.1` or `gpt-5-mini` |
 | Docs, planning, triage, changelogs, mechanical ops | `claude-haiku-4.5` | `gpt-4.1` or `gpt-5-mini` |
 | Architecture, code review, security audits | `claude-opus-4.5` | `claude-sonnet-4.5` |
