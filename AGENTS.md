@@ -30,6 +30,10 @@ Refer to `.docs/product/tech-stack.md` for deeper detail and version updates bef
 
 **TDD expectation:** Write or update tests before implementing public behavior changes. Never merge failing tests.
 
+- **Coding sub-agents:** Use `mai-code-1.1-flash` by default for implementation, refactoring, test code, and bug fixes.
+- **UI work:** Invoke `.github/skills/impeccable/SKILL.md` before changing any user interface and follow its workflow.
+- **Pre-push review:** The reviewer must verify that each PR updates all affected documentation, including repository README files, or explicitly confirm that no documentation change is needed.
+
 ## 4. Development Quick Reference
 
 - **Restore & Build:** `dotnet restore`, `dotnet build lucia-dotnet.slnx`

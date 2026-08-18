@@ -28,7 +28,7 @@ Resolution is **first-match-wins** — the highest layer with a value wins.
 | **0b** | Global Config | `.squad/config.json` → `defaultModel` | Persistent (survives sessions) |
 | **1** | Session Directive | User said "use X" in current session | Session-only |
 | **2** | Charter Preference | Agent's `charter.md` → `## Model` section | Persistent (in charter) |
-| **3** | Task-Aware Auto | Code → sonnet, docs → haiku, visual → opus | Computed per-spawn |
+| **3** | Task-Aware Auto | Code → `mai-code-1.1-flash`, docs → haiku, visual → opus | Computed per-spawn |
 | **4** | Default | `claude-haiku-4.5` | Hardcoded fallback |
 
 **Key principle:** Layer 0 (persistent config) beats everything. If the user said "always use opus" and it was saved to config.json, every agent gets opus regardless of role or task type. This is intentional — the user explicitly chose quality over cost.
@@ -49,7 +49,7 @@ Resolution is **first-match-wins** — the highest layer with a value wins.
 3. CHECK Layer 1: Did the user give a session directive? → Use it.
 4. CHECK Layer 2: Does the agent's charter have a `## Model` section? → Use it.
 5. CHECK Layer 3: Determine task type:
-   - Code (implementation, tests, refactoring, bug fixes) → `claude-sonnet-4.6`
+   - Code (implementation, tests, refactoring, bug fixes) → `mai-code-1.1-flash`
    - Prompts, agent designs → `claude-sonnet-4.6`
    - Visual/design with image analysis → `claude-opus-4.6`
    - Non-code (docs, planning, triage, changelogs) → `claude-haiku-4.5`
@@ -110,7 +110,7 @@ If a model is unavailable (rate limit, plan restriction), retry within the same 
 
 ```
 Premium:  claude-opus-4.6 → claude-opus-4.6-fast → claude-opus-4.5 → claude-sonnet-4.6
-Standard: claude-sonnet-4.6 → gpt-5.4 → claude-sonnet-4.5 → gpt-5.3-codex → claude-sonnet-4
+Standard: mai-code-1.1-flash → claude-sonnet-4.6 → gpt-5.4 → claude-sonnet-4.5 → gpt-5.3-codex → claude-sonnet-4
 Fast:     claude-haiku-4.5 → gpt-5.1-codex-mini → gpt-4.1 → gpt-5-mini
 ```
 

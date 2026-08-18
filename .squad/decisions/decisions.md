@@ -308,6 +308,11 @@ No tight CPU spin was found. The idle CPU is most likely the **aggregate effect*
 **What:** All agents responsible for writing code should prefer Claude Opus 4.8 (`claude-opus-4.8`) as their model. Non-code agents (Scribe, Ralph) remain on their defaults.
 **Why:** User request — captured for team memory
 
+### 2026-08-18T13:09:53-04:00: User directive
+**By:** Zack Way (via Copilot)
+**What:** Supersede the prior coding-model preference with `mai-code-1.1-flash`; require Impeccable workflows for all UI work; and require Vasquez's pre-push review to verify affected documentation and README updates.
+**Why:** User request — captured for team memory
+
 
 ---
 

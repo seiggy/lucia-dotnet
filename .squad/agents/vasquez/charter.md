@@ -35,7 +35,7 @@ For each branch under review (run from inside that branch's worktree):
    - **Test-first / tests present** for public behavior changes.
    - Nullable reference types, file-scoped namespaces, `[LoggerMessage]` logging, OpenTelemetry instrumentation retained (not removed/disabled).
    - **Conventional Commits** + `Co-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>` trailer; body ends with `Fixes #N`/`Closes #N`.
-6. **Doc accuracy.** XML docs, comments, and `.squad` history entries must match the actual implementation.
+6. **Documentation completeness.** Verify the PR updates every affected documentation surface, including XML docs, repository README files, product/spec docs, examples, and `.squad` history. If no documentation is affected, state that explicitly in the verdict.
 7. **Verdict.**
    - **APPROVE** → record approval for the exact HEAD SHA (see Approval Mechanism). The branch may now be pushed / PR'd / merged.
    - **REQUEST-CHANGES** → produce a numbered, file:line checklist of every BLOCKING problem, plus any non-blocking nits marked clearly. The branch stays blocked. The author fixes and I re-review the new HEAD.
