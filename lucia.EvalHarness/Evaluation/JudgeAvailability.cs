@@ -1,6 +1,7 @@
 using System.Net.Http;
 using System.Text.Json;
 using Azure;
+using Azure.Identity;
 using System.ClientModel;
 
 namespace lucia.EvalHarness.Evaluation;
@@ -52,7 +53,8 @@ public static class JudgeAvailability
             return true;
         }
 
-        if (exception is HttpRequestException or ClientResultException or RequestFailedException)
+        if (exception is HttpRequestException or ClientResultException or
+            RequestFailedException or AuthenticationFailedException)
         {
             status = ProviderError;
             return true;

@@ -1,6 +1,7 @@
 using System.ClientModel;
 using System.Diagnostics;
 using Azure;
+using Azure.Identity;
 using System.Text.Json;
 using lucia.EvalHarness.Evaluation;
 using lucia.EvalHarness.Infrastructure;
@@ -159,7 +160,8 @@ public sealed class PersonalityEvalRunner
             llmResponse = response.Text ?? string.Empty;
         }
         catch (Exception exception)
-            when (exception is HttpRequestException or RequestFailedException or ClientResultException or TimeoutException ||
+            when (exception is HttpRequestException or RequestFailedException or ClientResultException or
+                  AuthenticationFailedException or TimeoutException ||
                   exception is OperationCanceledException && !ct.IsCancellationRequested)
         {
             sw.Stop();

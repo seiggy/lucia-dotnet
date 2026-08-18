@@ -2,6 +2,7 @@ using System.Net.Http;
 using System.Text.Json;
 using AgentEval.Core;
 using AgentEval.Models;
+using Azure.Identity;
 using FakeItEasy;
 using lucia.Agents.Abstractions;
 using lucia.EvalHarness.Configuration;
@@ -168,6 +169,22 @@ public sealed class EvalRunnerAvailabilityTests
         Assert.True((object?)result.ToolSuccessScore is null);
         Assert.True((object?)result.ToolEfficiencyScore is null);
         Assert.Null(result.OverallScore);
+    }
+
+    [Fact]
+    public async Task EvaluateRealAgentAsync_AzureAuthenticationFailure_IsUnavailable()
+    {
+        var runner = CreateRunner(null, (_, _, _) =>
+            Task.FromException<(EvaluationContext, PerformanceSnapshot)>(
+                new AuthenticationFailedException("az login required")));
+
+        var result = await runner.EvaluateRealAgentAsync(
+            "model",
+            CreateAgent(),
+            [new TestCase { Name = "unavailable", Input = "first" }]);
+
+        Assert.Null(result.OverallScore);
+        Assert.Null(result.TestCaseResults.Single().Score);
     }
 
     [Theory]

@@ -4,6 +4,7 @@ using AgentEval.MAF;
 using AgentEval.Metrics.Agentic;
 using AgentEval.Models;
 using Azure;
+using Azure.Identity;
 using lucia.Agents.Abstractions;
 using lucia.EvalHarness.Configuration;
 using lucia.EvalHarness.Infrastructure;
@@ -124,7 +125,8 @@ public sealed class EvalRunner
                 perfSnapshots.Add(perf);
             }
             catch (Exception exception)
-                when (exception is HttpRequestException or RequestFailedException or ClientResultException or TimeoutException ||
+                when (exception is HttpRequestException or RequestFailedException or ClientResultException or
+                      AuthenticationFailedException or TimeoutException ||
                       exception is OperationCanceledException && !ct.IsCancellationRequested)
             {
                 testCaseResults.Add(new TestCaseResult
@@ -458,7 +460,8 @@ public sealed class EvalRunner
                 });
             }
             catch (Exception exception)
-                when (exception is HttpRequestException or RequestFailedException or ClientResultException or TimeoutException ||
+                when (exception is HttpRequestException or RequestFailedException or ClientResultException or
+                      AuthenticationFailedException or TimeoutException ||
                       exception is OperationCanceledException && !ct.IsCancellationRequested)
             {
                 testCaseResults.Add(new TestCaseResult

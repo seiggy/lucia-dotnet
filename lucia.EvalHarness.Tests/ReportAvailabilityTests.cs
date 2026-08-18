@@ -297,6 +297,45 @@ public sealed class ReportAvailabilityTests
         }
     }
 
+    [Fact]
+    public void ComparisonAggregates_UnmeasuredResultsRemainUnavailable()
+    {
+        var profileRun = CreateRun(
+        [
+            CreateModelResult(
+                "profile-model",
+                100,
+                1,
+                [],
+                parameterProfile: new ModelParameterProfile { Name = "profile-a" }),
+            CreateModelResult(
+                "profile-model",
+                100,
+                1,
+                [],
+                parameterProfile: new ModelParameterProfile { Name = "profile-b" })
+        ]);
+        var html = HtmlReportData.FromEvalResult(profileRun, new GpuInfo("test"));
+        var profileScores = Assert.Single(html.ProfileComparison!).Profiles;
+
+        Assert.All(profileScores, profile =>
+        {
+            Assert.Null(profile.PassRate);
+            Assert.Null(profile.AvgLatencyMs);
+        });
+
+        var backendRun = CreateRun(
+        [
+            CreateModelResult("backend-model@first", 100, 1, []),
+            CreateModelResult("backend-model@second", 100, 1, [])
+        ]);
+        var markdown = new System.Text.StringBuilder();
+        BackendComparisonRenderer.AppendMarkdown(markdown, backendRun);
+
+        Assert.Contains("| Mean | N/A | N/A |", markdown.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("0ms", markdown.ToString(), StringComparison.Ordinal);
+    }
+
     private static EvalRunResult CreateRun(ModelEvalResult? modelResult = null) =>
         CreateRun(
         [
@@ -326,7 +365,8 @@ public sealed class ReportAvailabilityTests
         double? score,
         int testCaseCount,
         IReadOnlyList<PerformanceSnapshot> snapshots,
-        IReadOnlyList<TestCaseResult>? testCases = null) =>
+        IReadOnlyList<TestCaseResult>? testCases = null,
+        ModelParameterProfile? parameterProfile = null) =>
         new()
         {
             ModelName = modelName,
@@ -342,7 +382,8 @@ public sealed class ReportAvailabilityTests
             ScoredTestCaseCount = testCaseCount,
             PassedCount = 0,
             Performance = ModelPerformanceSummary.FromSnapshots(modelName, snapshots),
-            TestCaseResults = testCases ?? []
+            TestCaseResults = testCases ?? [],
+            ParameterProfile = parameterProfile
         };
 
     private static string RenderHtmlComparison(string htmlPath, string directory)

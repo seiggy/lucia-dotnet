@@ -101,4 +101,18 @@ public sealed class SweepAvailabilityTests
 
         Assert.Equal(0, entry.ScoreVariance);
     }
+
+    [Fact]
+    public void SweepEntry_UnmeasuredScore_HasNoLatency()
+    {
+        var result = EvalResultFactory.Create(100);
+        var entry = new SweepEntry
+        {
+            Profile = new ModelParameterProfile { Name = "unmeasured" },
+            Results = [result],
+            AllRunResults = [[result]]
+        };
+
+        Assert.Null(entry.AverageLatencyMs);
+    }
 }
