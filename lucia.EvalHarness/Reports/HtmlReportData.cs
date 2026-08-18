@@ -84,8 +84,8 @@ public sealed class HtmlReportData
                             AvgToolSuccess = Average(pg.Select(m => m.ToolSuccessScore)),
                             AvgToolEfficiency = Average(pg.Select(m => m.ToolEfficiencyScore)),
                             AvgTaskCompletion = Average(pg.Select(m => m.TaskCompletionScore)),
-                            PassRate = pg.Sum(m => m.TestCaseCount) > 0
-                                ? (double)pg.Sum(m => m.PassedCount) / pg.Sum(m => m.TestCaseCount)
+                            PassRate = pg.Sum(m => m.ScoredTestCaseCount) > 0
+                                ? (double)pg.Sum(m => m.PassedCount) / pg.Sum(m => m.ScoredTestCaseCount)
                                 : 0,
                             AvgLatencyMs = pg.Average(m => m.Performance.MeanLatency.TotalMilliseconds)
                         })
@@ -123,6 +123,7 @@ public sealed class HtmlReportData
                     TaskCompletionStatus = m.TaskCompletionStatus,
                     TaskCompletionReason = m.TaskCompletionReason,
                     TestCaseCount = m.TestCaseCount,
+                    ScoredTestCaseCount = m.ScoredTestCaseCount,
                     PassedCount = m.PassedCount,
                     Parameters = m.ParameterProfile is not null
                         ? new HtmlParameterData

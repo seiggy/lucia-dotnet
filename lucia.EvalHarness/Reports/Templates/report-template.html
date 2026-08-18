@@ -181,7 +181,7 @@ const esc = s => s == null ? '' : String(s).replace(/&/g,'&amp;').replace(/</g,'
 
 function fmtNum(n, d=1) { return n == null ? '—' : Number(n).toFixed(d); }
 function fmtScore(n, status) { return n == null ? `N/A${status ? ` (${status})` : ''}` : fmtNum(n, 1); }
-function fmtMs(ms) { return ms == null ? '—' : ms < 1000 ? fmtNum(ms,0)+'ms' : fmtNum(ms/1000,2)+'s'; }
+function fmtMs(ms) { return ms == null ? 'N/A' : ms < 1000 ? fmtNum(ms,0)+'ms' : fmtNum(ms/1000,2)+'s'; }
 function fmtPct(n) { return n == null ? '—' : fmtNum(n,1)+'%'; }
 function fmtDuration(s) {
   if (s == null) return '—';
@@ -238,7 +238,7 @@ function modelSummaries() {
     if (m.overallScore != null) map[m.modelName].scores.push(m.overallScore);
     if (m.performance?.runCount > 0 && m.performance?.meanLatencyMs != null) map[m.modelName].latencies.push(m.performance.meanLatencyMs);
     map[m.modelName].passed += m.passedCount ?? 0;
-    map[m.modelName].total  += m.testCaseCount ?? 0;
+    map[m.modelName].total  += m.scoredTestCaseCount ?? 0;
   }));
   Object.values(map).forEach(v => {
     v.avgScore   = v.scores.length ? v.scores.reduce((a,b)=>a+b,0) / v.scores.length : null;
@@ -259,7 +259,7 @@ function fastestModel() {
 function totalStats() {
   let tests=0, passed=0;
   (data.agents||[]).forEach(a=>(a.models||[]).forEach(m=>{
-    tests += m.testCaseCount??0; passed += m.passedCount??0;
+    tests += m.scoredTestCaseCount??0; passed += m.passedCount??0;
   }));
   return { tests, passed, failed: tests - passed };
 }
@@ -446,7 +446,9 @@ function renderSummary() {
 
   // ── Row 4: Performance (Latency Bars) ──
   const summ = modelSummaries();
-  const maxLat = Math.max(...Object.values(summ).map(v => v.avgLatency), 1);
+  const latencyModels = Object.values(summ).filter(v => v.avgLatency != null).sort((a,b)=>a.avgLatency-b.avgLatency);
+  const unavailableLatencyModels = Object.values(summ).filter(v => v.avgLatency == null);
+  const maxLat = Math.max(...latencyModels.map(v => v.avgLatency), 1);
 
   html += `<div class="card card-inner">
     <div class="flex items-center gap-2 mb-4">
@@ -454,10 +456,11 @@ function renderSummary() {
       <h2 class="text-xs font-semibold uppercase tracking-widest" style="color:var(--c-text3)">Mean Latency by Model</h2>
     </div>
     <div class="space-y-3">
-      ${Object.values(summ).sort((a,b)=>a.avgLatency-b.avgLatency).map((m, i, arr) => {
-        const pct = Math.max(4, (m.avgLatency / maxLat) * 100);
+      ${[...latencyModels, ...unavailableLatencyModels].map((m, i) => {
+        const available = m.avgLatency != null;
+        const pct = available ? Math.max(4, (m.avgLatency / maxLat) * 100) : 0;
         // Color by rank: fastest → emerald, slowest → amber/red
-        const rank = arr.length > 1 ? i / (arr.length - 1) : 0;   // 0 = fastest, 1 = slowest
+        const rank = latencyModels.length > 1 ? i / (latencyModels.length - 1) : 0;   // 0 = fastest, 1 = slowest
         const barHue = 160 - rank * 130;   // 160 (emerald) → 30 (orange-red)
         const barColor = `hsla(${barHue},72%,45%,0.85)`;
         const barGrad = `linear-gradient(90deg, ${barColor}, hsla(${barHue},60%,40%,0.45))`;
@@ -505,7 +508,7 @@ function renderAgents() {
         </div>
         <div class="flex items-center gap-4 text-xs font-mono">
           ${(agent.models||[]).map(m => `
-            <span class="px-2 py-0.5 rounded" style="background:${scoreHsl(m.overallScore,0.2)};color:${scoreHsl(m.overallScore,1)}">${esc(m.modelName)} ${fmtNum(m.overallScore,1)}</span>
+            <span class="px-2 py-0.5 rounded" style="background:${scoreHsl(m.overallScore,0.2)};color:${scoreHsl(m.overallScore,1)}">${esc(m.modelName)} ${fmtScore(m.overallScore, m.overallScoreStatus)}</span>
           `).join('')}
         </div>
       </button>
@@ -525,7 +528,8 @@ function renderAgentModels(agent, ai) {
   return (agent.models||[]).map((model, mi) => {
     const pr = model.performance || {};
     const tc = model.testCases || [];
-    const passRate = model.testCaseCount ? ((model.passedCount / model.testCaseCount) * 100) : null;
+    const passRate = model.scoredTestCaseCount ? ((model.passedCount / model.scoredTestCaseCount) * 100) : null;
+    const hasPerformance = pr.runCount > 0;
 
     return `
     <div class="mt-4 ${mi > 0 ? 'pt-4' : ''}" ${mi > 0 ? 'style="border-top:1px solid var(--c-border)"' : ''}>
@@ -553,11 +557,11 @@ function renderAgentModels(agent, ai) {
 
       <!-- Latency metrics -->
       <div class="flex flex-wrap gap-x-5 gap-y-1 text-xs mb-4" style="color:var(--c-text2)">
-        <span>Mean: <b class="font-mono">${fmtMs(pr.meanLatencyMs)}</b></span>
-        <span>Median: <b class="font-mono">${fmtMs(pr.medianLatencyMs)}</b></span>
-        <span>P95: <b class="font-mono">${fmtMs(pr.p95LatencyMs)}</b></span>
-        <span>Min: <b class="font-mono">${fmtMs(pr.minLatencyMs)}</b></span>
-        <span>Max: <b class="font-mono">${fmtMs(pr.maxLatencyMs)}</b></span>
+        <span>Mean: <b class="font-mono">${fmtMs(hasPerformance ? pr.meanLatencyMs : null)}</b></span>
+        <span>Median: <b class="font-mono">${fmtMs(hasPerformance ? pr.medianLatencyMs : null)}</b></span>
+        <span>P95: <b class="font-mono">${fmtMs(hasPerformance ? pr.p95LatencyMs : null)}</b></span>
+        <span>Min: <b class="font-mono">${fmtMs(hasPerformance ? pr.minLatencyMs : null)}</b></span>
+        <span>Max: <b class="font-mono">${fmtMs(hasPerformance ? pr.maxLatencyMs : null)}</b></span>
       </div>
 
       <!-- Test cases table -->
@@ -584,16 +588,17 @@ function renderAgentModels(agent, ai) {
 
 function renderTestRows(cases) {
   return cases.map(tc => {
+    const available = tc.score != null;
     const passed = tc.passed;
     return `<tr class="hover:bg-[var(--c-surface2)] transition-colors" style="border-top:1px solid var(--c-border)">
       <td class="px-3 py-2 font-mono">${esc(tc.id)}</td>
       <td class="px-3 py-2 text-center">
-        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${passed ? 'badge-pass' : 'badge-fail'}">
-          ${passIcon(passed)} ${passed ? 'PASS' : 'FAIL'}
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${available ? (passed ? 'badge-pass' : 'badge-fail') : ''}">
+          ${available ? `${passIcon(passed)} ${passed ? 'PASS' : 'FAIL'}` : 'N/A'}
         </span>
       </td>
-      <td class="px-3 py-2 text-right font-mono font-medium" style="color:${scoreHsl(tc.score,1)}">${fmtNum(tc.score,1)}</td>
-      <td class="px-3 py-2 text-right font-mono" style="color:var(--c-text2)">${fmtMs(tc.latencyMs)}</td>
+      <td class="px-3 py-2 text-right font-mono font-medium" style="color:${scoreHsl(tc.score,1)}">${fmtScore(tc.score, tc.judgeStatus)}</td>
+      <td class="px-3 py-2 text-right font-mono" style="color:var(--c-text2)">${fmtMs(available ? tc.latencyMs : null)}</td>
       <td class="px-3 py-2 max-w-xs truncate" title="${esc(tc.failureReason)}" style="color:var(--c-fail)">${tc.failureReason ? esc(tc.failureReason) : '<span style="color:var(--c-text3)">—</span>'}</td>
     </tr>`;
   }).join('');
@@ -688,8 +693,8 @@ function filterTraces() {
         <div class="flex items-center gap-3">
           <svg class="acc-chevron w-4 h-4 shrink-0" style="color:var(--c-text3)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg>
           <div class="flex items-center gap-2 flex-wrap">
-            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${tc.passed ? 'badge-pass' : 'badge-fail'}">
-              ${passIcon(tc.passed)} ${tc.passed ? 'PASS' : 'FAIL'}
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${tc.score != null ? (tc.passed ? 'badge-pass' : 'badge-fail') : ''}">
+              ${tc.score != null ? `${passIcon(tc.passed)} ${tc.passed ? 'PASS' : 'FAIL'}` : 'N/A'}
             </span>
             <span class="font-mono text-sm font-medium">${esc(tc.id)}</span>
             <span class="text-[11px] px-1.5 py-0.5 rounded" style="background:var(--c-surface2);color:var(--c-text3)">${esc(item.agent)}</span>
@@ -697,8 +702,8 @@ function filterTraces() {
           </div>
         </div>
         <div class="flex items-center gap-3 text-xs shrink-0 ml-4">
-          <span class="font-mono" style="color:${scoreHsl(tc.score,1)}">${fmtNum(tc.score,1)}</span>
-          <span class="font-mono" style="color:var(--c-text3)">${fmtMs(tc.latencyMs)}</span>
+          <span class="font-mono" style="color:${scoreHsl(tc.score,1)}">${fmtScore(tc.score, tc.judgeStatus)}</span>
+          <span class="font-mono" style="color:var(--c-text3)">${fmtMs(tc.score != null ? tc.latencyMs : null)}</span>
         </div>
       </button>
       <div class="acc-body" id="acc-trace-${i}">
@@ -795,7 +800,7 @@ function renderComparison() {
     // Augment models with computed fields
     const augmented = models.map(m => ({
       ...m,
-      _passRate: m.testCaseCount ? (m.passedCount / m.testCaseCount) * 100 : null,
+      _passRate: m.scoredTestCaseCount ? (m.passedCount / m.scoredTestCaseCount) * 100 : null,
       _meanLatency: m.performance?.runCount > 0 ? m.performance.meanLatencyMs : null,
     }));
 

@@ -16,6 +16,7 @@ public sealed class ModelEvalResult
     public string? OverallScoreStatus { get; init; }
     public string? OverallScoreReason { get; init; }
     public required int TestCaseCount { get; init; }
+    public int ScoredTestCaseCount { get; init; }
     public required int PassedCount { get; init; }
     public required ModelPerformanceSummary Performance { get; init; }
     public required IReadOnlyList<TestCaseResult> TestCaseResults { get; init; }

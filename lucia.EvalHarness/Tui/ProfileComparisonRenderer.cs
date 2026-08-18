@@ -243,7 +243,7 @@ public static class ProfileComparisonRenderer
                         AvgToolEfficiency = Average(profileGroup.Select(m => m.ToolEfficiencyScore)),
                         AvgTaskCompletion = Average(profileGroup.Select(m => m.TaskCompletionScore)),
                         TotalPassed = profileGroup.Sum(m => m.PassedCount),
-                        TotalTests = profileGroup.Sum(m => m.TestCaseCount),
+                        TotalTests = profileGroup.Sum(m => m.ScoredTestCaseCount),
                         AvgLatencyMs = profileGroup.Average(m => m.Performance.MeanLatency.TotalMilliseconds)
                     })
                     .ToList()))

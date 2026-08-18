@@ -22,6 +22,7 @@ internal static class EvalResultFactory
             OverallScore = overallScore,
             OverallScoreStatus = overallScore.HasValue ? null : JudgeAvailability.Unavailable,
             TestCaseCount = 1,
+            ScoredTestCaseCount = overallScore.HasValue ? 1 : 0,
             PassedCount = overallScore >= 70 ? 1 : 0,
             Performance = ModelPerformanceSummary.FromSnapshots("model", []),
             TestCaseResults = []

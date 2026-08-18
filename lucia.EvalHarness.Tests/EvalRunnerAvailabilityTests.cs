@@ -100,6 +100,7 @@ public sealed class EvalRunnerAvailabilityTests
         Assert.Equal(0, result.ToolSelectionScore);
         Assert.NotNull(result.OverallScore);
         Assert.Equal(1, result.TestCaseCount);
+        Assert.Equal(1, result.ScoredTestCaseCount);
     }
 
     [Fact]
@@ -138,7 +139,8 @@ public sealed class EvalRunnerAvailabilityTests
                 new TestCase { Name = "available", Input = "second", ExpectedTools = ["turn_on"] }
             ]);
 
-        Assert.Equal(1, result.TestCaseCount);
+        Assert.Equal(2, result.TestCaseCount);
+        Assert.Equal(1, result.ScoredTestCaseCount);
         Assert.Equal(1, result.PassedCount);
         Assert.Equal(100, result.ToolSelectionScore);
         Assert.Equal(100, result.ToolSuccessScore);
@@ -159,7 +161,8 @@ public sealed class EvalRunnerAvailabilityTests
             CreateAgent(),
             [new TestCase { Name = "unavailable", Input = "first" }]);
 
-        Assert.Equal(0, result.TestCaseCount);
+        Assert.Equal(1, result.TestCaseCount);
+        Assert.Equal(0, result.ScoredTestCaseCount);
         Assert.Equal(0, result.PassedCount);
         Assert.True((object?)result.ToolSelectionScore is null);
         Assert.True((object?)result.ToolSuccessScore is null);
@@ -256,7 +259,8 @@ public sealed class EvalRunnerAvailabilityTests
             [CreateScenario()],
             homeAssistant);
 
-        Assert.Equal(0, result.TestCaseCount);
+        Assert.Equal(1, result.TestCaseCount);
+        Assert.Equal(0, result.ScoredTestCaseCount);
         Assert.Null(result.TestCaseResults.Single().Score);
         Assert.Equal("Provider request failed.", result.TestCaseResults.Single().FailureReason);
         Assert.True((object?)result.ToolSelectionScore is null);

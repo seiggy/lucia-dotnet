@@ -46,7 +46,7 @@ public static class TraceExporter
                     {
                         TotalTests = modelResult.TestCaseCount,
                         Passed = modelResult.PassedCount,
-                        Failed = modelResult.TestCaseCount - modelResult.PassedCount,
+                        Failed = modelResult.ScoredTestCaseCount - modelResult.PassedCount,
                         OverallScore = modelResult.OverallScore,
                         OverallScoreStatus = modelResult.OverallScoreStatus,
                         MeanLatencyMs = modelResult.Performance.RunCount > 0
@@ -108,7 +108,8 @@ public static class TraceExporter
                         ? tc.Passed ? "[green]\u2713[/]" : "[red]\u2717[/]"
                         : "[dim]?[/]";
                     var score = tc.Score.HasValue ? $"{tc.Score.Value:F0}" : "N/A";
-                    AnsiConsole.MarkupLine($"  {icon} [bold]{Markup.Escape(tc.TestCaseId)}[/] (score: {score}, {tc.Latency.TotalMilliseconds:F0}ms)");
+                    var latency = tc.Score.HasValue ? $"{tc.Latency.TotalMilliseconds:F0}ms" : "N/A";
+                    AnsiConsole.MarkupLine($"  {icon} [bold]{Markup.Escape(tc.TestCaseId)}[/] (score: {score}, {latency})");
 
                     if (tc.ConversationHistory is { Count: > 0 })
                     {

@@ -241,6 +241,7 @@ public sealed class ParameterSweepAggregationTests
             TaskCompletionScore = score,
             OverallScore = score,
             TestCaseCount = 1,
+            ScoredTestCaseCount = 1,
             PassedCount = 1,
             Performance = ModelPerformanceSummary.FromSnapshots("test-model", new List<PerformanceSnapshot>()),
             TestCaseResults = new List<TestCaseResult>()

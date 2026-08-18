@@ -51,7 +51,7 @@ public static class OptimizationPromptBuilder
             sb.AppendLine($"- Tool Success: {FormatScore(targetResult.ToolSuccessScore)}");
             sb.AppendLine($"- Tool Efficiency: {FormatScore(targetResult.ToolEfficiencyScore)}");
             sb.AppendLine($"- Task Completion: {FormatScore(targetResult.TaskCompletionScore)}");
-            sb.AppendLine($"- Pass Rate: {targetResult.PassedCount}/{targetResult.TestCaseCount}");
+            sb.AppendLine($"- Pass Rate: {targetResult.PassedCount}/{targetResult.ScoredTestCaseCount}");
             sb.AppendLine();
 
             // Failed test cases with traces
@@ -102,7 +102,7 @@ public static class OptimizationPromptBuilder
         {
             sb.AppendLine($"## Baseline Model: {baselineResult.ModelName} (target to match)");
             sb.AppendLine($"- Overall Score: {FormatScore(baselineResult.OverallScore)}/100");
-            sb.AppendLine($"- Pass Rate: {baselineResult.PassedCount}/{baselineResult.TestCaseCount}");
+            sb.AppendLine($"- Pass Rate: {baselineResult.PassedCount}/{baselineResult.ScoredTestCaseCount}");
             sb.AppendLine();
         }
 

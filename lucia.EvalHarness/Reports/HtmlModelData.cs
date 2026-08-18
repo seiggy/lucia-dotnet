@@ -37,6 +37,9 @@ public sealed class HtmlModelData
     [JsonPropertyName("testCaseCount")]
     public int TestCaseCount { get; init; }
 
+    [JsonPropertyName("scoredTestCaseCount")]
+    public int ScoredTestCaseCount { get; init; }
+
     [JsonPropertyName("passedCount")]
     public int PassedCount { get; init; }
 

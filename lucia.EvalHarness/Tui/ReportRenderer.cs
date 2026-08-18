@@ -135,15 +135,18 @@ public static class ReportRenderer
             .GroupBy(m => m.ModelName)
             .Select(g =>
             {
-                var perfs = g.Select(m => m.Performance).ToList();
+                var perfs = g
+                    .Select(m => m.Performance)
+                    .Where(performance => performance.RunCount > 0)
+                    .ToList();
                 return new
                 {
                     ModelName = g.Key,
-                    MeanMs = perfs.Average(p => p.MeanLatency.TotalMilliseconds),
-                    MedianMs = perfs.Average(p => p.MedianLatency.TotalMilliseconds),
-                    P95Ms = perfs.Average(p => p.P95Latency.TotalMilliseconds),
-                    MinMs = perfs.Min(p => p.MinLatency.TotalMilliseconds),
-                    MaxMs = perfs.Max(p => p.MaxLatency.TotalMilliseconds),
+                    MeanMs = perfs.Count > 0 ? (double?)perfs.Average(p => p.MeanLatency.TotalMilliseconds) : null,
+                    MedianMs = perfs.Count > 0 ? (double?)perfs.Average(p => p.MedianLatency.TotalMilliseconds) : null,
+                    P95Ms = perfs.Count > 0 ? (double?)perfs.Average(p => p.P95Latency.TotalMilliseconds) : null,
+                    MinMs = perfs.Count > 0 ? (double?)perfs.Min(p => p.MinLatency.TotalMilliseconds) : null,
+                    MaxMs = perfs.Count > 0 ? (double?)perfs.Max(p => p.MaxLatency.TotalMilliseconds) : null,
                     Runs = perfs.Sum(p => p.RunCount)
                 };
             })
@@ -186,8 +189,8 @@ public static class ReportRenderer
 
             foreach (var m in agentResult.ModelResults.OrderByDescending(m => m.OverallScore))
             {
-                var passRate = m.TestCaseCount > 0
-                    ? (double?)m.PassedCount / m.TestCaseCount
+                var passRate = m.ScoredTestCaseCount > 0
+                    ? (double?)m.PassedCount / m.ScoredTestCaseCount
                     : null;
                 var passRateCell = passRate.HasValue
                     ? $"[{passRate.Value switch
@@ -206,7 +209,9 @@ public static class ReportRenderer
                     ScoreCell(m.ToolSuccessScore),
                     ScoreCell(m.ToolEfficiencyScore),
                     ScoreCell(m.TaskCompletionScore),
-                    FormatMs(m.Performance.MeanLatency.TotalMilliseconds));
+                    FormatMs(m.Performance.RunCount > 0
+                        ? m.Performance.MeanLatency.TotalMilliseconds
+                        : null));
             }
 
             AnsiConsole.Write(table);
@@ -226,7 +231,10 @@ public static class ReportRenderer
             {
                 ModelName = g.Key,
                 AvgScore = g.Average(m => m.OverallScore),
-                AvgLatencyMs = g.Average(m => m.Performance.MeanLatency.TotalMilliseconds),
+                AvgLatencyMs = g
+                    .Where(m => m.Performance.RunCount > 0)
+                    .Select(m => (double?)m.Performance.MeanLatency.TotalMilliseconds)
+                    .Average(),
                 TotalPassed = g.Sum(m => m.PassedCount),
                 TotalTests = g.Sum(m => m.TestCaseCount)
             })
@@ -241,7 +249,10 @@ public static class ReportRenderer
         }
 
         // Fastest
-        var fastest = allModelScores.OrderBy(m => m.AvgLatencyMs).FirstOrDefault();
+        var fastest = allModelScores
+            .Where(m => m.AvgLatencyMs.HasValue)
+            .OrderBy(m => m.AvgLatencyMs)
+            .FirstOrDefault();
         if (fastest is not null)
         {
             AnsiConsole.MarkupLine($"  [blue]\u26a1 Fastest:[/] [bold]{Markup.Escape(fastest.ModelName)}[/] \u2014 {fastest.AvgLatencyMs:F0}ms mean latency");
@@ -274,10 +285,11 @@ public static class ReportRenderer
         return $"[{color}]{score.Value:F1}[/]";
     }
 
-    private static string FormatMs(double ms)
+    private static string FormatMs(double? ms)
     {
         return ms switch
         {
+            null => "N/A",
             >= 1000 => $"{ms / 1000:F1}s",
             _ => $"{ms:F0}ms"
         };

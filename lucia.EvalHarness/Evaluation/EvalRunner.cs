@@ -229,7 +229,8 @@ public sealed class EvalRunner
             OverallScoreReason = allMetricScores.Count > 0
                 ? null
                 : JudgeAvailability.Reason(JudgeAvailability.Unavailable),
-            TestCaseCount = metricScores["tool_selection"].Count,
+            TestCaseCount = testCaseResults.Count,
+            ScoredTestCaseCount = metricScores["tool_selection"].Count,
             PassedCount = testCaseResults.Count(r => r.Passed),
             Performance = perfSummary,
             TestCaseResults = testCaseResults,
@@ -479,7 +480,8 @@ public sealed class EvalRunner
             OverallScoreReason = aggregateScore.HasValue
                 ? null
                 : JudgeAvailability.Reason(JudgeAvailability.Unavailable),
-            TestCaseCount = scores.Count,
+            TestCaseCount = testCaseResults.Count,
+            ScoredTestCaseCount = scores.Count,
             PassedCount = passedCount,
             Performance = perfSummary,
             TestCaseResults = testCaseResults,

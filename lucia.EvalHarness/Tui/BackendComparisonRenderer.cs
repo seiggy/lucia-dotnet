@@ -270,7 +270,7 @@ public static class BackendComparisonRenderer
                             BackendName = backendGroup.Key,
                             AvgOverall = Average(results.Select(result => result.OverallScore)),
                             TotalPassed = results.Sum(r => r.PassedCount),
-                            TotalTests = results.Sum(r => r.TestCaseCount),
+                            TotalTests = results.Sum(r => r.ScoredTestCaseCount),
                             Performance = new ModelPerformanceSummary
                             {
                                 ModelName = modelGroup.Key,

@@ -95,14 +95,18 @@ public static class ReportExporter
         var perfByModel = result.AgentResults
             .SelectMany(a => a.ModelResults)
             .GroupBy(m => m.ModelName)
-            .Select(g => (
-                Name: g.Key,
-                MeanMs: g.Average(m => m.Performance.MeanLatency.TotalMilliseconds),
-                MedianMs: g.Average(m => m.Performance.MedianLatency.TotalMilliseconds),
-                P95Ms: g.Average(m => m.Performance.P95Latency.TotalMilliseconds),
-                MinMs: g.Min(m => m.Performance.MinLatency.TotalMilliseconds),
-                MaxMs: g.Max(m => m.Performance.MaxLatency.TotalMilliseconds),
-                Runs: g.Sum(m => m.Performance.RunCount)))
+            .Select(g =>
+            {
+                var measured = g.Where(m => m.Performance.RunCount > 0).ToList();
+                return (
+                    Name: g.Key,
+                    MeanMs: Average(measured.Select(m => (double?)m.Performance.MeanLatency.TotalMilliseconds)),
+                    MedianMs: Average(measured.Select(m => (double?)m.Performance.MedianLatency.TotalMilliseconds)),
+                    P95Ms: Average(measured.Select(m => (double?)m.Performance.P95Latency.TotalMilliseconds)),
+                    MinMs: measured.Count > 0 ? (double?)measured.Min(m => m.Performance.MinLatency.TotalMilliseconds) : null,
+                    MaxMs: measured.Count > 0 ? (double?)measured.Max(m => m.Performance.MaxLatency.TotalMilliseconds) : null,
+                    Runs: measured.Sum(m => m.Performance.RunCount));
+            })
             .OrderBy(m => m.MeanMs);
 
         foreach (var m in perfByModel)
@@ -121,8 +125,11 @@ public static class ReportExporter
 
             foreach (var m in agentResult.ModelResults.OrderByDescending(m => m.OverallScore))
             {
-                var passRate = m.TestCaseCount > 0 ? (double?)m.PassedCount / m.TestCaseCount : null;
-                sb.AppendLine($"| {m.ModelName} | {(passRate.HasValue ? $"{passRate:P0}" : "N/A")} | {FormatScore(m.OverallScore, m.OverallScoreStatus)} | {FormatScore(m.ToolSelectionScore, m.OverallScoreStatus)} | {FormatScore(m.ToolSuccessScore, m.OverallScoreStatus)} | {FormatScore(m.ToolEfficiencyScore, m.OverallScoreStatus)} | {FormatScore(m.TaskCompletionScore, m.TaskCompletionStatus)} | {FormatMs(m.Performance.MeanLatency.TotalMilliseconds)} |");
+                var passRate = m.ScoredTestCaseCount > 0 ? (double?)m.PassedCount / m.ScoredTestCaseCount : null;
+                var meanLatency = m.Performance.RunCount > 0
+                    ? (double?)m.Performance.MeanLatency.TotalMilliseconds
+                    : null;
+                sb.AppendLine($"| {m.ModelName} | {(passRate.HasValue ? $"{passRate:P0}" : "N/A")} | {FormatScore(m.OverallScore, m.OverallScoreStatus)} | {FormatScore(m.ToolSelectionScore, m.OverallScoreStatus)} | {FormatScore(m.ToolSuccessScore, m.OverallScoreStatus)} | {FormatScore(m.ToolEfficiencyScore, m.OverallScoreStatus)} | {FormatScore(m.TaskCompletionScore, m.TaskCompletionStatus)} | {FormatMs(meanLatency)} |");
             }
             sb.AppendLine();
 
@@ -149,7 +156,9 @@ public static class ReportExporter
             .Select(g => (
                 Name: g.Key,
                 AvgScore: Average(g.Select(model => model.OverallScore)),
-                AvgLatencyMs: g.Average(m => m.Performance.MeanLatency.TotalMilliseconds),
+                AvgLatencyMs: Average(g
+                    .Where(m => m.Performance.RunCount > 0)
+                    .Select(m => (double?)m.Performance.MeanLatency.TotalMilliseconds)),
                 TotalPassed: g.Sum(m => m.PassedCount),
                 TotalTests: g.Sum(m => m.TestCaseCount)))
             .Where(model => model.AvgScore.HasValue)
@@ -159,7 +168,10 @@ public static class ReportExporter
         if (best.Name is not null)
             sb.AppendLine($"- **Best Quality:** {best.Name} — {best.AvgScore:F1} avg score ({best.TotalPassed}/{best.TotalTests} passed)");
 
-        var fastest = allModelScores.OrderBy(m => m.AvgLatencyMs).FirstOrDefault();
+        var fastest = allModelScores
+            .Where(m => m.AvgLatencyMs.HasValue)
+            .OrderBy(m => m.AvgLatencyMs)
+            .FirstOrDefault();
         if (fastest.Name is not null)
             sb.AppendLine($"- **Fastest:** {fastest.Name} — {fastest.AvgLatencyMs:F0}ms mean latency");
 
@@ -201,11 +213,12 @@ public static class ReportExporter
             var i = 1;
             foreach (var tc in modelResult.TestCaseResults)
             {
-                var icon = tc.Passed ? "✅" : "❌";
+                var result = tc.Score.HasValue ? (tc.Passed ? "✅" : "❌") : "N/A";
                 var failure = tc.FailureReason is not null
                     ? Truncate(tc.FailureReason, 80)
                     : "–";
-                sb.AppendLine($"| {i++} | {tc.TestCaseId} | {icon} | {FormatScore(tc.Score, tc.JudgeStatus)} | {FormatMs(tc.Latency.TotalMilliseconds)} | {failure} |");
+                var latency = tc.Score.HasValue ? (double?)tc.Latency.TotalMilliseconds : null;
+                sb.AppendLine($"| {i++} | {tc.TestCaseId} | {result} | {FormatScore(tc.Score, tc.JudgeStatus)} | {FormatMs(latency)} | {failure} |");
             }
             sb.AppendLine();
         }
@@ -284,6 +297,7 @@ public static class ReportExporter
                 overallScoreStatus = m.OverallScoreStatus,
                 overallScoreReason = m.OverallScoreReason,
                 testCaseCount = m.TestCaseCount,
+                scoredTestCaseCount = m.ScoredTestCaseCount,
                 passedCount = m.PassedCount,
                 modelParameters = m.ParameterProfile is not null ? new
                 {
@@ -318,7 +332,12 @@ public static class ReportExporter
         })
     };
 
-    private static string FormatMs(double ms) => ms >= 1000 ? $"{ms / 1000:F1}s" : $"{ms:F0}ms";
+    private static string FormatMs(double? ms) => ms switch
+    {
+        null => "N/A",
+        >= 1000 => $"{ms / 1000:F1}s",
+        _ => $"{ms:F0}ms"
+    };
 
     private static string FormatDelta(double? delta) => delta switch
     {

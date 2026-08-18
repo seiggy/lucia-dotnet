@@ -219,6 +219,84 @@ public sealed class ReportAvailabilityTests
         }
     }
 
+    [Fact]
+    public void Export_UnavailablePerformance_IsNotRenderedOrRecommended()
+    {
+        var directory = CreateDirectory();
+        try
+        {
+            var unavailable = CreateModelResult("unavailable", 100, 1, []);
+            var measured = CreateModelResult(
+                "measured",
+                90,
+                1,
+                [new PerformanceSnapshot { TotalDuration = TimeSpan.FromMilliseconds(25) }]);
+            var paths = ReportExporter.Export(
+                CreateRun([unavailable, measured]),
+                new GpuInfo("test"),
+                directory);
+            var markdown = File.ReadAllText(paths.Single(path => path.EndsWith(".md", StringComparison.Ordinal)));
+
+            Assert.Contains("| unavailable | 0% |", markdown, StringComparison.Ordinal);
+            Assert.Contains("| N/A |", markdown, StringComparison.Ordinal);
+            Assert.Contains("- **Fastest:** measured", markdown, StringComparison.Ordinal);
+            Assert.DoesNotContain("- **Fastest:** unavailable", markdown, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
+    public void Generate_UnavailableDetail_RendersNeitherFailureNorZeroLatency()
+    {
+        var directory = CreateDirectory();
+        try
+        {
+            var unavailable = CreateModelResult(
+                "unavailable",
+                null,
+                0,
+                [],
+                [
+                    new TestCaseResult
+                    {
+                        TestCaseId = "case",
+                        Passed = false,
+                        Score = null,
+                        Latency = TimeSpan.Zero,
+                        JudgeStatus = JudgeAvailability.ProviderError
+                    }
+                ]);
+            var htmlPath = HtmlReportGenerator.Generate(
+                CreateRun(unavailable),
+                new GpuInfo("test"),
+                directory);
+
+            var agentDetails = RenderHtmlPanel(htmlPath, directory, "renderAgents()", "#tab-agents");
+            var traces = RenderHtmlPanel(htmlPath, directory, "filterTraces()", "#trace-list");
+            var summary = RenderHtmlPanel(htmlPath, directory, "renderSummary()", "#tab-summary");
+            var markdownPath = ReportExporter.Export(
+                CreateRun(unavailable),
+                new GpuInfo("test"),
+                directory).Single(path => path.EndsWith(".md", StringComparison.Ordinal));
+            var markdown = File.ReadAllText(markdownPath);
+
+            Assert.Contains("N/A (provider_error)", agentDetails, StringComparison.Ordinal);
+            Assert.Contains("Mean: <b class=\"font-mono\">N/A</b>", agentDetails, StringComparison.Ordinal);
+            Assert.DoesNotContain("FAIL", agentDetails, StringComparison.Ordinal);
+            Assert.Contains("N/A (provider_error)", traces, StringComparison.Ordinal);
+            Assert.DoesNotContain("FAIL", traces, StringComparison.Ordinal);
+            Assert.Contains("width:0%", summary, StringComparison.Ordinal);
+            Assert.Contains("| case | N/A | N/A (provider_error) | N/A |", markdown, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, true);
+        }
+    }
+
     private static EvalRunResult CreateRun(ModelEvalResult? modelResult = null) =>
         CreateRun(
         [
@@ -247,7 +325,8 @@ public sealed class ReportAvailabilityTests
         string modelName,
         double? score,
         int testCaseCount,
-        IReadOnlyList<PerformanceSnapshot> snapshots) =>
+        IReadOnlyList<PerformanceSnapshot> snapshots,
+        IReadOnlyList<TestCaseResult>? testCases = null) =>
         new()
         {
             ModelName = modelName,
@@ -260,12 +339,22 @@ public sealed class ReportAvailabilityTests
             OverallScoreStatus = score.HasValue ? null : JudgeAvailability.Unavailable,
             OverallScoreReason = score.HasValue ? null : JudgeAvailability.Reason(JudgeAvailability.Unavailable),
             TestCaseCount = testCaseCount,
+            ScoredTestCaseCount = testCaseCount,
             PassedCount = 0,
             Performance = ModelPerformanceSummary.FromSnapshots(modelName, snapshots),
-            TestCaseResults = []
+            TestCaseResults = testCases ?? []
         };
 
     private static string RenderHtmlComparison(string htmlPath, string directory)
+    {
+        return RenderHtmlPanel(htmlPath, directory, "renderComparison()", "#tab-comparison");
+    }
+
+    private static string RenderHtmlPanel(
+        string htmlPath,
+        string directory,
+        string renderCommand,
+        string panelSelector)
     {
         const string ScriptStart = "<script>";
         const string ScriptEnd = "</script>";
@@ -275,10 +364,11 @@ public sealed class ReportAvailabilityTests
         var script = """
             const elements = new Map();
             global.window = {};
+            global.requestAnimationFrame = callback => callback();
             global.localStorage = { getItem() { return null; }, setItem() {} };
             global.document = {
               querySelector(selector) {
-                if (!elements.has(selector)) elements.set(selector, { innerHTML: '', addEventListener() {} });
+                if (!elements.has(selector)) elements.set(selector, { innerHTML: '', textContent: '', value: '__all__', addEventListener() {} });
                 return elements.get(selector);
               },
               querySelectorAll() { return []; },
@@ -290,8 +380,9 @@ public sealed class ReportAvailabilityTests
             };
             """ + html[scriptStart..scriptEnd] + """
 
-            renderComparison();
-            process.stdout.write(document.querySelector('#tab-comparison').innerHTML);
+            """ + renderCommand + $"""
+            ;
+            process.stdout.write(document.querySelector('{panelSelector}').innerHTML);
             """;
         var scriptPath = Path.Combine(directory, "render-comparison.js");
         File.WriteAllText(scriptPath, script);
