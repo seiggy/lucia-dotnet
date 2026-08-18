@@ -14,6 +14,7 @@
 - Repo constitution non-negotiables to enforce at the gate: ONE class per `.cs` file; TDD/tests for public behavior; nullable reference types; file-scoped namespaces; `[LoggerMessage]` logging; OpenTelemetry retained; Conventional Commits + `Co-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>` trailer with `Fixes #N` footer.
 - Known non-blocking baseline: ~141 eval tests fail without LLM/Ollama backends — that is pre-existing, not a branch regression.
 - Merge reality in this repo: Copilot's automated review only ever leaves COMMENTED reviews (never APPROVED), and branch protection requires all conversations resolved even with `--admin`. My APPROVE is the team's human-equivalent gate before that machinery.
+- **2026-08-18T10:38:51.023-04:00 — REQUEST-CHANGES, issue #137 @ `b1841ac6e788e52141df2532e27fe130e126a72f`:** Nullable judge scores and deadline/timeout tracking were merged correctly and all 138 EvalHarness tests passed, but profile and backend comparison aggregation still averages `RunCount == 0` performance as 0 ms; profile comparison also renders an all-unavailable pass rate as 0%. Unavailable provider runs can therefore appear measured, failed, or fastest. No approval recorded.
 
 ## 2026-07-18 — Jetson Deployment Review Cycles (Final Authority)
 
