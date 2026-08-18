@@ -2,7 +2,8 @@
 #
 # Combined pre-push hook for this repository:
 #   1. Squad pre-push review gate — blocks unapproved squad/* pushes.
-#   2. Git LFS pre-push — preserved from the stock Git LFS hook.
+#   2. Provider-free unit tests — mirrors the CI test exclusions.
+#   3. Git LFS pre-push — preserved from the stock Git LFS hook.
 #
 # This hook is version-controlled and activated via `core.hooksPath=.githooks`
 # (see scripts/install-git-hooks.sh). Because core.hooksPath is a *relative* path,
@@ -93,6 +94,30 @@ else
     done < "$tmp"
 
     if [ "$blocked" -ne 0 ]; then
+        cleanup
+        exit 1
+    fi
+fi
+
+# --- Provider-free unit tests ---
+# Skip branch/tag deletions, but test every pushed commit. Invariant globalization
+# matches CI and catches culture-dependent report output before it leaves the clone.
+has_updates=0
+while read -r _local_ref local_sha _remote_ref _remote_sha; do
+    case "$local_sha" in
+        *[!0]*) has_updates=1; break ;;
+    esac
+done < "$tmp"
+
+if [ "$has_updates" -eq 1 ]; then
+    repo_root=$(git rev-parse --show-toplevel)
+    echo "[pre-push] Running provider-free unit tests..."
+    if ! DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 dotnet test \
+        "$repo_root/lucia-dotnet.slnx" \
+        --configuration Release \
+        --filter "Category!=Eval&Category!=Integration&Category!=LiveEval" \
+        --logger "console;verbosity=minimal"; then
+        echo "[pre-push] Unit tests failed; push aborted." >&2
         cleanup
         exit 1
     fi
