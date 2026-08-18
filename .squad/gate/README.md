@@ -14,6 +14,8 @@ branch and recorded an approval for the exact commit being pushed.
    and whose commit SHA has no approval marker. `master` and non-`squad/*`
    branches are never review-gated. To ensure the tested commit is the pushed
    commit, non-deletion updates must point to the worktree's checked-out `HEAD`.
+   The worktree must also be clean so local tracked or untracked files cannot
+   influence the test result.
 
    > The gate classifies by the *destination* (remote) ref, so
    > `git push origin HEAD:refs/heads/squad/foo` is gated even though the local
