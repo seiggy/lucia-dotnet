@@ -12,7 +12,8 @@ branch and recorded an approval for the exact commit being pushed.
    globalization, and then the stock **Git LFS** `pre-push` step, so LFS keeps
    working. It blocks any push whose **destination** ref is `refs/heads/squad/*`
    and whose commit SHA has no approval marker. `master` and non-`squad/*`
-   branches are never gated.
+   branches are never review-gated. To ensure the tested commit is the pushed
+   commit, non-deletion updates must point to the worktree's checked-out `HEAD`.
 
    > The gate classifies by the *destination* (remote) ref, so
    > `git push origin HEAD:refs/heads/squad/foo` is gated even though the local

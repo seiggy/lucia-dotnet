@@ -37,6 +37,8 @@ common_dir=$(git rev-parse --git-common-dir 2>/dev/null)
 [ -z "$common_dir" ] && common_dir=".git"
 tmp="$common_dir/squad-prepush.$$"
 cleanup() { rm -f "$tmp"; }
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
 
 # Buffer stdin fail-CLOSED: if the write is truncated (e.g. disk full), $tmp
 # would hold only a partial ref list and a gated squad/* line in the dropped
@@ -103,9 +105,17 @@ fi
 # Skip branch/tag deletions, but test every pushed commit. Invariant globalization
 # matches CI and catches culture-dependent report output before it leaves the clone.
 has_updates=0
+head_sha=$(git rev-parse HEAD)
 while read -r _local_ref local_sha _remote_ref _remote_sha; do
     case "$local_sha" in
-        *[!0]*) has_updates=1; break ;;
+        *[!0]*)
+            has_updates=1
+            if [ "$local_sha" != "$head_sha" ]; then
+                echo "[pre-push] Push contains $local_sha, but the checked-out and testable HEAD is $head_sha." >&2
+                echo "[pre-push] Check out the commit in its own worktree before pushing it." >&2
+                exit 1
+            fi
+            ;;
     esac
 done < "$tmp"
 
