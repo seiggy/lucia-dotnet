@@ -164,7 +164,7 @@ services:
       cache_from:
         - lucia:jetson
 
-    image: lucia:jetson
+    image: seiggy/lucia-agenthost:jetson
 
     container_name: lucia-jetson
 
