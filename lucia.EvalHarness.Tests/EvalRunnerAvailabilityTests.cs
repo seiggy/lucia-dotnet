@@ -297,6 +297,40 @@ public sealed class EvalRunnerAvailabilityTests
         Assert.Null(result.OverallScore);
     }
 
+    [Fact]
+    public async Task EvaluateScenariosAsync_MixedAvailability_MarksAggregatePartial()
+    {
+        var homeAssistant = A.Fake<IHomeAssistantClient>();
+        A.CallTo(() => homeAssistant.SetEntityStateAsync(
+                A<string>._,
+                "on",
+                A<Dictionary<string, object>?>._,
+                A<CancellationToken>._))
+            .ThrowsAsync(new HttpRequestException("provider unavailable"));
+        var first = CreateScenario();
+        var second = new TestScenario
+        {
+            Id = "second",
+            UserPrompt = "turn off",
+            InitialState =
+            {
+                ["light.test"] = new EntitySetup { State = "on" }
+            }
+        };
+
+        var result = await new EvalRunner(new HarnessConfiguration(), null).EvaluateScenariosAsync(
+            "model",
+            CreateScenarioAgent(),
+            [first, second],
+            homeAssistant);
+
+        Assert.Equal(2, result.TestCaseCount);
+        Assert.Equal(1, result.ScoredTestCaseCount);
+        Assert.NotNull(result.OverallScore);
+        Assert.Equal(JudgeAvailability.Partial, result.OverallScoreStatus);
+        Assert.Equal(JudgeAvailability.Partial, result.TaskCompletionStatus);
+    }
+
     private static EvalRunner CreateRunner(
         IChatClient? judge,
         Func<TestCase, int, CancellationToken,
@@ -338,10 +372,10 @@ public sealed class EvalRunnerAvailabilityTests
             DatasetFile = "unused"
         };
 
-    private static RealAgentInstance CreateScenarioAgent()
+    private static RealAgentInstance CreateScenarioAgent(IChatClient? chatClient = null)
     {
         var aiAgent = new ChatClientAgent(
-            Responding("done"),
+            chatClient ?? Responding("done"),
             new ChatClientAgentOptions
             {
                 Id = "agent",

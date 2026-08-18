@@ -496,6 +496,12 @@ public sealed class EvalRunner
             .Select(result => result.Score!.Value)
             .ToList();
         var aggregateScore = scores.Count > 0 ? scores.Average() : (double?)null;
+        var aggregateStatus = scores.Count switch
+        {
+            0 => JudgeAvailability.Unavailable,
+            _ when scores.Count < testCaseResults.Count => JudgeAvailability.Partial,
+            _ => null
+        };
 
         return new ModelEvalResult
         {
@@ -505,15 +511,15 @@ public sealed class EvalRunner
             ToolSuccessScore = aggregateScore,
             ToolEfficiencyScore = aggregateScore,
             TaskCompletionScore = aggregateScore,
-            TaskCompletionStatus = aggregateScore.HasValue ? null : JudgeAvailability.Unavailable,
-            TaskCompletionReason = aggregateScore.HasValue
+            TaskCompletionStatus = aggregateStatus,
+            TaskCompletionReason = aggregateStatus is null
                 ? null
-                : JudgeAvailability.Reason(JudgeAvailability.Unavailable),
+                : JudgeAvailability.Reason(aggregateStatus),
             OverallScore = aggregateScore,
-            OverallScoreStatus = aggregateScore.HasValue ? null : JudgeAvailability.Unavailable,
-            OverallScoreReason = aggregateScore.HasValue
+            OverallScoreStatus = aggregateStatus,
+            OverallScoreReason = aggregateStatus is null
                 ? null
-                : JudgeAvailability.Reason(JudgeAvailability.Unavailable),
+                : JudgeAvailability.Reason(aggregateStatus),
             TestCaseCount = testCaseResults.Count,
             ScoredTestCaseCount = scores.Count,
             PassedCount = passedCount,
