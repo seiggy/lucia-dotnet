@@ -1,3 +1,4 @@
+using lucia.EvalHarness.Evaluation;
 using lucia.EvalHarness.Personality;
 using lucia.EvalHarness.Tests.TestDoubles;
 
@@ -41,8 +42,8 @@ public sealed class PersonalityJudgeTests
         var result = await judge.EvaluateAsync(SampleTrace(), "scenario-1");
 
         Assert.True(result.TimedOut);
-        Assert.Equal(0, result.PersonalityScore);
-        Assert.Contains("timed out", result.PersonalityReason);
+        Assert.Null(result.PersonalityScore);
+        Assert.Equal(JudgeAvailability.Timeout, result.Status);
     }
 
     [Fact]

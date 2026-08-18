@@ -24,12 +24,12 @@ public sealed class PromptOptimizationResult
     /// <summary>
     /// Current score of the target model on this agent.
     /// </summary>
-    public required double CurrentScore { get; init; }
+    public required double? CurrentScore { get; init; }
 
     /// <summary>
     /// The baseline score to target (from the best-performing model).
     /// </summary>
-    public required double BaselineScore { get; init; }
+    public required double? BaselineScore { get; init; }
 
     /// <summary>
     /// Individual optimization suggestions with reasoning.

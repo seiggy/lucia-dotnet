@@ -1,3 +1,4 @@
+using lucia.EvalHarness.Evaluation;
 using lucia.EvalHarness.Personality;
 using lucia.EvalHarness.Tests.TestDoubles;
 
@@ -42,7 +43,8 @@ public sealed class PersonalityEvalRunnerTests
 
         var result = Assert.Single(report.Results);
         Assert.True(result.TimedOut);
-        Assert.Equal(0, result.Score);
+        Assert.Null(result.Score);
+        Assert.Equal(JudgeAvailability.Timeout, result.JudgeStatus);
         Assert.Contains("timed out", result.ErrorMessage);
     }
 

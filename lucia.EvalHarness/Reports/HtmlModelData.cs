@@ -8,22 +8,37 @@ public sealed class HtmlModelData
     public required string ModelName { get; init; }
 
     [JsonPropertyName("overallScore")]
-    public double OverallScore { get; init; }
+    public double? OverallScore { get; init; }
+
+    [JsonPropertyName("overallScoreStatus")]
+    public string? OverallScoreStatus { get; init; }
+
+    [JsonPropertyName("overallScoreReason")]
+    public string? OverallScoreReason { get; init; }
 
     [JsonPropertyName("toolSelectionScore")]
-    public double ToolSelectionScore { get; init; }
+    public double? ToolSelectionScore { get; init; }
 
     [JsonPropertyName("toolSuccessScore")]
-    public double ToolSuccessScore { get; init; }
+    public double? ToolSuccessScore { get; init; }
 
     [JsonPropertyName("toolEfficiencyScore")]
-    public double ToolEfficiencyScore { get; init; }
+    public double? ToolEfficiencyScore { get; init; }
 
     [JsonPropertyName("taskCompletionScore")]
-    public double TaskCompletionScore { get; init; }
+    public double? TaskCompletionScore { get; init; }
+
+    [JsonPropertyName("taskCompletionStatus")]
+    public string? TaskCompletionStatus { get; init; }
+
+    [JsonPropertyName("taskCompletionReason")]
+    public string? TaskCompletionReason { get; init; }
 
     [JsonPropertyName("testCaseCount")]
     public int TestCaseCount { get; init; }
+
+    [JsonPropertyName("scoredTestCaseCount")]
+    public int ScoredTestCaseCount { get; init; }
 
     [JsonPropertyName("passedCount")]
     public int PassedCount { get; init; }

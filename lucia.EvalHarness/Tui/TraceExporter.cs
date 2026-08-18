@@ -46,9 +46,12 @@ public static class TraceExporter
                     {
                         TotalTests = modelResult.TestCaseCount,
                         Passed = modelResult.PassedCount,
-                        Failed = modelResult.TestCaseCount - modelResult.PassedCount,
+                        Failed = modelResult.ScoredTestCaseCount - modelResult.PassedCount,
                         OverallScore = modelResult.OverallScore,
-                        MeanLatencyMs = modelResult.Performance.MeanLatency.TotalMilliseconds
+                        OverallScoreStatus = modelResult.OverallScoreStatus,
+                        MeanLatencyMs = modelResult.Performance.RunCount > 0
+                            ? modelResult.Performance.MeanLatency.TotalMilliseconds
+                            : null
                     },
                     TestCases = modelResult.TestCaseResults.Select(tc => new TraceTestCase
                     {
@@ -56,6 +59,8 @@ public static class TraceExporter
                         Passed = tc.Passed,
                         TimedOut = tc.TimedOut,
                         Score = tc.Score,
+                        JudgeStatus = tc.JudgeStatus,
+                        JudgeReason = tc.JudgeReason,
                         LatencyMs = tc.Latency.TotalMilliseconds,
                         FailureReason = tc.FailureReason,
                         Conversation = tc.ConversationHistory?.Select(turn => new TraceConversationTurn
@@ -100,8 +105,12 @@ public static class TraceExporter
 
                 foreach (var tc in modelResult.TestCaseResults)
                 {
-                    var icon = tc.Passed ? "[green]\u2713[/]" : "[red]\u2717[/]";
-                    AnsiConsole.MarkupLine($"  {icon} [bold]{Markup.Escape(tc.TestCaseId)}[/] (score: {tc.Score:F0}, {tc.Latency.TotalMilliseconds:F0}ms)");
+                    var icon = tc.Score.HasValue
+                        ? tc.Passed ? "[green]\u2713[/]" : "[red]\u2717[/]"
+                        : "[dim]?[/]";
+                    var score = tc.Score.HasValue ? $"{tc.Score.Value:F0}" : "N/A";
+                    var latency = tc.Score.HasValue ? $"{tc.Latency.TotalMilliseconds:F0}ms" : "N/A";
+                    AnsiConsole.MarkupLine($"  {icon} [bold]{Markup.Escape(tc.TestCaseId)}[/] (score: {score}, {latency})");
 
                     if (tc.ConversationHistory is { Count: > 0 })
                     {
@@ -180,101 +189,4 @@ public static class TraceExporter
 
     private static string SanitizeFileName(string name) =>
         string.Concat(name.Select(c => char.IsLetterOrDigit(c) || c == '-' || c == '_' ? c : '_'));
-}
-
-// ── Trace document models ─────────────────────────────────────────
-
-file sealed class TraceDocument
-{
-    [JsonPropertyName("model")]
-    public required string Model { get; init; }
-
-    [JsonPropertyName("agent")]
-    public required string Agent { get; init; }
-
-    [JsonPropertyName("timestamp")]
-    public required DateTimeOffset Timestamp { get; init; }
-
-    [JsonPropertyName("summary")]
-    public required TraceSummary Summary { get; init; }
-
-    [JsonPropertyName("test_cases")]
-    public required List<TraceTestCase> TestCases { get; init; }
-}
-
-file sealed class TraceSummary
-{
-    [JsonPropertyName("total_tests")]
-    public required int TotalTests { get; init; }
-
-    [JsonPropertyName("passed")]
-    public required int Passed { get; init; }
-
-    [JsonPropertyName("failed")]
-    public required int Failed { get; init; }
-
-    [JsonPropertyName("overall_score")]
-    public required double OverallScore { get; init; }
-
-    [JsonPropertyName("mean_latency_ms")]
-    public required double MeanLatencyMs { get; init; }
-}
-
-file sealed class TraceTestCase
-{
-    [JsonPropertyName("id")]
-    public required string Id { get; init; }
-
-    [JsonPropertyName("passed")]
-    public required bool Passed { get; init; }
-
-    [JsonPropertyName("timed_out")]
-    public required bool TimedOut { get; init; }
-
-    [JsonPropertyName("score")]
-    public required double Score { get; init; }
-
-    [JsonPropertyName("latency_ms")]
-    public required double LatencyMs { get; init; }
-
-    [JsonPropertyName("failure_reason")]
-    public string? FailureReason { get; init; }
-
-    [JsonPropertyName("conversation")]
-    public required List<TraceConversationTurn> Conversation { get; init; }
-}
-
-sealed class TraceConversationTurn
-{
-    [JsonPropertyName("role")]
-    public required string Role { get; init; }
-
-    [JsonPropertyName("content")]
-    public string? Content { get; init; }
-
-    [JsonPropertyName("tool_calls")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public List<TraceConversationToolCall>? ToolCalls { get; init; }
-
-    [JsonPropertyName("tool_call_id")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? ToolCallId { get; init; }
-
-    [JsonPropertyName("tool_name")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? ToolName { get; init; }
-}
-
-sealed class TraceConversationToolCall
-{
-    [JsonPropertyName("call_id")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public string? CallId { get; init; }
-
-    [JsonPropertyName("name")]
-    public required string Name { get; init; }
-
-    [JsonPropertyName("arguments")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public Dictionary<string, string?>? Arguments { get; init; }
 }

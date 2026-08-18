@@ -9,9 +9,9 @@ namespace lucia.EvalHarness.Tui;
 internal sealed class BackendAggregation
 {
     public required string BackendName { get; init; }
-    public double AvgOverall { get; init; }
+    public double? AvgOverall { get; init; }
     public int TotalPassed { get; init; }
     public int TotalTests { get; init; }
     public required ModelPerformanceSummary Performance { get; init; }
-    public double PassRate => TotalTests > 0 ? (double)TotalPassed / TotalTests : 0;
+    public double? PassRate => TotalTests > 0 ? (double)TotalPassed / TotalTests : null;
 }

@@ -65,11 +65,12 @@ public static class BackendComparisonRenderer
             table.AddEmptyRow();
             var qualityRow = new List<string> { "[dim]Overall Score[/]" };
             var scores = backendResults.Select(br => br.AvgOverall).ToList();
-            var bestScore = scores.Max();
+            var bestScore = scores.OfType<double>().DefaultIfEmpty().Max();
             foreach (var br in backendResults)
             {
-                var color = Math.Abs(br.AvgOverall - bestScore) < 0.01 ? "green" : "dim";
-                qualityRow.Add($"[{color}]{br.AvgOverall:F1}[/]");
+                var color = br.AvgOverall.HasValue &&
+                    Math.Abs(br.AvgOverall.Value - bestScore) < 0.01 ? "green" : "dim";
+                qualityRow.Add($"[{color}]{FormatScore(br.AvgOverall)}[/]");
             }
             qualityRow.Add(FormatScoreDelta(backendResults));
             table.AddRow(qualityRow.ToArray());
@@ -112,7 +113,7 @@ public static class BackendComparisonRenderer
 
             // Quality row
             sb.Append("| **Overall Score** |");
-            foreach (var br in backendResults) sb.Append($" {br.AvgOverall:F1} |");
+            foreach (var br in backendResults) sb.Append($" {FormatScore(br.AvgOverall)} |");
             sb.AppendLine($" {FormatScoreDeltaPlain(backendResults)} |");
 
             sb.AppendLine();
@@ -128,12 +129,14 @@ public static class BackendComparisonRenderer
         Func<BackendAggregation, TimeSpan> selector)
     {
         var row = new List<string> { metricName };
-        var values = backendResults.Select(selector).ToList();
-        var fastest = values.Min();
+        var values = backendResults
+            .Select(backend => backend.Performance.RunCount > 0 ? selector(backend) : (TimeSpan?)null)
+            .ToList();
+        var fastest = values.OfType<TimeSpan>().DefaultIfEmpty().Min();
 
         for (var i = 0; i < backendResults.Count; i++)
         {
-            var ms = values[i].TotalMilliseconds;
+            var ms = values[i]?.TotalMilliseconds;
             var color = values[i] == fastest ? "green" : "dim";
             row.Add($"[{color}]{FormatMs(ms)}[/]");
         }
@@ -149,10 +152,12 @@ public static class BackendComparisonRenderer
         Func<BackendAggregation, TimeSpan> selector)
     {
         sb.Append($"| {metricName} |");
-        var values = backendResults.Select(selector).ToList();
+        var values = backendResults
+            .Select(backend => backend.Performance.RunCount > 0 ? selector(backend) : (TimeSpan?)null)
+            .ToList();
         foreach (var v in values)
         {
-            sb.Append($" {FormatMs(v.TotalMilliseconds)} |");
+            sb.Append($" {FormatMs(v?.TotalMilliseconds)} |");
         }
 
         sb.AppendLine($" {FormatLatencyDeltaPlain(backendResults, values)} |");
@@ -160,7 +165,7 @@ public static class BackendComparisonRenderer
 
     private static string FormatLatencyDelta(
         List<BackendAggregation> backends,
-        List<TimeSpan> values)
+        List<TimeSpan?> values)
     {
         if (backends.Count != 2) return "";
 
@@ -171,7 +176,7 @@ public static class BackendComparisonRenderer
 
     private static string FormatLatencyDeltaPlain(
         List<BackendAggregation> backends,
-        List<TimeSpan> values)
+        List<TimeSpan?> values)
     {
         if (backends.Count != 2) return "";
 
@@ -182,13 +187,14 @@ public static class BackendComparisonRenderer
 
     private static (string? FasterName, double Pct) ComputeDelta(
         List<BackendAggregation> backends,
-        List<TimeSpan> values)
+        List<TimeSpan?> values)
     {
-        if (values[0] == TimeSpan.Zero || values[1] == TimeSpan.Zero)
+        if (!values[0].HasValue || !values[1].HasValue ||
+            values[0] == TimeSpan.Zero || values[1] == TimeSpan.Zero)
             return (null, 0);
 
-        var ms0 = values[0].TotalMilliseconds;
-        var ms1 = values[1].TotalMilliseconds;
+        var ms0 = values[0]!.Value.TotalMilliseconds;
+        var ms1 = values[1]!.Value.TotalMilliseconds;
 
         if (Math.Abs(ms0 - ms1) < 1) return (null, 0);
 
@@ -207,7 +213,11 @@ public static class BackendComparisonRenderer
     private static string FormatScoreDelta(List<BackendAggregation> backends)
     {
         if (backends.Count != 2) return "";
-        var delta = backends[0].AvgOverall - backends[1].AvgOverall;
+        var first = backends[0].AvgOverall;
+        var second = backends[1].AvgOverall;
+        if (!first.HasValue || !second.HasValue)
+            return "[dim]N/A[/]";
+        var delta = first.Value - second.Value;
         if (Math.Abs(delta) < 0.1) return "[dim]—[/]";
         var winner = delta > 0 ? backends[0].BackendName : backends[1].BackendName;
         return $"[green]{Markup.Escape(winner)} +{Math.Abs(delta):F1}[/]";
@@ -216,7 +226,11 @@ public static class BackendComparisonRenderer
     private static string FormatScoreDeltaPlain(List<BackendAggregation> backends)
     {
         if (backends.Count != 2) return "";
-        var delta = backends[0].AvgOverall - backends[1].AvgOverall;
+        var first = backends[0].AvgOverall;
+        var second = backends[1].AvgOverall;
+        if (!first.HasValue || !second.HasValue)
+            return "N/A";
+        var delta = first.Value - second.Value;
         if (Math.Abs(delta) < 0.1) return "—";
         var winner = delta > 0 ? backends[0].BackendName : backends[1].BackendName;
         return $"{winner} +{Math.Abs(delta):F1}";
@@ -255,22 +269,37 @@ public static class BackendComparisonRenderer
                     .Select(backendGroup =>
                     {
                         var results = backendGroup.ToList();
-                        var allPerf = results.Select(r => r.Performance).ToList();
+                        var measured = results
+                            .Where(result => result.Performance.RunCount > 0)
+                            .ToList();
+                        var allPerf = measured
+                            .Select(r => r.Performance)
+                            .ToList();
                         return new BackendAggregation
                         {
                             BackendName = backendGroup.Key,
-                            AvgOverall = results.Average(r => r.OverallScore),
+                            AvgOverall = Average(results.Select(result => result.OverallScore)),
                             TotalPassed = results.Sum(r => r.PassedCount),
-                            TotalTests = results.Sum(r => r.TestCaseCount),
+                            TotalTests = results.Sum(r => r.ScoredTestCaseCount),
                             Performance = new ModelPerformanceSummary
                             {
                                 ModelName = modelGroup.Key,
                                 RunCount = allPerf.Sum(p => p.RunCount),
-                                MeanLatency = TimeSpan.FromMilliseconds(allPerf.Average(p => p.MeanLatency.TotalMilliseconds)),
-                                MedianLatency = TimeSpan.FromMilliseconds(allPerf.Average(p => p.MedianLatency.TotalMilliseconds)),
-                                P95Latency = TimeSpan.FromMilliseconds(allPerf.Average(p => p.P95Latency.TotalMilliseconds)),
-                                MinLatency = TimeSpan.FromMilliseconds(allPerf.Min(p => p.MinLatency.TotalMilliseconds)),
-                                MaxLatency = TimeSpan.FromMilliseconds(allPerf.Max(p => p.MaxLatency.TotalMilliseconds))
+                                MeanLatency = TimeSpan.FromMilliseconds(allPerf.Count > 0
+                                    ? allPerf.Average(p => p.MeanLatency.TotalMilliseconds)
+                                    : 0),
+                                MedianLatency = TimeSpan.FromMilliseconds(allPerf.Count > 0
+                                    ? allPerf.Average(p => p.MedianLatency.TotalMilliseconds)
+                                    : 0),
+                                P95Latency = TimeSpan.FromMilliseconds(allPerf.Count > 0
+                                    ? allPerf.Average(p => p.P95Latency.TotalMilliseconds)
+                                    : 0),
+                                MinLatency = TimeSpan.FromMilliseconds(allPerf.Count > 0
+                                    ? allPerf.Min(p => p.MinLatency.TotalMilliseconds)
+                                    : 0),
+                                MaxLatency = TimeSpan.FromMilliseconds(allPerf.Count > 0
+                                    ? allPerf.Max(p => p.MaxLatency.TotalMilliseconds)
+                                    : 0)
                             }
                         };
                     })
@@ -279,5 +308,19 @@ public static class BackendComparisonRenderer
             .ToList();
     }
 
-    private static string FormatMs(double ms) => ms >= 1000 ? $"{ms / 1000:F1}s" : $"{ms:F0}ms";
+    private static string FormatMs(double? ms) => ms switch
+    {
+        null => "N/A",
+        >= 1000 => $"{ms / 1000:F1}s",
+        _ => $"{ms:F0}ms"
+    };
+
+    private static string FormatScore(double? score) =>
+        score.HasValue ? score.Value.ToString("F1") : "N/A";
+
+    private static double? Average(IEnumerable<double?> scores)
+    {
+        var available = scores.OfType<double>().ToList();
+        return available.Count > 0 ? available.Average() : null;
+    }
 }

@@ -14,23 +14,23 @@ public sealed class HtmlProfileScore
     public required HtmlParameterData Parameters { get; init; }
 
     [JsonPropertyName("avgOverall")]
-    public double AvgOverall { get; init; }
+    public double? AvgOverall { get; init; }
 
     [JsonPropertyName("avgToolSelection")]
-    public double AvgToolSelection { get; init; }
+    public double? AvgToolSelection { get; init; }
 
     [JsonPropertyName("avgToolSuccess")]
-    public double AvgToolSuccess { get; init; }
+    public double? AvgToolSuccess { get; init; }
 
     [JsonPropertyName("avgToolEfficiency")]
-    public double AvgToolEfficiency { get; init; }
+    public double? AvgToolEfficiency { get; init; }
 
     [JsonPropertyName("avgTaskCompletion")]
-    public double AvgTaskCompletion { get; init; }
+    public double? AvgTaskCompletion { get; init; }
 
     [JsonPropertyName("passRate")]
-    public double PassRate { get; init; }
+    public double? PassRate { get; init; }
 
     [JsonPropertyName("avgLatencyMs")]
-    public double AvgLatencyMs { get; init; }
+    public double? AvgLatencyMs { get; init; }
 }

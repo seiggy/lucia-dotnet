@@ -24,9 +24,9 @@ public static class PromptOptimizationDisplay
             .AddColumn("Metric")
             .AddColumn("Value");
 
-        table.AddRow("Current Score", $"[red]{result.CurrentScore:F1}[/]");
-        table.AddRow("Baseline Target", $"[green]{result.BaselineScore:F1}[/]");
-        table.AddRow("Gap", $"[yellow]{result.BaselineScore - result.CurrentScore:F1}[/]");
+        table.AddRow("Current Score", $"[red]{FormatScore(result.CurrentScore)}[/]");
+        table.AddRow("Baseline Target", $"[green]{FormatScore(result.BaselineScore)}[/]");
+        table.AddRow("Gap", $"[yellow]{FormatGap(result.CurrentScore, result.BaselineScore)}[/]");
 
         AnsiConsole.Write(table);
         AnsiConsole.WriteLine();
@@ -99,4 +99,12 @@ public static class PromptOptimizationDisplay
 
     private static string Truncate(string text, int maxLen) =>
         text.Length <= maxLen ? text : text[..maxLen] + "…";
+
+    private static string FormatScore(double? score) =>
+        score.HasValue ? score.Value.ToString("F1") : "N/A";
+
+    private static string FormatGap(double? current, double? baseline) =>
+        current.HasValue && baseline.HasValue
+            ? (baseline.Value - current.Value).ToString("F1")
+            : "N/A";
 }

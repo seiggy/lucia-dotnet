@@ -20,5 +20,5 @@ public sealed class AzureOpenAIJudgeSettings
     /// <summary>
     /// Deployment name for the judge model (e.g., <c>gpt-4o</c>).
     /// </summary>
-    public string JudgeDeployment { get; set; } = "gpt-4o";
+    public string JudgeDeployment { get; set; } = string.Empty;
 }

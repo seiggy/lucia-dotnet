@@ -53,13 +53,13 @@ public static class SweepReportGenerator
         // Baseline scores — BaselineMeanScore is the mean across all N baseline runs
         var baselineMean = result.BaselineMeanScore;
         var baselineModel = result.BaselineResults.FirstOrDefault()?.ModelName ?? "unknown";
-        sb.AppendLine($"## Baseline: {baselineModel} (mean score: {baselineMean:F1})");
+        sb.AppendLine($"## Baseline: {baselineModel} (mean score: {FormatScore(baselineMean)})");
         sb.AppendLine();
         sb.AppendLine("| Agent | Score (run 1) |");
         sb.AppendLine("|-------|---------------|");
         foreach (var br in result.BaselineResults)
         {
-            sb.AppendLine($"| {br.AgentName} | {br.OverallScore:F1} |");
+            sb.AppendLine($"| {br.AgentName} | {FormatScore(br.OverallScore)} |");
         }
         sb.AppendLine();
 
@@ -74,10 +74,20 @@ public static class SweepReportGenerator
             // Use SweepRunAggregator.SelectWinner so the reported config exactly matches
             // what the runner selected (mean primary, variance tie-breaker).
             var bestEntry = SweepRunAggregator.SelectWinner(entries);
-            var worstEntry = entries.OrderBy(e => e.MeanScore).First();
-            sb.AppendLine($"- **Best config:** {bestEntry.Profile.ToSummary()} -> **{bestEntry.MeanScore:F1}** (delta from baseline mean: {bestEntry.MeanScore - baselineMean:+0.0;-0.0}, σ={bestEntry.ScoreStdDev:F2})");
-            sb.AppendLine($"- **Worst config:** {worstEntry.Profile.ToSummary()} -> **{worstEntry.MeanScore:F1}**");
-            sb.AppendLine($"- **Score range:** {worstEntry.MeanScore:F1} - {bestEntry.MeanScore:F1}");
+            if (bestEntry is null)
+            {
+                sb.AppendLine("- **No winner:** all configuration scores are unavailable.");
+                sb.AppendLine();
+                continue;
+            }
+
+            var worstEntry = entries
+                .Where(entry => entry.MeanScore.HasValue)
+                .OrderBy(entry => entry.MeanScore)
+                .First();
+            sb.AppendLine($"- **Best config:** {bestEntry.Profile.ToSummary()} -> **{FormatScore(bestEntry.MeanScore)}** (delta from baseline mean: {FormatDelta(bestEntry.MeanScore, baselineMean)}, σ={FormatNumber(bestEntry.ScoreStdDev)})");
+            sb.AppendLine($"- **Worst config:** {worstEntry.Profile.ToSummary()} -> **{FormatScore(worstEntry.MeanScore)}**");
+            sb.AppendLine($"- **Score range:** {FormatScore(worstEntry.MeanScore)} - {FormatScore(bestEntry.MeanScore)}");
             sb.AppendLine();
 
             // Full results table
@@ -85,14 +95,14 @@ public static class SweepReportGenerator
             sb.AppendLine("|---|-------------|-------|-------|--------|------------|---|---------------------|-------------|");
 
             var rank = 1;
-            foreach (var entry in entries.OrderByDescending(e => e.MeanScore).ThenBy(e => e.ScoreVariance))
+            foreach (var entry in entries.OrderByDescending(e => e.MeanScore).ThenBy(e => e.ScoreVariance ?? double.MaxValue))
             {
-                var delta = entry.MeanScore - baselineMean;
+                var delta = FormatDelta(entry.MeanScore, baselineMean);
                 var marker = entry == bestEntry ? " *" : "";
                 sb.AppendLine(
                     $"| {rank++}{marker} | {entry.Profile.Temperature} | {entry.Profile.TopK} | " +
                     $"{entry.Profile.TopP} | {entry.Profile.RepeatPenalty} | " +
-                    $"{entry.MeanScore:F1} | {entry.ScoreStdDev:F2} | {delta:+0.0;-0.0} | {entry.AverageLatencyMs:F0}ms |");
+                    $"{FormatScore(entry.MeanScore)} | {FormatNumber(entry.ScoreStdDev)} | {delta} | {FormatLatency(entry.AverageLatencyMs)} |");
             }
             sb.AppendLine();
 
@@ -105,9 +115,8 @@ public static class SweepReportGenerator
             foreach (var agentResult in bestEntry.Results)
             {
                 var baseline = result.BaselineResults.FirstOrDefault(b => b.AgentName == agentResult.AgentName);
-                var baseScore = baseline?.OverallScore ?? 0;
-                var delta = agentResult.OverallScore - baseScore;
-                sb.AppendLine($"| {agentResult.AgentName} | {agentResult.OverallScore:F1} | {baseScore:F1} | {delta:+0.0;-0.0} |");
+                var baseScore = baseline?.OverallScore;
+                sb.AppendLine($"| {agentResult.AgentName} | {FormatScore(agentResult.OverallScore)} | {FormatScore(baseScore)} | {FormatDelta(agentResult.OverallScore, baseScore)} |");
             }
             sb.AppendLine();
         }
@@ -122,9 +131,16 @@ public static class SweepReportGenerator
 
             // Use SelectWinner for consistent winner selection with the runner
             var best = SweepRunAggregator.SelectWinner(entries);
-            var delta = best.MeanScore - baselineMean;
-            var pct = baselineMean > 0 ? best.MeanScore / baselineMean * 100 : 0;
-            sb.AppendLine($"- **{targetModel}:** Use `{best.Profile.ToSummary()}` -> {best.MeanScore:F1} ({pct:F0}% of baseline mean, {delta:+0.0;-0.0} delta)");
+            if (best is null)
+            {
+                sb.AppendLine($"- **{targetModel}:** No winner; all scores are unavailable.");
+                continue;
+            }
+
+            var pct = baselineMean is > 0 && best.MeanScore.HasValue
+                ? best.MeanScore.Value / baselineMean.Value * 100
+                : (double?)null;
+            sb.AppendLine($"- **{targetModel}:** Use `{best.Profile.ToSummary()}` -> {FormatScore(best.MeanScore)} ({FormatPercent(pct)} of baseline mean, {FormatDelta(best.MeanScore, baselineMean)} delta)");
         }
 
         return sb.ToString();
@@ -142,14 +158,24 @@ public static class SweepReportGenerator
             // Emit both for backward compat and new consumers
             averageScore = result.BaselineMeanScore,
             meanScore = result.BaselineMeanScore,
-            agents = result.BaselineResults.Select(r => new { r.AgentName, r.OverallScore })
+            scoreStatus = result.BaselineMeanScore.HasValue ? "available" : "unavailable",
+            agents = result.BaselineResults.Select(r => new
+            {
+                r.AgentName,
+                r.OverallScore,
+                r.OverallScoreStatus,
+                r.OverallScoreReason
+            })
         },
         targets = result.TargetResults.Select(kvp => new
         {
             model = kvp.Key,
             // Use SelectWinner so bestConfig exactly matches what the runner chose
             bestConfig = BuildBestConfigJson(kvp.Value),
-            allConfigs = kvp.Value.OrderByDescending(e => e.MeanScore).ThenBy(e => e.ScoreVariance).Select(e => new
+            bestConfigStatus = SweepRunAggregator.SelectWinner(kvp.Value) is null
+                ? "unavailable"
+                : "available",
+            allConfigs = kvp.Value.OrderByDescending(e => e.MeanScore).ThenBy(e => e.ScoreVariance ?? double.MaxValue).Select(e => new
             {
                 parameters = new
                 {
@@ -161,6 +187,7 @@ public static class SweepReportGenerator
                 // Emit both averageScore (backward compat) and meanScore (new)
                 averageScore = e.AverageScore,
                 meanScore = e.MeanScore,
+                scoreStatus = e.MeanScore.HasValue ? "available" : "unavailable",
                 scoreVariance = e.ScoreVariance,
                 scoreStdDev = e.ScoreStdDev,
                 runCount = e.AllRunResults.Count,
@@ -179,6 +206,7 @@ public static class SweepReportGenerator
         if (entries.Count == 0) return null;
 
         var w = SweepRunAggregator.SelectWinner(entries);
+        if (w is null) return null;
         return new
         {
             parameters = new
@@ -200,4 +228,21 @@ public static class SweepReportGenerator
             agents = w.Results.Select(r => new { r.AgentName, r.OverallScore })
         };
     }
+
+    private static string FormatScore(double? score) =>
+        score.HasValue ? score.Value.ToString("F1") : "N/A";
+
+    private static string FormatDelta(double? score, double? baseline) =>
+        score.HasValue && baseline.HasValue
+            ? $"{score.Value - baseline.Value:+0.0;-0.0}"
+            : "N/A";
+
+    private static string FormatPercent(double? percentage) =>
+        percentage.HasValue ? $"{percentage.Value:F0}%" : "N/A";
+
+    private static string FormatNumber(double? value) =>
+        value.HasValue ? value.Value.ToString("F2") : "N/A";
+
+    private static string FormatLatency(double? milliseconds) =>
+        milliseconds.HasValue ? $"{milliseconds.Value:F0}ms" : "N/A";
 }
