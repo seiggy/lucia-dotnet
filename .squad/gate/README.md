@@ -80,7 +80,9 @@ $env:SQUAD_GATE_BYPASS = "1"; git push; Remove-Item Env:SQUAD_GATE_BYPASS
 ## The rule
 
 No `squad/*` branch is pushed, turned into a PR, or merged to `master` until
-Vasquez has reviewed the branch diff and every blocking problem is resolved.
+Vasquez has reviewed the branch diff, verified that all affected documentation
+and README files are updated (or documented why none are affected), and every
+blocking problem is resolved.
 This is enforced by the coordinator (governance — see `routing.md` and
 `decisions.md`); the `.githooks/pre-push` hook is the mechanical backstop that
 blocks the push itself — the prerequisite for any PR or merge.
