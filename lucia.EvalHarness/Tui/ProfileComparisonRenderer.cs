@@ -235,20 +235,21 @@ public static class ProfileComparisonRenderer
                     .GroupBy(m => m.ParameterProfile!.Name)
                     .Select(profileGroup =>
                     {
-                        var measured = profileGroup
+                        var results = profileGroup.ToList();
+                        var measured = results
                             .Where(result => result.Performance.RunCount > 0)
                             .ToList();
                         return new ProfileAggregation
                         {
                             ProfileName = profileGroup.Key,
                             Profile = profileGroup.First().ParameterProfile!,
-                            AvgOverall = Average(measured.Select(m => m.OverallScore)),
-                            AvgToolSelection = Average(measured.Select(m => m.ToolSelectionScore)),
-                            AvgToolSuccess = Average(measured.Select(m => m.ToolSuccessScore)),
-                            AvgToolEfficiency = Average(measured.Select(m => m.ToolEfficiencyScore)),
-                            AvgTaskCompletion = Average(measured.Select(m => m.TaskCompletionScore)),
-                            TotalPassed = measured.Sum(m => m.PassedCount),
-                            TotalTests = measured.Sum(m => m.ScoredTestCaseCount),
+                            AvgOverall = Average(results.Select(m => m.OverallScore)),
+                            AvgToolSelection = Average(results.Select(m => m.ToolSelectionScore)),
+                            AvgToolSuccess = Average(results.Select(m => m.ToolSuccessScore)),
+                            AvgToolEfficiency = Average(results.Select(m => m.ToolEfficiencyScore)),
+                            AvgTaskCompletion = Average(results.Select(m => m.TaskCompletionScore)),
+                            TotalPassed = results.Sum(m => m.PassedCount),
+                            TotalTests = results.Sum(m => m.ScoredTestCaseCount),
                             AvgLatencyMs = Average(measured
                                 .Select(m => (double?)m.Performance.MeanLatency.TotalMilliseconds))
                         };

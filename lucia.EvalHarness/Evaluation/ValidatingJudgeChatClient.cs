@@ -36,6 +36,12 @@ internal sealed class ValidatingJudgeChatClient(IChatClient inner) : IChatClient
         }
 
         var start = text.IndexOf('{');
+        var arrayStart = text.IndexOf('[');
+        if (arrayStart >= 0 && (start < 0 || arrayStart < start))
+        {
+            throw new JsonException("Judge response must contain a JSON object.");
+        }
+
         var end = text.LastIndexOf('}');
         if (start < 0 || end <= start)
         {
@@ -43,7 +49,8 @@ internal sealed class ValidatingJudgeChatClient(IChatClient inner) : IChatClient
         }
 
         using var document = JsonDocument.Parse(text[start..(end + 1)]);
-        if (!document.RootElement.TryGetProperty("score", out var scoreElement) ||
+        if (document.RootElement.ValueKind is not JsonValueKind.Object ||
+            !document.RootElement.TryGetProperty("score", out var scoreElement) ||
             scoreElement.ValueKind is not JsonValueKind.Number ||
             !scoreElement.TryGetDouble(out var score) ||
             !double.IsFinite(score) ||

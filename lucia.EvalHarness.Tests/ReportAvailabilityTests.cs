@@ -298,7 +298,7 @@ public sealed class ReportAvailabilityTests
     }
 
     [Fact]
-    public void ComparisonAggregates_UnmeasuredResultsRemainUnavailable()
+    public void ComparisonAggregates_UnmeasuredResultsKeepScoresButNotLatency()
     {
         var profileRun = CreateRun(
         [
@@ -320,7 +320,8 @@ public sealed class ReportAvailabilityTests
 
         Assert.All(profileScores, profile =>
         {
-            Assert.Null(profile.PassRate);
+            Assert.Equal(0, profile.PassRate);
+            Assert.Equal(100, profile.AvgOverall);
             Assert.Null(profile.AvgLatencyMs);
         });
 
@@ -332,8 +333,44 @@ public sealed class ReportAvailabilityTests
         var markdown = new System.Text.StringBuilder();
         BackendComparisonRenderer.AppendMarkdown(markdown, backendRun);
 
-        Assert.Contains("| Mean | N/A | N/A |", markdown.ToString(), StringComparison.Ordinal);
+        Assert.Contains("| **Overall Score** | 100.0 | 100.0 |", markdown.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("0ms", markdown.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Generate_PartialJudgeScore_RendersStatusWithNumericScore()
+    {
+        var directory = CreateDirectory();
+        try
+        {
+            var result = CreateModelResult(
+                "partial",
+                50,
+                1,
+                [new PerformanceSnapshot { TotalDuration = TimeSpan.FromMilliseconds(10) }],
+                [
+                    new TestCaseResult
+                    {
+                        TestCaseId = "case",
+                        Passed = false,
+                        Score = 50,
+                        Latency = TimeSpan.FromMilliseconds(10),
+                        JudgeStatus = JudgeAvailability.Partial
+                    }
+                ]);
+            var htmlPath = HtmlReportGenerator.Generate(
+                CreateRun(result),
+                new GpuInfo("test"),
+                directory);
+
+            var agentDetails = RenderHtmlPanel(htmlPath, directory, "renderAgents()", "#tab-agents");
+
+            Assert.Contains("50.0 (partial)", agentDetails, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(directory, true);
+        }
     }
 
     private static EvalRunResult CreateRun(ModelEvalResult? modelResult = null) =>

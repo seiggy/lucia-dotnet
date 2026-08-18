@@ -180,7 +180,7 @@ const $$ = s => document.querySelectorAll(s);
 const esc = s => s == null ? '' : String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
 function fmtNum(n, d=1) { return n == null ? '—' : Number(n).toFixed(d); }
-function fmtScore(n, status) { return n == null ? `N/A${status ? ` (${status})` : ''}` : fmtNum(n, 1); }
+function fmtScore(n, status) { return n == null ? `N/A${status ? ` (${status})` : ''}` : `${fmtNum(n, 1)}${status ? ` (${status})` : ''}`; }
 function fmtMs(ms) { return ms == null ? 'N/A' : ms < 1000 ? fmtNum(ms,0)+'ms' : fmtNum(ms/1000,2)+'s'; }
 function fmtPct(n) { return n == null ? '—' : fmtNum(n,1)+'%'; }
 function fmtDuration(s) {

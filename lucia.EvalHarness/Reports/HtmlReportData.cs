@@ -70,10 +70,11 @@ public sealed class HtmlReportData
                         .GroupBy(m => m.ParameterProfile!.Name)
                         .Select(pg =>
                         {
-                            var measured = pg
+                            var results = pg.ToList();
+                            var measured = results
                                 .Where(result => result.Performance.RunCount > 0)
                                 .ToList();
-                            var scoredCount = measured.Sum(result => result.ScoredTestCaseCount);
+                            var scoredCount = results.Sum(result => result.ScoredTestCaseCount);
                             return new HtmlProfileScore
                             {
                                 ProfileName = pg.Key,
@@ -85,13 +86,13 @@ public sealed class HtmlReportData
                                     TopP = pg.First().ParameterProfile!.TopP,
                                     RepeatPenalty = pg.First().ParameterProfile!.RepeatPenalty
                                 },
-                                AvgOverall = Average(measured.Select(m => m.OverallScore)),
-                                AvgToolSelection = Average(measured.Select(m => m.ToolSelectionScore)),
-                                AvgToolSuccess = Average(measured.Select(m => m.ToolSuccessScore)),
-                                AvgToolEfficiency = Average(measured.Select(m => m.ToolEfficiencyScore)),
-                                AvgTaskCompletion = Average(measured.Select(m => m.TaskCompletionScore)),
+                                AvgOverall = Average(results.Select(m => m.OverallScore)),
+                                AvgToolSelection = Average(results.Select(m => m.ToolSelectionScore)),
+                                AvgToolSuccess = Average(results.Select(m => m.ToolSuccessScore)),
+                                AvgToolEfficiency = Average(results.Select(m => m.ToolEfficiencyScore)),
+                                AvgTaskCompletion = Average(results.Select(m => m.TaskCompletionScore)),
                                 PassRate = scoredCount > 0
-                                    ? (double)measured.Sum(m => m.PassedCount) / scoredCount
+                                    ? (double)results.Sum(m => m.PassedCount) / scoredCount
                                     : null,
                                 AvgLatencyMs = Average(measured
                                     .Select(m => (double?)m.Performance.MeanLatency.TotalMilliseconds))

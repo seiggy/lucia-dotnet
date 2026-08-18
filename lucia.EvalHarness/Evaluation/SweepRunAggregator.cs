@@ -61,7 +61,15 @@ public static class SweepRunAggregator
     /// </summary>
     public static SweepEntry? SelectWinner(IReadOnlyList<SweepEntry> entries) =>
         entries
-            .Where(entry => entry.MeanScore.HasValue)
+            .Where(entry =>
+            {
+                var results = entry.AllRunResults.SelectMany(run => run).ToList();
+                return results.Count > 0 &&
+                    results.All(result =>
+                        result.TestCaseCount > 0 &&
+                        result.ScoredTestCaseCount == result.TestCaseCount) &&
+                    entry.MeanScore.HasValue;
+            })
             .OrderByDescending(e => e.MeanScore)
             .ThenBy(e => e.ScoreVariance ?? double.MaxValue)
             .FirstOrDefault();

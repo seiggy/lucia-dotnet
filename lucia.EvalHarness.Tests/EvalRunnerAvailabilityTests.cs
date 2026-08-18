@@ -19,6 +19,15 @@ namespace lucia.EvalHarness.Tests;
 
 public sealed class EvalRunnerAvailabilityTests
 {
+    [Fact]
+    public async Task ValidatingJudgeChatClient_TopLevelArray_IsInvalidResponse()
+    {
+        var client = new ValidatingJudgeChatClient(Responding("""[{"score": 100}]"""));
+
+        await Assert.ThrowsAsync<JsonException>(() =>
+            client.GetResponseAsync([new ChatMessage(ChatRole.User, "judge")]));
+    }
+
     [Theory]
     [InlineData("provider", JudgeAvailability.ProviderError)]
     [InlineData("timeout", JudgeAvailability.Timeout)]

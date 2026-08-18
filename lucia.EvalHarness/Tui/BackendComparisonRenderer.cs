@@ -278,9 +278,9 @@ public static class BackendComparisonRenderer
                         return new BackendAggregation
                         {
                             BackendName = backendGroup.Key,
-                            AvgOverall = Average(measured.Select(result => result.OverallScore)),
-                            TotalPassed = measured.Sum(r => r.PassedCount),
-                            TotalTests = measured.Sum(r => r.ScoredTestCaseCount),
+                            AvgOverall = Average(results.Select(result => result.OverallScore)),
+                            TotalPassed = results.Sum(r => r.PassedCount),
+                            TotalTests = results.Sum(r => r.ScoredTestCaseCount),
                             Performance = new ModelPerformanceSummary
                             {
                                 ModelName = modelGroup.Key,

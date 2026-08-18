@@ -55,7 +55,9 @@ public static class OptimizationPromptBuilder
             sb.AppendLine();
 
             // Failed test cases with traces
-            var failedCases = targetResult.TestCaseResults.Where(tc => !tc.Passed).ToList();
+            var failedCases = targetResult.TestCaseResults
+                .Where(testCase => testCase.Score.HasValue && !testCase.Passed)
+                .ToList();
             if (failedCases.Count > 0)
             {
                 sb.AppendLine("## Failed Test Cases (analyze these for patterns)");

@@ -115,4 +115,25 @@ public sealed class SweepAvailabilityTests
 
         Assert.Null(entry.AverageLatencyMs);
     }
+
+    [Fact]
+    public void SelectWinner_PartiallyScoredEntry_DoesNotBeatCompleteEntry()
+    {
+        var partial = new SweepEntry
+        {
+            Profile = new ModelParameterProfile { Name = "partial" },
+            Results = [EvalResultFactory.Create(100), EvalResultFactory.Create(null)],
+            AllRunResults = [[EvalResultFactory.Create(100), EvalResultFactory.Create(null)]]
+        };
+        var complete = new SweepEntry
+        {
+            Profile = new ModelParameterProfile { Name = "complete" },
+            Results = [EvalResultFactory.Create(80)],
+            AllRunResults = [[EvalResultFactory.Create(80)]]
+        };
+
+        var winner = SweepRunAggregator.SelectWinner([partial, complete]);
+
+        Assert.Equal("complete", Assert.IsType<SweepEntry>(winner).Profile.Name);
+    }
 }
