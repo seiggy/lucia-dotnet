@@ -118,6 +118,20 @@ Parker for implementation (I own review, not implementation).
 properties — a monotonic marker prevents *permanent* staleness but not *torn/last-writer-wins*
 state under concurrency. Always separate the two when reviewing reload-sequencing PRs.
 
+## 2026-07-20 — Design Review: runtime diagnostics (health flooding / AgentHost CPU / 5GB memory)
+
+Inspected the live AppHost via Aspire MCP + OS process telemetry. Three separable problems, one shared amplifier.
+
+- **Memory ~5GB is NOT an AgentHost leak** — it's orphaned dev-loop accumulation: 40 `dotnet.exe`, ~5 independent `dotnet watch --project lucia.AppHost` sessions spanning 7/19 and 7/20 (day-old orphans alone = 899MB + 729MB WS). Because redis/postgres are `ContainerLifetime.Persistent` + fixed names, every orphaned AppHost re-attaches to the *same* containers and each independently health-polls them → this is also the health-check "flooding" **multiplier**.
+- **Health flooding = redis-Unhealthy retry storm × N orchestrators.** redis container is Running but Aspire `redis_check` = Unhealthy (TLS-injection workaround at AppHost.cs:28-37 present but not passing). Non-healthy resources are re-polled on Aspire's aggressive `NonHealthyHealthCheckStepInterval`, not the slower `HealthyHealthCheckInterval`. Same failure keeps AgentHost stuck **Waiting** on `WaitFor(redis)`.
+- **100% CPU did not reproduce at rest** — live 3s sampling of the 6 biggest dotnet procs = 0%; AgentHost isn't even Running. Must be measured on the live PID (dotnet-counters/dotnet-trace), not blind-fixed.
+
+**Key architectural constraint discovered:** Aspire.Hosting **13.1.0** exposes `HealthyHealthCheckInterval`/`NonHealthyHealthCheckStepInterval` only as **internal constants** — there is **no supported public knob** to force "poll every 60s" for AppHost→resource checks. The achievable, doc-recommended lever is service-side: OutputCache (`Expire`) + request timeout on `/health`+`/alive` in ServiceDefaults (currently absent; AgentHost also lacks `AddOutputCache`/`UseOutputCache`). That caps check *execution* cost regardless of probe cadence. Managed expectations accordingly — reject reflection hacks on the internal interval.
+
+Split: Parker owns redis-health fix (AppHost.cs), orphan-process reaping, and the CPU/mem profiling capture (measure-first). Hicks owns the `/health` OutputCache throttle in ServiceDefaults + Program.cs wiring and dashboard gc-heap/working-set visibility. Lambert owns two small regressions (cache-throttle assertion; Aspire.Hosting.Testing smoke that redis goes Healthy + AgentHost leaves Waiting). Decision → `.squad/decisions/inbox/ripley-runtime-diagnostics.md`. Reviewed the `BackgroundTaskApi` SSE loop and cleared it (event-driven, awaited — not a busy-spin).
+
+**Learning:** when three symptoms (flooding / CPU / memory) land together, resist a single-cause story. Here two of the three collapse into "orphaned duplicate orchestrators," one is a health-probe config gap, and the third is unreproduced-at-rest and must be measured. Also: verify the platform actually exposes the knob the user asks for (per-minute polling) before promising it — 13.1 doesn't.
+
 ## 2026-05-31 — PR #195 Copilot Comment Resolution
 
 Triaged full review-comment batch, established pre-push review gate (decision #24), and fixed EvalHarness Reports issues (E1-E7). Consolidated with Hicks/Parker into commit 9809a36.
@@ -126,3 +140,9 @@ Triaged full review-comment batch, established pre-push review gate (decision #2
 
 Scribe task: consolidated all research inputs (Brett/Parker/Hicks) into Decision 27 (Jetson Orin Nano Native Voice Inference). Treated the second-pass corrected synthesis as authoritative; rejected over-engineered proposals (Riva, Triton, Python fallback, speculative infra). Hardware target locked to Jetson Orin Nano Super 8GB only. Architecture confirmed: Family C (C# Wyoming host over CUDA-accelerated sherpa-onnx + ORT 1.18.1 GPU). Merged inbox into decisions.md; created orchestration logs for all four team members; deleted inbox files.
 
+
+## 2026-07-20 — Health OutputCache 503 Caching Fix (reviewer revision)
+
+Independent revision owner after reviewer rejected the healthy-only caching. Root cause: the built-in `DefaultPolicy` that backs every named OutputCache policy sets `AllowCacheStorage=false` for any non-200 response, so a degraded `/health` returning 503 was never cached — degraded-state polling kept re-running expensive checks. Fix is minimal + native: a `HealthCheckOutputCachePolicy : IOutputCachePolicy` whose `ServeResponseAsync` re-enables `AllowCacheStorage` for 503 only, appended to the named `health-checks` policy via `.Expire(10s).AddPolicy<HealthCheckOutputCachePolicy>()`. Because it runs AFTER DefaultPolicy in the CompositePolicy chain it overrides the storage veto; because the policy is applied only to `/health`+`/alive` via `CacheOutput("health-checks")` no unrelated endpoint/status is cached, and non-200/503 codes stay blocked by DefaultPolicy.
+
+**Learning:** OutputCache status-code filtering lives in the policy chain, not the builder — there is no `Expire`-style knob for "cache these codes." Custom `IOutputCachePolicy` ordering is the supported lever: later policies see and can override flags set by earlier ones. Extended `HealthCheckCachingTests` with a second `[Fact]` (an Unhealthy counting check → two rapid `/health` calls both return 503, check executes once) alongside the preserved healthy/unrelated-GET asserts — one app can't be both healthy and unhealthy, so a sibling fact is the right shape, not a shared fixture. Targeted test: 2 passed. ServiceDefaults build clean; slopwatch (--no-baseline, no debris) 0 issues on changed files.

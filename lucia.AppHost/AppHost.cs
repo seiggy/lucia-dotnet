@@ -29,6 +29,7 @@ if (useRedis)
         // therefore always throws "Connection string is unavailable". Session lifetime uses
         // the proxied allocation path which sets AllocatedEndpoint → event fires → health
         // check resolves. Data is preserved via the named data volume between sessions.
+        // One-time cleanup if switching from Persistent: docker rm -f redis (named volume retains data).
         .WithLifetime(ContainerLifetime.Session)
         .WithRedisInsight()
         .WithPersistence()

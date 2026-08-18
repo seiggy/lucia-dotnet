@@ -58,3 +58,11 @@
 ## Archived Work
 - See `history-archive.md` for prior STT semaphore, HTTPClient lifetime, and PR review entries (7 major review cycles 2026-07-10)
 
+## 2026-07-20 — Runtime Diagnostics Working-Tree Review
+
+- **Verdict:** REQUEST-CHANGES.
+- `CacheOutput("health-checks")` selects a named policy, but `AddBasePolicy(...)` does not register that name and instead applies the default cache policy globally. The intended endpoint-only scope is therefore not enforced. The active tests only build DI/mapping and miss request behavior; the regression must issue repeated HTTP requests and prove one health-check execution inside the TTL while an unrelated endpoint is not cached.
+- Keep one behavioral cache test. Delete the duplicate configuration-only suite and the permanently skipped Redis “test”; Parker's recorded live Redis Healthy/AgentHost Running proof is acceptable for the Aspire lifetime change.
+- `AddProcessInstrumentation()` is available and complements runtime instrumentation for process CPU/memory. Runtime instrumentation, not process instrumentation, provides GC/allocation/thread-pool/exception metrics; team history must describe that split accurately.
+- `.slopwatch/` is generated initialization debris (including a 52 KB baseline of unrelated pre-existing/worktree findings), not part of the runtime fix.
+- Existing persistent Redis containers require a one-time removal before the Session-lifetime proxy path works; this migration step needs durable user-facing placement, not only a squad inbox note.

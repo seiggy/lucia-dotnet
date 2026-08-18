@@ -137,6 +137,56 @@ Replaced the Bishop-authored disconnected test (rejected by Vasquez) with a prod
 
 **Validation:** `bash -n` both scripts: OK. Test: 6/6 PASS. `docker compose config` with `LUCIA_IMAGE` set: exit 0. No containers created (`docker ps -a` filter: empty). Stubs dir cleaned up.
 
+### OutputCache Base Policy vs Named Policy — ServiceDefaults Fix (2026-07-20)
+
+**Problem (Hicks, rejected):** `AddServiceDefaults` registered a `AddBasePolicy(...)` in `AddOutputCache`. A base policy in ASP.NET Core OutputCache applies to **all eligible GET requests** (non-authenticated, non-vary-by-query by default), not just health endpoints. This caused unrelated GET endpoints across all consuming services to be cached for 10 seconds, a correctness regression.
+
+**Fix (Parker):** Replace `AddBasePolicy` with `AddPolicy("health-checks", policy => policy.Expire(TimeSpan.FromSeconds(10)))`. Named policies are inert until explicitly applied via `.CacheOutput("health-checks")`, which already existed on both `/health` and `/alive` in `MapDefaultEndpoints`. Removed unnecessary `SetVaryByRouteValue("path")` and `Tag("health-checks")` — not needed on a named policy scoped to two fixed endpoints.
+
+**Key rule:** Never use `AddBasePolicy` in `ServiceDefaults` — it is a global side-effect on every service that calls `AddServiceDefaults()`. Named policies are the only safe abstraction here.
+
+**Slopwatch:** Zero findings in `lucia.ServiceDefaults`. Pre-existing SW005 in `Directory.Packages.props` is unrelated.
+
+**Debris:** Deleted `.slopwatch/` directory (Hicks-generated debris: `baseline.json`, `config.json.example`).
+
+**Files changed:** `lucia.ServiceDefaults/Extensions.cs` (1 hunk: base→named policy, removed SetVaryByRouteValue+Tag).
+
+### AgentHost Idle Exception Investigation — Read-Only (2026-07-21)
+
+**Goal:** Root-cause the recurring exception-count and heap-allocation climb after restart. Read-only pass — no code changes.
+
+**Telemetry status:** No live OTEL data available. The AgentHost (PID from the active Aspire session) was stopped before this agent session started. CLI log files (`~/.aspire/logs/`) capture AppHost stdout only — NOT OTEL structured logs. OTEL exceptions are dashboard-in-memory only, now gone.
+
+**Historical log finding (5.7 MB, 2026-07-19):** All 14 exception occurrences are from `Aspire.Hosting.Backchannel.AuxiliaryBackchannelService`, not the AgentHost. Pattern: `IOException → SocketException 10054` on dotnet-watch hot-reload backchannel disconnections. AgentHost exceptions do NOT appear in CLI logs.
+
+**Confirmed recurring idle loops (code analysis):**
+
+| Service | Cadence | Exception risk | Evidence |
+|---|---|---|---|
+| `PostgresConfigurationProvider.PollForChanges` | every **5 s** | `NpgsqlException` if Postgres fails | `lucia.Data/PostgreSQL/PostgresConfigurationProvider.cs:78` |
+| `AgentInitializationService.WaitForHomeAssistantConfigurationAsync` | every **10 s** | None (AccessToken empty → loop never exits) | `lucia.Agents/Services/AgentInitializationService.cs:225` |
+| `ScheduledTaskService.ExecuteAsync` | every **1 s** | None (in-memory store, empty at idle) | `lucia.TimerAgent/ScheduledTasks/ScheduledTaskService.cs:49` |
+| `WyomingServer.AcceptConnectionsAsync` | blocking (no poll) | `IOException` per TCP client disconnect | `lucia.Wyoming/Wyoming/WyomingServer.cs:265` |
+
+**DataProvider:Store = "PostgreSQL"** confirmed in `lucia.AppHost/appsettings.json`. `postgres` container is `ContainerLifetime.Persistent` (survives restart). `PostgresConfigurationProvider` starts its 5-second timer immediately after `Load()`. Under normal Postgres health, this allocates ~5 managed Npgsql objects per tick but throws no exceptions.
+
+**Exception type → source mapping (code-based, unconfirmed by telemetry):**
+- `IOException` / `EndOfStreamException` → Wyoming TCP client disconnect (`WyomingSession.RunAsync:220` catches at `LogInformation`) OR Redis socket reconnect after Session-lifetime restart
+- `NpgsqlException` → `PostgresConfigurationProvider.PollForChanges` failure (logged at `LogWarning`)
+- `KeyNotFoundException` → `SpeakerProfileStore.UpdateAsync` / `ProfileMergeService` when speaker profile absent (escapes `WyomingSession` catch-all → `WyomingServer.TrackSession:358` at `LogWarning`)
+- `InvalidDataException` → `RouterExecutor.ExecuteAsync` malformed LLM structured output (only during active agent HTTP requests, caught internally after all attempts)
+- `OperationCanceledException` → `Task.Delay` cancellation at shutdown (caught)
+
+**Why all six types simultaneously:** Implies an active HA voice satellite connected to Wyoming. Wyoming sessions are independent of `AgentInitializationService` — they accept TCP connections and process audio regardless of HA wizard state. If an HA satellite is connected but the system is misconfigured (no chat provider), voice-triggered agent calls reach `RouterExecutor` without a valid LLM → `InvalidDataException`. Speaker diarization runs per-utterance → `KeyNotFoundException` on first-seen speakers. TCP disconnects → `IOException`.
+
+**Heap climbing mechanism:** Not established without live GC metrics. Most likely candidates: OTEL log record batch buffer between 5-second exports, steady Npgsql object creation from config polling, Wyoming session-level buffers (audio samples, STT context). No evidence of a true unmanaged or Gen2 leak from code analysis.
+
+**Confidence level:** Medium. Exception types explained by code paths, but rates and heap growth slope require live telemetry to confirm.
+
+**TODO:** `agenthost-leak-runtime` left `in_progress` — root cause not fully established.
+
+**Next live-session step:** Run `aspire otel logs lucia-agenthost --follow` immediately after AppHost start to capture exception dimensions, categories, and rates from the structured log stream.
+
 ## Next Steps
 - Await coordinator approval for PoC hardware
 - PoC Stages 1–5 on physical Orin Nano 8GB (~3–4 weeks)

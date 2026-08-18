@@ -83,3 +83,23 @@ WyomingSession integration test pattern for feature flag validation:
 - All 20 new tests pass in < 1 second total; CI test count 1124 → 1130, skipped 21 → 7.
 - Slopwatch: not installed as local tool; manual checks confirmed no disabled tests, warning suppressions, empty catch blocks, or arbitrary delays.
 - One class per file maintained.
+
+### Health Flood / Aspire Redis Startup Regression Tests (2026-07-20)
+
+**Context:** Hicks implemented HTTP output-cache (10 s TTL, `.CacheOutput("health-checks")`) for `/health` and `/alive` endpoints in `Extensions.AddServiceDefaults`. Parker's `.WithCertificateTrustScope(CertificateTrustScope.None)` fix already in AppHost.cs.
+
+**Delivered:**
+
+- `lucia.Tests/Diagnostics/HealthCheckCachingTests.cs` — active `[Fact]` that asserts `IOutputCacheStore` is registered after `AddServiceDefaults`. Fails immediately if `AddOutputCache` is stripped. CI count: 1173 → 1173 + 1 active.
+- `lucia.Tests/Diagnostics/AspireRedisHealthSmokeTests.cs` — permanently-skipped `[Trait("Category","Integration")]` SkippableFact documenting the manual assertion (`dotnet run --project lucia.AppHost` → redis=Healthy). No existing DistributedApplicationFixture, so no automated test.
+
+**Durable learnings:**
+
+- `IHealthCheckService` is NOT directly importable in the test project despite `<FrameworkReference Include="Microsoft.AspNetCore.App" />`. `IOutputCacheStore`, `HealthCheckResult`, `IHealthCheck` ARE importable. Avoid `IHealthCheckService` in unit tests unless an explicit assembly reference is added.
+- For pending-impl contract tests, `[SkippableFact]` + env-var gate (`Skip.IfNot(env == "enabled", ...)`) is the right pattern to avoid both slopwatch SW001 flags and CI breakage.
+- Behavioral (HTTP-level) health cache tests require `Microsoft.AspNetCore.TestHost` NuGet (not in framework ref). Configuration-level tests via `IOutputCacheStore` are the cheapest compile-safe regression guard.
+- Aspire smoke tests are too integration-heavy without an existing `DistributedApplicationFixture`. Document as `[Trait("Category","Integration")]` + Skip, identify manual assertion in comment.
+- `Skip.Always` does not exist in `Xunit.SkippableFact` 1.5.x — use `Skip.If(true, reason)`.
+- Slopwatch installed as a local tool in this project (via `dotnet tool restore`); `slopwatch analyze` runs cleanly with 0 issues.
+- CI test count: 1173 passing, 0 failing, new test in CI filter (`Category!=Eval&Category!=Integration&Category!=LiveEval`) passes.
+
