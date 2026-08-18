@@ -1,0 +1,142 @@
+# Lucia Voice — Jetson Orin Nano Super (L4T R36.4.7)
+# ============================================================================
+# Self-contained stack: PostgreSQL + Redis + AgentHost (voice/CUDA).
+# One Compose project, one default bridge network. No external coupling.
+#
+# Required environment (set before deploy or in .env):
+#   LUCIA_IMAGE       — immutable ref: name@sha256:<64hex> or sha256:<64hex>
+#   POSTGRES_PASSWORD — Postgres superuser password (postgres init only). Npgsql
+#                       connection strings (CS_LUCIACONFIG/TRACES/TASKS) are built
+#                       by deploy-jetson.sh to safely handle arbitrary password content.
+#
+# Deploy via:  deploy-jetson.sh --image <ref>
+# Dry-run:     deploy-jetson.sh --image <ref> --dry-run
+
+services:
+
+  # --------------------------------------------------------------------------
+  # PostgreSQL 17 — configuration, traces, and task databases.
+  # Image pinned to arm64 (linux/arm64/v8) manifest digest verified 2026-07-18.
+  # --------------------------------------------------------------------------
+  lucia-postgres:
+    image: postgres:17@sha256:c274743e5423a554d3ebe3fcf73e489460397f538a1383d191a9c54774b04a49
+    environment:
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in environment or .env}
+    volumes:
+      - lucia-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "lucia-postgres-jetson"
+    security_opt:
+      - no-new-privileges:true
+
+  # --------------------------------------------------------------------------
+  # Redis 8.2-alpine — session state and task persistence.
+  # Image pinned to arm64 (linux/arm64/v8) manifest digest verified 2026-07-18.
+  # --------------------------------------------------------------------------
+  lucia-redis:
+    image: redis:8.2-alpine@sha256:2322055b54f74ab399ef319077ecc75fa3a45361ac345b1a27ae1248b0c2c837
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+      --loglevel notice
+    volumes:
+      - lucia-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "PING"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "lucia-redis-jetson"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  # --------------------------------------------------------------------------
+  # AgentHost voice — CUDA-accelerated STT/VAD on Ampere (Orin Nano 8GB).
+  # NVIDIA runtime + NVIDIA_VISIBLE_DEVICES exposes GPU; the Jetson voice image bakes in
+  # CUDA user-space libs — no host CUDA directory mounts needed.
+  # --------------------------------------------------------------------------
+  lucia-agenthost-voice:
+    # Content-addressed image only. The :? guard fails fast on unset/empty.
+    image: ${LUCIA_IMAGE:?LUCIA_IMAGE must be an immutable ref (name@sha256:<64hex> or sha256:<64hex>)}
+    runtime: nvidia
+    depends_on:
+      lucia-redis:
+        condition: service_healthy
+      lucia-postgres:
+        condition: service_healthy
+    ports:
+      - "7233:8080"      # AgentHost HTTP API + dashboard
+      - "10400:10400"    # Wyoming voice server (TCP)
+    volumes:
+      - lucia-plugins:/app/plugins
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false
+      - DOTNET_RUNNING_IN_CONTAINER=true
+      - COMPlus_EnableDiagnostics=0
+      # NVIDIA Container Toolkit grants GPU access; the Jetson voice image ships CUDA libs internally.
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      # Data provider
+      - DataProvider__Store=PostgreSQL
+      - DataProvider__Cache=Redis
+      # Npgsql connection strings — pre-escaped by deploy-jetson.sh (handles passwords
+      # containing ; and other special chars). Service DNS on the Compose default network.
+      - ConnectionStrings__luciaconfig=${CS_LUCIACONFIG:?CS_LUCIACONFIG not set — run via deploy-jetson.sh}
+      - ConnectionStrings__luciatraces=${CS_LUCIATRACES:?CS_LUCIATRACES not set — run via deploy-jetson.sh}
+      - ConnectionStrings__luciatasks=${CS_LUCIATASKS:?CS_LUCIATASKS not set — run via deploy-jetson.sh}
+      - ConnectionStrings__redis=lucia-redis:6379
+      # Voice pipeline: CUDA execution provider (EP registration verified via Wyoming status API)
+      - Wyoming__Models__HybridStt__Provider=cuda
+      - Wyoming__Models__HybridStt__Enabled=true
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/busybox", "wget", "-q", "-O-", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+        tag: "lucia-agenthost-voice"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/bin
+
+# No explicit networks block — Compose creates a single default bridge network
+# named <project>_default. All three services communicate via service-name DNS.
+
+volumes:
+  lucia-postgres-data:
+  lucia-redis-data:
+  lucia-plugins:

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -147,21 +148,50 @@ public sealed class SqliteAgentDefinitionRepository : IAgentDefinitionRepository
 
     public async Task UpsertAgentDefinitionAsync(AgentDefinition definition, CancellationToken ct = default)
     {
-        definition.UpdatedAt = DateTime.UtcNow;
-
         using var connection = _connectionFactory.CreateConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = """
             INSERT INTO agent_definitions (id, name, enabled, data)
-            VALUES (@id, @name, @enabled, @data)
-            ON CONFLICT(id) DO UPDATE SET name = @name, enabled = @enabled, data = @data;
+            VALUES (
+                @id,
+                @name,
+                @enabled,
+                json_set(
+                    @data,
+                    '$.updatedAt',
+                    strftime(
+                        '%Y-%m-%dT%H:%M:%fZ',
+                        CAST(ROUND(unixepoch('now', 'subsec') * 1000) AS INTEGER) / 1000.0,
+                        'unixepoch')))
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                enabled = excluded.enabled,
+                data = json_set(
+                    excluded.data,
+                    '$.updatedAt',
+                    strftime(
+                        '%Y-%m-%dT%H:%M:%fZ',
+                        MAX(
+                            CAST(ROUND(unixepoch('now', 'subsec') * 1000) AS INTEGER),
+                            COALESCE(
+                                CAST(ROUND(
+                                    unixepoch(
+                                        json_extract(agent_definitions.data, '$.updatedAt'),
+                                        'subsec') * 1000) AS INTEGER) + 1,
+                                0)) / 1000.0,
+                        'unixepoch'))
+            RETURNING json_extract(data, '$.updatedAt');
             """;
         cmd.Parameters.AddWithValue("@id", definition.Id);
         cmd.Parameters.AddWithValue("@name", definition.Name);
         cmd.Parameters.AddWithValue("@enabled", definition.Enabled ? 1 : 0);
         cmd.Parameters.AddWithValue("@data", JsonSerializer.Serialize(definition, JsonOptions));
 
-        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        var persistedMarker = (string)(await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false))!;
+        definition.UpdatedAt = DateTimeOffset.Parse(
+            persistedMarker,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal).UtcDateTime;
     }
 
     public async Task DeleteAgentDefinitionAsync(string id, CancellationToken ct = default)

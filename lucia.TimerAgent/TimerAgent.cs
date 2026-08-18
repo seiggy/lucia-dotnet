@@ -31,6 +31,7 @@ public sealed class TimerAgent : ILuciaAgent
     private volatile AIAgent _aiAgent;
     private string? _lastModelConnectionName;
     private DateTime? _lastConfigUpdate;
+    private readonly SemaphoreSlim _reloadGate = new(1, 1);
 
     /// <summary>
     /// The system instructions used by this agent.
@@ -225,7 +226,6 @@ public sealed class TimerAgent : ILuciaAgent
 
         activity?.SetStatus(ActivityStatusCode.Ok);
         _logger.LogInformation("TimerAgent initialized successfully");
-        _lastConfigUpdate = DateTime.UtcNow;
     }
 
     public async Task RefreshConfigAsync(CancellationToken cancellationToken = default)
@@ -235,17 +235,26 @@ public sealed class TimerAgent : ILuciaAgent
 
     private async Task ApplyDefinitionAsync(CancellationToken cancellationToken)
     {
-        var definition = await _definitionRepository.GetAgentDefinitionAsync("timer-agent", cancellationToken).ConfigureAwait(false);
-        var newConnectionName = definition?.ModelConnectionName;
-
-        if (_lastConfigUpdate == null || _lastConfigUpdate < definition?.UpdatedAt)
+        await _reloadGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            var client = await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
-            _aiAgent = BuildAgent(client);
-            _logger.LogInformation("TimerAgent: using model provider '{Provider}'",
-                newConnectionName ?? "default-chat");
-            _lastModelConnectionName = newConnectionName;
-            _lastConfigUpdate = DateTime.UtcNow;
+            var definition = await _definitionRepository.GetAgentDefinitionAsync("timer-agent", cancellationToken).ConfigureAwait(false);
+            var newConnectionName = definition?.ModelConnectionName;
+
+            if (_aiAgent is null
+                || definition is not null && (_lastConfigUpdate is null || _lastConfigUpdate < definition.UpdatedAt))
+            {
+                var client = await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
+                _aiAgent = BuildAgent(client);
+                _logger.LogInformation("TimerAgent: using model provider '{Provider}'",
+                    newConnectionName ?? "default-chat");
+                _lastModelConnectionName = newConnectionName;
+                _lastConfigUpdate = definition?.UpdatedAt;
+            }
+        }
+        finally
+        {
+            _reloadGate.Release();
         }
     }
 

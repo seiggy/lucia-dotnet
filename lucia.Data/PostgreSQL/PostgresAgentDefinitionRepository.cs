@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -146,22 +147,64 @@ public sealed class PostgresAgentDefinitionRepository : IAgentDefinitionReposito
 
     public async Task UpsertAgentDefinitionAsync(AgentDefinition definition, CancellationToken ct = default)
     {
-        definition.UpdatedAt = DateTime.UtcNow;
         var json = JsonSerializer.Serialize(definition, JsonOptions);
 
         await using var connection = await _connectionFactory.CreateConnectionAsync(ct).ConfigureAwait(false);
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
+        await using var transaction = await connection.BeginTransactionAsync(ct).ConfigureAwait(false);
+        await using var upsert = connection.CreateCommand();
+        upsert.Transaction = transaction;
+        upsert.CommandText = """
             INSERT INTO agent_definitions (id, name, enabled, data)
-            VALUES (@id, @name, @enabled, @data)
-            ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, enabled = EXCLUDED.enabled, data = EXCLUDED.data;
+            VALUES (
+                @id,
+                @name,
+                @enabled,
+                jsonb_set(
+                    @data,
+                    '{updatedAt}',
+                    '"1970-01-01T00:00:00.000000Z"'::jsonb))
+            ON CONFLICT (id) DO UPDATE SET
+                name = EXCLUDED.name,
+                enabled = EXCLUDED.enabled,
+                data = jsonb_set(
+                    EXCLUDED.data,
+                    '{updatedAt}',
+                    COALESCE(
+                        agent_definitions.data->'updatedAt',
+                        '"1970-01-01T00:00:00.000000Z"'::jsonb));
             """;
-        cmd.Parameters.AddWithValue("id", definition.Id);
-        cmd.Parameters.AddWithValue("name", definition.Name);
-        cmd.Parameters.AddWithValue("enabled", definition.Enabled);
-        cmd.Parameters.Add(new NpgsqlParameter("data", NpgsqlDbType.Jsonb) { Value = json });
+        upsert.Parameters.AddWithValue("id", definition.Id);
+        upsert.Parameters.AddWithValue("name", definition.Name);
+        upsert.Parameters.AddWithValue("enabled", definition.Enabled);
+        upsert.Parameters.Add(new NpgsqlParameter("data", NpgsqlDbType.Jsonb) { Value = json });
+        await upsert.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
 
-        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        await using var advanceMarker = connection.CreateCommand();
+        advanceMarker.Transaction = transaction;
+        advanceMarker.CommandText = """
+            UPDATE agent_definitions
+            SET data = jsonb_set(
+                data,
+                '{updatedAt}',
+                to_jsonb(to_char(
+                    GREATEST(
+                        clock_timestamp(),
+                        COALESCE(
+                            (data->>'updatedAt')::timestamptz + INTERVAL '1 microsecond',
+                            '-infinity'::timestamptz))
+                        AT TIME ZONE 'UTC',
+                    'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')))
+            WHERE id = @id
+            RETURNING data->>'updatedAt';
+            """;
+        advanceMarker.Parameters.AddWithValue("id", definition.Id);
+
+        var persistedMarker = (string)(await advanceMarker.ExecuteScalarAsync(ct).ConfigureAwait(false))!;
+        await transaction.CommitAsync(ct).ConfigureAwait(false);
+        definition.UpdatedAt = DateTimeOffset.Parse(
+            persistedMarker,
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal).UtcDateTime;
     }
 
     public async Task DeleteAgentDefinitionAsync(string id, CancellationToken ct = default)

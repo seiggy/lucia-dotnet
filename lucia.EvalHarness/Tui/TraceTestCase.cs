@@ -10,6 +10,9 @@ internal sealed class TraceTestCase
     [JsonPropertyName("passed")]
     public required bool Passed { get; init; }
 
+    [JsonPropertyName("timed_out")]
+    public bool TimedOut { get; init; }
+
     [JsonPropertyName("score")]
     public required double? Score { get; init; }
 

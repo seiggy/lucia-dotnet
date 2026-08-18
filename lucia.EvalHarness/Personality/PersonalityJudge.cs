@@ -1,5 +1,6 @@
 using System.Text.Json;
 using lucia.EvalHarness.Evaluation;
+using lucia.EvalHarness.Infrastructure;
 using Microsoft.Extensions.AI;
 
 namespace lucia.EvalHarness.Personality;
@@ -35,11 +36,19 @@ public sealed class PersonalityJudge
         """;
 
     private readonly IChatClient? _judgeChatClient;
+    private readonly TimeSpan _judgeTimeout;
+    private readonly TimeProvider _timeProvider;
     private readonly string? _traceDir;
 
-    public PersonalityJudge(IChatClient? judgeChatClient, string? traceOutputDir = null)
+    public PersonalityJudge(
+        IChatClient? judgeChatClient,
+        TimeSpan? judgeTimeout = null,
+        string? traceOutputDir = null,
+        TimeProvider? timeProvider = null)
     {
         _judgeChatClient = judgeChatClient;
+        _judgeTimeout = judgeTimeout ?? TimeSpan.FromSeconds(120);
+        _timeProvider = timeProvider ?? TimeProvider.System;
         _traceDir = traceOutputDir;
         if (_traceDir is not null)
             Directory.CreateDirectory(_traceDir);
@@ -67,7 +76,10 @@ public sealed class PersonalityJudge
 
         try
         {
-            var response = await _judgeChatClient.GetResponseAsync(messages, cancellationToken: ct);
+            var response = await LlmDeadline.RunAsync(
+                token => _judgeChatClient.GetResponseAsync(messages, cancellationToken: token),
+                _judgeTimeout, _timeProvider, ct,
+                $"Judge call exceeded the {_judgeTimeout.TotalSeconds:0}s deadline for scenario '{scenarioId ?? "unknown"}'.");
             var text = response.Text ?? string.Empty;
             var result = ParseJudgeResponse(text);
             DumpTrace(scenarioId, formattedTrace, text, null);
@@ -77,7 +89,7 @@ public sealed class PersonalityJudge
             when (JudgeAvailability.TryClassify(exception, ct, out var status))
         {
             DumpTrace(scenarioId, formattedTrace, null, exception);
-            return Unavailable(status);
+            return Unavailable(status, status is JudgeAvailability.Timeout);
         }
     }
 
@@ -177,10 +189,11 @@ public sealed class PersonalityJudge
         return !string.IsNullOrWhiteSpace(reason);
     }
 
-    private static JudgeResult Unavailable(string status) =>
+    private static JudgeResult Unavailable(string status, bool timedOut = false) =>
         new()
         {
             Status = status,
-            UnavailableReason = JudgeAvailability.Reason(status)
+            UnavailableReason = JudgeAvailability.Reason(status),
+            TimedOut = timedOut
         };
 }

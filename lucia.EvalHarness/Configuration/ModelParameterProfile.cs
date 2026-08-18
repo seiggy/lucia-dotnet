@@ -43,9 +43,17 @@ public sealed record ModelParameterProfile
     public double RepeatPenalty { get; init; } = 1.1;
 
     /// <summary>
-    /// Random seed for reproducibility. Null means non-deterministic.
+    /// Fixed seed used by all named profiles and default-constructed profiles so
+    /// that eval runs are reproducible without extra configuration. Callers that
+    /// need non-deterministic runs must explicitly set <see cref="Seed"/> to null.
     /// </summary>
-    public int? Seed { get; init; }
+    public const int DefaultSeed = 42;
+
+    /// <summary>
+    /// Random seed for reproducibility. Defaults to <see cref="DefaultSeed"/> so
+    /// every profile is deterministic unless explicitly overridden.
+    /// </summary>
+    public int? Seed { get; init; } = DefaultSeed;
 
     /// <summary>
     /// The default Ollama parameter profile matching Ollama's built-in defaults.

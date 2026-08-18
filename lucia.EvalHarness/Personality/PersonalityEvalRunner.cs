@@ -3,6 +3,7 @@ using System.Diagnostics;
 using Azure;
 using System.Text.Json;
 using lucia.EvalHarness.Evaluation;
+using lucia.EvalHarness.Infrastructure;
 using Microsoft.Extensions.AI;
 
 namespace lucia.EvalHarness.Personality;
@@ -13,6 +14,20 @@ namespace lucia.EvalHarness.Personality;
 /// </summary>
 public sealed class PersonalityEvalRunner
 {
+    private readonly TimeSpan _agentTimeout;
+    private readonly TimeSpan _judgeTimeout;
+    private readonly TimeProvider _timeProvider;
+
+    public PersonalityEvalRunner(
+        TimeSpan? agentTimeout = null,
+        TimeSpan? judgeTimeout = null,
+        TimeProvider? timeProvider = null)
+    {
+        _agentTimeout = agentTimeout ?? TimeSpan.FromSeconds(120);
+        _judgeTimeout = judgeTimeout ?? TimeSpan.FromSeconds(120);
+        _timeProvider = timeProvider ?? TimeProvider.System;
+    }
+
     private static readonly string PersonalityRewritePrompt =
         "Rephrase the following smart home assistant response in your voice. " +
         "Keep the SAME meaning \u2014 if it's an error, keep it as an error. If it's a question, keep it as a question. " +
@@ -63,7 +78,7 @@ public sealed class PersonalityEvalRunner
         var startedAt = DateTimeOffset.UtcNow;
         var results = new List<PersonalityScenarioResult>();
         var traceDir = Path.Combine("personality-eval-traces", $"{modelName}_{startedAt:yyyyMMdd_HHmmss}");
-        var judge = new PersonalityJudge(judgeChatClient, traceDir);
+        var judge = new PersonalityJudge(judgeChatClient, _judgeTimeout, traceDir, _timeProvider);
 
         foreach (var scenario in scenarios)
         {
@@ -116,7 +131,7 @@ public sealed class PersonalityEvalRunner
             .ToList();
     }
 
-    private static async Task<PersonalityScenarioResult> EvaluateSingleAsync(
+    private async Task<PersonalityScenarioResult> EvaluateSingleAsync(
         IChatClient chatClient,
         string modelName,
         PersonalityJudge judge,
@@ -137,7 +152,10 @@ public sealed class PersonalityEvalRunner
                 new(ChatRole.User, userMessage)
             };
 
-            var response = await chatClient.GetResponseAsync(messages, cancellationToken: ct);
+            var response = await LlmDeadline.RunAsync(
+                token => chatClient.GetResponseAsync(messages, cancellationToken: token),
+                _agentTimeout, _timeProvider, ct,
+                $"Model '{modelName}' exceeded the {_agentTimeout.TotalSeconds:0}s deadline for scenario '{scenario.Id}' × profile '{profile.Id}'.");
             llmResponse = response.Text ?? string.Empty;
         }
         catch (Exception exception)
@@ -154,8 +172,15 @@ public sealed class PersonalityEvalRunner
                 ProfileName = profile.Name,
                 ModelName = modelName,
                 Score = null,
+                JudgeStatus = exception is OperationCanceledException or TimeoutException
+                    ? JudgeAvailability.Timeout
+                    : JudgeAvailability.ProviderError,
+                JudgeReason = exception is OperationCanceledException or TimeoutException
+                    ? JudgeAvailability.Reason(JudgeAvailability.Timeout)
+                    : JudgeAvailability.Reason(JudgeAvailability.ProviderError),
                 LlmResponse = string.Empty,
                 DurationMs = sw.ElapsedMilliseconds,
+                TimedOut = exception is OperationCanceledException or TimeoutException,
                 ErrorMessage = exception is OperationCanceledException or TimeoutException
                     ? "Model provider request timed out."
                     : "Model provider request failed."
@@ -188,6 +213,7 @@ public sealed class PersonalityEvalRunner
             JudgeReason = judgeResult.UnavailableReason,
             LlmResponse = llmResponse,
             DurationMs = sw.ElapsedMilliseconds,
+            TimedOut = judgeResult.TimedOut,
             JudgeResult = judgeResult,
             Trace = trace
         };

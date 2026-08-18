@@ -15,10 +15,11 @@ public sealed class PersonalityEvalReport
     public int TotalCombinations => Results.Count;
 
     /// <summary>
-    /// Average combined score across all results (1–5 scale).
+    /// Average combined score across all successfully judged results (1-5 scale).
+    /// Timed-out judge results are excluded so a judge outage doesn't lower scores.
     /// </summary>
     public double? AverageCombinedScore => Average(
-        Results.Select(result => result.JudgeResult?.CombinedScore));
+        Results.Where(result => !result.TimedOut).Select(result => result.JudgeResult?.CombinedScore));
 
     public IReadOnlyList<string> ScenarioIds =>
         Results.Select(r => r.ScenarioId).Distinct().ToList();
@@ -27,26 +28,35 @@ public sealed class PersonalityEvalReport
         Results.Select(r => r.ProfileId).Distinct().ToList();
 
     /// <summary>
-    /// Average personality adherence score across all results (0-5).
+    /// Average personality adherence score across all successfully judged results (0-5).
+    /// Timed-out judge results are excluded.
     /// </summary>
     public double? AveragePersonalityScore => Average(
-        Results.Select(result => result.JudgeResult?.PersonalityScore is { } score
+        Results.Where(result => !result.TimedOut).Select(result => result.JudgeResult?.PersonalityScore is { } score
             ? (double?)score
             : null));
 
     /// <summary>
-    /// Average meaning preservation score across all results (0-5).
+    /// Average meaning preservation score across all successfully judged results (0-5).
+    /// Timed-out judge results are excluded.
     /// </summary>
     public double? AverageMeaningScore => Average(
-        Results.Select(result => result.JudgeResult?.MeaningScore is { } score
+        Results.Where(result => !result.TimedOut).Select(result => result.JudgeResult?.MeaningScore is { } score
             ? (double?)score
             : null));
 
     /// <summary>
     /// Results where meaning score is below 3 — the dangerous failures.
+    /// Timed-out judge results are excluded so a judge outage isn't reported as meaning loss.
     /// </summary>
     public IReadOnlyList<PersonalityScenarioResult> MeaningFailures =>
-        Results.Where(result => result.JudgeResult?.MeaningScore is < 3).ToList();
+        Results.Where(result => !result.TimedOut && result.JudgeResult?.MeaningScore is < 3).ToList();
+
+    /// <summary>
+    /// Results that failed because the model-under-test or judge call exceeded its deadline.
+    /// </summary>
+    public IReadOnlyList<PersonalityScenarioResult> Timeouts =>
+        Results.Where(result => result.TimedOut).ToList();
 
     private static double? Average(IEnumerable<double?> scores)
     {

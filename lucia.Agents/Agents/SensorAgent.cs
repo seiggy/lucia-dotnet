@@ -27,6 +27,7 @@ public sealed class SensorAgent : ILuciaAgent, ISkillConfigProvider
     private volatile AIAgent _aiAgent;
     private string? _lastEmbeddingProviderName;
     private DateTime? _lastConfigUpdate;
+    private readonly SemaphoreSlim _reloadGate = new(1, 1);
 
     /// <summary>
     /// The system instructions used by this agent.
@@ -169,7 +170,6 @@ public sealed class SensorAgent : ILuciaAgent, ISkillConfigProvider
         await ApplyDefinitionAsync(cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation("SensorAgent initialized successfully");
-        _lastConfigUpdate = DateTime.UtcNow;
     }
 
     /// <inheritdoc />
@@ -180,30 +180,42 @@ public sealed class SensorAgent : ILuciaAgent, ISkillConfigProvider
 
     private async Task ApplyDefinitionAsync(CancellationToken cancellationToken)
     {
-        var definition = await _definitionRepository.GetAgentDefinitionAsync(AgentId, cancellationToken).ConfigureAwait(false);
-        var newConnectionName = definition?.ModelConnectionName;
-        var newEmbeddingName = definition?.EmbeddingProviderName;
-
-        if (!string.IsNullOrEmpty(definition?.Instructions))
-            Instructions = definition.Instructions;
-
-        if (_lastConfigUpdate == null || _lastConfigUpdate < definition?.UpdatedAt)
+        await _reloadGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            var copilotAgent = await _clientResolver.ResolveAIAgentAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
-            _aiAgent = copilotAgent ?? BuildAgent(
-                await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false))
-                .AsBuilder()
-                .UseOpenTelemetry()
-                .Build();
-            _logger.LogInformation("SensorAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
-            _lastConfigUpdate = DateTime.UtcNow;
+            var definition = await _definitionRepository.GetAgentDefinitionAsync(AgentId, cancellationToken).ConfigureAwait(false);
+            var newConnectionName = definition?.ModelConnectionName;
+            var newEmbeddingName = definition?.EmbeddingProviderName;
+
+            if (!string.IsNullOrEmpty(definition?.Instructions))
+                Instructions = definition.Instructions;
+
+            var shouldApplyDefinition = _aiAgent is null
+                || definition is not null && (_lastConfigUpdate is null || _lastConfigUpdate < definition.UpdatedAt);
+            if (shouldApplyDefinition)
+            {
+                var copilotAgent = await _clientResolver.ResolveAIAgentAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
+                _aiAgent = copilotAgent ?? BuildAgent(
+                    await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false))
+                    .AsBuilder()
+                    .UseOpenTelemetry()
+                    .Build();
+                _logger.LogInformation("SensorAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
+            }
+
+            if (!string.Equals(_lastEmbeddingProviderName, newEmbeddingName, StringComparison.Ordinal))
+            {
+                await _sensorSkill.UpdateEmbeddingProviderAsync(newEmbeddingName, cancellationToken).ConfigureAwait(false);
+                await _sensorSkill.InvalidateEmbeddingCacheAsync(cancellationToken).ConfigureAwait(false);
+                _lastEmbeddingProviderName = newEmbeddingName;
+            }
+
+            if (shouldApplyDefinition)
+                _lastConfigUpdate = definition?.UpdatedAt;
         }
-
-        if (!string.Equals(_lastEmbeddingProviderName, newEmbeddingName, StringComparison.Ordinal))
+        finally
         {
-            await _sensorSkill.UpdateEmbeddingProviderAsync(newEmbeddingName, cancellationToken).ConfigureAwait(false);
-            await _sensorSkill.InvalidateEmbeddingCacheAsync(cancellationToken).ConfigureAwait(false);
-            _lastEmbeddingProviderName = newEmbeddingName;
+            _reloadGate.Release();
         }
     }
 

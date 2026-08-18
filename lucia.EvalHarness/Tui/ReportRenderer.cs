@@ -236,7 +236,7 @@ public static class ReportRenderer
                     .Select(m => (double?)m.Performance.MeanLatency.TotalMilliseconds)
                     .Average(),
                 TotalPassed = g.Sum(m => m.PassedCount),
-                TotalTests = g.Sum(m => m.TestCaseCount)
+                TotalTests = g.Sum(m => m.ScoredTestCaseCount)
             })
             .Where(model => model.AvgScore.HasValue)
             .ToList();

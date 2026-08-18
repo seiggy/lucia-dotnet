@@ -36,6 +36,39 @@ public sealed class HarnessConfiguration
     public Dictionary<string, ModelParameterProfile> ParameterProfiles { get; set; } = [];
 
     /// <summary>
+    /// Per-call deadline (seconds) for a single model-under-test / agent LLM invocation.
+    /// Must be positive; a non-positive value is a configuration error, not a silent opt-out.
+    /// </summary>
+    public int AgentTimeoutSeconds { get; set; } = 300;
+
+    /// <summary>
+    /// Per-call deadline (seconds) for a single judge / LLM-metric invocation.
+    /// Must be positive; a non-positive value is a configuration error, not a silent opt-out.
+    /// </summary>
+    public int JudgeTimeoutSeconds { get; set; } = 120;
+
+    /// <summary>Resolved per-call deadline for agent / model-under-test LLM calls.</summary>
+    public TimeSpan AgentTimeout => TimeSpan.FromSeconds(AgentTimeoutSeconds);
+
+    /// <summary>Resolved per-call deadline for judge / LLM-metric calls.</summary>
+    public TimeSpan JudgeTimeout => TimeSpan.FromSeconds(JudgeTimeoutSeconds);
+
+    /// <summary>
+    /// Validates configuration invariants. Throws when a required positive value is
+    /// zero or negative so misconfiguration fails fast instead of silently disabling deadlines.
+    /// </summary>
+    public void Validate()
+    {
+        if (AgentTimeoutSeconds <= 0)
+            throw new InvalidOperationException(
+                $"Harness:AgentTimeoutSeconds must be positive, but was {AgentTimeoutSeconds}.");
+
+        if (JudgeTimeoutSeconds <= 0)
+            throw new InvalidOperationException(
+                $"Harness:JudgeTimeoutSeconds must be positive, but was {JudgeTimeoutSeconds}.");
+    }
+
+    /// <summary>
     /// Returns the resolved list of backends. If <see cref="Backends"/> is empty,
     /// falls back to a single Ollama backend from <see cref="Ollama"/> settings.
     /// </summary>

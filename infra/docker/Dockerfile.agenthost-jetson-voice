@@ -1,0 +1,492 @@
+# Lucia AgentHost — Jetson Orin Nano Super Voice Pipeline (single, self-contained Dockerfile)
+# ============================================================================
+# Target device : NVIDIA Jetson Orin Nano Super 8GB — L4T R36.4.7 / JetPack 6.2
+#                 CUDA 12.6 (host 12.6.11), cuDNN 9, Ampere GA10B (compute 8.7 / sm_87)
+# Target image  : linux/arm64
+# Build host    : x86_64 desktop (BuildX + QEMU for the arm64 native stages)
+#
+# Why one Dockerfile (was two + a docker-image:// named context):
+#   The prior split used `--build-context native-assets=docker-image://...`, which
+#   fails Windows BuildX platform matching. Everything is now internal multi-stage
+#   `FROM`s — no named contexts, no `docker load`, no `.tar` hand-off.
+#
+# Why ONNX Runtime is built FROM SOURCE (not a prebuilt binary):
+#   ORT managed and native MUST be the same version (1.23.2). Managed 1.23.2 calls
+#   GetApi(23); a real arm64 CUDA native at 1.23.2 is required. Microsoft ships no
+#   official arm64 CUDA ORT binary and community wheels are unverified, so we compile
+#   the official tagged source (commit-pinned) for aarch64 with the CUDA EP only.
+#   sherpa-onnx is then built against THAT exact ORT so SONAME/API match — no symlink
+#   hack, no version skew. See asset.lock ("no arm64 GPU build available").
+#
+# CUDA runtime + cuDNN 9 ARE baked into the runtime image (see the cuda-runtime stage):
+# on L4T r36 (JetPack 6) the NVIDIA Container Runtime CSV mode mounts ONLY the driver
+# (libcuda.so.1 via drivers.csv) — it does NOT inject the CUDA math/runtime libraries.
+# Verified on device (R36.4.7, nvidia-container-toolkit 1.16.2): drivers.csv/devices.csv
+# carry no cublas/cudnn/cudart entries, and `ldd libonnxruntime_providers_cuda.so` reports
+# libcublas/libcublasLt/libcudart/libcudnn/libcufft "not found" even under --runtime nvidia.
+# Only the driver (libcuda) stays host-provided (must match the kernel/GPU).
+#
+# Reproducible build (off-device ONLY — never compile on the 8GB Jetson):
+#   docker buildx build --platform linux/arm64 --load \
+#     -t lucia-agenthost-voice:r36.4.7-ort1.23.2 \
+#     -f infra/docker/Dockerfile.agenthost-jetson-voice .
+#   Then pin by digest before deploy (deploy requires an immutable ref).
+# ============================================================================
+
+# --- Pinned, immutable inputs (no `latest`, no mutable `main`, no curl|sh) ---
+# ONNX Runtime — official source, tag v1.23.2, asserted against its commit.
+ARG ORT_VERSION=1.23.2
+ARG ORT_COMMIT=a83fc4d58cb48eb68890dd689f94f28288cf2278
+# sherpa-onnx — official source, tag v1.12.34, asserted against its commit.
+ARG SHERPA_TAG=v1.12.34
+ARG SHERPA_COMMIT=12e81142d6fac7182a2cea847a4b7f2170a086a4
+# Orin Nano Ampere GA10B == compute capability 8.7. Build ONLY this arch (small + fast).
+ARG CUDA_ARCH=87
+# Build-toolchain versions (build stages only; discarded — never in the final image).
+ARG CMAKE_VERSION=3.31.6
+ARG NINJA_VERSION=1.11.1.4
+
+# ============================================================================
+# Stage: ort-build — compile official ONNX Runtime 1.23.2 (CUDA EP) for aarch64
+# Base is the l4t-jetpack r36.4.0 image (CUDA 12.6 / cuDNN 9) — the pinned Jetson/aarch64
+# donor for the R36.4.x L4T host series (r36.4.7 device). Inherits the build's arm64
+# target platform (build with --platform linux/arm64); runs under QEMU on x86 hosts.
+# ============================================================================
+FROM nvcr.io/nvidia/l4t-jetpack:r36.4.0@sha256:34ccf0f3b63c6da9eee45f2e79de9bf7fdf3beda9abfd72bbf285ae9d40bb673 AS ort-build
+
+ARG ORT_VERSION
+ARG ORT_COMMIT
+ARG CUDA_ARCH
+ARG CMAKE_VERSION
+ARG NINJA_VERSION
+
+# Drop NVIDIA's apt sources and replace with an immutable Ubuntu 22.04 Jammy snapshot
+# (2025-01-15T00:00:00Z — after the JetPack r36.4.0 release).  CUDA/cuDNN/TensorRT
+# are already in the digest-pinned base; the NVIDIA repos add mutability and can break
+# `apt-get update`. Acquire::Check-Valid-Until=no is required because snapshot metadata
+# carries the snapshot date, not today's date.
+RUN rm -f /etc/apt/sources.list.d/*cuda* /etc/apt/sources.list.d/*nvidia* \
+         /etc/apt/sources.list 2>/dev/null || true \
+ && printf 'deb https://snapshot.ubuntu.com/ubuntu/20250115T000000Z jammy main restricted universe\ndeb https://snapshot.ubuntu.com/ubuntu/20250115T000000Z jammy-updates main restricted universe\ndeb https://snapshot.ubuntu.com/ubuntu/20250115T000000Z jammy-security main restricted universe\n' \
+      > /etc/apt/sources.list \
+ && printf 'Acquire::Check-Valid-Until "no";\nAcquire::Languages "none";\n' \
+      > /etc/apt/apt.conf.d/99snapshot \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends \
+        git ca-certificates python3 python3-pip python3-setuptools \
+        build-essential \
+ && rm -rf /var/lib/apt/lists/*
+
+# Modern CMake + Ninja (ORT 1.23 requires CMake >= 3.28). Both manylinux and musl
+# wheel hashes listed; pip selects the correct one for Ubuntu glibc.
+# NOTE: updating CMAKE_VERSION or NINJA_VERSION ARGs requires updating the hashes below.
+# pip 22.x does not support --hash on the command line; use -r with a requirements file.
+COPY <<'PYREQS_ORT' /tmp/pip-build-reqs.txt
+cmake==3.31.6 \
+    --hash=sha256:42d9883b8958da285d53d5f69d40d9650c2d1bcf922d82b3ebdceb2b3a7d4521 \
+    --hash=sha256:112b36427e59bd26145b705a49d5f70b16433a655ce807cb8fdd81dd4d0e60c2
+ninja==1.11.1.4 \
+    --hash=sha256:d3090d4488fadf6047d0d7a1db0c9643a8d391f0d94729554dbb89b5bdc769d7 \
+    --hash=sha256:f6186d7607bb090c3be1e10c8a56b690be238f953616626f5032238c66e56867
+PYREQS_ORT
+RUN python3 -m pip install --require-hashes --no-cache-dir -r /tmp/pip-build-reqs.txt \
+ && rm /tmp/pip-build-reqs.txt
+
+# Fetch the exact ORT source and assert the commit (drift guard). build.sh syncs submodules.
+RUN git clone --depth 1 --branch "v${ORT_VERSION}" https://github.com/microsoft/onnxruntime /src/onnxruntime \
+ && test "$(git -C /src/onnxruntime rev-parse HEAD)" = "${ORT_COMMIT}"
+
+# Build a shared-lib Release with the CUDA execution provider ONLY (no TensorRT, no
+# training, no python, no unit tests). Single GPU arch (sm_87) keeps the compile bounded.
+#   cudnn_home: on L4T, cuDNN headers live in /usr/include and libs in
+#   /usr/lib/aarch64-linux-gnu. This is the primary build-tuning knob to confirm on the
+#   first real compile; adjust --cudnn_home if FindCUDNN fails to locate cudnn.h.
+#
+# FLASH_ATTENTION / MEMORY_EFFICIENT_ATTENTION are disabled deliberately. They are the
+# cutlass-based contrib-op accelerators for ORT's fused MultiHeadAttention/Attention ops.
+# sherpa-onnx models (Parakeet-TDT, zipformer, 3D-Speaker embedding, silero VAD, gtcrn
+# enhancement) are exported with standard ONNX operators (MatMul/Softmax/Add), never ORT's
+# contrib Attention ops, so these kernels are dead weight for this workload. They are also
+# by far the heaviest/longest nvcc translation units and reliably wedge nvcc under QEMU
+# emulation on the x86 cross-build host (observed hard stall on flash_fwd_split_hdim* .cu).
+# Turning them off removes the stall root cause and cuts the CUDA compile substantially.
+# Both are first-class ORT build options (default ON only because CUDA is enabled):
+#   https://github.com/microsoft/onnxruntime/blob/v1.23.2/cmake/CMakeLists.txt
+RUN cd /src/onnxruntime \
+ && ./build.sh \
+        --config Release \
+        --parallel \
+        --build_shared_lib \
+        --use_cuda \
+        --cuda_home /usr/local/cuda \
+        --cudnn_home /usr \
+        --skip_tests \
+        --allow_running_as_root \
+        --cmake_extra_defines \
+            CMAKE_CUDA_ARCHITECTURES=${CUDA_ARCH} \
+            onnxruntime_BUILD_UNIT_TESTS=OFF \
+            onnxruntime_USE_FLASH_ATTENTION=OFF \
+            onnxruntime_USE_MEMORY_EFFICIENT_ATTENTION=OFF
+
+# Assemble a clean install tree that mirrors the prebuilt-tarball layout sherpa expects:
+#   /opt/onnxruntime/lib      -> libonnxruntime.so(.1.23.2) + CUDA provider libs
+#   /opt/onnxruntime/include  -> ONLY the public C/C++ API headers (core/session/*.h:
+#     onnxruntime_c_api.h, onnxruntime_cxx_api.h, *_inline.h, *config_keys.h, ...).
+#     We deliberately do NOT flatten the whole include tree: sherpa's cmake adds this
+#     dir globally (include_directories), so an internal header like core/common/endian.h
+#     would shadow the system <endian.h> that openfst includes -> C++ 'namespace' parse
+#     error. The public session headers are self-contained and match the official tarball.
+RUN set -eux; \
+    B=/src/onnxruntime/build/Linux/Release; \
+    mkdir -p /opt/onnxruntime/lib /opt/onnxruntime/include; \
+    cp -av "$B"/libonnxruntime.so* /opt/onnxruntime/lib/; \
+    cp -av "$B"/libonnxruntime_providers_cuda.so /opt/onnxruntime/lib/; \
+    cp -av "$B"/libonnxruntime_providers_shared.so /opt/onnxruntime/lib/; \
+    cp -av /src/onnxruntime/include/onnxruntime/core/session/*.h /opt/onnxruntime/include/; \
+    strip --strip-unneeded /opt/onnxruntime/lib/libonnxruntime.so.${ORT_VERSION} || true; \
+    echo '================= ORT VALIDATION ================='; \
+    readelf -h /opt/onnxruntime/lib/libonnxruntime.so | grep -E 'Machine:[[:space:]]+AArch64'; \
+    readelf -d /opt/onnxruntime/lib/libonnxruntime.so | grep -E 'SONAME'; \
+    readelf -d /opt/onnxruntime/lib/libonnxruntime_providers_cuda.so | grep -E 'NEEDED' | grep -Ei 'cud|cublas|cudnn' || true; \
+    ls -la /opt/onnxruntime/lib/
+
+# ============================================================================
+# Stage: sherpa-build — compile sherpa-onnx C API (GPU) against the ORT built above
+# Same JetPack base (inherits arm64 target; QEMU on x86). No prebuilt ORT download —
+# uses the pre-installed ORT copied from ort-build.
+# ============================================================================
+FROM nvcr.io/nvidia/l4t-jetpack:r36.4.0@sha256:34ccf0f3b63c6da9eee45f2e79de9bf7fdf3beda9abfd72bbf285ae9d40bb673 AS sherpa-build
+
+ARG SHERPA_TAG
+ARG SHERPA_COMMIT
+ARG CMAKE_VERSION
+ARG NINJA_VERSION
+
+RUN rm -f /etc/apt/sources.list.d/*cuda* /etc/apt/sources.list.d/*nvidia* \
+          /etc/apt/sources.list 2>/dev/null || true \
+ && printf 'deb https://snapshot.ubuntu.com/ubuntu/20250115T000000Z jammy main restricted universe\ndeb https://snapshot.ubuntu.com/ubuntu/20250115T000000Z jammy-updates main restricted universe\ndeb https://snapshot.ubuntu.com/ubuntu/20250115T000000Z jammy-security main restricted universe\n' \
+      > /etc/apt/sources.list \
+ && printf 'Acquire::Check-Valid-Until "no";\nAcquire::Languages "none";\n' \
+      > /etc/apt/apt.conf.d/99snapshot \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends git ca-certificates python3 python3-pip build-essential \
+ && rm -rf /var/lib/apt/lists/*
+# pip 22.x does not support --hash on the command line; use -r with a requirements file.
+COPY <<'PYREQS_SHERPA' /tmp/pip-build-reqs.txt
+cmake==3.31.6 \
+    --hash=sha256:42d9883b8958da285d53d5f69d40d9650c2d1bcf922d82b3ebdceb2b3a7d4521 \
+    --hash=sha256:112b36427e59bd26145b705a49d5f70b16433a655ce807cb8fdd81dd4d0e60c2
+ninja==1.11.1.4 \
+    --hash=sha256:d3090d4488fadf6047d0d7a1db0c9643a8d391f0d94729554dbb89b5bdc769d7 \
+    --hash=sha256:f6186d7607bb090c3be1e10c8a56b690be238f953616626f5032238c66e56867
+PYREQS_SHERPA
+RUN python3 -m pip install --require-hashes --no-cache-dir -r /tmp/pip-build-reqs.txt \
+ && rm /tmp/pip-build-reqs.txt
+
+# The from-source ORT 1.23.2 (headers + libs). sherpa links against these exact libs.
+COPY --from=ort-build /opt/onnxruntime /opt/onnxruntime
+
+RUN git clone --depth 1 --branch "${SHERPA_TAG}" https://github.com/k2-fsa/sherpa-onnx /src/sherpa-onnx \
+ && test "$(git -C /src/sherpa-onnx rev-parse HEAD)" = "${SHERPA_COMMIT}"
+
+# USE_PRE_INSTALLED + these env dirs make sherpa's cmake take the pre-installed branch
+# (cmake/onnxruntime.cmake) and skip downloading the 1.18.1 prebuilt GPU tarball.
+ENV SHERPA_ONNXRUNTIME_INCLUDE_DIR=/opt/onnxruntime/include \
+    SHERPA_ONNXRUNTIME_LIB_DIR=/opt/onnxruntime/lib
+
+# Only the C-ABI shared library, GPU enabled. PortAudio/WebSocket/tests/python/JNI OFF.
+# TTS (espeak-ng/piper) stays ON so the emitted .so is a drop-in for the managed C API.
+RUN cmake -S /src/sherpa-onnx -B /build \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_SHARED_LIBS=ON \
+        -DSHERPA_ONNX_ENABLE_GPU=ON \
+        -DSHERPA_ONNX_USE_PRE_INSTALLED_ONNXRUNTIME_IF_AVAILABLE=ON \
+        -DSHERPA_ONNX_ENABLE_C_API=ON \
+        -DSHERPA_ONNX_ENABLE_PYTHON=OFF \
+        -DSHERPA_ONNX_ENABLE_TESTS=OFF \
+        -DSHERPA_ONNX_ENABLE_CHECK=OFF \
+        -DSHERPA_ONNX_ENABLE_PORTAUDIO=OFF \
+        -DSHERPA_ONNX_ENABLE_WEBSOCKET=OFF \
+        -DSHERPA_ONNX_ENABLE_JNI=OFF \
+        -DBUILD_PIPER_PHONMIZE_EXE=OFF -DBUILD_PIPER_PHONMIZE_TESTS=OFF \
+        -DBUILD_ESPEAK_NG_EXE=OFF -DBUILD_ESPEAK_NG_TESTS=OFF \
+ && cmake --build /build --target sherpa-onnx-c-api -j"$(nproc)"
+
+# Assemble the overlay set: the GPU sherpa C-API .so + the matching ORT 1.23.2 libs.
+RUN set -eux; \
+    mkdir -p /native; \
+    cp -av /opt/onnxruntime/lib/libonnxruntime.so* /native/; \
+    cp -av /opt/onnxruntime/lib/libonnxruntime_providers_cuda.so /native/; \
+    cp -av /opt/onnxruntime/lib/libonnxruntime_providers_shared.so /native/; \
+    SO="$(find /build -name libsherpa-onnx-c-api.so | head -1)"; test -n "$SO"; \
+    cp -av "$SO" /native/; \
+    strip --strip-unneeded /native/libsherpa-onnx-c-api.so || true; \
+    echo '================= NATIVE OVERLAY VALIDATION ================='; \
+    readelf -h /native/libsherpa-onnx-c-api.so | grep -E 'Machine:[[:space:]]+AArch64'; \
+    echo '--- sherpa SONAME / NEEDED (must NEED libonnxruntime.so) ---'; \
+    readelf -d /native/libsherpa-onnx-c-api.so | grep -E 'SONAME|NEEDED'; \
+    echo '--- max glibc/libstdc++ symbol versions (L4T 36.4 compat) ---'; \
+    readelf -V /native/libsherpa-onnx-c-api.so | grep -oE 'GLIBC_[0-9.]+|GLIBCXX_[0-9.]+|CXXABI_[0-9.]+' | sort -uV | tail -6; \
+    ls -la /native/
+
+# ============================================================================
+# Stage: model-download — arch-independent voice models, immutable + checksummed
+# Runs on $BUILDPLATFORM (native x86, fast). Every URL is pinned to an immutable
+# release asset or commit SHA; every file is SHA256-verified before use. No mutable
+# `main`. No Python. This whole stage is discarded (nothing here lands in runtime).
+# ============================================================================
+FROM --platform=$BUILDPLATFORM alpine:3.21@sha256:48b0309ca019d89d40f670aa1bc06e426dc0931948452e8491e3d65087abc07d AS model-download
+
+# No apk installs: the Alpine 3.21 base ships busybox which provides wget, tar (with bzip2
+# support compiled in), and sha256sum — sufficient for all downloads below.  Eliminating
+# apk removes the last mutable package-manager call from the model/final stages.
+
+# fetch <url> <out> <sha256> — download, verify, or fail the build.
+COPY <<'EOF' /usr/local/bin/fetch
+#!/bin/sh
+set -eu
+url="$1"; out="$2"; sha="$3"
+wget -q --tries=5 -O "$out" "$url"
+echo "${sha}  ${out}" | sha256sum -c -
+EOF
+RUN chmod +x /usr/local/bin/fetch
+
+# --- STT: Parakeet-TDT-0.6b-v2 int8 (offline, primary HybridStt model) ----------------
+RUN mkdir -p /assets/models/stt \
+ && fetch "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2" \
+          /tmp/parakeet.tar.bz2 \
+          157c157bc51155e03e37d2466522a3a737dd9c72bb25f36eb18912964161e1ad \
+ && tar -xjf /tmp/parakeet.tar.bz2 -C /assets/models/stt && rm /tmp/parakeet.tar.bz2
+
+# --- STT: streaming Zipformer (partials for HybridStt) --------------------------------
+RUN fetch "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-en-2023-06-26.tar.bz2" \
+          /tmp/zipformer.tar.bz2 \
+          639e25b578e9e997131402199419c13a941f8e4e198e2da1ce57dbf5cf401282 \
+ && tar -xjf /tmp/zipformer.tar.bz2 -C /assets/models/stt && rm /tmp/zipformer.tar.bz2
+
+# --- VAD: Silero v5 (pinned to HF commit fba88cd2, not mutable /resolve/main) ----------
+RUN mkdir -p /assets/models/vad/silero_vad_v5 \
+ && fetch "https://huggingface.co/csukuangfj/vad/resolve/fba88cd2e921609e7675c3aaf51e0b9b295da4bc/silero_vad_v5.onnx" \
+          /assets/models/vad/silero_vad_v5/silero_vad_v5.onnx \
+          6b99cbfd39246b6706f98ec13c7c50c6b299181f2474fa05cbc8046acc274396
+
+# --- KWS: gigaspeech zipformer (wake-word / keyword spotting) --------------------------
+RUN mkdir -p /assets/models/kws \
+ && fetch "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2" \
+          /tmp/kws.tar.bz2 \
+          f170013b4716e41b62b9bfd809687c207cef798ef9bc6534d524e17af9b6561a \
+ && tar -xjf /tmp/kws.tar.bz2 -C /assets/models/kws && rm /tmp/kws.tar.bz2
+
+# --- Speaker embedding: 3D-Speaker ERes2Net (voice-print verification / enrollment) ----
+RUN mkdir -p /assets/models/speaker-embedding/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k \
+ && fetch "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx" \
+          /assets/models/speaker-embedding/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx \
+          1a331345f04805badbb495c775a6ddffcdd1a732567d5ec8b3d5749e3c7a5e4b
+
+# --- Speech enhancement: GTCRN simple (pinned to gtcrn commit 3862c448, not main) ------
+RUN mkdir -p /assets/models/speech-enhancement/gtcrn_simple \
+ && fetch "https://raw.githubusercontent.com/Xiaobin-Rong/gtcrn/3862c44808dca492ea5a8a145d2dc2a1028d08c8/stream/onnx_models/gtcrn_simple.onnx" \
+          /assets/models/speech-enhancement/gtcrn_simple/gtcrn_simple.onnx \
+          b4718df6228e7bdf1a8a435cf98f838636eb2fd331acabf86ba87c5192ebcb87
+
+# ============================================================================
+# Stage: node-build — React SPA dashboard (arch-independent)
+# ============================================================================
+FROM --platform=$BUILDPLATFORM node:22-alpine@sha256:968df39aedcea65eeb078fb336ed7191baf48f972b4479711397108be0966920 AS node-build
+WORKDIR /app
+COPY lucia-dashboard/package*.json ./
+RUN npm ci
+COPY lucia-dashboard/ ./
+RUN npm run build
+
+# ============================================================================
+# Stage: dotnet-publish — cross-publish AgentHost to linux-arm64 (runs on x86 SDK)
+# NO private ORT overrides: package versions come from Directory.Packages.props /
+# csproj (globally consistent ORT 1.23.2, managed == native), owned by Dallas.
+# Requires that fix to be merged; a plain `--runtime linux-arm64` must resolve the
+# arm64 native package (not the x64-only Gpu.Linux).
+# ============================================================================
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0@sha256:3dae2f7699441af56216ff64d5c9b6dfce7cd7dc7f4f71d353d29662b10a384f AS dotnet-publish
+WORKDIR /src
+
+COPY ["Directory.Build.props", "."]
+COPY ["Directory.Packages.props", "."]
+COPY ["lucia.AgentHost/lucia.AgentHost.csproj", "lucia.AgentHost/"]
+COPY ["lucia.Agents/lucia.Agents.csproj", "lucia.Agents/"]
+COPY ["lucia.HomeAssistant/lucia.HomeAssistant.csproj", "lucia.HomeAssistant/"]
+COPY ["lucia.MusicAgent/lucia.MusicAgent.csproj", "lucia.MusicAgent/"]
+COPY ["lucia.ServiceDefaults/lucia.ServiceDefaults.csproj", "lucia.ServiceDefaults/"]
+COPY ["lucia.TimerAgent/lucia.TimerAgent.csproj", "lucia.TimerAgent/"]
+COPY ["lucia.Wyoming/lucia.Wyoming.csproj", "lucia.Wyoming/"]
+COPY ["lucia.Data/lucia.Data.csproj", "lucia.Data/"]
+
+RUN dotnet restore "./lucia.AgentHost/lucia.AgentHost.csproj" \
+        --runtime linux-arm64 \
+        /p:RuntimeIdentifier=linux-arm64 \
+        /p:PublishReadyToRun=true \
+        /p:CopilotSkipCliDownload=true
+
+COPY . .
+RUN rm -f global.json
+
+# /p:RuntimeIdentifier=linux-arm64 ensures NuGet resolves linux-arm64 native assets (sherpa-onnx,
+# ORT). lucia.Wyoming.csproj gates Gpu.Linux on $(RuntimeIdentifier)=='linux-x64' and DirectML on
+# $(RuntimeIdentifier).StartsWith('win') — both false for linux-arm64 — so neither provider
+# package enters the graph.
+RUN dotnet publish "./lucia.AgentHost/lucia.AgentHost.csproj" \
+        -c Release \
+        -o /app/publish \
+        --no-restore \
+        --runtime linux-arm64 \
+        /p:RuntimeIdentifier=linux-arm64 \
+        /p:UseAppHost=false \
+        /p:PublishTrimmed=false \
+        /p:PublishReadyToRun=true \
+        /p:CopilotSkipCliDownload=true
+
+# ============================================================================
+# Stage: cuda-runtime — CUDA 12.6 runtime + cuDNN 9 libraries that ORT's CUDA
+# execution provider hard-depends on (DT_NEEDED) and dlopens at first use.
+# On L4T r36 (JetPack 6) the NVIDIA Container Runtime CSV mode mounts ONLY the driver
+# (libcuda.so.1); it never injects these math/runtime libs, so they must ship in-image.
+#
+# Sourced from the SAME digest-pinned base ORT was compiled against, so the libs are
+# ABI/version-exact (CUDA 12.6.11 / cudart 12.6.68 / cublas 12.6.1.4 / cufft 11.2.6.59 /
+# cuDNN 9.3.0) and match the Jetson host packages 1:1 — no skew, no version guessing,
+# no apt repo, no network. Redistributable per the CUDA Toolkit EULA + cuDNN SLA.
+#
+# DONOR CHOICE (do not "simplify" to Docker Hub nvidia/cuda): l4t-jetpack ships the
+# `aarch64-jetson` (Tegra) CUDA — the only build validated for the Orin iGPU (sm_87) and
+# the Tegra driver. The public `nvidia/cuda` arm64 image is `arm64-sbsa` (ARM server +
+# discrete PCIe GPU); NVIDIA ships these as distinct, non-interchangeable targets
+# (developer.nvidia.com/cuda-downloads: aarch64-jetson vs arm64-sbsa). Our ORT provider is
+# compiled CUDA_ARCH=87; the SBSA distribution targets ARM server hardware with discrete
+# PCIe GPUs — a different target and distribution from the Tegra/iGPU path, and not
+# established as the validated Jetson donor. This is a BUILD-TIME
+# donor only — the runtime base below is the standard Microsoft aspnet arm64 image; the
+# NVIDIA Container Toolkit injects just the driver (JetPack 6 model). l4t r36.x == JP6.
+# ============================================================================
+FROM nvcr.io/nvidia/l4t-jetpack:r36.4.0@sha256:34ccf0f3b63c6da9eee45f2e79de9bf7fdf3beda9abfd72bbf285ae9d40bb673 AS cuda-runtime
+RUN set -eux; \
+    C=/usr/local/cuda-12.6/targets/aarch64-linux/lib; \
+    G=/usr/lib/aarch64-linux-gnu; \
+    mkdir -p /cuda-runtime/lib; \
+    # Copy the versioned .so + its SONAME symlink (never the bare dev .so or stubs/).
+    # --no-dereference preserves the symlink so the loader resolves by SONAME.
+    for g in \
+        "$C/libcudart.so.12"* \
+        "$C/libcublas.so.12"* \
+        "$C/libcublasLt.so.12"* \
+        "$C/libcufft.so.11"* \
+        "$C/libnvrtc.so.12"* \
+        "$C/libnvrtc-builtins.so.12"* \
+        "$G/libcudnn.so.9"* \
+        "$G"/libcudnn_*.so.9* ; do \
+      cp -av --no-dereference "$g" /cuda-runtime/lib/; \
+    done; \
+    # Fail the build if any hard DT_NEEDED lib is absent — no silent gaps.
+    for need in libcudart.so.12 libcublas.so.12 libcublasLt.so.12 \
+                libcufft.so.11 libcudnn.so.9; do \
+      test -e "/cuda-runtime/lib/$need" || { echo "FATAL: missing $need" >&2; exit 1; }; \
+    done; \
+    echo '================= CUDA RUNTIME OVERLAY ================='; \
+    ls -la /cuda-runtime/lib/
+
+# ============================================================================
+# Stage: runtime — .NET ASP.NET 10 on arm64. CUDA runtime + cuDNN are baked in from
+# the cuda-runtime stage; only the CUDA driver (libcuda) is host-provided via CSV.
+# NO apt (removes runtime apt mutability): healthcheck uses a digest-pinned static
+# busybox; ca-certificates ship in the Microsoft aspnet base for outbound TLS.
+# ============================================================================
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-arm64v8@sha256:e3736b0d423db99c6988e1ddf5ea725c14b12579bb120024e5ff7ff204a14080 AS runtime
+WORKDIR /app
+
+# Static, digest-pinned busybox (arm64) for the container healthcheck — no apt, no drift.
+COPY --from=busybox:1.36.1-musl@sha256:3c6ae8008e2c2eedd141725c30b20d9c36b026eb796688f88205845ef17aa213 /bin/busybox /usr/local/bin/busybox
+
+RUN useradd -m -u 1100 appuser \
+ && mkdir -p /app/models/stt /app/models/vad /app/models/kws \
+             /app/models/speaker-embedding /app/models/speech-enhancement \
+             /app/plugins /app/runtimes/linux-arm64/native \
+ && chown -R appuser:appuser /app
+
+# .NET publish output (managed ORT 1.23.2 + CPU-only native ORT/sherpa from NuGet).
+COPY --from=dotnet-publish --chown=appuser:appuser /app/publish .
+
+# B2 — REMOVE every CPU ORT/sherpa/provider file shipped by NuGet BEFORE the GPU overlay,
+# anywhere under /app, so nothing can shadow the GPU natives on the loader search path.
+RUN find /app -type f \( \
+        -name 'libonnxruntime.so*' -o \
+        -name 'libonnxruntime_providers_*.so' -o \
+        -name 'libsherpa-onnx-c-api.so*' \
+    \) -print -delete
+
+# GPU overlay: the from-source ORT 1.23.2 CUDA libs + sherpa built against them.
+COPY --from=sherpa-build --chown=appuser:appuser /native/ /app/runtimes/linux-arm64/native/
+RUN chmod 755 /app/runtimes/linux-arm64/native/*.so*
+
+# CUDA 12.6 runtime + cuDNN 9 (ABI-exact, from the pinned JetPack base ORT was built
+# against). Required because JetPack 6 CSV mode mounts only the driver, not these libs.
+COPY --from=cuda-runtime /cuda-runtime/lib/ /opt/cuda/lib/
+
+# Baked, checksum-verified voice models (no runtime download, no Python in this image).
+COPY --from=model-download --chown=appuser:appuser /assets/models ./models
+
+# SPA + plugins.
+COPY --from=node-build --chown=appuser:appuser /app/dist ./wwwroot/
+COPY --from=dotnet-publish --chown=appuser:appuser /src/plugins ./plugins
+
+EXPOSE 8080 10400
+
+ENV DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false \
+    DOTNET_RUNNING_IN_CONTAINER=true \
+    ASPNETCORE_URLS=http://+:8080 \
+    COMPlus_EnableDiagnostics=0 \
+    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    ORT_THREADPOOL_SPIN_CONTROL=0 \
+    LD_LIBRARY_PATH=/app/runtimes/linux-arm64/native:/opt/cuda/lib \
+    PluginDirectory=/app/plugins \
+    Wyoming__Models__Stt__ModelBasePath=/app/models/stt \
+    Wyoming__Models__Vad__ModelBasePath=/app/models/vad \
+    Wyoming__Models__WakeWord__ModelBasePath=/app/models/kws \
+    Wyoming__Diarization__ModelBasePath=/app/models/speaker-embedding \
+    Wyoming__Models__SpeechEnhancement__ModelBasePath=/app/models/speech-enhancement \
+    Wyoming__Models__HybridStt__Provider=cuda \
+    Wyoming__Models__HybridStt__Enabled=true
+
+# B5 — startup guard. Fail fast (before the app binds /health) when a required model OR a
+# CUDA provider library is missing, so the container can never report healthy on a
+# CPU-only / mis-overlaid image. Actual CUDA EP *registration* is proven from logs by the
+# deploy script (see deploy-jetson.sh --voice), because /health alone cannot prove it.
+RUN { \
+      echo '#!/bin/sh'; \
+      echo 'set -e'; \
+      echo 'MISSING=0'; \
+      echo 'need_file() { [ -f "$1" ] || { echo "FATAL: $2 missing: $1" >&2; MISSING=1; }; }'; \
+      echo 'need_onnx() { ls "$1"/*.onnx >/dev/null 2>&1 || { echo "FATAL: $2 not ready: $1" >&2; MISSING=1; }; }'; \
+      echo 'N=/app/runtimes/linux-arm64/native'; \
+      echo '# --- Models: every configured pipeline component ---'; \
+      echo 'need_onnx /app/models/stt/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8 "Parakeet-TDT-v2 (offline STT)"'; \
+      echo 'need_onnx /app/models/stt/sherpa-onnx-streaming-zipformer-en-2023-06-26 "Streaming-STT/Zipformer"'; \
+      echo 'need_file /app/models/vad/silero_vad_v5/silero_vad_v5.onnx "Silero-VAD-v5"'; \
+      echo 'need_onnx /app/models/kws/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01 "KWS/Zipformer"'; \
+      echo 'need_onnx /app/models/speaker-embedding/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k "Speaker-Embedding/ERes2Net"'; \
+      echo 'need_file /app/models/speech-enhancement/gtcrn_simple/gtcrn_simple.onnx "GTCRN-Enhancement"'; \
+      echo '# --- Native provider libraries ---'; \
+      echo 'need_file "$N/libsherpa-onnx-c-api.so" "sherpa-onnx-c-api"'; \
+      echo 'need_file "$N/libonnxruntime.so" "libonnxruntime (core)"'; \
+      echo 'need_file "$N/libonnxruntime_providers_cuda.so" "ORT CUDA provider"'; \
+      echo 'need_file "$N/libonnxruntime_providers_shared.so" "ORT shared provider"'; \
+      echo '[ "$MISSING" -eq 0 ] || { echo "Startup blocked: missing required GPU libs/models. Fix image and redeploy." >&2; exit 1; }'; \
+      echo 'exec dotnet lucia.AgentHost.dll "$@"'; \
+    } > /app/entrypoint.sh \
+ && chmod +x /app/entrypoint.sh && chown appuser:appuser /app/entrypoint.sh
+
+USER appuser
+
+# HTTP localhost probe (no TLS) via static busybox. Host-facing probe is Compose-published 7233.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=5 \
+    CMD /usr/local/bin/busybox wget -q -O- http://localhost:8080/health >/dev/null 2>&1 || exit 1
+
+ENTRYPOINT ["/app/entrypoint.sh"]

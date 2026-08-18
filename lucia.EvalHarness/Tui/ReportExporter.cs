@@ -160,7 +160,7 @@ public static class ReportExporter
                     .Where(m => m.Performance.RunCount > 0)
                     .Select(m => (double?)m.Performance.MeanLatency.TotalMilliseconds)),
                 TotalPassed: g.Sum(m => m.PassedCount),
-                TotalTests: g.Sum(m => m.TestCaseCount)))
+                TotalTests: g.Sum(m => m.ScoredTestCaseCount)))
             .Where(model => model.AvgScore.HasValue)
             .ToList();
 
@@ -322,6 +322,7 @@ public static class ReportExporter
                 {
                     id = tc.TestCaseId,
                     passed = tc.Passed,
+                    timedOut = tc.TimedOut,
                     score = tc.Score,
                     judgeStatus = tc.JudgeStatus,
                     judgeReason = tc.JudgeReason,

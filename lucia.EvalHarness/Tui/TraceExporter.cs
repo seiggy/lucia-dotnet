@@ -57,6 +57,7 @@ public static class TraceExporter
                     {
                         Id = tc.TestCaseId,
                         Passed = tc.Passed,
+                        TimedOut = tc.TimedOut,
                         Score = tc.Score,
                         JudgeStatus = tc.JudgeStatus,
                         JudgeReason = tc.JudgeReason,

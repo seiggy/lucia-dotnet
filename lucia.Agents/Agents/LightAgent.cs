@@ -25,6 +25,7 @@ public sealed class LightAgent : ILuciaAgent, ISkillConfigProvider
     private readonly ILogger<LightAgent> _logger;
     private volatile AIAgent _aiAgent;
     private DateTime? _lastConfigUpdate;
+    private readonly SemaphoreSlim _reloadGate = new(1, 1);
 
     /// <summary>
     /// The system instructions used by this agent.
@@ -159,7 +160,6 @@ public sealed class LightAgent : ILuciaAgent, ISkillConfigProvider
         await ApplyDefinitionAsync(cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation("LightAgent initialized successfully");
-        _lastConfigUpdate = DateTime.UtcNow;
     }
 
     /// <inheritdoc />
@@ -170,23 +170,32 @@ public sealed class LightAgent : ILuciaAgent, ISkillConfigProvider
 
     private async Task ApplyDefinitionAsync(CancellationToken cancellationToken)
     {
-        var definition = await _definitionRepository.GetAgentDefinitionAsync(AgentId, cancellationToken).ConfigureAwait(false);
-        var newConnectionName = definition?.ModelConnectionName;
-        if (!string.IsNullOrEmpty(definition?.Instructions))
-            Instructions = definition.Instructions;
-        
-        if (_lastConfigUpdate == null || _lastConfigUpdate < definition?.UpdatedAt)
+        await _reloadGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            // Copilot providers produce an AIAgent directly; others go through IChatClient
-            var copilotAgent = await _clientResolver.ResolveAIAgentAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
-            _aiAgent = copilotAgent ?? BuildAgent(
-                await _clientResolver.ResolveAsync(newConnectionName, cancellationToken)
-                    .ConfigureAwait(false))
-                .AsBuilder()
-                .UseOpenTelemetry()
-                .Build();
-            _logger.LogInformation("LightAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
-            _lastConfigUpdate = DateTime.UtcNow;
+            var definition = await _definitionRepository.GetAgentDefinitionAsync(AgentId, cancellationToken).ConfigureAwait(false);
+            var newConnectionName = definition?.ModelConnectionName;
+            if (!string.IsNullOrEmpty(definition?.Instructions))
+                Instructions = definition.Instructions;
+
+            if (_aiAgent is null
+                || definition is not null && (_lastConfigUpdate is null || _lastConfigUpdate < definition.UpdatedAt))
+            {
+                // Copilot providers produce an AIAgent directly; others go through IChatClient
+                var copilotAgent = await _clientResolver.ResolveAIAgentAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
+                _aiAgent = copilotAgent ?? BuildAgent(
+                    await _clientResolver.ResolveAsync(newConnectionName, cancellationToken)
+                        .ConfigureAwait(false))
+                    .AsBuilder()
+                    .UseOpenTelemetry()
+                    .Build();
+                _logger.LogInformation("LightAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
+                _lastConfigUpdate = definition?.UpdatedAt;
+            }
+        }
+        finally
+        {
+            _reloadGate.Release();
         }
     }
 

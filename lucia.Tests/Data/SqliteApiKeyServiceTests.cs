@@ -39,6 +39,71 @@ public sealed class SqliteApiKeyServiceTests : IDisposable
         Assert.Equal("validate-key", entry.Name);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ValidateKeyAsync_DoesNotUpdateLastUsedAt(bool hasHistoricalValue)
+    {
+        var created = await _service.CreateKeyAsync("read-only-validation");
+        var expectedLastUsedAt = hasHistoricalValue
+            ? new DateTime(2025, 1, 2, 3, 4, 5, DateTimeKind.Utc)
+            : (DateTime?)null;
+        var expectedStoredValue = expectedLastUsedAt?.ToString("O");
+
+        using (var connection = _helper.ConnectionFactory.CreateConnection())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "UPDATE api_keys SET last_used_at = @lastUsedAt, scopes = @scopes WHERE id = @id;";
+            command.Parameters.AddWithValue("@lastUsedAt", expectedStoredValue ?? (object)DBNull.Value);
+            command.Parameters.AddWithValue("@scopes", """["read:test"]""");
+            command.Parameters.AddWithValue("@id", created.Id);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var entry = await _service.ValidateKeyAsync(created.Key);
+        var storedLastUsedAt = expectedStoredValue;
+
+        for (var attempt = 0; attempt < 100; attempt++)
+        {
+            using var connection = _helper.ConnectionFactory.CreateConnection();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT last_used_at FROM api_keys WHERE id = @id;";
+            command.Parameters.AddWithValue("@id", created.Id);
+            var value = await command.ExecuteScalarAsync();
+            storedLastUsedAt = value as string;
+            if (storedLastUsedAt != expectedStoredValue)
+            {
+                break;
+            }
+
+            await Task.Yield();
+        }
+
+        Assert.NotNull(entry);
+        Assert.Equal(expectedLastUsedAt, entry.LastUsedAt?.ToUniversalTime());
+        Assert.Equal(["read:test"], entry.Scopes);
+        Assert.Equal(expectedStoredValue, storedLastUsedAt);
+    }
+
+    [Fact]
+    public async Task ValidateKeyAsync_ReturnsNull_ForExpiredKey()
+    {
+        var created = await _service.CreateKeyAsync("expired-key");
+
+        using (var connection = _helper.ConnectionFactory.CreateConnection())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = "UPDATE api_keys SET expires_at = @expiresAt WHERE id = @id;";
+            command.Parameters.AddWithValue("@expiresAt", DateTime.UtcNow.AddMinutes(-1).ToString("O"));
+            command.Parameters.AddWithValue("@id", created.Id);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        var entry = await _service.ValidateKeyAsync(created.Key);
+
+        Assert.Null(entry);
+    }
+
     [Fact]
     public async Task ValidateKeyAsync_ReturnsNull_ForInvalidKey()
     {

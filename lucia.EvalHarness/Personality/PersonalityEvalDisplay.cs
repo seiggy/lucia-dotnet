@@ -22,9 +22,12 @@ public static class PersonalityEvalDisplay
         string judgeModelName,
         IReadOnlyList<PersonalityEvalScenario> scenarios,
         IReadOnlyList<PersonalityProfile> selectedProfiles,
+        TimeSpan agentTimeout,
+        TimeSpan judgeTimeout,
+        TimeProvider? timeProvider = null,
         CancellationToken ct = default)
     {
-        var runner = new PersonalityEvalRunner();
+        var runner = new PersonalityEvalRunner(agentTimeout, judgeTimeout, timeProvider);
         var reports = new List<PersonalityEvalReport>();
         var totalCombinations = PersonalityEvalRunner.CountCombinations(scenarios, selectedProfiles);
 
@@ -83,6 +86,7 @@ public static class PersonalityEvalDisplay
             RenderCategorySummary(report);
             RenderDetailedResults(report);
             RenderMeaningFailures(report);
+            RenderTimeouts(report);
         }
 
         if (reports.Count > 1)
@@ -108,9 +112,10 @@ public static class PersonalityEvalDisplay
 
         foreach (var group in profileGroups)
         {
-            var personalityAvg = Average(group.Select(result => result.JudgeResult?.PersonalityScore));
-            var meaningAvg = Average(group.Select(result => result.JudgeResult?.MeaningScore));
-            var combinedAvg = Average(group.Select(result => result.JudgeResult?.CombinedScore));
+            var available = group.Where(result => !result.TimedOut);
+            var personalityAvg = Average(available.Select(result => result.JudgeResult?.PersonalityScore));
+            var meaningAvg = Average(available.Select(result => result.JudgeResult?.MeaningScore));
+            var combinedAvg = Average(available.Select(result => result.JudgeResult?.CombinedScore));
 
             table.AddRow(
                 Markup.Escape(group.Key.ProfileName),
@@ -144,9 +149,10 @@ public static class PersonalityEvalDisplay
 
         foreach (var category in categories)
         {
-            var pAvg = Average(category.Select(result => result.JudgeResult?.PersonalityScore));
-            var mAvg = Average(category.Select(result => result.JudgeResult?.MeaningScore));
-            var combined = Average(category.Select(result => result.JudgeResult?.CombinedScore));
+            var available = category.Where(result => !result.TimedOut);
+            var pAvg = Average(available.Select(result => result.JudgeResult?.PersonalityScore));
+            var mAvg = Average(available.Select(result => result.JudgeResult?.MeaningScore));
+            var combined = Average(available.Select(result => result.JudgeResult?.CombinedScore));
 
             AnsiConsole.MarkupLine(
                 $"  {ScoreCell(combined)} {Markup.Escape(category.Key)} " +
@@ -246,6 +252,30 @@ public static class PersonalityEvalDisplay
                 AnsiConsole.MarkupLine($"     [dim]Original:  {Markup.Escape(Truncate(result.Trace.OriginalResponse, 120))}[/]");
                 AnsiConsole.MarkupLine($"     [dim]Rewritten: {Markup.Escape(Truncate(result.LlmResponse, 120))}[/]");
             }
+        }
+    }
+
+    private static void RenderTimeouts(PersonalityEvalReport report)
+    {
+        var timeouts = report.Timeouts;
+        if (timeouts.Count == 0)
+            return;
+
+        AnsiConsole.WriteLine();
+        AnsiConsole.Write(new Rule("[yellow bold]\u23f1 Timeouts (excluded from scores)[/]").LeftJustified());
+        AnsiConsole.MarkupLine("[yellow]These scenarios exceeded their deadline \u2014 they are not scored as failures.[/]");
+
+        foreach (var result in timeouts)
+        {
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine(
+                $"  [yellow bold]\u23f1[/] [bold]{Markup.Escape(result.ScenarioId)}[/] \u00d7 " +
+                $"[yellow]{Markup.Escape(result.ProfileName)}[/] " +
+                $"[dim]({result.DurationMs}ms)[/]");
+
+            var reason = result.ErrorMessage ?? result.JudgeResult?.MeaningReason;
+            if (reason is not null)
+                AnsiConsole.MarkupLine($"     [dim]{Markup.Escape(reason)}[/]");
         }
     }
 

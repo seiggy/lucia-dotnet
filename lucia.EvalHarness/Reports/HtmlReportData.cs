@@ -149,6 +149,7 @@ public sealed class HtmlReportData
                     {
                         Id = tc.TestCaseId,
                         Passed = tc.Passed,
+                        TimedOut = tc.TimedOut,
                         Score = tc.Score,
                         JudgeStatus = tc.JudgeStatus,
                         JudgeReason = tc.JudgeReason,

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.Extensions.DependencyInjection;
@@ -8,17 +9,22 @@ using Microsoft.Extensions.Options;
 
 namespace lucia.Wyoming.Wyoming;
 
-public sealed class WyomingServer : IHostedService, IDisposable
+public sealed partial class WyomingServer : IHostedService, IDisposable
 {
+    // ponytail: five seconds is the total shutdown ceiling; make it configurable only if production data requires it.
+    private static readonly TimeSpan ShutdownTimeout = TimeSpan.FromSeconds(5);
     private readonly WyomingOptions _options;
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<WyomingServer> _logger;
     private readonly SessionEventBus _eventBus;
-    private readonly ConcurrentDictionary<string, WyomingSession> _sessions = new();
+    private readonly ConcurrentDictionary<Task, WyomingSession> _sessions = new();
     private readonly SemaphoreSlim _sttConcurrency;
     private readonly SemaphoreSlim _ttsConcurrency;
+    private readonly object _lifecycleLock = new();
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
+    private Task? _acceptLoopTask;
+    private Task? _shutdownTask;
 
     public WyomingServer(
         IOptions<WyomingOptions> options,
@@ -43,70 +49,273 @@ public sealed class WyomingServer : IHostedService, IDisposable
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        _listener = new TcpListener(IPAddress.Parse(_options.Host), _options.Port);
-        _listener.Start();
+        CancellationTokenSource? cts = null;
+        TcpListener? listener = null;
 
-        _logger.LogInformation("Wyoming server listening on {Host}:{Port}", _options.Host, _options.Port);
+        try
+        {
+            lock (_lifecycleLock)
+            {
+                if (_listener is not null || _shutdownTask is not null)
+                {
+                    return Task.CompletedTask;
+                }
 
-        _ = AcceptConnectionsAsync(_cts.Token);
+                cancellationToken.ThrowIfCancellationRequested();
+                cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                listener = new TcpListener(IPAddress.Parse(_options.Host), _options.Port);
+
+                listener.Start();
+                var acceptLoopTask = AcceptConnectionsAsync(listener, cts.Token);
+                _logger.LogInformation(
+                    "Wyoming server listening on {Host}:{Port}",
+                    _options.Host,
+                    _options.Port);
+
+                _cts = cts;
+                _listener = listener;
+                _acceptLoopTask = acceptLoopTask;
+            }
+        }
+        catch
+        {
+            listener?.Stop();
+            cts?.Cancel();
+            cts?.Dispose();
+            throw;
+        }
+
         return Task.CompletedTask;
     }
 
-    public async Task StopAsync(CancellationToken cancellationToken)
+    public Task StopAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Wyoming server shutting down, closing {Count} sessions", _sessions.Count);
-        _cts?.Cancel();
-        _listener?.Stop();
-
-        foreach (var session in _sessions.Values)
+        Task shutdownTask;
+        lock (_lifecycleLock)
         {
-            session.Dispose();
+            _shutdownTask ??= StopCoreAsync();
+            shutdownTask = _shutdownTask;
         }
 
-        _sessions.Clear();
-        await Task.CompletedTask;
+        return shutdownTask.WaitAsync(cancellationToken);
     }
 
-    private async Task AcceptConnectionsAsync(CancellationToken ct)
+    private async Task StopCoreAsync()
     {
-        while (!ct.IsCancellationRequested)
+        await Task.Yield();
+
+        var startedAt = Stopwatch.GetTimestamp();
+        var gracefulTimeout = TimeSpan.FromTicks(ShutdownTimeout.Ticks * 4 / 5);
+        TcpListener? listener;
+        CancellationTokenSource? cts;
+        Task? acceptLoopTask;
+
+        lock (_lifecycleLock)
+        {
+            listener = _listener;
+            cts = _cts;
+            acceptLoopTask = _acceptLoopTask;
+        }
+
+        _logger.LogInformation("Wyoming server shutting down, draining {Count} sessions", _sessions.Count);
+        listener?.Stop();
+        var cancellationTask = cts?.CancelAsync() ?? Task.CompletedTask;
+        var drainTask = DrainAsync(cancellationTask, acceptLoopTask, _sessions.Keys.ToArray());
+
+        try
+        {
+            await drainTask
+                .WaitAsync(Remaining(startedAt, gracefulTimeout))
+                .ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            LogDrainTimeout(_logger, gracefulTimeout, _sessions.Count);
+            var lateSessions = RemoveSessions();
+            var cleanupTask = AbortSessionsAsync(lateSessions);
+            if (cts is not null)
+            {
+                ObserveLateShutdown(drainTask, cleanupTask, lateSessions, cts);
+                cts = null;
+            }
+
+            if (!cleanupTask.IsCompleted)
+            {
+                try
+                {
+                    await cleanupTask
+                        .WaitAsync(Remaining(startedAt, ShutdownTimeout))
+                        .ConfigureAwait(false);
+                }
+                catch (TimeoutException)
+                {
+                    return;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            LogShutdownFailure(_logger, ex);
+            foreach (var entry in RemoveSessions())
+            {
+                DisposeSession(entry.Value);
+            }
+        }
+        finally
+        {
+            cts?.Dispose();
+
+            _sttConcurrency.Dispose();
+            _ttsConcurrency.Dispose();
+
+            lock (_lifecycleLock)
+            {
+                _listener = null;
+                _cts = null;
+                _acceptLoopTask = null;
+            }
+        }
+    }
+
+    private static Task DrainAsync(
+        Task cancellationTask,
+        Task? acceptLoopTask,
+        Task[] sessionTasks)
+    {
+        var tasks = new List<Task>(sessionTasks.Length + 2)
+        {
+            cancellationTask,
+        };
+        if (acceptLoopTask is not null)
+        {
+            tasks.Add(acceptLoopTask);
+        }
+
+        tasks.AddRange(sessionTasks);
+        return Task.WhenAll(tasks);
+    }
+
+    private KeyValuePair<Task, WyomingSession>[] RemoveSessions()
+    {
+        var removed = new List<KeyValuePair<Task, WyomingSession>>();
+        foreach (var entry in _sessions.ToArray())
+        {
+            if (_sessions.TryRemove(entry.Key, out var session))
+            {
+                removed.Add(new KeyValuePair<Task, WyomingSession>(entry.Key, session));
+            }
+        }
+
+        return [.. removed];
+    }
+
+    private Task AbortSessionsAsync(KeyValuePair<Task, WyomingSession>[] sessions)
+    {
+        return Task.WhenAll(sessions.Select(entry => Task.Run(() =>
         {
             try
             {
-                var client = await _listener!.AcceptTcpClientAsync(ct).ConfigureAwait(false);
+                entry.Value.AbortTransport();
+            }
+            catch (Exception ex)
+            {
+                LogSessionCleanupFailure(_logger, entry.Value.Id, ex);
+            }
+        })));
+    }
 
-                if (_sessions.Count >= _options.MaxWakeWordStreams)
+    private void ObserveLateShutdown(
+        Task drainTask,
+        Task cleanupTask,
+        KeyValuePair<Task, WyomingSession>[] sessions,
+        CancellationTokenSource cts)
+    {
+        async Task ObserveAsync()
+        {
+            try
+            {
+                await cleanupTask.ConfigureAwait(false);
+                await drainTask.ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                LogShutdownFailure(_logger, ex);
+            }
+            finally
+            {
+                foreach (var entry in sessions)
                 {
-                    _logger.LogWarning(
-                        "Maximum wake word streams ({Max}) reached, rejecting connection",
-                        _options.MaxWakeWordStreams);
-                    client.Dispose();
-                    continue;
+                    DisposeSession(entry.Value);
                 }
 
-                var session = CreateSession(client);
-                _sessions.TryAdd(session.Id, session);
+                cts.Dispose();
+            }
+        }
 
-                _eventBus.Publish(new SessionConnectedEvent
+        _ = ObserveAsync();
+    }
+
+    private async Task AcceptConnectionsAsync(TcpListener listener, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            TcpClient? client = null;
+            try
+            {
+                client = await listener.AcceptTcpClientAsync(ct).ConfigureAwait(false);
+                var remoteEndPoint = client.Client.RemoteEndPoint?.ToString() ?? "unknown";
+                WyomingSession? session = null;
+
+                lock (_lifecycleLock)
                 {
-                    SessionId = session.Id,
-                    RemoteEndPoint = client.Client.RemoteEndPoint?.ToString() ?? "unknown",
-                });
+                    if (_shutdownTask is null
+                        && !ct.IsCancellationRequested
+                        && _sessions.Count < _options.MaxWakeWordStreams)
+                    {
+                        session = CreateSession(client);
+                        TrackSession(session, remoteEndPoint, ct);
+                        client = null;
+                    }
+                }
+
+                if (session is null)
+                {
+                    if (_shutdownTask is null && !ct.IsCancellationRequested)
+                    {
+                        _logger.LogWarning(
+                            "Maximum wake word streams ({Max}) reached, rejecting connection",
+                            _options.MaxWakeWordStreams);
+                    }
+
+                    client?.Dispose();
+                    if (_shutdownTask is not null || ct.IsCancellationRequested)
+                    {
+                        break;
+                    }
+
+                    continue;
+                }
 
                 _logger.LogInformation(
                     "New Wyoming session {SessionId} from {RemoteEndPoint}",
                     session.Id,
-                    client.Client.RemoteEndPoint);
-
-                _ = RunSessionAsync(session, ct);
+                    remoteEndPoint);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
+                client?.Dispose();
+                break;
+            }
+            catch (Exception ex) when (
+                ex is ObjectDisposedException or SocketException
+                && (_shutdownTask is not null || ct.IsCancellationRequested))
+            {
+                client?.Dispose();
                 break;
             }
             catch (Exception ex)
             {
+                client?.Dispose();
                 _logger.LogError(ex, "Error accepting Wyoming connection");
 
                 try
@@ -121,40 +330,124 @@ public sealed class WyomingServer : IHostedService, IDisposable
         }
     }
 
+    private void TrackSession(
+        WyomingSession session,
+        string remoteEndPoint,
+        CancellationToken ct)
+    {
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? trackedTask = null;
+
+        async Task RunAsync()
+        {
+            await start.Task.ConfigureAwait(false);
+
+            try
+            {
+                await session.RunAsync(ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (ObjectDisposedException) when (ct.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                LogSessionFailure(_logger, session.Id, ex);
+            }
+            finally
+            {
+                if (_sessions.TryRemove(trackedTask!, out var ownedSession))
+                {
+                    DisposeSession(ownedSession);
+                }
+
+                _eventBus.Publish(new SessionDisconnectedEvent { SessionId = session.Id });
+            }
+        }
+
+        trackedTask = RunAsync();
+        if (!_sessions.TryAdd(trackedTask, session))
+        {
+            throw new InvalidOperationException("Unable to track Wyoming session.");
+        }
+
+        _eventBus.Publish(new SessionConnectedEvent
+        {
+            SessionId = session.Id,
+            RemoteEndPoint = remoteEndPoint,
+        });
+        start.SetResult();
+    }
+
     private WyomingSession CreateSession(TcpClient client)
     {
         var logger = _serviceProvider.GetRequiredService<ILogger<WyomingSession>>();
         return new WyomingSession(client, _serviceProvider, logger, _options, _eventBus, _sttConcurrency);
     }
 
-    private async Task RunSessionAsync(WyomingSession session, CancellationToken ct)
+    private void DisposeSession(WyomingSession session)
     {
         try
         {
-            await session.RunAsync(ct).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            // Server shutting down — not an error
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Wyoming session {SessionId} terminated with error", session.Id);
-        }
-        finally
-        {
-            _sessions.TryRemove(session.Id, out _);
-            _eventBus.Publish(new SessionDisconnectedEvent { SessionId = session.Id });
             session.Dispose();
             _logger.LogInformation("Wyoming session {SessionId} ended", session.Id);
         }
+        catch (Exception ex)
+        {
+            LogSessionCleanupFailure(_logger, session.Id, ex);
+        }
+    }
+
+    private static TimeSpan Remaining(long startedAt, TimeSpan deadline)
+    {
+        var remaining = deadline - Stopwatch.GetElapsedTime(startedAt);
+        return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
     }
 
     public void Dispose()
     {
-        _cts?.Dispose();
-        _listener?.Stop();
-        _sttConcurrency.Dispose();
-        _ttsConcurrency.Dispose();
+        lock (_lifecycleLock)
+        {
+            _shutdownTask ??= StopCoreAsync();
+        }
     }
+
+    [LoggerMessage(
+        EventId = 18001,
+        Level = LogLevel.Warning,
+        Message = "Wyoming session {SessionId} terminated with an unexpected error")]
+    private static partial void LogSessionFailure(
+        ILogger logger,
+        string sessionId,
+        Exception exception);
+
+    [LoggerMessage(
+        EventId = 18002,
+        Level = LogLevel.Warning,
+        Message = "Cleanup failed for Wyoming session {SessionId}")]
+    private static partial void LogSessionCleanupFailure(
+        ILogger logger,
+        string sessionId,
+        Exception exception);
+
+    [LoggerMessage(
+        EventId = 18003,
+        Level = LogLevel.Warning,
+        Message = "Wyoming shutdown reached its {Timeout} timeout; forcing cleanup of {Count} sessions")]
+    private static partial void LogDrainTimeout(
+        ILogger logger,
+        TimeSpan timeout,
+        int count);
+
+    [LoggerMessage(
+        EventId = 18004,
+        Level = LogLevel.Error,
+        Message = "Wyoming shutdown failed; forcing cleanup")]
+    private static partial void LogShutdownFailure(
+        ILogger logger,
+        Exception exception);
 }

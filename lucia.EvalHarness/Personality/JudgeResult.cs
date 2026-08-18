@@ -33,4 +33,11 @@ public sealed class JudgeResult
         PersonalityScore.HasValue && MeaningScore.HasValue
             ? (PersonalityScore.Value + MeaningScore.Value) / 2.0
             : null;
+
+    /// <summary>
+    /// True when the judge call exceeded its configured deadline. Distinguishes a
+    /// timeout from a genuine zero-score judgement so reports don't conflate the two.
+    /// </summary>
+    [JsonIgnore]
+    public bool TimedOut { get; set; }
 }

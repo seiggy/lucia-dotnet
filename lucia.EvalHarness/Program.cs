@@ -21,6 +21,7 @@ var configBuilder = new ConfigurationBuilder()
 var configRoot = configBuilder.Build();
 var config = new HarnessConfiguration();
 configRoot.GetSection("Harness").Bind(config);
+config.Validate();
 
 // ─── Initialize Services ─────────────────────────────────────────────
 using var httpClient = new HttpClient();
@@ -177,7 +178,9 @@ if (evalType == EvalTypeSelector.PersonalityEval)
         judgeChatClient,
         judgeModelName,
         scenarios,
-        personalityProfiles);
+        personalityProfiles,
+        config.AgentTimeout,
+        config.JudgeTimeout);
 
     lucia.EvalHarness.Personality.PersonalityEvalDisplay.RenderReport(reports);
 
@@ -326,7 +329,7 @@ if (judgeChatClient is not null &&
     AnsiConsole.Write(new Rule("[bold]Prompt Optimization[/]").LeftJustified());
     AnsiConsole.WriteLine();
 
-    var optimizer = new lucia.EvalHarness.Optimization.PromptOptimizer(judgeChatClient);
+    var optimizer = new lucia.EvalHarness.Optimization.PromptOptimizer(judgeChatClient, config.JudgeTimeout);
     var optimizationResults = new List<lucia.EvalHarness.Optimization.PromptOptimizationResult>();
 
     // Find the best-performing model's results as baseline

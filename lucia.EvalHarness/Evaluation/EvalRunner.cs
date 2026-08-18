@@ -6,6 +6,7 @@ using AgentEval.Models;
 using Azure;
 using lucia.Agents.Abstractions;
 using lucia.EvalHarness.Configuration;
+using lucia.EvalHarness.Infrastructure;
 using lucia.EvalHarness.Providers;
 using lucia.HomeAssistant.Services;
 using Microsoft.Extensions.AI;
@@ -23,14 +24,17 @@ public sealed class EvalRunner
 {
     private readonly HarnessConfiguration _config;
     private readonly IChatClient? _judgeChatClient;
+    private readonly TimeProvider _timeProvider;
     private readonly PerformanceCollector _perfCollector = new();
 
     public EvalRunner(
         HarnessConfiguration config,
-        IChatClient? judgeChatClient)
+        IChatClient? judgeChatClient,
+        TimeProvider? timeProvider = null)
     {
         _config = config;
         _judgeChatClient = judgeChatClient;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     internal Func<TestCase, int, CancellationToken,
@@ -95,7 +99,13 @@ public sealed class EvalRunner
                 else
                 {
                     var measured = await _perfCollector.MeasureAsync(async () =>
-                        await harness.RunEvaluationAsync(evaluableAgent, tc, options, ct), ct);
+                        await LlmDeadline.RunAsync(
+                            token => harness.RunEvaluationAsync(evaluableAgent, tc, options, token),
+                            _config.AgentTimeout,
+                            _timeProvider,
+                            ct,
+                            $"Agent '{agentInstance.AgentName}' on model '{modelName}' exceeded the {_config.AgentTimeoutSeconds}s deadline for test case '{tc.Name ?? $"test_{i}"}'."),
+                        ct);
                     var evalResult = measured.Result;
                     perf = measured.Perf;
                     agentOutput = evalResult.ActualOutput;
@@ -123,6 +133,7 @@ public sealed class EvalRunner
                     Passed = false,
                     Score = null,
                     Latency = TimeSpan.Zero,
+                    TimedOut = exception is OperationCanceledException or TimeoutException,
                     FailureReason = exception is OperationCanceledException or TimeoutException
                         ? "Agent provider request timed out."
                         : "Agent provider request failed.",
@@ -168,7 +179,12 @@ public sealed class EvalRunner
             {
                 try
                 {
-                    var judgeResult = await judgeMetric.EvaluateAsync(context, ct);
+                    var judgeResult = await LlmDeadline.RunAsync(
+                        token => judgeMetric.EvaluateAsync(context, token),
+                        _config.JudgeTimeout,
+                        _timeProvider,
+                        ct,
+                        $"Judge metric 'llm_task_completion' exceeded the {_config.JudgeTimeoutSeconds}s deadline for test case '{tc.Name ?? $"test_{i}"}'.");
                     completionScore = judgeResult.Score;
                     metricScores["task_completion"].Add(judgeResult.Score);
                 }
@@ -413,7 +429,11 @@ public sealed class EvalRunner
 
                 // Run the agent
                 var (evalResult, perf) = await _perfCollector.MeasureAsync(async () =>
-                    await harness.RunEvaluationAsync(evaluableAgent, testCase, options, ct), ct);
+                    await LlmDeadline.RunAsync(
+                        token => harness.RunEvaluationAsync(evaluableAgent, testCase, options, token),
+                        _config.AgentTimeout, _timeProvider, ct,
+                        $"Agent '{agentInstance.AgentName}' on model '{modelName}' exceeded the {_config.AgentTimeoutSeconds}s deadline for scenario '{scenario.Id}'."),
+                    ct);
 
                 perfSnapshots.Add(perf);
 
@@ -447,6 +467,7 @@ public sealed class EvalRunner
                     Passed = false,
                     Score = null,
                     Latency = TimeSpan.Zero,
+                    TimedOut = exception is OperationCanceledException or TimeoutException,
                     FailureReason = exception is OperationCanceledException or TimeoutException
                         ? "Provider request timed out."
                         : "Provider request failed.",

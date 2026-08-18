@@ -133,25 +133,6 @@ public sealed class SqliteApiKeyService : IApiKeyService
         if (entry.ExpiresAt.HasValue && entry.ExpiresAt.Value < DateTime.UtcNow)
             return null;
 
-        // Fire-and-forget last-used update (intentionally uses CancellationToken.None
-        // so the update completes even if the request ends)
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                using var conn = _connectionFactory.CreateConnection();
-                using var updateCmd = conn.CreateCommand();
-                updateCmd.CommandText = "UPDATE api_keys SET last_used_at = @lastUsedAt WHERE id = @id;";
-                updateCmd.Parameters.AddWithValue("@lastUsedAt", DateTime.UtcNow.ToString("O"));
-                updateCmd.Parameters.AddWithValue("@id", entry.Id);
-                await updateCmd.ExecuteNonQueryAsync(CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to update LastUsedAt for API key '{KeyId}'", entry.Id);
-            }
-        });
-
         return entry;
     }
 

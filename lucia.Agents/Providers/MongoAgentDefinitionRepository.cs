@@ -2,6 +2,7 @@ using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
 using lucia.Agents.Configuration.UserConfiguration;
 using lucia.Agents.Mcp;
+using MongoDB.Bson;
 using MongoDB.Driver;
 
 namespace lucia.Agents.Providers;
@@ -94,12 +95,45 @@ public sealed class MongoAgentDefinitionRepository : IAgentDefinitionRepository
 
     public async Task UpsertAgentDefinitionAsync(AgentDefinition definition, CancellationToken ct = default)
     {
-        definition.UpdatedAt = DateTime.UtcNow;
-        await _agentDefinitions.ReplaceOneAsync(
+        var fields = definition.ToBsonDocument();
+        fields.Remove("_id");
+        fields.Remove(nameof(AgentDefinition.UpdatedAt));
+
+        var setFields = new BsonDocument(fields.Select(field =>
+            new BsonElement(field.Name, new BsonDocument("$literal", field.Value))));
+        setFields[nameof(AgentDefinition.UpdatedAt)] = new BsonDocument("$max", new BsonArray
+        {
+            "$$NOW",
+            new BsonDocument("$dateAdd", new BsonDocument
+            {
+                {
+                    "startDate",
+                    new BsonDocument("$ifNull", new BsonArray
+                    {
+                        $"${nameof(AgentDefinition.UpdatedAt)}",
+                        new BsonDateTime(DateTime.UnixEpoch),
+                    })
+                },
+                { "unit", "millisecond" },
+                { "amount", 1 },
+            }),
+        });
+
+        PipelineDefinition<AgentDefinition, AgentDefinition> pipeline = new BsonDocument[]
+        {
+            new BsonDocument("$set", setFields),
+        };
+        var update = new PipelineUpdateDefinition<AgentDefinition>(pipeline);
+        var persisted = await _agentDefinitions.FindOneAndUpdateAsync(
             a => a.Id == definition.Id,
-            definition,
-            new ReplaceOptions { IsUpsert = true },
+            update,
+            new FindOneAndUpdateOptions<AgentDefinition>
+            {
+                IsUpsert = true,
+                ReturnDocument = ReturnDocument.After,
+            },
             ct).ConfigureAwait(false);
+        definition.UpdatedAt = persisted.UpdatedAt;
     }
 
     public async Task DeleteAgentDefinitionAsync(string id, CancellationToken ct = default)

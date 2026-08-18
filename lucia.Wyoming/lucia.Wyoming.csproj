@@ -21,11 +21,17 @@
     <PackageReference Include="org.k2fsa.sherpa.onnx" />
   </ItemGroup>
 
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
-    <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Condition="'$(ExcludeSpeech)' != 'true'" />
+  <!-- DirectML: only when an explicit target RID starts with 'win' (win-x64, win-arm64, …).
+       $(RuntimeIdentifier) is empty during NuGet's base restore pass and for no-RID builds, so
+       the condition evaluates false — CPU native from sherpa-onnx is the safe default in both cases. -->
+  <ItemGroup Condition="'$(ExcludeSpeech)' != 'true' and $(RuntimeIdentifier.StartsWith('win'))">
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(ExcludeSpeech)' != 'true' and '$(CpuOnly)' != 'true' and $([MSBuild]::IsOSPlatform('Linux'))">
+  <!-- Gpu.Linux: only when the explicit target RID is exactly linux-x64 (Decision 27/28).
+       Absent for no-RID builds and linux-arm64; Jetson overlays matching 1.23.2 native CUDA into
+       runtimes/linux-arm64/native/ at Docker build time (Decision 28 Track B). -->
+  <ItemGroup Condition="'$(ExcludeSpeech)' != 'true' and '$(CpuOnly)' != 'true' and '$(RuntimeIdentifier)' == 'linux-x64'">
     <PackageReference Include="Microsoft.ML.OnnxRuntime.Gpu.Linux" />
   </ItemGroup>
 

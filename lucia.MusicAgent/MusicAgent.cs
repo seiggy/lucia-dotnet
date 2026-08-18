@@ -32,6 +32,7 @@ public class MusicAgent : ILuciaAgent, ISkillConfigProvider
     private readonly IServer _server;
     private volatile AIAgent _aiAgent;
     private DateTime? _lastConfigUpdate;
+    private readonly SemaphoreSlim _reloadGate = new(1, 1);
 
     /// <summary>
     /// The system instructions used by this agent.
@@ -196,7 +197,6 @@ public class MusicAgent : ILuciaAgent, ISkillConfigProvider
 
         activity?.SetStatus(ActivityStatusCode.Ok);
         _logger.LogInformation("MusicAgent initialized successfully");
-        _lastConfigUpdate = DateTime.UtcNow;
     }
 
     /// <inheritdoc />
@@ -207,15 +207,24 @@ public class MusicAgent : ILuciaAgent, ISkillConfigProvider
 
     private async Task ApplyDefinitionAsync(CancellationToken cancellationToken)
     {
-        var definition = await _definitionRepository.GetAgentDefinitionAsync(AgentId, cancellationToken).ConfigureAwait(false);
-        var newConnectionName = definition?.ModelConnectionName;
-
-        if (_lastConfigUpdate == null || _lastConfigUpdate < definition?.UpdatedAt)
+        await _reloadGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            var client = await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
-            _aiAgent = BuildAgent(client);
-            _logger.LogInformation("MusicAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
-            _lastConfigUpdate = DateTime.UtcNow;
+            var definition = await _definitionRepository.GetAgentDefinitionAsync(AgentId, cancellationToken).ConfigureAwait(false);
+            var newConnectionName = definition?.ModelConnectionName;
+
+            if (_aiAgent is null
+                || definition is not null && (_lastConfigUpdate is null || _lastConfigUpdate < definition.UpdatedAt))
+            {
+                var client = await _clientResolver.ResolveAsync(newConnectionName, cancellationToken).ConfigureAwait(false);
+                _aiAgent = BuildAgent(client);
+                _logger.LogInformation("MusicAgent: using model provider '{Provider}'", newConnectionName ?? "default-chat");
+                _lastConfigUpdate = definition?.UpdatedAt;
+            }
+        }
+        finally
+        {
+            _reloadGate.Release();
         }
     }
 

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net.Http.Headers;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
@@ -24,6 +25,17 @@ public static class Extensions
         builder.ConfigureOpenTelemetry();
 
         builder.AddDefaultHealthChecks();
+
+        builder.Services.AddOutputCache(options =>
+        {
+            // Named policy applied only to /health and /alive — not a base policy, so no other
+            // eligible GET endpoints are cached. The default policy backing this named policy only
+            // stores 200 responses; appending HealthCheckOutputCachePolicy also caches the 503 a
+            // degraded/unhealthy health report returns, so degraded-state polling still hits the
+            // cache instead of re-running expensive checks.
+            options.AddPolicy("health-checks", policy =>
+                policy.Expire(TimeSpan.FromSeconds(10)).AddPolicy<HealthCheckOutputCachePolicy>());
+        });
 
         builder.Services.AddServiceDiscovery();
 
@@ -70,6 +82,7 @@ public static class Extensions
                 metrics.AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
                     .AddRuntimeInstrumentation()
+                    .AddProcessInstrumentation()
                     .AddMeter("lucia.TraceCapture")
                     .AddMeter("lucia.Skills.LightControl")
                     .AddMeter("lucia.Skills.MusicPlayback")
@@ -149,14 +162,18 @@ public static class Extensions
 
     public static WebApplication MapDefaultEndpoints(this WebApplication app)
     {
+        // Apply output cache middleware before mapping health endpoints
+        app.UseOutputCache();
+
         // All health checks must pass for app to be considered ready to accept traffic after starting
-        app.MapHealthChecks(HealthEndpointPath);
+        app.MapHealthChecks(HealthEndpointPath)
+            .CacheOutput("health-checks");
 
         // Only health checks tagged with the "live" tag must pass for app to be considered alive
         app.MapHealthChecks(AlivenessEndpointPath, new HealthCheckOptions
         {
             Predicate = r => r.Tags.Contains("live")
-        });
+        }).CacheOutput("health-checks");
 
         return app;
     }
