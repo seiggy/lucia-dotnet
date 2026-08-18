@@ -137,7 +137,7 @@ public sealed class EvalRunnerAvailabilityTests
     [Fact]
     public async Task EvaluateRealAgentAsync_PartialProviderFailure_ExcludesUnavailableExecution()
     {
-        var runner = CreateRunner(null, (testCase, _, _) =>
+        var runner = CreateRunner(Responding("""{"score":100,"reasoning":"ok"}"""), (testCase, _, _) =>
             testCase.Name == "unavailable"
                 ? Task.FromException<(EvaluationContext, PerformanceSnapshot)>(
                     new HttpRequestException("provider unavailable"))
@@ -157,6 +157,8 @@ public sealed class EvalRunnerAvailabilityTests
         Assert.Equal(100, result.ToolSelectionScore);
         Assert.Equal(100, result.ToolSuccessScore);
         Assert.Equal(100, result.ToolEfficiencyScore);
+        Assert.Equal(100, result.TaskCompletionScore);
+        Assert.Equal(JudgeAvailability.Partial, result.TaskCompletionStatus);
         Assert.Equal(2, result.TestCaseResults.Count);
         Assert.Null(result.TestCaseResults[0].Score);
     }

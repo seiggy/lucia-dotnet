@@ -303,7 +303,7 @@ public sealed class EvalRunner
 
         if (unavailable.Count == 0)
         {
-            return null;
+            return availableCount < results.Count ? JudgeAvailability.Partial : null;
         }
 
         if (availableCount > 0 || unavailable.Count > 1)
