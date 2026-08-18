@@ -136,4 +136,33 @@ public sealed class SweepAvailabilityTests
 
         Assert.Equal("complete", Assert.IsType<SweepEntry>(winner).Profile.Name);
     }
+
+    [Fact]
+    public void SelectWinner_EntryWithIncompleteRun_DoesNotBeatCompleteEntry()
+    {
+        var incomplete = new SweepEntry
+        {
+            Profile = new ModelParameterProfile { Name = "incomplete" },
+            Results = [EvalResultFactory.Create(100), EvalResultFactory.Create(100)],
+            AllRunResults =
+            [
+                [EvalResultFactory.Create(100), EvalResultFactory.Create(100)],
+                [EvalResultFactory.Create(100)]
+            ]
+        };
+        var complete = new SweepEntry
+        {
+            Profile = new ModelParameterProfile { Name = "complete" },
+            Results = [EvalResultFactory.Create(80)],
+            AllRunResults =
+            [
+                [EvalResultFactory.Create(80)],
+                [EvalResultFactory.Create(80)]
+            ]
+        };
+
+        var winner = SweepRunAggregator.SelectWinner([incomplete, complete]);
+
+        Assert.Equal("complete", Assert.IsType<SweepEntry>(winner).Profile.Name);
+    }
 }

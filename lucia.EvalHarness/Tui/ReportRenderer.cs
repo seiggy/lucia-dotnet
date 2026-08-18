@@ -204,11 +204,11 @@ public static class ReportRenderer
                 table.AddRow(
                     Markup.Escape(m.ModelName),
                     passRateCell,
-                    ScoreCell(m.OverallScore),
-                    ScoreCell(m.ToolSelectionScore),
-                    ScoreCell(m.ToolSuccessScore),
-                    ScoreCell(m.ToolEfficiencyScore),
-                    ScoreCell(m.TaskCompletionScore),
+                    ScoreCell(m.OverallScore, m.OverallScoreStatus),
+                    ScoreCell(m.ToolSelectionScore, m.OverallScoreStatus),
+                    ScoreCell(m.ToolSuccessScore, m.OverallScoreStatus),
+                    ScoreCell(m.ToolEfficiencyScore, m.OverallScoreStatus),
+                    ScoreCell(m.TaskCompletionScore, m.TaskCompletionStatus),
                     FormatMs(m.Performance.RunCount > 0
                         ? m.Performance.MeanLatency.TotalMilliseconds
                         : null));
@@ -271,7 +271,7 @@ public static class ReportRenderer
         AnsiConsole.WriteLine();
     }
 
-    private static string ScoreCell(double? score)
+    private static string ScoreCell(double? score, string? status = null)
     {
         if (!score.HasValue)
             return "[dim]N/A[/]";
@@ -282,7 +282,8 @@ public static class ReportRenderer
             >= 60 => "yellow",
             _ => "red"
         };
-        return $"[{color}]{score.Value:F1}[/]";
+        var statusSuffix = status is null ? string.Empty : $" ({Markup.Escape(status)})";
+        return $"[{color}]{score.Value:F1}{statusSuffix}[/]";
     }
 
     private static string FormatMs(double? ms)

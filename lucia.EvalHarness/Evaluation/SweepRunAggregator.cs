@@ -63,8 +63,10 @@ public static class SweepRunAggregator
         entries
             .Where(entry =>
             {
+                var expectedResultCount = entry.AllRunResults.FirstOrDefault()?.Count ?? 0;
                 var results = entry.AllRunResults.SelectMany(run => run).ToList();
-                return results.Count > 0 &&
+                return expectedResultCount > 0 &&
+                    entry.AllRunResults.All(run => run.Count == expectedResultCount) &&
                     results.All(result =>
                         result.TestCaseCount > 0 &&
                         result.ScoredTestCaseCount == result.TestCaseCount) &&

@@ -13,6 +13,7 @@ public sealed class PersonalityAvailabilityTests
     [InlineData("""{"personalityScore":5,"personalityReason":"","meaningScore":5,"meaningReason":"y"}""")]
     [InlineData("""{"personalityScore":5,"personalityReason":"x","meaningScore":6,"meaningReason":"y"}""")]
     [InlineData("""{"personalityScore":5,"meaningScore":5}""")]
+    [InlineData("""[{"personalityScore":5,"personalityReason":"x","meaningScore":5,"meaningReason":"y"}]""")]
     [InlineData("not json")]
     public async Task EvaluateAsync_InvalidResponse_IsUnavailable(string response)
     {

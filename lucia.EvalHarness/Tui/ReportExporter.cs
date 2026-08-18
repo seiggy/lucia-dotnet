@@ -353,7 +353,7 @@ public static class ReportExporter
 
     private static string FormatScore(double? score, string? status) =>
         score.HasValue
-            ? score.Value.ToString("F1")
+            ? $"{score.Value:F1}{(status is null ? string.Empty : $" ({status})")}"
             : status is null ? "N/A" : $"N/A ({status})";
 
     private static double? Average(IEnumerable<double?> scores)

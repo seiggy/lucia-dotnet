@@ -357,15 +357,25 @@ public sealed class ReportAvailabilityTests
                         Latency = TimeSpan.FromMilliseconds(10),
                         JudgeStatus = JudgeAvailability.Partial
                     }
-                ]);
+                ],
+                overallStatus: JudgeAvailability.Partial);
             var htmlPath = HtmlReportGenerator.Generate(
                 CreateRun(result),
                 new GpuInfo("test"),
                 directory);
 
             var agentDetails = RenderHtmlPanel(htmlPath, directory, "renderAgents()", "#tab-agents");
+            var markdownPath = ReportExporter.Export(
+                CreateRun(result),
+                new GpuInfo("test"),
+                directory).Single(path => path.EndsWith(".md", StringComparison.Ordinal));
+            var markdown = File.ReadAllText(markdownPath);
+            var rendered = CaptureConsole(() => ReportRenderer.Render(CreateRun(result), new GpuInfo("test")));
 
             Assert.Contains("50.0 (partial)", agentDetails, StringComparison.Ordinal);
+            Assert.Contains("50.0 (partial)", markdown, StringComparison.Ordinal);
+            Assert.Contains("50.0", rendered, StringComparison.Ordinal);
+            Assert.Contains("partial", rendered, StringComparison.Ordinal);
         }
         finally
         {
@@ -403,7 +413,8 @@ public sealed class ReportAvailabilityTests
         int testCaseCount,
         IReadOnlyList<PerformanceSnapshot> snapshots,
         IReadOnlyList<TestCaseResult>? testCases = null,
-        ModelParameterProfile? parameterProfile = null) =>
+        ModelParameterProfile? parameterProfile = null,
+        string? overallStatus = null) =>
         new()
         {
             ModelName = modelName,
@@ -413,7 +424,7 @@ public sealed class ReportAvailabilityTests
             ToolEfficiencyScore = score,
             TaskCompletionScore = score,
             OverallScore = score,
-            OverallScoreStatus = score.HasValue ? null : JudgeAvailability.Unavailable,
+            OverallScoreStatus = score.HasValue ? overallStatus : JudgeAvailability.Unavailable,
             OverallScoreReason = score.HasValue ? null : JudgeAvailability.Reason(JudgeAvailability.Unavailable),
             TestCaseCount = testCaseCount,
             ScoredTestCaseCount = testCaseCount,

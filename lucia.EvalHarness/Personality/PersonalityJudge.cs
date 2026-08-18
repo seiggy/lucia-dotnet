@@ -131,9 +131,13 @@ public sealed class PersonalityJudge
     {
         // Extract JSON from potential markdown code fences or surrounding text
         var jsonStart = text.IndexOf('{');
+        var arrayStart = text.IndexOf('[');
         var jsonEnd = text.LastIndexOf('}');
 
-        if (jsonStart < 0 || jsonEnd < 0 || jsonEnd <= jsonStart)
+        if ((arrayStart >= 0 && (jsonStart < 0 || arrayStart < jsonStart)) ||
+            jsonStart < 0 ||
+            jsonEnd < 0 ||
+            jsonEnd <= jsonStart)
         {
             return Unavailable(JudgeAvailability.InvalidResponse);
         }
