@@ -56,6 +56,7 @@ public sealed class EvalRunnerAvailabilityTests
         Assert.Equal(expectedStatus, result.TaskCompletionStatus);
         Assert.DoesNotContain("secret", result.TaskCompletionReason, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(100, result.OverallScore);
+        Assert.Equal(JudgeAvailability.Partial, result.OverallScoreStatus);
         Assert.Equal(1, result.PassedCount);
     }
 
@@ -72,6 +73,7 @@ public sealed class EvalRunnerAvailabilityTests
         Assert.Null(result.TaskCompletionScore);
         Assert.Equal(JudgeAvailability.NotConfigured, result.TaskCompletionStatus);
         Assert.Equal(100, result.OverallScore);
+        Assert.Equal(JudgeAvailability.Partial, result.OverallScoreStatus);
     }
 
     [Fact]

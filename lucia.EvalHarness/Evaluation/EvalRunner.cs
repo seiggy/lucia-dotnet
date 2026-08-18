@@ -229,6 +229,16 @@ public sealed class EvalRunner
 
         var allMetricScores = metricScores.Values.SelectMany(values => values).ToList();
         var taskCompletionStatus = AggregateJudgeStatus(testCaseResults, metricScores["task_completion"].Count);
+        var scoredTestCaseCount = metricScores["tool_selection"].Count;
+        var hasUnavailableMetrics =
+            scoredTestCaseCount < testCaseResults.Count ||
+            metricScores.Values.Any(scores => scores.Count < scoredTestCaseCount);
+        var overallScoreStatus = allMetricScores.Count switch
+        {
+            0 => JudgeAvailability.Unavailable,
+            _ when hasUnavailableMetrics => JudgeAvailability.Partial,
+            _ => null
+        };
 
         return new ModelEvalResult
         {
@@ -243,12 +253,12 @@ public sealed class EvalRunner
                 ? null
                 : JudgeAvailability.Reason(taskCompletionStatus),
             OverallScore = allMetricScores.Count > 0 ? allMetricScores.Average() : null,
-            OverallScoreStatus = allMetricScores.Count > 0 ? null : JudgeAvailability.Unavailable,
-            OverallScoreReason = allMetricScores.Count > 0
+            OverallScoreStatus = overallScoreStatus,
+            OverallScoreReason = overallScoreStatus is null
                 ? null
-                : JudgeAvailability.Reason(JudgeAvailability.Unavailable),
+                : JudgeAvailability.Reason(overallScoreStatus),
             TestCaseCount = testCaseResults.Count,
-            ScoredTestCaseCount = metricScores["tool_selection"].Count,
+            ScoredTestCaseCount = scoredTestCaseCount,
             PassedCount = testCaseResults.Count(r => r.Passed),
             Performance = perfSummary,
             TestCaseResults = testCaseResults,
