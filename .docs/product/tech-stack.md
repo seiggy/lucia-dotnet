@@ -69,6 +69,9 @@
 - **Tracing:** OpenTelemetry
 - **Metrics:** OpenTelemetry Metrics
 - **Logging:** Microsoft.Extensions.Logging
+- **Remote ingestion:** OpenTelemetry Collector Contrib 0.139.0 behind Caddy 2.10.2
+- **Remote backends:** Grafana 12.2.0, Tempo 2.8.2, Prometheus 3.7.1, and Loki 3.6.2
+- **Deployment rationale:** The remote stack keeps telemetry storage and analysis off the Jetson while bounded persistent Collector queues absorb short backend outages.
 
 ## Home Assistant Integration
 

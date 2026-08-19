@@ -1,0 +1,187 @@
+name: lucia-observability
+
+services:
+  init-volumes:
+    image: alpine:3.22.1
+    restart: "no"
+    user: "0:0"
+    command: ["sh", "-c", "chown -R 10001:10001 /collector /loki"]
+    volumes:
+      - collector-queue:/collector
+      - loki-data:/loki
+
+  otlp-gateway:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    environment:
+      OTLP_USERNAME: ${OTLP_USERNAME:?Set OTLP_USERNAME}
+      OTLP_PASSWORD_HASH: ${OTLP_PASSWORD_HASH:?Set OTLP_PASSWORD_HASH}
+    ports:
+      - "${MANAGEMENT_BIND_ADDRESS:?Set MANAGEMENT_BIND_ADDRESS}:3000:3000"
+      - "${MANAGEMENT_BIND_ADDRESS:?Set MANAGEMENT_BIND_ADDRESS}:4317:443"
+      - "${MANAGEMENT_BIND_ADDRESS:?Set MANAGEMENT_BIND_ADDRESS}:4318:443"
+    volumes:
+      - ./config/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./secrets/tls.crt:/run/secrets/tls.crt:ro
+      - ./secrets/tls.key:/run/secrets/tls.key:ro
+    depends_on:
+      otel-collector:
+        condition: service_healthy
+    networks:
+      - ingress
+    healthcheck:
+      test: ["CMD", "wget", "--no-check-certificate", "--quiet", "--spider", "https://localhost/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.139.0
+    restart: unless-stopped
+    mem_limit: 512m
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./config/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - collector-queue:/var/lib/otelcol
+    networks:
+      - ingress
+      - telemetry
+    depends_on:
+      init-volumes:
+        condition: service_completed_successfully
+    expose:
+      - "4317"
+      - "4318"
+      - "13133"
+      - "8888"
+    healthcheck:
+      test: ["CMD", "/otelcol-contrib", "validate", "--config=/etc/otelcol-contrib/config.yaml"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  grafana:
+    image: grafana/grafana:12.2.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?Set GRAFANA_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./config/grafana/provisioning/datasources/datasources.yaml:/etc/grafana/provisioning/datasources/lucia.yaml:ro
+    networks:
+      - ingress
+      - telemetry
+    depends_on:
+      tempo:
+        condition: service_healthy
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --spider http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  tempo:
+    image: grafana/tempo:2.8.2
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/config.yaml"]
+    volumes:
+      - ./config/tempo.yaml:/etc/tempo/config.yaml:ro
+      - tempo-data:/var/tempo
+    networks:
+      - telemetry
+    expose:
+      - "3200"
+      - "4317"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:3200/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  prometheus:
+    image: prom/prometheus:v3.7.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yaml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-40GB}
+      - --web.enable-otlp-receiver
+    volumes:
+      - ./config/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - telemetry
+    expose:
+      - "9090"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --spider http://localhost:9090/-/ready || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  loki:
+    image: grafana/loki:3.6.2
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./config/loki.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/var/loki
+    networks:
+      - telemetry
+    depends_on:
+      init-volumes:
+        condition: service_completed_successfully
+    expose:
+      - "3100"
+    healthcheck:
+      test: ["CMD", "/usr/bin/loki", "-config.file=/etc/loki/config.yaml", "-verify-config=true"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  health-monitor:
+    image: alpine:3.22.1
+    restart: unless-stopped
+    command: ["tail", "-f", "/dev/null"]
+    volumes:
+      - ./scripts/health-check.sh:/usr/local/bin/health-check.sh:ro
+      - collector-queue:/data/collector:ro
+      - loki-data:/data/loki:ro
+      - prometheus-data:/data/prometheus:ro
+      - tempo-data:/data/tempo:ro
+    networks:
+      - telemetry
+    depends_on:
+      grafana:
+        condition: service_healthy
+      otel-collector:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/bin/sh", "/usr/local/bin/health-check.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+networks:
+  ingress:
+  telemetry:
+    internal: true
+
+volumes:
+  collector-queue:
+  grafana-data:
+  loki-data:
+  prometheus-data:
+  tempo-data:

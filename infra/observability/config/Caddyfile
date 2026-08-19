@@ -1,0 +1,26 @@
+{
+	admin off
+}
+
+:443 {
+	tls /run/secrets/tls.crt /run/secrets/tls.key
+
+	handle /health {
+		reverse_proxy http://otel-collector:13133
+	}
+
+	handle {
+		basic_auth {
+			{$OTLP_USERNAME} {$OTLP_PASSWORD_HASH}
+		}
+
+		@grpc protocol grpc
+		reverse_proxy @grpc h2c://otel-collector:4317
+		reverse_proxy http://otel-collector:4318
+	}
+}
+
+:3000 {
+	tls /run/secrets/tls.crt /run/secrets/tls.key
+	reverse_proxy http://grafana:3000
+}

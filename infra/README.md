@@ -38,6 +38,10 @@ dotnet run --project lucia.AppHost
 
 Use direct host startup (`dotnet run --project lucia.AgentHost`) only for targeted host-only debugging.
 
+### [Remote observability](./observability/README.md)
+
+Run the authenticated OpenTelemetry Collector, Grafana, Tempo, Prometheus, and Loki stack on an Ubuntu management host. This keeps telemetry storage and queries off the Jetson while retaining bounded queues during short backend outages.
+
 ### 🐳 [Docker Compose Deployment](./docker/README.md) — **Recommended for Most Users**
 
 Deploy Lucia on home servers, NAS devices, or single machines using Docker Compose. All agents run in-process (standalone mode). A built-in setup wizard handles all configuration on first launch — no `.env` file required.
