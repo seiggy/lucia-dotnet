@@ -8,5 +8,7 @@
 .githooks/** text eol=lf
 # Shell scripts (invoked by the hooks and directly) must stay LF too
 *.sh text eol=lf
+# Dockerfile heredocs can create executable shell scripts, so their shebangs must stay LF.
+Dockerfile* text eol=lf
 infra/observability/** text eol=lf
 .squad/gate/Approve-Branch.ps1 text eol=crlf

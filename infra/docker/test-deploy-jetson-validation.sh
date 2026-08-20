@@ -19,6 +19,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_SCRIPT="$SCRIPT_DIR/deploy-jetson.sh"
 VOICE_COMPOSE="$SCRIPT_DIR/docker-compose.jetson-voice.yml"
+COLLECTOR_CONFIG="$SCRIPT_DIR/otel-collector-jetson.yaml"
 
 PASS=0; FAIL=0
 pass() { echo "PASS: $1"; PASS=$((PASS+1)); }
@@ -33,6 +34,7 @@ HEX64="166a5b1086fafa89c62481618befde8960d58b391d5a44d2134547c344747978"
 VALID_ID="sha256:${HEX64}"
 VALID_DIGEST="lucia-agenthost-voice@sha256:${HEX64}"
 PRIOR_ID="sha256:$(printf 'a%.0s' {1..64})"
+export OTEL_EXPORTER_OTLP_HEADERS="Authorization=Basic%20test"
 
 # --- scratch (repo-local, never /tmp) ---
 WORK="$(mktemp -d "${SCRIPT_DIR}/.deploytest.XXXXXX")"
@@ -43,7 +45,15 @@ STUBBIN="$WORK/bin"; mkdir -p "$STUBBIN"
 # --- capabilities ---
 HAVE_DOCKER=0; command -v docker >/dev/null 2>&1 && HAVE_DOCKER=1
 REAL_DOCKER=""; [[ $HAVE_DOCKER -eq 1 ]] && REAL_DOCKER="$(command -v docker)"
-HAVE_DOTNET=0; command -v dotnet >/dev/null 2>&1 && HAVE_DOTNET=1
+HAVE_DOTNET=0
+DOTNET_CMD=""
+if command -v dotnet >/dev/null 2>&1; then
+  HAVE_DOTNET=1
+  DOTNET_CMD="$(command -v dotnet)"
+elif [[ -x "$HOME/.dotnet/dotnet" ]]; then
+  HAVE_DOTNET=1
+  DOTNET_CMD="$HOME/.dotnet/dotnet"
+fi
 
 # --- docker inventory snapshot (leak guard) ---
 inv() { # c|v|n
@@ -79,6 +89,21 @@ case "${1:-}" in
     elif [[ "$argv" == *"State.Health"* ]]; then printf 'healthy\n'; fi
     exit 0 ;;
   exec)
+    if [[ "$argv" == *"lucia-postgres-exporter:9187/metrics"* ]]; then
+      trace "TELEMETRY_PROBE postgres"
+      [[ "${STUB_TELEMETRY_FAIL:-}" == "postgres" ]] && printf 'pg_up 0\n' || printf 'pg_up 1\n'
+      exit 0
+    fi
+    if [[ "$argv" == *"lucia-redis-exporter:9121/metrics"* ]]; then
+      trace "TELEMETRY_PROBE redis"
+      [[ "${STUB_TELEMETRY_FAIL:-}" == "redis" ]] && printf 'redis_up 0\n' || printf 'redis_up 1\n'
+      exit 0
+    fi
+    if [[ "$argv" == *"lucia-telemetry:13133"* ]]; then
+      trace "TELEMETRY_PROBE collector"
+      [[ "${STUB_TELEMETRY_FAIL:-}" == "collector" ]] && exit 1 || printf '{}\n'
+      exit 0
+    fi
     if [[ "$argv" == *psql* && "$argv" == *pg_database* ]]; then
       db="$(printf '%s' "$argv" | sed -n "s/.*datname='\([A-Za-z0-9_]*\)'.*/\1/p")"
       case " ${STUB_EXISTING_DBS:-} " in *" $db "*) printf ' 1\n' ;; *) : ;; esac
@@ -278,14 +303,108 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+echo "== Compose keeps Jetson telemetry internal and host-correlated =="
+if [[ $HAVE_DOCKER -eq 1 ]]; then
+  TELEMETRY_RENDER="$(
+    LUCIA_IMAGE="$VALID_ID" \
+    POSTGRES_PASSWORD=pw \
+    CS_LUCIACONFIG='Host=lucia-postgres;Database=luciaconfig' \
+    CS_LUCIATASKS='Host=lucia-postgres;Database=luciatasks' \
+    CS_LUCIATRACES='Host=lucia-postgres;Database=luciatraces' \
+    OTEL_EXPORTER_OTLP_ENDPOINT='https://telemetry.example.test' \
+    OTEL_EXPORTER_OTLP_HEADERS='Authorization=Basic%20test' \
+    OTEL_EXPORTER_OTLP_AUTHORIZATION='Basic test' \
+    docker compose -f "$VOICE_COMPOSE" config 2>/dev/null
+  )"
+
+  service_block() {
+    local service="$1"
+    printf '%s\n' "$TELEMETRY_RENDER" | awk -v header="  ${service}:" '
+      $0 == header { inside=1; next }
+      inside && /^  [^ ]/ { exit }
+      inside { print }
+    '
+  }
+
+  telemetry_ok=1
+  for service in lucia-postgres-exporter lucia-redis-exporter lucia-telemetry; do
+    block="$(service_block "$service")"
+    [[ -n "$block" ]] || telemetry_ok=0
+    printf '%s\n' "$block" | grep -q '^    ports:' && telemetry_ok=0
+  done
+
+  collector_block="$(service_block lucia-telemetry)"
+  printf '%s\n' "$collector_block" | grep -q '^      JETSON_DEVICE_ID: orin-voice$' || telemetry_ok=0
+  printf '%s\n' "$collector_block" | grep -q '^      JETSON_HOST_NAME: orin-voice$' || telemetry_ok=0
+  printf '%s\n' "$collector_block" | grep -q '^        source: /$' || telemetry_ok=0
+  printf '%s\n' "$collector_block" | grep -q '^        target: /hostfs$' || telemetry_ok=0
+  printf '%s\n' "$collector_block" | grep -q '^        read_only: true$' || telemetry_ok=0
+
+  if [[ $telemetry_ok -eq 1 ]]; then
+    pass "telemetry services render without host ports and share the Jetson identity"
+  else
+    fail "Jetson telemetry Compose contract"
+  fi
+else
+  skip "Jetson telemetry Compose contract (docker required)"
+fi
+
+metric_identity_ok=1
+for attribute in device.id host.name deployment.environment.name service.namespace; do
+  grep -qF "set(attributes[\"$attribute\"], resource.attributes[\"$attribute\"])" "$COLLECTOR_CONFIG" || metric_identity_ok=0
+done
+grep -qF 'processors: [resourcedetection/system, resource/device, transform/metric_identity, batch]' "$COLLECTOR_CONFIG" || metric_identity_ok=0
+if [[ $metric_identity_ok -eq 1 ]]; then
+  pass "Collector projects shared Jetson identity onto every metric"
+else
+  fail "Collector metric identity projection"
+fi
+
+AUTH_VALUE="$(OTEL_EXPORTER_OTLP_HEADERS='Authorization=Basic%20dGVzdDp0ZXN0==' \
+  PATH="$STUBBIN:$PATH" bash -c '
+    _script="$1"; set --
+    source "$_script"
+    _build_otel_vars
+    printf "%s" "$OTEL_EXPORTER_OTLP_AUTHORIZATION"
+  ' _ "$DEPLOY_SCRIPT" 2>/dev/null || true)"
+check "deploy converts the encoded OTLP header for the Collector" "$AUTH_VALUE" "Basic dGVzdDp0ZXN0=="
+
+# ---------------------------------------------------------------------------
 echo "== Secret non-disclosure (real dry-run output) =="
 SENTINEL="RIPLEY_SENTINEL_$$_$RANDOM"
+OTEL_SENTINEL="Authorization=Basic%20OTEL_SENTINEL_$$_$RANDOM"
 DRY_OUT="$(PATH="$STUBBIN:$PATH" REAL_DOCKER="$REAL_DOCKER" POSTGRES_PASSWORD="$SENTINEL" \
+  OTEL_EXPORTER_OTLP_HEADERS="$OTEL_SENTINEL" \
   bash "$DEPLOY_SCRIPT" --image "$VALID_ID" --dry-run 2>&1 || true)"
 if printf '%s' "$DRY_OUT" | grep -qF "$SENTINEL"; then
   fail "dry-run leaked the real password into output"
 else
   pass "dry-run never prints the real password (CS_* + POSTGRES_PASSWORD redacted)"
+fi
+if printf '%s' "$DRY_OUT" | grep -qF "$OTEL_SENTINEL"; then
+  fail "dry-run leaked the real OTLP authorization header into output"
+elif printf '%s' "$DRY_OUT" | grep -qF "Authorization=Basic%20REDACTED"; then
+  pass "dry-run renders telemetry config with a redacted authorization header"
+else
+  fail "dry-run did not render the redacted OTLP authorization header"
+fi
+
+ENV_RUN_DIR="$(prep_rundir)"
+DASHBOARD_SENTINEL="lk_DASHBOARD_SENTINEL_$$_$RANDOM"
+cat > "$ENV_RUN_DIR/.env" <<ENV
+POSTGRES_PASSWORD=private-postgres-password
+OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic%20private-otel-header
+DASHBOARD_API_KEY=$DASHBOARD_SENTINEL
+ENV
+ENV_DRY_OUT="$(cd "$WORK" && env -u POSTGRES_PASSWORD -u OTEL_EXPORTER_OTLP_HEADERS -u DASHBOARD_API_KEY \
+  PATH="$STUBBIN:$PATH" REAL_DOCKER="$REAL_DOCKER" \
+  bash "$ENV_RUN_DIR/deploy-jetson.sh" --image "$VALID_ID" --dry-run 2>&1 || true)"
+if printf '%s' "$ENV_DRY_OUT" | grep -qF "$DASHBOARD_SENTINEL"; then
+  fail "dry-run leaked DASHBOARD_API_KEY loaded from the adjacent .env"
+elif printf '%s' "$ENV_DRY_OUT" | grep -qF "DASHBOARD_API_KEY: <REDACTED>"; then
+  pass "adjacent .env supplies DASHBOARD_API_KEY and dry-run redacts it"
+else
+  fail "deploy did not load DASHBOARD_API_KEY from its adjacent .env"
 fi
 
 # ---------------------------------------------------------------------------
@@ -314,7 +433,7 @@ catch (Exception e)
     Environment.Exit(3);
 }
 CS
-  PARSE_OUT="$(CSVAL="$CSVAL" EXPECT="$RAWPW" dotnet run "$WORK/parse.cs" 2>&1 || true)"
+  PARSE_OUT="$(CSVAL="$CSVAL" EXPECT="$RAWPW" "$DOTNET_CMD" run "$WORK/parse.cs" 2>&1 || true)"
   if printf '%s' "$PARSE_OUT" | grep -q 'NPGSQL_PARSE=OK'; then
     pass "real quoting keeps ';' and quote inside the password; DB uncorrupted"
   else
@@ -351,6 +470,8 @@ fi
 [[ -f "$d/.rollback-image" ]] \
   && pass "rollback record preserved after successful deploy (usable by --rollback)" \
   || fail "rollback record deleted after successful deploy"
+probe_count="$(grep -c '^TELEMETRY_PROBE ' "$d/trace" 2>/dev/null || true)"
+check "successful deploy probes PostgreSQL, Redis, and Collector telemetry" "$probe_count" 3
 
 # ---------------------------------------------------------------------------
 echo "== Failed verification rolls back to the prior image and clears the record =="
@@ -594,8 +715,8 @@ STUB_WYOMING_BODY='{"onnxProvider":{"selected":"CPUExecutionProvider","isAcceler
 # ---------------------------------------------------------------------------
 echo "== Compose static invariants (approved shape must not drift) =="
 compose_has() { grep -qE "$1" "$VOICE_COMPOSE"; }
-svc_count="$(grep -cE '^  lucia-(postgres|redis|agenthost-voice):' "$VOICE_COMPOSE")"
-check "exactly three services (postgres, redis, agenthost)" "$svc_count" 3
+svc_count="$(grep -cE '^  lucia-(postgres|redis|postgres-exporter|redis-exporter|telemetry|agenthost-voice):' "$VOICE_COMPOSE")"
+check "exactly six services (data, exporters, collector, agenthost)" "$svc_count" 6
 compose_has '10400:10400' && pass "Wyoming port 10400 mapped" || fail "Wyoming port 10400 missing"
 compose_has 'CS_LUCIACONFIG'  && pass "AgentHost consumes CS_LUCIACONFIG" || fail "CS_LUCIACONFIG not referenced"
 grep -q 'container_name' "$VOICE_COMPOSE" && fail "container_name present (breaks project isolation)" \
