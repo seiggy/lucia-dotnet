@@ -71,7 +71,8 @@
 - **Logging:** Microsoft.Extensions.Logging
 - **Remote ingestion:** OpenTelemetry Collector Contrib 0.139.0 behind Caddy 2.10.2
 - **Remote backends:** Grafana 12.2.0, Tempo 2.8.2, Prometheus 3.7.1, and Loki 3.6.2
-- **Deployment rationale:** The remote stack keeps telemetry storage and analysis off the Jetson while bounded persistent Collector queues absorb short backend outages.
+- **Jetson infrastructure metrics:** OpenTelemetry hostmetrics plus PostgreSQL exporter 0.20.1 and Redis exporter 1.89.0, scraped by a local Collector and exported through authenticated OTLP/gRPC
+- **Deployment rationale:** The remote stack keeps telemetry storage and analysis off the Jetson while bounded Collector queues absorb short backend outages. Exporters and the Jetson Collector stay on the private Compose network with no host ports.
 
 ## Home Assistant Integration
 

@@ -21,6 +21,7 @@ trace_id="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
 span_id="$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
 service="lucia-observability-smoke"
 metric_name="process_runtime_dotnet_gc_collections_count"
+dashboard_uids=(lucia-speech-pipeline lucia-service-health lucia-jetson-host lucia-postgresql lucia-redis)
 now_ns="$(($(date +%s) * 1000000000))"
 end_ns="$((now_ns + 1000000))"
 auth="Authorization: Basic $(printf '%s:%s' "$OTLP_USERNAME" "$OTLP_PASSWORD" | base64 -w0)"
@@ -73,3 +74,9 @@ retry_query() {
 retry_query trace "${grafana}/api/datasources/proxy/uid/tempo/api/traces/${trace_id}" "observability-smoke-${trace_id}"
 retry_query metric "${grafana}/api/datasources/proxy/uid/prometheus/api/v1/query?query=${metric_name}%7Bsmoke_id%3D%22${trace_id}%22%7D" "${trace_id}"
 retry_query log "${grafana}/api/datasources/proxy/uid/loki/loki/api/v1/query_range?query=%7Bservice_name%3D%22${service}%22%7D%20%7C%20trace_id%3D%22${trace_id}%22" "lucia observability smoke log ${trace_id}"
+retry_query "Jetson host metric" "${grafana}/api/datasources/proxy/uid/prometheus/api/v1/query?query=system_uptime_seconds%7Bdevice_id%3D%22orin-voice%22%7D" '"device_id":"orin-voice"'
+retry_query "PostgreSQL metric" "${grafana}/api/datasources/proxy/uid/prometheus/api/v1/query?query=pg_up%7Bdevice_id%3D%22orin-voice%22%7D" '"value":\['
+retry_query "Redis metric" "${grafana}/api/datasources/proxy/uid/prometheus/api/v1/query?query=redis_up%7Bdevice_id%3D%22orin-voice%22%7D" '"value":\['
+for dashboard_uid in "${dashboard_uids[@]}"; do
+    retry_query "dashboard ${dashboard_uid}" "${grafana}/api/dashboards/uid/${dashboard_uid}" "\"uid\":\"${dashboard_uid}\""
+done

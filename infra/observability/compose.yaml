@@ -71,6 +71,8 @@ services:
     volumes:
       - grafana-data:/var/lib/grafana
       - ./config/grafana/provisioning/datasources/datasources.yaml:/etc/grafana/provisioning/datasources/lucia.yaml:ro
+      - ./config/grafana/provisioning/dashboards/dashboards.yaml:/etc/grafana/provisioning/dashboards/lucia.yaml:ro
+      - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
     networks:
       - ingress
       - telemetry
