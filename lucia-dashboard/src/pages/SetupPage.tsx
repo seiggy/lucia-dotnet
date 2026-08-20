@@ -50,7 +50,7 @@ export default function SetupPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-observatory p-4">
+    <div className="flex min-h-screen items-center justify-center bg-observatory p-4 pt-24 sm:p-4">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute left-1/2 top-1/4 h-[600px] w-[600px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber/[0.03] blur-[120px]" />
       </div>
@@ -124,7 +124,7 @@ function StepIndicator({ current }: { current: WizardStep }) {
               >
                 {i < idx ? <Check className="h-3.5 w-3.5" /> : <Icon className="h-3.5 w-3.5" />}
               </div>
-              <span className={`text-[10px] font-medium sm:text-xs ${active ? 'text-light' : 'text-dust'}`}>
+              <span className={`hidden text-[10px] font-medium sm:block sm:text-xs ${active ? 'text-light' : 'text-dust'}`}>
                 {s.label}
               </span>
             </div>

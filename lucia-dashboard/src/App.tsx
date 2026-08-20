@@ -33,6 +33,7 @@ import ConversationPage from './pages/ConversationPage'
 import CommandTraceListPage from './pages/CommandTraceListPage'
 import CommandTraceDetailPage from './pages/CommandTraceDetailPage'
 import TaskTracker from './components/TaskTracker'
+import { ThemeSelector } from './theme/ThemeSelector'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Activity', icon: BarChart3, end: true },
@@ -72,7 +73,8 @@ function AppRoutes() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-observatory">
+      <div className="relative flex min-h-screen items-center justify-center bg-observatory">
+        <ThemeSelector className="absolute right-4 top-4 w-[170px]" />
         <div className="flex items-center gap-3 text-fog">
           <Sparkles className="h-5 w-5 animate-pulse text-amber" />
           <span className="font-display text-sm tracking-wide">Loading...</span>
@@ -83,19 +85,25 @@ function AppRoutes() {
 
   if (!setupComplete) {
     return (
-      <Routes>
-        <Route path="/setup" element={<SetupPage />} />
-        <Route path="*" element={<Navigate to="/setup" replace />} />
-      </Routes>
+      <>
+        <ThemeSelector className="fixed right-4 top-3 z-50 w-[170px]" />
+        <Routes>
+          <Route path="/setup" element={<SetupPage />} />
+          <Route path="*" element={<Navigate to="/setup" replace />} />
+        </Routes>
+      </>
     )
   }
 
   if (!authenticated) {
     return (
-      <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
-      </Routes>
+      <>
+        <ThemeSelector className="fixed right-4 top-3 z-50 w-[170px]" />
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </Routes>
+      </>
     )
   }
 
@@ -165,6 +173,8 @@ function AppRoutes() {
 
         {/* Footer */}
         <div className="border-t border-stone/40 px-3 py-3">
+          <p className="mb-2 px-2 text-[10px] font-medium uppercase tracking-wider text-dust">Appearance</p>
+          <ThemeSelector className="mb-2" />
           <button
             onClick={logout}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-fog transition-colors hover:text-cloud hover:bg-stone/40"

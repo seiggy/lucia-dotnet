@@ -8,8 +8,26 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=DM+Sans:ital,opsz,wght@0,9..40,300..700;1,9..40,300..700&display=swap" rel="stylesheet" />
+    <script>
+      (() => {
+        const preference = localStorage.getItem('lucia-theme')
+        const theme = preference === 'light' || preference === 'dark'
+          ? preference
+          : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        document.documentElement.dataset.theme = theme
+        document.documentElement.style.colorScheme = theme
+      })()
+    </script>
   </head>
   <body>
+    <!--
+      THESIS: Observatory works in daylight without becoming a generic admin UI; the existing operational hierarchy stays intact.
+      OWN-WORLD: Warm mineral neutrals, amber focus, restrained depth, and compact controls carry both light and dark themes.
+      STORY: Operators choose System, Light, or Dark once and every Lucia workflow remains clear under changing ambient light.
+      FIRST VIEWPORT: The current route remains primary; theme controls sit quietly at the shell edge and never compete with the task.
+      FORM: Established-world extension, position 1; seed key: not-applicable-narrow-extension.
+      FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
+    -->
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
