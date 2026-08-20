@@ -1,10 +1,8 @@
 # lucia .NET Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2025-10-13
-
 ## Active Technologies
 
-- C# 14 / .NET 10 + Microsoft.Agents.AI.Workflows 1.0, StackExchange.Redis 2.8.16, OpenTelemetry.NET 1.10 (001-multi-agent-orchestration)
+- C# 14 / .NET 10 + Microsoft.Agents.AI.Workflows, StackExchange.Redis, OpenTelemetry.NET (001-multi-agent-orchestration)
 - Redis 7.x (task persistence with 24h TTL) (001-multi-agent-orchestration)
 
 ## Code Style
@@ -30,5 +28,5 @@ Auto-generated from all feature plans. Last updated: 2025-10-13
 - If coding standards do not exist in the `.docs/standards` directory, create the folder and run the `create_standards` task.
 
 ***IMPORTANT***: ONLY ONE CLASS PER FILE!!! NEVER PUT MORE THAN ONE CLASS IN A FILE !!!IMPORTANT!!!
-
+Always use the `unslop` skill when writing any docs, prose, or response to the user.
 <!-- MANUAL ADDITIONS END -->

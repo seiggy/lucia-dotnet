@@ -310,3 +310,7 @@ lucia.AgentHost/models/
 # Squad: SubSquad activation file (local to this machine)
 .squad-workstream
 personality-eval-traces/
+
+## TLS/SSL certificates and keys
+*.crt
+*.key

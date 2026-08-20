@@ -1,28 +1,31 @@
 # Copilot Agent Guide
 
-Welcome! This guide explains how GitHub Copilot agents should operate inside the `lucia-dotnet` repository. Read it fully before making changes so you can follow the house rules, leverage the documentation, and ship updates safely.
+Welcome! This guide explains how agents should operate inside the `lucia-dotnet` repository. Read it fully before making changes so you can follow the house rules, leverage the documentation, and ship updates safely.
+
+Always use the `unslop` skill when writing any docs, prose, or response to the user.
 
 ## 1. Product & Repository Snapshot
 
 - **Mission:** Lucia delivers a privacy-first, multi-agent assistant that orchestrates Home Assistant automations locally using [Microsoft Agent Framework](https://learn.microsoft.com/agent-framework/).
 - **Primary Projects:**
+  - `lucia.Agents` – Domain-specific agent implementations, skills, and registry support.
   - `lucia.AppHost` – .NET Aspire host and preferred development entrypoint for orchestrating local services.
   - `lucia.AgentHost` – ASP.NET Core minimal API host for orchestrated AI agents.
-  - `lucia.A2AHost` – ASP.NET Core minimal API host for A2A-facing endpoints and registry integration.
   - `lucia.ServiceDefaults` – Shared resilience, telemetry, and health-check extensions.
   - `lucia.HomeAssistant` – Home Assistant API client and integration layer.
   - `custom_components/lucia` – Python custom component for Home Assistant integration.
-  - `lucia.Agents` – Domain-specific agent implementations, skills, and registry support.
   - `lucia.Tests` - XUnit tests for the app
+  - `lucia-dashboard` - React v19 Dashboard for users to manage the Lucia platform.
+  - `lucia.A2AHost` – Retired and deprecating, to be removed. Legacy A2A host.
 
 ## 2. Updated Tech Stack Overview (2025-08-06)
 
 - **Backend:** ASP.NET Core Web API (.NET 10 / C# 14) orchestrated with .NET Aspire 13
-- **AI Runtime:** Microsoft Agent Framework RC, Custom Regex|SLM|LLM multi-agent orchestration patterns, Azure OpenAI, Gemini, Claude, LLaMa, Open Router Provider support.
-- **Data & State:** MongoDB 8, Redis 7.x for task persistence (per latest spec), configuration via ASP.NET Core config + Secrets/K8s secrets.
+- **AI Runtime:** Microsoft Agent Framework, Custom Regex|SLM|LLM multi-agent orchestration patterns, Azure OpenAI, Gemini, Claude, LLaMa, Open Router Provider support.
+- **Data & State:** MongoDB 8 or PosgreSQL 17, Redis 7.x for task persistence (per latest spec), configuration via ASP.NET Core config + Secrets/K8s secrets.
 - **Home Assistant Integration:** REST + Conversation + LLM APIs today, WebSocket streaming upcoming; Python custom component built on aiohttp 3.x.
-- **Infrastructure:** Docker containers, Kubernetes deployment target, optional Istio service mesh; Observability powered by OpenTelemetry (traces/metrics/logging).
-- **Testing:** xUnit + FakeItEasy; Aspire.Hosting.Testing for integration. Use `dotnet test` from repo root or target projects explicitly.
+- **Infrastructure:** Docker containers, primary deployment target is a NVIDIA Jetson Orin Nano 8GB; Observability powered by OpenTelemetry (traces/metrics/logging).
+- **Testing:** xUnit + FakeItEasy; Aspire.Hosting.Testing for integration, AgentEval for AI evals. Use `dotnet test` from repo root or target projects explicitly.
 
 Refer to `.docs/product/tech-stack.md` for deeper detail and version updates before modifying dependencies.
 
@@ -37,10 +40,9 @@ Refer to `.docs/product/tech-stack.md` for deeper detail and version updates bef
 ## 4. Development Quick Reference
 
 - **Restore & Build:** `dotnet restore`, `dotnet build lucia-dotnet.slnx`
-- **Run AppHost:** `dotnet run --project lucia.AppHost`
-- **Run AgentHost directly:** `dotnet run --project lucia.AgentHost`
-- **Run A2AHost directly:** `dotnet run --project lucia.A2AHost`
+- **Run AppHost:** `aspire run` from repo root
 - **Run Tests:** `dotnet test` (or target a project like `dotnet test lucia.Tests`)
+- **Run Evals:** `dotnet run --project ./lucia.EvalHarness/lucia.EvalHarness.csproj`
 - **Python component:** Lives under `custom_components/lucia`; follow Home Assistant custom component guidelines when editing.
 - **Regenerate HA test snapshot:** `.\scripts\Export-HomeAssistantSnapshot.ps1 -Endpoint $env:HA_ENDPOINT -Token $env:HA_TOKEN`
 
@@ -92,3 +94,17 @@ Review the full constitution before making changes to understand governance rule
 - **Don't remove or disable telemetry** without replacing it or documenting the change in the spec/tasks.
 
 ***IMPORTANT***: ONLY ONE CLASS PER FILE!!! NEVER PUT MORE THAN ONE CLASS IN A FILE !!!IMPORTANT!!!
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs are tracked in this repository's GitHub Issues. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Triage uses the canonical `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix` labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Domain documentation uses the single-context layout. See `docs/agents/domain.md`.
