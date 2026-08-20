@@ -15,6 +15,7 @@ var storeProvider = dataProviderConfig["Store"] ?? "MongoDB";
 var useRedis = cacheProvider.Equals("Redis", StringComparison.OrdinalIgnoreCase);
 var useMongo = storeProvider.Equals("MongoDB", StringComparison.OrdinalIgnoreCase);
 var usePostgres = storeProvider.Equals("PostgreSQL", StringComparison.OrdinalIgnoreCase);
+var observabilityMode = builder.Configuration["Observability:Mode"] ?? "Trace";
 
 IResourceBuilder<IResourceWithConnectionString>? redis = null;
 if (useRedis)
@@ -91,10 +92,7 @@ var registryApi = builder.AddProject<Projects.lucia_AgentHost>("lucia-agenthost"
     .WithEnvironment("COMPLUS_FORCEENC", "0")
     .WithEnvironment("DOTNET_STARTUP_HOOKS", "")
     .WithEnvironment("DOTNET_WATCH_HOTRELOAD_NAMEDPIPE_NAME", "")
-    // Reduce OTEL export frequency — Aspire defaults (1s) add measurable per-request overhead
-    .WithEnvironment("OTEL_BSP_SCHEDULE_DELAY", "5000")
-    .WithEnvironment("OTEL_BLRP_SCHEDULE_DELAY", "5000")
-    .WithEnvironment("OTEL_METRIC_EXPORT_INTERVAL", "5000")
+    .WithEnvironment("Observability__Mode", observabilityMode)
     .WithHttpHealthCheck("/health")
     .WithEndpoint(port: 10400, name: "wyoming-tcp", scheme: "tcp", isProxied: false)
     .WithUrlForEndpoint("https", url =>

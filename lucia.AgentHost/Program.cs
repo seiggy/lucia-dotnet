@@ -270,8 +270,11 @@ builder.Services.AddSingleton<IPersonalityResponseRenderer, PersonalityResponseR
 
 // Register span collector as an OTEL processor so captured Lucia.* spans
 // can be attached to conversation traces for the waterfall timeline.
-builder.Services.AddOpenTelemetry()
-    .WithTracing(tracing => tracing.AddProcessor<SpanCollectorProcessor>());
+if (builder.Services.Any(service => service.ServiceType == typeof(TracerProvider)))
+{
+    builder.Services.AddOpenTelemetry()
+        .WithTracing(tracing => tracing.AddProcessor<SpanCollectorProcessor>());
+}
 
 // Task archive services
 builder.Services.Configure<TaskArchiveOptions>(

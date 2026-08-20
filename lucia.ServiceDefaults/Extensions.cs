@@ -7,7 +7,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
 using OpenTelemetry;
+using OpenTelemetry.Exporter;
+using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 
 namespace Microsoft.Extensions.Hosting;
@@ -19,6 +22,19 @@ public static class Extensions
 {
     private const string HealthEndpointPath = "/health";
     private const string AlivenessEndpointPath = "/alive";
+    private const int ExportTimeoutMilliseconds = 250;
+    private const int MaxExportBatchSize = 128;
+    private const int MaxExportQueueSize = 512;
+    private const int MetricExportIntervalMilliseconds = 30_000;
+    private const int ScheduledExportDelayMilliseconds = 1_000;
+
+    private enum TelemetryMode
+    {
+        Off,
+        Metrics,
+        Trace,
+        Profile,
+    }
 
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
@@ -70,13 +86,14 @@ public static class Extensions
     public static TBuilder ConfigureOpenTelemetry<TBuilder>(this TBuilder builder)
         where TBuilder : IHostApplicationBuilder
     {
-        builder.Logging.AddOpenTelemetry(logging =>
+        var mode = ResolveTelemetryMode(builder);
+        if (mode is TelemetryMode.Off)
         {
-            logging.IncludeFormattedMessage = true;
-            logging.IncludeScopes = true;
-        });
+            return builder;
+        }
 
-        builder.Services.AddOpenTelemetry()
+        var useOtlpExporter = !string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]);
+        var telemetry = builder.Services.AddOpenTelemetry()
             .WithMetrics(metrics =>
             {
                 metrics.AddAspNetCoreInstrumentation()
@@ -86,12 +103,71 @@ public static class Extensions
                     .AddMeter("lucia.TraceCapture")
                     .AddMeter("lucia.Skills.LightControl")
                     .AddMeter("lucia.Skills.MusicPlayback")
+                    .AddMeter("lucia.Wyoming.SpeechPipeline")
                     .AddMeter("lucia.Wyoming.BackgroundTasks")
                     .AddMeter("Microsoft.Agents.AI");
-            })
-            .WithTracing(tracing =>
+
+                if (useOtlpExporter)
+                {
+                    metrics.AddOtlpExporter((exporter, reader) =>
+                    {
+                        exporter.TimeoutMilliseconds = ExportTimeoutMilliseconds;
+                        reader.PeriodicExportingMetricReaderOptions.ExportIntervalMilliseconds =
+                            MetricExportIntervalMilliseconds;
+                        reader.PeriodicExportingMetricReaderOptions.ExportTimeoutMilliseconds =
+                            ExportTimeoutMilliseconds;
+                    });
+                }
+            });
+
+        var serviceInstanceId = $"{Environment.MachineName}:{Environment.ProcessId}";
+        telemetry.ConfigureResource(resource =>
+        {
+            resource.AddService(
+                builder.Configuration["OTEL_SERVICE_NAME"] ?? builder.Environment.ApplicationName,
+                serviceInstanceId: serviceInstanceId);
+            resource.AddAttributes(
+            [
+                new KeyValuePair<string, object>("lucia.telemetry.mode", mode.ToString()),
+            ]);
+
+            if (mode is TelemetryMode.Profile)
             {
-                tracing.AddSource(builder.Environment.ApplicationName)
+                resource.AddAttributes(
+                [
+                    new KeyValuePair<string, object>("lucia.profile.correlation.id", serviceInstanceId),
+                ]);
+            }
+        });
+
+        if (mode is TelemetryMode.Trace or TelemetryMode.Profile)
+        {
+            builder.Logging.AddOpenTelemetry(logging =>
+            {
+                logging.IncludeFormattedMessage = true;
+                logging.IncludeScopes = true;
+
+                if (useOtlpExporter)
+                {
+                    logging.AddOtlpExporter((exporter, processor) =>
+                    {
+                        exporter.TimeoutMilliseconds = ExportTimeoutMilliseconds;
+                        processor.BatchExportProcessorOptions.ExporterTimeoutMilliseconds =
+                            ExportTimeoutMilliseconds;
+                        processor.BatchExportProcessorOptions.MaxExportBatchSize = MaxExportBatchSize;
+                        processor.BatchExportProcessorOptions.MaxQueueSize = MaxExportQueueSize;
+                        processor.BatchExportProcessorOptions.ScheduledDelayMilliseconds =
+                            ScheduledExportDelayMilliseconds;
+                    });
+                }
+            });
+
+            telemetry.WithTracing(tracing =>
+            {
+                tracing.SetSampler(mode is TelemetryMode.Profile
+                        ? new AlwaysOnSampler()
+                        : new ParentBasedSampler(new TraceIdRatioBasedSampler(0.1)))
+                    .AddSource(builder.Environment.ApplicationName)
                     .AddSource("lucia")
                     .AddSource("lucia.Agents")
                     .AddSource("lucia.Orchestration")
@@ -114,40 +190,62 @@ public static class Extensions
                     .AddSource("Microsoft.Agents.AI.Workflows*")
                     .AddSource("Microsoft.Agents.AI.Runtime.InProcess")
                     .AddSource("Microsoft.Agents.AI.Runtime.Abstractions.InMemoryActorStateStorage")
+                    .AddSource("lucia.Wyoming.Session")
                     .AddSource("lucia.Wyoming.BackgroundTasks")
                     .AddSource("MongoDB.Driver.Core.Extensions.DiagnosticSources")
                     .AddRedisInstrumentation()
                     .AddAspNetCoreInstrumentation(tracing =>
-                        // Exclude health check requests from tracing
                         tracing.Filter = context =>
                             !context.Request.Path.StartsWithSegments(HealthEndpointPath)
-                            && !context.Request.Path.StartsWithSegments(AlivenessEndpointPath)
-                    );
-            });
+                            && !context.Request.Path.StartsWithSegments(AlivenessEndpointPath));
 
-        builder.AddOpenTelemetryExporters();
+                if (useOtlpExporter)
+                {
+                    tracing.AddOtlpExporter(exporter =>
+                    {
+                        exporter.TimeoutMilliseconds = ExportTimeoutMilliseconds;
+                        exporter.ExportProcessorType = ExportProcessorType.Batch;
+                        exporter.BatchExportProcessorOptions.ExporterTimeoutMilliseconds =
+                            ExportTimeoutMilliseconds;
+                        exporter.BatchExportProcessorOptions.MaxExportBatchSize = MaxExportBatchSize;
+                        exporter.BatchExportProcessorOptions.MaxQueueSize = MaxExportQueueSize;
+                        exporter.BatchExportProcessorOptions.ScheduledDelayMilliseconds =
+                            ScheduledExportDelayMilliseconds;
+                    });
+                }
+            });
+        }
 
         return builder;
     }
 
-    private static TBuilder AddOpenTelemetryExporters<TBuilder>(this TBuilder builder)
-        where TBuilder : IHostApplicationBuilder
+    private static TelemetryMode ResolveTelemetryMode(IHostApplicationBuilder builder)
     {
-        var useOtlpExporter = !string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]);
+        var configuredMode = builder.Configuration["Observability:Mode"];
+        var legacyEnabled = builder.Configuration["Observability:Enabled"];
 
-        if (useOtlpExporter)
+        if (!string.IsNullOrWhiteSpace(configuredMode) && !string.IsNullOrWhiteSpace(legacyEnabled))
         {
-            builder.Services.AddOpenTelemetry().UseOtlpExporter();
+            throw new InvalidOperationException(
+                "Configure either Observability:Mode or the legacy Observability:Enabled setting, not both.");
         }
 
-        // Uncomment the following lines to enable the Azure Monitor exporter (requires the Azure.Monitor.OpenTelemetry.AspNetCore package)
-        //if (!string.IsNullOrEmpty(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
-        //{
-        //    builder.Services.AddOpenTelemetry()
-        //       .UseAzureMonitor();
-        //}
+        if (!string.IsNullOrWhiteSpace(configuredMode))
+        {
+            return Enum.TryParse<TelemetryMode>(configuredMode, ignoreCase: true, out var mode)
+                ? mode
+                : throw new InvalidOperationException(
+                    $"Observability:Mode must be one of {string.Join(", ", Enum.GetNames<TelemetryMode>())}.");
+        }
 
-        return builder;
+        if (!string.IsNullOrWhiteSpace(legacyEnabled))
+        {
+            return bool.TryParse(legacyEnabled, out var enabled)
+                ? enabled ? TelemetryMode.Trace : TelemetryMode.Off
+                : throw new InvalidOperationException("Observability:Enabled must be true or false.");
+        }
+
+        return TelemetryMode.Trace;
     }
 
     public static TBuilder AddDefaultHealthChecks<TBuilder>(this TBuilder builder)

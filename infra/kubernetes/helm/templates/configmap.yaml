@@ -78,16 +78,9 @@ data:
   Features__ContextPreservation: "true"
 
   # Observability
-  {{- if .Values.observability.enabled }}
-  Observability__Enabled: "true"
-  {{- if .Values.observability.traceExporter }}
-  OpenTelemetry__TraceExporter: {{ .Values.observability.traceExporter | quote }}
-  {{- end }}
-  {{- if .Values.observability.metricsExporter }}
-  OpenTelemetry__MetricsExporter: {{ .Values.observability.metricsExporter | quote }}
-  {{- end }}
-  {{- else }}
-  Observability__Enabled: "false"
+  Observability__Mode: {{ .Values.observability.mode | quote }}
+  {{- if .Values.observability.otlpEndpoint }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.observability.otlpEndpoint | quote }}
   {{- end }}
 
   # Environment-specific settings
