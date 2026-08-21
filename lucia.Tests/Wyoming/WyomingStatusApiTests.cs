@@ -8,7 +8,9 @@ using lucia.Wyoming.Models;
 using lucia.Wyoming.Stt;
 using lucia.Wyoming.Vad;
 using lucia.Wyoming.WakeWord;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -22,8 +24,8 @@ public sealed class WyomingStatusApiTests
     {
         var result = WyomingStatusApi.GetWyomingStatus(
             new ISttEngine[] { new TestSttEngine(new TestSttSession(new SttResult())) },
-            null,
-            new TestWakeWordDetector(new TestWakeWordSession(null)),
+            [],
+            [new TestWakeWordDetector(new TestWakeWordSession(null))],
             new TestDiarizationEngine(),
             null,
             CreateReadyManager(),
@@ -44,8 +46,8 @@ public sealed class WyomingStatusApiTests
     {
         var result = WyomingStatusApi.GetWyomingStatus(
             new ISttEngine[] { new UnreadySttEngine() },
-            null,
-            new UnreadyWakeWordDetector(),
+            [],
+            [new UnreadyWakeWordDetector()],
             new UnreadyDiarizationEngine(),
             null,
             CreateUnreadyManager(),
@@ -59,6 +61,35 @@ public sealed class WyomingStatusApiTests
         Assert.False(payload.GetProperty("diarization").GetProperty("ready").GetBoolean());
         Assert.False(payload.GetProperty("customWakeWords").GetProperty("ready").GetBoolean());
         Assert.False(payload.GetProperty("configured").GetBoolean());
+    }
+
+    [Fact]
+    public async Task MapWyomingStatusEndpoints_StartsWithVadAndWakeWordPipelinesDisabled()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.Configuration.AddInMemoryCollection(
+            new Dictionary<string, string?>
+            {
+                ["FeatureManagement:VadPipeline"] = "false",
+                ["FeatureManagement:WakeWordPipeline"] = "false",
+                ["urls"] = "http://127.0.0.1:0",
+            });
+        builder.Services.AddSingleton<ISttEngine>(new UnreadySttEngine());
+        builder.Services.AddSingleton<IDiarizationEngine>(new UnreadyDiarizationEngine());
+        builder.Services.AddSingleton(A.Fake<ISpeechEnhancer>());
+        builder.Services.AddSingleton(CreateUnreadyManager());
+        builder.Services.AddSingleton(TestOnnxProvider.Instance);
+        builder.Services.AddSingleton(CreateModelManager());
+
+        await using var app = builder.Build();
+        app.MapWyomingStatusEndpoints();
+
+        await app.StartAsync();
+        using var client = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
+        using var response = await client.GetAsync("/api/wyoming/status");
+        await app.StopAsync();
+
+        response.EnsureSuccessStatusCode();
     }
 
     private static ModelManager CreateModelManager()
