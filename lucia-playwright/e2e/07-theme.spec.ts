@@ -79,7 +79,9 @@ test.describe('theme preference', () => {
     await expect(page.getByRole('group', { name: 'Theme' })).toBeVisible();
 
     await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.getByRole('group', { name: 'Theme' })).toBeHidden();
     await page.getByRole('button', { name: 'Open sidebar menu' }).click();
+    await expect(page.getByRole('group', { name: 'Theme' })).toBeVisible();
     await page.getByRole('button', { name: 'Use dark theme' }).click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);

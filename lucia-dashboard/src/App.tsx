@@ -124,8 +124,8 @@ function AppRoutes() {
         fixed inset-y-0 left-0 z-50 flex w-64 flex-col
         border-r border-stone/40 bg-obsidian
         sidebar-transition
-        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-        md:translate-x-0
+        ${sidebarOpen ? 'visible translate-x-0' : 'invisible -translate-x-full'}
+        md:visible md:translate-x-0
       `}>
         {/* Logo area */}
         <div className="flex h-16 items-center justify-between px-5 border-b border-stone/40">
