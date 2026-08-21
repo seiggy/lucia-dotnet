@@ -89,8 +89,14 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<ISttEngine, HybridSttEngine>();
         builder.Services.AddSingleton<ISttEngine, SherpaSttEngine>();
         builder.Services.AddSingleton<IGraniteEngine, GraniteOnnxEngine>();
-        builder.Services.AddSingleton<IVadEngine, SherpaVadEngine>();
-        builder.Services.AddSingleton<IWakeWordDetector, SherpaWakeWordDetector>();
+        if (builder.Configuration.GetValue("FeatureManagement:VadPipeline", true))
+        {
+            builder.Services.AddSingleton<IVadEngine, SherpaVadEngine>();
+        }
+        if (builder.Configuration.GetValue("FeatureManagement:WakeWordPipeline", true))
+        {
+            builder.Services.AddSingleton<IWakeWordDetector, SherpaWakeWordDetector>();
+        }
 
         builder.Services.AddSingleton<IDiarizationEngine, SherpaDiarizationEngine>();
         builder.Services.AddSingleton<ISpeechEnhancer, GtcrnSpeechEnhancer>();
