@@ -59,6 +59,8 @@ docker compose up -d
 # Open http://localhost:7233 — setup wizard guides you through configuration
 ```
 
+For Unraid, use the [Community Apps templates](./unraid/README.md) for Lucia, PostgreSQL, and Redis.
+
 ---
 
 ### ☸️ [Kubernetes Deployment](./kubernetes/helm/README.md) — **For Production & High Availability**

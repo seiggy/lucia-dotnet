@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Container version="2">
+  <Name>Lucia-Redis</Name>
+  <Repository>redis:8.2-alpine</Repository>
+  <Registry>https://hub.docker.com/_/redis</Registry>
+  <Network>lucia</Network>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/seiggy/lucia-dotnet/issues</Support>
+  <Project>https://github.com/seiggy/lucia-dotnet</Project>
+  <Overview>Redis cache and task persistence for Lucia. Before installing, run `docker network create lucia` in the Unraid terminal. Install this template before Lucia.</Overview>
+  <Category>HomeAutomation:</Category>
+  <TemplateURL>https://raw.githubusercontent.com/seiggy/lucia-dotnet/master/templates/lucia-redis.xml</TemplateURL>
+  <ReadMe>https://github.com/seiggy/lucia-dotnet/blob/master/infra/unraid/README.md</ReadMe>
+  <Icon>https://raw.githubusercontent.com/docker-library/docs/master/redis/logo.png</Icon>
+  <ExtraSearchTerms>lucia cache redis home assistant</ExtraSearchTerms>
+  <ExtraParams>--restart=unless-stopped --health-cmd="redis-cli ping" --health-interval=10s --health-timeout=5s --health-retries=5</ExtraParams>
+  <PostArgs>redis-server --appendonly [REDIS_APPENDONLY] --maxmemory [REDIS_MAXMEMORY] --maxmemory-policy [REDIS_MAXMEMORY_POLICY] --loglevel [REDIS_LOGLEVEL]</PostArgs>
+  <Requires>Before installing, run `docker network create lucia` in the Unraid terminal. Install Lucia-PostgreSQL and Lucia-Redis before Lucia.</Requires>
+  <License>RSALv2 OR SSPLv1</License>
+  <Config Name="Data" Target="/data" Default="/mnt/cache/appdata/lucia/redis" Mode="rw" Description="Persistent Redis data on the cache pool." Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="Append-only persistence" Target="REDIS_APPENDONLY" Default="yes" Mode="" Description="Write each change to the append-only persistence file." Type="Variable" Display="advanced" Required="true" Mask="false"/>
+  <Config Name="Maximum memory" Target="REDIS_MAXMEMORY" Default="256mb" Mode="" Description="Redis memory limit. Increase this for larger installations." Type="Variable" Display="advanced" Required="true" Mask="false"/>
+  <Config Name="Eviction policy" Target="REDIS_MAXMEMORY_POLICY" Default="allkeys-lru" Mode="" Description="Policy used when Redis reaches its memory limit." Type="Variable" Display="advanced" Required="true" Mask="false"/>
+  <Config Name="Log level" Target="REDIS_LOGLEVEL" Default="notice" Mode="" Description="Redis log verbosity." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Timezone" Target="TZ" Default="Etc/UTC" Mode="" Description="Container timezone." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Port" Target="6379" Default="" Mode="tcp" Description="Optional host port for external Redis tools. Lucia does not need it." Type="Port" Display="advanced" Required="false" Mask="false"/>
+</Container>

@@ -105,7 +105,7 @@ None.
 ## 📁 Files Changed
 
 | File | Change |
-|------|--------|
+| --- | --- |
 | `lucia-dashboard/src/pages/TraceDetailPage.tsx` | Fix `navigate('/')` → `navigate('/traces')` |
 | `lucia-dashboard/src/pages/EntityLocationPage.tsx` | BulkActionBar CSS collapse instead of unmount |
 | `lucia.Wyoming/CommandRouting/CommandPatternMatcher.cs` | Non-light device bail + temporal preposition bigram check |
@@ -165,7 +165,7 @@ None.
 
 ### Gemma 4 (kavai/Gemma4-GPT5:e2b) Orchestrator Routing
 | Metric | Before | After |
-|--------|--------|-------|
+| --- | --- | --- |
 | Test infrastructure | ❌ All crashed | ✅ All pass |
 | Routing accuracy | 0/20 (0%) | 24/24 (100%) |
 | Agent coverage | 3 of 7 agents testable | 7 of 7 agents testable |
@@ -391,7 +391,7 @@ New `infra/docker/Dockerfile.ha` for resource-constrained deployment:
 ## 📊 Test Coverage
 
 | Area | Tests |
-|------|-------|
+| --- | --- |
 | Wyoming session integration | 50+ |
 | Speaker verification components | 17 |
 | Speech enhancement validation | 20+ |
@@ -468,7 +468,7 @@ The plugin system stored version information but never compared installed versio
 ## 📊 Test Coverage
 
 | Area | Unit Tests | E2E Tests |
-|------|-----------|-----------|
+| --- | --- | --- |
 | Brave Search LLM Context API | 6 | — |
 | Agent Domain Settings | — | 8 |
 | Plugin Update Detection | 9 | 5 |
@@ -662,7 +662,7 @@ The plugin system stored version information but never compared installed versio
 ## 📋 New Files
 
 | Path | Purpose |
-|------|---------|
+| --- | --- |
 | `lucia.Agents/Abstractions/IEntityLocationService.cs` | Centralized entity resolution interface |
 | `lucia.Agents/Abstractions/IHybridEntityMatcher.cs` | Multi-signal entity search interface |
 | `lucia.Agents/Abstractions/IMatchableEntity.cs` | Entity search participation contract |
@@ -707,7 +707,7 @@ The plugin system stored version information but never compared installed versio
 ## 🗑️ Removed / Deprecated
 
 | Path | Reason |
-|------|--------|
+| --- | --- |
 | `lucia.Agents/Services/IEntityLocationService.cs` | Moved to `Abstractions/` namespace |
 | `lucia.Agents/Models/FloorInfo.cs` | Moved to `Models/HomeAssistant/` |
 | `lucia.Agents/Models/OccupiedArea.cs` | Moved to `Models/HomeAssistant/` |
@@ -814,7 +814,7 @@ The plugin system stored version information but never compared installed versio
 ## 📋 New Files
 
 | Path | Purpose |
-|------|---------|
+| --- | --- |
 | `lucia.Agents/Abstractions/ILuciaPlugin.cs` | Four-hook plugin interface |
 | `lucia.Agents/Abstractions/IPluginManagementRepository.cs` | Repository persistence abstraction |
 | `lucia.Agents/Abstractions/IPluginRepositorySource.cs` | Source abstraction (local vs git) |
@@ -849,7 +849,7 @@ The plugin system stored version information but never compared installed versio
 ## 🗑️ Removed Files
 
 | Path | Reason |
-|------|--------|
+| --- | --- |
 | `lucia.Agents/Skills/WebSearchSkill.cs` | Extracted to `plugins/searxng/plugin.cs` |
 | `lucia.Agents/Configuration/SearXngOptions.cs` | Moved into SearXNG plugin |
 | `lucia.Agents/Extensions/McpServerSeedExtensions.cs` | Replaced by MetaMCP plugin |
@@ -1328,7 +1328,7 @@ The plugin system stored version information but never compared installed versio
 ## 📦 Dependency Updates
 
 | Package | Previous | Current |
-|---------|----------|---------|
+| --- | --- | --- |
 | Microsoft.Agents.* | 1.0.0-preview.260212.1 | 1.0.0-rc1 |
 | Microsoft.Agents.AI.Hosting | 1.0.0-preview.260219.1 | 1.0.0-preview.260219.1 |
 | Microsoft.Extensions.AI.* | 10.3.0 | 10.3.0 |
@@ -1501,7 +1501,7 @@ A separate `lucia.A2AHost` service that hosts agent plugins independently from t
 ### 🌐 REST API Surface (44+ Endpoints)
 
 | Category | Endpoints | Description |
-|----------|-----------|-------------|
+| --- | --- | --- |
 | Traces | 5 | List, detail, label, delete, statistics |
 | Exports | 4 | Create JSONL, list, detail, download |
 | Prompt Cache | 4 | List entries, stats, evict, clear all |
@@ -1551,7 +1551,7 @@ Hardened multi-service Docker Compose deployment (`infra/docker/`):
 ### MAF Migration (Breaking Changes)
 
 | Before | After |
-|--------|-------|
+| --- | --- |
 | `AgentThread` | `AgentSession` |
 | `ChatMessageStore` | `ChatHistoryProvider` |
 | `GetNewThread()` | `await CreateSessionAsync()` |
@@ -1637,9 +1637,9 @@ Hardened multi-service Docker Compose deployment (`infra/docker/`):
 
 See our [Roadmap](https://github.com/seiggy/lucia-dotnet/blob/master/.docs/product/roadmap.md) for upcoming features:
 
-- ~~**Climate Agent** — HVAC and temperature control~~ *(shipped in Solstice)*
+- **~~Climate Agent~~** ~~— HVAC and temperature control~~ *(shipped in Solstice)*
 - **Security Agent** — Alarms, locks, and camera integration
-- ~~**Scene Agent** — Scene management and automation~~ *(shipped in Solstice)*
+- **~~Scene Agent~~** ~~— Scene management and automation~~ *(shipped in Solstice)*
 - **WebSocket Streaming** — Real-time Home Assistant event monitoring
 - **Local LLM Fine-Tuning** — Use captured training data with local models for privacy-first deployment
 - **Training UI Enhancements** — Batch labeling, inter-annotator agreement, and quality dashboards
@@ -1727,18 +1727,18 @@ This release represents a major milestone for Lucia, bringing the autonomous hom
 
 #### Agent Framework (Microsoft Public Preview)
 - **LightAgent**: Fully functional light and switch control
-  - Semantic search for finding lights by natural language
-  - Device capability detection (brightness, color temp, color modes)
-  - State queries and control operations
-  - Switch entity support (light switches)
-  - Embedding-based similarity matching
+    - Semantic search for finding lights by natural language
+    - Device capability detection (brightness, color temp, color modes)
+    - State queries and control operations
+    - Switch entity support (light switches)
+    - Embedding-based similarity matching
   
 - **MusicAgent**: Music Assistant integration
-  - Playback control (play, pause, stop, skip)
-  - Volume management
-  - Queue management
-  - Player discovery and selection
-  - Music Assistant API integration
+    - Playback control (play, pause, stop, skip)
+    - Volume management
+    - Queue management
+    - Player discovery and selection
+    - Music Assistant API integration
 
 #### Agent Registry
 - **Dynamic Discovery**: Agents register and expose capabilities
@@ -1752,17 +1752,17 @@ This release represents a major milestone for Lucia, bringing the autonomous hom
 
 #### Skills System
 - **LightControlSkill**: Comprehensive light control
-  - `find_light`: Natural language light discovery using embeddings
-  - `get_light_state`: Query current light status
-  - `set_light_state`: Control on/off, brightness, color
-  - Entity caching with 30-minute refresh
-  - Cosine similarity matching for semantic search
+    - `find_light`: Natural language light discovery using embeddings
+    - `get_light_state`: Query current light status
+    - `set_light_state`: Control on/off, brightness, color
+    - Entity caching with 30-minute refresh
+    - Cosine similarity matching for semantic search
   
 - **MusicPlaybackSkill**: Music Assistant control
-  - Playback operations
-  - Volume control
-  - Queue management
-  - Player management
+    - Playback operations
+    - Volume control
+    - Queue management
+    - Player management
 
 ### 🏗️ Technical Infrastructure
 
@@ -1822,37 +1822,37 @@ This release represents a major milestone for Lucia, bringing the autonomous hom
 ### ✅ Fully Functional Features
 
 1. **Light Control**
-   - Find lights using natural language ("living room light", "kitchen ceiling")
-   - Turn lights on/off
-   - Set brightness (0-100%)
-   - Set colors by name
-   - Query light status
-   - Switch entity support
+    - Find lights using natural language ("living room light", "kitchen ceiling")
+    - Turn lights on/off
+    - Set brightness (0-100%)
+    - Set colors by name
+    - Query light status
+    - Switch entity support
 
 2. **Music Control**
-   - Play/pause/stop playback
-   - Volume control
-   - Skip tracks
-   - Queue management
-   - Player selection
+    - Play/pause/stop playback
+    - Volume control
+    - Skip tracks
+    - Queue management
+    - Player selection
 
 3. **Conversation**
-   - Natural language input processing
-   - Multi-turn conversations with context
-   - Speech output via Home Assistant
-   - Error handling with user feedback
+    - Natural language input processing
+    - Multi-turn conversations with context
+    - Speech output via Home Assistant
+    - Error handling with user feedback
 
 4. **Agent Management**
-   - Agent discovery via catalog
-   - Dynamic agent selection
-   - Agent switching without reload
-   - Health monitoring
+    - Agent discovery via catalog
+    - Dynamic agent selection
+    - Agent switching without reload
+    - Health monitoring
 
 5. **Home Assistant Integration**
-   - HACS installation support
-   - Configuration flow
-   - Options management
-   - Automatic reload on changes
+    - HACS installation support
+    - Configuration flow
+    - Options management
+    - Automatic reload on changes
 
 ## 🔨 Technical Details
 
@@ -1999,7 +1999,6 @@ Special thanks to:
 
 ### Manual Installation
 
-```bash
 # Clone repository
 git clone https://github.com/seiggy/lucia-dotnet.git
 cd lucia-dotnet
@@ -2014,7 +2013,6 @@ dotnet run --project lucia.AgentHost
 cp -r custom_components/lucia /path/to/homeassistant/custom_components/
 
 # Restart Home Assistant
-```
 
 ## 🔗 Resources
 
