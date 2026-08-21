@@ -23,7 +23,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-observatory px-4">
+    <div className="flex min-h-screen items-center justify-center bg-observatory px-4 pt-24 sm:pt-0">
       {/* Ambient glow */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute left-1/2 top-1/3 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber/[0.03] blur-[100px]" />
@@ -71,7 +71,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading || !apiKey.trim()}
-              className="group flex w-full items-center justify-center gap-2 rounded-xl bg-amber px-4 py-3 text-sm font-semibold text-void transition-all hover:bg-amber-glow disabled:cursor-not-allowed disabled:opacity-40"
+              className="group flex w-full items-center justify-center gap-2 rounded-xl bg-amber px-4 py-3 text-sm font-semibold text-on-accent transition-all hover:bg-amber-glow disabled:cursor-not-allowed disabled:opacity-40"
             >
               {loading ? (
                 <span className="flex items-center gap-2">

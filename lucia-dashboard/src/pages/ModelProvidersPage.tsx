@@ -469,7 +469,7 @@ export default function ModelProvidersPage() {
                 <button
                   onClick={handleCopilotConnect}
                   disabled={copilotConnecting}
-                  className="rounded bg-rose/20 px-4 py-2 text-sm font-medium text-light hover:bg-purple-500 disabled:opacity-50"
+                  className="rounded bg-rose/20 px-4 py-2 text-sm font-medium text-light hover:bg-rose/30 disabled:opacity-50"
                 >
                   {copilotConnecting ? 'Connecting...' : copilotConnected ? '↻ Refresh Models' : '⚡ Connect to Copilot CLI'}
                 </button>
@@ -733,7 +733,7 @@ export default function ModelProvidersPage() {
             <button
               onClick={handleSave}
               disabled={form.providerType === 'GitHubCopilot' && !selectedCopilotModel && mode === 'create'}
-              className="rounded bg-amber px-4 py-2 text-sm font-medium text-void hover:bg-amber-glow disabled:opacity-50 disabled:cursor-not-allowed"
+              className="rounded bg-amber px-4 py-2 text-sm font-medium text-on-accent hover:bg-amber-glow disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {mode === 'create' ? 'Create Provider' : 'Save Changes'}
             </button>
@@ -756,7 +756,7 @@ export default function ModelProvidersPage() {
         <h1 className="font-display text-xl font-semibold text-light">Model Providers</h1>
         <button
           onClick={handleCreate}
-          className="rounded bg-amber px-4 py-2 text-sm font-medium text-void hover:bg-amber-glow"
+          className="rounded bg-amber px-4 py-2 text-sm font-medium text-on-accent hover:bg-amber-glow"
         >
           + Add Provider
         </button>
@@ -860,7 +860,7 @@ export default function ModelProvidersPage() {
                   {!p.isBuiltIn && (
                     <button
                       onClick={() => handleDelete(p.id)}
-                      className="rounded bg-ember/15 px-3 py-1 text-xs text-rose hover:bg-red-900"
+                      className="rounded bg-ember/15 px-3 py-1 text-xs text-rose hover:bg-ember/25"
                     >
                       Delete
                     </button>
@@ -909,7 +909,7 @@ export default function ModelProvidersPage() {
                     <button
                       onClick={handleAssignProviderModel}
                       disabled={providerModelSaving || !providerModelDraft.trim()}
-                      className="rounded bg-amber px-3 py-1.5 text-xs font-medium text-void hover:bg-amber-glow disabled:opacity-50"
+                      className="rounded bg-amber px-3 py-1.5 text-xs font-medium text-on-accent hover:bg-amber-glow disabled:opacity-50"
                     >
                       {providerModelSaving ? 'Saving…' : 'Save Model'}
                     </button>

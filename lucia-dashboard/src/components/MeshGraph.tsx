@@ -24,16 +24,17 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import type { MeshTopology, MeshNode as MeshNodeData } from '../types'
+import { Bot, BrainCircuit, Globe2, Wrench } from 'lucide-react'
 
 // ── Agent state colors (Observatory theme) ──
 
 const STATE_COLORS: Record<string, { bg: string; border: string; text: string }> = {
-  'Processing Prompt...':  { bg: '#c4903020', border: '#c49030', text: '#c49030' },
-  'Calling Tools...':      { bg: '#3b82f620', border: '#60a5fa', text: '#60a5fa' },
-  'Generating Response...': { bg: '#6b8f7120', border: '#6b8f71', text: '#6b8f71' },
-  'Processing...':         { bg: '#c4903015', border: '#a07830', text: '#a07830' },
-  'Error':                 { bg: '#ef444420', border: '#f87171', text: '#f87171' },
-  'Idle':                  { bg: '#1e1e22', border: '#3a3a40', text: '#6b6b78' },
+  'Processing Prompt...':  { bg: 'color-mix(in srgb, var(--color-amber) 14%, transparent)', border: 'var(--color-amber-dim)', text: 'var(--color-amber)' },
+  'Calling Tools...':      { bg: 'color-mix(in srgb, var(--color-info) 8%, transparent)', border: 'var(--color-info)', text: 'var(--color-info)' },
+  'Generating Response...': { bg: 'color-mix(in srgb, var(--color-sage) 14%, transparent)', border: 'var(--color-sage-dim)', text: 'var(--color-sage)' },
+  'Processing...':         { bg: 'color-mix(in srgb, var(--color-amber) 10%, transparent)', border: 'var(--color-amber-dim)', text: 'var(--color-amber)' },
+  'Error':                 { bg: 'color-mix(in srgb, var(--color-ember) 12%, transparent)', border: 'var(--color-rose-dim)', text: 'var(--color-rose)' },
+  'Idle':                  { bg: 'var(--color-basalt)', border: 'var(--color-stone)', text: 'var(--color-dust)' },
 }
 
 const IDLE_STYLE = STATE_COLORS['Idle']
@@ -46,7 +47,6 @@ export interface NodeState {
 
 type MeshNodeType = Node<{
   label: string
-  icon: string
   nodeType: string
   isRemote?: boolean
   nodeState: NodeState
@@ -57,6 +57,7 @@ type MeshNodeType = Node<{
 function AgentNode({ data }: NodeProps<MeshNodeType>) {
   const s = (data.nodeState.state && STATE_COLORS[data.nodeState.state]) || IDLE_STYLE
   const isActive = data.nodeState.active
+  const Icon = data.nodeType === 'orchestrator' ? BrainCircuit : data.nodeType === 'tool' ? Wrench : Bot
 
   return (
     <div
@@ -65,16 +66,16 @@ function AgentNode({ data }: NodeProps<MeshNodeType>) {
         background: s.bg,
         borderColor: s.border,
         color: s.text,
-        boxShadow: isActive ? `0 0 12px ${s.border}40` : 'none',
+        boxShadow: isActive ? `0 0 12px color-mix(in srgb, ${s.border} 25%, transparent)` : 'none',
         minWidth: 120,
       }}
     >
       <Handle type="target" position={Position.Top} className="!bg-transparent !border-0 !w-3 !h-3" />
-      <span className="text-lg">{data.icon}</span>
+      <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1 truncate text-sm font-medium" style={{ color: isActive ? s.text : '#d0d0d8' }}>
+        <div className="flex items-center gap-1 truncate text-sm font-medium" style={{ color: isActive ? s.text : 'var(--color-light)' }}>
           {data.label}
-          {data.isRemote && <span className="text-[10px]" title="Remote agent">🌐</span>}
+          {data.isRemote && <Globe2 className="h-3 w-3 shrink-0" aria-label="Remote agent" />}
         </div>
         {isActive && data.nodeState.state !== 'Idle' && (
           <div className="truncate text-[10px]" style={{ color: s.text }}>{data.nodeState.state}</div>
@@ -84,7 +85,7 @@ function AgentNode({ data }: NodeProps<MeshNodeType>) {
       {isActive && data.nodeState.state !== 'Error' && (
         <div
           className="absolute inset-0 rounded-xl animate-pulse pointer-events-none"
-          style={{ border: `1px solid ${s.border}60` }}
+          style={{ border: `1px solid color-mix(in srgb, ${s.border} 38%, transparent)` }}
         />
       )}
     </div>
@@ -94,12 +95,6 @@ function AgentNode({ data }: NodeProps<MeshNodeType>) {
 const nodeTypes = { agentNode: AgentNode }
 
 // ── Layout helpers ──
-
-function getIcon(nodeType: string): string {
-  if (nodeType === 'orchestrator') return '🧠'
-  if (nodeType === 'tool') return '🔧'
-  return '🤖'
-}
 
 function layoutNodes(
   topologyNodes: MeshNodeData[],
@@ -126,7 +121,6 @@ function layoutNodes(
       position: { x: cx - 60, y: 0 },
       data: {
         label: orchestrator.label,
-        icon: getIcon(orchestrator.nodeType),
         nodeType: orchestrator.nodeType,
         nodeState: nodeStates[orchestrator.id] || { state: 'Idle', active: false },
       },
@@ -141,7 +135,6 @@ function layoutNodes(
       position: { x: i * nodeSpacingX, y: agentY },
       data: {
         label: agent.label,
-        icon: getIcon(agent.nodeType),
         nodeType: agent.nodeType,
         isRemote: agent.isRemote,
         nodeState: nodeStates[agent.id] || { state: 'Idle', active: false },
@@ -158,12 +151,12 @@ function layoutNodes(
         target: agent.id,
         animated: isActive || false,
         style: {
-          stroke: isActive ? '#c49030' : '#3a3a40',
+          stroke: isActive ? 'var(--color-amber-dim)' : 'var(--color-ash)',
           strokeWidth: isActive ? 2 : 1,
         },
         markerEnd: {
           type: MarkerType.ArrowClosed,
-          color: isActive ? '#c49030' : '#3a3a40',
+          color: isActive ? 'var(--color-amber-dim)' : 'var(--color-ash)',
           width: 16,
           height: 16,
         },
@@ -180,7 +173,6 @@ function layoutNodes(
         position: { x: toolX, y: toolY },
         data: {
           label: tool.label,
-          icon: getIcon(tool.nodeType),
           nodeType: tool.nodeType,
           nodeState: nodeStates[tool.id] || { state: 'Idle', active: false },
         },
@@ -194,12 +186,12 @@ function layoutNodes(
         target: tool.id,
         animated: toolActive || false,
         style: {
-          stroke: toolActive ? '#60a5fa' : '#3a3a40',
+          stroke: toolActive ? 'var(--color-info)' : 'var(--color-ash)',
           strokeWidth: toolActive ? 2 : 1,
         },
         markerEnd: {
           type: MarkerType.ArrowClosed,
-          color: toolActive ? '#60a5fa' : '#3a3a40',
+          color: toolActive ? 'var(--color-info)' : 'var(--color-ash)',
           width: 14,
           height: 14,
         },
@@ -270,7 +262,7 @@ export default function MeshGraph({ topology, nodeStates }: MeshGraphProps) {
         panOnDrag
         zoomOnScroll
       >
-        <Background color="#3a3a4030" gap={20} />
+        <Background color="color-mix(in srgb, var(--color-ash) 35%, transparent)" gap={20} />
       </ReactFlow>
     </div>
   )
