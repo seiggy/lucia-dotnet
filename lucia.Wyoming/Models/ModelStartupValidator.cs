@@ -17,8 +17,8 @@ namespace lucia.Wyoming.Models;
 public sealed class ModelStartupValidator(
     ModelManager modelManager,
     IEnumerable<ISttEngine> sttEngines,
-    IVadEngine vadEngine,
-    IWakeWordDetector wakeWordDetector,
+    IEnumerable<IVadEngine> vadEngines,
+    IEnumerable<IWakeWordDetector> wakeWordDetectors,
     IDiarizationEngine diarizationEngine,
     ISpeechEnhancer speechEnhancer,
     ILogger<ModelStartupValidator> logger) : BackgroundService
@@ -27,12 +27,18 @@ public sealed class ModelStartupValidator(
     {
         // Engine singletons are resolved via constructor injection to ensure they are
         // constructed and subscribed to ActiveModelChanged before we fire events.
-        _ = (sttEngines, vadEngine, wakeWordDetector, diarizationEngine, speechEnhancer);
+        _ = (sttEngines, vadEngines, wakeWordDetectors, diarizationEngine, speechEnhancer);
 
         await ActivateEngineAsync(EngineType.SpeechEnhancement, stoppingToken).ConfigureAwait(false);
         await ActivateEngineAsync(EngineType.Stt, stoppingToken).ConfigureAwait(false);
-        await ActivateEngineAsync(EngineType.Vad, stoppingToken).ConfigureAwait(false);
-        await ActivateEngineAsync(EngineType.WakeWord, stoppingToken).ConfigureAwait(false);
+        if (vadEngines.Any())
+        {
+            await ActivateEngineAsync(EngineType.Vad, stoppingToken).ConfigureAwait(false);
+        }
+        if (wakeWordDetectors.Any())
+        {
+            await ActivateEngineAsync(EngineType.WakeWord, stoppingToken).ConfigureAwait(false);
+        }
         await ActivateEngineAsync(EngineType.SpeakerEmbedding, stoppingToken).ConfigureAwait(false);
 
         // Warm up all STT engines with a dummy inference to eliminate first-request latency
