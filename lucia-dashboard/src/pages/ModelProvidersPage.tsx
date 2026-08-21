@@ -469,7 +469,7 @@ export default function ModelProvidersPage() {
                 <button
                   onClick={handleCopilotConnect}
                   disabled={copilotConnecting}
-                  className="rounded bg-rose/20 px-4 py-2 text-sm font-medium text-light hover:bg-purple-500 disabled:opacity-50"
+                  className="rounded bg-rose/20 px-4 py-2 text-sm font-medium text-light hover:bg-rose/30 disabled:opacity-50"
                 >
                   {copilotConnecting ? 'Connecting...' : copilotConnected ? '↻ Refresh Models' : '⚡ Connect to Copilot CLI'}
                 </button>

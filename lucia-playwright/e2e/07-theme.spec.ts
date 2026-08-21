@@ -46,6 +46,7 @@ test.describe('theme preference', () => {
     const themeControl = page.getByRole('group', { name: 'Theme' });
 
     await expect(root).toHaveAttribute('data-theme', 'light');
+    await expect.poll(() => root.evaluate((element) => getComputedStyle(element).getPropertyValue('--color-void').trim())).toBe('#f1f2ef');
     await expect(themeControl).toBeVisible();
     await expect(page.getByRole('button', { name: 'Use system theme' })).toHaveAttribute('aria-pressed', 'true');
 

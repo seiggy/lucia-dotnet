@@ -30,7 +30,7 @@ import { Bot, BrainCircuit, Globe2, Wrench } from 'lucide-react'
 
 const STATE_COLORS: Record<string, { bg: string; border: string; text: string }> = {
   'Processing Prompt...':  { bg: 'color-mix(in srgb, var(--color-amber) 14%, transparent)', border: 'var(--color-amber-dim)', text: 'var(--color-amber)' },
-  'Calling Tools...':      { bg: 'color-mix(in srgb, var(--color-info) 14%, transparent)', border: 'var(--color-info)', text: 'var(--color-info)' },
+  'Calling Tools...':      { bg: 'color-mix(in srgb, var(--color-info) 8%, transparent)', border: 'var(--color-info)', text: 'var(--color-info)' },
   'Generating Response...': { bg: 'color-mix(in srgb, var(--color-sage) 14%, transparent)', border: 'var(--color-sage-dim)', text: 'var(--color-sage)' },
   'Processing...':         { bg: 'color-mix(in srgb, var(--color-amber) 10%, transparent)', border: 'var(--color-amber-dim)', text: 'var(--color-amber)' },
   'Error':                 { bg: 'color-mix(in srgb, var(--color-ember) 12%, transparent)', border: 'var(--color-rose-dim)', text: 'var(--color-rose)' },

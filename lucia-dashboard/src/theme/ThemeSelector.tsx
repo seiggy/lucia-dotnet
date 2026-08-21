@@ -39,7 +39,7 @@ export function ThemeSelector({ className = '' }: ThemeSelectorProps) {
             aria-label={description}
             aria-pressed={isSelected}
             onClick={() => setPreference(value)}
-            className={`flex min-w-0 flex-col items-center gap-1 rounded-md px-2 py-1.5 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber/60 ${
+            className={`flex min-w-0 flex-col items-center gap-1 rounded-md px-2 py-1.5 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber ${
               isSelected
                 ? 'bg-obsidian text-amber shadow-sm'
                 : 'text-dust hover:bg-stone/40 hover:text-light'
