@@ -66,7 +66,7 @@ function AgentNode({ data }: NodeProps<MeshNodeType>) {
         background: s.bg,
         borderColor: s.border,
         color: s.text,
-        boxShadow: isActive ? `0 0 12px ${s.border}40` : 'none',
+        boxShadow: isActive ? `0 0 12px color-mix(in srgb, ${s.border} 25%, transparent)` : 'none',
         minWidth: 120,
       }}
     >
@@ -85,7 +85,7 @@ function AgentNode({ data }: NodeProps<MeshNodeType>) {
       {isActive && data.nodeState.state !== 'Error' && (
         <div
           className="absolute inset-0 rounded-xl animate-pulse pointer-events-none"
-          style={{ border: `1px solid ${s.border}60` }}
+          style={{ border: `1px solid color-mix(in srgb, ${s.border} 38%, transparent)` }}
         />
       )}
     </div>

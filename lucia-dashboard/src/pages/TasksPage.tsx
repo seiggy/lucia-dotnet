@@ -159,13 +159,13 @@ export default function TasksPage() {
       {/* Tab selector */}
       <div className="mb-6 flex gap-1 rounded-xl border border-stone bg-void/60 p-1">
         <button
-          className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${tab === 'active' ? 'bg-amber text-void' : 'text-dust hover:text-light'}`}
+          className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${tab === 'active' ? 'bg-amber text-on-accent' : 'text-dust hover:text-light'}`}
           onClick={() => setTab('active')}
         >
           <ListTodo className="h-4 w-4" /> Active Tasks
         </button>
         <button
-          className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${tab === 'history' ? 'bg-amber text-void' : 'text-dust hover:text-light'}`}
+          className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${tab === 'history' ? 'bg-amber text-on-accent' : 'text-dust hover:text-light'}`}
           onClick={() => { setTab('history'); setPage(1) }}
         >
           <Archive className="h-4 w-4" /> Task History

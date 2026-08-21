@@ -574,7 +574,7 @@ function AgentDetailPanel({
             className={`rounded-xl px-5 py-2.5 text-sm font-medium transition-colors ${
               !message.trim() || sending
                 ? 'bg-amber-glow/40 text-light/50 cursor-not-allowed'
-                : 'bg-amber-glow text-void hover:brightness-110'
+                : 'bg-amber-glow text-on-accent hover:brightness-110'
             }`}
           >
             Send
@@ -854,7 +854,7 @@ export default function AgentsPage() {
             </button>
             <button
               onClick={() => setRegisterOpen(true)}
-              className="rounded-xl bg-amber-glow px-3 py-2 text-sm font-medium text-void hover:brightness-110 transition-all"
+              className="rounded-xl bg-amber-glow px-3 py-2 text-sm font-medium text-on-accent hover:brightness-110 transition-all"
             >
               + Register Agent
             </button>

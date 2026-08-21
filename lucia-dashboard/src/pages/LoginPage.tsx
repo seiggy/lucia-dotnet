@@ -71,7 +71,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading || !apiKey.trim()}
-              className="group flex w-full items-center justify-center gap-2 rounded-xl bg-amber px-4 py-3 text-sm font-semibold text-void transition-all hover:bg-amber-glow disabled:cursor-not-allowed disabled:opacity-40"
+              className="group flex w-full items-center justify-center gap-2 rounded-xl bg-amber px-4 py-3 text-sm font-semibold text-on-accent transition-all hover:bg-amber-glow disabled:cursor-not-allowed disabled:opacity-40"
             >
               {loading ? (
                 <span className="flex items-center gap-2">

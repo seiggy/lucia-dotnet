@@ -419,7 +419,7 @@ export default function ConversationPage() {
             className={`flex items-center gap-1.5 rounded-xl px-5 py-2.5 text-sm font-medium transition-colors ${
               !input.trim() || sending
                 ? 'bg-amber-glow/40 text-light/50 cursor-not-allowed'
-                : 'bg-amber-glow text-void hover:brightness-110'
+                : 'bg-amber-glow text-on-accent hover:brightness-110'
             }`}
           >
             <Send className="h-4 w-4" />

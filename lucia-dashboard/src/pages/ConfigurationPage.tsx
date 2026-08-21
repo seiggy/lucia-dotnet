@@ -518,7 +518,7 @@ function MusicAssistantTestButton({ integrationId }: { integrationId: string }) 
           className={`shrink-0 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
             testing || !integrationId
               ? 'bg-stone text-dust cursor-not-allowed'
-              : 'bg-amber text-void hover:bg-amber-glow'
+              : 'bg-amber text-on-accent hover:bg-amber-glow'
           }`}
         >
           {testing ? (
@@ -963,7 +963,7 @@ export default function ConfigurationPage() {
                     className={`rounded-xl px-5 py-2 text-sm font-medium transition-colors ${
                       saving || !isDirty()
                         ? 'bg-amber/40 text-dust cursor-not-allowed'
-                        : 'bg-amber text-void hover:bg-amber-glow'
+                        : 'bg-amber text-on-accent hover:bg-amber-glow'
                     }`}
                   >
                     {saving ? (

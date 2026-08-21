@@ -62,6 +62,39 @@ html[data-theme='light'] {
   --color-ember: #b42318;
   --color-info: #2563eb;
   --color-on-accent: #fffdf9;
+
+  /* Keep legacy palette utilities readable until their owning views adopt semantic roles. */
+  --color-sky-300: var(--color-info);
+  --color-sky-400: var(--color-info);
+  --color-sky-500: var(--color-info);
+  --color-blue-400: var(--color-info);
+  --color-blue-900: var(--color-info);
+  --color-cyan-400: var(--color-info);
+  --color-green-400: var(--color-sage);
+  --color-green-500: var(--color-sage);
+  --color-green-900: var(--color-sage);
+  --color-emerald-300: var(--color-sage);
+  --color-emerald-400: var(--color-sage);
+  --color-emerald-900: var(--color-sage);
+  --color-red-500: var(--color-rose);
+  --color-red-800: var(--color-rose);
+  --color-red-900: var(--color-rose);
+  --color-rose-100: var(--color-rose);
+  --color-rose-300: var(--color-rose);
+  --color-rose-400: var(--color-rose);
+  --color-rose-500: var(--color-rose);
+  --color-yellow-400: var(--color-amber);
+  --color-yellow-900: var(--color-amber);
+  --color-orange-400: var(--color-amber);
+  --color-orange-500: var(--color-amber);
+  --color-violet-400: var(--color-info);
+  --color-violet-500: var(--color-info);
+  --color-purple-500: var(--color-info);
+  --color-purple-900: var(--color-info);
+  --color-amber-300: var(--color-amber);
+  --color-amber-900: var(--color-amber);
+  --color-stone-400: var(--color-dust);
+  --color-stone-800: var(--color-basalt);
 }
 
 /* ── Base ── */
@@ -74,10 +107,6 @@ html {
 body {
   background: var(--color-void);
   color: var(--color-cloud);
-}
-
-.text-void {
-  color: var(--color-on-accent);
 }
 
 /* ── Scrollbar ── */

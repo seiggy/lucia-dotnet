@@ -119,7 +119,7 @@ export default function McpServersPage() {
         <h1 className="font-display text-2xl font-bold text-light">MCP Tool Servers</h1>
         <button
           onClick={() => setMode('create')}
-          className="rounded bg-amber px-4 py-2 text-sm font-medium text-void hover:bg-amber-glow"
+          className="rounded bg-amber px-4 py-2 text-sm font-medium text-on-accent hover:bg-amber-glow"
         >
           + Add Server
         </button>
@@ -185,7 +185,7 @@ export default function McpServersPage() {
                       <button
                         onClick={() => handleConnect(server.id)}
                         disabled={connectingId === server.id || status?.state === 'Connecting'}
-                        className="rounded bg-amber px-3 py-1 text-xs text-void hover:bg-amber-glow disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="rounded bg-amber px-3 py-1 text-xs text-on-accent hover:bg-amber-glow disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {connectingId === server.id || status?.state === 'Connecting' ? 'Connecting…' : 'Connect'}
                       </button>
@@ -443,7 +443,7 @@ function ServerForm({
           <button
             type="submit"
             disabled={saving}
-            className="rounded bg-amber px-4 py-2 text-sm font-medium text-void hover:bg-amber-glow disabled:opacity-50"
+            className="rounded bg-amber px-4 py-2 text-sm font-medium text-on-accent hover:bg-amber-glow disabled:opacity-50"
           >
             {saving ? 'Saving...' : server ? 'Update Server' : 'Create Server'}
           </button>

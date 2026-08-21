@@ -124,7 +124,7 @@ function StepIndicator({ current }: { current: WizardStep }) {
               >
                 {i < idx ? <Check className="h-3.5 w-3.5" /> : <Icon className="h-3.5 w-3.5" />}
               </div>
-              <span className={`hidden text-[10px] font-medium sm:block sm:text-xs ${active ? 'text-light' : 'text-dust'}`}>
+              <span className={`sr-only text-[10px] font-medium sm:not-sr-only sm:text-xs ${active ? 'text-light' : 'text-dust'}`}>
                 {s.label}
               </span>
             </div>
@@ -138,7 +138,7 @@ function StepIndicator({ current }: { current: WizardStep }) {
 
 /* ── Shared button styles ───────────────────────────── */
 
-const btnPrimary = 'rounded-xl bg-amber px-5 py-2.5 text-sm font-semibold text-void transition-all hover:bg-amber-glow disabled:cursor-not-allowed disabled:opacity-40'
+const btnPrimary = 'rounded-xl bg-amber px-5 py-2.5 text-sm font-semibold text-on-accent transition-all hover:bg-amber-glow disabled:cursor-not-allowed disabled:opacity-40'
 const btnSecondary = 'rounded-xl border border-stone bg-basalt px-5 py-2.5 text-sm font-medium text-fog transition-colors hover:border-amber/30 hover:text-light disabled:opacity-40'
 const btnSuccess = 'rounded-xl bg-sage/20 text-sage px-5 py-2.5 text-sm font-medium transition-colors hover:bg-sage/30 disabled:opacity-40'
 const inputStyle = 'w-full rounded-xl border border-stone bg-basalt px-4 py-3 text-sm text-light placeholder-dust/60 input-focus transition-colors'

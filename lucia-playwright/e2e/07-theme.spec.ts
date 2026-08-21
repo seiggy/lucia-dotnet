@@ -57,6 +57,8 @@ test.describe('theme preference', () => {
     await expect(root).toHaveAttribute('data-theme', 'dark');
 
     await page.getByRole('button', { name: 'Use system theme' }).click();
+    await expect(root).toHaveAttribute('data-theme', 'light');
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('lucia-theme'))).toBe('system');
     await page.emulateMedia({ colorScheme: 'dark' });
     await expect(root).toHaveAttribute('data-theme', 'dark');
   });
