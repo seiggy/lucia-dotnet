@@ -1,3 +1,73 @@
+# Release notes - 1.3.0
+
+**Release date:** August 21, 2026
+
+---
+
+## Overview
+
+Version 1.3.0 adds an end-to-end observability stack, Jetson infrastructure telemetry, speech pipeline metrics, and dashboard light mode. It also tightens voice concurrency and shutdown behavior, makes evaluations reproducible, and fixes timestamp, HTTP client, agent reload, and release automation bugs.
+
+## Features
+
+- **Dashboard light mode** adds System, Light, and Dark preferences, persistent theme selection, pre-paint theme resolution, semantic color tokens, accessible contrast, and Playwright coverage. ([#253](https://github.com/seiggy/lucia-dotnet/pull/253))
+- **Remote observability stack** deploys pinned OpenTelemetry Collector, Grafana, Tempo, Prometheus, Loki, and Caddy services with bounded queues, retention, health checks, backups, and smoke tests. (`37dde58`)
+- **Fail-open telemetry modes** add Off, Metrics, Trace, and Profile modes, bounded OTLP export, legacy configuration support, Kubernetes settings, and unavailable-collector coverage. (`1029131`)
+- **Speech pipeline metrics** record queue wait, transcription, enhancement, retranscription, diarization, and transcript-write durations. (`129ad9c`)
+- **Jetson infrastructure telemetry** adds private PostgreSQL and Redis exporters, host metrics, authenticated OTLP forwarding, API-key reset support, phased health checks, and ARM64 validation. (`b1a46a9`)
+- **Grafana dashboards** cover service health, speech processing, Jetson hosts, PostgreSQL, and Redis with shared filters and navigation. (`6980668`)
+- **Jetson ARM64 CUDA voice deployment** adds a reproducible off-device build and deployment stack for AgentHost, Redis, and PostgreSQL on Jetson Orin Nano hardware. ([#243](https://github.com/seiggy/lucia-dotnet/pull/243))
+
+## Reliability and performance
+
+- Clear pending Activity Stream reconnect timers before reconnecting and when the dashboard hook unmounts. ([#219](https://github.com/seiggy/lucia-dotnet/pull/219))
+- Pin the voice image to CUDA 12.8.1 for supported Blackwell `sm_120` deployment. ([#222](https://github.com/seiggy/lucia-dotnet/pull/222))
+- Normalize persisted agent, trace, scheduled-task, and configuration timestamps to UTC, including bounded migrations for existing SQLite rows. ([#221](https://github.com/seiggy/lucia-dotnet/pull/221))
+- Apply Home Assistant authorization per request, support token rotation and retries, and dispose EvalHarness chat clients without leaking sockets. ([#224](https://github.com/seiggy/lucia-dotnet/pull/224))
+- Limit Wyoming STT concurrency around inference instead of whole connections, and close disposal races that could release permits while inference was still running. ([#220](https://github.com/seiggy/lucia-dotnet/pull/220))
+- Dispose orchestration activities on every exit path so traces receive stop events and final durations. ([#228](https://github.com/seiggy/lucia-dotnet/pull/228))
+- Align `ActivitySource` names with the lowercase ServiceDefaults registrations. ([#232](https://github.com/seiggy/lucia-dotnet/pull/232))
+- Enforce distinct async deadlines for timer persistence, Home Assistant WebSockets, and EvalHarness LLM calls while preserving caller cancellation. ([#235](https://github.com/seiggy/lucia-dotnet/pull/235))
+- Stop writing usage timestamps during API-key validation. ([#236](https://github.com/seiggy/lucia-dotnet/pull/236))
+- Add crash-safe PostgreSQL trigram indexes and test interrupted migrations against production query shapes. ([#237](https://github.com/seiggy/lucia-dotnet/pull/237))
+- Serialize agent definition reloads and use monotonic database checkpoints to prevent concurrent refreshes from rebuilding agents or saving stale state. ([#239](https://github.com/seiggy/lucia-dotnet/pull/239))
+- Reuse GTCRN FFT, tensor, cache, and ONNX buffers, cutting warm 256-sample hop allocations from 143,736 bytes to 1,400 bytes while making reload and disposal safe. ([#242](https://github.com/seiggy/lucia-dotnet/pull/242))
+- Drain Wyoming sessions during shutdown with bounded concurrency and safe ownership transfer for sessions that exceed the deadline. ([#240](https://github.com/seiggy/lucia-dotnet/pull/240))
+- Use Aspire session lifetime for Redis so its proxied connection string and health check initialize correctly while the named volume keeps data. (`f44c91f`)
+- Correct the Docker Hub image name used by the Jetson Compose deployment. ([#247](https://github.com/seiggy/lucia-dotnet/pull/247))
+
+## Evaluation
+
+- Run each parameter-sweep combination multiple times, select winners by mean score and variance, and compare them with a multi-run baseline. ([#223](https://github.com/seiggy/lucia-dotnet/pull/223))
+- Default evaluation seeds to `42` for reproducible baseline and target runs, with an explicit `null` opt-out. ([#231](https://github.com/seiggy/lucia-dotnet/pull/231))
+- Send seed and token-limit settings through typed `ChatOptions` so Ollama and OpenAI adapters receive the requested deterministic parameters. ([#233](https://github.com/seiggy/lucia-dotnet/pull/233))
+- Exclude unavailable judge results from scores, latency, pass rates, comparisons, optimization, sweeps, and exports. Reports now distinguish unavailable, partial, and complete runs. ([#238](https://github.com/seiggy/lucia-dotnet/pull/238))
+
+## Delivery, dependencies, and project tooling
+
+- Replace placeholder Squad workflows with updated CI, documentation, promotion, preview, insider, and stable-release behavior. (`a738e07`)
+- Add a Vasquez pre-push review gate to Squad governance. ([#226](https://github.com/seiggy/lucia-dotnet/pull/226))
+- Make live Home Assistant tests explicitly opt-in, add provider-free routing and aggregation coverage, and run CI for the `master` branch. ([#229](https://github.com/seiggy/lucia-dotnet/pull/229))
+- Add real restore, build, test, and GitHub release jobs with strict stable and insider tag routing, idempotent release creation, and pinned checkout actions. ([#230](https://github.com/seiggy/lucia-dotnet/pull/230))
+- Upgrade Vite to 8.1.4, `@tailwindcss/vite` to 4.3.2, and `@vitejs/plugin-react` to 5.2.0. ([#227](https://github.com/seiggy/lucia-dotnet/pull/227))
+- Add the Impeccable UI workflow and reduce health-check polling overhead. (`2772fdd`)
+- Update coding-agent defaults, require Impeccable for UI work, and make documentation coverage part of pre-push review. ([#252](https://github.com/seiggy/lucia-dotnet/pull/252))
+- Isolate telemetry listeners in tests so parallel activities cannot overwrite captured results. ([#252](https://github.com/seiggy/lucia-dotnet/pull/252))
+- Sync shared agent skills and repository guidance, including TypeScript, issue-tracking, and domain documentation. (`edb422c`)
+- Add the speech pipeline optimization backlog for telemetry, profiling, transcripts, speaker verification, capacity, routing, and sustained-load work. (`2f2ba5a`)
+- Pin the transitive SSH.NET package to 2026.0.0 to resolve `GHSA-q939-rpr3-3284`. ([#238](https://github.com/seiggy/lucia-dotnet/pull/238))
+- Run provider-free tests under invariant globalization before push, and reject dirty, non-HEAD, or uninspectable worktrees. ([#238](https://github.com/seiggy/lucia-dotnet/pull/238))
+
+## Breaking changes
+
+None.
+
+## Full changelog
+
+[v1.2.3...v1.3.0](https://github.com/seiggy/lucia-dotnet/compare/v1.2.3...v1.3.0)
+
+---
+
 # Release Notes - 1.2.2
 
 **Release Date:** April 2026  
