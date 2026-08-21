@@ -860,7 +860,7 @@ export default function ModelProvidersPage() {
                   {!p.isBuiltIn && (
                     <button
                       onClick={() => handleDelete(p.id)}
-                      className="rounded bg-ember/15 px-3 py-1 text-xs text-rose hover:bg-red-900"
+                      className="rounded bg-ember/15 px-3 py-1 text-xs text-rose hover:bg-ember/25"
                     >
                       Delete
                     </button>

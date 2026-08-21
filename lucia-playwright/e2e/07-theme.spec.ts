@@ -49,6 +49,13 @@ test.describe('theme preference', () => {
     await expect(themeControl).toBeVisible();
     await expect(page.getByRole('button', { name: 'Use system theme' })).toHaveAttribute('aria-pressed', 'true');
 
+    await page.getByRole('button', { name: 'Use light theme' }).click();
+    await expect(root).toHaveAttribute('data-theme', 'light');
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('lucia-theme'))).toBe('light');
+
+    await page.reload();
+    await expect(root).toHaveAttribute('data-theme', 'light');
+
     await page.getByRole('button', { name: 'Use dark theme' }).click();
     await expect(root).toHaveAttribute('data-theme', 'dark');
     await expect.poll(() => page.evaluate(() => localStorage.getItem('lucia-theme'))).toBe('dark');
@@ -75,5 +82,22 @@ test.describe('theme preference', () => {
     await page.getByRole('button', { name: 'Use dark theme' }).click();
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  });
+
+  test('starts when browser storage is unavailable', async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(window, 'localStorage', {
+        configurable: true,
+        get() {
+          throw new DOMException('Storage is blocked', 'SecurityError');
+        },
+      });
+    });
+    await page.emulateMedia({ colorScheme: 'light' });
+    await mockSetup(page);
+    await page.goto('/');
+
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+    await expect(page.getByRole('group', { name: 'Theme' })).toBeVisible();
   });
 });

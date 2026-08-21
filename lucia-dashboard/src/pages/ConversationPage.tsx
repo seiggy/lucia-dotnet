@@ -372,7 +372,7 @@ export default function ConversationPage() {
               <div
                 className={`max-w-[80%] rounded-xl px-4 py-2.5 text-sm ${
                   msg.role === 'user'
-                    ? 'bg-amber-glow text-light'
+                    ? 'bg-amber-glow text-on-accent'
                     : 'bg-basalt text-light'
                 }`}
               >
@@ -418,7 +418,7 @@ export default function ConversationPage() {
             disabled={!input.trim() || sending}
             className={`flex items-center gap-1.5 rounded-xl px-5 py-2.5 text-sm font-medium transition-colors ${
               !input.trim() || sending
-                ? 'bg-amber-glow/40 text-light/50 cursor-not-allowed'
+                ? 'bg-amber-glow/40 text-on-accent/50 cursor-not-allowed'
                 : 'bg-amber-glow text-on-accent hover:brightness-110'
             }`}
           >

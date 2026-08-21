@@ -531,7 +531,7 @@ function AgentDetailPanel({
               <div
                 className={`max-w-[80%] rounded-xl px-4 py-2.5 text-sm ${
                   msg.role === 'user'
-                    ? 'bg-amber-glow text-light'
+                    ? 'bg-amber-glow text-on-accent'
                     : 'bg-basalt text-light'
                 }`}
               >
@@ -573,7 +573,7 @@ function AgentDetailPanel({
             disabled={!message.trim() || sending}
             className={`rounded-xl px-5 py-2.5 text-sm font-medium transition-colors ${
               !message.trim() || sending
-                ? 'bg-amber-glow/40 text-light/50 cursor-not-allowed'
+                ? 'bg-amber-glow/40 text-on-accent/50 cursor-not-allowed'
                 : 'bg-amber-glow text-on-accent hover:brightness-110'
             }`}
           >
@@ -637,7 +637,7 @@ function RegisterDialog({
           <button
             onClick={handleSubmit}
             disabled={!uri.trim()}
-            className={`rounded-xl px-4 py-2 text-sm font-medium text-light transition-colors ${
+            className={`rounded-xl px-4 py-2 text-sm font-medium text-on-accent transition-colors ${
               !uri.trim() ? 'bg-amber-glow/40 cursor-not-allowed' : 'bg-amber-glow hover:bg-amber-glow'
             }`}
           >
@@ -808,7 +808,7 @@ export default function AgentsPage() {
           <p className="mt-2 text-sm text-dust">{error}</p>
           <button
             onClick={loadAgents}
-            className="mt-4 rounded-xl bg-amber-glow px-4 py-2 text-sm font-medium text-light hover:bg-amber-glow transition-colors"
+            className="mt-4 rounded-xl bg-amber-glow px-4 py-2 text-sm font-medium text-on-accent hover:bg-amber-glow transition-colors"
           >
             Retry
           </button>

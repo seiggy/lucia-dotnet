@@ -13,10 +13,23 @@ const DARK_MODE_QUERY = '(prefers-color-scheme: dark)'
 const ThemeContext = createContext<ThemeContextValue | null>(null)
 
 function getStoredPreference(): ThemePreference {
-  const preference = localStorage.getItem(STORAGE_KEY)
-  return preference === 'light' || preference === 'dark' || preference === 'system'
-    ? preference
-    : 'system'
+  try {
+    const preference = localStorage.getItem(STORAGE_KEY)
+    return preference === 'light' || preference === 'dark' || preference === 'system'
+      ? preference
+      : 'system'
+  } catch (error) {
+    if (error instanceof DOMException) return 'system'
+    throw error
+  }
+}
+
+function storePreference(preference: ThemePreference): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, preference)
+  } catch (error) {
+    if (!(error instanceof DOMException)) throw error
+  }
 }
 
 function subscribeToSystemTheme(onChange: () => void): () => void {
@@ -37,7 +50,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const theme = preference === 'system' ? (systemIsDark ? 'dark' : 'light') : preference
     document.documentElement.dataset.theme = theme
     document.documentElement.style.colorScheme = theme
-    localStorage.setItem(STORAGE_KEY, preference)
+    storePreference(preference)
   }, [preference, systemIsDark])
 
   return (

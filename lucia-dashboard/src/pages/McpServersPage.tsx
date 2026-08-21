@@ -198,7 +198,7 @@ export default function McpServersPage() {
                     </button>
                     <button
                       onClick={() => handleDelete(server.id)}
-                      className="rounded bg-ember/15 px-3 py-1 text-xs text-rose hover:bg-red-800"
+                      className="rounded bg-ember/15 px-3 py-1 text-xs text-rose hover:bg-ember/25"
                     >
                       Delete
                     </button>

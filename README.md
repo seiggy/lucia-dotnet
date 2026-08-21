@@ -27,7 +27,7 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
 - **🏠 Deep Home Assistant Integration** — Native integration via custom component with agent selection, conversation API, JSON-RPC communication, and WebSocket entity registry access
 - **👁️ Entity Visibility Filtering** — Control which Home Assistant entities Lucia can see via dashboard UI or by pulling the HA exposed-entity list over WebSocket
 - **📊 Live Activity Dashboard** — Real-time agent mesh visualization with SSE-powered event streaming, summary metrics, and activity timeline
-- **📋 Management Dashboard** — React-based dark-themed dashboard with 20+ pages for agent management, trace inspection, configuration, entity management, and dataset exports
+- **📋 Management Dashboard** — React dashboard with System, Light, and Dark themes across 20+ pages for agent management, trace inspection, configuration, entity management, and dataset exports
 - **🧙 Guided Setup Wizard** — Multi-step onboarding with AI provider configuration, live connectivity tests, agent health gate, and Home Assistant plugin connection
 - **📦 Kubernetes Ready** — Cloud-native deployment with .NET Aspire, Helm charts, and K8s manifests
 - **⏰ Alarm Clock System** — CRON-scheduled alarms with volume ramping, voice dismissal/snooze, presence-based speaker routing, and sound library with file upload

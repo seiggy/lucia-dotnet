@@ -10,7 +10,12 @@
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=DM+Sans:ital,opsz,wght@0,9..40,300..700;1,9..40,300..700&display=swap" rel="stylesheet" />
     <script>
       (() => {
-        const preference = localStorage.getItem('lucia-theme')
+        let preference = 'system'
+        try {
+          preference = localStorage.getItem('lucia-theme')
+        } catch (error) {
+          if (!(error instanceof DOMException)) throw error
+        }
         const theme = preference === 'light' || preference === 'dark'
           ? preference
           : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
