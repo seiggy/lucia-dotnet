@@ -4,7 +4,7 @@ public static class Program
 {
     public static int Main(string[] args)
     {
-        const string usage = "Usage: dotnet run --project lucia.VoiceBenchmarks -- speaker --manifest benchmarks/voice/sample-manifest.json --model path/to/a.onnx --model-source https://example.com/a.onnx --output benchmarks/results";
+        const string Usage = "Usage: dotnet run --project lucia.VoiceBenchmarks -- speaker --manifest benchmarks/voice/sample-manifest.json --model path/to/a.onnx --model-source https://example.com/a.onnx --output benchmarks/results";
 
         try
         {
@@ -12,7 +12,7 @@ public static class Program
                 args.Any(static argument => string.Equals(argument, "--help", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(argument, "-h", StringComparison.OrdinalIgnoreCase)))
             {
-                Console.WriteLine(usage);
+                Console.WriteLine(Usage);
                 return 0;
             }
 
@@ -20,7 +20,7 @@ public static class Program
             if (!string.Equals(command, "speaker", StringComparison.OrdinalIgnoreCase))
             {
                 Console.Error.WriteLine($"Unknown command '{command}'.");
-                Console.Error.WriteLine(usage);
+                Console.Error.WriteLine(Usage);
                 return 1;
             }
 

@@ -14,30 +14,56 @@ public static class SpeakerBenchmarkMetrics
             throw new ArgumentException("At least one impostor score is required.", nameof(impostorScores));
         }
 
-        var genuine = genuineScores.OrderBy(static score => score).ToArray();
-        var impostor = impostorScores.OrderBy(static score => score).ToArray();
-        var uniqueValues = genuine.Concat(impostor).Distinct().OrderBy(static score => score).ToArray();
-
-        var thresholds = new SortedSet<double>();
-        foreach (var value in uniqueValues)
-        {
-            thresholds.Add(value);
-        }
-
-        foreach (var pair in uniqueValues.Zip(uniqueValues.Skip(1), (left, right) => (left, right)))
-        {
-            thresholds.Add((pair.left + pair.right) / 2d);
-        }
-
-        thresholds.Add(uniqueValues[0] - 1d);
-        thresholds.Add(uniqueValues[^1] + 1d);
-
+        var rankedScores = genuineScores
+            .Select(static score => (Score: score, IsGenuine: true))
+            .Concat(impostorScores.Select(static score => (Score: score, IsGenuine: false)))
+            .OrderByDescending(static item => item.Score)
+            .GroupBy(static item => item.Score);
+        var acceptedGenuine = 0;
+        var acceptedImpostor = 0;
         var bestDifference = double.MaxValue;
         var equalErrorRate = double.MaxValue;
-        foreach (var threshold in thresholds)
+        var previousFalseAcceptanceRate = 0d;
+        var previousDelta = -1d;
+
+        UpdateCandidate(falseAcceptanceRate: 0d, falseRejectionRate: 1d);
+        foreach (var scoreGroup in rankedScores)
         {
-            var falseAcceptanceRate = impostor.Count(score => score >= threshold) / (double)impostor.Length;
-            var falseRejectionRate = genuine.Count(score => score < threshold) / (double)genuine.Length;
+            foreach (var score in scoreGroup)
+            {
+                if (score.IsGenuine)
+                {
+                    acceptedGenuine++;
+                }
+                else
+                {
+                    acceptedImpostor++;
+                }
+            }
+
+            var falseAcceptanceRate = acceptedImpostor / (double)impostorScores.Count;
+            var falseRejectionRate = (genuineScores.Count - acceptedGenuine) / (double)genuineScores.Count;
+            var delta = falseAcceptanceRate - falseRejectionRate;
+            if (delta == 0d)
+            {
+                return falseAcceptanceRate;
+            }
+            if (previousDelta < 0d && delta > 0d)
+            {
+                var weight = -previousDelta / (delta - previousDelta);
+                return previousFalseAcceptanceRate
+                    + (weight * (falseAcceptanceRate - previousFalseAcceptanceRate));
+            }
+
+            UpdateCandidate(falseAcceptanceRate, falseRejectionRate);
+            previousFalseAcceptanceRate = falseAcceptanceRate;
+            previousDelta = delta;
+        }
+
+        return equalErrorRate;
+
+        void UpdateCandidate(double falseAcceptanceRate, double falseRejectionRate)
+        {
             var difference = Math.Abs(falseAcceptanceRate - falseRejectionRate);
             if (difference < bestDifference)
             {
@@ -45,8 +71,6 @@ public static class SpeakerBenchmarkMetrics
                 equalErrorRate = (falseAcceptanceRate + falseRejectionRate) / 2d;
             }
         }
-
-        return equalErrorRate;
     }
 
     public static double ComputeTop1Accuracy(IReadOnlyList<SpeakerBenchmarkPrediction> predictions)

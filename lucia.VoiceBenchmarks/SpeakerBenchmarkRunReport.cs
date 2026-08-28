@@ -99,6 +99,7 @@ public sealed class SpeakerBenchmarkRunReport
                 builder.AppendLine($"- Equal error rate: {model.EqualErrorRate.ToString("0.0000", CultureInfo.InvariantCulture)}");
                 builder.AppendLine($"- Mean real-time factor: {model.MeanRealTimeFactor.ToString("0.0000", CultureInfo.InvariantCulture)}");
                 builder.AppendLine($"- Wall duration (s): {model.WallDurationSeconds.ToString("0.0000", CultureInfo.InvariantCulture)}");
+                builder.AppendLine($"- CPU core-equivalents: {model.CpuCoreEquivalents.ToString("0.0000", CultureInfo.InvariantCulture)}");
                 builder.AppendLine($"- Mean CPU utilization: {model.CpuUtilizationPercent.ToString("0.00", CultureInfo.InvariantCulture)}%");
                 builder.AppendLine($"- Managed allocation delta (bytes): {model.ManagedAllocationDeltaBytes}");
                 builder.AppendLine($"- Working set before/after (bytes): {model.WorkingSetBeforeBytes} / {model.WorkingSetAfterBytes}");

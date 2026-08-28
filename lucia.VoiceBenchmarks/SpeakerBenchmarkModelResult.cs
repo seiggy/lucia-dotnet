@@ -16,6 +16,7 @@ public sealed class SpeakerBenchmarkModelResult
     public double EqualErrorRate { get; init; }
     public double MeanRealTimeFactor { get; init; }
     public double WallDurationSeconds { get; init; }
+    public double CpuCoreEquivalents { get; init; }
     public double CpuUtilizationPercent { get; init; }
     public long ManagedAllocationDeltaBytes { get; init; }
     public long WorkingSetBeforeBytes { get; init; }

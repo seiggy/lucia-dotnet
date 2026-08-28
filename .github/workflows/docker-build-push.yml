@@ -28,6 +28,10 @@ permissions:
   pull-requests: write
   security-events: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.event_name == 'pull_request' && github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
 env:
   ASSET_IMAGE: ghcr.io/${{ github.repository }}/build-assets
 
@@ -43,6 +47,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Detect asset changes across push
         id: changes
@@ -183,12 +188,26 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Compute asset.lock hash
         id: asset-hash
         run: |
           HASH=$(cat infra/docker/asset.lock infra/docker/Dockerfile.assets | sha256sum | cut -c1-12)
           echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve effective build reference
+        id: build-ref
+        env:
+          EFFECTIVE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          echo "short_sha=${EFFECTIVE_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          master_sha=$(git ls-remote origin refs/heads/master | cut -f1)
+          if [[ "$EFFECTIVE_SHA" == "$master_sha" ]]; then
+            echo "is_current_master=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_current_master=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
@@ -236,12 +255,13 @@ jobs:
           tags: |
             type=semver,pattern={{version}},suffix=${{ matrix.tag_suffix }}
             type=semver,pattern={{major}}.{{minor}},suffix=${{ matrix.tag_suffix }},enable=${{ github.ref_type == 'tag' && steps.preview.outputs.is_preview != 'true' }}
-            type=raw,value=latest,enable=${{ matrix.tag_suffix == '' && github.event_name != 'pull_request' && steps.preview.outputs.is_preview != 'true' && (github.ref_type == 'tag' || github.ref == 'refs/heads/master') }}
-            type=raw,value=voice,enable=${{ matrix.tag_suffix == '-voice' && github.event_name != 'pull_request' && steps.preview.outputs.is_preview != 'true' && (github.ref_type == 'tag' || github.ref == 'refs/heads/master') }}
-            type=raw,value=ha-mono,enable=${{ matrix.tag_suffix == '-ha-mono' && github.event_name != 'pull_request' && steps.preview.outputs.is_preview != 'true' && (github.ref_type == 'tag' || github.ref == 'refs/heads/master') }}
+            type=raw,value=latest,enable=${{ matrix.tag_suffix == '' && steps.preview.outputs.is_preview != 'true' && ((github.event_name != 'pull_request' && github.event_name != 'workflow_run' && (github.ref_type == 'tag' || github.ref == 'refs/heads/master')) || (github.event_name == 'workflow_run' && steps.build-ref.outputs.is_current_master == 'true')) }}
+            type=raw,value=voice,enable=${{ matrix.tag_suffix == '-voice' && steps.preview.outputs.is_preview != 'true' && ((github.event_name != 'pull_request' && github.event_name != 'workflow_run' && (github.ref_type == 'tag' || github.ref == 'refs/heads/master')) || (github.event_name == 'workflow_run' && steps.build-ref.outputs.is_current_master == 'true')) }}
+            type=raw,value=ha-mono,enable=${{ matrix.tag_suffix == '-ha-mono' && steps.preview.outputs.is_preview != 'true' && ((github.event_name != 'pull_request' && github.event_name != 'workflow_run' && (github.ref_type == 'tag' || github.ref == 'refs/heads/master')) || (github.event_name == 'workflow_run' && steps.build-ref.outputs.is_current_master == 'true')) }}
             type=ref,event=branch,suffix=${{ matrix.tag_suffix }}
             type=ref,event=pr,suffix=${{ matrix.tag_suffix }}
-            type=sha,prefix=sha-,suffix=${{ matrix.tag_suffix }}
+            type=sha,prefix=sha-,suffix=${{ matrix.tag_suffix }},enable=${{ github.event_name != 'workflow_run' }}
+            type=raw,value=sha-${{ steps.build-ref.outputs.short_sha }}${{ matrix.tag_suffix }},enable=${{ github.event_name == 'workflow_run' }}
             type=raw,value=${{ steps.preview.outputs.version_tag }}${{ matrix.tag_suffix }},enable=${{ github.event_name == 'workflow_dispatch' && steps.preview.outputs.is_preview == 'true' && steps.preview.outputs.version_tag != '' }}
           labels: |
             org.opencontainers.image.title=${{ matrix.title }}
@@ -268,7 +288,7 @@ jobs:
           build-args: |
             ASSET_IMAGE=${{ github.event_name == 'pull_request' && needs.prepare-assets.outputs.image_ref || format('{0}:sha-{1}', env.ASSET_IMAGE, steps.asset-hash.outputs.hash) }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
-            VCS_REF=${{ github.sha }}
+            VCS_REF=${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
             VERSION=${{ steps.meta.outputs.version }}
 
       - name: Image digest

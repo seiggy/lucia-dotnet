@@ -211,19 +211,24 @@ public sealed partial class WyomingServer : IHostedService, IDisposable
 
     private Task AbortSessionsAsync(KeyValuePair<Task, WyomingSession>[] sessions)
     {
-        foreach (var entry in sessions)
-        {
-            try
+        return Task.Factory.StartNew(
+            () =>
             {
-                entry.Value.AbortTransport();
-            }
-            catch (Exception ex)
-            {
-                LogSessionCleanupFailure(_logger, entry.Value.Id, ex);
-            }
-        }
-
-        return Task.CompletedTask;
+                foreach (var entry in sessions)
+                {
+                    try
+                    {
+                        entry.Value.AbortTransport();
+                    }
+                    catch (Exception ex)
+                    {
+                        LogSessionCleanupFailure(_logger, entry.Value.Id, ex);
+                    }
+                }
+            },
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
     }
 
     private void ObserveLateShutdown(

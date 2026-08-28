@@ -33,6 +33,14 @@ public sealed class SpeakerBenchmarkMetricsTests
     }
 
     [Fact]
+    public void ComputeEer_InterpolatesBetweenOperatingPoints()
+    {
+        var eer = SpeakerBenchmarkMetrics.ComputeEer([1d], [0d, 2d]);
+
+        Assert.Equal(0.5d, eer, 12);
+    }
+
+    [Fact]
     public void ComputeTop1Accuracy_ReturnsOne_WhenPredictionsAreCorrect()
     {
         var predictions = new[]

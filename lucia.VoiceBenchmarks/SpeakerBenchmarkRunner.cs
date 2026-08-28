@@ -205,6 +205,7 @@ public sealed class SpeakerBenchmarkRunner
         var meanRealTimeFactor = meanRealTimeFactorValues.Count == 0 ? 0d : meanRealTimeFactorValues.Average();
         var wallDurationSeconds = stopwatch.Elapsed.TotalSeconds;
         var cpuSeconds = (process.TotalProcessorTime - cpuBefore).TotalSeconds;
+        var cpuCoreEquivalents = wallDurationSeconds <= 0d ? 0d : cpuSeconds / wallDurationSeconds;
         var cpuUtilizationPercent = wallDurationSeconds <= 0d
             ? 0d
             : cpuSeconds / (wallDurationSeconds * Math.Max(1, Environment.ProcessorCount)) * 100d;
@@ -227,6 +228,7 @@ public sealed class SpeakerBenchmarkRunner
             EqualErrorRate = equalErrorRate,
             MeanRealTimeFactor = meanRealTimeFactor,
             WallDurationSeconds = wallDurationSeconds,
+            CpuCoreEquivalents = cpuCoreEquivalents,
             CpuUtilizationPercent = cpuUtilizationPercent,
             ManagedAllocationDeltaBytes = managedAllocationDeltaBytes,
             WorkingSetBeforeBytes = workingSetBefore,
