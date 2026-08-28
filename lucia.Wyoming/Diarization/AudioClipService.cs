@@ -91,16 +91,16 @@ public sealed class AudioClipService(
 
     public string? GetClipFilePath(string profileId, string clipId)
     {
-        ValidatePathSegment(clipId, nameof(clipId));
-        var path = Path.Combine(GetProfileDirectory(profileId), $"{clipId}.wav");
+        var safeClipId = GetSafePathSegment(clipId, nameof(clipId));
+        var path = Path.Combine(GetProfileDirectory(profileId), $"{safeClipId}.wav");
         return File.Exists(path) ? path : null;
     }
 
     public void DeleteClip(string profileId, string clipId)
     {
-        ValidatePathSegment(clipId, nameof(clipId));
+        var safeClipId = GetSafePathSegment(clipId, nameof(clipId));
         var profileDir = GetProfileDirectory(profileId);
-        DeleteClipFiles(profileDir, clipId);
+        DeleteClipFiles(profileDir, safeClipId);
     }
 
     public void DeleteProfileClips(string profileId)
@@ -120,16 +120,16 @@ public sealed class AudioClipService(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceProfileId);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetProfileId);
-        ValidatePathSegment(clipId, nameof(clipId));
+        var safeClipId = GetSafePathSegment(clipId, nameof(clipId));
 
         var sourceDir = GetProfileDirectory(sourceProfileId);
         var targetDir = GetProfileDirectory(targetProfileId);
         Directory.CreateDirectory(targetDir);
 
-        var wavSource = Path.Combine(sourceDir, $"{clipId}.wav");
-        var jsonSource = Path.Combine(sourceDir, $"{clipId}.json");
-        var wavDest = Path.Combine(targetDir, $"{clipId}.wav");
-        var jsonDest = Path.Combine(targetDir, $"{clipId}.json");
+        var wavSource = Path.Combine(sourceDir, $"{safeClipId}.wav");
+        var jsonSource = Path.Combine(sourceDir, $"{safeClipId}.json");
+        var wavDest = Path.Combine(targetDir, $"{safeClipId}.wav");
+        var jsonDest = Path.Combine(targetDir, $"{safeClipId}.json");
 
         if (File.Exists(jsonSource))
         {
@@ -243,26 +243,30 @@ public sealed class AudioClipService(
 
     private string GetProfileDirectory(string profileId)
     {
-        ValidatePathSegment(profileId, nameof(profileId));
-        return Path.Combine(options.CurrentValue.AudioClipBasePath, profileId);
+        var safeProfileId = GetSafePathSegment(profileId, nameof(profileId));
+        return Path.Combine(options.CurrentValue.AudioClipBasePath, safeProfileId);
     }
 
-    private static void ValidatePathSegment(string value, string parameterName)
+    private static string GetSafePathSegment(string value, string parameterName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(value, parameterName);
-        if (value.Any(static character =>
+        var safeValue = Path.GetFileName(value);
+        if (!string.Equals(value, safeValue, StringComparison.Ordinal)
+            || safeValue.Any(static character =>
                 !char.IsAsciiLetterOrDigit(character) && character is not '-' and not '_')
-            || s_windowsReservedNames.Contains(value))
+            || s_windowsReservedNames.Contains(safeValue))
         {
             throw new ArgumentException($"Invalid path segment: '{value}'", parameterName);
         }
+
+        return safeValue;
     }
 
     private static void DeleteClipFiles(string profileDir, string clipId)
     {
-        ValidatePathSegment(clipId, nameof(clipId));
-        var wavFile = Path.Combine(profileDir, $"{clipId}.wav");
-        var jsonFile = Path.Combine(profileDir, $"{clipId}.json");
+        var safeClipId = GetSafePathSegment(clipId, nameof(clipId));
+        var wavFile = Path.Combine(profileDir, $"{safeClipId}.wav");
+        var jsonFile = Path.Combine(profileDir, $"{safeClipId}.json");
         if (File.Exists(wavFile)) File.Delete(wavFile);
         if (File.Exists(jsonFile)) File.Delete(jsonFile);
     }
