@@ -13,6 +13,7 @@ public sealed class AudioClipService(
     IOptionsMonitor<VoiceProfileOptions> options,
     ILogger<AudioClipService> logger)
 {
+    private const string OnboardingStagingDirectoryName = ".onboarding-staging";
     private static readonly HashSet<string> s_windowsReservedNames = new(
         ["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5",
          "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5",
@@ -36,7 +37,37 @@ public sealed class AudioClipService(
         await _fileLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            return await SaveClipCoreAsync(profileId, audio, sampleRate, transcript, ct).ConfigureAwait(false);
+            return await SaveClipCoreAsync(
+                profileId,
+                GetProfileDirectory(profileId),
+                audio,
+                sampleRate,
+                transcript,
+                ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    public async Task<string> SaveOnboardingClipAsync(
+        string sessionId,
+        ReadOnlyMemory<float> audio,
+        int sampleRate,
+        string? transcript,
+        CancellationToken ct = default)
+    {
+        await _fileLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            return await SaveClipCoreAsync(
+                GetStagingProfileId(sessionId),
+                GetOnboardingStagingDirectory(sessionId),
+                audio,
+                sampleRate,
+                transcript,
+                ct).ConfigureAwait(false);
         }
         finally
         {
@@ -46,6 +77,7 @@ public sealed class AudioClipService(
 
     private async Task<string> SaveClipCoreAsync(
         string profileId,
+        string profileDir,
         ReadOnlyMemory<float> audio,
         int sampleRate,
         string? transcript,
@@ -54,7 +86,6 @@ public sealed class AudioClipService(
         ArgumentException.ThrowIfNullOrWhiteSpace(profileId);
 
         var maxClips = options.CurrentValue.MaxClipsPerProfile;
-        var profileDir = GetProfileDirectory(profileId);
         Directory.CreateDirectory(profileDir);
 
         // FIFO rotation: delete oldest clips if at capacity
@@ -173,6 +204,68 @@ public sealed class AudioClipService(
                 Directory.Delete(profileDir, recursive: true);
             }
         }
+
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    public void DeleteOnboardingStagingClips()
+    {
+        _fileLock.Wait();
+        try
+        {
+            var stagingRoot = GetOnboardingStagingRoot();
+            if (!Directory.Exists(stagingRoot))
+            {
+                return;
+            }
+
+            string[] stagingDirectories;
+            try
+            {
+                stagingDirectories = Directory.GetDirectories(stagingRoot);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                logger.LogWarning(ex, "Unable to enumerate onboarding staging directory {StagingRoot}", stagingRoot);
+                return;
+            }
+
+            foreach (var stagingDirectory in stagingDirectories)
+            {
+                try
+                {
+                    Directory.Delete(stagingDirectory, recursive: true);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    logger.LogWarning(
+                        ex,
+                        "Unable to delete abandoned onboarding staging directory {StagingDirectory}",
+                        stagingDirectory);
+                }
+            }
+        }
+
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    public void DeleteOnboardingSessionClips(string sessionId)
+    {
+        _fileLock.Wait();
+        try
+        {
+            var stagingDirectory = GetOnboardingStagingDirectory(sessionId);
+            if (Directory.Exists(stagingDirectory))
+            {
+                Directory.Delete(stagingDirectory, recursive: true);
+            }
+        }
         finally
         {
             _fileLock.Release();
@@ -188,7 +281,11 @@ public sealed class AudioClipService(
         await _fileLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            await ReassignClipCoreAsync(sourceProfileId, clipId, targetProfileId, ct).ConfigureAwait(false);
+            await ReassignClipCoreAsync(
+                sourceProfileId,
+                clipId,
+                targetProfileId,
+                ct).ConfigureAwait(false);
         }
         finally
         {
@@ -200,13 +297,16 @@ public sealed class AudioClipService(
         string sourceProfileId,
         string clipId,
         string targetProfileId,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool sourceIsOnboardingStaging = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceProfileId);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetProfileId);
         var safeClipId = GetSafePathSegment(clipId, nameof(clipId));
 
-        var sourceDir = GetProfileDirectory(sourceProfileId);
+        var sourceDir = sourceIsOnboardingStaging
+            ? GetOnboardingStagingDirectory(sourceProfileId)
+            : GetProfileDirectory(sourceProfileId);
         var targetDir = GetProfileDirectory(targetProfileId);
         Directory.CreateDirectory(targetDir);
 
@@ -267,12 +367,35 @@ public sealed class AudioClipService(
         }
     }
 
+    public async Task MoveOnboardingClipsAsync(
+        string sessionId,
+        string targetProfileId,
+        CancellationToken ct = default)
+    {
+        await _fileLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await MoveClipsCoreAsync(
+                sessionId,
+                targetProfileId,
+                ct,
+                sourceIsOnboardingStaging: true).ConfigureAwait(false);
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
     private async Task MoveClipsCoreAsync(
         string sourceProfileId,
         string targetProfileId,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool sourceIsOnboardingStaging = false)
     {
-        var sourceDir = GetProfileDirectory(sourceProfileId);
+        var sourceDir = sourceIsOnboardingStaging
+            ? GetOnboardingStagingDirectory(sourceProfileId)
+            : GetProfileDirectory(sourceProfileId);
         var targetDir = GetProfileDirectory(targetProfileId);
 
         if (!Directory.Exists(sourceDir))
@@ -286,7 +409,12 @@ public sealed class AudioClipService(
         {
             ct.ThrowIfCancellationRequested();
             var clipId = Path.GetFileNameWithoutExtension(metadataPath);
-            await ReassignClipCoreAsync(sourceProfileId, clipId, targetProfileId, ct).ConfigureAwait(false);
+            await ReassignClipCoreAsync(
+                sourceProfileId,
+                clipId,
+                targetProfileId,
+                ct,
+                sourceIsOnboardingStaging).ConfigureAwait(false);
         }
         foreach (var wavPath in Directory.GetFiles(sourceDir, "*.wav"))
         {
@@ -358,6 +486,17 @@ public sealed class AudioClipService(
         var safeProfileId = GetSafePathSegment(profileId, nameof(profileId));
         return Path.Combine(options.CurrentValue.AudioClipBasePath, safeProfileId);
     }
+
+    private string GetOnboardingStagingDirectory(string sessionId)
+    {
+        var safeSessionId = GetSafePathSegment(sessionId, nameof(sessionId));
+        return Path.Combine(GetOnboardingStagingRoot(), safeSessionId);
+    }
+
+    private string GetOnboardingStagingRoot() =>
+        Path.Combine(options.CurrentValue.AudioClipBasePath, OnboardingStagingDirectoryName);
+
+    private static string GetStagingProfileId(string sessionId) => $"onboarding-{sessionId}";
 
     private static string GetSafePathSegment(string value, string parameterName)
     {

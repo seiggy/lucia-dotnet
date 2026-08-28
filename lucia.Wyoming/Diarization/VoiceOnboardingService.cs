@@ -1,10 +1,11 @@
 using System.Collections.Concurrent;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace lucia.Wyoming.Diarization;
 
-public sealed class VoiceOnboardingService
+public sealed class VoiceOnboardingService : IHostedService
 {
     private static readonly string[] OnboardingPrompts =
     [
@@ -76,6 +77,14 @@ public sealed class VoiceOnboardingService
         return session;
     }
 
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        _audioClipService.DeleteOnboardingStagingClips();
+        return Task.CompletedTask;
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
     public async Task<OnboardingStepResult> ProcessSampleAsync(
         string sessionId,
         ReadOnlyMemory<float> audioSamples,
@@ -112,7 +121,7 @@ public sealed class VoiceOnboardingService
             }
 
             var embedding = _diarization.ExtractEmbedding(audioSamples.Span, sampleRate);
-            await _audioClipService.SaveClipAsync(
+            await _audioClipService.SaveOnboardingClipAsync(
                 session.Id,
                 audioSamples,
                 sampleRate,
@@ -207,7 +216,10 @@ public sealed class VoiceOnboardingService
             session.ProfilePersisted = true;
         }
 
-        await _audioClipService.MoveClipsAsync(session.Id, profile.Id, ct).ConfigureAwait(false);
+        await _audioClipService.MoveOnboardingClipsAsync(
+            session.Id,
+            profile.Id,
+            ct).ConfigureAwait(false);
         session.Status = OnboardingStatus.Complete;
         session.CompletedAt = DateTimeOffset.UtcNow;
 
@@ -244,7 +256,7 @@ public sealed class VoiceOnboardingService
 
                     if (session.Status != OnboardingStatus.Complete)
                     {
-                        _audioClipService.DeleteProfileClips(session.Id);
+                        _audioClipService.DeleteOnboardingSessionClips(session.Id);
                     }
 
                     _sessions.TryRemove(key, out _);
@@ -268,4 +280,5 @@ public sealed class VoiceOnboardingService
         var shuffled = OnboardingPrompts.OrderBy(_ => Random.Shared.Next()).ToList();
         return shuffled.Take(Math.Min(count, shuffled.Count)).ToList();
     }
+
 }

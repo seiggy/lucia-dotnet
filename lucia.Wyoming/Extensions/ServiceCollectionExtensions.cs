@@ -144,6 +144,8 @@ public static class ServiceCollectionExtensions
 
         builder.Services.AddSingleton<AudioQualityAnalyzer>();
         builder.Services.AddSingleton<VoiceOnboardingService>();
+        builder.Services.AddSingleton<IHostedService>(
+            sp => sp.GetRequiredService<VoiceOnboardingService>());
 
         builder.Services.AddSingleton<WakeWordTokenizer>();
         builder.Services.AddSingleton<IWakeWordStore, InMemoryWakeWordStore>();

@@ -136,15 +136,15 @@ public sealed class AudioClipServiceTests
     }
 
     [Fact]
-    public async Task DeleteProfileClips_RemovesStagedDirectory()
+    public async Task DeleteOnboardingSessionClips_RemovesStagedDirectory()
     {
         var tempDir = CreateTempDir();
         try
         {
             var svc = CreateService(tempDir, maxClips: 10);
-            await svc.SaveClipAsync("onboarding-session", TestAudio, SampleRate, "test");
+            await svc.SaveOnboardingClipAsync("session", TestAudio, SampleRate, "test");
 
-            svc.DeleteProfileClips("onboarding-session");
+            svc.DeleteOnboardingSessionClips("session");
 
             Assert.False(Directory.Exists(Path.Combine(tempDir, "onboarding-session")));
         }

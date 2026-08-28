@@ -76,7 +76,9 @@ public sealed class VoiceOnboardingServiceTests : IDisposable
         var result = await service.ProcessSampleAsync(session.Id, audio, 16_000, CancellationToken.None);
 
         Assert.Equal(OnboardingStepStatus.NextPrompt, result.Status);
-        Assert.Single(_audioClipService.GetClips(session.Id));
+        Assert.Single(Directory.GetFiles(
+            GetStagingDirectory(session.Id),
+            "*.json"));
         Assert.Empty(_audioClipService.GetClips(session.ProfileId));
     }
 
@@ -132,7 +134,7 @@ public sealed class VoiceOnboardingServiceTests : IDisposable
         Assert.NotNull(completedSession);
         Assert.Equal(OnboardingStatus.Complete, completedSession.Status);
         Assert.Equal(3, _audioClipService.GetClips(result.CompletedProfile.Id).Count);
-        Assert.Empty(_audioClipService.GetClips(session.Id));
+        Assert.False(Directory.Exists(GetStagingDirectory(session.Id)));
     }
 
     [Fact]
@@ -157,7 +159,22 @@ public sealed class VoiceOnboardingServiceTests : IDisposable
         await service.StartOnboardingAsync("Alice", null, CancellationToken.None);
 
         Assert.Null(await service.GetSessionAsync(abandoned.Id, CancellationToken.None));
-        Assert.Empty(_audioClipService.GetClips(abandoned.Id));
+        Assert.False(Directory.Exists(GetStagingDirectory(abandoned.Id)));
+    }
+
+    [Fact]
+    public async Task StartAsync_RemovesStagingClipsFromInterruptedProcess()
+    {
+        await _audioClipService.SaveOnboardingClipAsync(
+            "orphan",
+            Enumerable.Repeat(0.1f, 32_000).ToArray(),
+            16_000,
+            "orphan");
+
+        var service = CreateService();
+        await service.StartAsync(CancellationToken.None);
+
+        Assert.False(Directory.Exists(GetStagingDirectory("orphan")));
     }
 
     [Fact]
@@ -227,4 +244,7 @@ public sealed class VoiceOnboardingServiceTests : IDisposable
         var profile = await store.GetAsync("prov-123", CancellationToken.None);
         Assert.Equal("Alice", profile?.Name);
     }
+
+    private string GetStagingDirectory(string sessionId) =>
+        Path.Combine(_tempRoot, ".onboarding-staging", sessionId);
 }
