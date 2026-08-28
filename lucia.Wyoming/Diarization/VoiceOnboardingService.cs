@@ -251,7 +251,15 @@ public sealed class VoiceOnboardingService : BackgroundService
             {
                 session.Status = OnboardingStatus.Failed;
                 session.CompletedAt = DateTimeOffset.UtcNow;
-                _audioClipService.DeleteOnboardingSessionClips(session.Id);
+                try
+                {
+                    _audioClipService.DeleteOnboardingSessionClips(session.Id);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    _logger.LogWarning(ex, "Deferring failed onboarding conflict cleanup");
+                }
+
                 throw;
             }
         }

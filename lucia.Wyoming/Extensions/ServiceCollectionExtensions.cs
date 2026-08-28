@@ -105,6 +105,8 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IHostedService>(
             sp => sp.GetRequiredService<SpeakerProfileDeletionService>());
         builder.Services.AddSingleton<ProfileMergeService>();
+        builder.Services.AddSingleton<IHostedService>(
+            sp => sp.GetRequiredService<ProfileMergeService>());
 
         // Determine data provider mode from configuration
         var storeProvider = builder.Configuration["DataProvider:Store"] ?? "MongoDB";

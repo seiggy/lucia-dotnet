@@ -38,6 +38,8 @@ public sealed class InMemorySpeakerProfileStoreTests
             Name = "Speaker 1",
             AverageEmbedding = average,
             Embeddings = [embedding],
+            PendingMergeSourceIds = ["pending"],
+            MergedProfileIds = ["merged"],
         };
 
         await store.CreateAsync(profile, CancellationToken.None);
@@ -53,12 +55,16 @@ public sealed class InMemorySpeakerProfileStoreTests
 
         stored.AverageEmbedding[1] = 77f;
         stored.Embeddings[0][1] = 66f;
+        stored.PendingMergeSourceIds[0] = "changed";
+        stored.MergedProfileIds[0] = "changed";
 
         var reloaded = await store.GetAsync(profile.Id, CancellationToken.None);
 
         Assert.NotNull(reloaded);
         Assert.Equal(2f, reloaded.AverageEmbedding[1]);
         Assert.Equal(4f, reloaded.Embeddings[0][1]);
+        Assert.Equal("pending", reloaded.PendingMergeSourceIds[0]);
+        Assert.Equal("merged", reloaded.MergedProfileIds[0]);
     }
 
     [Fact]

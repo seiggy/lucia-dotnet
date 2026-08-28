@@ -195,6 +195,10 @@ public static class OnboardingApi
             {
                 return Results.BadRequest(ex.Message);
             }
+            catch (ProfileMergeConflictException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
         }).WithTags("Voice Onboarding")
             .RequireAuthorization();
 

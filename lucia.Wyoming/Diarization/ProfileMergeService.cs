@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace lucia.Wyoming.Diarization;
@@ -9,8 +10,38 @@ namespace lucia.Wyoming.Diarization;
 public sealed class ProfileMergeService(
     ISpeakerProfileStore profileStore,
     AudioClipService clipService,
-    ILogger<ProfileMergeService> logger)
+    ILogger<ProfileMergeService> logger) : BackgroundService
 {
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        await RecoverPendingMergesAsync(stoppingToken).ConfigureAwait(false);
+    }
+
+    internal async Task RecoverPendingMergesAsync(CancellationToken stoppingToken)
+    {
+        var profiles = await profileStore.GetAllAsync(stoppingToken).ConfigureAwait(false);
+        foreach (var profile in profiles
+            .Where(static profile => profile.MergeTargetProfileId is not null)
+            .OrderBy(static profile => profile.Id, StringComparer.Ordinal))
+        {
+            try
+            {
+                await MergeAsync(
+                    profile.Id,
+                    profile.MergeTargetProfileId!,
+                    stoppingToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Deferred recovery of an interrupted speaker profile merge");
+            }
+        }
+    }
+
     public async Task<SpeakerProfile> MergeAsync(
         string sourceProfileId,
         string targetProfileId,
@@ -44,7 +75,7 @@ public sealed class ProfileMergeService(
             ?? throw new KeyNotFoundException($"Target profile '{targetProfileId}' not found.");
         if (target.MergeTargetProfileId is not null)
         {
-            throw new InvalidOperationException("A profile being merged cannot receive another profile.");
+            throw new ProfileMergeConflictException("A profile being merged cannot receive another profile.");
         }
         if (target.MergedProfileIds.Contains(sourceProfileId, StringComparer.Ordinal))
         {
@@ -59,7 +90,7 @@ public sealed class ProfileMergeService(
             ?? throw new KeyNotFoundException($"Source profile '{sourceProfileId}' not found.");
         if (source.PendingMergeSourceIds.Length > 0)
         {
-            throw new InvalidOperationException("A profile with pending incoming merges cannot be merged.");
+            throw new ProfileMergeConflictException("A profile with pending incoming merges cannot be merged.");
         }
 
         if (source.MergeTargetProfileId is null)
@@ -76,7 +107,7 @@ public sealed class ProfileMergeService(
         }
         else if (!string.Equals(source.MergeTargetProfileId, targetProfileId, StringComparison.Ordinal))
         {
-            throw new InvalidOperationException("The source profile is already merging into another profile.");
+            throw new ProfileMergeConflictException("The source profile is already merging into another profile.");
         }
 
         var merged = await profileStore.UpdateAtomicAsync(
@@ -166,7 +197,7 @@ public sealed class ProfileMergeService(
             || source.Embeddings.Any(static embedding => embedding.Length == 0)
             || target.Embeddings.Any(static embedding => embedding.Length == 0))
         {
-            throw new InvalidOperationException("Cannot merge speaker profiles containing empty embeddings.");
+            throw new ProfileMergeConflictException("Cannot merge speaker profiles containing empty embeddings.");
         }
 
         var dimensions = source.Embeddings
@@ -180,7 +211,7 @@ public sealed class ProfileMergeService(
             .Count();
         if (dimensions > 1)
         {
-            throw new InvalidOperationException("Cannot merge speaker profiles with different embedding dimensions.");
+            throw new ProfileMergeConflictException("Cannot merge speaker profiles with different embedding dimensions.");
         }
     }
 }

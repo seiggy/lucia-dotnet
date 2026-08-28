@@ -133,5 +133,7 @@ public sealed class InMemorySpeakerProfileStore : ISpeakerProfileStore
     {
         AverageEmbedding = p.AverageEmbedding.ToArray(),
         Embeddings = p.Embeddings.Select(e => e.ToArray()).ToArray(),
+        PendingMergeSourceIds = p.PendingMergeSourceIds.ToArray(),
+        MergedProfileIds = p.MergedProfileIds.ToArray(),
     };
 }

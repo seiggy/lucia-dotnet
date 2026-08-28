@@ -44,7 +44,7 @@ public sealed class ProfileMergeServiceTests
                 clipService,
                 NullLogger<ProfileMergeService>.Instance);
 
-            await Assert.ThrowsAsync<InvalidOperationException>(
+            await Assert.ThrowsAsync<ProfileMergeConflictException>(
                 () => service.MergeAsync("source", "target"));
 
             Assert.Single(clipService.GetClips("source"));
@@ -322,6 +322,61 @@ public sealed class ProfileMergeServiceTests
             await Assert.ThrowsAsync<KeyNotFoundException>(() => second);
             Assert.Single(clipService.GetClips("target-1"));
             Assert.Empty(clipService.GetClips("target-2"));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task StartAsync_RecoversClaimBeforeTargetUpdate()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"lucia-test-{Guid.NewGuid():N}");
+        try
+        {
+            var store = new InMemorySpeakerProfileStore();
+            await store.CreateAsync(
+                new SpeakerProfile
+            {
+                Id = "source",
+                Name = "Source",
+                AverageEmbedding = [1f, 2f],
+                Embeddings = [[1f, 2f]],
+                MergeTargetProfileId = "target",
+            },
+                CancellationToken.None);
+            await store.CreateAsync(
+                new SpeakerProfile
+            {
+                Id = "target",
+                Name = "Target",
+                AverageEmbedding = [3f, 4f],
+                Embeddings = [[3f, 4f]],
+            },
+                CancellationToken.None);
+            var clipService = new AudioClipService(
+                new OptionsMonitorStub<VoiceProfileOptions>(new VoiceProfileOptions
+                {
+                    AudioClipBasePath = tempDir,
+                }),
+                NullLogger<AudioClipService>.Instance);
+            await clipService.SaveClipAsync("source", new float[] { 0.1f }, 16000, null);
+            var service = new ProfileMergeService(
+                store,
+                clipService,
+                NullLogger<ProfileMergeService>.Instance);
+
+            await service.RecoverPendingMergesAsync(CancellationToken.None);
+
+            Assert.Null(await store.GetAsync("source", CancellationToken.None));
+            var target = await store.GetAsync("target", CancellationToken.None);
+            Assert.NotNull(target);
+            Assert.Equal(["source"], target.MergedProfileIds);
+            Assert.Single(clipService.GetClips("target"));
         }
         finally
         {
