@@ -4,7 +4,7 @@ public static class Program
 {
     public static int Main(string[] args)
     {
-        const string Usage = "Usage: dotnet run --project lucia.VoiceBenchmarks -- speaker --manifest benchmarks/voice/sample-manifest.json --model path/to/a.onnx --model-source https://example.com/a.onnx --model-threshold 0.7 --output benchmarks/results";
+        const string Usage = "Usage: dotnet run --project lucia.VoiceBenchmarks -- speaker --manifest benchmarks/voice/sample-manifest.json --model path/to/a.onnx --model-source https://example.com/a.onnx --model-threshold 0.7 --model-threshold-manifest path/to/development-manifest.json --output benchmarks/results";
 
         try
         {
@@ -31,6 +31,7 @@ public static class Program
                 options.ModelPaths,
                 options.ModelSourceUris,
                 options.ModelThresholds,
+                options.ModelThresholdManifestPaths,
                 options.OutputDirectory,
                 commandLine);
             var report = runner.Run();

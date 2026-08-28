@@ -6,6 +6,8 @@ public sealed class SpeakerBenchmarkModelResult
     public string ModelName { get; init; } = string.Empty;
     public string ModelSha256 { get; init; } = string.Empty;
     public string ModelSourceUri { get; init; } = string.Empty;
+    public string ThresholdDevelopmentManifestPath { get; init; } = string.Empty;
+    public string ThresholdDevelopmentManifestSha256 { get; init; } = string.Empty;
     public string Provider { get; init; } = string.Empty;
     public int ThreadCount { get; init; }
     public int EmbeddingDimension { get; init; }

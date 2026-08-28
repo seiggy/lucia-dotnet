@@ -16,7 +16,7 @@ public sealed class SpeakerBenchmarkRunner
     private const int Concurrency = 1;
     private const double MinDcfTargetPrior = 0.01d;
     private readonly string _manifestPath;
-    private readonly IReadOnlyList<(string Path, string SourceUri, double Threshold)> _models;
+    private readonly IReadOnlyList<(string Path, string SourceUri, double Threshold, string ThresholdManifestPath)> _models;
     private readonly string _outputDirectory;
     private readonly string _commandLine;
 
@@ -25,6 +25,7 @@ public sealed class SpeakerBenchmarkRunner
         IReadOnlyList<string> modelPaths,
         IReadOnlyList<string> modelSourceUris,
         IReadOnlyList<double> modelThresholds,
+        IReadOnlyList<string> modelThresholdManifestPaths,
         string outputDirectory,
         string commandLine)
     {
@@ -34,7 +35,8 @@ public sealed class SpeakerBenchmarkRunner
         _manifestPath = Path.GetFullPath(manifestPath);
         _outputDirectory = Path.GetFullPath(outputDirectory);
         if (modelPaths.Count != modelSourceUris.Count
-            || modelPaths.Count != modelThresholds.Count)
+            || modelPaths.Count != modelThresholds.Count
+            || modelPaths.Count != modelThresholdManifestPaths.Count)
         {
             throw new ArgumentException("Model paths and source URLs must have matching counts.");
         }
@@ -43,7 +45,8 @@ public sealed class SpeakerBenchmarkRunner
             .Select((path, index) => (
                 Path: path,
                 SourceUri: modelSourceUris[index],
-                Threshold: modelThresholds[index]))
+                Threshold: modelThresholds[index],
+                ThresholdManifestPath: Path.GetFullPath(modelThresholdManifestPaths[index])))
             .OrderBy(static model => model.Path, StringComparer.OrdinalIgnoreCase)
             .ToArray();
         _commandLine = commandLine;
@@ -89,7 +92,8 @@ public sealed class SpeakerBenchmarkRunner
                 audioSamples,
                 resolvedModelPath,
                 model.SourceUri,
-                model.Threshold));
+                model.Threshold,
+                model.ThresholdManifestPath));
         }
 
         return new SpeakerBenchmarkRunReport
@@ -133,7 +137,8 @@ public sealed class SpeakerBenchmarkRunner
         IReadOnlyDictionary<string, float[]> audioSamples,
         string modelPath,
         string modelSourceUri,
-        double verificationThreshold)
+        double verificationThreshold,
+        string thresholdManifestPath)
     {
         var enrollClips = manifest.Clips
             .Where(static clip => string.Equals(clip.Split, "enroll", StringComparison.OrdinalIgnoreCase))
@@ -255,6 +260,8 @@ public sealed class SpeakerBenchmarkRunner
             ModelName = Path.GetFileNameWithoutExtension(modelPath),
             ModelSha256 = modelSha256,
             ModelSourceUri = modelSourceUri,
+            ThresholdDevelopmentManifestPath = thresholdManifestPath,
+            ThresholdDevelopmentManifestSha256 = ComputeSha256(thresholdManifestPath),
             Provider = Provider,
             ThreadCount = threadCount,
             EmbeddingDimension = centroids.Count == 0 ? 0 : centroids.First().Value.Length,

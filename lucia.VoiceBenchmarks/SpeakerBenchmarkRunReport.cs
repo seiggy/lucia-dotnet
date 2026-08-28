@@ -89,6 +89,8 @@ public sealed class SpeakerBenchmarkRunReport
                 builder.AppendLine($"- Model path: `{model.ModelPath}`");
                 builder.AppendLine($"- Model SHA-256: `{model.ModelSha256}`");
                 builder.AppendLine($"- Model source: `{model.ModelSourceUri}`");
+                builder.AppendLine($"- Threshold development manifest: `{model.ThresholdDevelopmentManifestPath}`");
+                builder.AppendLine($"- Threshold development manifest SHA-256: `{model.ThresholdDevelopmentManifestSha256}`");
                 builder.AppendLine($"- Provider: {model.Provider}");
                 builder.AppendLine($"- Threads: {model.ThreadCount}");
                 builder.AppendLine($"- Embedding dimension: {model.EmbeddingDimension}");

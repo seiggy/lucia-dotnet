@@ -18,6 +18,8 @@ public sealed class VoiceBenchmarkCommandLineOptionsTests
             "https://example.com/model.onnx",
             "--model-threshold",
             "0.7",
+            "--model-threshold-manifest",
+            "development-manifest.json",
         };
 
         Assert.Throws<ArgumentException>(() => VoiceBenchmarkCommandLineOptions.Parse(args));
@@ -34,6 +36,7 @@ public sealed class VoiceBenchmarkCommandLineOptionsTests
             "-M", "model.onnx",
             "--model-source", "https://example.com/model.onnx",
             "--model-threshold", "0.7",
+            "--model-threshold-manifest", "development-manifest.json",
         ]);
 
         Assert.Equal("manifest.json", options.ManifestPath);
@@ -51,6 +54,7 @@ public sealed class VoiceBenchmarkCommandLineOptionsTests
             "--model", "model.onnx",
             "--model-source", "https://example.com/model.onnx",
             "--model-threshold", "NaN",
+            "--model-threshold-manifest", "development-manifest.json",
         };
 
         Assert.Throws<ArgumentException>(() => VoiceBenchmarkCommandLineOptions.Parse(args));
@@ -66,6 +70,7 @@ public sealed class VoiceBenchmarkCommandLineOptionsTests
             "speaker",
             "--model-source", "https://example.com/model.onnx",
             "--model-threshold", "0.7",
+            "--model-threshold-manifest", "development-manifest.json",
         ]);
 
         Assert.Equal(["speaker"], options.ModelPaths);

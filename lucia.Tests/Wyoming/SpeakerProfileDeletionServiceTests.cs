@@ -234,6 +234,46 @@ public sealed class SpeakerProfileDeletionServiceTests
         }
     }
 
+    [Fact]
+    public async Task ReconcileOrphanedClipsAsync_DefersMergeSourceTombstone()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"lucia-test-{Guid.NewGuid():N}");
+        try
+        {
+            var store = new InMemorySpeakerProfileStore();
+            await store.CreateAsync(
+                new SpeakerProfile
+            {
+                Id = "source",
+                Name = "Source",
+                MergeTargetProfileId = "target",
+            },
+                CancellationToken.None);
+            var options = A.Fake<IOptionsMonitor<VoiceProfileOptions>>();
+            A.CallTo(() => options.CurrentValue).Returns(new VoiceProfileOptions
+            {
+                AudioClipBasePath = tempDir,
+            });
+            var clipService = new AudioClipService(options, NullLogger<AudioClipService>.Instance);
+            clipService.TombstoneProfileClips("source");
+            var service = new SpeakerProfileDeletionService(
+                store,
+                clipService,
+                NullLogger<SpeakerProfileDeletionService>.Instance);
+
+            await service.ReconcileOrphanedClipsAsync(CancellationToken.None);
+
+            Assert.NotNull(await store.GetAsync("source", CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
     private static SpeakerProfileDeletionService CreateService(ISpeakerProfileStore profileStore)
     {
         var options = A.Fake<IOptionsMonitor<VoiceProfileOptions>>();

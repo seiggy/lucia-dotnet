@@ -50,7 +50,7 @@ The dataset must contain at least two speakers so verification has impostor scor
 ## CLI usage
 
 ```bash
-dotnet run --project lucia.VoiceBenchmarks -- speaker --manifest benchmarks/voice/sample-manifest.json --model path/to/a.onnx --model-source https://example.com/a.onnx --model-threshold 0.7 --output benchmarks/results
+dotnet run --project lucia.VoiceBenchmarks -- speaker --manifest benchmarks/voice/sample-manifest.json --model path/to/a.onnx --model-source https://example.com/a.onnx --model-threshold 0.7 --model-threshold-manifest path/to/development-manifest.json --output benchmarks/results
 ```
 
 Repeat `--model`, `--model-source`, and `--model-threshold` as aligned groups to compare models. Tune each threshold on a separate development split, then freeze it before evaluating the test clips.

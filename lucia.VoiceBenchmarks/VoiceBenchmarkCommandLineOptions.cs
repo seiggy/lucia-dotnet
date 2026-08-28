@@ -9,6 +9,7 @@ public sealed class VoiceBenchmarkCommandLineOptions
     public IReadOnlyList<string> ModelPaths { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> ModelSourceUris { get; init; } = Array.Empty<string>();
     public IReadOnlyList<double> ModelThresholds { get; init; } = Array.Empty<double>();
+    public IReadOnlyList<string> ModelThresholdManifestPaths { get; init; } = Array.Empty<string>();
 
     public static VoiceBenchmarkCommandLineOptions Parse(string[] args)
     {
@@ -22,6 +23,7 @@ public sealed class VoiceBenchmarkCommandLineOptions
         var modelPaths = new List<string>();
         var modelSourceUris = new List<string>();
         var modelThresholds = new List<double>();
+        var modelThresholdManifestPaths = new List<string>();
         var positionals = new Queue<string>();
 
         for (var index = 0; index < args.Length; index++)
@@ -98,6 +100,17 @@ public sealed class VoiceBenchmarkCommandLineOptions
                 continue;
             }
 
+            if (string.Equals(argument, "--model-threshold-manifest", StringComparison.OrdinalIgnoreCase))
+            {
+                if (index + 1 >= args.Length || string.IsNullOrWhiteSpace(args[index + 1]))
+                {
+                    throw new ArgumentException("--model-threshold-manifest requires a path.");
+                }
+
+                modelThresholdManifestPaths.Add(args[++index]);
+                continue;
+            }
+
             if (argument.StartsWith("-", StringComparison.Ordinal))
             {
                 throw new ArgumentException($"Unknown option '{argument}'.");
@@ -152,6 +165,11 @@ public sealed class VoiceBenchmarkCommandLineOptions
             throw new ArgumentException(
                 "Each model requires one frozen --model-threshold value in the same order.");
         }
+        if (modelThresholdManifestPaths.Count != normalizedModelPaths.Length)
+        {
+            throw new ArgumentException(
+                "Each model requires one --model-threshold-manifest path in the same order.");
+        }
 
         return new VoiceBenchmarkCommandLineOptions
         {
@@ -160,6 +178,7 @@ public sealed class VoiceBenchmarkCommandLineOptions
             ModelPaths = normalizedModelPaths,
             ModelSourceUris = modelSourceUris.ToArray(),
             ModelThresholds = modelThresholds.ToArray(),
+            ModelThresholdManifestPaths = modelThresholdManifestPaths.ToArray(),
         };
     }
 }

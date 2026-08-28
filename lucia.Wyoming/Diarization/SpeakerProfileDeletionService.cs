@@ -145,6 +145,12 @@ public sealed partial class SpeakerProfileDeletionService(
         {
             try
             {
+                var profile = await profileStore.GetAsync(profileId, ct).ConfigureAwait(false);
+                if (profile?.MergeTargetProfileId is not null)
+                {
+                    continue;
+                }
+
                 await DeleteAsync(profileId, ct).ConfigureAwait(false);
             }
             catch (ArgumentException ex)
