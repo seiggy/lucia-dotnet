@@ -85,12 +85,15 @@ public sealed class MongoSpeakerProfileStore : ISpeakerProfileStore
     {
         ArgumentNullException.ThrowIfNull(profile);
 
-        var filter = Builders<SpeakerProfile>.Filter.Eq(p => p.Id, profile.Id);
-        var result = await _collection.ReplaceOneAsync(filter, profile, cancellationToken: ct).ConfigureAwait(false);
+        var filter = Builders<SpeakerProfile>.Filter.And(
+            Builders<SpeakerProfile>.Filter.Eq(p => p.Id, profile.Id),
+            BuildRevisionFilter(profile.Revision));
+        var updated = profile with { Revision = profile.Revision + 1 };
+        var result = await _collection.ReplaceOneAsync(filter, updated, cancellationToken: ct).ConfigureAwait(false);
 
         if (result.MatchedCount == 0)
         {
-            throw new KeyNotFoundException($"Speaker profile '{profile.Id}' was not found.");
+            throw new InvalidOperationException($"Speaker profile '{profile.Id}' changed or was not found.");
         }
     }
 
@@ -108,15 +111,14 @@ public sealed class MongoSpeakerProfileStore : ISpeakerProfileStore
         {
             var existing = await _collection.Find(idFilter).FirstOrDefaultAsync(ct).ConfigureAwait(false)
                 ?? throw new InvalidOperationException($"Profile '{id}' not found");
-            var updated = transform(existing);
+            var updated = transform(existing) with { Revision = existing.Revision + 1 };
             var options = new FindOneAndReplaceOptions<SpeakerProfile>
             {
                 ReturnDocument = ReturnDocument.After,
             };
             var concurrencyFilter = Builders<SpeakerProfile>.Filter.And(
                 idFilter,
-                Builders<SpeakerProfile>.Filter.Eq(p => p.UpdatedAt, existing.UpdatedAt),
-                Builders<SpeakerProfile>.Filter.Eq(p => p.IsProvisional, existing.IsProvisional));
+                BuildRevisionFilter(existing.Revision));
 
             var result = await _collection.FindOneAndReplaceAsync(concurrencyFilter, updated, options, ct)
                 .ConfigureAwait(false);
@@ -187,5 +189,15 @@ public sealed class MongoSpeakerProfileStore : ISpeakerProfileStore
         {
             _logger.LogWarning(ex, "Failed to create speaker profile indexes — they may already exist");
         }
+    }
+
+    private static FilterDefinition<SpeakerProfile> BuildRevisionFilter(long revision)
+    {
+        var revisionFilter = Builders<SpeakerProfile>.Filter.Eq(p => p.Revision, revision);
+        return revision == 0
+            ? Builders<SpeakerProfile>.Filter.Or(
+                revisionFilter,
+                Builders<SpeakerProfile>.Filter.Exists(p => p.Revision, false))
+            : revisionFilter;
     }
 }

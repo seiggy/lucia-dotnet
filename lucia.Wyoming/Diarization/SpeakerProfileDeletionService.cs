@@ -11,23 +11,30 @@ public sealed partial class SpeakerProfileDeletionService(
 {
     private static readonly TimeSpan RetryInterval = TimeSpan.FromMinutes(1);
     private readonly ConcurrentDictionary<string, byte> _pendingPurges = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, Task> _activeDeletions = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, Lazy<Task>> _activeDeletions = new(StringComparer.Ordinal);
 
     public async Task DeleteAsync(string profileId, CancellationToken ct)
     {
-        var deletionTask = _activeDeletions.GetOrAdd(
+        var operation = _activeDeletions.GetOrAdd(
             profileId,
-            static (id, service) => service.DeleteCoreAsync(id),
+            static (id, service) => new Lazy<Task>(
+                () => service.DeleteCoreAsync(id),
+                LazyThreadSafetyMode.ExecutionAndPublication),
             this);
-        try
-        {
-            await deletionTask.WaitAsync(ct).ConfigureAwait(false);
-        }
-        finally
-        {
-            _activeDeletions.TryRemove(
-                new KeyValuePair<string, Task>(profileId, deletionTask));
-        }
+        var deletionTask = operation.Value;
+        _ = deletionTask.ContinueWith(
+            static (_, state) =>
+            {
+                var (service, id, activeOperation) =
+                    ((SpeakerProfileDeletionService, string, Lazy<Task>))state!;
+                service._activeDeletions.TryRemove(
+                    new KeyValuePair<string, Lazy<Task>>(id, activeOperation));
+            },
+            (this, profileId, operation),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        await deletionTask.WaitAsync(ct).ConfigureAwait(false);
     }
 
     private async Task DeleteCoreAsync(string profileId)

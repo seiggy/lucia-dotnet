@@ -7,6 +7,7 @@ public sealed record SpeakerProfile
     public bool IsProvisional { get; init; }
     public bool IsAuthorized { get; init; } = true;
     public string[]? AllowedSkills { get; init; }
+    public long Revision { get; init; }
     public float[][] Embeddings { get; init; } = [];
     public float[] AverageEmbedding { get; init; } = [];
     public string? EnrollmentSessionId { get; init; }

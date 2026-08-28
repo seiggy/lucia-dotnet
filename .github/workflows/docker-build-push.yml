@@ -264,7 +264,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}},suffix=${{ matrix.tag_suffix }}
             type=semver,pattern={{major}}.{{minor}},suffix=${{ matrix.tag_suffix }},enable=${{ github.ref_type == 'tag' && steps.preview.outputs.is_preview != 'true' }}
-            type=ref,event=branch,suffix=${{ matrix.tag_suffix }}
+            type=ref,event=branch,suffix=${{ matrix.tag_suffix }},enable=${{ github.event_name != 'workflow_run' }}
             type=ref,event=pr,suffix=${{ matrix.tag_suffix }}
             type=sha,prefix=sha-,suffix=${{ matrix.tag_suffix }},enable=${{ github.event_name != 'workflow_run' }}
             type=raw,value=sha-${{ steps.build-ref.outputs.short_sha }}${{ matrix.tag_suffix }},enable=${{ github.event_name == 'workflow_run' }}
@@ -337,6 +337,21 @@ jobs:
           fi
 
           short_sha=${EFFECTIVE_SHA:0:7}
+          if [[ "$IS_RELEASE_TAG" != "true" ]]; then
+            docker buildx imagetools create \
+              -t seiggy/lucia-agenthost:master \
+              seiggy/lucia-agenthost:sha-$short_sha
+            docker buildx imagetools create \
+              -t seiggy/lucia-agenthost:master-voice \
+              seiggy/lucia-agenthost:sha-$short_sha-voice
+            docker buildx imagetools create \
+              -t seiggy/lucia-agenthost:master-voice-cpu \
+              seiggy/lucia-agenthost:sha-$short_sha-voice-cpu
+            docker buildx imagetools create \
+              -t seiggy/lucia-agenthost:master-ha-mono \
+              seiggy/lucia-agenthost:sha-$short_sha-ha-mono
+          fi
+
           docker buildx imagetools create \
             -t seiggy/lucia-agenthost:latest \
             seiggy/lucia-agenthost:sha-$short_sha
