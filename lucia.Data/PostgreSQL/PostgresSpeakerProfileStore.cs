@@ -12,7 +12,7 @@ namespace lucia.Data.PostgreSQL;
 /// <summary>
 /// PostgreSQL-backed persistent speaker profile store.
 /// </summary>
-public sealed class PostgresSpeakerProfileStore : ISpeakerProfileStore
+public sealed class PostgresSpeakerProfileStore : ISpeakerProfileStore, IConditionalSpeakerProfileStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {

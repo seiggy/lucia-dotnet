@@ -46,7 +46,6 @@ public sealed class ModelCatalogServiceTests
             [
                 "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k",
                 "nemo_en_speakerverification_speakernet",
-                "nemo_en_titanet_small",
                 "wespeaker_en_voxceleb_CAM++",
             ],
             models.Select(static model => model.Id).Order(StringComparer.Ordinal));

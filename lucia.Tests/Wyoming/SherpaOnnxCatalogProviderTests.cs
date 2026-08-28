@@ -43,14 +43,10 @@ public sealed class SherpaOnnxCatalogProviderTests
     }
 
     [Fact]
-    public async Task GetModelsAsync_SpeakerEmbedding_IncludesEnglishBenchmarkCandidates()
+    public async Task GetModelsAsync_SpeakerEmbedding_IncludesSpeakerNetCandidate()
     {
         var models = await _provider.GetModelsAsync(EngineType.SpeakerEmbedding);
 
-        Assert.Contains(models, model =>
-            model.Id == "nemo_en_titanet_small"
-            && model.Languages.SequenceEqual(["en"])
-            && model.SizeBytes == 40_257_283);
         Assert.Contains(models, model =>
             model.Id == "nemo_en_speakerverification_speakernet"
             && model.Languages.SequenceEqual(["en"]));

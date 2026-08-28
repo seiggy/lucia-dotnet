@@ -9,7 +9,7 @@ namespace lucia.Wyoming.Diarization;
 /// MongoDB-backed persistent speaker profile store.
 /// Falls back to <see cref="InMemorySpeakerProfileStore"/> when no MongoDB connection is configured.
 /// </summary>
-public sealed class MongoSpeakerProfileStore : ISpeakerProfileStore
+public sealed class MongoSpeakerProfileStore : ISpeakerProfileStore, IConditionalSpeakerProfileStore
 {
     private const string CollectionName = "speaker_profiles";
 

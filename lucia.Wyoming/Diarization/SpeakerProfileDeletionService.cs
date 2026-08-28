@@ -73,13 +73,18 @@ public sealed partial class SpeakerProfileDeletionService(
         DateTimeOffset cutoff,
         CancellationToken ct)
     {
+        if (profileStore is not IConditionalSpeakerProfileStore conditionalStore)
+        {
+            return false;
+        }
+
         await clipService.ProfileLifecycleLock.WaitAsync(ct).ConfigureAwait(false);
         var deletionCommitted = false;
         var tombstoneCreated = false;
         try
         {
             tombstoneCreated = clipService.TombstoneProfileClips(profileId);
-            var deleted = await profileStore.DeleteExpiredProvisionalAsync(profileId, cutoff, ct)
+            var deleted = await conditionalStore.DeleteExpiredProvisionalAsync(profileId, cutoff, ct)
                 .ConfigureAwait(false);
 
             if (!deleted)
@@ -139,7 +144,18 @@ public sealed partial class SpeakerProfileDeletionService(
         var storedProfileIds = clipService.GetStoredProfileIds();
         foreach (var profileId in storedProfileIds)
         {
-            clipService.RemoveIncompleteProfileClips(profileId);
+            try
+            {
+                clipService.RemoveIncompleteProfileClips(profileId);
+            }
+            catch (ArgumentException ex)
+            {
+                LogLegacyDirectorySkipped(logger, profileId, ex);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                LogIncompleteClipCleanupDeferred(logger, ex);
+            }
         }
 
         foreach (var profileId in storedProfileIds)
@@ -219,5 +235,13 @@ public sealed partial class SpeakerProfileDeletionService(
     private static partial void LogReconciliationBusy(
         ILogger logger,
         string profileId,
+        Exception exception);
+
+    [LoggerMessage(
+        EventId = 7105,
+        Level = LogLevel.Warning,
+        Message = "Deferring cleanup of incomplete speaker recordings")]
+    private static partial void LogIncompleteClipCleanupDeferred(
+        ILogger logger,
         Exception exception);
 }

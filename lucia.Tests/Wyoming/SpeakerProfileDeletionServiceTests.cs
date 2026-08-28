@@ -47,7 +47,9 @@ public sealed class SpeakerProfileDeletionServiceTests
     [Fact]
     public async Task DeleteAsync_WaitsForExpiredProfileDeletion()
     {
-        var profileStore = A.Fake<ISpeakerProfileStore>();
+        var profileStore = A.Fake<ISpeakerProfileStore>(
+            options => options.Implements<IConditionalSpeakerProfileStore>());
+        var conditionalStore = (IConditionalSpeakerProfileStore)profileStore;
         var cleanupStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var allowCleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var cleanupFinished = false;
@@ -55,7 +57,7 @@ public sealed class SpeakerProfileDeletionServiceTests
             .ReturnsLazily(() => cleanupFinished
                 ? null
                 : new SpeakerProfile { Id = "profile-1", Name = "Test" });
-        A.CallTo(() => profileStore.DeleteExpiredProvisionalAsync(
+        A.CallTo(() => conditionalStore.DeleteExpiredProvisionalAsync(
                 "profile-1",
                 A<DateTimeOffset>._,
                 CancellationToken.None))

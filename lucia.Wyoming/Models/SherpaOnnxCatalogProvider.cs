@@ -252,19 +252,6 @@ public sealed class SherpaOnnxCatalogProvider(
             MinMemoryMb = 64,
             IsArchive = false,
         },
-        new()
-        {
-            Id = "nemo_en_titanet_small",
-            Name = "NeMo TitaNet Small English",
-            EngineType = EngineType.SpeakerEmbedding,
-            Description = "English TitaNet speaker embedding model trained on telephonic and non-telephonic speech.",
-            Languages = ["en"],
-            SizeBytes = 40_257_283,
-            DownloadUrl = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/nemo_en_titanet_small.onnx",
-            IsDefault = false,
-            MinMemoryMb = 96,
-            IsArchive = false,
-        },
     ];
 
     private static readonly IReadOnlyList<WyomingModelDefinition> SpeechEnhancementCatalog =

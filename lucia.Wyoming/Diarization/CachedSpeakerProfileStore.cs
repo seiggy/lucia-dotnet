@@ -9,7 +9,7 @@ namespace lucia.Wyoming.Diarization;
 /// Redis cache (~1ms) instead of MongoDB (~500ms+). Cache is refreshed on writes
 /// and expires after a configurable TTL.
 /// </summary>
-public sealed class CachedSpeakerProfileStore : ISpeakerProfileStore
+public sealed class CachedSpeakerProfileStore : ISpeakerProfileStore, IConditionalSpeakerProfileStore
 {
     private const string EnrolledCacheKey = "lucia:speaker-profiles:enrolled";
     private const string ProfileKeyPrefix = "lucia:speaker-profiles:id:";
@@ -124,7 +124,12 @@ public sealed class CachedSpeakerProfileStore : ISpeakerProfileStore
         DateTimeOffset cutoff,
         CancellationToken ct)
     {
-        var deleted = await _inner.DeleteExpiredProvisionalAsync(id, cutoff, ct).ConfigureAwait(false);
+        if (_inner is not IConditionalSpeakerProfileStore conditionalStore)
+        {
+            return false;
+        }
+
+        var deleted = await conditionalStore.DeleteExpiredProvisionalAsync(id, cutoff, ct).ConfigureAwait(false);
         if (deleted)
         {
             await InvalidateCacheAsync().ConfigureAwait(false);

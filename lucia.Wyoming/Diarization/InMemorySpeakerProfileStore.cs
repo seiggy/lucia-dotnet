@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 
 namespace lucia.Wyoming.Diarization;
 
-public sealed class InMemorySpeakerProfileStore : ISpeakerProfileStore
+public sealed class InMemorySpeakerProfileStore : ISpeakerProfileStore, IConditionalSpeakerProfileStore
 {
     private readonly ConcurrentDictionary<string, SpeakerProfile> _profiles = new();
 

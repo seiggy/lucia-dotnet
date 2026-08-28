@@ -8,7 +8,7 @@ namespace lucia.Data.Sqlite;
 /// <summary>
 /// SQLite-backed persistent speaker profile store.
 /// </summary>
-public sealed class SqliteSpeakerProfileStore : ISpeakerProfileStore
+public sealed class SqliteSpeakerProfileStore : ISpeakerProfileStore, IConditionalSpeakerProfileStore
 {
     private readonly SqliteConnectionFactory _connectionFactory;
 
