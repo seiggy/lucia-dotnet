@@ -119,6 +119,20 @@ public sealed class CachedSpeakerProfileStore : ISpeakerProfileStore
         await InvalidateCacheAsync().ConfigureAwait(false);
     }
 
+    public async Task<bool> DeleteExpiredProvisionalAsync(
+        string id,
+        DateTimeOffset cutoff,
+        CancellationToken ct)
+    {
+        var deleted = await _inner.DeleteExpiredProvisionalAsync(id, cutoff, ct).ConfigureAwait(false);
+        if (deleted)
+        {
+            await InvalidateCacheAsync().ConfigureAwait(false);
+        }
+
+        return deleted;
+    }
+
     public Task<IReadOnlyList<SpeakerProfile>> GetExpiredProvisionalProfilesAsync(
         int retentionDays, CancellationToken ct) =>
         _inner.GetExpiredProvisionalProfilesAsync(retentionDays, ct);

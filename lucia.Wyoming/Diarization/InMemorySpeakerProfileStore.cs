@@ -58,12 +58,15 @@ public sealed class InMemorySpeakerProfileStore : ISpeakerProfileStore
         ct.ThrowIfCancellationRequested();
         ArgumentNullException.ThrowIfNull(profile);
 
-        if (!_profiles.ContainsKey(profile.Id))
+        if (!_profiles.TryGetValue(profile.Id, out var existing))
         {
             throw new KeyNotFoundException($"Speaker profile '{profile.Id}' was not found.");
         }
 
-        _profiles[profile.Id] = CloneProfile(profile);
+        if (!_profiles.TryUpdate(profile.Id, CloneProfile(profile), existing))
+        {
+            throw new InvalidOperationException($"Speaker profile '{profile.Id}' changed during update.");
+        }
         return Task.CompletedTask;
     }
 
@@ -94,6 +97,24 @@ public sealed class InMemorySpeakerProfileStore : ISpeakerProfileStore
 
         _profiles.TryRemove(id, out _);
         return Task.CompletedTask;
+    }
+
+    public Task<bool> DeleteExpiredProvisionalAsync(
+        string id,
+        DateTimeOffset cutoff,
+        CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (!_profiles.TryGetValue(id, out var profile)
+            || !profile.IsProvisional
+            || profile.LastSeenAt >= cutoff)
+        {
+            return Task.FromResult(false);
+        }
+
+        var removed = ((ICollection<KeyValuePair<string, SpeakerProfile>>)_profiles)
+            .Remove(new KeyValuePair<string, SpeakerProfile>(id, profile));
+        return Task.FromResult(removed);
     }
 
     public Task<IReadOnlyList<SpeakerProfile>> GetExpiredProvisionalProfilesAsync(int retentionDays, CancellationToken ct)

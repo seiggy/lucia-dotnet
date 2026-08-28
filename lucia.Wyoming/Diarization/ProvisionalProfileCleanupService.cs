@@ -10,11 +10,13 @@ namespace lucia.Wyoming.Diarization;
 public sealed class ProvisionalProfileCleanupService : BackgroundService
 {
     private readonly ISpeakerProfileStore _profileStore;
+    private readonly SpeakerProfileDeletionService _deletionService;
     private readonly VoiceProfileOptions _options;
     private readonly ILogger<ProvisionalProfileCleanupService> _logger;
 
     public ProvisionalProfileCleanupService(
         ISpeakerProfileStore profileStore,
+        SpeakerProfileDeletionService deletionService,
         IOptions<VoiceProfileOptions> options,
         ILogger<ProvisionalProfileCleanupService> logger)
     {
@@ -23,6 +25,7 @@ public sealed class ProvisionalProfileCleanupService : BackgroundService
         ArgumentNullException.ThrowIfNull(logger);
 
         _profileStore = profileStore;
+        _deletionService = deletionService;
         _options = options.Value;
         _logger = logger;
     }
@@ -38,10 +41,17 @@ public sealed class ProvisionalProfileCleanupService : BackgroundService
                 var expiredProfiles = await _profileStore
                     .GetExpiredProvisionalProfilesAsync(_options.ProvisionalRetentionDays, stoppingToken)
                     .ConfigureAwait(false);
+                var cutoff = DateTimeOffset.UtcNow.AddDays(-_options.ProvisionalRetentionDays);
 
                 foreach (var profile in expiredProfiles)
                 {
-                    await _profileStore.DeleteAsync(profile.Id, stoppingToken).ConfigureAwait(false);
+                    if (!await _deletionService
+                            .DeleteExpiredProvisionalAsync(profile.Id, cutoff, stoppingToken)
+                            .ConfigureAwait(false))
+                    {
+                        continue;
+                    }
+
                     _logger.LogInformation(
                         "Removed expired provisional profile {ProfileId} ({Name})",
                         profile.Id,

@@ -11,7 +11,7 @@ namespace lucia.VoiceBenchmarks;
 public sealed class SpeakerBenchmarkRunner
 {
     private const string Provider = "cpu";
-    private const int WarmupRuns = 0;
+    private const int WarmupRuns = 1;
     private const int MeasuredRuns = 1;
     private const int Concurrency = 1;
     private readonly string _manifestPath;
@@ -71,11 +71,15 @@ public sealed class SpeakerBenchmarkRunner
                 $"Manifest validation failed: {string.Join("; ", contentErrors)}");
         }
 
+        var audioSamples = manifest.Clips.ToDictionary(
+            static clip => clip.ResolvedPath,
+            static clip => AudioWaveLoader.LoadMono16KhzFloatSamples(clip.ResolvedPath),
+            StringComparer.OrdinalIgnoreCase);
         var metrics = new List<SpeakerBenchmarkModelResult>();
         foreach (var model in _models)
         {
             var resolvedModelPath = ResolveModelPath(model.Path);
-            metrics.Add(EvaluateModel(manifest, resolvedModelPath, model.SourceUri));
+            metrics.Add(EvaluateModel(manifest, audioSamples, resolvedModelPath, model.SourceUri));
         }
 
         return new SpeakerBenchmarkRunReport
@@ -116,15 +120,10 @@ public sealed class SpeakerBenchmarkRunner
 
     private SpeakerBenchmarkModelResult EvaluateModel(
         SpeakerBenchmarkManifest manifest,
+        IReadOnlyDictionary<string, float[]> audioSamples,
         string modelPath,
         string modelSourceUri)
     {
-        var process = Process.GetCurrentProcess();
-        var workingSetBefore = process.WorkingSet64;
-        var managedBefore = GC.GetTotalAllocatedBytes();
-        var cpuBefore = process.TotalProcessorTime;
-        var stopwatch = Stopwatch.StartNew();
-
         var enrollClips = manifest.Clips
             .Where(static clip => string.Equals(clip.Split, "enroll", StringComparison.OrdinalIgnoreCase))
             .OrderBy(static clip => clip.SpeakerId, StringComparer.OrdinalIgnoreCase)
@@ -144,6 +143,18 @@ public sealed class SpeakerBenchmarkRunner
             NumThreads = threadCount,
             Provider = Provider,
         });
+        _ = ExtractClipEmbedding(
+            extractor,
+            audioSamples[enrollClips[0].ResolvedPath],
+            meanRealTimeFactorValues: null);
+
+        var modelSha256 = ComputeSha256(modelPath);
+        var process = Process.GetCurrentProcess();
+        process.Refresh();
+        var workingSetBefore = process.WorkingSet64;
+        var managedBefore = GC.GetTotalAllocatedBytes();
+        var cpuBefore = process.TotalProcessorTime;
+        var stopwatch = Stopwatch.StartNew();
 
         var centroids = new Dictionary<string, float[]>(StringComparer.OrdinalIgnoreCase);
         var meanRealTimeFactorValues = new List<double>();
@@ -154,7 +165,10 @@ public sealed class SpeakerBenchmarkRunner
             var embeddings = new List<float[]>();
             foreach (var clip in speakerGroup.OrderBy(static clip => clip.ResolvedPath, StringComparer.OrdinalIgnoreCase))
             {
-                var embedding = ExtractClipEmbedding(extractor, clip.ResolvedPath, meanRealTimeFactorValues);
+                var embedding = ExtractClipEmbedding(
+                    extractor,
+                    audioSamples[clip.ResolvedPath],
+                    meanRealTimeFactorValues);
                 embeddings.Add(embedding);
             }
 
@@ -168,7 +182,10 @@ public sealed class SpeakerBenchmarkRunner
         {
             var testEmbedding = new SpeakerEmbedding
             {
-                Vector = ExtractClipEmbedding(extractor, testClip.ResolvedPath, meanRealTimeFactorValues),
+                Vector = ExtractClipEmbedding(
+                    extractor,
+                    audioSamples[testClip.ResolvedPath],
+                    meanRealTimeFactorValues),
             };
 
             var bestSpeaker = string.Empty;
@@ -216,7 +233,7 @@ public sealed class SpeakerBenchmarkRunner
         {
             ModelPath = modelPath,
             ModelName = Path.GetFileNameWithoutExtension(modelPath),
-            ModelSha256 = ComputeSha256(modelPath),
+            ModelSha256 = modelSha256,
             ModelSourceUri = modelSourceUri,
             Provider = Provider,
             ThreadCount = threadCount,
@@ -245,10 +262,9 @@ public sealed class SpeakerBenchmarkRunner
 
     private static float[] ExtractClipEmbedding(
         SpeakerEmbeddingExtractor extractor,
-        string wavPath,
-        ICollection<double> meanRealTimeFactorValues)
+        float[] samples,
+        ICollection<double>? meanRealTimeFactorValues)
     {
-        var samples = AudioWaveLoader.LoadMono16KhzFloatSamples(wavPath);
         var audioDurationSeconds = samples.Length / 16000d;
         var timer = Stopwatch.StartNew();
 
@@ -258,7 +274,7 @@ public sealed class SpeakerBenchmarkRunner
         var embedding = extractor.Compute(stream);
         timer.Stop();
 
-        if (audioDurationSeconds > 0d)
+        if (audioDurationSeconds > 0d && meanRealTimeFactorValues is not null)
         {
             meanRealTimeFactorValues.Add(timer.Elapsed.TotalSeconds / audioDurationSeconds);
         }

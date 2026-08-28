@@ -26,6 +26,7 @@ public sealed class AudioClipService(
     };
     // ponytail: clip writes are low-volume; split this into per-profile locks only if measured contention appears.
     private readonly SemaphoreSlim _fileLock = new(1, 1);
+    private readonly HashSet<string> _blockedProfileIds = new(StringComparer.Ordinal);
 
     public async Task<string> SaveClipAsync(
         string profileId,
@@ -37,6 +38,11 @@ public sealed class AudioClipService(
         await _fileLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            if (_blockedProfileIds.Contains(profileId))
+            {
+                throw new InvalidOperationException($"Profile '{profileId}' is being deleted.");
+            }
+
             return await SaveClipCoreAsync(
                 profileId,
                 GetProfileDirectory(profileId),
@@ -44,6 +50,48 @@ public sealed class AudioClipService(
                 sampleRate,
                 transcript,
                 ct).ConfigureAwait(false);
+        }
+
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    public IReadOnlyList<string> GetStoredProfileIds()
+    {
+        _fileLock.Wait();
+        try
+        {
+            var basePath = options.CurrentValue.AudioClipBasePath;
+            return Directory.Exists(basePath)
+                ? Directory.GetDirectories(basePath)
+                    .Select(Path.GetFileName)
+                    .Where(static id => !string.IsNullOrWhiteSpace(id) && !id.StartsWith('.'))
+                    .Cast<string>()
+                    .ToArray()
+                : [];
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    public async Task MoveBlockedProfileClipsAsync(
+        string sourceProfileId,
+        string targetProfileId,
+        CancellationToken ct = default)
+    {
+        await _fileLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await MoveClipsCoreAsync(
+                sourceProfileId,
+                targetProfileId,
+                ct,
+                allowBlockedSource: true,
+                allowBlockedTarget: true).ConfigureAwait(false);
         }
         finally
         {
@@ -198,13 +246,69 @@ public sealed class AudioClipService(
         _fileLock.Wait();
         try
         {
+            var safeProfileId = GetSafePathSegment(profileId, nameof(profileId));
+            if (!_blockedProfileIds.Add(safeProfileId))
+            {
+                throw new InvalidOperationException($"Profile '{profileId}' already has an active lifecycle operation.");
+            }
+            var profileDir = Path.Combine(options.CurrentValue.AudioClipBasePath, safeProfileId);
+            if (Directory.Exists(profileDir))
+            {
+                Directory.Delete(profileDir, recursive: true);
+            }
+        }
+        catch
+        {
+            _blockedProfileIds.Remove(GetSafePathSegment(profileId, nameof(profileId)));
+            throw;
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    public void PurgeProfileClips(string profileId)
+    {
+        _fileLock.Wait();
+        try
+        {
             var profileDir = GetProfileDirectory(profileId);
             if (Directory.Exists(profileDir))
             {
                 Directory.Delete(profileDir, recursive: true);
             }
         }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
 
+    public void AllowProfileClips(string profileId)
+    {
+        _fileLock.Wait();
+        try
+        {
+            _blockedProfileIds.Remove(GetSafePathSegment(profileId, nameof(profileId)));
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    public void BlockProfileClips(string profileId)
+    {
+        _fileLock.Wait();
+        try
+        {
+            var safeProfileId = GetSafePathSegment(profileId, nameof(profileId));
+            if (!_blockedProfileIds.Add(safeProfileId))
+            {
+                throw new InvalidOperationException($"Profile '{profileId}' already has an active lifecycle operation.");
+            }
+        }
         finally
         {
             _fileLock.Release();
@@ -247,6 +351,7 @@ public sealed class AudioClipService(
                         stagingDirectory);
                 }
             }
+
         }
 
         finally
@@ -298,10 +403,18 @@ public sealed class AudioClipService(
         string clipId,
         string targetProfileId,
         CancellationToken ct,
-        bool sourceIsOnboardingStaging = false)
+        bool sourceIsOnboardingStaging = false,
+        bool allowBlockedSource = false,
+        bool allowBlockedTarget = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceProfileId);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetProfileId);
+        ThrowIfMoveBlocked(
+            sourceProfileId,
+            targetProfileId,
+            sourceIsOnboardingStaging,
+            allowBlockedSource,
+            allowBlockedTarget);
         var safeClipId = GetSafePathSegment(clipId, nameof(clipId));
 
         var sourceDir = sourceIsOnboardingStaging
@@ -391,8 +504,16 @@ public sealed class AudioClipService(
         string sourceProfileId,
         string targetProfileId,
         CancellationToken ct,
-        bool sourceIsOnboardingStaging = false)
+        bool sourceIsOnboardingStaging = false,
+        bool allowBlockedSource = false,
+        bool allowBlockedTarget = false)
     {
+        ThrowIfMoveBlocked(
+            sourceProfileId,
+            targetProfileId,
+            sourceIsOnboardingStaging,
+            allowBlockedSource,
+            allowBlockedTarget);
         var sourceDir = sourceIsOnboardingStaging
             ? GetOnboardingStagingDirectory(sourceProfileId)
             : GetProfileDirectory(sourceProfileId);
@@ -414,7 +535,9 @@ public sealed class AudioClipService(
                 clipId,
                 targetProfileId,
                 ct,
-                sourceIsOnboardingStaging).ConfigureAwait(false);
+                sourceIsOnboardingStaging,
+                allowBlockedSource,
+                allowBlockedTarget).ConfigureAwait(false);
         }
         foreach (var wavPath in Directory.GetFiles(sourceDir, "*.wav"))
         {
@@ -503,6 +626,7 @@ public sealed class AudioClipService(
         ArgumentException.ThrowIfNullOrWhiteSpace(value, parameterName);
         var safeValue = Path.GetFileName(value);
         if (!string.Equals(value, safeValue, StringComparison.Ordinal)
+            || !string.Equals(safeValue, safeValue.ToLowerInvariant(), StringComparison.Ordinal)
             || safeValue.Any(static character =>
                 !char.IsAsciiLetterOrDigit(character) && character is not '-' and not '_')
             || s_windowsReservedNames.Contains(safeValue))
@@ -527,6 +651,22 @@ public sealed class AudioClipService(
         if (File.Exists(path))
         {
             File.Delete(path);
+        }
+    }
+
+    private void ThrowIfMoveBlocked(
+        string sourceProfileId,
+        string targetProfileId,
+        bool sourceIsOnboardingStaging,
+        bool allowBlockedSource,
+        bool allowBlockedTarget)
+    {
+        if ((!sourceIsOnboardingStaging
+                && !allowBlockedSource
+                && _blockedProfileIds.Contains(sourceProfileId))
+            || (!allowBlockedTarget && _blockedProfileIds.Contains(targetProfileId)))
+        {
+            throw new InvalidOperationException("Cannot move clips to or from a profile being deleted.");
         }
     }
 }

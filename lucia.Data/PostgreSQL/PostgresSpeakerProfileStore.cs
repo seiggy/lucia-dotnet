@@ -175,6 +175,22 @@ public sealed class PostgresSpeakerProfileStore : ISpeakerProfileStore
         await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
+    public async Task<bool> DeleteExpiredProvisionalAsync(
+        string id,
+        DateTimeOffset cutoff,
+        CancellationToken ct)
+    {
+        await using var connection = await _connectionFactory.CreateConnectionAsync(ct).ConfigureAwait(false);
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            DELETE FROM speaker_profiles
+            WHERE id = @id AND is_provisional = TRUE AND last_seen_at < @cutoff;
+            """;
+        cmd.Parameters.AddWithValue("id", id);
+        cmd.Parameters.AddWithValue("cutoff", cutoff.UtcDateTime);
+        return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 1;
+    }
+
     public async Task<IReadOnlyList<SpeakerProfile>> GetExpiredProvisionalProfilesAsync(int retentionDays, CancellationToken ct)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(retentionDays);

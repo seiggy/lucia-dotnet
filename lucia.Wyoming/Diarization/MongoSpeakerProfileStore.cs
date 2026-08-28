@@ -138,6 +138,19 @@ public sealed class MongoSpeakerProfileStore : ISpeakerProfileStore
         await _collection.DeleteOneAsync(filter, ct).ConfigureAwait(false);
     }
 
+    public async Task<bool> DeleteExpiredProvisionalAsync(
+        string id,
+        DateTimeOffset cutoff,
+        CancellationToken ct)
+    {
+        var filter = Builders<SpeakerProfile>.Filter.And(
+            Builders<SpeakerProfile>.Filter.Eq(p => p.Id, id),
+            Builders<SpeakerProfile>.Filter.Eq(p => p.IsProvisional, true),
+            Builders<SpeakerProfile>.Filter.Lt(p => p.LastSeenAt, cutoff));
+        var result = await _collection.DeleteOneAsync(filter, ct).ConfigureAwait(false);
+        return result.DeletedCount == 1;
+    }
+
     public async Task<IReadOnlyList<SpeakerProfile>> GetExpiredProvisionalProfilesAsync(
         int retentionDays,
         CancellationToken ct)

@@ -116,10 +116,10 @@ public static class OnboardingApi
 
         app.MapDelete("/api/speakers/{id}", async (
             string id,
-            ISpeakerProfileStore store,
+            SpeakerProfileDeletionService deletionService,
             CancellationToken ct) =>
         {
-            await store.DeleteAsync(id, ct).ConfigureAwait(false);
+            await deletionService.DeleteAsync(id, ct).ConfigureAwait(false);
             return Results.NoContent();
         }).WithTags("Voice Onboarding")
             .RequireAuthorization();

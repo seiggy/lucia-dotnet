@@ -32,6 +32,7 @@ public sealed class AudioClipServiceTests
     [InlineData("../outside")]
     [InlineData("/tmp/outside")]
     [InlineData("nested/profile")]
+    [InlineData("UPPERCASE")]
     public async Task SaveClipAsync_RejectsUnsafeProfileId(string profileId)
     {
         var tempDir = CreateTempDir();
@@ -147,6 +148,49 @@ public sealed class AudioClipServiceTests
             svc.DeleteOnboardingSessionClips("session");
 
             Assert.False(Directory.Exists(Path.Combine(tempDir, ".onboarding-staging", "session")));
+        }
+
+        finally
+        {
+            DeleteDir(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteProfileClips_BlocksNewWritesUntilRestored()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var svc = CreateService(tempDir, maxClips: 10);
+            svc.DeleteProfileClips("profile-1");
+
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => svc.SaveClipAsync("profile-1", TestAudio, SampleRate, "blocked"));
+
+            svc.AllowProfileClips("profile-1");
+            await svc.SaveClipAsync("profile-1", TestAudio, SampleRate, "restored");
+            Assert.Single(svc.GetClips("profile-1"));
+        }
+        finally
+        {
+            DeleteDir(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task BlockProfileClips_RejectsConcurrentLifecycleOperation()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var svc = CreateService(tempDir, maxClips: 10);
+            svc.BlockProfileClips("profile-1");
+
+            Assert.Throws<InvalidOperationException>(() => svc.BlockProfileClips("profile-1"));
+
+            svc.AllowProfileClips("profile-1");
+            await svc.SaveClipAsync("profile-1", TestAudio, SampleRate, "restored");
         }
         finally
         {

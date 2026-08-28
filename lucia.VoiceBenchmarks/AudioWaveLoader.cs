@@ -43,7 +43,10 @@ public static class AudioWaveLoader
         int read;
         while ((read = sampleProvider.Read(buffer, 0, buffer.Length)) > 0)
         {
-            samples.AddRange(buffer.AsSpan(0, read).ToArray());
+            for (var index = 0; index < read; index++)
+            {
+                samples.Add(buffer[index]);
+            }
         }
 
         return samples.ToArray();

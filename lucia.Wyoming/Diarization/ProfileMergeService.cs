@@ -9,6 +9,7 @@ namespace lucia.Wyoming.Diarization;
 public sealed class ProfileMergeService(
     ISpeakerProfileStore profileStore,
     AudioClipService clipService,
+    SpeakerProfileDeletionService deletionService,
     ILogger<ProfileMergeService> logger)
 {
     public async Task<SpeakerProfile> MergeAsync(
@@ -50,12 +51,26 @@ public sealed class ProfileMergeService(
             LastSeenAt = source.LastSeenAt > target.LastSeenAt ? source.LastSeenAt : target.LastSeenAt,
         };
 
-        // Move audio clips from source to target
-        await clipService.MoveClipsAsync(sourceProfileId, targetProfileId, ct).ConfigureAwait(false);
-
-        // Update target profile and delete source
-        await profileStore.UpdateAsync(merged, ct).ConfigureAwait(false);
-        await profileStore.DeleteAsync(sourceProfileId, ct).ConfigureAwait(false);
+        clipService.BlockProfileClips(sourceProfileId);
+        var targetBlocked = false;
+        try
+        {
+            clipService.BlockProfileClips(targetProfileId);
+            targetBlocked = true;
+            await clipService.MoveBlockedProfileClipsAsync(sourceProfileId, targetProfileId, ct).ConfigureAwait(false);
+            await profileStore.UpdateAsync(merged, ct).ConfigureAwait(false);
+            await deletionService.DeleteBlockedAsync(sourceProfileId, ct).ConfigureAwait(false);
+            clipService.AllowProfileClips(targetProfileId);
+        }
+        catch
+        {
+            clipService.AllowProfileClips(sourceProfileId);
+            if (targetBlocked)
+            {
+                clipService.AllowProfileClips(targetProfileId);
+            }
+            throw;
+        }
 
         logger.LogInformation(
             "Merged speaker profile {SourceId} into {TargetId} ({EmbeddingCount} total embeddings)",

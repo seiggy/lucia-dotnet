@@ -5,6 +5,28 @@ namespace lucia.Tests.Wyoming;
 public sealed class InMemorySpeakerProfileStoreTests
 {
     [Fact]
+    public async Task DeleteExpiredProvisionalAsync_DoesNotDeleteRenewedProfile()
+    {
+        var store = new InMemorySpeakerProfileStore();
+        var profile = new SpeakerProfile
+        {
+            Id = "speaker-1",
+            Name = "Speaker",
+            IsProvisional = true,
+            LastSeenAt = DateTimeOffset.UtcNow,
+        };
+        await store.CreateAsync(profile, CancellationToken.None);
+
+        var deleted = await store.DeleteExpiredProvisionalAsync(
+            profile.Id,
+            DateTimeOffset.UtcNow.AddDays(-1),
+            CancellationToken.None);
+
+        Assert.False(deleted);
+        Assert.NotNull(await store.GetAsync(profile.Id, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task CreateAndGetAsync_CloneEmbeddings()
     {
         var store = new InMemorySpeakerProfileStore();

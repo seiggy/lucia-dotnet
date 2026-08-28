@@ -13,5 +13,6 @@ public interface ISpeakerProfileStore
     /// </summary>
     Task<SpeakerProfile?> UpdateAtomicAsync(string id, Func<SpeakerProfile, SpeakerProfile> transform, CancellationToken ct);
     Task DeleteAsync(string id, CancellationToken ct);
+    Task<bool> DeleteExpiredProvisionalAsync(string id, DateTimeOffset cutoff, CancellationToken ct);
     Task<IReadOnlyList<SpeakerProfile>> GetExpiredProvisionalProfilesAsync(int retentionDays, CancellationToken ct);
 }

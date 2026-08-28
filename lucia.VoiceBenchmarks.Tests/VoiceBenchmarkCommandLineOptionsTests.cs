@@ -14,6 +14,8 @@ public sealed class VoiceBenchmarkCommandLineOptionsTests
             "results",
             "--model",
             " ",
+            "--model-source",
+            "https://example.com/model.onnx",
         };
 
         Assert.Throws<ArgumentException>(() => VoiceBenchmarkCommandLineOptions.Parse(args));

@@ -101,6 +101,9 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IDiarizationEngine, SherpaDiarizationEngine>();
         builder.Services.AddSingleton<ISpeechEnhancer, GtcrnSpeechEnhancer>();
         builder.Services.AddSingleton<AudioClipService>();
+        builder.Services.AddSingleton<SpeakerProfileDeletionService>();
+        builder.Services.AddSingleton<IHostedService>(
+            sp => sp.GetRequiredService<SpeakerProfileDeletionService>());
         builder.Services.AddSingleton<ProfileMergeService>();
 
         // Determine data provider mode from configuration
