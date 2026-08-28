@@ -146,7 +146,7 @@ public sealed class AudioClipServiceTests
 
             svc.DeleteOnboardingSessionClips("session");
 
-            Assert.False(Directory.Exists(Path.Combine(tempDir, "onboarding-session")));
+            Assert.False(Directory.Exists(Path.Combine(tempDir, ".onboarding-staging", "session")));
         }
         finally
         {
