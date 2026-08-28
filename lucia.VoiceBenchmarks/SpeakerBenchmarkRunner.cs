@@ -14,6 +14,8 @@ public sealed class SpeakerBenchmarkRunner
     private const int WarmupRuns = 1;
     private const int MeasuredRuns = 1;
     private const int Concurrency = 1;
+    private const double VerificationThreshold = 0.7d;
+    private const double MinDcfTargetPrior = 0.01d;
     private readonly string _manifestPath;
     private readonly IReadOnlyList<(string Path, string SourceUri)> _models;
     private readonly string _outputDirectory;
@@ -219,6 +221,15 @@ public sealed class SpeakerBenchmarkRunner
 
         var top1Accuracy = SpeakerBenchmarkMetrics.ComputeTop1Accuracy(predictions);
         var equalErrorRate = SpeakerBenchmarkMetrics.ComputeEer(genuineScores, impostorScores);
+        var (falseAcceptanceRate, falseRejectionRate) =
+            SpeakerBenchmarkMetrics.ComputeErrorRates(
+                genuineScores,
+                impostorScores,
+                VerificationThreshold);
+        var normalizedMinDcf = SpeakerBenchmarkMetrics.ComputeNormalizedMinDcf(
+            genuineScores,
+            impostorScores,
+            MinDcfTargetPrior);
         var meanRealTimeFactor = meanRealTimeFactorValues.Count == 0 ? 0d : meanRealTimeFactorValues.Average();
         var wallDurationSeconds = stopwatch.Elapsed.TotalSeconds;
         var cpuSeconds = (process.TotalProcessorTime - cpuBefore).TotalSeconds;
@@ -243,6 +254,10 @@ public sealed class SpeakerBenchmarkRunner
             TestClipCount = testClips.Count,
             Top1Accuracy = top1Accuracy,
             EqualErrorRate = equalErrorRate,
+            FalseAcceptanceRate = falseAcceptanceRate,
+            FalseRejectionRate = falseRejectionRate,
+            NormalizedMinDcf = normalizedMinDcf,
+            VerificationThreshold = VerificationThreshold,
             MeanRealTimeFactor = meanRealTimeFactor,
             WallDurationSeconds = wallDurationSeconds,
             CpuCoreEquivalents = cpuCoreEquivalents,

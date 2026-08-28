@@ -14,6 +14,10 @@ public sealed class SpeakerBenchmarkModelResult
     public int TestClipCount { get; init; }
     public double Top1Accuracy { get; init; }
     public double EqualErrorRate { get; init; }
+    public double FalseAcceptanceRate { get; init; }
+    public double FalseRejectionRate { get; init; }
+    public double NormalizedMinDcf { get; init; }
+    public double VerificationThreshold { get; init; }
     public double MeanRealTimeFactor { get; init; }
     public double WallDurationSeconds { get; init; }
     public double CpuCoreEquivalents { get; init; }

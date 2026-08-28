@@ -97,6 +97,10 @@ public sealed class SpeakerBenchmarkRunReport
                 builder.AppendLine($"- Test clips: {model.TestClipCount}");
                 builder.AppendLine($"- Top-1 accuracy: {model.Top1Accuracy.ToString("0.0000", CultureInfo.InvariantCulture)}");
                 builder.AppendLine($"- Equal error rate: {model.EqualErrorRate.ToString("0.0000", CultureInfo.InvariantCulture)}");
+                builder.AppendLine($"- Verification threshold: {model.VerificationThreshold.ToString("0.0000", CultureInfo.InvariantCulture)}");
+                builder.AppendLine($"- False acceptance rate: {model.FalseAcceptanceRate.ToString("0.0000", CultureInfo.InvariantCulture)}");
+                builder.AppendLine($"- False rejection rate: {model.FalseRejectionRate.ToString("0.0000", CultureInfo.InvariantCulture)}");
+                builder.AppendLine($"- Normalized minDCF (Ptarget=0.01): {model.NormalizedMinDcf.ToString("0.0000", CultureInfo.InvariantCulture)}");
                 builder.AppendLine($"- Mean real-time factor: {model.MeanRealTimeFactor.ToString("0.0000", CultureInfo.InvariantCulture)}");
                 builder.AppendLine($"- Wall duration (s): {model.WallDurationSeconds.ToString("0.0000", CultureInfo.InvariantCulture)}");
                 builder.AppendLine($"- CPU core-equivalents: {model.CpuCoreEquivalents.ToString("0.0000", CultureInfo.InvariantCulture)}");

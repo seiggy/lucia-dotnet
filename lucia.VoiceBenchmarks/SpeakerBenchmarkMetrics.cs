@@ -86,4 +86,46 @@ public static class SpeakerBenchmarkMetrics
 
         return correct / (double)total;
     }
+
+    public static (double FalseAcceptanceRate, double FalseRejectionRate) ComputeErrorRates(
+        IReadOnlyList<double> genuineScores,
+        IReadOnlyList<double> impostorScores,
+        double threshold)
+    {
+        if (genuineScores.Count == 0 || impostorScores.Count == 0)
+        {
+            throw new ArgumentException("Genuine and impostor scores are required.");
+        }
+
+        var falseAcceptanceRate =
+            impostorScores.Count(score => score >= threshold) / (double)impostorScores.Count;
+        var falseRejectionRate =
+            genuineScores.Count(score => score < threshold) / (double)genuineScores.Count;
+        return (falseAcceptanceRate, falseRejectionRate);
+    }
+
+    public static double ComputeNormalizedMinDcf(
+        IReadOnlyList<double> genuineScores,
+        IReadOnlyList<double> impostorScores,
+        double targetPrior)
+    {
+        if (targetPrior is <= 0d or >= 1d)
+        {
+            throw new ArgumentOutOfRangeException(nameof(targetPrior));
+        }
+
+        var thresholds = genuineScores
+            .Concat(impostorScores)
+            .Distinct()
+            .Append(double.PositiveInfinity);
+        var minimumCost = thresholds.Min(threshold =>
+        {
+            var (falseAcceptanceRate, falseRejectionRate) =
+                ComputeErrorRates(genuineScores, impostorScores, threshold);
+            return (targetPrior * falseRejectionRate)
+                + ((1d - targetPrior) * falseAcceptanceRate);
+        });
+
+        return minimumCost / Math.Min(targetPrior, 1d - targetPrior);
+    }
 }

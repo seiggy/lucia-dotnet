@@ -53,4 +53,27 @@ public sealed class SpeakerBenchmarkMetricsTests
 
         Assert.Equal(1d, accuracy, 12);
     }
+
+    [Fact]
+    public void ComputeErrorRates_UsesFrozenThreshold()
+    {
+        var rates = SpeakerBenchmarkMetrics.ComputeErrorRates(
+            [0.6d, 0.9d],
+            [0.2d, 0.8d],
+            threshold: 0.7d);
+
+        Assert.Equal(0.5d, rates.FalseAcceptanceRate);
+        Assert.Equal(0.5d, rates.FalseRejectionRate);
+    }
+
+    [Fact]
+    public void ComputeNormalizedMinDcf_ReturnsZeroForSeparableScores()
+    {
+        var minDcf = SpeakerBenchmarkMetrics.ComputeNormalizedMinDcf(
+            [0.8d, 0.9d],
+            [0.1d, 0.2d],
+            targetPrior: 0.01d);
+
+        Assert.Equal(0d, minDcf);
+    }
 }

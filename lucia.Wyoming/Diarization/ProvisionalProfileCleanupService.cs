@@ -42,6 +42,7 @@ public sealed class ProvisionalProfileCleanupService : BackgroundService
                     .GetExpiredProvisionalProfilesAsync(_options.ProvisionalRetentionDays, stoppingToken)
                     .ConfigureAwait(false);
                 var cutoff = DateTimeOffset.UtcNow.AddDays(-_options.ProvisionalRetentionDays);
+                var deletedCount = 0;
 
                 foreach (var profile in expiredProfiles)
                 {
@@ -56,13 +57,14 @@ public sealed class ProvisionalProfileCleanupService : BackgroundService
                         "Removed expired provisional profile {ProfileId} ({Name})",
                         profile.Id,
                         profile.Name);
+                    deletedCount++;
                 }
 
-                if (expiredProfiles.Count > 0)
+                if (deletedCount > 0)
                 {
                     _logger.LogInformation(
                         "Cleaned up {Count} expired provisional profiles",
-                        expiredProfiles.Count);
+                        deletedCount);
                 }
             }
             catch (OperationCanceledException)
