@@ -80,15 +80,18 @@ public sealed class VoiceOnboardingService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _audioClipService.DeleteOnboardingStagingClips();
+        await RecoverOnboardingClipsAsync(
+            new HashSet<string>(StringComparer.Ordinal),
+            stoppingToken).ConfigureAwait(false);
         using var timer = new PeriodicTimer(CleanupInterval);
         while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
         {
             try
             {
                 await CleanupAbandonedSessionsAsync(stoppingToken).ConfigureAwait(false);
-                _audioClipService.DeleteOnboardingStagingClips(
-                    _sessions.Keys.ToHashSet(StringComparer.Ordinal));
+                await RecoverOnboardingClipsAsync(
+                    _sessions.Keys.ToHashSet(StringComparer.Ordinal),
+                    stoppingToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -220,6 +223,11 @@ public sealed class VoiceOnboardingService : BackgroundService
         OnboardingSession session,
         CancellationToken ct)
     {
+        await _audioClipService.SaveOnboardingPromotionMarkerAsync(
+            session.Id,
+            session.ProfileId,
+            ct).ConfigureAwait(false);
+
         SpeakerProfile profile;
         if (session.ProfilePersisted)
         {
@@ -242,6 +250,34 @@ public sealed class VoiceOnboardingService : BackgroundService
         return OnboardingStepResult.Complete(
             $"Voice profile created for {session.SpeakerName}. I'll recognize your voice from now on.",
             profile);
+    }
+
+    private async Task RecoverOnboardingClipsAsync(
+        IReadOnlySet<string> activeSessionIds,
+        CancellationToken ct)
+    {
+        foreach (var promotion in _audioClipService.GetOnboardingClipPromotions())
+        {
+            if (activeSessionIds.Contains(promotion.SessionId))
+            {
+                continue;
+            }
+
+            var targetProfile = promotion.TargetProfileId is null
+                ? null
+                : await _profileStore.GetAsync(promotion.TargetProfileId, ct).ConfigureAwait(false);
+            if (targetProfile is { IsProvisional: false })
+            {
+                await _audioClipService.MoveOnboardingClipsAsync(
+                    promotion.SessionId,
+                    targetProfile.Id,
+                    ct).ConfigureAwait(false);
+            }
+            else
+            {
+                _audioClipService.DeleteOnboardingSessionClips(promotion.SessionId);
+            }
+        }
     }
 
     private async Task CleanupAbandonedSessionsAsync(CancellationToken ct)
@@ -272,6 +308,17 @@ public sealed class VoiceOnboardingService : BackgroundService
 
                     if (session.Status != OnboardingStatus.Complete)
                     {
+                        if (session.ProfilePersisted)
+                        {
+                            await _audioClipService.MoveOnboardingClipsAsync(
+                                session.Id,
+                                session.ProfileId,
+                                ct).ConfigureAwait(false);
+                            session.Status = OnboardingStatus.Complete;
+                            session.CompletedAt = DateTimeOffset.UtcNow;
+                            continue;
+                        }
+
                         _audioClipService.DeleteOnboardingSessionClips(session.Id);
                     }
 

@@ -181,6 +181,38 @@ public sealed class VoiceOnboardingServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task BackgroundService_RecoversClipsAfterProfilePersistence()
+    {
+        var store = new InMemorySpeakerProfileStore();
+        await store.CreateAsync(
+            new SpeakerProfile
+            {
+                Id = "profile-1",
+                Name = "Jane",
+                IsProvisional = false,
+            },
+            CancellationToken.None);
+        await _audioClipService.SaveOnboardingClipAsync(
+            "interrupted",
+            Enumerable.Repeat(0.1f, 32_000).ToArray(),
+            16_000,
+            "accepted");
+        await _audioClipService.SaveOnboardingPromotionMarkerAsync(
+            "interrupted",
+            "profile-1",
+            CancellationToken.None);
+        var service = CreateService(store: store);
+
+        await service.StartAsync(CancellationToken.None);
+
+        Assert.True(SpinWait.SpinUntil(
+            () => _audioClipService.GetClips("profile-1").Count == 1,
+            TimeSpan.FromSeconds(1)));
+        Assert.False(Directory.Exists(GetStagingDirectory("interrupted")));
+        await service.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task ProvisionalProfile_IsPromoted()
     {
         var store = new InMemorySpeakerProfileStore();

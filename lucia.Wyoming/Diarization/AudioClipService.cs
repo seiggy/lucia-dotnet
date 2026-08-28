@@ -78,6 +78,62 @@ public sealed class AudioClipService(
         }
     }
 
+    public async Task SaveOnboardingPromotionMarkerAsync(
+        string sessionId,
+        string targetProfileId,
+        CancellationToken ct)
+    {
+        await _fileLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var stagingDirectory = GetOnboardingStagingDirectory(sessionId);
+            Directory.CreateDirectory(stagingDirectory);
+            var safeTargetProfileId = GetSafePathSegment(targetProfileId, nameof(targetProfileId));
+            var markerPath = Path.Combine(stagingDirectory, "target-profile.txt");
+            var stagingPath = $"{markerPath}.tmp";
+            try
+            {
+                await File.WriteAllTextAsync(stagingPath, safeTargetProfileId, ct).ConfigureAwait(false);
+                File.Move(stagingPath, markerPath, overwrite: true);
+            }
+            finally
+            {
+                DeleteIfExists(stagingPath);
+            }
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    public IReadOnlyList<OnboardingClipPromotion> GetOnboardingClipPromotions()
+    {
+        _fileLock.Wait();
+        try
+        {
+            var stagingRoot = GetOnboardingStagingRoot();
+            if (!Directory.Exists(stagingRoot))
+            {
+                return [];
+            }
+
+            return Directory.GetDirectories(stagingRoot)
+                .Select(directory =>
+                {
+                    var markerPath = Path.Combine(directory, "target-profile.txt");
+                    return new OnboardingClipPromotion(
+                        Path.GetFileName(directory),
+                        File.Exists(markerPath) ? File.ReadAllText(markerPath).Trim() : null);
+                })
+                .ToArray();
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
     public async Task<string> SaveOnboardingClipAsync(
         string sessionId,
         ReadOnlyMemory<float> audio,
@@ -535,6 +591,10 @@ public sealed class AudioClipService(
         foreach (var stagingPath in Directory.GetFiles(sourceDir, "*.tmp"))
         {
             File.Delete(stagingPath);
+        }
+        if (sourceIsOnboardingStaging)
+        {
+            DeleteIfExists(Path.Combine(sourceDir, "target-profile.txt"));
         }
 
         // Clean up empty source directory
