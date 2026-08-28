@@ -133,7 +133,8 @@ public sealed class SqliteSpeakerProfileStore : ISpeakerProfileStore
             var result = await selectCmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
             if (result is not string json)
             {
-                throw new InvalidOperationException($"Profile '{id}' not found");
+                transaction.Rollback();
+                return null;
             }
 
             var existing = JsonSerializer.Deserialize<SpeakerProfile>(json, JsonOptions)

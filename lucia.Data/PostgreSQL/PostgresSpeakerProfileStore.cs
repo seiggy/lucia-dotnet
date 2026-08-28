@@ -133,7 +133,8 @@ public sealed class PostgresSpeakerProfileStore : ISpeakerProfileStore
             var result = await selectCmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
             if (result is not string json)
             {
-                throw new InvalidOperationException($"Profile '{id}' not found");
+                await transaction.RollbackAsync(ct).ConfigureAwait(false);
+                return null;
             }
 
             var existing = JsonSerializer.Deserialize<SpeakerProfile>(json, JsonOptions)

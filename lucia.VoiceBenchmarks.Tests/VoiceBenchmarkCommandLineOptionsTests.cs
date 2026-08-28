@@ -39,4 +39,20 @@ public sealed class VoiceBenchmarkCommandLineOptionsTests
         Assert.Equal("manifest.json", options.ManifestPath);
         Assert.Equal(["model.onnx"], options.ModelPaths);
     }
+
+    [Fact]
+    public void Parse_RejectsNonFiniteModelThreshold()
+    {
+        var args = new[]
+        {
+            "speaker",
+            "--manifest", "manifest.json",
+            "--output", "results",
+            "--model", "model.onnx",
+            "--model-source", "https://example.com/model.onnx",
+            "--model-threshold", "NaN",
+        };
+
+        Assert.Throws<ArgumentException>(() => VoiceBenchmarkCommandLineOptions.Parse(args));
+    }
 }

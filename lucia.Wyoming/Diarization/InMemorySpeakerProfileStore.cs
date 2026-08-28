@@ -76,18 +76,16 @@ public sealed class InMemorySpeakerProfileStore : ISpeakerProfileStore
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
         ArgumentNullException.ThrowIfNull(transform);
 
-        SpeakerProfile? result = null;
-        _profiles.AddOrUpdate(
-            id,
-            _ => throw new InvalidOperationException($"Profile '{id}' not found"),
-            (_, existing) =>
+        while (_profiles.TryGetValue(id, out var existing))
+        {
+            var stored = CloneProfile(transform(CloneProfile(existing)));
+            if (_profiles.TryUpdate(id, stored, existing))
             {
-                var updated = transform(CloneProfile(existing));
-                var stored = CloneProfile(updated);
-                result = CloneProfile(stored);
-                return stored;
-            });
-        return Task.FromResult(result);
+                return Task.FromResult<SpeakerProfile?>(CloneProfile(stored));
+            }
+        }
+
+        return Task.FromResult<SpeakerProfile?>(null);
     }
 
     public Task DeleteAsync(string id, CancellationToken ct)

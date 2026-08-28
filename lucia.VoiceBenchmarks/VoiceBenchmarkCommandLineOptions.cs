@@ -87,6 +87,7 @@ public sealed class VoiceBenchmarkCommandLineOptions
                         NumberStyles.Float,
                         CultureInfo.InvariantCulture,
                         out var threshold)
+                    || !double.IsFinite(threshold)
                     || threshold is < -1d or > 1d)
                 {
                     throw new ArgumentException("--model-threshold requires a number from -1 to 1.");

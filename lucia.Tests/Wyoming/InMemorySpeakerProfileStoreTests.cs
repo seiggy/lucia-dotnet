@@ -111,4 +111,17 @@ public sealed class InMemorySpeakerProfileStoreTests
         Assert.Equal(30f, reloaded.Embeddings[0][0]);
         Assert.Equal(40f, reloaded.Embeddings[0][1]);
     }
+
+    [Fact]
+    public async Task UpdateAtomicAsync_ReturnsNullForMissingProfile()
+    {
+        var store = new InMemorySpeakerProfileStore();
+
+        var updated = await store.UpdateAtomicAsync(
+            "missing",
+            static profile => profile,
+            CancellationToken.None);
+
+        Assert.Null(updated);
+    }
 }

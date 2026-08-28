@@ -109,8 +109,12 @@ public sealed class MongoSpeakerProfileStore : ISpeakerProfileStore
         var idFilter = Builders<SpeakerProfile>.Filter.Eq(p => p.Id, id);
         for (var attempt = 0; attempt < MaxAttempts; attempt++)
         {
-            var existing = await _collection.Find(idFilter).FirstOrDefaultAsync(ct).ConfigureAwait(false)
-                ?? throw new InvalidOperationException($"Profile '{id}' not found");
+            var existing = await _collection.Find(idFilter).FirstOrDefaultAsync(ct).ConfigureAwait(false);
+            if (existing is null)
+            {
+                return null;
+            }
+
             var updated = transform(existing) with { Revision = existing.Revision + 1 };
             var options = new FindOneAndReplaceOptions<SpeakerProfile>
             {
