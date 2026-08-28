@@ -30,9 +30,9 @@ public sealed class ProfileMergeService(
         var target = await profileStore.GetAsync(targetProfileId, ct).ConfigureAwait(false)
             ?? throw new KeyNotFoundException($"Target profile '{targetProfileId}' not found.");
 
-        // Combine embeddings
+        var alreadyMerged = target.MergedProfileIds.Contains(sourceProfileId, StringComparer.Ordinal);
         var combinedEmbeddings = new List<float[]>(target.Embeddings ?? []);
-        if (source.Embeddings is not null)
+        if (!alreadyMerged && source.Embeddings is not null)
         {
             combinedEmbeddings.AddRange(source.Embeddings);
         }
@@ -41,15 +41,17 @@ public sealed class ProfileMergeService(
             ? IDiarizationEngine.ComputeAverageEmbedding(combinedEmbeddings)
             : target.AverageEmbedding;
 
-        // Merge metadata
-        var merged = target with
-        {
-            Embeddings = combinedEmbeddings.ToArray(),
-            AverageEmbedding = averageEmbedding,
-            InteractionCount = target.InteractionCount + source.InteractionCount,
-            UpdatedAt = DateTimeOffset.UtcNow,
-            LastSeenAt = source.LastSeenAt > target.LastSeenAt ? source.LastSeenAt : target.LastSeenAt,
-        };
+        var merged = alreadyMerged
+            ? target
+            : target with
+            {
+                Embeddings = combinedEmbeddings.ToArray(),
+                AverageEmbedding = averageEmbedding,
+                InteractionCount = target.InteractionCount + source.InteractionCount,
+                UpdatedAt = DateTimeOffset.UtcNow,
+                LastSeenAt = source.LastSeenAt > target.LastSeenAt ? source.LastSeenAt : target.LastSeenAt,
+                MergedProfileIds = [.. target.MergedProfileIds, sourceProfileId],
+            };
 
         clipService.BlockProfileClips(sourceProfileId);
         var targetBlocked = false;
@@ -57,8 +59,8 @@ public sealed class ProfileMergeService(
         {
             clipService.BlockProfileClips(targetProfileId);
             targetBlocked = true;
-            await clipService.MoveBlockedProfileClipsAsync(sourceProfileId, targetProfileId, ct).ConfigureAwait(false);
             await profileStore.UpdateAsync(merged, ct).ConfigureAwait(false);
+            await clipService.MoveBlockedProfileClipsAsync(sourceProfileId, targetProfileId, ct).ConfigureAwait(false);
             await deletionService.DeleteBlockedAsync(sourceProfileId, ct).ConfigureAwait(false);
             clipService.AllowProfileClips(targetProfileId);
         }

@@ -97,6 +97,12 @@ public sealed partial class SpeakerProfileDeletionService(
     {
         foreach (var profileId in clipService.GetStoredProfileIds())
         {
+            if (_pendingPurges.ContainsKey(profileId))
+            {
+                TryPurge(profileId);
+                continue;
+            }
+
             if (await profileStore.GetAsync(profileId, ct).ConfigureAwait(false) is not null)
             {
                 continue;
@@ -110,6 +116,11 @@ public sealed partial class SpeakerProfileDeletionService(
             catch (ArgumentException ex)
             {
                 LogLegacyDirectorySkipped(logger, profileId, ex);
+            }
+            catch (InvalidOperationException ex)
+            {
+                LogReconciliationBusy(logger, profileId, ex);
+                continue;
             }
         }
     }
@@ -152,5 +163,14 @@ public sealed partial class SpeakerProfileDeletionService(
         Message = "Deferring reconciliation of orphaned speaker recordings")]
     private static partial void LogReconciliationDeferred(
         ILogger logger,
+        Exception exception);
+
+    [LoggerMessage(
+        EventId = 7104,
+        Level = LogLevel.Debug,
+        Message = "Deferring reconciliation for busy speaker profile {ProfileId}")]
+    private static partial void LogReconciliationBusy(
+        ILogger logger,
+        string profileId,
         Exception exception);
 }
