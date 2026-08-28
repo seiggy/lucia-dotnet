@@ -249,6 +249,87 @@ public sealed class AudioClipServiceTests
         }
     }
 
+    [Fact]
+    public async Task RemoveIncompleteProfileClips_RemovesUnmatchedAudioFiles()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var svc = CreateService(tempDir, maxClips: 10);
+            var profileDir = Path.Combine(tempDir, "profile-1");
+            Directory.CreateDirectory(profileDir);
+            await File.WriteAllBytesAsync(Path.Combine(profileDir, "orphan.wav"), [1, 2, 3]);
+            await File.WriteAllBytesAsync(Path.Combine(profileDir, "staged.wav.tmp"), [1, 2, 3]);
+
+            svc.RemoveIncompleteProfileClips("profile-1");
+
+            Assert.Empty(Directory.GetFiles(profileDir));
+        }
+        finally
+        {
+            DeleteDir(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task RemoveIncompleteProfileClips_RecoversLegacySplitMove()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var svc = CreateService(tempDir, maxClips: 10);
+            var clipId = await svc.SaveClipAsync("source", TestAudio, SampleRate, null);
+            var sourceDir = Path.Combine(tempDir, "source");
+            var targetDir = Path.Combine(tempDir, "target");
+            Directory.CreateDirectory(targetDir);
+            var metadataPath = Path.Combine(sourceDir, $"{clipId}.json");
+            var metadata = await File.ReadAllTextAsync(metadataPath);
+            await File.WriteAllTextAsync(metadataPath, metadata.Replace("source", "target"));
+            File.Move(
+                Path.Combine(sourceDir, $"{clipId}.wav"),
+                Path.Combine(targetDir, $"{clipId}.wav"));
+
+            svc.RemoveIncompleteProfileClips("source");
+            svc.RemoveIncompleteProfileClips("target");
+
+            Assert.False(File.Exists(metadataPath));
+            Assert.Single(svc.GetClips("target"));
+        }
+        finally
+        {
+            DeleteDir(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task ReassignClipAsync_CompletesLegacySplitMove()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var svc = CreateService(tempDir, maxClips: 10);
+            var clipId = await svc.SaveClipAsync("source", TestAudio, SampleRate, null);
+            var sourceDir = Path.Combine(tempDir, "source");
+            var targetDir = Path.Combine(tempDir, "target");
+            Directory.CreateDirectory(targetDir);
+            var metadataPath = Path.Combine(sourceDir, $"{clipId}.json");
+            var metadata = await File.ReadAllTextAsync(metadataPath);
+            await File.WriteAllTextAsync(metadataPath, metadata.Replace("source", "target"));
+            File.Move(
+                Path.Combine(sourceDir, $"{clipId}.wav"),
+                Path.Combine(targetDir, $"{clipId}.wav"));
+
+            await svc.ReassignClipAsync("source", clipId, "target");
+
+            Assert.False(File.Exists(metadataPath));
+            Assert.Single(svc.GetClips("target"));
+        }
+        finally
+        {
+            DeleteDir(tempDir);
+        }
+    }
+
     private static AudioClipService CreateService(string basePath, int maxClips)
     {
         var options = new VoiceProfileOptions

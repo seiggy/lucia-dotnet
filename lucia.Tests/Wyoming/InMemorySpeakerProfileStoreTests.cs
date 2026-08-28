@@ -124,4 +124,24 @@ public sealed class InMemorySpeakerProfileStoreTests
 
         Assert.Null(updated);
     }
+
+    [Fact]
+    public async Task UpdateAtomicAsync_RejectsMutationOfClaimedMergeSource()
+    {
+        var store = new InMemorySpeakerProfileStore();
+        await store.CreateAsync(
+            new SpeakerProfile
+            {
+                Id = "source",
+                Name = "Source",
+                MergeTargetProfileId = "target",
+                InteractionCount = 1,
+            },
+            CancellationToken.None);
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => store.UpdateAtomicAsync(
+                "source",
+                profile => profile with { InteractionCount = 2 },
+                CancellationToken.None));
+    }
 }

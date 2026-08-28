@@ -12,8 +12,6 @@ public sealed partial class SpeakerProfileDeletionService(
     private static readonly TimeSpan RetryInterval = TimeSpan.FromMinutes(1);
     private readonly ConcurrentDictionary<string, byte> _pendingPurges = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, Lazy<Task>> _activeDeletions = new(StringComparer.Ordinal);
-    // ponytail: deletions are low-volume; use keyed locks if this becomes measurable contention.
-    private readonly SemaphoreSlim _deletionLock = new(1, 1);
 
     public async Task DeleteAsync(string profileId, CancellationToken ct)
     {
@@ -41,31 +39,32 @@ public sealed partial class SpeakerProfileDeletionService(
 
     private async Task DeleteCoreAsync(string profileId)
     {
-        await _deletionLock.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        await clipService.ProfileLifecycleLock.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        var deletionCommitted = false;
+        var tombstoneCreated = false;
         try
         {
+            tombstoneCreated = clipService.TombstoneProfileClips(profileId);
             if (await profileStore.GetAsync(profileId, CancellationToken.None).ConfigureAwait(false) is null)
             {
+                deletionCommitted = true;
                 TryPurge(profileId);
                 return;
             }
 
-            clipService.BlockProfileClips(profileId);
-            try
-            {
-                await profileStore.DeleteAsync(profileId, CancellationToken.None).ConfigureAwait(false);
-            }
-            catch
-            {
-                clipService.AllowProfileClips(profileId);
-                throw;
-            }
-
+            await profileStore.DeleteAsync(profileId, CancellationToken.None).ConfigureAwait(false);
+            deletionCommitted = true;
             TryPurge(profileId);
         }
         finally
         {
-            _deletionLock.Release();
+            if (!deletionCommitted && tombstoneCreated)
+            {
+                clipService.AllowProfileClips(profileId);
+                clipService.RemoveProfileClipTombstone(profileId);
+            }
+
+            clipService.ProfileLifecycleLock.Release();
         }
     }
 
@@ -74,34 +73,33 @@ public sealed partial class SpeakerProfileDeletionService(
         DateTimeOffset cutoff,
         CancellationToken ct)
     {
-        await _deletionLock.WaitAsync(ct).ConfigureAwait(false);
+        await clipService.ProfileLifecycleLock.WaitAsync(ct).ConfigureAwait(false);
+        var deletionCommitted = false;
+        var tombstoneCreated = false;
         try
         {
-            clipService.BlockProfileClips(profileId);
-            bool deleted;
-            try
-            {
-                deleted = await profileStore.DeleteExpiredProvisionalAsync(profileId, cutoff, ct)
-                    .ConfigureAwait(false);
-            }
-            catch
-            {
-                clipService.AllowProfileClips(profileId);
-                throw;
-            }
+            tombstoneCreated = clipService.TombstoneProfileClips(profileId);
+            var deleted = await profileStore.DeleteExpiredProvisionalAsync(profileId, cutoff, ct)
+                .ConfigureAwait(false);
 
             if (!deleted)
             {
-                clipService.AllowProfileClips(profileId);
                 return false;
             }
 
+            deletionCommitted = true;
             TryPurge(profileId);
             return true;
         }
         finally
         {
-            _deletionLock.Release();
+            if (!deletionCommitted && tombstoneCreated)
+            {
+                clipService.AllowProfileClips(profileId);
+                clipService.RemoveProfileClipTombstone(profileId);
+            }
+
+            clipService.ProfileLifecycleLock.Release();
         }
     }
 
@@ -136,9 +134,15 @@ public sealed partial class SpeakerProfileDeletionService(
         }
     }
 
-    private async Task ReconcileOrphanedClipsAsync(CancellationToken ct)
+    internal async Task ReconcileOrphanedClipsAsync(CancellationToken ct)
     {
-        foreach (var profileId in clipService.GetStoredProfileIds())
+        var storedProfileIds = clipService.GetStoredProfileIds();
+        foreach (var profileId in storedProfileIds)
+        {
+            clipService.RemoveIncompleteProfileClips(profileId);
+        }
+
+        foreach (var profileId in storedProfileIds)
         {
             if (_pendingPurges.ContainsKey(profileId))
             {

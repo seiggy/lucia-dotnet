@@ -11,6 +11,9 @@ public sealed record SpeakerProfile
     public float[][] Embeddings { get; init; } = [];
     public float[] AverageEmbedding { get; init; } = [];
     public string? EnrollmentSessionId { get; init; }
+    public string? MergeTargetProfileId { get; init; }
+    public string[] PendingMergeSourceIds { get; init; } = [];
+    public string[] MergedProfileIds { get; init; } = [];
     public int InteractionCount { get; init; }
     public DateTimeOffset EnrolledAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; init; } = DateTimeOffset.UtcNow;

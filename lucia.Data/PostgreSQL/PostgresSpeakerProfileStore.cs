@@ -95,21 +95,7 @@ public sealed class PostgresSpeakerProfileStore : ISpeakerProfileStore
     public async Task UpdateAsync(SpeakerProfile profile, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(profile);
-
-        await using var connection = await _connectionFactory.CreateConnectionAsync(ct).ConfigureAwait(false);
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
-            UPDATE speaker_profiles
-            SET is_provisional = @isProvisional, last_seen_at = @lastSeenAt, data = @data
-            WHERE id = @id;
-            """;
-        cmd.Parameters.AddWithValue("id", profile.Id);
-        cmd.Parameters.AddWithValue("isProvisional", profile.IsProvisional);
-        cmd.Parameters.AddWithValue("lastSeenAt", profile.LastSeenAt.UtcDateTime);
-        cmd.Parameters.Add(new NpgsqlParameter("data", NpgsqlDbType.Jsonb) { Value = JsonSerializer.Serialize(profile, JsonOptions) });
-
-        var affected = await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-        if (affected == 0)
+        if (await UpdateAtomicAsync(profile.Id, _ => profile, ct).ConfigureAwait(false) is null)
         {
             throw new KeyNotFoundException($"Speaker profile '{profile.Id}' was not found.");
         }
@@ -139,7 +125,7 @@ public sealed class PostgresSpeakerProfileStore : ISpeakerProfileStore
 
             var existing = JsonSerializer.Deserialize<SpeakerProfile>(json, JsonOptions)
                 ?? throw new InvalidOperationException($"Profile '{id}' not found");
-            var updated = transform(existing);
+            var updated = SpeakerProfileUpdate.ApplyAtomic(existing, transform);
 
             await using var updateCmd = connection.CreateCommand();
             updateCmd.Transaction = transaction;

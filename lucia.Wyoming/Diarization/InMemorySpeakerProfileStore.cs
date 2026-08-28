@@ -62,6 +62,7 @@ public sealed class InMemorySpeakerProfileStore : ISpeakerProfileStore
         {
             throw new KeyNotFoundException($"Speaker profile '{profile.Id}' was not found.");
         }
+        SpeakerProfileUpdate.EnsureNotClaimed(existing);
 
         if (!_profiles.TryUpdate(profile.Id, CloneProfile(profile), existing))
         {
@@ -78,7 +79,9 @@ public sealed class InMemorySpeakerProfileStore : ISpeakerProfileStore
 
         while (_profiles.TryGetValue(id, out var existing))
         {
-            var stored = CloneProfile(transform(CloneProfile(existing)));
+            var transformInput = CloneProfile(existing);
+            var updated = SpeakerProfileUpdate.ApplyAtomic(transformInput, transform);
+            var stored = CloneProfile(updated);
             if (_profiles.TryUpdate(id, stored, existing))
             {
                 return Task.FromResult<SpeakerProfile?>(CloneProfile(stored));

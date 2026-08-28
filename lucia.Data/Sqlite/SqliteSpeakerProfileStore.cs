@@ -92,21 +92,7 @@ public sealed class SqliteSpeakerProfileStore : ISpeakerProfileStore
     public async Task UpdateAsync(SpeakerProfile profile, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(profile);
-
-        using var connection = _connectionFactory.CreateConnection();
-        using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
-            UPDATE speaker_profiles
-            SET is_provisional = @isProvisional, last_seen_at = @lastSeenAt, data = @data
-            WHERE id = @id;
-            """;
-        cmd.Parameters.AddWithValue("@id", profile.Id);
-        cmd.Parameters.AddWithValue("@isProvisional", profile.IsProvisional ? 1 : 0);
-        cmd.Parameters.AddWithValue("@lastSeenAt", profile.LastSeenAt.ToString("O"));
-        cmd.Parameters.AddWithValue("@data", JsonSerializer.Serialize(profile, JsonOptions));
-
-        var affected = await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-        if (affected == 0)
+        if (await UpdateAtomicAsync(profile.Id, _ => profile, ct).ConfigureAwait(false) is null)
         {
             throw new KeyNotFoundException($"Speaker profile '{profile.Id}' was not found.");
         }
@@ -140,7 +126,7 @@ public sealed class SqliteSpeakerProfileStore : ISpeakerProfileStore
             var existing = JsonSerializer.Deserialize<SpeakerProfile>(json, JsonOptions)
                 ?? throw new InvalidOperationException($"Profile '{id}' not found");
 
-            var updated = transform(existing);
+            var updated = SpeakerProfileUpdate.ApplyAtomic(existing, transform);
 
             using var updateCmd = connection.CreateCommand();
             updateCmd.Transaction = transaction;

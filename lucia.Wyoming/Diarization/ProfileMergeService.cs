@@ -16,6 +16,22 @@ public sealed class ProfileMergeService(
         string targetProfileId,
         CancellationToken ct = default)
     {
+        await clipService.ProfileLifecycleLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            return await MergeCoreAsync(sourceProfileId, targetProfileId, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            clipService.ProfileLifecycleLock.Release();
+        }
+    }
+
+    private async Task<SpeakerProfile> MergeCoreAsync(
+        string sourceProfileId,
+        string targetProfileId,
+        CancellationToken ct)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceProfileId);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetProfileId);
 
@@ -24,18 +40,59 @@ public sealed class ProfileMergeService(
             throw new ArgumentException("Cannot merge a profile into itself.");
         }
 
+        var target = await profileStore.GetAsync(targetProfileId, ct).ConfigureAwait(false)
+            ?? throw new KeyNotFoundException($"Target profile '{targetProfileId}' not found.");
+        if (target.MergeTargetProfileId is not null)
+        {
+            throw new InvalidOperationException("A profile being merged cannot receive another profile.");
+        }
+        if (target.MergedProfileIds.Contains(sourceProfileId, StringComparer.Ordinal))
+        {
+            return target;
+        }
+        if (target.PendingMergeSourceIds.Contains(sourceProfileId, StringComparer.Ordinal))
+        {
+            return await CompletePendingMergeAsync(sourceProfileId, targetProfileId).ConfigureAwait(false);
+        }
+
         var source = await profileStore.GetAsync(sourceProfileId, ct).ConfigureAwait(false)
             ?? throw new KeyNotFoundException($"Source profile '{sourceProfileId}' not found.");
-        _ = await profileStore.GetAsync(targetProfileId, ct).ConfigureAwait(false)
-            ?? throw new KeyNotFoundException($"Target profile '{targetProfileId}' not found.");
+        if (source.PendingMergeSourceIds.Length > 0)
+        {
+            throw new InvalidOperationException("A profile with pending incoming merges cannot be merged.");
+        }
 
-        // Move audio clips from source to target
-        await clipService.MoveClipsAsync(sourceProfileId, targetProfileId, ct).ConfigureAwait(false);
+        if (source.MergeTargetProfileId is null)
+        {
+            source = await profileStore.UpdateAtomicAsync(
+                sourceProfileId,
+                source =>
+                {
+                    EnsureCompatibleEmbeddingDimensions(source, target);
+                    return source with { MergeTargetProfileId = targetProfileId };
+                },
+                ct).ConfigureAwait(false)
+                ?? throw new KeyNotFoundException($"Source profile '{sourceProfileId}' not found.");
+        }
+        else if (!string.Equals(source.MergeTargetProfileId, targetProfileId, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("The source profile is already merging into another profile.");
+        }
 
         var merged = await profileStore.UpdateAtomicAsync(
             targetProfileId,
             target =>
             {
+                if (target.MergedProfileIds.Contains(sourceProfileId, StringComparer.Ordinal))
+                {
+                    return target;
+                }
+                if (target.PendingMergeSourceIds.Contains(sourceProfileId, StringComparer.Ordinal))
+                {
+                    return target;
+                }
+
+                EnsureCompatibleEmbeddingDimensions(source, target);
                 var combinedEmbeddings = target.Embeddings.Concat(source.Embeddings).ToArray();
                 return target with
                 {
@@ -46,17 +103,84 @@ public sealed class ProfileMergeService(
                     InteractionCount = target.InteractionCount + source.InteractionCount,
                     UpdatedAt = DateTimeOffset.UtcNow,
                     LastSeenAt = source.LastSeenAt > target.LastSeenAt ? source.LastSeenAt : target.LastSeenAt,
+                    PendingMergeSourceIds = [.. target.PendingMergeSourceIds, sourceProfileId],
                 };
             },
             ct).ConfigureAwait(false)
             ?? throw new KeyNotFoundException($"Target profile '{targetProfileId}' not found.");
 
-        await profileStore.DeleteAsync(sourceProfileId, ct).ConfigureAwait(false);
+        return await CompletePendingMergeAsync(sourceProfileId, targetProfileId).ConfigureAwait(false);
+    }
+
+    private async Task<SpeakerProfile> CompletePendingMergeAsync(
+        string sourceProfileId,
+        string targetProfileId)
+    {
+        var tombstoneCreated = clipService.TombstoneProfileClips(sourceProfileId);
+        var sourceDeletionCommitted = false;
+        try
+        {
+            await clipService.MoveTombstonedProfileClipsAsync(
+                sourceProfileId,
+                targetProfileId).ConfigureAwait(false);
+            await profileStore.DeleteAsync(sourceProfileId, CancellationToken.None).ConfigureAwait(false);
+            sourceDeletionCommitted = true;
+        }
+        finally
+        {
+            if (!sourceDeletionCommitted && tombstoneCreated)
+            {
+                clipService.AllowProfileClips(sourceProfileId);
+                clipService.RemoveProfileClipTombstone(sourceProfileId);
+            }
+        }
+
+        var merged = await profileStore.UpdateAtomicAsync(
+            targetProfileId,
+            target => target with
+            {
+                PendingMergeSourceIds =
+                [
+                    .. target.PendingMergeSourceIds.Where(
+                        id => !string.Equals(id, sourceProfileId, StringComparison.Ordinal)),
+                ],
+                MergedProfileIds = target.MergedProfileIds.Contains(sourceProfileId, StringComparer.Ordinal)
+                    ? target.MergedProfileIds
+                    : [.. target.MergedProfileIds, sourceProfileId],
+            },
+            CancellationToken.None).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("The merge target disappeared after its profile update committed.");
 
         logger.LogInformation(
             "Merged speaker profiles ({EmbeddingCount} total embeddings)",
             merged.Embeddings.Length);
-
         return merged;
+    }
+
+    private static void EnsureCompatibleEmbeddingDimensions(SpeakerProfile source, SpeakerProfile target)
+    {
+        if (source.Embeddings.Length == 0
+            || target.Embeddings.Length == 0
+            || source.AverageEmbedding.Length == 0
+            || target.AverageEmbedding.Length == 0
+            || source.Embeddings.Any(static embedding => embedding.Length == 0)
+            || target.Embeddings.Any(static embedding => embedding.Length == 0))
+        {
+            throw new InvalidOperationException("Cannot merge speaker profiles containing empty embeddings.");
+        }
+
+        var dimensions = source.Embeddings
+            .Concat(target.Embeddings)
+            .Append(source.AverageEmbedding)
+            .Append(target.AverageEmbedding)
+            .Where(static embedding => embedding.Length > 0)
+            .Select(static embedding => embedding.Length)
+            .Distinct()
+            .Take(2)
+            .Count();
+        if (dimensions > 1)
+        {
+            throw new InvalidOperationException("Cannot merge speaker profiles with different embedding dimensions.");
+        }
     }
 }

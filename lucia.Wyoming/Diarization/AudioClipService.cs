@@ -14,6 +14,7 @@ public sealed class AudioClipService(
     ILogger<AudioClipService> logger)
 {
     private const string OnboardingStagingDirectoryName = ".onboarding-staging";
+    private const string DeletedProfilesDirectoryName = ".deleted-profiles";
     private static readonly HashSet<string> s_windowsReservedNames = new(
         ["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5",
          "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5",
@@ -26,7 +27,11 @@ public sealed class AudioClipService(
     };
     // ponytail: clip writes are low-volume; split this into per-profile locks only if measured contention appears.
     private readonly SemaphoreSlim _fileLock = new(1, 1);
+    // ponytail: profile lifecycle operations are administrative; use keyed locks if contention is measured.
+    private readonly SemaphoreSlim _profileLifecycleLock = new(1, 1);
     private readonly HashSet<string> _blockedProfileIds = new(StringComparer.Ordinal);
+
+    internal SemaphoreSlim ProfileLifecycleLock => _profileLifecycleLock;
 
     public async Task<string> SaveClipAsync(
         string profileId,
@@ -38,7 +43,8 @@ public sealed class AudioClipService(
         await _fileLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (_blockedProfileIds.Contains(profileId))
+            if (_blockedProfileIds.Contains(profileId)
+                || File.Exists(GetProfileDeletionMarkerPath(profileId)))
             {
                 throw new InvalidOperationException($"Profile '{profileId}' is being deleted.");
             }
@@ -51,7 +57,6 @@ public sealed class AudioClipService(
                 transcript,
                 ct).ConfigureAwait(false);
         }
-
         finally
         {
             _fileLock.Release();
@@ -240,10 +245,104 @@ public sealed class AudioClipService(
             var profileDir = GetProfileDirectory(profileId);
             return GetClipsInternal(profileDir);
         }
+
         finally
         {
             _fileLock.Release();
         }
+    }
+
+    public void RemoveIncompleteProfileClips(string profileId)
+    {
+        _fileLock.Wait();
+        try
+        {
+            var profileDir = GetProfileDirectory(profileId);
+            if (!Directory.Exists(profileDir))
+            {
+                return;
+            }
+
+            foreach (var temporaryFile in Directory.GetFiles(profileDir, "*.tmp"))
+            {
+                File.Delete(temporaryFile);
+            }
+            foreach (var wavFile in Directory.GetFiles(profileDir, "*.wav"))
+            {
+                if (!File.Exists(Path.ChangeExtension(wavFile, ".json"))
+                    && !TryRecoverMovedMetadata(profileId, wavFile))
+                {
+                    File.Delete(wavFile);
+                }
+            }
+            foreach (var metadataFile in Directory.GetFiles(profileDir, "*.json"))
+            {
+                if (!File.Exists(Path.ChangeExtension(metadataFile, ".wav")))
+                {
+                    try
+                    {
+                        var metadata = JsonSerializer.Deserialize<AudioClipInfo>(
+                            File.ReadAllText(metadataFile),
+                            JsonOptions);
+                        if (!string.Equals(metadata?.ProfileId, profileId, StringComparison.Ordinal))
+                        {
+                            continue;
+                        }
+                    }
+                    catch (JsonException ex)
+                    {
+                        logger.LogWarning(ex, "Removing orphaned corrupt audio clip metadata {MetadataPath}", metadataFile);
+                    }
+
+                    File.Delete(metadataFile);
+                }
+            }
+
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    private bool TryRecoverMovedMetadata(string profileId, string wavFile)
+    {
+        var basePath = options.CurrentValue.AudioClipBasePath;
+        var metadataName = $"{Path.GetFileNameWithoutExtension(wavFile)}.json";
+        foreach (var directory in Directory.GetDirectories(basePath))
+        {
+            if (string.Equals(directory, Path.GetDirectoryName(wavFile), StringComparison.Ordinal)
+                || Path.GetFileName(directory).StartsWith('.'))
+            {
+                continue;
+            }
+
+            var candidate = Path.Combine(directory, metadataName);
+            if (!File.Exists(candidate))
+            {
+                continue;
+            }
+
+            try
+            {
+                var metadata = JsonSerializer.Deserialize<AudioClipInfo>(
+                    File.ReadAllText(candidate),
+                    JsonOptions);
+                if (!string.Equals(metadata?.ProfileId, profileId, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                File.Move(candidate, Path.ChangeExtension(wavFile, ".json"));
+                return true;
+            }
+            catch (JsonException)
+            {
+                continue;
+            }
+        }
+
+        return false;
     }
 
     public string? GetClipFilePath(string profileId, string clipId)
@@ -343,6 +442,57 @@ public sealed class AudioClipService(
             {
                 throw new InvalidOperationException($"Profile '{profileId}' already has an active lifecycle operation.");
             }
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    public bool TombstoneProfileClips(string profileId)
+    {
+        _fileLock.Wait();
+        try
+        {
+            var safeProfileId = GetSafePathSegment(profileId, nameof(profileId));
+            var blockAdded = _blockedProfileIds.Add(safeProfileId);
+            var tombstoneDirectory = Path.Combine(
+                options.CurrentValue.AudioClipBasePath,
+                DeletedProfilesDirectoryName);
+            try
+            {
+                Directory.CreateDirectory(tombstoneDirectory);
+                var tombstonePath = Path.Combine(tombstoneDirectory, safeProfileId);
+                if (File.Exists(tombstonePath))
+                {
+                    return false;
+                }
+
+                File.WriteAllText(tombstonePath, string.Empty);
+                return true;
+            }
+            catch
+            {
+                if (blockAdded)
+                {
+                    _blockedProfileIds.Remove(safeProfileId);
+                }
+
+                throw;
+            }
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    public void RemoveProfileClipTombstone(string profileId)
+    {
+        _fileLock.Wait();
+        try
+        {
+            DeleteIfExists(GetProfileDeletionMarkerPath(profileId));
         }
         finally
         {
@@ -468,39 +618,43 @@ public sealed class AudioClipService(
         var jsonSource = Path.Combine(sourceDir, $"{safeClipId}.json");
         var wavDest = Path.Combine(targetDir, $"{safeClipId}.wav");
         var jsonDest = Path.Combine(targetDir, $"{safeClipId}.json");
+        var wavStagingPath = $"{wavDest}.tmp";
+        var jsonStagingPath = $"{jsonDest}.tmp";
 
-        if (File.Exists(jsonSource))
+        if (!File.Exists(wavSource) || !File.Exists(jsonSource))
+        {
+            if (!File.Exists(wavSource)
+                && File.Exists(jsonSource)
+                && File.Exists(wavDest))
+            {
+                File.Move(jsonSource, jsonDest, overwrite: true);
+                return;
+            }
+
+            DeleteIfExists(wavSource);
+            DeleteIfExists(jsonSource);
+            return;
+        }
+
+        try
         {
             var json = await File.ReadAllTextAsync(jsonSource, ct).ConfigureAwait(false);
-            var clip = JsonSerializer.Deserialize<AudioClipInfo>(json, JsonOptions);
-            if (clip is not null)
-            {
-                var updated = clip with { ProfileId = targetProfileId };
-                var updatedJson = JsonSerializer.Serialize(updated, JsonOptions);
-                var stagingPath = $"{jsonSource}.{Guid.NewGuid():N}.tmp";
-                try
-                {
-                    await File.WriteAllTextAsync(stagingPath, updatedJson, ct).ConfigureAwait(false);
-                    File.Move(stagingPath, jsonSource, overwrite: true);
-                }
-                finally
-                {
-                    if (File.Exists(stagingPath))
-                    {
-                        File.Delete(stagingPath);
-                    }
-                }
-            }
+            var clip = JsonSerializer.Deserialize<AudioClipInfo>(json, JsonOptions)
+                ?? throw new InvalidOperationException($"Audio clip metadata '{jsonSource}' is empty.");
+            var updatedJson = JsonSerializer.Serialize(
+                clip with { ProfileId = targetProfileId },
+                JsonOptions);
+            await File.WriteAllTextAsync(jsonStagingPath, updatedJson, ct).ConfigureAwait(false);
+            File.Copy(wavSource, wavStagingPath, overwrite: true);
+            File.Move(wavStagingPath, wavDest, overwrite: true);
+            File.Move(jsonStagingPath, jsonDest, overwrite: true);
+            DeleteIfExists(jsonSource);
+            DeleteIfExists(wavSource);
         }
-
-        ct.ThrowIfCancellationRequested();
-        if (File.Exists(wavSource))
+        finally
         {
-            File.Move(wavSource, wavDest, overwrite: true);
-        }
-        if (File.Exists(jsonSource))
-        {
-            File.Move(jsonSource, jsonDest, overwrite: true);
+            DeleteIfExists(wavStagingPath);
+            DeleteIfExists(jsonStagingPath);
         }
 
         logger.LogInformation(
@@ -514,6 +668,25 @@ public sealed class AudioClipService(
         try
         {
             await MoveClipsCoreAsync(sourceProfileId, targetProfileId, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    internal async Task MoveTombstonedProfileClipsAsync(
+        string sourceProfileId,
+        string targetProfileId)
+    {
+        await _fileLock.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        try
+        {
+            await MoveClipsCoreAsync(
+                sourceProfileId,
+                targetProfileId,
+                CancellationToken.None,
+                allowBlockedSource: true).ConfigureAwait(false);
         }
         finally
         {
@@ -664,6 +837,12 @@ public sealed class AudioClipService(
     private string GetOnboardingStagingRoot() =>
         Path.Combine(options.CurrentValue.AudioClipBasePath, OnboardingStagingDirectoryName);
 
+    private string GetProfileDeletionMarkerPath(string profileId) =>
+        Path.Combine(
+            options.CurrentValue.AudioClipBasePath,
+            DeletedProfilesDirectoryName,
+            GetSafePathSegment(profileId, nameof(profileId)));
+
     private static string GetStagingProfileId(string sessionId) => $"onboarding-{sessionId}";
 
     private static string GetSafePathSegment(string value, string parameterName)
@@ -708,10 +887,14 @@ public sealed class AudioClipService(
     {
         if ((!sourceIsOnboardingStaging
                 && !allowBlockedSource
-                && _blockedProfileIds.Contains(sourceProfileId))
-            || (!allowBlockedTarget && _blockedProfileIds.Contains(targetProfileId)))
+                && IsProfileClipsBlocked(sourceProfileId))
+            || (!allowBlockedTarget && IsProfileClipsBlocked(targetProfileId)))
         {
             throw new InvalidOperationException("Cannot move clips to or from a profile being deleted.");
         }
     }
+
+    private bool IsProfileClipsBlocked(string profileId) =>
+        _blockedProfileIds.Contains(profileId)
+        || File.Exists(GetProfileDeletionMarkerPath(profileId));
 }

@@ -87,7 +87,10 @@ public sealed class MongoSpeakerProfileStore : ISpeakerProfileStore
 
         var filter = Builders<SpeakerProfile>.Filter.And(
             Builders<SpeakerProfile>.Filter.Eq(p => p.Id, profile.Id),
-            BuildRevisionFilter(profile.Revision));
+            BuildRevisionFilter(profile.Revision),
+            Builders<SpeakerProfile>.Filter.Or(
+                Builders<SpeakerProfile>.Filter.Eq(p => p.MergeTargetProfileId, null),
+                Builders<SpeakerProfile>.Filter.Exists(p => p.MergeTargetProfileId, false)));
         var updated = profile with { Revision = profile.Revision + 1 };
         var result = await _collection.ReplaceOneAsync(filter, updated, cancellationToken: ct).ConfigureAwait(false);
 
@@ -115,7 +118,8 @@ public sealed class MongoSpeakerProfileStore : ISpeakerProfileStore
                 return null;
             }
 
-            var updated = transform(existing) with { Revision = existing.Revision + 1 };
+            var transformed = SpeakerProfileUpdate.ApplyAtomic(existing, transform);
+            var updated = transformed with { Revision = existing.Revision + 1 };
             var options = new FindOneAndReplaceOptions<SpeakerProfile>
             {
                 ReturnDocument = ReturnDocument.After,

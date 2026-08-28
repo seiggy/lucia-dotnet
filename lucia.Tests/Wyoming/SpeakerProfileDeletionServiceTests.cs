@@ -82,6 +82,121 @@ public sealed class SpeakerProfileDeletionServiceTests
         await apiDeletion;
     }
 
+    [Fact]
+    public async Task DeleteAsync_AbsentProfileBlocksLaterClipReassignment()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"lucia-test-{Guid.NewGuid():N}");
+        try
+        {
+            var profileStore = A.Fake<ISpeakerProfileStore>();
+            A.CallTo(() => profileStore.GetAsync("deleted", CancellationToken.None))
+                .Returns((SpeakerProfile?)null);
+            var options = A.Fake<IOptionsMonitor<VoiceProfileOptions>>();
+            A.CallTo(() => options.CurrentValue).Returns(new VoiceProfileOptions
+            {
+                AudioClipBasePath = tempDir,
+            });
+            var clipService = new AudioClipService(options, NullLogger<AudioClipService>.Instance);
+            await clipService.SaveClipAsync("source", new float[] { 0.1f }, 16000, null);
+            var service = new SpeakerProfileDeletionService(
+                profileStore,
+                clipService,
+                NullLogger<SpeakerProfileDeletionService>.Instance);
+
+            await service.DeleteAsync("deleted", CancellationToken.None);
+            var restartedClipService = new AudioClipService(
+                options,
+                NullLogger<AudioClipService>.Instance);
+
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => restartedClipService.MoveClipsAsync("source", "deleted"));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task DeleteAsync_StoreFailureRemovesPersistentTombstone()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"lucia-test-{Guid.NewGuid():N}");
+        try
+        {
+            var profileStore = A.Fake<ISpeakerProfileStore>();
+            A.CallTo(() => profileStore.GetAsync("profile-1", CancellationToken.None))
+                .ThrowsAsync(new IOException("store unavailable"));
+            var options = A.Fake<IOptionsMonitor<VoiceProfileOptions>>();
+            A.CallTo(() => options.CurrentValue).Returns(new VoiceProfileOptions
+            {
+                AudioClipBasePath = tempDir,
+            });
+            var clipService = new AudioClipService(options, NullLogger<AudioClipService>.Instance);
+            var service = new SpeakerProfileDeletionService(
+                profileStore,
+                clipService,
+                NullLogger<SpeakerProfileDeletionService>.Instance);
+
+            await Assert.ThrowsAsync<IOException>(
+                () => service.DeleteAsync("profile-1", CancellationToken.None));
+            var restartedClipService = new AudioClipService(
+                options,
+                NullLogger<AudioClipService>.Instance);
+
+            await restartedClipService.SaveClipAsync(
+                "profile-1",
+                new float[] { 0.1f },
+                16000,
+                null);
+            Assert.Single(restartedClipService.GetClips("profile-1"));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ReconcileOrphanedClipsAsync_RemovesIncompleteClipsForExistingProfile()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"lucia-test-{Guid.NewGuid():N}");
+        try
+        {
+            var profileDir = Path.Combine(tempDir, "profile-1");
+            Directory.CreateDirectory(profileDir);
+            await File.WriteAllBytesAsync(Path.Combine(profileDir, "orphan.wav"), [1, 2, 3]);
+            var profileStore = A.Fake<ISpeakerProfileStore>();
+            A.CallTo(() => profileStore.GetAsync("profile-1", A<CancellationToken>._))
+                .Returns(new SpeakerProfile { Id = "profile-1", Name = "Test" });
+            var options = A.Fake<IOptionsMonitor<VoiceProfileOptions>>();
+            A.CallTo(() => options.CurrentValue).Returns(new VoiceProfileOptions
+            {
+                AudioClipBasePath = tempDir,
+            });
+            var service = new SpeakerProfileDeletionService(
+                profileStore,
+                new AudioClipService(options, NullLogger<AudioClipService>.Instance),
+                NullLogger<SpeakerProfileDeletionService>.Instance);
+
+            await service.ReconcileOrphanedClipsAsync(CancellationToken.None);
+
+            Assert.False(File.Exists(Path.Combine(profileDir, "orphan.wav")));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
+
     private static SpeakerProfileDeletionService CreateService(ISpeakerProfileStore profileStore)
     {
         var options = A.Fake<IOptionsMonitor<VoiceProfileOptions>>();
