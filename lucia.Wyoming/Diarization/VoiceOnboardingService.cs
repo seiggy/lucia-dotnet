@@ -114,6 +114,11 @@ public sealed class VoiceOnboardingService : BackgroundService
             {
                 throw new InvalidOperationException($"Onboarding session '{sessionId}' not found");
             }
+            if (session.Status is OnboardingStatus.Failed)
+            {
+                throw new OnboardingConflictException("The onboarding session has failed.");
+            }
+
             session.LastActivityAt = DateTimeOffset.UtcNow;
 
             if (session.CurrentPromptIndex >= session.Prompts.Count)
@@ -178,8 +183,8 @@ public sealed class VoiceOnboardingService : BackgroundService
                 {
                     if (!existing.IsProvisional)
                     {
-                        throw new InvalidOperationException(
-                            $"Profile '{existing.Id}' is no longer provisional.");
+                        throw new OnboardingConflictException(
+                            "The provisional profile was already enrolled.");
                     }
 
                     return existing with
@@ -196,8 +201,8 @@ public sealed class VoiceOnboardingService : BackgroundService
                 ct).ConfigureAwait(false);
             if (promoted is null)
             {
-                throw new InvalidOperationException(
-                    $"Provisional profile '{session.ProvisionalProfileId}' no longer exists.");
+                throw new OnboardingConflictException(
+                    "The provisional profile is no longer available.");
             }
 
             _logger.LogInformation("Promoted provisional profile {Id} to {Name}", promoted.Id, promoted.Name);
@@ -237,8 +242,18 @@ public sealed class VoiceOnboardingService : BackgroundService
         }
         else
         {
-            profile = await FinalizeEnrollmentAsync(session, ct).ConfigureAwait(false);
-            session.ProfilePersisted = true;
+            try
+            {
+                profile = await FinalizeEnrollmentAsync(session, ct).ConfigureAwait(false);
+                session.ProfilePersisted = true;
+            }
+            catch (OnboardingConflictException)
+            {
+                session.Status = OnboardingStatus.Failed;
+                session.CompletedAt = DateTimeOffset.UtcNow;
+                _audioClipService.DeleteOnboardingSessionClips(session.Id);
+                throw;
+            }
         }
 
         await _audioClipService.MoveOnboardingClipsAsync(

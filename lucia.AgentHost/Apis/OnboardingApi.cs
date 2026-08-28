@@ -78,6 +78,10 @@ public static class OnboardingApi
             {
                 return Results.BadRequest(ex.Message);
             }
+            catch (OnboardingConflictException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
         });
 
         group.MapGet("/{sessionId}", async (

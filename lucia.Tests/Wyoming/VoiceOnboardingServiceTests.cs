@@ -271,9 +271,13 @@ public sealed class VoiceOnboardingServiceTests : IDisposable
             await service.ProcessSampleAsync(session.Id, audio, 16_000, CancellationToken.None);
         }
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        await Assert.ThrowsAsync<OnboardingConflictException>(
             () => service.ProcessSampleAsync(session.Id, audio, 16_000, CancellationToken.None));
         Assert.Null(await store.GetAsync("prov-123", CancellationToken.None));
+        Assert.False(Directory.Exists(GetStagingDirectory(session.Id)));
+        Assert.Equal(
+            OnboardingStatus.Failed,
+            (await service.GetSessionAsync(session.Id, CancellationToken.None))?.Status);
     }
 
     [Fact]
@@ -305,10 +309,14 @@ public sealed class VoiceOnboardingServiceTests : IDisposable
             await service.ProcessSampleAsync(second.Id, audio, 16_000, CancellationToken.None);
         }
 
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        await Assert.ThrowsAsync<OnboardingConflictException>(
             () => service.ProcessSampleAsync(second.Id, audio, 16_000, CancellationToken.None));
         var profile = await store.GetAsync("prov-123", CancellationToken.None);
         Assert.Equal("Alice", profile?.Name);
+        Assert.False(Directory.Exists(GetStagingDirectory(second.Id)));
+        Assert.Equal(
+            OnboardingStatus.Failed,
+            (await service.GetSessionAsync(second.Id, CancellationToken.None))?.Status);
     }
 
     private string GetStagingDirectory(string sessionId) =>
