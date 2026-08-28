@@ -78,27 +78,6 @@ public sealed class AudioClipService(
         }
     }
 
-    public async Task MoveBlockedProfileClipsAsync(
-        string sourceProfileId,
-        string targetProfileId,
-        CancellationToken ct = default)
-    {
-        await _fileLock.WaitAsync(ct).ConfigureAwait(false);
-        try
-        {
-            await MoveClipsCoreAsync(
-                sourceProfileId,
-                targetProfileId,
-                ct,
-                allowBlockedSource: true,
-                allowBlockedTarget: true).ConfigureAwait(false);
-        }
-        finally
-        {
-            _fileLock.Release();
-        }
-    }
-
     public async Task<string> SaveOnboardingClipAsync(
         string sessionId,
         ReadOnlyMemory<float> audio,
@@ -315,7 +294,7 @@ public sealed class AudioClipService(
         }
     }
 
-    public void DeleteOnboardingStagingClips()
+    public void DeleteOnboardingStagingClips(IReadOnlySet<string>? activeSessionIds = null)
     {
         _fileLock.Wait();
         try
@@ -339,6 +318,12 @@ public sealed class AudioClipService(
 
             foreach (var stagingDirectory in stagingDirectories)
             {
+                var sessionId = Path.GetFileName(stagingDirectory);
+                if (activeSessionIds?.Contains(sessionId) == true)
+                {
+                    continue;
+                }
+
                 try
                 {
                     Directory.Delete(stagingDirectory, recursive: true);

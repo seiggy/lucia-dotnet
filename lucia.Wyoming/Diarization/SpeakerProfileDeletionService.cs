@@ -28,12 +28,6 @@ public sealed partial class SpeakerProfileDeletionService(
         TryPurge(profileId);
     }
 
-    public async Task DeleteBlockedAsync(string profileId, CancellationToken ct)
-    {
-        await profileStore.DeleteAsync(profileId, ct).ConfigureAwait(false);
-        TryPurge(profileId);
-    }
-
     public async Task<bool> DeleteExpiredProvisionalAsync(
         string profileId,
         DateTimeOffset cutoff,

@@ -163,7 +163,7 @@ public sealed class VoiceOnboardingServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task StartAsync_RemovesStagingClipsFromInterruptedProcess()
+    public async Task BackgroundService_RemovesStagingClipsFromInterruptedProcess()
     {
         await _audioClipService.SaveOnboardingClipAsync(
             "orphan",
@@ -174,7 +174,10 @@ public sealed class VoiceOnboardingServiceTests : IDisposable
         var service = CreateService();
         await service.StartAsync(CancellationToken.None);
 
-        Assert.False(Directory.Exists(GetStagingDirectory("orphan")));
+        Assert.True(SpinWait.SpinUntil(
+            () => !Directory.Exists(GetStagingDirectory("orphan")),
+            TimeSpan.FromSeconds(1)));
+        await service.StopAsync(CancellationToken.None);
     }
 
     [Fact]

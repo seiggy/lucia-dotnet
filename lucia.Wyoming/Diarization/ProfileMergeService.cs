@@ -9,7 +9,6 @@ namespace lucia.Wyoming.Diarization;
 public sealed class ProfileMergeService(
     ISpeakerProfileStore profileStore,
     AudioClipService clipService,
-    SpeakerProfileDeletionService deletionService,
     ILogger<ProfileMergeService> logger)
 {
     public async Task<SpeakerProfile> MergeAsync(
@@ -30,9 +29,9 @@ public sealed class ProfileMergeService(
         var target = await profileStore.GetAsync(targetProfileId, ct).ConfigureAwait(false)
             ?? throw new KeyNotFoundException($"Target profile '{targetProfileId}' not found.");
 
-        var alreadyMerged = target.MergedProfileIds.Contains(sourceProfileId, StringComparer.Ordinal);
+        // Combine embeddings
         var combinedEmbeddings = new List<float[]>(target.Embeddings ?? []);
-        if (!alreadyMerged && source.Embeddings is not null)
+        if (source.Embeddings is not null)
         {
             combinedEmbeddings.AddRange(source.Embeddings);
         }
@@ -41,38 +40,22 @@ public sealed class ProfileMergeService(
             ? IDiarizationEngine.ComputeAverageEmbedding(combinedEmbeddings)
             : target.AverageEmbedding;
 
-        var merged = alreadyMerged
-            ? target
-            : target with
-            {
-                Embeddings = combinedEmbeddings.ToArray(),
-                AverageEmbedding = averageEmbedding,
-                InteractionCount = target.InteractionCount + source.InteractionCount,
-                UpdatedAt = DateTimeOffset.UtcNow,
-                LastSeenAt = source.LastSeenAt > target.LastSeenAt ? source.LastSeenAt : target.LastSeenAt,
-                MergedProfileIds = [.. target.MergedProfileIds, sourceProfileId],
-            };
+        // Merge metadata
+        var merged = target with
+        {
+            Embeddings = combinedEmbeddings.ToArray(),
+            AverageEmbedding = averageEmbedding,
+            InteractionCount = target.InteractionCount + source.InteractionCount,
+            UpdatedAt = DateTimeOffset.UtcNow,
+            LastSeenAt = source.LastSeenAt > target.LastSeenAt ? source.LastSeenAt : target.LastSeenAt,
+        };
 
-        clipService.BlockProfileClips(sourceProfileId);
-        var targetBlocked = false;
-        try
-        {
-            clipService.BlockProfileClips(targetProfileId);
-            targetBlocked = true;
-            await profileStore.UpdateAsync(merged, ct).ConfigureAwait(false);
-            await clipService.MoveBlockedProfileClipsAsync(sourceProfileId, targetProfileId, ct).ConfigureAwait(false);
-            await deletionService.DeleteBlockedAsync(sourceProfileId, ct).ConfigureAwait(false);
-            clipService.AllowProfileClips(targetProfileId);
-        }
-        catch
-        {
-            clipService.AllowProfileClips(sourceProfileId);
-            if (targetBlocked)
-            {
-                clipService.AllowProfileClips(targetProfileId);
-            }
-            throw;
-        }
+        // Move audio clips from source to target
+        await clipService.MoveClipsAsync(sourceProfileId, targetProfileId, ct).ConfigureAwait(false);
+
+        // Update target profile and delete source
+        await profileStore.UpdateAsync(merged, ct).ConfigureAwait(false);
+        await profileStore.DeleteAsync(sourceProfileId, ct).ConfigureAwait(false);
 
         logger.LogInformation(
             "Merged speaker profile {SourceId} into {TargetId} ({EmbeddingCount} total embeddings)",

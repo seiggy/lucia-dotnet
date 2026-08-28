@@ -34,6 +34,7 @@ Version 1.3.0 adds an end-to-end observability stack, Jetson infrastructure tele
 - Enforce distinct async deadlines for timer persistence, Home Assistant WebSockets, and EvalHarness LLM calls while preserving caller cancellation. ([#235](https://github.com/seiggy/lucia-dotnet/pull/235))
 - Stop writing usage timestamps during API-key validation. ([#236](https://github.com/seiggy/lucia-dotnet/pull/236))
 - Block enrolled but unauthorized voice profiles when unknown-voice filtering is enabled.
+- Isolate canceled background-task waiters so one disconnected SSE client cannot poison later waits or trigger a CPU spin.
 - Add crash-safe PostgreSQL trigram indexes and test interrupted migrations against production query shapes. ([#237](https://github.com/seiggy/lucia-dotnet/pull/237))
 - Serialize agent definition reloads and use monotonic database checkpoints to prevent concurrent refreshes from rebuilding agents or saving stale state. ([#239](https://github.com/seiggy/lucia-dotnet/pull/239))
 - Reuse GTCRN FFT, tensor, cache, and ONNX buffers, cutting warm 256-sample hop allocations from 143,736 bytes to 1,400 bytes while making reload and disposal safe. ([#242](https://github.com/seiggy/lucia-dotnet/pull/242))

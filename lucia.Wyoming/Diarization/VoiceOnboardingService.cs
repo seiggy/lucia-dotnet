@@ -5,8 +5,9 @@ using Microsoft.Extensions.Options;
 
 namespace lucia.Wyoming.Diarization;
 
-public sealed class VoiceOnboardingService : IHostedService
+public sealed class VoiceOnboardingService : BackgroundService
 {
+    private static readonly TimeSpan CleanupInterval = TimeSpan.FromHours(1);
     private static readonly string[] OnboardingPrompts =
     [
         "Please say: Turn on the living room lights",
@@ -77,13 +78,28 @@ public sealed class VoiceOnboardingService : IHostedService
         return session;
     }
 
-    public Task StartAsync(CancellationToken cancellationToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _audioClipService.DeleteOnboardingStagingClips();
-        return Task.CompletedTask;
+        using var timer = new PeriodicTimer(CleanupInterval);
+        while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
+        {
+            try
+            {
+                await CleanupAbandonedSessionsAsync(stoppingToken).ConfigureAwait(false);
+                _audioClipService.DeleteOnboardingStagingClips(
+                    _sessions.Keys.ToHashSet(StringComparer.Ordinal));
+            }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Deferring failed onboarding recording cleanup");
+            }
+        }
     }
-
-    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
     public async Task<OnboardingStepResult> ProcessSampleAsync(
         string sessionId,
