@@ -141,6 +141,26 @@ public sealed partial class SpeakerProfileDeletionService(
 
     internal async Task ReconcileOrphanedClipsAsync(CancellationToken ct)
     {
+        foreach (var profileId in clipService.GetTombstonedProfileIds())
+        {
+            try
+            {
+                await DeleteAsync(profileId, ct).ConfigureAwait(false);
+            }
+            catch (ArgumentException ex)
+            {
+                LogLegacyDirectorySkipped(logger, profileId, ex);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                LogReconciliationDeferred(logger, ex);
+            }
+        }
+
         var storedProfileIds = clipService.GetStoredProfileIds();
         foreach (var profileId in storedProfileIds)
         {

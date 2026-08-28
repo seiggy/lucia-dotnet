@@ -266,7 +266,7 @@ public sealed class VoiceOnboardingService : BackgroundService
                 profile = await FinalizeEnrollmentAsync(session, ct).ConfigureAwait(false);
                 session.ProfilePersisted = true;
             }
-            catch (OnboardingConflictException)
+            catch (Exception ex) when (ex is OnboardingConflictException or ProfileMergeConflictException)
             {
                 var persisted = await GetPersistedEnrollmentAsync(session, ct).ConfigureAwait(false);
                 if (persisted is not null)
@@ -282,12 +282,15 @@ public sealed class VoiceOnboardingService : BackgroundService
                     {
                         _audioClipService.DeleteOnboardingSessionClips(session.Id);
                     }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    catch (Exception cleanupException)
+                        when (cleanupException is IOException or UnauthorizedAccessException)
                     {
-                        _logger.LogWarning(ex, "Deferring failed onboarding conflict cleanup");
+                        _logger.LogWarning(
+                            cleanupException,
+                            "Deferring failed onboarding conflict cleanup");
                     }
 
-                    throw;
+                    throw new OnboardingConflictException(ex.Message, ex);
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)

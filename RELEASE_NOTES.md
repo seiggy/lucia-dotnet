@@ -11,7 +11,7 @@ Version 1.3.0 adds an end-to-end observability stack, Jetson infrastructure tele
 ## Features
 
 - **Parakeet TDT 0.6B v3** becomes the default offline ASR model for new installations, adding automatic language detection and transcription for 25 European languages while retaining v2 as an optional model.
-- **Voice identity benchmarks** compare sherpa-onnx embedding models on local enrollment and test manifests, reporting top-1 accuracy, EER, RTF, CPU use, memory, allocations, and reproducibility metadata. TitaNet-small is now available as an English model candidate.
+- **Voice identity benchmarks** compare sherpa-onnx embedding models on local enrollment and test manifests, reporting top-1 accuracy, EER, RTF, CPU use, memory, allocations, and reproducibility metadata. TitaNet-small remains a benchmark-only English candidate until profile provenance and model-specific thresholds are stored.
 - **Persistent voice data** keeps captured enrollment and unknown-speaker recordings in a dedicated Docker volume for benchmark export.
 - **Enrollment recording capture** keeps the accepted onboarding WAV samples beside each speaker profile so embedding candidates can be measured against identical audio.
 - **Dashboard light mode** adds System, Light, and Dark preferences, persistent theme selection, pre-paint theme resolution, semantic color tokens, accessible contrast, and Playwright coverage. ([#253](https://github.com/seiggy/lucia-dotnet/pull/253))

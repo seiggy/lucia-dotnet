@@ -77,6 +77,29 @@ public sealed class AudioClipService(
                     .ToArray()
                 : [];
         }
+
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    public IReadOnlyList<string> GetTombstonedProfileIds()
+    {
+        _fileLock.Wait();
+        try
+        {
+            var tombstoneDirectory = Path.Combine(
+                options.CurrentValue.AudioClipBasePath,
+                DeletedProfilesDirectoryName);
+            return Directory.Exists(tombstoneDirectory)
+                ? Directory.GetFiles(tombstoneDirectory)
+                    .Select(Path.GetFileName)
+                    .Where(static id => !string.IsNullOrWhiteSpace(id))
+                    .Cast<string>()
+                    .ToArray()
+                : [];
+        }
         finally
         {
             _fileLock.Release();

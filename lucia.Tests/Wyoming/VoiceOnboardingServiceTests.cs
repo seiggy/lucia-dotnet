@@ -399,6 +399,40 @@ public sealed class VoiceOnboardingServiceTests : IDisposable
         Assert.Equal(3, _audioClipService.GetClips(session.ProfileId).Count);
     }
 
+    [Fact]
+    public async Task Enrollment_MergeClaimReturnsOnboardingConflict()
+    {
+        var store = new InMemorySpeakerProfileStore();
+        await store.CreateAsync(
+            new SpeakerProfile
+            {
+                Id = "prov-123",
+                Name = "Unknown",
+                IsProvisional = true,
+                IsAuthorized = false,
+                AverageEmbedding = new float[128],
+            },
+            CancellationToken.None);
+        var service = CreateService(store: store);
+        var session = await service.StartOnboardingAsync("Jane", "prov-123", CancellationToken.None);
+        await store.UpdateAtomicAsync(
+            "prov-123",
+            profile => profile with { MergeTargetProfileId = "target" },
+            CancellationToken.None);
+        var audio = new float[32_000];
+        Array.Fill(audio, 0.1f);
+        for (var index = 0; index < 2; index++)
+        {
+            await service.ProcessSampleAsync(session.Id, audio, 16000, CancellationToken.None);
+        }
+
+        await Assert.ThrowsAsync<OnboardingConflictException>(
+            () => service.ProcessSampleAsync(session.Id, audio, 16000, CancellationToken.None));
+
+        Assert.Equal(OnboardingStatus.Failed, session.Status);
+        Assert.False(Directory.Exists(GetStagingDirectory(session.Id)));
+    }
+
     private string GetStagingDirectory(string sessionId) =>
         Path.Combine(_tempRoot, ".onboarding-staging", sessionId);
 }
