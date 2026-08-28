@@ -12,6 +12,8 @@ public sealed partial class SpeakerProfileDeletionService(
     private static readonly TimeSpan RetryInterval = TimeSpan.FromMinutes(1);
     private readonly ConcurrentDictionary<string, byte> _pendingPurges = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, Lazy<Task>> _activeDeletions = new(StringComparer.Ordinal);
+    // ponytail: deletions are low-volume; use keyed locks if this becomes measurable contention.
+    private readonly SemaphoreSlim _deletionLock = new(1, 1);
 
     public async Task DeleteAsync(string profileId, CancellationToken ct)
     {
@@ -39,24 +41,32 @@ public sealed partial class SpeakerProfileDeletionService(
 
     private async Task DeleteCoreAsync(string profileId)
     {
-        if (await profileStore.GetAsync(profileId, CancellationToken.None).ConfigureAwait(false) is null)
-        {
-            TryPurge(profileId);
-            return;
-        }
-
-        clipService.BlockProfileClips(profileId);
+        await _deletionLock.WaitAsync(CancellationToken.None).ConfigureAwait(false);
         try
         {
-            await profileStore.DeleteAsync(profileId, CancellationToken.None).ConfigureAwait(false);
-        }
-        catch
-        {
-            clipService.AllowProfileClips(profileId);
-            throw;
-        }
+            if (await profileStore.GetAsync(profileId, CancellationToken.None).ConfigureAwait(false) is null)
+            {
+                TryPurge(profileId);
+                return;
+            }
 
-        TryPurge(profileId);
+            clipService.BlockProfileClips(profileId);
+            try
+            {
+                await profileStore.DeleteAsync(profileId, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch
+            {
+                clipService.AllowProfileClips(profileId);
+                throw;
+            }
+
+            TryPurge(profileId);
+        }
+        finally
+        {
+            _deletionLock.Release();
+        }
     }
 
     public async Task<bool> DeleteExpiredProvisionalAsync(
@@ -64,27 +74,35 @@ public sealed partial class SpeakerProfileDeletionService(
         DateTimeOffset cutoff,
         CancellationToken ct)
     {
-        clipService.BlockProfileClips(profileId);
-        bool deleted;
+        await _deletionLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            deleted = await profileStore.DeleteExpiredProvisionalAsync(profileId, cutoff, ct)
-                .ConfigureAwait(false);
-        }
-        catch
-        {
-            clipService.AllowProfileClips(profileId);
-            throw;
-        }
+            clipService.BlockProfileClips(profileId);
+            bool deleted;
+            try
+            {
+                deleted = await profileStore.DeleteExpiredProvisionalAsync(profileId, cutoff, ct)
+                    .ConfigureAwait(false);
+            }
+            catch
+            {
+                clipService.AllowProfileClips(profileId);
+                throw;
+            }
 
-        if (!deleted)
-        {
-            clipService.AllowProfileClips(profileId);
-            return false;
-        }
+            if (!deleted)
+            {
+                clipService.AllowProfileClips(profileId);
+                return false;
+            }
 
-        TryPurge(profileId);
-        return true;
+            TryPurge(profileId);
+            return true;
+        }
+        finally
+        {
+            _deletionLock.Release();
+        }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

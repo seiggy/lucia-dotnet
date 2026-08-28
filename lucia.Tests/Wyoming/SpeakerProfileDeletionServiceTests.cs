@@ -43,4 +43,55 @@ public sealed class SpeakerProfileDeletionServiceTests
         allowDeletion.SetResult();
         await secondWaiter;
     }
+
+    [Fact]
+    public async Task DeleteAsync_WaitsForExpiredProfileDeletion()
+    {
+        var profileStore = A.Fake<ISpeakerProfileStore>();
+        var cleanupStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowCleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cleanupFinished = false;
+        A.CallTo(() => profileStore.GetAsync("profile-1", CancellationToken.None))
+            .ReturnsLazily(() => cleanupFinished
+                ? null
+                : new SpeakerProfile { Id = "profile-1", Name = "Test" });
+        A.CallTo(() => profileStore.DeleteExpiredProvisionalAsync(
+                "profile-1",
+                A<DateTimeOffset>._,
+                CancellationToken.None))
+            .Invokes(cleanupStarted.SetResult)
+            .ReturnsLazily(async () =>
+            {
+                await allowCleanup.Task;
+                cleanupFinished = true;
+                return true;
+            });
+
+        var service = CreateService(profileStore);
+        var cleanup = service.DeleteExpiredProvisionalAsync(
+            "profile-1",
+            DateTimeOffset.UtcNow,
+            CancellationToken.None);
+        await cleanupStarted.Task;
+
+        var apiDeletion = service.DeleteAsync("profile-1", CancellationToken.None);
+        Assert.False(apiDeletion.IsCompleted);
+
+        allowCleanup.SetResult();
+        Assert.True(await cleanup);
+        await apiDeletion;
+    }
+
+    private static SpeakerProfileDeletionService CreateService(ISpeakerProfileStore profileStore)
+    {
+        var options = A.Fake<IOptionsMonitor<VoiceProfileOptions>>();
+        A.CallTo(() => options.CurrentValue).Returns(new VoiceProfileOptions
+        {
+            AudioClipBasePath = Path.Combine(Path.GetTempPath(), $"lucia-test-{Guid.NewGuid():N}"),
+        });
+        return new SpeakerProfileDeletionService(
+            profileStore,
+            new AudioClipService(options, NullLogger<AudioClipService>.Instance),
+            NullLogger<SpeakerProfileDeletionService>.Instance);
+    }
 }
