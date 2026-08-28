@@ -81,6 +81,15 @@ public sealed class SpeakerBenchmarkManifest
             errors.Add("The benchmark requires at least two speakers to produce impostor scores and EER.");
         }
 
+        var pathsInBothSplits = Clips
+            .GroupBy(static clip => clip.ResolvedPath, StringComparer.OrdinalIgnoreCase)
+            .Where(static group => group.Select(clip => clip.Split).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
+            .Select(static group => group.Key);
+        foreach (var path in pathsInBothSplits)
+        {
+            errors.Add($"Clip '{path}' is used for both enrollment and test.");
+        }
+
         foreach (var speakerGroup in speakerGroups)
         {
             var enrollCount = speakerGroup.Count(static clip => string.Equals(clip.Split, "enroll", StringComparison.OrdinalIgnoreCase));
@@ -92,6 +101,19 @@ public sealed class SpeakerBenchmarkManifest
         }
 
         return errors;
+    }
+
+    public static IReadOnlyList<string> ValidateContentHashes(
+        IReadOnlyList<BenchmarkClipProvenance> clips)
+    {
+        return clips
+            .GroupBy(static clip => clip.Sha256, StringComparer.OrdinalIgnoreCase)
+            .Where(static group => group.Select(clip => clip.Split)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count() > 1)
+            .Select(static group =>
+                $"Audio content with SHA-256 '{group.Key}' is used for both enrollment and test.")
+            .ToArray();
     }
 
     private static string? GetJsonString(JsonElement element, string propertyName)

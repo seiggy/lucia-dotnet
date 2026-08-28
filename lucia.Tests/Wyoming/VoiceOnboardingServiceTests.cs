@@ -76,6 +76,8 @@ public sealed class VoiceOnboardingServiceTests : IDisposable
         var result = await service.ProcessSampleAsync(session.Id, audio, 16_000, CancellationToken.None);
 
         Assert.Equal(OnboardingStepStatus.NextPrompt, result.Status);
+        Assert.Single(_audioClipService.GetClips(session.Id));
+        Assert.Empty(_audioClipService.GetClips(session.ProfileId));
     }
 
     [Fact]
@@ -130,6 +132,16 @@ public sealed class VoiceOnboardingServiceTests : IDisposable
         Assert.NotNull(completedSession);
         Assert.Equal(OnboardingStatus.Complete, completedSession.Status);
         Assert.Equal(3, _audioClipService.GetClips(result.CompletedProfile.Id).Count);
+        Assert.Empty(_audioClipService.GetClips(session.Id));
+    }
+
+    [Fact]
+    public async Task StartOnboarding_MissingProvisionalProfile_Throws()
+    {
+        var service = CreateService();
+
+        await Assert.ThrowsAsync<KeyNotFoundException>(
+            () => service.StartOnboardingAsync("Jane", "../../plugins", CancellationToken.None));
     }
 
     [Fact]
@@ -163,5 +175,40 @@ public sealed class VoiceOnboardingServiceTests : IDisposable
         Assert.False(updated.IsProvisional);
         Assert.Equal("Bob", updated.Name);
         Assert.True(updated.IsAuthorized);
+    }
+
+    [Fact]
+    public async Task ConcurrentSessions_CannotPromoteSameProfileTwice()
+    {
+        var store = new InMemorySpeakerProfileStore();
+        await store.CreateAsync(
+            new SpeakerProfile
+            {
+                Id = "prov-123",
+                Name = "Unknown",
+                IsProvisional = true,
+                IsAuthorized = false,
+                AverageEmbedding = new float[128],
+            },
+            CancellationToken.None);
+        var service = CreateService(store: store);
+        var first = await service.StartOnboardingAsync("Alice", "prov-123", CancellationToken.None);
+        var second = await service.StartOnboardingAsync("Mallory", "prov-123", CancellationToken.None);
+        var audio = new float[32_000];
+        Array.Fill(audio, 0.1f);
+
+        for (var i = 0; i < 3; i++)
+        {
+            await service.ProcessSampleAsync(first.Id, audio, 16_000, CancellationToken.None);
+        }
+        for (var i = 0; i < 2; i++)
+        {
+            await service.ProcessSampleAsync(second.Id, audio, 16_000, CancellationToken.None);
+        }
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.ProcessSampleAsync(second.Id, audio, 16_000, CancellationToken.None));
+        var profile = await store.GetAsync("prov-123", CancellationToken.None);
+        Assert.Equal("Alice", profile?.Name);
     }
 }

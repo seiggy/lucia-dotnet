@@ -13,6 +13,11 @@ public sealed class AudioClipService(
     IOptionsMonitor<VoiceProfileOptions> options,
     ILogger<AudioClipService> logger)
 {
+    private static readonly HashSet<string> s_windowsReservedNames = new(
+        ["CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5",
+         "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5",
+         "LPT6", "LPT7", "LPT8", "LPT9"],
+        StringComparer.OrdinalIgnoreCase);
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -28,9 +33,8 @@ public sealed class AudioClipService(
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(profileId);
 
-        var basePath = options.CurrentValue.AudioClipBasePath;
         var maxClips = options.CurrentValue.MaxClipsPerProfile;
-        var profileDir = Path.Combine(basePath, profileId);
+        var profileDir = GetProfileDirectory(profileId);
         Directory.CreateDirectory(profileDir);
 
         // FIFO rotation: delete oldest clips if at capacity
@@ -81,20 +85,31 @@ public sealed class AudioClipService(
 
     public IReadOnlyList<AudioClipInfo> GetClips(string profileId)
     {
-        var profileDir = Path.Combine(options.CurrentValue.AudioClipBasePath, profileId);
+        var profileDir = GetProfileDirectory(profileId);
         return GetClipsInternal(profileDir);
     }
 
     public string? GetClipFilePath(string profileId, string clipId)
     {
-        var path = Path.Combine(options.CurrentValue.AudioClipBasePath, profileId, $"{clipId}.wav");
+        ValidatePathSegment(clipId, nameof(clipId));
+        var path = Path.Combine(GetProfileDirectory(profileId), $"{clipId}.wav");
         return File.Exists(path) ? path : null;
     }
 
     public void DeleteClip(string profileId, string clipId)
     {
-        var profileDir = Path.Combine(options.CurrentValue.AudioClipBasePath, profileId);
+        ValidatePathSegment(clipId, nameof(clipId));
+        var profileDir = GetProfileDirectory(profileId);
         DeleteClipFiles(profileDir, clipId);
+    }
+
+    public void DeleteProfileClips(string profileId)
+    {
+        var profileDir = GetProfileDirectory(profileId);
+        if (Directory.Exists(profileDir))
+        {
+            Directory.Delete(profileDir, recursive: true);
+        }
     }
 
     public async Task ReassignClipAsync(
@@ -104,12 +119,11 @@ public sealed class AudioClipService(
         CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sourceProfileId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(clipId);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetProfileId);
+        ValidatePathSegment(clipId, nameof(clipId));
 
-        var basePath = options.CurrentValue.AudioClipBasePath;
-        var sourceDir = Path.Combine(basePath, sourceProfileId);
-        var targetDir = Path.Combine(basePath, targetProfileId);
+        var sourceDir = GetProfileDirectory(sourceProfileId);
+        var targetDir = GetProfileDirectory(targetProfileId);
         Directory.CreateDirectory(targetDir);
 
         var wavSource = Path.Combine(sourceDir, $"{clipId}.wav");
@@ -117,24 +131,38 @@ public sealed class AudioClipService(
         var wavDest = Path.Combine(targetDir, $"{clipId}.wav");
         var jsonDest = Path.Combine(targetDir, $"{clipId}.json");
 
-        if (File.Exists(wavSource))
-        {
-            File.Move(wavSource, wavDest, overwrite: true);
-        }
-
         if (File.Exists(jsonSource))
         {
-            File.Move(jsonSource, jsonDest, overwrite: true);
-
-            // Update profileId in metadata
-            var json = await File.ReadAllTextAsync(jsonDest, ct).ConfigureAwait(false);
+            var json = await File.ReadAllTextAsync(jsonSource, ct).ConfigureAwait(false);
             var clip = JsonSerializer.Deserialize<AudioClipInfo>(json, JsonOptions);
             if (clip is not null)
             {
                 var updated = clip with { ProfileId = targetProfileId };
                 var updatedJson = JsonSerializer.Serialize(updated, JsonOptions);
-                await File.WriteAllTextAsync(jsonDest, updatedJson, ct).ConfigureAwait(false);
+                var stagingPath = $"{jsonSource}.{Guid.NewGuid():N}.tmp";
+                try
+                {
+                    await File.WriteAllTextAsync(stagingPath, updatedJson, ct).ConfigureAwait(false);
+                    File.Move(stagingPath, jsonSource, overwrite: true);
+                }
+                finally
+                {
+                    if (File.Exists(stagingPath))
+                    {
+                        File.Delete(stagingPath);
+                    }
+                }
             }
+        }
+
+        ct.ThrowIfCancellationRequested();
+        if (File.Exists(wavSource))
+        {
+            File.Move(wavSource, wavDest, overwrite: true);
+        }
+        if (File.Exists(jsonSource))
+        {
+            File.Move(jsonSource, jsonDest, overwrite: true);
         }
 
         logger.LogInformation(
@@ -144,9 +172,8 @@ public sealed class AudioClipService(
 
     public async Task MoveClipsAsync(string sourceProfileId, string targetProfileId, CancellationToken ct = default)
     {
-        var basePath = options.CurrentValue.AudioClipBasePath;
-        var sourceDir = Path.Combine(basePath, sourceProfileId);
-        var targetDir = Path.Combine(basePath, targetProfileId);
+        var sourceDir = GetProfileDirectory(sourceProfileId);
+        var targetDir = GetProfileDirectory(targetProfileId);
 
         if (!Directory.Exists(sourceDir))
         {
@@ -155,24 +182,11 @@ public sealed class AudioClipService(
 
         Directory.CreateDirectory(targetDir);
 
-        foreach (var file in Directory.GetFiles(sourceDir))
+        foreach (var metadataPath in Directory.GetFiles(sourceDir, "*.json"))
         {
             ct.ThrowIfCancellationRequested();
-            var destFile = Path.Combine(targetDir, Path.GetFileName(file));
-            File.Move(file, destFile, overwrite: true);
-
-            // Update profileId in metadata JSON via proper deserialization
-            if (destFile.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
-            {
-                var json = await File.ReadAllTextAsync(destFile, ct).ConfigureAwait(false);
-                var clip = JsonSerializer.Deserialize<AudioClipInfo>(json, JsonOptions);
-                if (clip is not null)
-                {
-                    var updated = clip with { ProfileId = targetProfileId };
-                    var updatedJson = JsonSerializer.Serialize(updated, JsonOptions);
-                    await File.WriteAllTextAsync(destFile, updatedJson, ct).ConfigureAwait(false);
-                }
-            }
+            var clipId = Path.GetFileNameWithoutExtension(metadataPath);
+            await ReassignClipAsync(sourceProfileId, clipId, targetProfileId, ct).ConfigureAwait(false);
         }
 
         // Clean up empty source directory
@@ -199,7 +213,7 @@ public sealed class AudioClipService(
         }
     }
 
-    private static List<AudioClipInfo> GetClipsInternal(string profileDir)
+    private List<AudioClipInfo> GetClipsInternal(string profileDir)
     {
         if (!Directory.Exists(profileDir))
         {
@@ -218,17 +232,35 @@ public sealed class AudioClipService(
                     clips.Add(clip);
                 }
             }
-            catch (JsonException)
+            catch (JsonException ex)
             {
-                // Skip corrupt metadata
+                logger.LogWarning(ex, "Skipping corrupt audio clip metadata {MetadataPath}", jsonFile);
             }
         }
 
         return clips.OrderBy(c => c.CapturedAt).ToList();
     }
 
+    private string GetProfileDirectory(string profileId)
+    {
+        ValidatePathSegment(profileId, nameof(profileId));
+        return Path.Combine(options.CurrentValue.AudioClipBasePath, profileId);
+    }
+
+    private static void ValidatePathSegment(string value, string parameterName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value, parameterName);
+        if (value.Any(static character =>
+                !char.IsAsciiLetterOrDigit(character) && character is not '-' and not '_')
+            || s_windowsReservedNames.Contains(value))
+        {
+            throw new ArgumentException($"Invalid path segment: '{value}'", parameterName);
+        }
+    }
+
     private static void DeleteClipFiles(string profileDir, string clipId)
     {
+        ValidatePathSegment(clipId, nameof(clipId));
         var wavFile = Path.Combine(profileDir, $"{clipId}.wav");
         var jsonFile = Path.Combine(profileDir, $"{clipId}.json");
         if (File.Exists(wavFile)) File.Delete(wavFile);

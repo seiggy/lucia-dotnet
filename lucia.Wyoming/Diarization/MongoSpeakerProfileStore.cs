@@ -102,8 +102,8 @@ public sealed class MongoSpeakerProfileStore : ISpeakerProfileStore
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
         ArgumentNullException.ThrowIfNull(transform);
 
-        var filter = Builders<SpeakerProfile>.Filter.Eq(p => p.Id, id);
-        var existing = await _collection.Find(filter).FirstOrDefaultAsync(ct).ConfigureAwait(false);
+        var idFilter = Builders<SpeakerProfile>.Filter.Eq(p => p.Id, id);
+        var existing = await _collection.Find(idFilter).FirstOrDefaultAsync(ct).ConfigureAwait(false);
 
         if (existing is null)
         {
@@ -115,10 +115,14 @@ public sealed class MongoSpeakerProfileStore : ISpeakerProfileStore
         {
             ReturnDocument = ReturnDocument.After,
         };
+        var concurrencyFilter = Builders<SpeakerProfile>.Filter.And(
+            idFilter,
+            Builders<SpeakerProfile>.Filter.Eq(p => p.UpdatedAt, existing.UpdatedAt),
+            Builders<SpeakerProfile>.Filter.Eq(p => p.IsProvisional, existing.IsProvisional));
 
-        return await _collection
-            .FindOneAndReplaceAsync(filter, updated, options, ct)
-            .ConfigureAwait(false);
+        return await _collection.FindOneAndReplaceAsync(concurrencyFilter, updated, options, ct)
+            .ConfigureAwait(false)
+            ?? throw new InvalidOperationException($"Profile '{id}' changed during update.");
     }
 
     public async Task DeleteAsync(string id, CancellationToken ct)

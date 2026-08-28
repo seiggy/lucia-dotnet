@@ -9,6 +9,7 @@ public sealed record OnboardingSession
     public required IReadOnlyList<string> Prompts { get; init; }
     public List<float[]> CollectedEmbeddings { get; init; } = [];
     public int CurrentPromptIndex { get; set; }
+    public bool ProfilePersisted { get; set; }
     public OnboardingStatus Status { get; set; } = OnboardingStatus.InProgress;
     public DateTimeOffset StartedAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? CompletedAt { get; set; }

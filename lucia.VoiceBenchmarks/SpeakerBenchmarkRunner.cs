@@ -1,21 +1,28 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using lucia.Wyoming.Diarization;
+using Microsoft.ML.OnnxRuntime;
 using SherpaOnnx;
 
 namespace lucia.VoiceBenchmarks;
 
 public sealed class SpeakerBenchmarkRunner
 {
+    private const string Provider = "cpu";
+    private const int WarmupRuns = 0;
+    private const int MeasuredRuns = 1;
+    private const int Concurrency = 1;
     private readonly string _manifestPath;
-    private readonly IReadOnlyList<string> _modelPaths;
+    private readonly IReadOnlyList<(string Path, string SourceUri)> _models;
     private readonly string _outputDirectory;
     private readonly string _commandLine;
 
     public SpeakerBenchmarkRunner(
         string manifestPath,
         IReadOnlyList<string> modelPaths,
+        IReadOnlyList<string> modelSourceUris,
         string outputDirectory,
         string commandLine)
     {
@@ -24,10 +31,15 @@ public sealed class SpeakerBenchmarkRunner
 
         _manifestPath = Path.GetFullPath(manifestPath);
         _outputDirectory = Path.GetFullPath(outputDirectory);
-        _modelPaths = modelPaths
-            .Where(static path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(static path => path, StringComparer.OrdinalIgnoreCase)
+        if (modelPaths.Count != modelSourceUris.Count)
+        {
+            throw new ArgumentException("Model paths and source URLs must have matching counts.");
+        }
+
+        _models = modelPaths
+            .Zip(modelSourceUris)
+            .OrderBy(static model => model.First, StringComparer.OrdinalIgnoreCase)
+            .Select(static model => (model.First, model.Second))
             .ToArray();
         _commandLine = commandLine;
     }
@@ -42,11 +54,28 @@ public sealed class SpeakerBenchmarkRunner
                 $"Manifest validation failed: {string.Join("; ", validationErrors)}");
         }
 
-        var metrics = new List<SpeakerBenchmarkModelResult>();
-        foreach (var modelPath in _modelPaths)
+        var datasetClips = manifest.Clips
+            .Select(clip => new BenchmarkClipProvenance(
+                clip.Path,
+                clip.SpeakerId,
+                clip.Split,
+                ComputeSha256(clip.ResolvedPath)))
+            .OrderBy(static clip => clip.Split, StringComparer.Ordinal)
+            .ThenBy(static clip => clip.SpeakerId, StringComparer.Ordinal)
+            .ThenBy(static clip => clip.Path, StringComparer.Ordinal)
+            .ToArray();
+        var contentErrors = SpeakerBenchmarkManifest.ValidateContentHashes(datasetClips);
+        if (contentErrors.Count > 0)
         {
-            var resolvedModelPath = ResolveModelPath(modelPath);
-            metrics.Add(EvaluateModel(manifest, resolvedModelPath));
+            throw new InvalidOperationException(
+                $"Manifest validation failed: {string.Join("; ", contentErrors)}");
+        }
+
+        var metrics = new List<SpeakerBenchmarkModelResult>();
+        foreach (var model in _models)
+        {
+            var resolvedModelPath = ResolveModelPath(model.Path);
+            metrics.Add(EvaluateModel(manifest, resolvedModelPath, model.SourceUri));
         }
 
         return new SpeakerBenchmarkRunReport
@@ -54,11 +83,21 @@ public sealed class SpeakerBenchmarkRunner
             GeneratedAtUtc = DateTimeOffset.UtcNow,
             CommandLine = _commandLine,
             ManifestPath = manifest.ManifestPath,
+            ManifestSha256 = ComputeSha256(manifest.ManifestPath),
             OutputDirectory = _outputDirectory,
             OperatingSystem = RuntimeInformation.OSDescription,
             Runtime = RuntimeInformation.FrameworkDescription,
-            Processor = Environment.GetEnvironmentVariable("PROCESSOR_IDENTIFIER") ?? "Unknown",
+            Processor = GetProcessorName(),
             Architecture = RuntimeInformation.ProcessArchitecture.ToString(),
+            SherpaOnnxVersion = GetAssemblyVersion(typeof(SpeakerEmbeddingExtractor).Assembly),
+            OnnxRuntimeVersion = GetAssemblyVersion(typeof(InferenceSession).Assembly),
+            WarmupRuns = WarmupRuns,
+            MeasuredRuns = MeasuredRuns,
+            Concurrency = Concurrency,
+            SplitPolicy = "Manifest-defined enroll/test clips; resolved paths must not overlap.",
+            ScorePolicy = "Closed-set cosine top-1; EER from all genuine and impostor centroid scores.",
+            AudioPreprocessing = "NAudio float conversion, stereo downmix to mono, WDL resampling to 16 kHz.",
+            DatasetClips = datasetClips,
             Models = metrics
                 .OrderBy(static metric => metric.ModelName, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(static metric => metric.ModelPath, StringComparer.OrdinalIgnoreCase)
@@ -75,7 +114,10 @@ public sealed class SpeakerBenchmarkRunner
         report.WriteMarkdown(markdownPath);
     }
 
-    private SpeakerBenchmarkModelResult EvaluateModel(SpeakerBenchmarkManifest manifest, string modelPath)
+    private SpeakerBenchmarkModelResult EvaluateModel(
+        SpeakerBenchmarkManifest manifest,
+        string modelPath,
+        string modelSourceUri)
     {
         var process = Process.GetCurrentProcess();
         var workingSetBefore = process.WorkingSet64;
@@ -95,11 +137,12 @@ public sealed class SpeakerBenchmarkRunner
             .ThenBy(static clip => clip.ResolvedPath, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        var threadCount = Math.Max(1, Environment.ProcessorCount);
         using var extractor = new SpeakerEmbeddingExtractor(new SpeakerEmbeddingExtractorConfig
         {
             Model = modelPath,
-            NumThreads = Math.Max(1, Environment.ProcessorCount),
-            Provider = "cpu",
+            NumThreads = threadCount,
+            Provider = Provider,
         });
 
         var centroids = new Dictionary<string, float[]>(StringComparer.OrdinalIgnoreCase);
@@ -168,14 +211,14 @@ public sealed class SpeakerBenchmarkRunner
         var managedAllocationDeltaBytes = GC.GetTotalAllocatedBytes() - managedBefore;
         process.Refresh();
         var workingSetAfter = process.WorkingSet64;
-        using var modelStream = File.OpenRead(modelPath);
-        var modelSha256 = Convert.ToHexStringLower(SHA256.HashData(modelStream));
-
         return new SpeakerBenchmarkModelResult
         {
             ModelPath = modelPath,
             ModelName = Path.GetFileNameWithoutExtension(modelPath),
-            ModelSha256 = modelSha256,
+            ModelSha256 = ComputeSha256(modelPath),
+            ModelSourceUri = modelSourceUri,
+            Provider = Provider,
+            ThreadCount = threadCount,
             EmbeddingDimension = centroids.Count == 0 ? 0 : centroids.First().Value.Length,
             SpeakerCount = centroids.Count,
             EnrollmentClipCount = enrollClips.Count,
@@ -244,4 +287,49 @@ public sealed class SpeakerBenchmarkRunner
 
         throw new FileNotFoundException($"Speaker embedding model not found: {fullPath}", fullPath);
     }
+
+    private static string ComputeSha256(string path)
+    {
+        using var stream = File.OpenRead(path);
+        return Convert.ToHexStringLower(SHA256.HashData(stream));
+    }
+
+    private static string GetAssemblyVersion(Assembly assembly) =>
+        assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+        ?? assembly.GetName().Version?.ToString()
+        ?? "Unknown";
+
+    private static string GetProcessorName()
+    {
+        var windowsName = Environment.GetEnvironmentVariable("PROCESSOR_IDENTIFIER");
+        if (!string.IsNullOrWhiteSpace(windowsName))
+        {
+            return windowsName;
+        }
+
+        const string CpuInfoPath = "/proc/cpuinfo";
+        if (!File.Exists(CpuInfoPath))
+        {
+            return RuntimeInformation.ProcessArchitecture.ToString();
+        }
+
+        var cpuInfo = File.ReadLines(CpuInfoPath)
+            .Select(static line => line.Split(':', 2, StringSplitOptions.TrimEntries))
+            .Where(static parts => parts.Length == 2)
+            .GroupBy(static parts => parts[0], StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(static group => group.Key, static group => group.First()[1], StringComparer.OrdinalIgnoreCase);
+        if (cpuInfo.TryGetValue("model name", out var modelName))
+        {
+            return modelName;
+        }
+
+        var identifiers = new[] { "Model", "CPU implementer", "CPU architecture", "CPU part" }
+            .Where(cpuInfo.ContainsKey)
+            .Select(key => $"{key}: {cpuInfo[key]}")
+            .ToArray();
+        return identifiers.Length > 0
+            ? string.Join(", ", identifiers)
+            : RuntimeInformation.ProcessArchitecture.ToString();
+    }
+
 }

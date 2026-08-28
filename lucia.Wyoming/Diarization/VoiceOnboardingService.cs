@@ -42,13 +42,21 @@ public sealed class VoiceOnboardingService
         _logger = logger;
     }
 
-    public Task<OnboardingSession> StartOnboardingAsync(
+    public async Task<OnboardingSession> StartOnboardingAsync(
         string speakerName,
         string? provisionalProfileId,
         CancellationToken ct)
     {
-        _ = ct;
         CleanupAbandonedSessions();
+
+        if (provisionalProfileId is not null)
+        {
+            var provisionalProfile = await _profileStore.GetAsync(provisionalProfileId, ct).ConfigureAwait(false);
+            if (provisionalProfile is not { IsProvisional: true })
+            {
+                throw new KeyNotFoundException($"Provisional profile '{provisionalProfileId}' was not found.");
+            }
+        }
 
         var sampleCount = _options.OnboardingSampleCount;
         var prompts = SelectPrompts(sampleCount);
@@ -65,7 +73,7 @@ public sealed class VoiceOnboardingService
         _sessions.TryAdd(session.Id, session);
         _logger.LogInformation("Started onboarding session {SessionId} for {Name}", session.Id, speakerName);
 
-        return Task.FromResult(session);
+        return session;
     }
 
     public async Task<OnboardingStepResult> ProcessSampleAsync(
@@ -81,6 +89,11 @@ public sealed class VoiceOnboardingService
             if (!_sessions.TryGetValue(sessionId, out var session))
             {
                 throw new InvalidOperationException($"Onboarding session '{sessionId}' not found");
+            }
+
+            if (session.CurrentPromptIndex >= session.Prompts.Count)
+            {
+                return await CompleteEnrollmentAsync(session, ct).ConfigureAwait(false);
             }
 
             var quality = _qualityAnalyzer.Analyze(audioSamples.Span, sampleRate);
@@ -99,7 +112,7 @@ public sealed class VoiceOnboardingService
 
             var embedding = _diarization.ExtractEmbedding(audioSamples.Span, sampleRate);
             await _audioClipService.SaveClipAsync(
-                session.ProfileId,
+                session.Id,
                 audioSamples,
                 sampleRate,
                 session.Prompts[session.CurrentPromptIndex],
@@ -109,13 +122,7 @@ public sealed class VoiceOnboardingService
 
             if (session.CurrentPromptIndex >= session.Prompts.Count)
             {
-                var profile = await FinalizeEnrollmentAsync(session, ct).ConfigureAwait(false);
-                session.Status = OnboardingStatus.Complete;
-                session.CompletedAt = DateTimeOffset.UtcNow;
-
-                return OnboardingStepResult.Complete(
-                    $"Voice profile created for {session.SpeakerName}. I'll recognize your voice from now on.",
-                    profile);
+                return await CompleteEnrollmentAsync(session, ct).ConfigureAwait(false);
             }
 
             var progress = (int)(session.CurrentPromptIndex * 100.0 / session.Prompts.Count);
@@ -140,20 +147,29 @@ public sealed class VoiceOnboardingService
 
         if (session.ProvisionalProfileId is not null)
         {
-            var existing = await _profileStore.GetAsync(session.ProvisionalProfileId, ct).ConfigureAwait(false);
-            if (existing is not null)
-            {
-                var promoted = existing with
+            var promoted = await _profileStore.UpdateAtomicAsync(
+                session.ProvisionalProfileId,
+                existing =>
                 {
-                    Name = session.SpeakerName,
-                    IsProvisional = false,
-                    IsAuthorized = true,
-                    Embeddings = [.. session.CollectedEmbeddings],
-                    AverageEmbedding = avgEmbedding,
-                    UpdatedAt = DateTimeOffset.UtcNow,
-                };
+                    if (!existing.IsProvisional)
+                    {
+                        throw new InvalidOperationException(
+                            $"Profile '{existing.Id}' is no longer provisional.");
+                    }
 
-                await _profileStore.UpdateAsync(promoted, ct).ConfigureAwait(false);
+                    return existing with
+                    {
+                        Name = session.SpeakerName,
+                        IsProvisional = false,
+                        IsAuthorized = true,
+                        Embeddings = [.. session.CollectedEmbeddings],
+                        AverageEmbedding = avgEmbedding,
+                        UpdatedAt = DateTimeOffset.UtcNow,
+                    };
+                },
+                ct).ConfigureAwait(false);
+            if (promoted is not null)
+            {
                 _logger.LogInformation("Promoted provisional profile {Id} to {Name}", promoted.Id, promoted.Name);
                 return promoted;
             }
@@ -174,6 +190,31 @@ public sealed class VoiceOnboardingService
         return profile;
     }
 
+    private async Task<OnboardingStepResult> CompleteEnrollmentAsync(
+        OnboardingSession session,
+        CancellationToken ct)
+    {
+        SpeakerProfile profile;
+        if (session.ProfilePersisted)
+        {
+            profile = await _profileStore.GetAsync(session.ProfileId, ct).ConfigureAwait(false)
+                ?? throw new InvalidOperationException($"Persisted profile '{session.ProfileId}' was not found.");
+        }
+        else
+        {
+            profile = await FinalizeEnrollmentAsync(session, ct).ConfigureAwait(false);
+            session.ProfilePersisted = true;
+        }
+
+        await _audioClipService.MoveClipsAsync(session.Id, profile.Id, ct).ConfigureAwait(false);
+        session.Status = OnboardingStatus.Complete;
+        session.CompletedAt = DateTimeOffset.UtcNow;
+
+        return OnboardingStepResult.Complete(
+            $"Voice profile created for {session.SpeakerName}. I'll recognize your voice from now on.",
+            profile);
+    }
+
     private void CleanupAbandonedSessions()
     {
         var abandonedCutoff = DateTimeOffset.UtcNow.AddHours(-1);
@@ -188,6 +229,12 @@ public sealed class VoiceOnboardingService
 
         foreach (var key in stale)
         {
+            if (_sessions.TryGetValue(key, out var session)
+                && session.Status != OnboardingStatus.Complete)
+            {
+                _audioClipService.DeleteProfileClips(session.Id);
+            }
+
             RemoveSession(key);
         }
     }

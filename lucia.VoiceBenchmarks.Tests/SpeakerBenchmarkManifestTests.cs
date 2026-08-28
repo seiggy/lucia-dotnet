@@ -63,4 +63,42 @@ public sealed class SpeakerBenchmarkManifestTests
 
         Assert.Contains(errors, error => error.Contains("two speakers", StringComparison.OrdinalIgnoreCase));
     }
+
+    [Fact]
+    public void Validate_RejectsPathUsedForEnrollmentAndTest()
+    {
+        var tempDirectory = Path.Combine(Path.GetTempPath(), $"voice-benchmark-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDirectory);
+        var manifestPath = Path.Combine(tempDirectory, "manifest.json");
+        File.WriteAllText(
+            manifestPath,
+            """
+            {
+              "clips": [
+                { "path": "a.wav", "speaker_id": "speaker-a", "split": "enroll" },
+                { "path": "a.wav", "speaker_id": "speaker-a", "split": "test" },
+                { "path": "b-enroll.wav", "speaker_id": "speaker-b", "split": "enroll" },
+                { "path": "b-test.wav", "speaker_id": "speaker-b", "split": "test" }
+              ]
+            }
+            """);
+
+        var errors = SpeakerBenchmarkManifest.Load(manifestPath).Validate();
+
+        Assert.Contains(errors, error => error.Contains("both enrollment and test", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ValidateContentHashes_RejectsRenamedCopyAcrossSplits()
+    {
+        var clips = new[]
+        {
+            new BenchmarkClipProvenance("enroll.wav", "speaker-a", "enroll", "same-hash"),
+            new BenchmarkClipProvenance("renamed.wav", "speaker-a", "test", "same-hash"),
+        };
+
+        var errors = SpeakerBenchmarkManifest.ValidateContentHashes(clips);
+
+        Assert.Contains(errors, error => error.Contains("both enrollment and test", StringComparison.OrdinalIgnoreCase));
+    }
 }

@@ -37,7 +37,7 @@ jobs:
       - name: Compute asset.lock hash
         id: lock-hash
         run: |
-          HASH=$(sha256sum infra/docker/asset.lock | cut -c1-12)
+          HASH=$(cat infra/docker/asset.lock infra/docker/Dockerfile.assets | sha256sum | cut -c1-12)
           echo "hash=$HASH" >> "$GITHUB_OUTPUT"
           echo "Asset lock hash: $HASH"
 

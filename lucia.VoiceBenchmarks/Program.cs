@@ -4,7 +4,7 @@ public static class Program
 {
     public static int Main(string[] args)
     {
-        const string usage = "Usage: dotnet run --project lucia.VoiceBenchmarks -- speaker --manifest benchmarks/voice/sample-manifest.json --model path/to/a.onnx --model path/to/b.onnx --output benchmarks/results\n       dotnet run --project lucia.VoiceBenchmarks -- speaker benchmarks/voice/sample-manifest.json benchmarks/results path/to/a.onnx path/to/b.onnx";
+        const string usage = "Usage: dotnet run --project lucia.VoiceBenchmarks -- speaker --manifest benchmarks/voice/sample-manifest.json --model path/to/a.onnx --model-source https://example.com/a.onnx --output benchmarks/results";
 
         try
         {
@@ -26,7 +26,12 @@ public static class Program
 
             var options = VoiceBenchmarkCommandLineOptions.Parse(args);
             var commandLine = string.Join(" ", args.Select(static value => QuoteIfNeeded(value)));
-            var runner = new SpeakerBenchmarkRunner(options.ManifestPath, options.ModelPaths, options.OutputDirectory, commandLine);
+            var runner = new SpeakerBenchmarkRunner(
+                options.ManifestPath,
+                options.ModelPaths,
+                options.ModelSourceUris,
+                options.OutputDirectory,
+                commandLine);
             var report = runner.Run();
             runner.WriteReports(report);
 

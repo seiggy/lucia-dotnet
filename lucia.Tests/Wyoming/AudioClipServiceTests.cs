@@ -28,6 +28,26 @@ public sealed class AudioClipServiceTests
         }
     }
 
+    [Theory]
+    [InlineData("../outside")]
+    [InlineData("/tmp/outside")]
+    [InlineData("nested/profile")]
+    public async Task SaveClipAsync_RejectsUnsafeProfileId(string profileId)
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var svc = CreateService(tempDir, maxClips: 10);
+
+            await Assert.ThrowsAsync<ArgumentException>(
+                () => svc.SaveClipAsync(profileId, TestAudio, SampleRate, "hello"));
+        }
+        finally
+        {
+            DeleteDir(tempDir);
+        }
+    }
+
     [Fact]
     public async Task SaveClipAsync_FifoRotation_DeletesOldest()
     {
@@ -108,6 +128,25 @@ public sealed class AudioClipServiceTests
             var profileDir = Path.Combine(tempDir, "profile-1");
             Assert.False(File.Exists(Path.Combine(profileDir, $"{clipId}.wav")));
             Assert.False(File.Exists(Path.Combine(profileDir, $"{clipId}.json")));
+        }
+        finally
+        {
+            DeleteDir(tempDir);
+        }
+    }
+
+    [Fact]
+    public async Task DeleteProfileClips_RemovesStagedDirectory()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var svc = CreateService(tempDir, maxClips: 10);
+            await svc.SaveClipAsync("onboarding-session", TestAudio, SampleRate, "test");
+
+            svc.DeleteProfileClips("onboarding-session");
+
+            Assert.False(Directory.Exists(Path.Combine(tempDir, "onboarding-session")));
         }
         finally
         {

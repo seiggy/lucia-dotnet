@@ -50,14 +50,10 @@ The dataset must contain at least two speakers so verification has impostor scor
 ## CLI usage
 
 ```bash
-dotnet run --project lucia.VoiceBenchmarks -- speaker --manifest benchmarks/voice/sample-manifest.json --model path/to/a.onnx --model path/to/b.onnx --output benchmarks/results
+dotnet run --project lucia.VoiceBenchmarks -- speaker --manifest benchmarks/voice/sample-manifest.json --model path/to/a.onnx --model-source https://example.com/a.onnx --output benchmarks/results
 ```
 
-A positional form is also accepted:
-
-```bash
-dotnet run --project lucia.VoiceBenchmarks -- speaker benchmarks/voice/sample-manifest.json benchmarks/results path/to/a.onnx path/to/b.onnx
-```
+Repeat `--model` and `--model-source` as aligned pairs to compare models. The source URL is required so published reports identify where each model came from.
 
 ## Notes
 

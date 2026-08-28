@@ -10,11 +10,22 @@ public sealed class SpeakerBenchmarkRunReport
     public DateTimeOffset GeneratedAtUtc { get; init; } = DateTimeOffset.UtcNow;
     public string CommandLine { get; init; } = string.Empty;
     public string ManifestPath { get; init; } = string.Empty;
+    public string ManifestSha256 { get; init; } = string.Empty;
     public string OutputDirectory { get; init; } = string.Empty;
     public string OperatingSystem { get; init; } = string.Empty;
     public string Runtime { get; init; } = string.Empty;
     public string Processor { get; init; } = string.Empty;
     public string Architecture { get; init; } = string.Empty;
+    public string SherpaOnnxVersion { get; init; } = string.Empty;
+    public string OnnxRuntimeVersion { get; init; } = string.Empty;
+    public int WarmupRuns { get; init; }
+    public int MeasuredRuns { get; init; }
+    public int Concurrency { get; init; }
+    public string SplitPolicy { get; init; } = string.Empty;
+    public string ScorePolicy { get; init; } = string.Empty;
+    public string AudioPreprocessing { get; init; } = string.Empty;
+    public IReadOnlyList<BenchmarkClipProvenance> DatasetClips { get; init; } =
+        Array.Empty<BenchmarkClipProvenance>();
     public IReadOnlyList<SpeakerBenchmarkModelResult> Models { get; init; } = Array.Empty<SpeakerBenchmarkModelResult>();
 
     public void WriteJson(string path)
@@ -39,12 +50,30 @@ public sealed class SpeakerBenchmarkRunReport
         builder.AppendLine();
         builder.AppendLine($"- Generated at UTC: {GeneratedAtUtc:O}");
         builder.AppendLine($"- Manifest: `{ManifestPath}`");
+        builder.AppendLine($"- Manifest SHA-256: `{ManifestSha256}`");
         builder.AppendLine($"- Command: `{CommandLine}`");
         builder.AppendLine($"- Output directory: `{OutputDirectory}`");
         builder.AppendLine($"- OS: {OperatingSystem}");
         builder.AppendLine($"- Runtime: {Runtime}");
         builder.AppendLine($"- Processor: {Processor}");
         builder.AppendLine($"- Architecture: {Architecture}");
+        builder.AppendLine($"- sherpa-onnx: {SherpaOnnxVersion}");
+        builder.AppendLine($"- ONNX Runtime: {OnnxRuntimeVersion}");
+        builder.AppendLine($"- Warm-up runs: {WarmupRuns}");
+        builder.AppendLine($"- Measured runs: {MeasuredRuns}");
+        builder.AppendLine($"- Concurrency: {Concurrency}");
+        builder.AppendLine($"- Split policy: {SplitPolicy}");
+        builder.AppendLine($"- Score policy: {ScorePolicy}");
+        builder.AppendLine($"- Audio preprocessing: {AudioPreprocessing}");
+        builder.AppendLine();
+        builder.AppendLine("## Dataset clips");
+        builder.AppendLine();
+        builder.AppendLine("| Split | Speaker | SHA-256 | Path |");
+        builder.AppendLine("| --- | --- | --- | --- |");
+        foreach (var clip in DatasetClips)
+        {
+            builder.AppendLine($"| {clip.Split} | {clip.SpeakerId} | `{clip.Sha256}` | `{clip.Path}` |");
+        }
         builder.AppendLine();
 
         if (Models.Count == 0)
@@ -59,6 +88,9 @@ public sealed class SpeakerBenchmarkRunReport
                 builder.AppendLine();
                 builder.AppendLine($"- Model path: `{model.ModelPath}`");
                 builder.AppendLine($"- Model SHA-256: `{model.ModelSha256}`");
+                builder.AppendLine($"- Model source: `{model.ModelSourceUri}`");
+                builder.AppendLine($"- Provider: {model.Provider}");
+                builder.AppendLine($"- Threads: {model.ThreadCount}");
                 builder.AppendLine($"- Embedding dimension: {model.EmbeddingDimension}");
                 builder.AppendLine($"- Speakers: {model.SpeakerCount}");
                 builder.AppendLine($"- Enrollment clips: {model.EnrollmentClipCount}");

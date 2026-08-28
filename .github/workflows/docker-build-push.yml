@@ -32,12 +32,74 @@ env:
   ASSET_IMAGE: ghcr.io/${{ github.repository }}/build-assets
 
 jobs:
+  prepare-assets:
+    name: Prepare build assets
+    runs-on: ubuntu-latest
+    outputs:
+      image_ref: ${{ steps.resolve-asset.outputs.image_ref }}
+    env:
+      CAN_PUSH_ASSETS: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Compute asset image reference
+        id: asset-hash
+        run: |
+          HASH=$(cat infra/docker/asset.lock infra/docker/Dockerfile.assets | sha256sum | cut -c1-12)
+          echo "image_ref=${{ env.ASSET_IMAGE }}:sha-$HASH" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        if: env.CAN_PUSH_ASSETS == 'true'
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for asset image
+        id: asset-image
+        run: |
+          if docker manifest inspect "${{ steps.asset-hash.outputs.image_ref }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.asset-image.outputs.exists != 'true' && env.CAN_PUSH_ASSETS == 'true'
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+
+      - name: Build and push missing asset image
+        if: steps.asset-image.outputs.exists != 'true' && env.CAN_PUSH_ASSETS == 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: infra/docker/Dockerfile.assets
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.asset-hash.outputs.image_ref }}
+          cache-from: type=gha,scope=build-assets
+          cache-to: type=gha,scope=build-assets,mode=max
+
+      - name: Resolve asset image
+        id: resolve-asset
+        run: |
+          if [[ "${{ steps.asset-image.outputs.exists }}" == "true" || "$CAN_PUSH_ASSETS" == "true" ]]; then
+            echo "image_ref=${{ steps.asset-hash.outputs.image_ref }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::The exact asset image is missing and fork pull requests cannot publish packages."
+            exit 1
+          fi
+
   # ==========================================================================
   # Build all platform images using a matrix strategy
   # ==========================================================================
   build-and-push:
     name: Build ${{ matrix.image }}
     runs-on: ubuntu-latest
+    needs: prepare-assets
     # When triggered by workflow_run (asset build finished), only proceed if it succeeded.
     # When triggered by push that changes asset.lock, skip — the workflow_run trigger
     # will pick it up after the asset image is ready.
@@ -85,13 +147,6 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
-
-      - name: Compute asset.lock hash
-        id: asset-hash
-        run: |
-          HASH=$(sha256sum infra/docker/asset.lock | cut -c1-12)
-          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
-          echo "Asset image tag: sha-$HASH"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
@@ -169,7 +224,7 @@ jobs:
           provenance: mode=min
           sbom: true
           build-args: |
-            ASSET_IMAGE=${{ env.ASSET_IMAGE }}:sha-${{ steps.asset-hash.outputs.hash }}
+            ASSET_IMAGE=${{ needs.prepare-assets.outputs.image_ref }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
             VCS_REF=${{ github.sha }}
             VERSION=${{ steps.meta.outputs.version }}
