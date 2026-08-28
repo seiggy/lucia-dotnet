@@ -54,8 +54,8 @@ public sealed class ProfileMergeService(
         await profileStore.DeleteAsync(sourceProfileId, ct).ConfigureAwait(false);
 
         logger.LogInformation(
-            "Merged speaker profile {SourceId} into {TargetId} ({EmbeddingCount} total embeddings)",
-            sourceProfileId, targetProfileId, merged.Embeddings.Length);
+            "Merged speaker profiles ({EmbeddingCount} total embeddings)",
+            merged.Embeddings.Length);
 
         return merged;
     }
