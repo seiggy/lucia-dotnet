@@ -247,6 +247,36 @@ public sealed class VoiceOnboardingServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task DeletedProvisionalProfile_IsNotRecreated()
+    {
+        var store = new InMemorySpeakerProfileStore();
+        await store.CreateAsync(
+            new SpeakerProfile
+            {
+                Id = "prov-123",
+                Name = "Unknown",
+                IsProvisional = true,
+                IsAuthorized = false,
+                AverageEmbedding = new float[128],
+            },
+            CancellationToken.None);
+        var service = CreateService(store: store);
+        var session = await service.StartOnboardingAsync("Mallory", "prov-123", CancellationToken.None);
+        await store.DeleteAsync("prov-123", CancellationToken.None);
+        var audio = new float[32_000];
+        Array.Fill(audio, 0.1f);
+
+        for (var i = 0; i < 2; i++)
+        {
+            await service.ProcessSampleAsync(session.Id, audio, 16_000, CancellationToken.None);
+        }
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.ProcessSampleAsync(session.Id, audio, 16_000, CancellationToken.None));
+        Assert.Null(await store.GetAsync("prov-123", CancellationToken.None));
+    }
+
+    [Fact]
     public async Task ConcurrentSessions_CannotPromoteSameProfileTwice()
     {
         var store = new InMemorySpeakerProfileStore();

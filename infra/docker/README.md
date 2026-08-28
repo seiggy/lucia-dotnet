@@ -210,7 +210,7 @@ docker run --rm -v lucia-redis-data:/data -v ./backup:/backup \
   redis:8.2-alpine tar czf /backup/redis-$(date +%Y%m%d).tar.gz -C / data
 
 # Copy voice recordings for local benchmarks
-docker compose -f docker-compose.voice.yml cp lucia:/app/data/voice-clips ./backup/voice-clips
+docker compose -f docker-compose.voice.yml cp lucia:/app/data/voice-clips ../../benchmarks/voice/live-clips
 ```
 
 ## Troubleshooting

@@ -194,11 +194,14 @@ public sealed class VoiceOnboardingService : BackgroundService
                     };
                 },
                 ct).ConfigureAwait(false);
-            if (promoted is not null)
+            if (promoted is null)
             {
-                _logger.LogInformation("Promoted provisional profile {Id} to {Name}", promoted.Id, promoted.Name);
-                return promoted;
+                throw new InvalidOperationException(
+                    $"Provisional profile '{session.ProvisionalProfileId}' no longer exists.");
             }
+
+            _logger.LogInformation("Promoted provisional profile {Id} to {Name}", promoted.Id, promoted.Name);
+            return promoted;
         }
 
         var profile = new SpeakerProfile
