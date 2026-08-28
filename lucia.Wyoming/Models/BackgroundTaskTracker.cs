@@ -128,8 +128,8 @@ public sealed class BackgroundTaskTracker(ILogger<BackgroundTaskTracker> logger)
 
     public async Task WaitForChangeAsync(int sinceVersion, CancellationToken ct)
     {
-        if (_version != sinceVersion) return;
         var tcs = _changeTcs;
+        if (_version != sinceVersion) return;
         await tcs.Task.WaitAsync(ct).ConfigureAwait(false);
     }
 
