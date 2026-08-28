@@ -12,23 +12,37 @@ public sealed class ProfileMergeService(
     AudioClipService clipService,
     ILogger<ProfileMergeService> logger) : BackgroundService
 {
+    private static readonly TimeSpan RecoveryInterval = TimeSpan.FromMinutes(1);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await RecoverPendingMergesAsync(stoppingToken).ConfigureAwait(false);
+        await TryRecoverPendingMergesAsync(stoppingToken).ConfigureAwait(false);
+        using var timer = new PeriodicTimer(RecoveryInterval);
+        while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
+        {
+            await TryRecoverPendingMergesAsync(stoppingToken).ConfigureAwait(false);
+        }
     }
 
     internal async Task RecoverPendingMergesAsync(CancellationToken stoppingToken)
     {
         var profiles = await profileStore.GetAllAsync(stoppingToken).ConfigureAwait(false);
-        foreach (var profile in profiles
+        var pendingMerges = profiles
             .Where(static profile => profile.MergeTargetProfileId is not null)
-            .OrderBy(static profile => profile.Id, StringComparer.Ordinal))
+            .Select(static profile => (SourceId: profile.Id, TargetId: profile.MergeTargetProfileId!))
+            .Concat(profiles.SelectMany(
+                static target => target.PendingMergeSourceIds.Select(
+                    sourceId => (SourceId: sourceId, TargetId: target.Id))))
+            .Distinct()
+            .OrderBy(static merge => merge.SourceId, StringComparer.Ordinal)
+            .ThenBy(static merge => merge.TargetId, StringComparer.Ordinal);
+        foreach (var pendingMerge in pendingMerges)
         {
             try
             {
                 await MergeAsync(
-                    profile.Id,
-                    profile.MergeTargetProfileId!,
+                    pendingMerge.SourceId,
+                    pendingMerge.TargetId,
                     stoppingToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -39,6 +53,23 @@ public sealed class ProfileMergeService(
             {
                 logger.LogWarning(ex, "Deferred recovery of an interrupted speaker profile merge");
             }
+        }
+
+    }
+
+    private async Task TryRecoverPendingMergesAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            await RecoverPendingMergesAsync(stoppingToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Deferred speaker profile merge recovery");
         }
     }
 
