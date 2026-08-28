@@ -49,7 +49,7 @@ public sealed class VoiceOnboardingService : BackgroundService
         string? provisionalProfileId,
         CancellationToken ct)
     {
-        await CleanupAbandonedSessionsAsync(ct).ConfigureAwait(false);
+        await TryCleanupAbandonedSessionsAsync(ct).ConfigureAwait(false);
 
         if (provisionalProfileId is not null)
         {
@@ -330,6 +330,7 @@ public sealed class VoiceOnboardingService : BackgroundService
                 {
                     removeLock = true;
                 }
+
                 else
                 {
                     var isStale = session.Status == OnboardingStatus.Complete
@@ -369,6 +370,22 @@ public sealed class VoiceOnboardingService : BackgroundService
             {
                 _sessionLocks.TryRemove(key, out _);
             }
+        }
+    }
+
+    private async Task TryCleanupAbandonedSessionsAsync(CancellationToken ct)
+    {
+        try
+        {
+            await CleanupAbandonedSessionsAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Deferring failed onboarding recording cleanup");
         }
     }
 

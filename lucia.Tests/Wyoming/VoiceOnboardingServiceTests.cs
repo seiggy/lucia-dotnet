@@ -163,6 +163,33 @@ public sealed class VoiceOnboardingServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task StartOnboarding_ContinuesWhenAbandonedCleanupFails()
+    {
+        var service = CreateService();
+        var abandoned = await service.StartOnboardingAsync("Jane", null, CancellationToken.None);
+        abandoned.ProfilePersisted = true;
+        abandoned.LastActivityAt = DateTimeOffset.UtcNow.AddHours(-2);
+        _audioClipService.BlockProfileClips(abandoned.ProfileId);
+
+        var session = await service.StartOnboardingAsync("Alice", null, CancellationToken.None);
+
+        Assert.Equal("Alice", session.SpeakerName);
+        Assert.NotNull(await service.GetSessionAsync(abandoned.Id, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task StartOnboarding_DoesNotSwallowCleanupCancellation()
+    {
+        var service = CreateService();
+        await service.StartOnboardingAsync("Jane", null, CancellationToken.None);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => service.StartOnboardingAsync("Alice", null, cancellation.Token));
+    }
+
+    [Fact]
     public async Task BackgroundService_RemovesStagingClipsFromInterruptedProcess()
     {
         await _audioClipService.SaveOnboardingClipAsync(
