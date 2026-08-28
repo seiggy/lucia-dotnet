@@ -130,8 +130,7 @@ public sealed class BackgroundTaskTracker(ILogger<BackgroundTaskTracker> logger)
     {
         if (_version != sinceVersion) return;
         var tcs = _changeTcs;
-        using var reg = ct.Register(() => tcs.TrySetCanceled());
-        await tcs.Task.ConfigureAwait(false);
+        await tcs.Task.WaitAsync(ct).ConfigureAwait(false);
     }
 
     public void PurgeCompleted(TimeSpan maxAge)
