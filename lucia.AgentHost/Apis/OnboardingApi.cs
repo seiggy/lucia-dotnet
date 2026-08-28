@@ -24,10 +24,18 @@ public static class OnboardingApi
             CustomWakeWordManager? wakeWords,
             CancellationToken ct) =>
         {
-            var session = await onboarding.StartOnboardingAsync(
-                request.SpeakerName,
-                request.ProvisionalProfileId,
-                ct).ConfigureAwait(false);
+            OnboardingSession session;
+            try
+            {
+                session = await onboarding.StartOnboardingAsync(
+                    request.SpeakerName,
+                    request.ProvisionalProfileId,
+                    ct).ConfigureAwait(false);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return Results.NotFound(ex.Message);
+            }
 
             CustomWakeWord? wakeWord = null;
             if (!string.IsNullOrEmpty(request.WakeWordPhrase) && wakeWords is not null)

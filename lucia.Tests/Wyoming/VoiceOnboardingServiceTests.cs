@@ -190,6 +190,7 @@ public sealed class VoiceOnboardingServiceTests : IDisposable
                 Id = "profile-1",
                 Name = "Jane",
                 IsProvisional = false,
+                EnrollmentSessionId = "interrupted",
             },
             CancellationToken.None);
         await _audioClipService.SaveOnboardingClipAsync(

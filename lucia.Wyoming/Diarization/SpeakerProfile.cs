@@ -9,6 +9,7 @@ public sealed record SpeakerProfile
     public string[]? AllowedSkills { get; init; }
     public float[][] Embeddings { get; init; } = [];
     public float[] AverageEmbedding { get; init; } = [];
+    public string? EnrollmentSessionId { get; init; }
     public int InteractionCount { get; init; }
     public DateTimeOffset EnrolledAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset UpdatedAt { get; init; } = DateTimeOffset.UtcNow;

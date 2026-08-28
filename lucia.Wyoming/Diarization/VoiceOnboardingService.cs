@@ -80,18 +80,14 @@ public sealed class VoiceOnboardingService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await RecoverOnboardingClipsAsync(
-            new HashSet<string>(StringComparer.Ordinal),
-            stoppingToken).ConfigureAwait(false);
+        await TryRecoverOnboardingClipsAsync(stoppingToken).ConfigureAwait(false);
         using var timer = new PeriodicTimer(CleanupInterval);
         while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))
         {
             try
             {
                 await CleanupAbandonedSessionsAsync(stoppingToken).ConfigureAwait(false);
-                await RecoverOnboardingClipsAsync(
-                    _sessions.Keys.ToHashSet(StringComparer.Ordinal),
-                    stoppingToken).ConfigureAwait(false);
+                await RecoverOnboardingClipsAsync(stoppingToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -193,6 +189,7 @@ public sealed class VoiceOnboardingService : BackgroundService
                         IsAuthorized = true,
                         Embeddings = [.. session.CollectedEmbeddings],
                         AverageEmbedding = avgEmbedding,
+                        EnrollmentSessionId = session.Id,
                         UpdatedAt = DateTimeOffset.UtcNow,
                     };
                 },
@@ -212,6 +209,7 @@ public sealed class VoiceOnboardingService : BackgroundService
             IsAuthorized = true,
             Embeddings = [.. session.CollectedEmbeddings],
             AverageEmbedding = avgEmbedding,
+            EnrollmentSessionId = session.Id,
         };
 
         await _profileStore.CreateAsync(profile, ct).ConfigureAwait(false);
@@ -252,13 +250,27 @@ public sealed class VoiceOnboardingService : BackgroundService
             profile);
     }
 
-    private async Task RecoverOnboardingClipsAsync(
-        IReadOnlySet<string> activeSessionIds,
-        CancellationToken ct)
+    private async Task TryRecoverOnboardingClipsAsync(CancellationToken ct)
+    {
+        try
+        {
+            await RecoverOnboardingClipsAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Deferring failed onboarding recording recovery");
+        }
+    }
+
+    private async Task RecoverOnboardingClipsAsync(CancellationToken ct)
     {
         foreach (var promotion in _audioClipService.GetOnboardingClipPromotions())
         {
-            if (activeSessionIds.Contains(promotion.SessionId))
+            if (_sessions.ContainsKey(promotion.SessionId))
             {
                 continue;
             }
@@ -266,7 +278,11 @@ public sealed class VoiceOnboardingService : BackgroundService
             var targetProfile = promotion.TargetProfileId is null
                 ? null
                 : await _profileStore.GetAsync(promotion.TargetProfileId, ct).ConfigureAwait(false);
-            if (targetProfile is { IsProvisional: false })
+            if (targetProfile is { IsProvisional: false }
+                && string.Equals(
+                    targetProfile.EnrollmentSessionId,
+                    promotion.SessionId,
+                    StringComparison.Ordinal))
             {
                 await _audioClipService.MoveOnboardingClipsAsync(
                     promotion.SessionId,

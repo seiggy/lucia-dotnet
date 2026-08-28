@@ -11,13 +11,37 @@ public sealed partial class SpeakerProfileDeletionService(
 {
     private static readonly TimeSpan RetryInterval = TimeSpan.FromMinutes(1);
     private readonly ConcurrentDictionary<string, byte> _pendingPurges = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, Task> _activeDeletions = new(StringComparer.Ordinal);
 
     public async Task DeleteAsync(string profileId, CancellationToken ct)
     {
+        var deletionTask = _activeDeletions.GetOrAdd(
+            profileId,
+            static (id, service) => service.DeleteCoreAsync(id),
+            this);
+        try
+        {
+            await deletionTask.WaitAsync(ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            _activeDeletions.TryRemove(
+                new KeyValuePair<string, Task>(profileId, deletionTask));
+        }
+    }
+
+    private async Task DeleteCoreAsync(string profileId)
+    {
+        if (await profileStore.GetAsync(profileId, CancellationToken.None).ConfigureAwait(false) is null)
+        {
+            TryPurge(profileId);
+            return;
+        }
+
         clipService.BlockProfileClips(profileId);
         try
         {
-            await profileStore.DeleteAsync(profileId, ct).ConfigureAwait(false);
+            await profileStore.DeleteAsync(profileId, CancellationToken.None).ConfigureAwait(false);
         }
         catch
         {
