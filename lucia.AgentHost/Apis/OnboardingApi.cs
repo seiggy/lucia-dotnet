@@ -142,16 +142,25 @@ public static class OnboardingApi
             ISpeakerProfileStore store,
             CancellationToken ct) =>
         {
-            var updated = await store.UpdateAtomicAsync(
-                id,
-                existing => existing with
-                {
-                    Name = request.Name ?? existing.Name,
-                    IsAuthorized = request.IsAuthorized ?? existing.IsAuthorized,
-                    IsProvisional = request.IsProvisional ?? existing.IsProvisional,
-                    UpdatedAt = DateTimeOffset.UtcNow,
-                },
-                ct).ConfigureAwait(false);
+            SpeakerProfile? updated;
+            try
+            {
+                updated = await store.UpdateAtomicAsync(
+                    id,
+                    existing => existing with
+                    {
+                        Name = request.Name ?? existing.Name,
+                        IsAuthorized = request.IsAuthorized ?? existing.IsAuthorized,
+                        IsProvisional = request.IsProvisional ?? existing.IsProvisional,
+                        UpdatedAt = DateTimeOffset.UtcNow,
+                    },
+                    ct).ConfigureAwait(false);
+            }
+            catch (ProfileMergeConflictException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
+
             if (updated is null)
             {
                 return Results.NotFound($"Speaker profile '{id}' not found.");

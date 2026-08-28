@@ -366,6 +366,39 @@ public sealed class VoiceOnboardingServiceTests : IDisposable
             (await service.GetSessionAsync(second.Id, CancellationToken.None))?.Status);
     }
 
+    [Fact]
+    public async Task Enrollment_RecoversWhenCreateCommitsThenThrows()
+    {
+        var innerStore = new InMemorySpeakerProfileStore();
+        var store = A.Fake<ISpeakerProfileStore>();
+        A.CallTo(() => store.GetAsync(A<string>._, A<CancellationToken>._))
+            .ReturnsLazily(call => innerStore.GetAsync(
+                call.GetArgument<string>(0)!,
+                call.GetArgument<CancellationToken>(1)));
+        A.CallTo(() => store.CreateAsync(A<SpeakerProfile>._, A<CancellationToken>._))
+            .ReturnsLazily(async call =>
+            {
+                await innerStore.CreateAsync(
+                    call.GetArgument<SpeakerProfile>(0)!,
+                    call.GetArgument<CancellationToken>(1));
+                throw new IOException("connection dropped after commit");
+            });
+        var service = CreateService(store: store);
+        var session = await service.StartOnboardingAsync("Jane", null, CancellationToken.None);
+        var audio = new float[32_000];
+        Array.Fill(audio, 0.1f);
+
+        OnboardingStepResult? result = null;
+        for (var index = 0; index < 3; index++)
+        {
+            result = await service.ProcessSampleAsync(session.Id, audio, 16000, CancellationToken.None);
+        }
+
+        Assert.Equal(OnboardingStepStatus.Complete, result?.Status);
+        Assert.True(session.ProfilePersisted);
+        Assert.Equal(3, _audioClipService.GetClips(session.ProfileId).Count);
+    }
+
     private string GetStagingDirectory(string sessionId) =>
         Path.Combine(_tempRoot, ".onboarding-staging", sessionId);
 }

@@ -10,7 +10,7 @@ namespace lucia.Wyoming.Diarization;
 public sealed class ProvisionalProfileCleanupService : BackgroundService
 {
     private readonly ISpeakerProfileStore _profileStore;
-    private readonly SpeakerProfileDeletionService _deletionService;
+    private readonly SpeakerProfileDeletionService? _deletionService;
     private readonly VoiceProfileOptions _options;
     private readonly ILogger<ProvisionalProfileCleanupService> _logger;
 
@@ -26,6 +26,20 @@ public sealed class ProvisionalProfileCleanupService : BackgroundService
 
         _profileStore = profileStore;
         _deletionService = deletionService;
+        _options = options.Value;
+        _logger = logger;
+    }
+
+    public ProvisionalProfileCleanupService(
+        ISpeakerProfileStore profileStore,
+        IOptions<VoiceProfileOptions> options,
+        ILogger<ProvisionalProfileCleanupService> logger)
+    {
+        ArgumentNullException.ThrowIfNull(profileStore);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(logger);
+
+        _profileStore = profileStore;
         _options = options.Value;
         _logger = logger;
     }
@@ -46,9 +60,12 @@ public sealed class ProvisionalProfileCleanupService : BackgroundService
 
                 foreach (var profile in expiredProfiles)
                 {
-                    if (!await _deletionService
+                    var deleted = _deletionService is null
+                        ? await DeleteWithLegacyStoreAsync(profile.Id, stoppingToken).ConfigureAwait(false)
+                        : await _deletionService
                             .DeleteExpiredProvisionalAsync(profile.Id, cutoff, stoppingToken)
-                            .ConfigureAwait(false))
+                            .ConfigureAwait(false);
+                    if (!deleted)
                     {
                         continue;
                     }
@@ -76,5 +93,12 @@ public sealed class ProvisionalProfileCleanupService : BackgroundService
                 _logger.LogError(ex, "Error during provisional profile cleanup");
             }
         }
+
+    }
+
+    private async Task<bool> DeleteWithLegacyStoreAsync(string profileId, CancellationToken ct)
+    {
+        await _profileStore.DeleteAsync(profileId, ct).ConfigureAwait(false);
+        return true;
     }
 }

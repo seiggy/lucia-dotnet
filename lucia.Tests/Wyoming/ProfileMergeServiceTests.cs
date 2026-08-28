@@ -429,4 +429,46 @@ public sealed class ProfileMergeServiceTests
             }
         }
     }
+
+    [Fact]
+    public async Task RecoverPendingMergesAsync_ReleasesClaimWhenTargetWasDeleted()
+    {
+        var store = new InMemorySpeakerProfileStore();
+        await store.CreateAsync(
+            new SpeakerProfile
+            {
+                Id = "source",
+                Name = "Source",
+                AverageEmbedding = [1f, 2f],
+                Embeddings = [[1f, 2f]],
+                MergeTargetProfileId = "missing-target",
+            },
+            CancellationToken.None);
+        var tempDir = Path.Combine(Path.GetTempPath(), $"lucia-test-{Guid.NewGuid():N}");
+        try
+        {
+            var service = new ProfileMergeService(
+                store,
+                new AudioClipService(
+                    new OptionsMonitorStub<VoiceProfileOptions>(new VoiceProfileOptions
+                    {
+                        AudioClipBasePath = tempDir,
+                    }),
+                    NullLogger<AudioClipService>.Instance),
+                NullLogger<ProfileMergeService>.Instance);
+
+            await service.RecoverPendingMergesAsync(CancellationToken.None);
+
+            var source = await store.GetAsync("source", CancellationToken.None);
+            Assert.NotNull(source);
+            Assert.Null(source.MergeTargetProfileId);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                Directory.Delete(tempDir, recursive: true);
+            }
+        }
+    }
 }

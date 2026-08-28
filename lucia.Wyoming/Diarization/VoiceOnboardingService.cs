@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace lucia.Wyoming.Diarization;
@@ -42,6 +43,24 @@ public sealed class VoiceOnboardingService : BackgroundService
         _audioClipService = audioClipService;
         _options = options.Value;
         _logger = logger;
+    }
+
+    public VoiceOnboardingService(
+        IDiarizationEngine diarization,
+        ISpeakerProfileStore profileStore,
+        AudioQualityAnalyzer qualityAnalyzer,
+        IOptions<VoiceProfileOptions> options,
+        ILogger<VoiceOnboardingService> logger)
+        : this(
+            diarization,
+            profileStore,
+            qualityAnalyzer,
+            new AudioClipService(
+                new StaticOptionsMonitor<VoiceProfileOptions>(options.Value),
+                NullLogger<AudioClipService>.Instance),
+            options,
+            logger)
+    {
     }
 
     public async Task<OnboardingSession> StartOnboardingAsync(
@@ -249,18 +268,38 @@ public sealed class VoiceOnboardingService : BackgroundService
             }
             catch (OnboardingConflictException)
             {
-                session.Status = OnboardingStatus.Failed;
-                session.CompletedAt = DateTimeOffset.UtcNow;
-                try
+                var persisted = await GetPersistedEnrollmentAsync(session, ct).ConfigureAwait(false);
+                if (persisted is not null)
                 {
-                    _audioClipService.DeleteOnboardingSessionClips(session.Id);
+                    profile = persisted;
+                    session.ProfilePersisted = true;
                 }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                else
                 {
-                    _logger.LogWarning(ex, "Deferring failed onboarding conflict cleanup");
+                    session.Status = OnboardingStatus.Failed;
+                    session.CompletedAt = DateTimeOffset.UtcNow;
+                    try
+                    {
+                        _audioClipService.DeleteOnboardingSessionClips(session.Id);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        _logger.LogWarning(ex, "Deferring failed onboarding conflict cleanup");
+                    }
+
+                    throw;
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                var persisted = await GetPersistedEnrollmentAsync(session, ct).ConfigureAwait(false);
+                if (persisted is null)
+                {
+                    throw;
                 }
 
-                throw;
+                profile = persisted;
+                session.ProfilePersisted = true;
             }
         }
 
@@ -274,6 +313,17 @@ public sealed class VoiceOnboardingService : BackgroundService
         return OnboardingStepResult.Complete(
             $"Voice profile created for {session.SpeakerName}. I'll recognize your voice from now on.",
             profile);
+    }
+
+    private async Task<SpeakerProfile?> GetPersistedEnrollmentAsync(
+        OnboardingSession session,
+        CancellationToken ct)
+    {
+        var persisted = await _profileStore.GetAsync(session.ProfileId, ct).ConfigureAwait(false);
+        return persisted is { IsProvisional: false }
+            && string.Equals(persisted.EnrollmentSessionId, session.Id, StringComparison.Ordinal)
+                ? persisted
+                : null;
     }
 
     private async Task TryRecoverOnboardingClipsAsync(CancellationToken ct)
@@ -351,23 +401,20 @@ public sealed class VoiceOnboardingService : BackgroundService
 
                     if (session.Status != OnboardingStatus.Complete)
                     {
-                        if (session.ProfilePersisted)
+                        var profile = await _profileStore.GetAsync(session.ProfileId, ct).ConfigureAwait(false);
+                        if (profile is { IsProvisional: false }
+                            && string.Equals(
+                                profile.EnrollmentSessionId,
+                                session.Id,
+                                StringComparison.Ordinal))
                         {
-                            var profile = await _profileStore.GetAsync(session.ProfileId, ct).ConfigureAwait(false);
-                            if (profile is { IsProvisional: false }
-                                && string.Equals(
-                                    profile.EnrollmentSessionId,
-                                    session.Id,
-                                    StringComparison.Ordinal))
-                            {
-                                await _audioClipService.MoveOnboardingClipsAsync(
-                                    session.Id,
-                                    session.ProfileId,
-                                    ct).ConfigureAwait(false);
-                                session.Status = OnboardingStatus.Complete;
-                                session.CompletedAt = DateTimeOffset.UtcNow;
-                                continue;
-                            }
+                            await _audioClipService.MoveOnboardingClipsAsync(
+                                session.Id,
+                                session.ProfileId,
+                                ct).ConfigureAwait(false);
+                            session.Status = OnboardingStatus.Complete;
+                            session.CompletedAt = DateTimeOffset.UtcNow;
+                            continue;
                         }
 
                         _audioClipService.DeleteOnboardingSessionClips(session.Id);

@@ -49,6 +49,23 @@ public sealed class ProfileMergeService(
             {
                 throw;
             }
+            catch (KeyNotFoundException)
+            {
+                var source = await profileStore.GetAsync(
+                    pendingMerge.SourceId,
+                    stoppingToken).ConfigureAwait(false);
+                if (source is not null
+                    && string.Equals(
+                        source.MergeTargetProfileId,
+                        pendingMerge.TargetId,
+                        StringComparison.Ordinal))
+                {
+                    await profileStore.UpdateAtomicAsync(
+                        source.Id,
+                        static source => source with { MergeTargetProfileId = null },
+                        stoppingToken).ConfigureAwait(false);
+                }
+            }
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "Deferred recovery of an interrupted speaker profile merge");

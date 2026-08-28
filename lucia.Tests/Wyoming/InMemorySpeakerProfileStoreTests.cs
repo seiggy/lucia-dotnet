@@ -144,7 +144,7 @@ public sealed class InMemorySpeakerProfileStoreTests
                 InteractionCount = 1,
             },
             CancellationToken.None);
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        await Assert.ThrowsAsync<ProfileMergeConflictException>(
             () => store.UpdateAtomicAsync(
                 "source",
                 profile => profile with { InteractionCount = 2 },
