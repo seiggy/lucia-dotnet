@@ -27,7 +27,8 @@ public sealed class VoiceBenchmarkCommandLineOptions
         for (var index = 0; index < args.Length; index++)
         {
             var argument = args[index];
-            if (string.Equals(argument, "speaker", StringComparison.OrdinalIgnoreCase))
+            if (index == 0
+                && string.Equals(argument, "speaker", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }

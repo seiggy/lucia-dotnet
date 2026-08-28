@@ -30,7 +30,7 @@ public sealed class MongoSpeakerProfileStoreTests : IAsyncLifetime
         await _container.DisposeAsync();
     }
 
-    [Fact]
+    [Fact, Trait("Category", "Integration")]
     public async Task UpdateAtomicAsync_UpdatesLegacyProfileWithoutRevision()
     {
         var collection = Database.GetCollection<BsonDocument>("speaker_profiles");
@@ -50,7 +50,7 @@ public sealed class MongoSpeakerProfileStoreTests : IAsyncLifetime
         Assert.Equal(1, updated.Revision);
     }
 
-    [Fact]
+    [Fact, Trait("Category", "Integration")]
     public async Task UpdateAtomicAsync_RetriesCompetingReplacement()
     {
         await Store.CreateAsync(

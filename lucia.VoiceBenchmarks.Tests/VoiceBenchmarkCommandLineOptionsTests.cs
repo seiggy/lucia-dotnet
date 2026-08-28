@@ -55,4 +55,19 @@ public sealed class VoiceBenchmarkCommandLineOptionsTests
 
         Assert.Throws<ArgumentException>(() => VoiceBenchmarkCommandLineOptions.Parse(args));
     }
+
+    [Fact]
+    public void Parse_AllowsSpeakerAsPositionalModelPath()
+    {
+        var options = VoiceBenchmarkCommandLineOptions.Parse(
+        [
+            "manifest.json",
+            "results",
+            "speaker",
+            "--model-source", "https://example.com/model.onnx",
+            "--model-threshold", "0.7",
+        ]);
+
+        Assert.Equal(["speaker"], options.ModelPaths);
+    }
 }
