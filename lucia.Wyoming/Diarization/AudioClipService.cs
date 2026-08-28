@@ -94,6 +94,11 @@ public sealed class AudioClipService(
                 DeletedProfilesDirectoryName);
             return Directory.Exists(tombstoneDirectory)
                 ? Directory.GetFiles(tombstoneDirectory)
+                    .Where(static path =>
+                        !string.Equals(
+                            File.ReadAllText(path),
+                            "completed",
+                            StringComparison.Ordinal))
                     .Select(Path.GetFileName)
                     .Where(static id => !string.IsNullOrWhiteSpace(id))
                     .Cast<string>()
@@ -516,6 +521,19 @@ public sealed class AudioClipService(
         try
         {
             DeleteIfExists(GetProfileDeletionMarkerPath(profileId));
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    public void CompleteProfileClipTombstone(string profileId)
+    {
+        _fileLock.Wait();
+        try
+        {
+            File.WriteAllText(GetProfileDeletionMarkerPath(profileId), "completed");
         }
         finally
         {

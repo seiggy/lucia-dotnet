@@ -204,6 +204,7 @@ public sealed class ProfileMergeService(
                 targetProfileId).ConfigureAwait(false);
             await profileStore.DeleteAsync(sourceProfileId, CancellationToken.None).ConfigureAwait(false);
             sourceDeletionCommitted = true;
+            clipService.CompleteProfileClipTombstone(sourceProfileId);
         }
         finally
         {

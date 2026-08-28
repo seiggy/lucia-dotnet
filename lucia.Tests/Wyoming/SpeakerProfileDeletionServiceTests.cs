@@ -224,6 +224,7 @@ public sealed class SpeakerProfileDeletionServiceTests
             await service.ReconcileOrphanedClipsAsync(CancellationToken.None);
 
             Assert.Null(await store.GetAsync("profile-1", CancellationToken.None));
+            Assert.Empty(clipService.GetTombstonedProfileIds());
         }
         finally
         {

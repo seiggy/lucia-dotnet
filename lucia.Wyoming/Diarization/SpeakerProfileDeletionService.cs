@@ -48,12 +48,14 @@ public sealed partial class SpeakerProfileDeletionService(
             if (await profileStore.GetAsync(profileId, CancellationToken.None).ConfigureAwait(false) is null)
             {
                 deletionCommitted = true;
+                clipService.CompleteProfileClipTombstone(profileId);
                 TryPurge(profileId);
                 return;
             }
 
             await profileStore.DeleteAsync(profileId, CancellationToken.None).ConfigureAwait(false);
             deletionCommitted = true;
+            clipService.CompleteProfileClipTombstone(profileId);
             TryPurge(profileId);
         }
         finally
@@ -93,6 +95,7 @@ public sealed partial class SpeakerProfileDeletionService(
             }
 
             deletionCommitted = true;
+            clipService.CompleteProfileClipTombstone(profileId);
             TryPurge(profileId);
             return true;
         }

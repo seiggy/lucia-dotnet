@@ -95,7 +95,14 @@ public sealed class PostgresSpeakerProfileStore : ISpeakerProfileStore, IConditi
     public async Task UpdateAsync(SpeakerProfile profile, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(profile);
-        if (await UpdateAtomicAsync(profile.Id, _ => profile, ct).ConfigureAwait(false) is null)
+        if (await UpdateAtomicAsync(
+                profile.Id,
+                existing =>
+                {
+                    SpeakerProfileUpdate.EnsureNotClaimed(existing);
+                    return profile;
+                },
+                ct).ConfigureAwait(false) is null)
         {
             throw new KeyNotFoundException($"Speaker profile '{profile.Id}' was not found.");
         }
