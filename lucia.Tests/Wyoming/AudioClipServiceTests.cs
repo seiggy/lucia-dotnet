@@ -184,6 +184,27 @@ public sealed class AudioClipServiceTests
         }
     }
 
+    [Fact]
+    public async Task MoveClipsAsync_RemovesOrphanedStagingWav()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var svc = CreateService(tempDir, maxClips: 10);
+            var sourceDir = Path.Combine(tempDir, "source");
+            Directory.CreateDirectory(sourceDir);
+            await File.WriteAllBytesAsync(Path.Combine(sourceDir, "orphan.wav.tmp"), [1, 2, 3]);
+
+            await svc.MoveClipsAsync("source", "target");
+
+            Assert.False(Directory.Exists(sourceDir));
+        }
+        finally
+        {
+            DeleteDir(tempDir);
+        }
+    }
+
     private static AudioClipService CreateService(string basePath, int maxClips)
     {
         var options = new VoiceProfileOptions

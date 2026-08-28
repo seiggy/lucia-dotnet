@@ -10,6 +10,10 @@ obj/
 /node_modules
 /wwwroot/node_modules
 
+# Local biometric voice recordings used by benchmarks
+/benchmarks/voice/live-clips/
+/benchmarks/voice/user-provided/
+
 ### OpenFrameworks+VisualStudio ###
 # ignore generated binaries
 # but not the data folder
