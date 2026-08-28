@@ -1,0 +1,8 @@
+{
+  "clips": [
+    { "path": "user-provided/speaker_a/enroll_01.wav", "speaker_id": "speaker_a", "split": "enroll" },
+    { "path": "user-provided/speaker_a/test_01.wav", "speaker_id": "speaker_a", "split": "test" },
+    { "path": "user-provided/speaker_b/enroll_01.wav", "speaker_id": "speaker_b", "split": "enroll" },
+    { "path": "user-provided/speaker_b/test_01.wav", "speaker_id": "speaker_b", "split": "test" }
+  ]
+}

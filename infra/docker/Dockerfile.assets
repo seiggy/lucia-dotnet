@@ -55,10 +55,10 @@ RUN mkdir -p /assets/models/stt && \
     rm /tmp/stt-model.tar.bz2
 
 # ============================================================================
-# Voice Models — Offline STT Parakeet TDT 0.6B v2 Int8 (~460MB)
+# Voice Models — Offline STT Parakeet TDT 0.6B v3 Int8 (~487MB)
 # ============================================================================
 RUN curl -fSL --retry 3 --retry-delay 5 \
-      "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2" \
+      "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2" \
       -o /tmp/parakeet-model.tar.bz2 && \
     tar -xjf /tmp/parakeet-model.tar.bz2 -C /assets/models/stt && \
     rm /tmp/parakeet-model.tar.bz2

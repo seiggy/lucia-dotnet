@@ -1,0 +1,113 @@
+namespace lucia.VoiceBenchmarks;
+
+public sealed class VoiceBenchmarkCommandLineOptions
+{
+    public string ManifestPath { get; init; } = string.Empty;
+    public string OutputDirectory { get; init; } = string.Empty;
+    public IReadOnlyList<string> ModelPaths { get; init; } = Array.Empty<string>();
+
+    public static VoiceBenchmarkCommandLineOptions Parse(string[] args)
+    {
+        if (args.Length == 0)
+        {
+            throw new ArgumentException("No arguments were provided.");
+        }
+
+        string? manifestPath = null;
+        string? outputDirectory = null;
+        var modelPaths = new List<string>();
+        var positionals = new Queue<string>();
+
+        for (var index = 0; index < args.Length; index++)
+        {
+            var argument = args[index];
+            if (string.Equals(argument, "speaker", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (string.Equals(argument, "--manifest", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(argument, "-m", StringComparison.OrdinalIgnoreCase))
+            {
+                if (index + 1 >= args.Length)
+                {
+                    throw new ArgumentException("--manifest requires a path.");
+                }
+
+                manifestPath = args[++index];
+                continue;
+            }
+
+            if (string.Equals(argument, "--output", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(argument, "-o", StringComparison.OrdinalIgnoreCase))
+            {
+                if (index + 1 >= args.Length)
+                {
+                    throw new ArgumentException("--output requires a path.");
+                }
+
+                outputDirectory = args[++index];
+                continue;
+            }
+
+            if (string.Equals(argument, "--model", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(argument, "-M", StringComparison.OrdinalIgnoreCase))
+            {
+                if (index + 1 >= args.Length)
+                {
+                    throw new ArgumentException("--model requires a model path.");
+                }
+
+                modelPaths.Add(args[++index]);
+                continue;
+            }
+
+            if (argument.StartsWith("-", StringComparison.Ordinal))
+            {
+                throw new ArgumentException($"Unknown option '{argument}'.");
+            }
+
+            positionals.Enqueue(argument);
+        }
+
+        if (manifestPath is null && positionals.Count > 0)
+        {
+            manifestPath = positionals.Dequeue();
+        }
+
+        if (outputDirectory is null && positionals.Count > 0)
+        {
+            outputDirectory = positionals.Dequeue();
+        }
+
+        while (positionals.Count > 0)
+        {
+            modelPaths.Add(positionals.Dequeue());
+        }
+
+        if (string.IsNullOrWhiteSpace(manifestPath))
+        {
+            throw new ArgumentException("A manifest path is required.");
+        }
+
+        if (string.IsNullOrWhiteSpace(outputDirectory))
+        {
+            throw new ArgumentException("An output directory is required.");
+        }
+
+        if (modelPaths.Count == 0)
+        {
+            throw new ArgumentException("At least one model path is required.");
+        }
+
+        return new VoiceBenchmarkCommandLineOptions
+        {
+            ManifestPath = manifestPath,
+            OutputDirectory = outputDirectory,
+            ModelPaths = modelPaths
+                .Where(static modelPath => !string.IsNullOrWhiteSpace(modelPath))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray(),
+        };
+    }
+}

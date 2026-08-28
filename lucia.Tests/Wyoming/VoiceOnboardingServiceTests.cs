@@ -4,18 +4,53 @@ using Microsoft.Extensions.Options;
 
 namespace lucia.Tests.Wyoming;
 
-public sealed class VoiceOnboardingServiceTests
+public sealed class VoiceOnboardingServiceTests : IDisposable
 {
-    private static VoiceOnboardingService CreateService(
+    private readonly string _tempRoot = Path.Combine(
+        Path.GetTempPath(),
+        "lucia-onboarding-tests",
+        Guid.NewGuid().ToString("N"));
+    private readonly AudioClipService _audioClipService;
+
+    public VoiceOnboardingServiceTests()
+    {
+        var options = new VoiceProfileOptions
+        {
+            AudioClipBasePath = _tempRoot,
+            MaxClipsPerProfile = 5,
+            OnboardingSampleCount = 3,
+        };
+        _audioClipService = new AudioClipService(
+            new OptionsMonitorStub<VoiceProfileOptions>(options),
+            NullLogger<AudioClipService>.Instance);
+    }
+
+    private VoiceOnboardingService CreateService(
         IDiarizationEngine? engine = null,
         ISpeakerProfileStore? store = null)
     {
+        var options = new VoiceProfileOptions
+        {
+            AudioClipBasePath = _tempRoot,
+            MaxClipsPerProfile = 5,
+            OnboardingSampleCount = 3,
+        };
+
         return new VoiceOnboardingService(
             engine ?? new TestDiarizationEngine(),
             store ?? new InMemorySpeakerProfileStore(),
             new AudioQualityAnalyzer(Options.Create(new VoiceProfileOptions())),
-            Options.Create(new VoiceProfileOptions { OnboardingSampleCount = 3 }),
+            _audioClipService,
+            Options.Create(options),
             NullLogger<VoiceOnboardingService>.Instance);
+    }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_tempRoot))
+        {
+            Directory.Delete(_tempRoot, recursive: true);
+        }
     }
 
     [Fact]
@@ -94,6 +129,7 @@ public sealed class VoiceOnboardingServiceTests
         var completedSession = await service.GetSessionAsync(session.Id, CancellationToken.None);
         Assert.NotNull(completedSession);
         Assert.Equal(OnboardingStatus.Complete, completedSession.Status);
+        Assert.Equal(3, _audioClipService.GetClips(result.CompletedProfile.Id).Count);
     }
 
     [Fact]

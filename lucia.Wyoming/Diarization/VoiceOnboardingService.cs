@@ -22,6 +22,7 @@ public sealed class VoiceOnboardingService
     private readonly IDiarizationEngine _diarization;
     private readonly ISpeakerProfileStore _profileStore;
     private readonly AudioQualityAnalyzer _qualityAnalyzer;
+    private readonly AudioClipService _audioClipService;
     private readonly VoiceProfileOptions _options;
     private readonly ILogger<VoiceOnboardingService> _logger;
 
@@ -29,12 +30,14 @@ public sealed class VoiceOnboardingService
         IDiarizationEngine diarization,
         ISpeakerProfileStore profileStore,
         AudioQualityAnalyzer qualityAnalyzer,
+        AudioClipService audioClipService,
         IOptions<VoiceProfileOptions> options,
         ILogger<VoiceOnboardingService> logger)
     {
         _diarization = diarization;
         _profileStore = profileStore;
         _qualityAnalyzer = qualityAnalyzer;
+        _audioClipService = audioClipService;
         _options = options.Value;
         _logger = logger;
     }
@@ -53,6 +56,7 @@ public sealed class VoiceOnboardingService
         var session = new OnboardingSession
         {
             Id = Guid.NewGuid().ToString("N"),
+            ProfileId = provisionalProfileId ?? Guid.NewGuid().ToString("N"),
             SpeakerName = speakerName,
             ProvisionalProfileId = provisionalProfileId,
             Prompts = prompts,
@@ -94,6 +98,12 @@ public sealed class VoiceOnboardingService
             }
 
             var embedding = _diarization.ExtractEmbedding(audioSamples.Span, sampleRate);
+            await _audioClipService.SaveClipAsync(
+                session.ProfileId,
+                audioSamples,
+                sampleRate,
+                session.Prompts[session.CurrentPromptIndex],
+                ct).ConfigureAwait(false);
             session.CollectedEmbeddings.Add(embedding.Vector);
             session.CurrentPromptIndex++;
 
@@ -151,7 +161,7 @@ public sealed class VoiceOnboardingService
 
         var profile = new SpeakerProfile
         {
-            Id = Guid.NewGuid().ToString("N"),
+            Id = session.ProfileId,
             Name = session.SpeakerName,
             IsProvisional = false,
             IsAuthorized = true,

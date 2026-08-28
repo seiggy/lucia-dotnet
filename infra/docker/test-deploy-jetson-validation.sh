@@ -175,9 +175,9 @@ case "$url" in
     if [[ -n "${STUB_WYOMING_BODY:-}" ]]; then
       printf '%s' "${STUB_WYOMING_BODY}"
     elif [[ "${STUB_ACCEL:-1}" == "1" ]]; then
-      printf '%s' '{"stt":{"ready":true,"activeModel":"sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8","engine":"Hybrid (Offline Re-transcription)"},"vad":{"ready":true,"activeModel":"silero_vad_v5"},"wakeWord":{"ready":true,"activeModel":"sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"},"diarization":{"ready":true,"activeModel":"3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k"},"speechEnhancement":{"ready":true,"activeModel":"gtcrn_simple"},"customWakeWords":{"ready":false},"onnxProvider":{"selected":"CUDAExecutionProvider","sherpaProvider":"cuda","isAccelerated":true,"available":["CUDAExecutionProvider","CPUExecutionProvider"]},"configured":true}'
+      printf '%s' '{"stt":{"ready":true,"activeModel":"sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8","engine":"Hybrid (Offline Re-transcription)"},"vad":{"ready":true,"activeModel":"silero_vad_v5"},"wakeWord":{"ready":true,"activeModel":"sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"},"diarization":{"ready":true,"activeModel":"3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k"},"speechEnhancement":{"ready":true,"activeModel":"gtcrn_simple"},"customWakeWords":{"ready":false},"onnxProvider":{"selected":"CUDAExecutionProvider","sherpaProvider":"cuda","isAccelerated":true,"available":["CUDAExecutionProvider","CPUExecutionProvider"]},"configured":true}'
     else
-      printf '%s' '{"stt":{"ready":true,"activeModel":"sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8","engine":"Hybrid (Offline Re-transcription)"},"vad":{"ready":true,"activeModel":"silero_vad_v5"},"wakeWord":{"ready":true,"activeModel":"sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"},"diarization":{"ready":true,"activeModel":"3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k"},"speechEnhancement":{"ready":true,"activeModel":"gtcrn_simple"},"customWakeWords":{"ready":false},"onnxProvider":{"selected":"CPUExecutionProvider","sherpaProvider":"cpu","isAccelerated":false,"available":["CPUExecutionProvider"]},"configured":true}'
+      printf '%s' '{"stt":{"ready":true,"activeModel":"sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8","engine":"Hybrid (Offline Re-transcription)"},"vad":{"ready":true,"activeModel":"silero_vad_v5"},"wakeWord":{"ready":true,"activeModel":"sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"},"diarization":{"ready":true,"activeModel":"3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k"},"speechEnhancement":{"ready":true,"activeModel":"gtcrn_simple"},"customWakeWords":{"ready":false},"onnxProvider":{"selected":"CPUExecutionProvider","sherpaProvider":"cpu","isAccelerated":false,"available":["CPUExecutionProvider"]},"configured":true}'
     fi
     exit 0 ;;
   *) exit 1 ;;
@@ -537,7 +537,7 @@ cuda_verify() { # body -> 0 if verify_new passes, non-zero if it fails
 #     diarization/speechEnhancement/customWakeWords/onnxProvider) is its own nested object and
 #     onnxProvider carries an available[] array. This nested shape is exactly what the old
 #     flat two-level envelope rejected. ---
-REAL_HEAD='"stt":{"ready":true,"activeModel":"sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8","engine":"Hybrid (Offline Re-transcription)"},"vad":{"ready":true,"activeModel":"silero_vad_v5"},"wakeWord":{"ready":true,"activeModel":"sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"},"diarization":{"ready":true,"activeModel":"3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k"},"speechEnhancement":{"ready":true,"activeModel":"gtcrn_simple"},"customWakeWords":{"ready":false}'
+REAL_HEAD='"stt":{"ready":true,"activeModel":"sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8","engine":"Hybrid (Offline Re-transcription)"},"vad":{"ready":true,"activeModel":"silero_vad_v5"},"wakeWord":{"ready":true,"activeModel":"sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"},"diarization":{"ready":true,"activeModel":"3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k"},"speechEnhancement":{"ready":true,"activeModel":"gtcrn_simple"},"customWakeWords":{"ready":false}'
 REAL_ONNX='"onnxProvider":{"selected":"CUDAExecutionProvider","sherpaProvider":"cuda","isAccelerated":true,"available":["CUDAExecutionProvider","CPUExecutionProvider"]}'
 REAL_STATUS="{${REAL_HEAD},${REAL_ONNX},\"configured\":true}"
 
@@ -719,6 +719,10 @@ svc_count="$(grep -cE '^  lucia-(postgres|redis|postgres-exporter|redis-exporter
 check "exactly six services (data, exporters, collector, agenthost)" "$svc_count" 6
 compose_has '10400:10400' && pass "Wyoming port 10400 mapped" || fail "Wyoming port 10400 missing"
 compose_has 'CS_LUCIACONFIG'  && pass "AgentHost consumes CS_LUCIACONFIG" || fail "CS_LUCIACONFIG not referenced"
+compose_has 'source: lucia-voice-data' \
+  && compose_has 'target: /app/data' \
+  && pass "voice recordings use configurable persistent data storage" \
+  || fail "persistent /app/data mount missing"
 grep -q 'container_name' "$VOICE_COMPOSE" && fail "container_name present (breaks project isolation)" \
                                           || pass "no container_name (project-scoped names)"
 grep -qiE '(^|\s)build:' "$VOICE_COMPOSE" && fail "build: present (must use immutable image)" \

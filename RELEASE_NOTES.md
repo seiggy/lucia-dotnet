@@ -10,6 +10,10 @@ Version 1.3.0 adds an end-to-end observability stack, Jetson infrastructure tele
 
 ## Features
 
+- **Parakeet TDT 0.6B v3** becomes the default offline ASR model for new installations, adding automatic language detection and transcription for 25 European languages while retaining v2 as an optional model.
+- **Voice identity benchmarks** compare sherpa-onnx embedding models on local enrollment and test manifests, reporting top-1 accuracy, EER, RTF, CPU use, memory, allocations, and reproducibility metadata. TitaNet-small is now available as an English model candidate.
+- **Persistent voice data** keeps captured enrollment and unknown-speaker recordings in a dedicated Docker volume for benchmark export.
+- **Enrollment recording capture** keeps the accepted onboarding WAV samples beside each speaker profile so embedding candidates can be measured against identical audio.
 - **Dashboard light mode** adds System, Light, and Dark preferences, persistent theme selection, pre-paint theme resolution, semantic color tokens, accessible contrast, and Playwright coverage. ([#253](https://github.com/seiggy/lucia-dotnet/pull/253))
 - **Remote observability stack** deploys pinned OpenTelemetry Collector, Grafana, Tempo, Prometheus, Loki, and Caddy services with bounded queues, retention, health checks, backups, and smoke tests. (`37dde58`)
 - **Fail-open telemetry modes** add Off, Metrics, Trace, and Profile modes, bounded OTLP export, legacy configuration support, Kubernetes settings, and unavailable-collector coverage. (`1029131`)
@@ -29,6 +33,7 @@ Version 1.3.0 adds an end-to-end observability stack, Jetson infrastructure tele
 - Align `ActivitySource` names with the lowercase ServiceDefaults registrations. ([#232](https://github.com/seiggy/lucia-dotnet/pull/232))
 - Enforce distinct async deadlines for timer persistence, Home Assistant WebSockets, and EvalHarness LLM calls while preserving caller cancellation. ([#235](https://github.com/seiggy/lucia-dotnet/pull/235))
 - Stop writing usage timestamps during API-key validation. ([#236](https://github.com/seiggy/lucia-dotnet/pull/236))
+- Block enrolled but unauthorized voice profiles when unknown-voice filtering is enabled.
 - Add crash-safe PostgreSQL trigram indexes and test interrupted migrations against production query shapes. ([#237](https://github.com/seiggy/lucia-dotnet/pull/237))
 - Serialize agent definition reloads and use monotonic database checkpoints to prevent concurrent refreshes from rebuilding agents or saving stale state. ([#239](https://github.com/seiggy/lucia-dotnet/pull/239))
 - Reuse GTCRN FFT, tensor, cache, and ONNX buffers, cutting warm 256-sample hop allocations from 143,736 bytes to 1,400 bytes while making reload and disposal safe. ([#242](https://github.com/seiggy/lucia-dotnet/pull/242))
