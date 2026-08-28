@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace lucia.VoiceBenchmarks;
 
 public sealed class VoiceBenchmarkCommandLineOptions
@@ -6,6 +8,7 @@ public sealed class VoiceBenchmarkCommandLineOptions
     public string OutputDirectory { get; init; } = string.Empty;
     public IReadOnlyList<string> ModelPaths { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> ModelSourceUris { get; init; } = Array.Empty<string>();
+    public IReadOnlyList<double> ModelThresholds { get; init; } = Array.Empty<double>();
 
     public static VoiceBenchmarkCommandLineOptions Parse(string[] args)
     {
@@ -18,6 +21,7 @@ public sealed class VoiceBenchmarkCommandLineOptions
         string? outputDirectory = null;
         var modelPaths = new List<string>();
         var modelSourceUris = new List<string>();
+        var modelThresholds = new List<double>();
         var positionals = new Queue<string>();
 
         for (var index = 0; index < args.Length; index++)
@@ -75,6 +79,23 @@ public sealed class VoiceBenchmarkCommandLineOptions
                 continue;
             }
 
+            if (string.Equals(argument, "--model-threshold", StringComparison.OrdinalIgnoreCase))
+            {
+                if (index + 1 >= args.Length
+                    || !double.TryParse(
+                        args[++index],
+                        NumberStyles.Float,
+                        CultureInfo.InvariantCulture,
+                        out var threshold)
+                    || threshold is < -1d or > 1d)
+                {
+                    throw new ArgumentException("--model-threshold requires a number from -1 to 1.");
+                }
+
+                modelThresholds.Add(threshold);
+                continue;
+            }
+
             if (argument.StartsWith("-", StringComparison.Ordinal))
             {
                 throw new ArgumentException($"Unknown option '{argument}'.");
@@ -124,6 +145,11 @@ public sealed class VoiceBenchmarkCommandLineOptions
             throw new ArgumentException(
                 "Each model requires one absolute HTTP(S) --model-source URL in the same order.");
         }
+        if (modelThresholds.Count != normalizedModelPaths.Length)
+        {
+            throw new ArgumentException(
+                "Each model requires one frozen --model-threshold value in the same order.");
+        }
 
         return new VoiceBenchmarkCommandLineOptions
         {
@@ -131,6 +157,7 @@ public sealed class VoiceBenchmarkCommandLineOptions
             OutputDirectory = outputDirectory,
             ModelPaths = normalizedModelPaths,
             ModelSourceUris = modelSourceUris.ToArray(),
+            ModelThresholds = modelThresholds.ToArray(),
         };
     }
 }

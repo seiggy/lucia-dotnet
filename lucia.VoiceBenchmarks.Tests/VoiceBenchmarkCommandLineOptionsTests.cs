@@ -16,6 +16,8 @@ public sealed class VoiceBenchmarkCommandLineOptionsTests
             " ",
             "--model-source",
             "https://example.com/model.onnx",
+            "--model-threshold",
+            "0.7",
         };
 
         Assert.Throws<ArgumentException>(() => VoiceBenchmarkCommandLineOptions.Parse(args));
@@ -31,6 +33,7 @@ public sealed class VoiceBenchmarkCommandLineOptionsTests
             "-o", "results",
             "-M", "model.onnx",
             "--model-source", "https://example.com/model.onnx",
+            "--model-threshold", "0.7",
         ]);
 
         Assert.Equal("manifest.json", options.ManifestPath);

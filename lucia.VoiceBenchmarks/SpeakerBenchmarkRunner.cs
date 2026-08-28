@@ -14,10 +14,9 @@ public sealed class SpeakerBenchmarkRunner
     private const int WarmupRuns = 1;
     private const int MeasuredRuns = 1;
     private const int Concurrency = 1;
-    private const double VerificationThreshold = 0.7d;
     private const double MinDcfTargetPrior = 0.01d;
     private readonly string _manifestPath;
-    private readonly IReadOnlyList<(string Path, string SourceUri)> _models;
+    private readonly IReadOnlyList<(string Path, string SourceUri, double Threshold)> _models;
     private readonly string _outputDirectory;
     private readonly string _commandLine;
 
@@ -25,6 +24,7 @@ public sealed class SpeakerBenchmarkRunner
         string manifestPath,
         IReadOnlyList<string> modelPaths,
         IReadOnlyList<string> modelSourceUris,
+        IReadOnlyList<double> modelThresholds,
         string outputDirectory,
         string commandLine)
     {
@@ -33,15 +33,18 @@ public sealed class SpeakerBenchmarkRunner
 
         _manifestPath = Path.GetFullPath(manifestPath);
         _outputDirectory = Path.GetFullPath(outputDirectory);
-        if (modelPaths.Count != modelSourceUris.Count)
+        if (modelPaths.Count != modelSourceUris.Count
+            || modelPaths.Count != modelThresholds.Count)
         {
             throw new ArgumentException("Model paths and source URLs must have matching counts.");
         }
 
         _models = modelPaths
-            .Zip(modelSourceUris)
-            .OrderBy(static model => model.First, StringComparer.OrdinalIgnoreCase)
-            .Select(static model => (model.First, model.Second))
+            .Select((path, index) => (
+                Path: path,
+                SourceUri: modelSourceUris[index],
+                Threshold: modelThresholds[index]))
+            .OrderBy(static model => model.Path, StringComparer.OrdinalIgnoreCase)
             .ToArray();
         _commandLine = commandLine;
     }
@@ -81,7 +84,12 @@ public sealed class SpeakerBenchmarkRunner
         foreach (var model in _models)
         {
             var resolvedModelPath = ResolveModelPath(model.Path);
-            metrics.Add(EvaluateModel(manifest, audioSamples, resolvedModelPath, model.SourceUri));
+            metrics.Add(EvaluateModel(
+                manifest,
+                audioSamples,
+                resolvedModelPath,
+                model.SourceUri,
+                model.Threshold));
         }
 
         return new SpeakerBenchmarkRunReport
@@ -101,7 +109,7 @@ public sealed class SpeakerBenchmarkRunner
             MeasuredRuns = MeasuredRuns,
             Concurrency = Concurrency,
             SplitPolicy = "Manifest-defined enroll/test clips; resolved paths must not overlap.",
-            ScorePolicy = "Closed-set cosine top-1; EER from all genuine and impostor centroid scores.",
+            ScorePolicy = "Closed-set cosine top-1; EER and minDCF from all scores; FAR/FRR use each model's frozen threshold.",
             AudioPreprocessing = "NAudio float conversion, stereo downmix to mono, WDL resampling to 16 kHz.",
             DatasetClips = datasetClips,
             Models = metrics
@@ -124,7 +132,8 @@ public sealed class SpeakerBenchmarkRunner
         SpeakerBenchmarkManifest manifest,
         IReadOnlyDictionary<string, float[]> audioSamples,
         string modelPath,
-        string modelSourceUri)
+        string modelSourceUri,
+        double verificationThreshold)
     {
         var enrollClips = manifest.Clips
             .Where(static clip => string.Equals(clip.Split, "enroll", StringComparison.OrdinalIgnoreCase))
@@ -225,7 +234,7 @@ public sealed class SpeakerBenchmarkRunner
             SpeakerBenchmarkMetrics.ComputeErrorRates(
                 genuineScores,
                 impostorScores,
-                VerificationThreshold);
+                verificationThreshold);
         var normalizedMinDcf = SpeakerBenchmarkMetrics.ComputeNormalizedMinDcf(
             genuineScores,
             impostorScores,
@@ -257,7 +266,7 @@ public sealed class SpeakerBenchmarkRunner
             FalseAcceptanceRate = falseAcceptanceRate,
             FalseRejectionRate = falseRejectionRate,
             NormalizedMinDcf = normalizedMinDcf,
-            VerificationThreshold = VerificationThreshold,
+            VerificationThreshold = verificationThreshold,
             MeanRealTimeFactor = meanRealTimeFactor,
             WallDurationSeconds = wallDurationSeconds,
             CpuCoreEquivalents = cpuCoreEquivalents,
