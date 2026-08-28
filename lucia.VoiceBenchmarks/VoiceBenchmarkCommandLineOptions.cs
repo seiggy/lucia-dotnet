@@ -28,8 +28,8 @@ public sealed class VoiceBenchmarkCommandLineOptions
                 continue;
             }
 
-            if (string.Equals(argument, "--manifest", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(argument, "-m", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(argument, "--manifest", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(argument, "-m", StringComparison.Ordinal))
             {
                 if (index + 1 >= args.Length)
                 {
@@ -52,8 +52,8 @@ public sealed class VoiceBenchmarkCommandLineOptions
                 continue;
             }
 
-            if (string.Equals(argument, "--model", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(argument, "-M", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(argument, "--model", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(argument, "-M", StringComparison.Ordinal))
             {
                 if (index + 1 >= args.Length)
                 {

@@ -12,5 +12,6 @@ public sealed record OnboardingSession
     public bool ProfilePersisted { get; set; }
     public OnboardingStatus Status { get; set; } = OnboardingStatus.InProgress;
     public DateTimeOffset StartedAt { get; init; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset LastActivityAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? CompletedAt { get; set; }
 }

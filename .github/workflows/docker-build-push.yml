@@ -32,9 +32,42 @@ env:
   ASSET_IMAGE: ghcr.io/${{ github.repository }}/build-assets
 
 jobs:
+  detect-asset-changes:
+    name: Detect asset changes
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.changes.outputs.changed }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Detect asset changes across push
+        id: changes
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          changed=false
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref_type }}" == "branch" ]]; then
+            if [[ "$BEFORE_SHA" == "0000000000000000000000000000000000000000" ]]; then
+              range="$CURRENT_SHA^"
+            else
+              range="$BEFORE_SHA"
+            fi
+            if git diff --name-only "$range" "$CURRENT_SHA" |
+              grep -qxE 'infra/docker/(asset\.lock|Dockerfile\.assets)'; then
+              changed=true
+            fi
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
   prepare-assets:
     name: Prepare build assets
     runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
     outputs:
       image_ref: ${{ steps.resolve-asset.outputs.image_ref }}
     env:
@@ -99,13 +132,16 @@ jobs:
   build-and-push:
     name: Build ${{ matrix.image }}
     runs-on: ubuntu-latest
-    needs: prepare-assets
+    needs: [detect-asset-changes, prepare-assets]
     # When triggered by workflow_run (asset build finished), only proceed if it succeeded.
     # When triggered by push that changes asset.lock, skip — the workflow_run trigger
     # will pick it up after the asset image is ready.
     if: |
+      always() &&
+      needs.detect-asset-changes.result == 'success' &&
+      (needs.prepare-assets.result == 'success' || needs.prepare-assets.result == 'skipped') &&
       (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') &&
-      !(github.event_name == 'push' && contains(github.event.head_commit.modified, 'infra/docker/asset.lock'))
+      needs.detect-asset-changes.outputs.changed != 'true'
     strategy:
       fail-fast: true
       matrix:
@@ -147,6 +183,12 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
+
+      - name: Compute asset.lock hash
+        id: asset-hash
+        run: |
+          HASH=$(cat infra/docker/asset.lock infra/docker/Dockerfile.assets | sha256sum | cut -c1-12)
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
@@ -224,7 +266,7 @@ jobs:
           provenance: mode=min
           sbom: true
           build-args: |
-            ASSET_IMAGE=${{ needs.prepare-assets.outputs.image_ref }}
+            ASSET_IMAGE=${{ github.event_name == 'pull_request' && needs.prepare-assets.outputs.image_ref || format('{0}:sha-{1}', env.ASSET_IMAGE, steps.asset-hash.outputs.hash) }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
             VCS_REF=${{ github.sha }}
             VERSION=${{ steps.meta.outputs.version }}

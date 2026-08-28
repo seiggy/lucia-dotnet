@@ -108,11 +108,12 @@ public sealed class SpeakerBenchmarkManifest
     {
         return clips
             .GroupBy(static clip => clip.Sha256, StringComparer.OrdinalIgnoreCase)
-            .Where(static group => group.Select(clip => clip.Split)
+            .Where(static group => group.Count() > 1)
+            .Select(static group => group.Select(clip => clip.Split)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Count() > 1)
-            .Select(static group =>
-                $"Audio content with SHA-256 '{group.Key}' is used for both enrollment and test.")
+                .Count() > 1
+                    ? $"Audio content with SHA-256 '{group.Key}' is used for both enrollment and test."
+                    : $"Audio content with SHA-256 '{group.Key}' appears more than once.")
             .ToArray();
     }
 

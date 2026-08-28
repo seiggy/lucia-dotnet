@@ -101,4 +101,18 @@ public sealed class SpeakerBenchmarkManifestTests
 
         Assert.Contains(errors, error => error.Contains("both enrollment and test", StringComparison.OrdinalIgnoreCase));
     }
+
+    [Fact]
+    public void ValidateContentHashes_RejectsDuplicateWithinTestSplit()
+    {
+        var clips = new[]
+        {
+            new BenchmarkClipProvenance("test.wav", "speaker-a", "test", "same-hash"),
+            new BenchmarkClipProvenance("renamed.wav", "speaker-a", "test", "same-hash"),
+        };
+
+        var errors = SpeakerBenchmarkManifest.ValidateContentHashes(clips);
+
+        Assert.Contains(errors, error => error.Contains("more than once", StringComparison.OrdinalIgnoreCase));
+    }
 }

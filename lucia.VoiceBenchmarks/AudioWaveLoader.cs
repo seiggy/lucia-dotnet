@@ -23,7 +23,12 @@ public static class AudioWaveLoader
         }
 
         ISampleProvider sampleProvider = reader.ToSampleProvider();
-        if (sampleProvider.WaveFormat.Channels > 1)
+        if (sampleProvider.WaveFormat.Channels > 2)
+        {
+            throw new NotSupportedException(
+                $"Unsupported channel count '{sampleProvider.WaveFormat.Channels}' in '{fullPath}'. Only mono and stereo WAVs are supported.");
+        }
+        if (sampleProvider.WaveFormat.Channels == 2)
         {
             sampleProvider = new StereoToMonoSampleProvider(sampleProvider);
         }

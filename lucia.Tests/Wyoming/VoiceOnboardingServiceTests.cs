@@ -145,6 +145,22 @@ public sealed class VoiceOnboardingServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task StartOnboarding_RemovesAbandonedSessionRecordings()
+    {
+        var service = CreateService();
+        var abandoned = await service.StartOnboardingAsync("Jane", null, CancellationToken.None);
+        var audio = new float[32_000];
+        Array.Fill(audio, 0.1f);
+        await service.ProcessSampleAsync(abandoned.Id, audio, 16_000, CancellationToken.None);
+        abandoned.LastActivityAt = DateTimeOffset.UtcNow.AddHours(-2);
+
+        await service.StartOnboardingAsync("Alice", null, CancellationToken.None);
+
+        Assert.Null(await service.GetSessionAsync(abandoned.Id, CancellationToken.None));
+        Assert.Empty(_audioClipService.GetClips(abandoned.Id));
+    }
+
+    [Fact]
     public async Task ProvisionalProfile_IsPromoted()
     {
         var store = new InMemorySpeakerProfileStore();

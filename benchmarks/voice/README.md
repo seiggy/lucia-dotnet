@@ -57,7 +57,7 @@ Repeat `--model` and `--model-source` as aligned pairs to compare models. The so
 
 ## Notes
 
-- Input audio is expected to be WAV files readable by NAudio.
-- The benchmark converts clips to mono 16 kHz float samples before embedding extraction.
+- Input audio is expected to be mono or stereo WAV files readable by NAudio.
+- The benchmark downmixes stereo clips and converts them to mono 16 kHz float samples before embedding extraction.
 - Output is written as deterministic JSON and Markdown reports in the requested output directory.
 - Managed allocation values exclude native ONNX allocations; working-set values are process-level and are not a clean model-peak measurement.

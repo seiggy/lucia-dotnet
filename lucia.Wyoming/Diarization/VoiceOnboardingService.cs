@@ -47,7 +47,7 @@ public sealed class VoiceOnboardingService
         string? provisionalProfileId,
         CancellationToken ct)
     {
-        CleanupAbandonedSessions();
+        await CleanupAbandonedSessionsAsync(ct).ConfigureAwait(false);
 
         if (provisionalProfileId is not null)
         {
@@ -90,6 +90,7 @@ public sealed class VoiceOnboardingService
             {
                 throw new InvalidOperationException($"Onboarding session '{sessionId}' not found");
             }
+            session.LastActivityAt = DateTimeOffset.UtcNow;
 
             if (session.CurrentPromptIndex >= session.Prompts.Count)
             {
@@ -215,34 +216,51 @@ public sealed class VoiceOnboardingService
             profile);
     }
 
-    private void CleanupAbandonedSessions()
+    private async Task CleanupAbandonedSessionsAsync(CancellationToken ct)
     {
         var abandonedCutoff = DateTimeOffset.UtcNow.AddHours(-1);
         var completedCutoff = DateTimeOffset.UtcNow.AddMinutes(-5);
 
-        var stale = _sessions
-            .Where(kvp =>
-                (kvp.Value.Status != OnboardingStatus.Complete && kvp.Value.StartedAt < abandonedCutoff)
-                || (kvp.Value.Status == OnboardingStatus.Complete && kvp.Value.CompletedAt < completedCutoff))
-            .Select(kvp => kvp.Key)
-            .ToList();
-
-        foreach (var key in stale)
+        foreach (var key in _sessions.Keys)
         {
-            if (_sessions.TryGetValue(key, out var session)
-                && session.Status != OnboardingStatus.Complete)
+            var sessionLock = _sessionLocks.GetOrAdd(key, static _ => new SemaphoreSlim(1, 1));
+            var removeLock = false;
+            await sessionLock.WaitAsync(ct).ConfigureAwait(false);
+            try
             {
-                _audioClipService.DeleteProfileClips(session.Id);
+                if (!_sessions.TryGetValue(key, out var session))
+                {
+                    removeLock = true;
+                }
+                else
+                {
+                    var isStale = session.Status == OnboardingStatus.Complete
+                        ? session.CompletedAt < completedCutoff
+                        : session.LastActivityAt < abandonedCutoff;
+                    if (!isStale)
+                    {
+                        continue;
+                    }
+
+                    if (session.Status != OnboardingStatus.Complete)
+                    {
+                        _audioClipService.DeleteProfileClips(session.Id);
+                    }
+
+                    _sessions.TryRemove(key, out _);
+                    removeLock = true;
+                }
+            }
+            finally
+            {
+                sessionLock.Release();
             }
 
-            RemoveSession(key);
+            if (removeLock)
+            {
+                _sessionLocks.TryRemove(key, out _);
+            }
         }
-    }
-
-    private void RemoveSession(string sessionId)
-    {
-        _sessions.TryRemove(sessionId, out _);
-        _sessionLocks.TryRemove(sessionId, out _);
     }
 
     private static List<string> SelectPrompts(int count)

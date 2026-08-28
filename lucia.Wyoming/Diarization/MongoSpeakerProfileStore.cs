@@ -102,27 +102,32 @@ public sealed class MongoSpeakerProfileStore : ISpeakerProfileStore
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
         ArgumentNullException.ThrowIfNull(transform);
 
+        const int MaxAttempts = 5;
         var idFilter = Builders<SpeakerProfile>.Filter.Eq(p => p.Id, id);
-        var existing = await _collection.Find(idFilter).FirstOrDefaultAsync(ct).ConfigureAwait(false);
-
-        if (existing is null)
+        for (var attempt = 0; attempt < MaxAttempts; attempt++)
         {
-            throw new InvalidOperationException($"Profile '{id}' not found");
+            var existing = await _collection.Find(idFilter).FirstOrDefaultAsync(ct).ConfigureAwait(false)
+                ?? throw new InvalidOperationException($"Profile '{id}' not found");
+            var updated = transform(existing);
+            var options = new FindOneAndReplaceOptions<SpeakerProfile>
+            {
+                ReturnDocument = ReturnDocument.After,
+            };
+            var concurrencyFilter = Builders<SpeakerProfile>.Filter.And(
+                idFilter,
+                Builders<SpeakerProfile>.Filter.Eq(p => p.UpdatedAt, existing.UpdatedAt),
+                Builders<SpeakerProfile>.Filter.Eq(p => p.IsProvisional, existing.IsProvisional));
+
+            var result = await _collection.FindOneAndReplaceAsync(concurrencyFilter, updated, options, ct)
+                .ConfigureAwait(false);
+            if (result is not null)
+            {
+                return result;
+            }
         }
 
-        var updated = transform(existing);
-        var options = new FindOneAndReplaceOptions<SpeakerProfile>
-        {
-            ReturnDocument = ReturnDocument.After,
-        };
-        var concurrencyFilter = Builders<SpeakerProfile>.Filter.And(
-            idFilter,
-            Builders<SpeakerProfile>.Filter.Eq(p => p.UpdatedAt, existing.UpdatedAt),
-            Builders<SpeakerProfile>.Filter.Eq(p => p.IsProvisional, existing.IsProvisional));
-
-        return await _collection.FindOneAndReplaceAsync(concurrencyFilter, updated, options, ct)
-            .ConfigureAwait(false)
-            ?? throw new InvalidOperationException($"Profile '{id}' changed during update.");
+        throw new InvalidOperationException(
+            $"Profile '{id}' could not be updated after {MaxAttempts} concurrent attempts.");
     }
 
     public async Task DeleteAsync(string id, CancellationToken ct)
