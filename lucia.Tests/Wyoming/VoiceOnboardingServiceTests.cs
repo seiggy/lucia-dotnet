@@ -1,3 +1,4 @@
+using FakeItEasy;
 using lucia.Wyoming.Diarization;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -165,16 +166,35 @@ public sealed class VoiceOnboardingServiceTests : IDisposable
     [Fact]
     public async Task StartOnboarding_ContinuesWhenAbandonedCleanupFails()
     {
-        var service = CreateService();
+        var store = A.Fake<ISpeakerProfileStore>();
+        A.CallTo(() => store.GetAsync(A<string>._, A<CancellationToken>._))
+            .ThrowsAsync(new IOException("cleanup failed"));
+        var service = CreateService(store: store);
         var abandoned = await service.StartOnboardingAsync("Jane", null, CancellationToken.None);
         abandoned.ProfilePersisted = true;
         abandoned.LastActivityAt = DateTimeOffset.UtcNow.AddHours(-2);
-        _audioClipService.BlockProfileClips(abandoned.ProfileId);
 
         var session = await service.StartOnboardingAsync("Alice", null, CancellationToken.None);
 
         Assert.Equal("Alice", session.SpeakerName);
         Assert.NotNull(await service.GetSessionAsync(abandoned.Id, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task StartOnboarding_RemovesStaleSessionWhenPersistedProfileWasDeleted()
+    {
+        var service = CreateService();
+        var abandoned = await service.StartOnboardingAsync("Jane", null, CancellationToken.None);
+        var audio = new float[32_000];
+        Array.Fill(audio, 0.1f);
+        await service.ProcessSampleAsync(abandoned.Id, audio, 16_000, CancellationToken.None);
+        abandoned.ProfilePersisted = true;
+        abandoned.LastActivityAt = DateTimeOffset.UtcNow.AddHours(-2);
+
+        await service.StartOnboardingAsync("Alice", null, CancellationToken.None);
+
+        Assert.Null(await service.GetSessionAsync(abandoned.Id, CancellationToken.None));
+        Assert.False(Directory.Exists(GetStagingDirectory(abandoned.Id)));
     }
 
     [Fact]

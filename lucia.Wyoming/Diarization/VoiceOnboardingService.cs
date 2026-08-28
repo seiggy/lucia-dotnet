@@ -345,13 +345,21 @@ public sealed class VoiceOnboardingService : BackgroundService
                     {
                         if (session.ProfilePersisted)
                         {
-                            await _audioClipService.MoveOnboardingClipsAsync(
-                                session.Id,
-                                session.ProfileId,
-                                ct).ConfigureAwait(false);
-                            session.Status = OnboardingStatus.Complete;
-                            session.CompletedAt = DateTimeOffset.UtcNow;
-                            continue;
+                            var profile = await _profileStore.GetAsync(session.ProfileId, ct).ConfigureAwait(false);
+                            if (profile is { IsProvisional: false }
+                                && string.Equals(
+                                    profile.EnrollmentSessionId,
+                                    session.Id,
+                                    StringComparison.Ordinal))
+                            {
+                                await _audioClipService.MoveOnboardingClipsAsync(
+                                    session.Id,
+                                    session.ProfileId,
+                                    ct).ConfigureAwait(false);
+                                session.Status = OnboardingStatus.Complete;
+                                session.CompletedAt = DateTimeOffset.UtcNow;
+                                continue;
+                            }
                         }
 
                         _audioClipService.DeleteOnboardingSessionClips(session.Id);
