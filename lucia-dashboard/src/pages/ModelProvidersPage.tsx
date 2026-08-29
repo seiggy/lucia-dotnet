@@ -444,9 +444,7 @@ export default function ModelProvidersPage() {
                   setOllamaModels([])
                   setOllamaError(null)
                 }
-                if (!supportsOpenAiCompatibleModelDiscovery(newType)) {
-                  resetOpenAiModelDiscovery()
-                }
+                resetOpenAiModelDiscovery()
               }}
               className="w-full"
             />

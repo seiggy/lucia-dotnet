@@ -230,10 +230,18 @@ public sealed class InMemoryEntityLocationService : IEntityLocationService
             query, _snapshot.Floors, embeddingService, options ?? DefaultLocationOptions, ct).ConfigureAwait(false);
     }
 
-    public async Task<HierarchicalSearchResult> SearchHierarchyAsync(
+    public Task<HierarchicalSearchResult> SearchHierarchyAsync(
         string query,
         HybridMatchOptions? options = null,
         IReadOnlyList<string>? domainFilter = null,
+        CancellationToken ct = default) =>
+        SearchHierarchyAsync(query, options, domainFilter, callerAgentId: null, ct);
+
+    public async Task<HierarchicalSearchResult> SearchHierarchyAsync(
+        string query,
+        HybridMatchOptions? options,
+        IReadOnlyList<string>? domainFilter,
+        string? callerAgentId,
         CancellationToken ct = default)
     {
         await EnsureLoadedAsync(ct).ConfigureAwait(false);
@@ -252,6 +260,13 @@ public sealed class InMemoryEntityLocationService : IEntityLocationService
                     (e.IncludeForAgent == null || e.IncludeForAgent.Count > 0))
                 .ToList()
             : (IReadOnlyList<HomeAssistantEntity>)snap.Entities;
+        if (callerAgentId is not null)
+        {
+            filteredEntities = filteredEntities
+                .Where(entity => entity.IncludeForAgent is null
+                    || entity.IncludeForAgent.Contains(callerAgentId))
+                .ToList();
+        }
 
         if (embeddingService is not null)
         {

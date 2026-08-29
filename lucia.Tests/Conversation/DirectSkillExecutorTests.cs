@@ -3,6 +3,7 @@ using lucia.AgentHost.Conversation.Execution;
 using lucia.AgentHost.Conversation.Models;
 using lucia.Agents.Abstractions;
 using lucia.Agents.Configuration;
+using lucia.Agents.Configuration.UserConfiguration;
 using lucia.Agents.Models;
 using lucia.Agents.Models.HomeAssistant;
 using lucia.Agents.Services;
@@ -10,6 +11,7 @@ using lucia.Agents.Skills;
 using lucia.HomeAssistant.Models;
 using lucia.HomeAssistant.Services;
 using lucia.Wyoming.CommandRouting;
+using Microsoft.Extensions.Configuration;
 using Microsoft.FeatureManagement;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -168,6 +170,7 @@ public sealed class DirectSkillExecutorTests
                 "Zach's light",
                 A<HybridMatchOptions?>._,
                 A<IReadOnlyList<string>?>._,
+                "light-agent",
                 A<CancellationToken>._))
             .Returns(new HierarchicalSearchResult
             {
@@ -229,6 +232,7 @@ public sealed class DirectSkillExecutorTests
                 "Zach's light",
                 A<HybridMatchOptions?>.That.Matches(matchOptions => HasExpectedThreshold(matchOptions)),
                 A<IReadOnlyList<string>?>._,
+                "light-agent",
                 A<CancellationToken>._))
             .MustHaveHappenedOnceExactly();
         A.CallTo(() => haClient.CallServiceAsync(
@@ -238,6 +242,55 @@ public sealed class DirectSkillExecutorTests
                 A<ServiceCallRequest?>._,
                 A<CancellationToken>._))
             .MustHaveHappenedOnceExactly();
+    }
+
+    [Theory]
+    [InlineData("NaN")]
+    [InlineData("Infinity")]
+    public async Task ExecuteAsync_ClimateNonFiniteTemperature_ReturnsFailed(string value)
+    {
+        var haClient = A.Fake<IHomeAssistantClient>();
+        var options = A.Fake<IOptionsMonitor<ClimateControlSkillOptions>>();
+        A.CallTo(() => options.CurrentValue).Returns(new ClimateControlSkillOptions());
+        var skill = new ClimateControlSkill(
+            haClient,
+            A.Fake<IEmbeddingProviderResolver>(),
+            A.Fake<ILogger<ClimateControlSkill>>(),
+            A.Fake<IDeviceCacheService>(),
+            _entityLocationService,
+            A.Fake<IHybridEntityMatcher>(),
+            options,
+            new ConfigurationBuilder().Build());
+        A.CallTo(() => _serviceProvider.GetService(typeof(ClimateControlSkill))).Returns(skill);
+        var route = new CommandRouteResult
+        {
+            IsMatch = true,
+            Confidence = 0.9f,
+            MatchedPattern = new CommandPattern
+            {
+                Id = "climate-set",
+                SkillId = "ClimateControlSkill",
+                Action = "set_temperature",
+                Templates = ["set {entity} to {value}"]
+            },
+            CapturedValues = new Dictionary<string, string>
+            {
+                ["entity"] = "office",
+                ["value"] = value
+            }
+        };
+
+        var result = await _executor.ExecuteAsync(route, CreateContext());
+
+        Assert.False(result.Success);
+        Assert.Contains("finite", result.Error, StringComparison.OrdinalIgnoreCase);
+        A.CallTo(() => haClient.CallServiceAsync(
+                A<string>._,
+                A<string>._,
+                A<string?>._,
+                A<ServiceCallRequest?>._,
+                A<CancellationToken>._))
+            .MustNotHaveHappened();
     }
 
     [Fact]

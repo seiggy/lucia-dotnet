@@ -190,10 +190,11 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
         var captures = route.CapturedValues ?? new Dictionary<string, string>();
 
         if (!captures.TryGetValue("value", out var tempStr) ||
-            !double.TryParse(tempStr, CultureInfo.InvariantCulture, out var temperature))
+            !double.TryParse(tempStr, CultureInfo.InvariantCulture, out var temperature) ||
+            !double.IsFinite(temperature))
         {
             throw new InvalidOperationException(
-                "Temperature value not captured or not a valid number");
+                "Temperature value not captured or not a finite number");
         }
 
         var entityId = useCascadingResolver
@@ -295,10 +296,9 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
                 ResolveEntitySearchQuery(route),
                 options: matchOptions,
                 domainFilter: domains,
+                callerAgentId: callerAgentId,
                 ct: ct).ConfigureAwait(false);
             resolvedIds = fuzzyResult.ResolvedEntities
-                .Where(entity => entity.IncludeForAgent is null
-                    || (callerAgentId is not null && entity.IncludeForAgent.Contains(callerAgentId)))
                 .Select(entity => entity.EntityId)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();

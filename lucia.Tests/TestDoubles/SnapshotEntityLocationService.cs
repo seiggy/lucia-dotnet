@@ -131,6 +131,26 @@ internal sealed class SnapshotEntityLocationService : IEntityLocationService
         return Task.FromResult(SearchHierarchySync(query, domainFilter));
     }
 
+    public async Task<HierarchicalSearchResult> SearchHierarchyAsync(
+        string query,
+        HybridMatchOptions? options,
+        IReadOnlyList<string>? domainFilter,
+        string? callerAgentId,
+        CancellationToken ct = default)
+    {
+        var result = await SearchHierarchyAsync(query, options, domainFilter, ct).ConfigureAwait(false);
+        if (callerAgentId is null)
+            return result;
+
+        return result with
+        {
+            ResolvedEntities = result.ResolvedEntities
+                .Where(entity => entity.IncludeForAgent is null
+                    || entity.IncludeForAgent.Contains(callerAgentId))
+                .ToList()
+        };
+    }
+
     public Task<IReadOnlyList<EntityMatchResult<HomeAssistantEntity>>> SearchEntitiesAsync(
         string query, IReadOnlyList<string>? domainFilter = null,
         HybridMatchOptions? options = null, CancellationToken ct = default)
