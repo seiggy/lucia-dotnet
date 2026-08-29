@@ -206,7 +206,7 @@ internal sealed partial class QueryDecomposer
 
         var remaining = tokens
             .Select(static (token, index) => (Token: token, Index: index))
-            .Where(item => !ActionTokens.Contains(item.Token))
+            .Where(item => !IsLeadingCommandVerb(tokens, item.Index))
             .Where(item => !string.Equals(item.Token, action, StringComparison.OrdinalIgnoreCase))
             .Where(item => !IgnoreTokens.Contains(item.Token))
             .Where(item => explicitTokens.Length == 0
@@ -267,7 +267,7 @@ internal sealed partial class QueryDecomposer
             if (deviceType is not null && string.Equals(token, deviceType, StringComparison.OrdinalIgnoreCase))
                 break;
 
-            if (ActionTokens.Contains(token)
+            if (IsLeadingCommandVerb(tokens, i)
                 || string.Equals(token, action, StringComparison.OrdinalIgnoreCase))
                 continue;
 
@@ -304,6 +304,20 @@ internal sealed partial class QueryDecomposer
         index > 0
         && TargetUnitTokens.Contains(tokens[index])
         && IsTargetValueToken(tokens, index - 1, action);
+
+    private static bool IsLeadingCommandVerb(IReadOnlyList<string> tokens, int index)
+    {
+        if (!ActionTokens.Contains(tokens[index]))
+            return false;
+
+        for (var precedingIndex = 0; precedingIndex < index; precedingIndex++)
+        {
+            if (!IgnoreTokens.Contains(tokens[precedingIndex]))
+                return false;
+        }
+
+        return true;
+    }
 
     private static int IndexOf(IReadOnlyList<string> tokens, string value)
     {

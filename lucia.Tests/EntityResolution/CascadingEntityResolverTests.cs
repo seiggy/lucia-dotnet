@@ -302,6 +302,26 @@ public sealed class CascadingEntityResolverTests
     }
 
     [Fact]
+    public void Resolve_EntityNamedLikeCommandVerb_MatchesEntity()
+    {
+        var entities = new[]
+        {
+            CreateEntity("light.activate", "Activate Light", areaId: null)
+        };
+        var resolver = new CascadingEntityResolver(
+            SetupLocationService(areas: [], entities: entities));
+
+        var result = resolver.Resolve(
+            "turn off activate light",
+            callerArea: null,
+            speakerId: null,
+            domains: ["light", "switch"]);
+
+        Assert.True(result.IsResolved, $"{result.BailReason}: {result.Explanation}");
+        Assert.Equal("light.activate", Assert.Single(result.ResolvedEntityIds));
+    }
+
+    [Fact]
     public void Resolve_DimNamedLightWithoutTo_IgnoresBrightnessTarget()
     {
         var entities = new[]
