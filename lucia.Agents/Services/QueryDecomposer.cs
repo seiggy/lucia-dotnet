@@ -30,7 +30,7 @@ internal sealed partial class QueryDecomposer
         "the", "a", "an", "in", "on", "of", "to", "for", "please", "my", "it"
     };
 
-    private static readonly HashSet<string> TargetUnitTokens = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> s_targetUnitTokens = new(StringComparer.OrdinalIgnoreCase)
     {
         "degree", "degrees", "percent", "percentage"
     };
@@ -293,7 +293,7 @@ internal sealed partial class QueryDecomposer
         var followsTo = index > 0
             && string.Equals(tokens[index - 1], "to", StringComparison.OrdinalIgnoreCase);
         var isTrailingValue = index == tokens.Count - 1
-            || (index == tokens.Count - 2 && TargetUnitTokens.Contains(tokens[index + 1]));
+            || (index == tokens.Count - 2 && s_targetUnitTokens.Contains(tokens[index + 1]));
         return followsTo || isTrailingValue;
     }
 
@@ -302,7 +302,7 @@ internal sealed partial class QueryDecomposer
         int index,
         string? action) =>
         index > 0
-        && TargetUnitTokens.Contains(tokens[index])
+        && s_targetUnitTokens.Contains(tokens[index])
         && IsTargetValueToken(tokens, index - 1, action);
 
     private static bool IsLeadingCommandVerb(IReadOnlyList<string> tokens, int index)
