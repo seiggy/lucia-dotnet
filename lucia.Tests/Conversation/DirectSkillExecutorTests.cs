@@ -133,6 +133,105 @@ public sealed class DirectSkillExecutorTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_CascadeMiss_UsesEmbeddingEntityMatch()
+    {
+        var haClient = A.Fake<IHomeAssistantClient>();
+        var locationService = A.Fake<IEntityLocationService>();
+        var cascadingResolver = A.Fake<ICascadingEntityResolver>();
+        var featureManager = A.Fake<IFeatureManager>();
+        var options = A.Fake<IOptionsMonitor<LightControlSkillOptions>>();
+        var entity = new HomeAssistantEntity
+        {
+            EntityId = "light.zacks_light",
+            FriendlyName = "Zack's Light"
+        };
+
+        A.CallTo(() => featureManager.IsEnabledAsync(A<string>._)).Returns(true);
+        A.CallTo(() => options.CurrentValue).Returns(new LightControlSkillOptions());
+        A.CallTo(() => cascadingResolver.Resolve(
+                A<string>._,
+                A<string?>._,
+                A<string?>._,
+                A<IReadOnlyList<string>>._,
+                A<string?>._,
+                A<CancellationToken>._))
+            .Returns(new CascadeResult
+            {
+                IsResolved = false,
+                BailReason = BailReason.NoMatch,
+                Explanation = "No deterministic match"
+            });
+        A.CallTo(() => locationService.SearchHierarchyAsync(
+                "Zach's light",
+                A<HybridMatchOptions?>._,
+                A<IReadOnlyList<string>?>._,
+                A<CancellationToken>._))
+            .Returns(new HierarchicalSearchResult
+            {
+                FloorMatches = [],
+                AreaMatches = [],
+                EntityMatches = [],
+                ResolvedEntities = [entity],
+                ResolutionStrategy = ResolutionStrategy.Entity,
+                ResolutionReason = "Embedding match"
+            });
+        A.CallTo(() => locationService.ExactMatchEntities(
+                "light.zacks_light",
+                A<IReadOnlyList<string>?>._))
+            .Returns([entity]);
+        A.CallTo(() => haClient.CallServiceAsync(
+                A<string>._,
+                A<string>._,
+                A<string?>._,
+                A<ServiceCallRequest?>._,
+                A<CancellationToken>._))
+            .Returns([]);
+
+        var skill = new LightControlSkill(
+            haClient,
+            A.Fake<ILogger<LightControlSkill>>(),
+            locationService,
+            options);
+        A.CallTo(() => _serviceProvider.GetService(typeof(LightControlSkill))).Returns(skill);
+
+        var executor = new DirectSkillExecutor(
+            _serviceProvider,
+            locationService,
+            cascadingResolver,
+            featureManager,
+            A.Fake<ILogger<DirectSkillExecutor>>());
+        var route = new CommandRouteResult
+        {
+            IsMatch = true,
+            Confidence = 0.95f,
+            NormalizedTranscript = "turn off zach's light",
+            MatchedPattern = new CommandPattern
+            {
+                Id = "light-toggle",
+                SkillId = "LightControlSkill",
+                Action = "toggle",
+                Templates = ["turn {action} {entity}"]
+            },
+            CapturedValues = new Dictionary<string, string>
+            {
+                ["action"] = "off",
+                ["entity"] = "Zach's light"
+            }
+        };
+
+        var result = await executor.ExecuteAsync(route, CreateContext());
+
+        Assert.True(result.Success, result.Error);
+        A.CallTo(() => haClient.CallServiceAsync(
+                "light",
+                "turn_off",
+                A<string?>._,
+                A<ServiceCallRequest?>._,
+                A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
+    }
+
+    [Fact]
     public async Task ExecuteAsync_UnsupportedSkillAction_ReturnsFailed()
     {
         // Arrange — route matches an unknown skill/action combo

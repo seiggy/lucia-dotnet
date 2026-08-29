@@ -2,6 +2,7 @@ using lucia.Agents.Configuration;
 using lucia.Agents.Configuration.UserConfiguration;
 using lucia.Agents.Providers;
 using lucia.Tests.TestDoubles;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -346,7 +347,25 @@ public sealed class ModelProviderResolverTests
             endpoint: "https://custom-endpoint.example.com/v1",
             model: "text-embedding-3-small");
         var generator = _resolver.CreateEmbeddingGenerator(provider);
-        Assert.NotNull(generator);
+        var metadata = Assert.IsType<EmbeddingGeneratorMetadata>(
+            generator.GetService(typeof(EmbeddingGeneratorMetadata)));
+
+        Assert.Equal(new Uri("https://custom-endpoint.example.com/v1"), metadata.ProviderUri);
+    }
+
+    [Fact]
+    public void CreateEmbeddingGenerator_LlamaCpp_AppendsOpenAiVersionPath()
+    {
+        var provider = MakeProvider(
+            ProviderType.LlamaCpp,
+            endpoint: "http://localhost:8000/",
+            model: "embed-qwen3",
+            apiKey: null);
+        var generator = _resolver.CreateEmbeddingGenerator(provider);
+        var metadata = Assert.IsType<EmbeddingGeneratorMetadata>(
+            generator.GetService(typeof(EmbeddingGeneratorMetadata)));
+
+        Assert.Equal(new Uri("http://localhost:8000/v1"), metadata.ProviderUri);
     }
 
     [Fact]

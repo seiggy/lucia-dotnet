@@ -14,6 +14,9 @@ public enum ProviderType
     /// <summary>OpenRouter API (OpenAI-compatible endpoint with OpenRouter model metadata).</summary>
     OpenRouter,
 
+    /// <summary>llama.cpp server using its OpenAI-compatible API.</summary>
+    LlamaCpp,
+
     /// <summary>Azure OpenAI Service.</summary>
     AzureOpenAI,
 

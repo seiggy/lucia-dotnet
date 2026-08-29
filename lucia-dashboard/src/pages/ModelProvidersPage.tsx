@@ -21,6 +21,7 @@ type FormMode = 'list' | 'create' | 'edit'
 const PROVIDER_TYPES: { value: ProviderType; label: string; hint: string }[] = [
   { value: 'OpenAI', label: 'OpenAI', hint: 'OpenAI API (default endpoint: https://api.openai.com/v1)' },
   { value: 'OpenRouter', label: 'OpenRouter', hint: 'OpenRouter API (recommended endpoint: https://openrouter.ai/api/v1)' },
+  { value: 'LlamaCpp', label: 'llama.cpp', hint: 'Local llama.cpp server (for example: http://localhost:8080)' },
   { value: 'AzureOpenAI', label: 'Azure OpenAI', hint: 'Azure-hosted OpenAI deployments' },
   { value: 'AzureAIInference', label: 'Azure AI Inference', hint: 'Azure AI model inference endpoint' },
   { value: 'Ollama', label: 'Ollama', hint: 'Local Ollama instance (default: http://localhost:11434)' },
@@ -37,7 +38,7 @@ const AUTH_TYPES = [
 ]
 
 function supportsOpenAiCompatibleModelDiscovery(providerType: ProviderType): boolean {
-  return providerType === 'OpenAI' || providerType === 'OpenRouter' || providerType === 'GoogleGemini'
+  return providerType === 'OpenAI' || providerType === 'OpenRouter' || providerType === 'LlamaCpp' || providerType === 'GoogleGemini'
 }
 
 function supportsModelDiscovery(providerType: ProviderType): boolean {
@@ -290,10 +291,11 @@ export default function ModelProvidersPage() {
   const handleLoadOpenAiModels = async () => {
     const auth = form.auth ?? { authType: 'api-key', apiKey: '', useDefaultCredentials: false }
     const endpoint = (form.endpoint ?? '').trim()
-    const providerType: ProviderType = form.providerType === 'OpenRouter'
-      ? 'OpenRouter'
-      : form.providerType === 'GoogleGemini'
-        ? 'GoogleGemini'
+    const providerType: ProviderType =
+      form.providerType === 'OpenRouter' ||
+      form.providerType === 'LlamaCpp' ||
+      form.providerType === 'GoogleGemini'
+        ? form.providerType
         : 'OpenAI'
 
     setOpenAiLoading(true)
@@ -576,6 +578,8 @@ export default function ModelProvidersPage() {
                       ? 'http://localhost:11434'
                       : form.providerType === 'OpenRouter'
                         ? 'https://openrouter.ai/api/v1'
+                        : form.providerType === 'LlamaCpp'
+                          ? 'http://localhost:8080'
                         : form.providerType === 'OpenAI'
                           ? 'Leave blank for api.openai.com, or set custom OpenAI-compatible endpoint'
                           : form.providerType === 'GoogleGemini'
@@ -659,6 +663,8 @@ export default function ModelProvidersPage() {
                       ? 'e.g. llama3.1:8b or use Load models'
                       : form.providerType === 'OpenRouter'
                         ? 'e.g. openai/gpt-4.1-mini or use Load models'
+                        : form.providerType === 'LlamaCpp'
+                          ? 'e.g. embed-qwen3 or use Load models'
                         : form.providerType === 'OpenAI'
                           ? 'e.g. gpt-4o or use Load models'
                           : form.providerType === 'GoogleGemini'

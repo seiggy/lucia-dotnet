@@ -181,6 +181,31 @@ public sealed class ProviderModelCatalogServiceTests
     }
 
     [Fact]
+    public async Task ListModelsAsync_LlamaCppRootEndpoint_UsesV1ModelsUrl()
+    {
+        HttpRequestMessage? capturedRequest = null;
+        var httpFactory = A.Fake<IHttpClientFactory>();
+        A.CallTo(() => httpFactory.CreateClient("ProviderModelCatalog"))
+            .Returns(new HttpClient(new FakeHttpMessageHandler(request =>
+            {
+                capturedRequest = request;
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{ "data": [] }""", Encoding.UTF8, "application/json")
+                };
+            })));
+
+        var service = new ProviderModelCatalogService(httpFactory, NullLogger<ProviderModelCatalogService>.Instance);
+        var provider = BuildProvider(ProviderType.LlamaCpp, endpoint: "http://localhost:8000/", apiKey: null);
+
+        var result = await service.ListModelsAsync(provider);
+
+        Assert.Null(result.Error);
+        Assert.NotNull(capturedRequest);
+        Assert.Equal("http://localhost:8000/v1/models", capturedRequest!.RequestUri!.ToString());
+    }
+
+    [Fact]
     public async Task ListModelsAsync_OpenAiCompatibleUnauthorized_ReturnsExplicitAuthError()
     {
         var httpFactory = A.Fake<IHttpClientFactory>();

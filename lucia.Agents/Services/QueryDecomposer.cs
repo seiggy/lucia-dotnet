@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using lucia.Agents.Models;
 
@@ -7,12 +8,13 @@ internal sealed partial class QueryDecomposer
 {
     private static readonly HashSet<string> ActionTokens = new(StringComparer.OrdinalIgnoreCase)
     {
-        "turn", "switch", "set", "toggle", "dim", "brighten", "increase", "decrease"
+        "turn", "switch", "set", "toggle", "dim", "brighten", "increase", "decrease", "make", "activate"
     };
 
     private static readonly HashSet<string> ActionValues = new(StringComparer.OrdinalIgnoreCase)
     {
-        "on", "off", "toggle", "dim", "brighten", "set", "increase", "decrease"
+        "on", "off", "toggle", "dim", "brighten", "set", "increase", "decrease",
+        "warmer", "cooler", "hotter", "colder", "activate"
     };
 
     private static readonly HashSet<string> DeviceTypeTokens = new(StringComparer.OrdinalIgnoreCase)
@@ -24,7 +26,7 @@ internal sealed partial class QueryDecomposer
 
     private static readonly HashSet<string> IgnoreTokens = new(StringComparer.OrdinalIgnoreCase)
     {
-        "the", "a", "an", "in", "on", "of", "to", "for", "please", "my"
+        "the", "a", "an", "in", "on", "of", "to", "for", "please", "my", "it"
     };
 
     private static readonly HashSet<string> ConjunctionTokens = new(StringComparer.OrdinalIgnoreCase)
@@ -197,6 +199,7 @@ internal sealed partial class QueryDecomposer
             .Where(t => !IgnoreTokens.Contains(t))
             .Where(t => explicitTokens.Length == 0 || !explicitTokens.Contains(t, StringComparer.OrdinalIgnoreCase))
             .Where(t => deviceType is null || !string.Equals(t, deviceType, StringComparison.OrdinalIgnoreCase))
+            .Where(t => !double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out _))
             .ToArray();
 
         if (remaining.Length > 0)
@@ -226,6 +229,9 @@ internal sealed partial class QueryDecomposer
         for (var i = start; i <= end && i < tokens.Count; i++)
         {
             var token = tokens[i];
+            if (string.Equals(token, "to", StringComparison.OrdinalIgnoreCase))
+                break;
+
             if (IgnoreTokens.Contains(token))
                 continue;
 
@@ -260,7 +266,7 @@ internal sealed partial class QueryDecomposer
             return string.Empty;
 
         var result = transcript.ToLowerInvariant().Trim();
-        result = Punctuation().Replace(result, "");
+        result = Punctuation().Replace(result, " ");
         result = MultipleSpaces().Replace(result, " ").Trim();
         return result;
     }

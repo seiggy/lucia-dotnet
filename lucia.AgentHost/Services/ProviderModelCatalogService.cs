@@ -44,6 +44,7 @@ public sealed class ProviderModelCatalogService
             ProviderType.Ollama => await ListOllamaModelsAsync(endpoint, ct).ConfigureAwait(false),
             ProviderType.OpenAI => await ListOpenAiCompatibleModelsAsync(endpoint, auth?.ApiKey, DefaultOpenAiEndpoint, ct).ConfigureAwait(false),
             ProviderType.OpenRouter => await ListOpenRouterModelsAsync(endpoint, auth?.ApiKey, ct).ConfigureAwait(false),
+            ProviderType.LlamaCpp => await ListOpenAiCompatibleModelsAsync(endpoint, auth?.ApiKey, string.Empty, ct).ConfigureAwait(false),
             ProviderType.GoogleGemini => await ListOpenAiCompatibleModelsAsync(endpoint, auth?.ApiKey, DefaultGeminiEndpoint, ct).ConfigureAwait(false),
             _ => new ProviderModelsResponse
             {
