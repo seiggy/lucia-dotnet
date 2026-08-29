@@ -272,7 +272,7 @@ public sealed class CascadingEntityResolverTests
             SetupLocationService(areas: [office], entities: entities));
 
         var result = resolver.Resolve(
-            "set the office to 75",
+            "set the office to 72.5",
             callerArea: null,
             speakerId: null,
             domains: ["climate"]);
@@ -307,19 +307,19 @@ public sealed class CascadingEntityResolverTests
     {
         var entities = new[]
         {
-            CreateEntity("scene.welcome_home", "Welcome to Home Scene", areaId: null)
+            CreateEntity("scene.welcome_2026", "Welcome to 2026 Scene", areaId: null)
         };
         var resolver = new CascadingEntityResolver(
             SetupLocationService(areas: [], entities: entities));
 
         var result = resolver.Resolve(
-            "activate welcome to home scene",
+            "activate welcome to 2026 scene",
             callerArea: null,
             speakerId: null,
             domains: ["scene"]);
 
         Assert.True(result.IsResolved, $"{result.BailReason}: {result.Explanation}");
-        Assert.Equal("scene.welcome_home", Assert.Single(result.ResolvedEntityIds));
+        Assert.Equal("scene.welcome_2026", Assert.Single(result.ResolvedEntityIds));
     }
 
     // ── Floor-level resolution ─────────────────────────────────

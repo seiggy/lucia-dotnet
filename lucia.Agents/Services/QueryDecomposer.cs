@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
+using lucia.Agents.Integration;
 using lucia.Agents.Models;
 
 namespace lucia.Agents.Services;
@@ -53,12 +54,13 @@ internal sealed partial class QueryDecomposer
 
         var action = ExtractAction(tokens);
         var deviceType = ExtractDeviceType(tokens);
-        var explicitLocation = ExtractExplicitLocation(tokens, deviceType);
+        var explicitLocation = ExtractExplicitLocation(tokens, action, deviceType);
 
         var (isComplex, complexityReason) = DetectComplexity(tokens, normalized);
 
         var candidateAreas = BuildCandidateAreas(explicitLocation, hasMy, speakerId);
-        var candidateEntities = BuildCandidateEntities(tokens, explicitLocation, deviceType, hasMy, speakerId);
+        var candidateEntities = BuildCandidateEntities(
+            tokens, action, explicitLocation, deviceType, hasMy, speakerId);
 
         return new QueryIntent
         {
@@ -104,7 +106,10 @@ internal sealed partial class QueryDecomposer
         return null;
     }
 
-    private static string? ExtractExplicitLocation(IReadOnlyList<string> tokens, string? deviceType)
+    private static string? ExtractExplicitLocation(
+        IReadOnlyList<string> tokens,
+        string? action,
+        string? deviceType)
     {
         if (tokens.Count == 0)
             return null;
@@ -120,12 +125,12 @@ internal sealed partial class QueryDecomposer
             if (start < tokens.Count && (tokens[start] is "the" or "my"))
                 start++;
 
-            return BuildPhrase(tokens, start, tokens.Count - 1, deviceType);
+            return BuildPhrase(tokens, start, tokens.Count - 1, action, deviceType);
         }
 
         if (deviceTypeIndex > 0)
         {
-            var phrase = BuildPhrase(tokens, 0, deviceTypeIndex - 1, deviceType);
+            var phrase = BuildPhrase(tokens, 0, deviceTypeIndex - 1, action, deviceType);
             if (!string.IsNullOrWhiteSpace(phrase))
                 return phrase;
         }
@@ -133,7 +138,7 @@ internal sealed partial class QueryDecomposer
         var myIndex = IndexOf(tokens, "my");
         if (myIndex >= 0 && myIndex < tokens.Count - 1)
         {
-            var phrase = BuildPhrase(tokens, myIndex + 1, tokens.Count - 1, deviceType);
+            var phrase = BuildPhrase(tokens, myIndex + 1, tokens.Count - 1, action, deviceType);
             if (!string.IsNullOrWhiteSpace(phrase))
                 return phrase;
         }
@@ -141,7 +146,7 @@ internal sealed partial class QueryDecomposer
         var theIndex = IndexOf(tokens, "the");
         if (theIndex >= 0 && theIndex < tokens.Count - 1)
         {
-            var phrase = BuildPhrase(tokens, theIndex + 1, tokens.Count - 1, deviceType);
+            var phrase = BuildPhrase(tokens, theIndex + 1, tokens.Count - 1, action, deviceType);
             if (!string.IsNullOrWhiteSpace(phrase))
                 return phrase;
         }
@@ -183,6 +188,7 @@ internal sealed partial class QueryDecomposer
 
     private static IReadOnlyList<string> BuildCandidateEntities(
         IReadOnlyList<string> tokens,
+        string? action,
         string? explicitLocation,
         string? deviceType,
         bool hasMy,
@@ -202,7 +208,7 @@ internal sealed partial class QueryDecomposer
                 || !explicitTokens.Contains(item.Token, StringComparer.OrdinalIgnoreCase))
             .Where(item => deviceType is null
                 || !string.Equals(item.Token, deviceType, StringComparison.OrdinalIgnoreCase))
-            .Where(item => !IsTargetValueToken(tokens, item.Index))
+            .Where(item => !IsTargetValueToken(tokens, item.Index, action))
             .Select(static item => item.Token)
             .ToArray();
 
@@ -224,7 +230,12 @@ internal sealed partial class QueryDecomposer
         return candidates;
     }
 
-    private static string? BuildPhrase(IReadOnlyList<string> tokens, int start, int end, string? deviceType)
+    private static string? BuildPhrase(
+        IReadOnlyList<string> tokens,
+        int start,
+        int end,
+        string? action,
+        string? deviceType)
     {
         if (start < 0 || end < start || start >= tokens.Count)
             return null;
@@ -235,7 +246,7 @@ internal sealed partial class QueryDecomposer
             var token = tokens[i];
             if (string.Equals(token, "to", StringComparison.OrdinalIgnoreCase))
             {
-                if (i < end && IsTargetValueToken(tokens, i + 1))
+                if (i < end && IsTargetValueToken(tokens, i + 1, action))
                 {
                     break;
                 }
@@ -261,8 +272,12 @@ internal sealed partial class QueryDecomposer
             : string.Join(' ', phraseTokens);
     }
 
-    private static bool IsTargetValueToken(IReadOnlyList<string> tokens, int index) =>
-        index > 0
+    private static bool IsTargetValueToken(
+        IReadOnlyList<string> tokens,
+        int index,
+        string? action) =>
+        action is "set" or "dim" or "brighten" or "increase" or "decrease"
+        && index > 0
         && string.Equals(tokens[index - 1], "to", StringComparison.OrdinalIgnoreCase)
         && double.TryParse(tokens[index], NumberStyles.Float, CultureInfo.InvariantCulture, out _);
 
@@ -283,7 +298,7 @@ internal sealed partial class QueryDecomposer
             return string.Empty;
 
         var result = transcript.ToLowerInvariant().Trim();
-        result = Punctuation().Replace(result, " ");
+        result = CommandTextNormalizer.NormalizePunctuation(result);
         result = MultipleSpaces().Replace(result, " ").Trim();
         return result;
     }
@@ -298,9 +313,6 @@ internal sealed partial class QueryDecomposer
 
     [GeneratedRegex(@"\s+")]
     private static partial Regex MultipleSpaces();
-
-    [GeneratedRegex(@"[^\w\s]")]
-    private static partial Regex Punctuation();
 
     [GeneratedRegex(@"\b(in|after|before)\s+\d+|\b\d+\s*(seconds?|minutes?|hours?)\b|\bat\s+\d+|\btomorrow\b|\btonight\b",
         RegexOptions.IgnoreCase,

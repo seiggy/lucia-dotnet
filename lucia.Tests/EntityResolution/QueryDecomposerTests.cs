@@ -42,9 +42,9 @@ public sealed class QueryDecomposerTests
     [Fact]
     public void Decompose_EntityNameContainingTo_PreservesFullName()
     {
-        var intent = QueryDecomposer.Decompose("activate welcome to home scene", speakerId: null);
+        var intent = QueryDecomposer.Decompose("activate welcome to 2026 scene", speakerId: null);
 
-        Assert.Equal("welcome to home", intent.ExplicitLocation);
+        Assert.Equal("welcome to 2026", intent.ExplicitLocation);
     }
 
     [Fact]
