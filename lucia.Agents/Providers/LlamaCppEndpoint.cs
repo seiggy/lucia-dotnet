@@ -22,8 +22,9 @@ public static class LlamaCppEndpoint
 
         var builder = new UriBuilder(uri);
         var path = builder.Path.TrimEnd('/');
-        if (!path.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
-            builder.Path = $"{path}/v1";
+        builder.Path = path.EndsWith("/v1", StringComparison.OrdinalIgnoreCase)
+            ? $"{path[..^3]}/v1"
+            : $"{path}/v1";
 
         normalizedEndpoint = builder.Uri;
         return true;

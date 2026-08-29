@@ -127,7 +127,7 @@ public sealed class ModelProviderResolverTests
     {
         var provider = MakeProvider(
             ProviderType.LlamaCpp,
-            endpoint: "http://localhost:8000/llama",
+            endpoint: "http://localhost:8000/llama/V1",
             model: "qwen3.5-9b",
             apiKey: "");
         using var client = _resolver.CreateClient(provider);
