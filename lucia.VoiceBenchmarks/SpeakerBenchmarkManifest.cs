@@ -82,7 +82,7 @@ public sealed class SpeakerBenchmarkManifest
         }
 
         var pathsInBothSplits = Clips
-            .GroupBy(static clip => clip.ResolvedPath, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(static clip => clip.ResolvedPath, FileSystemPathComparer.Instance)
             .Where(static group => group.Select(clip => clip.Split).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
             .Select(static group => group.Key);
         foreach (var path in pathsInBothSplits)

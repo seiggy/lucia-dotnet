@@ -47,7 +47,7 @@ public sealed class SpeakerBenchmarkRunner
                 SourceUri: modelSourceUris[index],
                 Threshold: modelThresholds[index],
                 ThresholdManifestPath: Path.GetFullPath(modelThresholdManifestPaths[index])))
-            .OrderBy(static model => model.Path, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(static model => model.Path, FileSystemPathComparer.Instance)
             .ToArray();
         _commandLine = commandLine;
     }
@@ -60,6 +60,28 @@ public sealed class SpeakerBenchmarkRunner
         {
             throw new InvalidOperationException(
                 $"Manifest validation failed: {string.Join("; ", validationErrors)}");
+        }
+
+        var evaluationManifestSha256 = ComputeSha256(manifest.ManifestPath);
+        foreach (var thresholdManifestPath in _models
+            .Select(static model => model.ThresholdManifestPath)
+            .Distinct(FileSystemPathComparer.Instance))
+        {
+            var thresholdManifest = SpeakerBenchmarkManifest.Load(thresholdManifestPath);
+            var thresholdValidationErrors = thresholdManifest.Validate();
+            if (thresholdValidationErrors.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    $"Threshold development manifest validation failed: {string.Join("; ", thresholdValidationErrors)}");
+            }
+            if (string.Equals(
+                ComputeSha256(thresholdManifest.ManifestPath),
+                evaluationManifestSha256,
+                StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "Threshold development manifest must differ from the evaluation manifest.");
+            }
         }
 
         var datasetClips = manifest.Clips
@@ -82,7 +104,7 @@ public sealed class SpeakerBenchmarkRunner
         var audioSamples = manifest.Clips.ToDictionary(
             static clip => clip.ResolvedPath,
             static clip => AudioWaveLoader.LoadMono16KhzFloatSamples(clip.ResolvedPath),
-            StringComparer.OrdinalIgnoreCase);
+            FileSystemPathComparer.Instance);
         var metrics = new List<SpeakerBenchmarkModelResult>();
         foreach (var model in _models)
         {
@@ -101,7 +123,7 @@ public sealed class SpeakerBenchmarkRunner
             GeneratedAtUtc = DateTimeOffset.UtcNow,
             CommandLine = _commandLine,
             ManifestPath = manifest.ManifestPath,
-            ManifestSha256 = ComputeSha256(manifest.ManifestPath),
+            ManifestSha256 = evaluationManifestSha256,
             OutputDirectory = _outputDirectory,
             OperatingSystem = RuntimeInformation.OSDescription,
             Runtime = RuntimeInformation.FrameworkDescription,

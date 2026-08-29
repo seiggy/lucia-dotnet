@@ -146,7 +146,7 @@ public sealed class VoiceBenchmarkCommandLineOptions
 
         var normalizedModelPaths = modelPaths
             .Where(static modelPath => !string.IsNullOrWhiteSpace(modelPath))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Distinct(FileSystemPathComparer.Instance)
             .ToArray();
         if (normalizedModelPaths.Length == 0)
         {

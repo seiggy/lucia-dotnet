@@ -115,4 +115,30 @@ public sealed class SpeakerBenchmarkManifestTests
 
         Assert.Contains(errors, error => error.Contains("more than once", StringComparison.OrdinalIgnoreCase));
     }
+
+    [Fact]
+    public void Validate_UsesHostFilesystemPathCaseSemantics()
+    {
+        var tempDirectory = Path.Combine(Path.GetTempPath(), $"voice-benchmark-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDirectory);
+        var manifestPath = Path.Combine(tempDirectory, "manifest.json");
+        File.WriteAllText(
+            manifestPath,
+            """
+            {
+              "clips": [
+                { "path": "A.wav", "speaker_id": "a", "split": "enroll" },
+                { "path": "a.wav", "speaker_id": "a", "split": "test" },
+                { "path": "b-enroll.wav", "speaker_id": "b", "split": "enroll" },
+                { "path": "b-test.wav", "speaker_id": "b", "split": "test" }
+              ]
+            }
+            """);
+
+        var errors = SpeakerBenchmarkManifest.Load(manifestPath).Validate();
+
+        Assert.Equal(
+            OperatingSystem.IsWindows(),
+            errors.Any(error => error.Contains("both enrollment and test", StringComparison.OrdinalIgnoreCase)));
+    }
 }
