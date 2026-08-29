@@ -154,7 +154,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
     private static IChatClient CreateLlamaCppClient(ModelProvider provider)
     {
         var client = new OpenAIClient(
-            new ApiKeyCredential(provider.Auth.ApiKey ?? "unused"),
+            new ApiKeyCredential(GetLlamaCppApiKey(provider.Auth.ApiKey)),
             new OpenAIClientOptions { Endpoint = LlamaCppEndpoint.Normalize(provider.Endpoint) });
         return client.GetChatClient(provider.ModelName).AsIChatClient();
     }
@@ -353,7 +353,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
     private static IEmbeddingGenerator<string, Embedding<float>> CreateLlamaCppEmbeddingGenerator(ModelProvider provider)
     {
         var client = new OpenAIClient(
-            new ApiKeyCredential(provider.Auth.ApiKey ?? "unused"),
+            new ApiKeyCredential(GetLlamaCppApiKey(provider.Auth.ApiKey)),
             new OpenAIClientOptions { Endpoint = LlamaCppEndpoint.Normalize(provider.Endpoint) });
         return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator()
             .AsBuilder()
@@ -361,6 +361,9 @@ public sealed class ModelProviderResolver : IModelProviderResolver
                 cfg.EnableSensitiveData = true)
             .Build();
     }
+
+    private static string GetLlamaCppApiKey(string? apiKey) =>
+        string.IsNullOrWhiteSpace(apiKey) ? "unused" : apiKey;
 
     private static IEmbeddingGenerator<string, Embedding<float>> CreateAzureOpenAIEmbeddingGenerator(ModelProvider provider)
     {

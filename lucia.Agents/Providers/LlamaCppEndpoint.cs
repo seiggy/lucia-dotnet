@@ -4,14 +4,28 @@ public static class LlamaCppEndpoint
 {
     public static Uri Normalize(string? endpoint)
     {
-        if (string.IsNullOrWhiteSpace(endpoint))
-            throw new InvalidOperationException("llama.cpp provider requires an endpoint URL");
+        if (!TryNormalize(endpoint, out var normalizedEndpoint)
+            || normalizedEndpoint is null)
+            throw new InvalidOperationException("llama.cpp provider requires a valid HTTP or HTTPS endpoint URL");
 
-        var builder = new UriBuilder(endpoint);
+        return normalizedEndpoint;
+    }
+
+    public static bool TryNormalize(string? endpoint, out Uri? normalizedEndpoint)
+    {
+        normalizedEndpoint = null;
+        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            return false;
+        }
+
+        var builder = new UriBuilder(uri);
         var path = builder.Path.TrimEnd('/');
         if (!path.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
             builder.Path = $"{path}/v1";
 
-        return builder.Uri;
+        normalizedEndpoint = builder.Uri;
+        return true;
     }
 }

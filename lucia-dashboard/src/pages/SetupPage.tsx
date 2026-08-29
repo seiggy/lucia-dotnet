@@ -736,6 +736,7 @@ function AiProviderStep({ onComplete }: { onComplete: () => void }) {
               onChange={value => {
                 setProviderType(value as ProviderType)
                 setEndpoint('')
+                setApiKey('')
                 setUseDefaultCreds(false)
               }}
               className="w-full"

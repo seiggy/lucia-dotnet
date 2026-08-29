@@ -20,9 +20,8 @@ namespace lucia.AgentHost.Conversation.Execution;
 
 /// <summary>
 /// Executes matched command routes by calling skill methods directly, bypassing LLM processing.
-/// Entity resolution uses exact-match lookups against the in-memory cache only.
-/// If the cache is not loaded or no exact match is found, execution bails immediately
-/// so the orchestrator can handle the request via LLM.
+/// Entity resolution starts with deterministic cache matching and retries no-match results
+/// through the configured embedding matcher before deferring to LLM orchestration.
 /// </summary>
 public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
 {

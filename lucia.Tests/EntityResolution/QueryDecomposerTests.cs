@@ -39,6 +39,14 @@ public sealed class QueryDecomposerTests
         Assert.Null(intent.ComplexityReason);
     }
 
+    [Fact]
+    public void Decompose_EntityNameContainingTo_PreservesFullName()
+    {
+        var intent = QueryDecomposer.Decompose("activate welcome to home scene", speakerId: null);
+
+        Assert.Equal("welcome to home", intent.ExplicitLocation);
+    }
+
     // ── Complexity detection: temporal ──────────────────────────
 
     [Fact]

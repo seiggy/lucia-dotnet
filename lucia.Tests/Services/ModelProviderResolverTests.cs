@@ -121,7 +121,7 @@ public sealed class ModelProviderResolverTests
             ProviderType.LlamaCpp,
             endpoint: "http://localhost:8000/llama",
             model: "qwen3.5-9b",
-            apiKey: null);
+            apiKey: "");
         using var client = _resolver.CreateClient(provider);
         var metadata = Assert.IsType<ChatClientMetadata>(
             client.GetService(typeof(ChatClientMetadata)));
@@ -379,7 +379,7 @@ public sealed class ModelProviderResolverTests
             ProviderType.LlamaCpp,
             endpoint: "http://localhost:8000/",
             model: "embed-qwen3",
-            apiKey: null);
+            apiKey: "");
         var generator = _resolver.CreateEmbeddingGenerator(provider);
         var metadata = Assert.IsType<EmbeddingGeneratorMetadata>(
             generator.GetService(typeof(EmbeddingGeneratorMetadata)));

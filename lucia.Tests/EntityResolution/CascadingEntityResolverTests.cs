@@ -307,19 +307,19 @@ public sealed class CascadingEntityResolverTests
     {
         var entities = new[]
         {
-            CreateEntity("scene.movie", "Movie Scene", areaId: null)
+            CreateEntity("scene.welcome_home", "Welcome to Home Scene", areaId: null)
         };
         var resolver = new CascadingEntityResolver(
             SetupLocationService(areas: [], entities: entities));
 
         var result = resolver.Resolve(
-            "activate the movie scene",
+            "activate welcome to home scene",
             callerArea: null,
             speakerId: null,
             domains: ["scene"]);
 
         Assert.True(result.IsResolved, $"{result.BailReason}: {result.Explanation}");
-        Assert.Equal("scene.movie", Assert.Single(result.ResolvedEntityIds));
+        Assert.Equal("scene.welcome_home", Assert.Single(result.ResolvedEntityIds));
     }
 
     // ── Floor-level resolution ─────────────────────────────────

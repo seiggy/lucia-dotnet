@@ -230,7 +230,16 @@ internal sealed partial class QueryDecomposer
         {
             var token = tokens[i];
             if (string.Equals(token, "to", StringComparison.OrdinalIgnoreCase))
-                break;
+            {
+                if (i < end
+                    && double.TryParse(tokens[i + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+                {
+                    break;
+                }
+
+                phraseTokens.Add(token);
+                continue;
+            }
 
             if (IgnoreTokens.Contains(token))
                 continue;
