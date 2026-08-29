@@ -26,7 +26,7 @@ public static class CommandTextNormalizer
             var isNumericSign = character is '-' or '+'
                 && index < value.Length - 1
                 && char.IsDigit(value[index + 1])
-                && (index == 0 || char.IsWhiteSpace(value[index - 1]));
+                && (result.Length == 0 || char.IsWhiteSpace(result[^1]));
 
             result.Append(isDecimalPoint || isNumericSign ? character : ' ');
         }
