@@ -155,7 +155,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
     {
         var client = new OpenAIClient(
             new ApiKeyCredential(provider.Auth.ApiKey ?? "unused"),
-            CreateLlamaCppOptions(provider.Endpoint));
+            new OpenAIClientOptions { Endpoint = LlamaCppEndpoint.Normalize(provider.Endpoint) });
         return client.GetChatClient(provider.ModelName).AsIChatClient();
     }
 
@@ -169,19 +169,6 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         }
 
         return options;
-    }
-
-    private static OpenAIClientOptions CreateLlamaCppOptions(string? endpoint)
-    {
-        if (string.IsNullOrWhiteSpace(endpoint))
-            throw new InvalidOperationException("llama.cpp provider requires an endpoint URL");
-
-        var builder = new UriBuilder(endpoint);
-        var path = builder.Path.TrimEnd('/');
-        if (!path.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
-            builder.Path = $"{path}/v1";
-
-        return new OpenAIClientOptions { Endpoint = builder.Uri };
     }
 
     private static IChatClient CreateAzureOpenAIClient(ModelProvider provider)
@@ -367,7 +354,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
     {
         var client = new OpenAIClient(
             new ApiKeyCredential(provider.Auth.ApiKey ?? "unused"),
-            CreateLlamaCppOptions(provider.Endpoint));
+            new OpenAIClientOptions { Endpoint = LlamaCppEndpoint.Normalize(provider.Endpoint) });
         return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator()
             .AsBuilder()
             .UseOpenTelemetry(sourceName: "lucia", configure: cfg =>

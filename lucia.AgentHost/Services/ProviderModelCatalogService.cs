@@ -4,6 +4,7 @@ using System.Text.Json;
 using lucia.AgentHost.Models;
 using lucia.Agents.Configuration;
 using lucia.Agents.Configuration.UserConfiguration;
+using lucia.Agents.Providers;
 
 namespace lucia.AgentHost.Services;
 
@@ -44,7 +45,13 @@ public sealed class ProviderModelCatalogService
             ProviderType.Ollama => await ListOllamaModelsAsync(endpoint, ct).ConfigureAwait(false),
             ProviderType.OpenAI => await ListOpenAiCompatibleModelsAsync(endpoint, auth?.ApiKey, DefaultOpenAiEndpoint, ct).ConfigureAwait(false),
             ProviderType.OpenRouter => await ListOpenRouterModelsAsync(endpoint, auth?.ApiKey, ct).ConfigureAwait(false),
-            ProviderType.LlamaCpp => await ListOpenAiCompatibleModelsAsync(endpoint, auth?.ApiKey, string.Empty, ct).ConfigureAwait(false),
+            ProviderType.LlamaCpp => string.IsNullOrWhiteSpace(endpoint)
+                ? new ProviderModelsResponse { Error = "llama.cpp provider requires an endpoint URL." }
+                : await ListOpenAiCompatibleModelsAsync(
+                    LlamaCppEndpoint.Normalize(endpoint).ToString(),
+                    auth?.ApiKey,
+                    string.Empty,
+                    ct).ConfigureAwait(false),
             ProviderType.GoogleGemini => await ListOpenAiCompatibleModelsAsync(endpoint, auth?.ApiKey, DefaultGeminiEndpoint, ct).ConfigureAwait(false),
             _ => new ProviderModelsResponse
             {

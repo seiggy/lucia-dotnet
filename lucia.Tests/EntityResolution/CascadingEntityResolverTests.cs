@@ -241,6 +241,26 @@ public sealed class CascadingEntityResolverTests
     }
 
     [Fact]
+    public void Resolve_TurnOffNamedEntityWithoutDeviceType_MatchesEntity()
+    {
+        var entities = new[]
+        {
+            CreateEntity("light.chandelier", "Chandelier", areaId: null)
+        };
+        var resolver = new CascadingEntityResolver(
+            SetupLocationService(areas: [], entities: entities));
+
+        var result = resolver.Resolve(
+            "turn off the chandelier",
+            callerArea: null,
+            speakerId: null,
+            domains: ["light", "switch"]);
+
+        Assert.True(result.IsResolved, $"{result.BailReason}: {result.Explanation}");
+        Assert.Equal("light.chandelier", Assert.Single(result.ResolvedEntityIds));
+    }
+
+    [Fact]
     public void Resolve_SetOfficeTemperature_IgnoresTargetValueWhenGroundingArea()
     {
         var office = CreateArea("office", "Office");

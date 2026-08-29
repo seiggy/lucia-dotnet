@@ -112,6 +112,25 @@ public sealed class ModelProviderResolverTests
 
     #endregion
 
+    #region llama.cpp
+
+    [Fact]
+    public void CreateClient_LlamaCpp_WithoutApiKey_NormalizesEndpoint()
+    {
+        var provider = MakeProvider(
+            ProviderType.LlamaCpp,
+            endpoint: "http://localhost:8000/llama",
+            model: "qwen3.5-9b",
+            apiKey: null);
+        using var client = _resolver.CreateClient(provider);
+        var metadata = Assert.IsType<ChatClientMetadata>(
+            client.GetService(typeof(ChatClientMetadata)));
+
+        Assert.Equal(new Uri("http://localhost:8000/llama/v1"), metadata.ProviderUri);
+    }
+
+    #endregion
+
     #region Azure OpenAI
 
     [Fact]

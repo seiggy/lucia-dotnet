@@ -470,6 +470,7 @@ function LuciaHaStep({
 const PROVIDER_TYPES: { value: ProviderType; label: string; placeholder: string }[] = [
   { value: 'OpenAI', label: 'OpenAI', placeholder: 'gpt-4o' },
   { value: 'OpenRouter', label: 'OpenRouter', placeholder: 'openai/gpt-4.1-mini' },
+  { value: 'LlamaCpp', label: 'llama.cpp (local)', placeholder: 'qwen3.5-9b' },
   { value: 'Anthropic', label: 'Anthropic', placeholder: 'claude-sonnet-4-20250514' },
   { value: 'GoogleGemini', label: 'Google Gemini', placeholder: 'gemini-2.0-flash' },
   { value: 'Ollama', label: 'Ollama (local)', placeholder: 'llama3.2:3b' },
@@ -511,7 +512,9 @@ function AiProviderStep({ onComplete }: { onComplete: () => void }) {
   useEffect(() => { refreshProviders() }, [refreshProviders])
 
   const isAzure = providerType === 'AzureOpenAI' || providerType === 'AzureAIInference'
-  const needsApiKey = providerType !== 'Ollama' && !useDefaultCreds
+  const isLlamaCpp = providerType === 'LlamaCpp'
+  const needsEndpoint = isAzure || isLlamaCpp
+  const needsApiKey = providerType !== 'Ollama' && !isLlamaCpp && !useDefaultCreds
   const hasChatProvider = providers.some(p => p.purpose === 'Chat' && Boolean(p.modelName?.trim()))
 
   async function handleCreate() {
@@ -523,7 +526,7 @@ function AiProviderStep({ onComplete }: { onComplete: () => void }) {
       const providerLabel = PROVIDER_TYPES.find(p => p.value === providerType)?.label ?? providerType
       const auth: ModelAuthConfig = useDefaultCreds
         ? { authType: 'default-credential', useDefaultCredentials: true }
-        : needsApiKey
+        : needsApiKey || Boolean(apiKey.trim())
           ? { authType: 'api-key', apiKey, useDefaultCredentials: false }
           : { authType: 'none', useDefaultCredentials: false }
 
@@ -750,7 +753,9 @@ function AiProviderStep({ onComplete }: { onComplete: () => void }) {
               Endpoint URL
               {isAzure
                 ? <span className="text-dust"> (required — your Azure OpenAI resource URL)</span>
-                : <span className="text-dust"> (optional{providerType === 'Ollama' ? ', default: http://localhost:11434' : ''})</span>
+                : isLlamaCpp
+                  ? <span className="text-dust"> (required)</span>
+                  : <span className="text-dust"> (optional{providerType === 'Ollama' ? ', default: http://localhost:11434' : ''})</span>
               }
             </label>
             <input
@@ -764,6 +769,8 @@ function AiProviderStep({ onComplete }: { onComplete: () => void }) {
                     ? 'http://localhost:11434'
                     : providerType === 'OpenRouter'
                       ? 'https://openrouter.ai/api/v1'
+                      : isLlamaCpp
+                        ? 'http://localhost:8080'
                       : 'Leave blank for default'
               }
               className={inputStyle}
@@ -786,9 +793,11 @@ function AiProviderStep({ onComplete }: { onComplete: () => void }) {
           )}
 
           {/* API Key */}
-          {needsApiKey && (
+          {(needsApiKey || isLlamaCpp) && (
             <div>
-              <label className="mb-1 block text-sm text-fog">API Key</label>
+              <label className="mb-1 block text-sm text-fog">
+                API Key{isLlamaCpp && <span className="text-dust"> (optional)</span>}
+              </label>
               <input
                 type="password"
                 value={apiKey}
@@ -802,7 +811,7 @@ function AiProviderStep({ onComplete }: { onComplete: () => void }) {
           <div className="flex gap-2 pt-1">
             <button
               onClick={handleCreate}
-              disabled={busy || (needsApiKey && !apiKey) || (isAzure && !endpoint)}
+              disabled={busy || (needsApiKey && !apiKey) || (needsEndpoint && !endpoint.trim())}
               className={btnPrimary}
             >
               {busy ? 'Saving...' : 'Save Connection'}

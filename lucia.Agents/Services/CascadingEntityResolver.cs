@@ -99,12 +99,14 @@ public sealed class CascadingEntityResolver : ICascadingEntityResolver
 
         var candidateNames = intent.CandidateEntityNames;
         if (grounded is null
-            && intent.ExplicitLocation is not null
-            && intent.DeviceType is not null)
+            && intent.ExplicitLocation is not null)
         {
+            var candidateName = intent.DeviceType is null
+                ? intent.ExplicitLocation
+                : $"{intent.ExplicitLocation} {intent.DeviceType}";
             candidateNames =
             [
-                $"{intent.ExplicitLocation} {intent.DeviceType}",
+                candidateName,
                 .. candidateNames,
             ];
         }

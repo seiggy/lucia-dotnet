@@ -170,6 +170,10 @@ export default function ModelProvidersPage() {
   const handleSave = async () => {
     try {
       setError(null)
+      if (form.providerType === 'LlamaCpp' && !form.endpoint?.trim()) {
+        setError('llama.cpp requires an endpoint URL')
+        return
+      }
 
       // For Copilot providers, store the selected model metadata
       if (form.providerType === 'GitHubCopilot' && selectedCopilotModel) {
@@ -428,6 +432,8 @@ export default function ModelProvidersPage() {
                   // Reset Copilot-specific fields when switching away
                   ...(newType === 'GitHubCopilot'
                     ? { auth: { authType: 'api-key', apiKey: '', useDefaultCredentials: false }, endpoint: '', modelName: '' }
+                    : newType === 'LlamaCpp'
+                      ? { auth: { authType: 'none', apiKey: '', useDefaultCredentials: false } }
                     : {}),
                 }))
                 if (newType !== 'GitHubCopilot') resetCopilotState()
@@ -568,6 +574,7 @@ export default function ModelProvidersPage() {
                 <label className="mb-1 block text-sm text-fog">
                   Endpoint URL
                   {form.providerType === 'Ollama' && <span className="text-dust"> (default: http://localhost:11434)</span>}
+                  {form.providerType === 'LlamaCpp' && <span className="text-dust"> (required)</span>}
                 </label>
                 <input
                   type="text"
@@ -664,7 +671,9 @@ export default function ModelProvidersPage() {
                       : form.providerType === 'OpenRouter'
                         ? 'e.g. openai/gpt-4.1-mini or use Load models'
                         : form.providerType === 'LlamaCpp'
-                          ? 'e.g. embed-qwen3 or use Load models'
+                          ? form.purpose === 'Embedding'
+                            ? 'e.g. embed-qwen3 or use Load models'
+                            : 'e.g. qwen3.5-9b or use Load models'
                         : form.providerType === 'OpenAI'
                           ? 'e.g. gpt-4o or use Load models'
                           : form.providerType === 'GoogleGemini'
@@ -738,7 +747,10 @@ export default function ModelProvidersPage() {
           <div className="flex gap-3 pt-2">
             <button
               onClick={handleSave}
-              disabled={form.providerType === 'GitHubCopilot' && !selectedCopilotModel && mode === 'create'}
+              disabled={
+                (form.providerType === 'GitHubCopilot' && !selectedCopilotModel && mode === 'create') ||
+                (form.providerType === 'LlamaCpp' && !form.endpoint?.trim())
+              }
               className="rounded bg-amber px-4 py-2 text-sm font-medium text-on-accent hover:bg-amber-glow disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {mode === 'create' ? 'Create Provider' : 'Save Changes'}

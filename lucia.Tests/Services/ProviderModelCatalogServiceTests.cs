@@ -180,8 +180,12 @@ public sealed class ProviderModelCatalogServiceTests
         Assert.Equal("https://api.openai.com/v1/models", capturedRequest!.RequestUri!.ToString());
     }
 
-    [Fact]
-    public async Task ListModelsAsync_LlamaCppRootEndpoint_UsesV1ModelsUrl()
+    [Theory]
+    [InlineData("http://localhost:8000/", "http://localhost:8000/v1/models")]
+    [InlineData("http://localhost:8000/llama", "http://localhost:8000/llama/v1/models")]
+    public async Task ListModelsAsync_LlamaCppEndpoint_UsesV1ModelsUrl(
+        string endpoint,
+        string expectedModelsEndpoint)
     {
         HttpRequestMessage? capturedRequest = null;
         var httpFactory = A.Fake<IHttpClientFactory>();
@@ -196,13 +200,13 @@ public sealed class ProviderModelCatalogServiceTests
             })));
 
         var service = new ProviderModelCatalogService(httpFactory, NullLogger<ProviderModelCatalogService>.Instance);
-        var provider = BuildProvider(ProviderType.LlamaCpp, endpoint: "http://localhost:8000/", apiKey: null);
+        var provider = BuildProvider(ProviderType.LlamaCpp, endpoint: endpoint, apiKey: null);
 
         var result = await service.ListModelsAsync(provider);
 
         Assert.Null(result.Error);
         Assert.NotNull(capturedRequest);
-        Assert.Equal("http://localhost:8000/v1/models", capturedRequest!.RequestUri!.ToString());
+        Assert.Equal(expectedModelsEndpoint, capturedRequest!.RequestUri!.ToString());
     }
 
     [Fact]
