@@ -101,7 +101,12 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IDiarizationEngine, SherpaDiarizationEngine>();
         builder.Services.AddSingleton<ISpeechEnhancer, GtcrnSpeechEnhancer>();
         builder.Services.AddSingleton<AudioClipService>();
+        builder.Services.AddSingleton<SpeakerProfileDeletionService>();
+        builder.Services.AddSingleton<IHostedService>(
+            sp => sp.GetRequiredService<SpeakerProfileDeletionService>());
         builder.Services.AddSingleton<ProfileMergeService>();
+        builder.Services.AddSingleton<IHostedService>(
+            sp => sp.GetRequiredService<ProfileMergeService>());
 
         // Determine data provider mode from configuration
         var storeProvider = builder.Configuration["DataProvider:Store"] ?? "MongoDB";
@@ -144,6 +149,8 @@ public static class ServiceCollectionExtensions
 
         builder.Services.AddSingleton<AudioQualityAnalyzer>();
         builder.Services.AddSingleton<VoiceOnboardingService>();
+        builder.Services.AddSingleton<IHostedService>(
+            sp => sp.GetRequiredService<VoiceOnboardingService>());
 
         builder.Services.AddSingleton<WakeWordTokenizer>();
         builder.Services.AddSingleton<IWakeWordStore, InMemoryWakeWordStore>();

@@ -268,6 +268,23 @@ public sealed class SpeakerVerificationComponentTests
     }
 
     [Fact]
+    public void Filter_IgnoreEnabled_BlocksUnauthorizedSpeaker()
+    {
+        var filter = CreateSpeakerVerificationFilter(ignoreUnknownVoices: true);
+
+        var shouldProcess = filter.ShouldProcessCommand(
+            new SpeakerIdentification
+            {
+                ProfileId = "blocked",
+                Name = "Blocked",
+                Similarity = 0.91f,
+                IsAuthorized = false,
+            });
+
+        Assert.False(shouldProcess);
+    }
+
+    [Fact]
     public void Quality_LoudEnoughAudio_IsAcceptable()
     {
         var analyzer = CreateAudioQualityAnalyzer(minSampleDurationMs: 250);

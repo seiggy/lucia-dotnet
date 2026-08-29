@@ -252,11 +252,11 @@ EOF
 RUN sed -i 's/\r$//' /usr/local/bin/fetch \
  && chmod +x /usr/local/bin/fetch
 
-# --- STT: Parakeet-TDT-0.6b-v2 int8 (offline, primary HybridStt model) ----------------
+# --- STT: Parakeet-TDT-0.6b-v3 int8 (offline, primary HybridStt model) ----------------
 RUN mkdir -p /assets/models/stt \
- && fetch "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2" \
+ && fetch "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2" \
           /tmp/parakeet.tar.bz2 \
-          157c157bc51155e03e37d2466522a3a737dd9c72bb25f36eb18912964161e1ad \
+          5793d0fd397c5778d2cf2126994d58e9d56b1be7c04d13c7a15bb1b4eafb16bf \
  && tar -xjf /tmp/parakeet.tar.bz2 -C /assets/models/stt && rm /tmp/parakeet.tar.bz2
 
 # --- STT: streaming Zipformer (partials for HybridStt) --------------------------------
@@ -408,7 +408,7 @@ COPY --from=busybox:1.36.1-musl@sha256:3c6ae8008e2c2eedd141725c30b20d9c36b026eb7
 RUN useradd -m -u 1100 appuser \
  && mkdir -p /app/models/stt /app/models/vad /app/models/kws \
              /app/models/speaker-embedding /app/models/speech-enhancement \
-             /app/plugins /app/runtimes/linux-arm64/native \
+             /app/data/voice-clips /app/plugins /app/runtimes/linux-arm64/native \
  && chown -R appuser:appuser /app
 
 # .NET publish output (managed ORT 1.23.2 + CPU-only native ORT/sherpa from NuGet).
@@ -468,7 +468,7 @@ RUN { \
       echo 'need_onnx() { ls "$1"/*.onnx >/dev/null 2>&1 || { echo "FATAL: $2 not ready: $1" >&2; MISSING=1; }; }'; \
       echo 'N=/app/runtimes/linux-arm64/native'; \
       echo '# --- Models: every configured pipeline component ---'; \
-      echo 'need_onnx /app/models/stt/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8 "Parakeet-TDT-v2 (offline STT)"'; \
+      echo 'need_onnx /app/models/stt/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8 "Parakeet-TDT-v3 (offline STT)"'; \
       echo 'need_onnx /app/models/stt/sherpa-onnx-streaming-zipformer-en-2023-06-26 "Streaming-STT/Zipformer"'; \
       echo 'need_file /app/models/vad/silero_vad_v5/silero_vad_v5.onnx "Silero-VAD-v5"'; \
       echo 'need_onnx /app/models/kws/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01 "KWS/Zipformer"'; \
@@ -483,6 +483,8 @@ RUN { \
       echo 'exec dotnet lucia.AgentHost.dll "$@"'; \
     } > /app/entrypoint.sh \
  && chmod +x /app/entrypoint.sh && chown appuser:appuser /app/entrypoint.sh
+
+VOLUME ["/app/data"]
 
 USER appuser
 

@@ -28,22 +28,125 @@ permissions:
   pull-requests: write
   security-events: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.event_name == 'pull_request' && github.event.pull_request.number || github.ref_name }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_run' && github.ref_type != 'tag' }}
+
 env:
   ASSET_IMAGE: ghcr.io/${{ github.repository }}/build-assets
 
 jobs:
+  detect-asset-changes:
+    name: Detect asset changes
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.changes.outputs.changed }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Detect asset changes across push
+        id: changes
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          changed=false
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref_type }}" == "branch" ]]; then
+            if [[ "$BEFORE_SHA" == "0000000000000000000000000000000000000000" ]]; then
+              range="$CURRENT_SHA^"
+            else
+              range="$BEFORE_SHA"
+            fi
+            if git diff --name-only "$range" "$CURRENT_SHA" |
+              grep -qxE 'infra/docker/(asset\.lock|Dockerfile\.assets)'; then
+              changed=true
+            fi
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
+  prepare-assets:
+    name: Prepare build assets
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    outputs:
+      image_ref: ${{ steps.resolve-asset.outputs.image_ref }}
+    env:
+      CAN_PUSH_ASSETS: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Compute asset image reference
+        id: asset-hash
+        run: |
+          HASH=$(cat infra/docker/asset.lock infra/docker/Dockerfile.assets | sha256sum | cut -c1-12)
+          echo "image_ref=${{ env.ASSET_IMAGE }}:sha-$HASH" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        if: env.CAN_PUSH_ASSETS == 'true'
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for asset image
+        id: asset-image
+        run: |
+          if docker manifest inspect "${{ steps.asset-hash.outputs.image_ref }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Docker Buildx
+        if: steps.asset-image.outputs.exists != 'true' && env.CAN_PUSH_ASSETS == 'true'
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+
+      - name: Build and push missing asset image
+        if: steps.asset-image.outputs.exists != 'true' && env.CAN_PUSH_ASSETS == 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: infra/docker/Dockerfile.assets
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.asset-hash.outputs.image_ref }}
+          cache-from: type=gha,scope=build-assets
+          cache-to: type=gha,scope=build-assets,mode=max
+
+      - name: Resolve asset image
+        id: resolve-asset
+        run: |
+          if [[ "${{ steps.asset-image.outputs.exists }}" == "true" || "$CAN_PUSH_ASSETS" == "true" ]]; then
+            echo "image_ref=${{ steps.asset-hash.outputs.image_ref }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::The exact asset image is missing and fork pull requests cannot publish packages."
+            exit 1
+          fi
+
   # ==========================================================================
   # Build all platform images using a matrix strategy
   # ==========================================================================
   build-and-push:
     name: Build ${{ matrix.image }}
     runs-on: ubuntu-latest
+    needs: [detect-asset-changes, prepare-assets]
     # When triggered by workflow_run (asset build finished), only proceed if it succeeded.
     # When triggered by push that changes asset.lock, skip — the workflow_run trigger
     # will pick it up after the asset image is ready.
     if: |
+      always() &&
+      needs.detect-asset-changes.result == 'success' &&
+      (needs.prepare-assets.result == 'success' || needs.prepare-assets.result == 'skipped') &&
       (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') &&
-      !(github.event_name == 'push' && contains(github.event.head_commit.modified, 'infra/docker/asset.lock'))
+      needs.detect-asset-changes.outputs.changed != 'true'
     strategy:
       fail-fast: true
       matrix:
@@ -85,13 +188,20 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Compute asset.lock hash
         id: asset-hash
         run: |
-          HASH=$(sha256sum infra/docker/asset.lock | cut -c1-12)
+          HASH=$(cat infra/docker/asset.lock infra/docker/Dockerfile.assets | sha256sum | cut -c1-12)
           echo "hash=$HASH" >> "$GITHUB_OUTPUT"
-          echo "Asset image tag: sha-$HASH"
+
+      - name: Resolve effective build reference
+        id: build-ref
+        env:
+          EFFECTIVE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          echo "short_sha=${EFFECTIVE_SHA:0:7}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
@@ -99,6 +209,21 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Wait for exact asset image
+        if: github.event_name != 'pull_request'
+        timeout-minutes: 15
+        env:
+          ASSET_REF: ${{ env.ASSET_IMAGE }}:sha-${{ steps.asset-hash.outputs.hash }}
+        run: |
+          for attempt in {1..90}; do
+            if docker manifest inspect "$ASSET_REF" >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Asset image $ASSET_REF was not published within 15 minutes."
+          exit 1
 
       - name: Log in to Docker Hub
         if: github.event_name != 'pull_request'
@@ -139,12 +264,10 @@ jobs:
           tags: |
             type=semver,pattern={{version}},suffix=${{ matrix.tag_suffix }}
             type=semver,pattern={{major}}.{{minor}},suffix=${{ matrix.tag_suffix }},enable=${{ github.ref_type == 'tag' && steps.preview.outputs.is_preview != 'true' }}
-            type=raw,value=latest,enable=${{ matrix.tag_suffix == '' && github.event_name != 'pull_request' && steps.preview.outputs.is_preview != 'true' && (github.ref_type == 'tag' || github.ref == 'refs/heads/master') }}
-            type=raw,value=voice,enable=${{ matrix.tag_suffix == '-voice' && github.event_name != 'pull_request' && steps.preview.outputs.is_preview != 'true' && (github.ref_type == 'tag' || github.ref == 'refs/heads/master') }}
-            type=raw,value=ha-mono,enable=${{ matrix.tag_suffix == '-ha-mono' && github.event_name != 'pull_request' && steps.preview.outputs.is_preview != 'true' && (github.ref_type == 'tag' || github.ref == 'refs/heads/master') }}
-            type=ref,event=branch,suffix=${{ matrix.tag_suffix }}
+            type=ref,event=branch,suffix=${{ matrix.tag_suffix }},enable=${{ github.event_name != 'workflow_run' }}
             type=ref,event=pr,suffix=${{ matrix.tag_suffix }}
-            type=sha,prefix=sha-,suffix=${{ matrix.tag_suffix }}
+            type=sha,prefix=sha-,suffix=${{ matrix.tag_suffix }},enable=${{ github.event_name != 'workflow_run' }}
+            type=raw,value=sha-${{ steps.build-ref.outputs.short_sha }}${{ matrix.tag_suffix }},enable=${{ github.event_name == 'workflow_run' }}
             type=raw,value=${{ steps.preview.outputs.version_tag }}${{ matrix.tag_suffix }},enable=${{ github.event_name == 'workflow_dispatch' && steps.preview.outputs.is_preview == 'true' && steps.preview.outputs.version_tag != '' }}
           labels: |
             org.opencontainers.image.title=${{ matrix.title }}
@@ -169,13 +292,75 @@ jobs:
           provenance: mode=min
           sbom: true
           build-args: |
-            ASSET_IMAGE=${{ env.ASSET_IMAGE }}:sha-${{ steps.asset-hash.outputs.hash }}
+            ASSET_IMAGE=${{ github.event_name == 'pull_request' && needs.prepare-assets.outputs.image_ref || format('{0}:sha-{1}', env.ASSET_IMAGE, steps.asset-hash.outputs.hash) }}
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
-            VCS_REF=${{ github.sha }}
+            VCS_REF=${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
             VERSION=${{ steps.meta.outputs.version }}
 
       - name: Image digest
         run: echo "${{ matrix.image }}@${{ steps.build-push.outputs.digest }}"
+
+  promote-channels:
+    name: Promote current channels
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: |
+      github.event_name != 'pull_request' &&
+      needs.build-and-push.result == 'success' &&
+      !(github.event_name == 'workflow_dispatch' && inputs.preview == true) &&
+      !(github.ref_type == 'tag' && contains(github.ref_name, '-preview'))
+    concurrency:
+      group: docker-channel-promotion
+      cancel-in-progress: false
+
+    steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+
+      - name: Promote channels if build is still current
+        env:
+          EFFECTIVE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          IS_RELEASE_TAG: ${{ github.ref_type == 'tag' }}
+        run: |
+          if [[ "$IS_RELEASE_TAG" != "true" ]]; then
+            master_sha=$(git ls-remote https://github.com/${{ github.repository }} refs/heads/master | cut -f1)
+            if [[ "$EFFECTIVE_SHA" != "$master_sha" ]]; then
+              echo "Skipping channel promotion because master advanced to $master_sha."
+              exit 0
+            fi
+          fi
+
+          short_sha=${EFFECTIVE_SHA:0:7}
+          if [[ "$IS_RELEASE_TAG" != "true" ]]; then
+            docker buildx imagetools create \
+              -t seiggy/lucia-agenthost:master \
+              seiggy/lucia-agenthost:sha-$short_sha
+            docker buildx imagetools create \
+              -t seiggy/lucia-agenthost:master-voice \
+              seiggy/lucia-agenthost:sha-$short_sha-voice
+            docker buildx imagetools create \
+              -t seiggy/lucia-agenthost:master-voice-cpu \
+              seiggy/lucia-agenthost:sha-$short_sha-voice-cpu
+            docker buildx imagetools create \
+              -t seiggy/lucia-agenthost:master-ha-mono \
+              seiggy/lucia-agenthost:sha-$short_sha-ha-mono
+          fi
+
+          docker buildx imagetools create \
+            -t seiggy/lucia-agenthost:latest \
+            seiggy/lucia-agenthost:sha-$short_sha
+          docker buildx imagetools create \
+            -t seiggy/lucia-agenthost:voice \
+            seiggy/lucia-agenthost:sha-$short_sha-voice
+          docker buildx imagetools create \
+            -t seiggy/lucia-agenthost:ha-mono \
+            seiggy/lucia-agenthost:sha-$short_sha-ha-mono
 
   # ==========================================================================
   # Security scan on push to main
@@ -187,10 +372,16 @@ jobs:
     if: github.event_name != 'pull_request'
 
     steps:
+      - name: Resolve immutable scan image
+        id: scan-ref
+        env:
+          EFFECTIVE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+        run: echo "image_ref=seiggy/lucia-agenthost:sha-${EFFECTIVE_SHA:0:7}-voice" >> "$GITHUB_OUTPUT"
+
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:
-          image-ref: seiggy/lucia-agenthost:voice
+          image-ref: ${{ steps.scan-ref.outputs.image_ref }}
           format: 'sarif'
           output: 'trivy-results.sarif'
 

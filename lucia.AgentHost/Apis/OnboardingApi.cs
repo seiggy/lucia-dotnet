@@ -24,10 +24,18 @@ public static class OnboardingApi
             CustomWakeWordManager? wakeWords,
             CancellationToken ct) =>
         {
-            var session = await onboarding.StartOnboardingAsync(
-                request.SpeakerName,
-                request.ProvisionalProfileId,
-                ct).ConfigureAwait(false);
+            OnboardingSession session;
+            try
+            {
+                session = await onboarding.StartOnboardingAsync(
+                    request.SpeakerName,
+                    request.ProvisionalProfileId,
+                    ct).ConfigureAwait(false);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return Results.NotFound(ex.Message);
+            }
 
             CustomWakeWord? wakeWord = null;
             if (!string.IsNullOrEmpty(request.WakeWordPhrase) && wakeWords is not null)
@@ -69,6 +77,10 @@ public static class OnboardingApi
             catch (BadHttpRequestException ex)
             {
                 return Results.BadRequest(ex.Message);
+            }
+            catch (OnboardingConflictException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
             }
         });
 
@@ -116,10 +128,10 @@ public static class OnboardingApi
 
         app.MapDelete("/api/speakers/{id}", async (
             string id,
-            ISpeakerProfileStore store,
+            SpeakerProfileDeletionService deletionService,
             CancellationToken ct) =>
         {
-            await store.DeleteAsync(id, ct).ConfigureAwait(false);
+            await deletionService.DeleteAsync(id, ct).ConfigureAwait(false);
             return Results.NoContent();
         }).WithTags("Voice Onboarding")
             .RequireAuthorization();
@@ -130,21 +142,30 @@ public static class OnboardingApi
             ISpeakerProfileStore store,
             CancellationToken ct) =>
         {
-            var existing = await store.GetAsync(id, ct).ConfigureAwait(false);
-            if (existing is null)
+            SpeakerProfile? updated;
+            try
+            {
+                updated = await store.UpdateAtomicAsync(
+                    id,
+                    existing => existing with
+                    {
+                        Name = request.Name ?? existing.Name,
+                        IsAuthorized = request.IsAuthorized ?? existing.IsAuthorized,
+                        IsProvisional = request.IsProvisional ?? existing.IsProvisional,
+                        UpdatedAt = DateTimeOffset.UtcNow,
+                    },
+                    ct).ConfigureAwait(false);
+            }
+            catch (ProfileMergeConflictException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
+            }
+
+            if (updated is null)
             {
                 return Results.NotFound($"Speaker profile '{id}' not found.");
             }
 
-            var updated = existing with
-            {
-                Name = request.Name ?? existing.Name,
-                IsAuthorized = request.IsAuthorized ?? existing.IsAuthorized,
-                IsProvisional = request.IsProvisional ?? existing.IsProvisional,
-                UpdatedAt = DateTimeOffset.UtcNow,
-            };
-
-            await store.UpdateAsync(updated, ct).ConfigureAwait(false);
             return Results.Ok(new
             {
                 updated.Id,
@@ -182,6 +203,10 @@ public static class OnboardingApi
             catch (ArgumentException ex)
             {
                 return Results.BadRequest(ex.Message);
+            }
+            catch (ProfileMergeConflictException ex)
+            {
+                return Results.Conflict(new { error = ex.Message });
             }
         }).WithTags("Voice Onboarding")
             .RequireAuthorization();

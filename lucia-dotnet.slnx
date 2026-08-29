@@ -40,4 +40,6 @@
   <Folder Name="/Voice/">
     <Project Path="lucia.Wyoming/lucia.Wyoming.csproj" />
   </Folder>
+  <Project Path="lucia.VoiceBenchmarks.Tests/lucia.VoiceBenchmarks.Tests.csproj" />
+  <Project Path="lucia.VoiceBenchmarks/lucia.VoiceBenchmarks.csproj" />
 </Solution>

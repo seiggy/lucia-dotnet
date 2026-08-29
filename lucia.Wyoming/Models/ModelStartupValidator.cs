@@ -30,7 +30,7 @@ public sealed class ModelStartupValidator(
         _ = (sttEngines, vadEngines, wakeWordDetectors, diarizationEngine, speechEnhancer);
 
         await ActivateEngineAsync(EngineType.SpeechEnhancement, stoppingToken).ConfigureAwait(false);
-        await ActivateEngineAsync(EngineType.Stt, stoppingToken).ConfigureAwait(false);
+        await ActivateEngineAsync(modelManager.PreferredSttEngineType, stoppingToken).ConfigureAwait(false);
         if (vadEngines.Any())
         {
             await ActivateEngineAsync(EngineType.Vad, stoppingToken).ConfigureAwait(false);

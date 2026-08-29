@@ -39,6 +39,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Remove="data\voice-clips\**\*" />
+    <None Remove="data\voice-clips\**\*" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\lucia.Agents\lucia.Agents.csproj" />
     <ProjectReference Include="..\lucia.HomeAssistant\lucia.HomeAssistant.csproj" />
     <ProjectReference Include="..\lucia.MusicAgent\lucia.MusicAgent.csproj" />

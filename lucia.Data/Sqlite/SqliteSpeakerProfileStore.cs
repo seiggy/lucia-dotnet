@@ -8,7 +8,7 @@ namespace lucia.Data.Sqlite;
 /// <summary>
 /// SQLite-backed persistent speaker profile store.
 /// </summary>
-public sealed class SqliteSpeakerProfileStore : ISpeakerProfileStore
+public sealed class SqliteSpeakerProfileStore : ISpeakerProfileStore, IConditionalSpeakerProfileStore
 {
     private readonly SqliteConnectionFactory _connectionFactory;
 
@@ -92,21 +92,14 @@ public sealed class SqliteSpeakerProfileStore : ISpeakerProfileStore
     public async Task UpdateAsync(SpeakerProfile profile, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(profile);
-
-        using var connection = _connectionFactory.CreateConnection();
-        using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
-            UPDATE speaker_profiles
-            SET is_provisional = @isProvisional, last_seen_at = @lastSeenAt, data = @data
-            WHERE id = @id;
-            """;
-        cmd.Parameters.AddWithValue("@id", profile.Id);
-        cmd.Parameters.AddWithValue("@isProvisional", profile.IsProvisional ? 1 : 0);
-        cmd.Parameters.AddWithValue("@lastSeenAt", profile.LastSeenAt.ToString("O"));
-        cmd.Parameters.AddWithValue("@data", JsonSerializer.Serialize(profile, JsonOptions));
-
-        var affected = await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
-        if (affected == 0)
+        if (await UpdateAtomicAsync(
+                profile.Id,
+                existing =>
+                {
+                    SpeakerProfileUpdate.EnsureNotClaimed(existing);
+                    return profile;
+                },
+                ct).ConfigureAwait(false) is null)
         {
             throw new KeyNotFoundException($"Speaker profile '{profile.Id}' was not found.");
         }
@@ -133,13 +126,14 @@ public sealed class SqliteSpeakerProfileStore : ISpeakerProfileStore
             var result = await selectCmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
             if (result is not string json)
             {
-                throw new InvalidOperationException($"Profile '{id}' not found");
+                transaction.Rollback();
+                return null;
             }
 
             var existing = JsonSerializer.Deserialize<SpeakerProfile>(json, JsonOptions)
                 ?? throw new InvalidOperationException($"Profile '{id}' not found");
 
-            var updated = transform(existing);
+            var updated = SpeakerProfileUpdate.ApplyAtomic(existing, transform);
 
             using var updateCmd = connection.CreateCommand();
             updateCmd.Transaction = transaction;
@@ -175,6 +169,22 @@ public sealed class SqliteSpeakerProfileStore : ISpeakerProfileStore
         cmd.Parameters.AddWithValue("@id", id);
 
         await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+    }
+
+    public async Task<bool> DeleteExpiredProvisionalAsync(
+        string id,
+        DateTimeOffset cutoff,
+        CancellationToken ct)
+    {
+        using var connection = _connectionFactory.CreateConnection();
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            DELETE FROM speaker_profiles
+            WHERE id = @id AND is_provisional = 1 AND last_seen_at < @cutoff;
+            """;
+        cmd.Parameters.AddWithValue("@id", id);
+        cmd.Parameters.AddWithValue("@cutoff", cutoff.ToString("O"));
+        return await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 1;
     }
 
     public async Task<IReadOnlyList<SpeakerProfile>> GetExpiredProvisionalProfilesAsync(

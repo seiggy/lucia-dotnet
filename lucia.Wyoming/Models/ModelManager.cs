@@ -445,16 +445,19 @@ public sealed class ModelManager(
 
         // Fall back: scan the STT model base path for the best offline model
         var basePath = sttOptionsMonitor.CurrentValue.ModelBasePath;
-        if (!Directory.Exists(basePath)) return "(not configured)";
+        var bestOffline = Directory.Exists(basePath)
+            ? Directory.EnumerateDirectories(basePath)
+                .Where(d => Directory.EnumerateFiles(d, "tokens.txt", SearchOption.AllDirectories).Any())
+                .Where(d => (Path.GetFileName(d) ?? "").Contains("parakeet", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(d => new DirectoryInfo(d).EnumerateFiles("*.onnx", SearchOption.AllDirectories)
+                    .Sum(static f => f.Length))
+                .FirstOrDefault()
+            : null;
 
-        var bestOffline = Directory.EnumerateDirectories(basePath)
-            .Where(d => Directory.EnumerateFiles(d, "tokens.txt", SearchOption.AllDirectories).Any())
-            .Where(d => (Path.GetFileName(d) ?? "").Contains("parakeet", StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(d => new DirectoryInfo(d).EnumerateFiles("*.onnx", SearchOption.AllDirectories)
-                .Sum(static f => f.Length))
-            .FirstOrDefault();
-
-        return bestOffline is not null ? Path.GetFileName(bestOffline) : "(not configured)";
+        return bestOffline is not null
+            ? Path.GetFileName(bestOffline)
+            : catalogService.GetAvailableModels(EngineType.OfflineStt)
+                .FirstOrDefault(static model => model.IsDefault)?.Id ?? "(not configured)";
     }
 
     public string GetModelBasePath(EngineType engineType) =>

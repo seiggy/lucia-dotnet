@@ -10,8 +10,25 @@ namespace lucia.Wyoming.Diarization;
 public sealed class ProvisionalProfileCleanupService : BackgroundService
 {
     private readonly ISpeakerProfileStore _profileStore;
+    private readonly SpeakerProfileDeletionService? _deletionService;
     private readonly VoiceProfileOptions _options;
     private readonly ILogger<ProvisionalProfileCleanupService> _logger;
+
+    public ProvisionalProfileCleanupService(
+        ISpeakerProfileStore profileStore,
+        SpeakerProfileDeletionService deletionService,
+        IOptions<VoiceProfileOptions> options,
+        ILogger<ProvisionalProfileCleanupService> logger)
+    {
+        ArgumentNullException.ThrowIfNull(profileStore);
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(logger);
+
+        _profileStore = profileStore;
+        _deletionService = deletionService;
+        _options = options.Value;
+        _logger = logger;
+    }
 
     public ProvisionalProfileCleanupService(
         ISpeakerProfileStore profileStore,
@@ -38,21 +55,33 @@ public sealed class ProvisionalProfileCleanupService : BackgroundService
                 var expiredProfiles = await _profileStore
                     .GetExpiredProvisionalProfilesAsync(_options.ProvisionalRetentionDays, stoppingToken)
                     .ConfigureAwait(false);
+                var cutoff = DateTimeOffset.UtcNow.AddDays(-_options.ProvisionalRetentionDays);
+                var deletedCount = 0;
 
                 foreach (var profile in expiredProfiles)
                 {
-                    await _profileStore.DeleteAsync(profile.Id, stoppingToken).ConfigureAwait(false);
+                    var deleted = _deletionService is null
+                        ? await DeleteWithLegacyStoreAsync(profile.Id, stoppingToken).ConfigureAwait(false)
+                        : await _deletionService
+                            .DeleteExpiredProvisionalAsync(profile.Id, cutoff, stoppingToken)
+                            .ConfigureAwait(false);
+                    if (!deleted)
+                    {
+                        continue;
+                    }
+
                     _logger.LogInformation(
                         "Removed expired provisional profile {ProfileId} ({Name})",
                         profile.Id,
                         profile.Name);
+                    deletedCount++;
                 }
 
-                if (expiredProfiles.Count > 0)
+                if (deletedCount > 0)
                 {
                     _logger.LogInformation(
                         "Cleaned up {Count} expired provisional profiles",
-                        expiredProfiles.Count);
+                        deletedCount);
                 }
             }
             catch (OperationCanceledException)
@@ -64,5 +93,12 @@ public sealed class ProvisionalProfileCleanupService : BackgroundService
                 _logger.LogError(ex, "Error during provisional profile cleanup");
             }
         }
+
+    }
+
+    private async Task<bool> DeleteWithLegacyStoreAsync(string profileId, CancellationToken ct)
+    {
+        await _profileStore.DeleteAsync(profileId, ct).ConfigureAwait(false);
+        return true;
     }
 }

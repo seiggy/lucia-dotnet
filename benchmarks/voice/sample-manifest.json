@@ -1,0 +1,8 @@
+{
+  "clips": [
+    { "path": "user-provided/speaker_a/enroll_01.wav", "speaker_id": "speaker_a", "session_id": "speaker_a_enroll_01", "split": "enroll" },
+    { "path": "user-provided/speaker_a/test_01.wav", "speaker_id": "speaker_a", "session_id": "speaker_a_test_01", "split": "test" },
+    { "path": "user-provided/speaker_b/enroll_01.wav", "speaker_id": "speaker_b", "session_id": "speaker_b_enroll_01", "split": "enroll" },
+    { "path": "user-provided/speaker_b/test_01.wav", "speaker_id": "speaker_b", "session_id": "speaker_b_test_01", "split": "test" }
+  ]
+}

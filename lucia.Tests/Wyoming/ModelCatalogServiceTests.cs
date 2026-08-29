@@ -42,7 +42,13 @@ public sealed class ModelCatalogServiceTests
     {
         var models = _catalog.GetAvailableModels(EngineType.SpeakerEmbedding);
 
-        Assert.Equal(3, models.Count);
+        Assert.Equal(
+            [
+                "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k",
+                "nemo_en_speakerverification_speakernet",
+                "wespeaker_en_voxceleb_CAM++",
+            ],
+            models.Select(static model => model.Id).Order(StringComparer.Ordinal));
     }
 
     [Fact]

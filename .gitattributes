@@ -10,5 +10,7 @@
 *.sh text eol=lf
 # Dockerfile heredocs can create executable shell scripts, so their shebangs must stay LF.
 Dockerfile* text eol=lf
+# This legacy Dockerfile is committed as CRLF and contains no heredoc scripts.
+infra/docker/Dockerfile -text
 infra/observability/** text eol=lf
 .squad/gate/Approve-Branch.ps1 text eol=crlf

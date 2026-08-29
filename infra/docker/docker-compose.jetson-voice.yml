@@ -193,6 +193,9 @@ services:
       - "10400:10400"    # Wyoming voice server (TCP)
     volumes:
       - lucia-plugins:/app/plugins
+      - type: volume
+        source: lucia-voice-data
+        target: /app/data
       - type: bind
         source: ${LUCIA_CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}
         target: /etc/ssl/certs/ca-certificates.crt
@@ -219,6 +222,7 @@ services:
       # Voice pipeline: CUDA execution provider (EP registration verified via Wyoming status API)
       - Wyoming__Models__HybridStt__Provider=cuda
       - Wyoming__Models__HybridStt__Enabled=true
+      - Wyoming__VoiceProfiles__AudioClipBasePath=/app/data/voice-clips
       # Export low-volume metrics to the remote collector. The host CA bundle above
       # lets .NET validate its private TLS certificate.
       - Observability__Mode=${OBSERVABILITY_MODE:-Metrics}
@@ -252,3 +256,4 @@ volumes:
   lucia-postgres-data:
   lucia-redis-data:
   lucia-plugins:
+  lucia-voice-data:
