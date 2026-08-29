@@ -68,6 +68,7 @@ public static partial class TranscriptNormalizer
 
         var result = transcript.ToLowerInvariant().Trim();
         result = CommandTextNormalizer.NormalizePunctuation(result);
+        result = MultipleSpaces().Replace(result, " ").Trim();
 
         // Apply phrase-level STT corrections before word filtering
         foreach (var (pattern, replacement) in PhraseCorrections)
