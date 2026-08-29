@@ -17,6 +17,7 @@ public sealed class ClimateCommandPatternTests
     [InlineData("Set the office to 73.", "73")]
     [InlineData("Set the office to 72.5.", "72.5")]
     [InlineData("Set the office to -5.", "-5")]
+    [InlineData("Set the office to (-.5).", "-.5")]
     public void SetAreaToTemperature_MatchesClimateFastPath(string input, string expectedTemperature)
     {
         var skill = new ClimateControlSkill(

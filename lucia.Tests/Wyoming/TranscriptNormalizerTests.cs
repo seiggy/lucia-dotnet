@@ -38,6 +38,7 @@ public sealed class TranscriptNormalizerTests
     [InlineData("Set kitchen-light to 72.5.", "set kitchen light to 72.5")]
     [InlineData("Set the thermostat to -5.", "set the thermostat to -5")]
     [InlineData("Set the thermostat to (-5).", "set the thermostat to -5")]
+    [InlineData("Set the thermostat to (-.5).", "set the thermostat to -.5")]
     public void Normalize_PreservesNumericPunctuationAndSeparatesWords(string input, string expected)
     {
         Assert.Equal(expected, TranscriptNormalizer.Normalize(input));

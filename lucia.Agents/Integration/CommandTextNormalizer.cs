@@ -18,15 +18,20 @@ public static class CommandTextNormalizer
                 continue;
             }
 
+            var isNumericBoundary = result.Length == 0
+                || char.IsWhiteSpace(result[^1])
+                || result[^1] is '-' or '+';
             var isDecimalPoint = character == '.'
-                && index > 0
-                && index < value.Length - 1
-                && char.IsDigit(value[index - 1])
-                && char.IsDigit(value[index + 1]);
-            var isNumericSign = character is '-' or '+'
                 && index < value.Length - 1
                 && char.IsDigit(value[index + 1])
-                && (result.Length == 0 || char.IsWhiteSpace(result[^1]));
+                && ((index > 0 && char.IsDigit(value[index - 1])) || isNumericBoundary);
+            var isNumericSign = character is '-' or '+'
+                && index < value.Length - 1
+                && (char.IsDigit(value[index + 1])
+                    || (value[index + 1] == '.'
+                        && index < value.Length - 2
+                        && char.IsDigit(value[index + 2])))
+                && isNumericBoundary;
 
             result.Append(isDecimalPoint || isNumericSign ? character : ' ');
         }
