@@ -293,6 +293,51 @@ public sealed class DirectSkillExecutorTests
             .MustNotHaveHappened();
     }
 
+    [Theory]
+    [InlineData("-5")]
+    [InlineData("101")]
+    public async Task ExecuteAsync_LightBrightnessOutsideRange_ReturnsFailed(string value)
+    {
+        var haClient = A.Fake<IHomeAssistantClient>();
+        var options = A.Fake<IOptionsMonitor<LightControlSkillOptions>>();
+        A.CallTo(() => options.CurrentValue).Returns(new LightControlSkillOptions());
+        var skill = new LightControlSkill(
+            haClient,
+            A.Fake<ILogger<LightControlSkill>>(),
+            _entityLocationService,
+            options);
+        A.CallTo(() => _serviceProvider.GetService(typeof(LightControlSkill))).Returns(skill);
+        var route = new CommandRouteResult
+        {
+            IsMatch = true,
+            Confidence = 0.9f,
+            MatchedPattern = new CommandPattern
+            {
+                Id = "light-brightness",
+                SkillId = "LightControlSkill",
+                Action = "brightness",
+                Templates = ["dim {entity} to {value}"]
+            },
+            CapturedValues = new Dictionary<string, string>
+            {
+                ["entity"] = "kitchen light",
+                ["value"] = value
+            }
+        };
+
+        var result = await _executor.ExecuteAsync(route, CreateContext());
+
+        Assert.False(result.Success);
+        Assert.Contains("0 and 100", result.Error, StringComparison.OrdinalIgnoreCase);
+        A.CallTo(() => haClient.CallServiceAsync(
+                A<string>._,
+                A<string>._,
+                A<string?>._,
+                A<ServiceCallRequest?>._,
+                A<CancellationToken>._))
+            .MustNotHaveHappened();
+    }
+
     [Fact]
     public async Task ExecuteAsync_UnsupportedSkillAction_ReturnsFailed()
     {

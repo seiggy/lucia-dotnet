@@ -165,10 +165,11 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
         var captures = route.CapturedValues ?? new Dictionary<string, string>();
 
         if (!captures.TryGetValue("value", out var valueStr) ||
-            !int.TryParse(valueStr, CultureInfo.InvariantCulture, out var brightness))
+            !int.TryParse(valueStr, CultureInfo.InvariantCulture, out var brightness) ||
+            brightness is < 0 or > 100)
         {
             throw new InvalidOperationException(
-                "Brightness value not captured or not a valid integer");
+                "Brightness value must be an integer between 0 and 100");
         }
 
         var resolvedIds = useCascadingResolver
@@ -194,7 +195,7 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
             !double.IsFinite(temperature))
         {
             throw new InvalidOperationException(
-                "Temperature value not captured or not a finite number");
+                "Temperature value was not captured or is not a valid finite number");
         }
 
         var entityId = useCascadingResolver
