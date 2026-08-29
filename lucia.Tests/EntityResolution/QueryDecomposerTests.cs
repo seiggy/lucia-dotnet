@@ -58,6 +58,7 @@ public sealed class QueryDecomposerTests
     [Theory]
     [InlineData("set the office to 73 degrees", "degrees")]
     [InlineData("dim the kitchen light to 50 percent", "percent")]
+    [InlineData("dim the kitchen light 50 percent", "percent")]
     public void Decompose_NumericTargetUnit_IsNotAnEntityCandidate(string command, string unit)
     {
         var intent = QueryDecomposer.Decompose(command, speakerId: null);

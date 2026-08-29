@@ -282,6 +282,26 @@ public sealed class CascadingEntityResolverTests
     }
 
     [Fact]
+    public void Resolve_DimNamedLightWithoutTo_IgnoresBrightnessTarget()
+    {
+        var entities = new[]
+        {
+            CreateEntity("light.kitchen", "Kitchen Light", areaId: null)
+        };
+        var resolver = new CascadingEntityResolver(
+            SetupLocationService(areas: [], entities: entities));
+
+        var result = resolver.Resolve(
+            "dim the kitchen light 50 percent",
+            callerArea: null,
+            speakerId: null,
+            domains: ["light", "switch"]);
+
+        Assert.True(result.IsResolved, $"{result.BailReason}: {result.Explanation}");
+        Assert.Equal("light.kitchen", Assert.Single(result.ResolvedEntityIds));
+    }
+
+    [Fact]
     public void Resolve_SetOfficeTemperature_IgnoresTargetValueWhenGroundingArea()
     {
         var office = CreateArea("office", "Office");

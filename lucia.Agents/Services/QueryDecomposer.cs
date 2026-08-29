@@ -281,11 +281,20 @@ internal sealed partial class QueryDecomposer
     private static bool IsTargetValueToken(
         IReadOnlyList<string> tokens,
         int index,
-        string? action) =>
-        action is "set" or "dim" or "brighten" or "increase" or "decrease"
-        && index > 0
-        && string.Equals(tokens[index - 1], "to", StringComparison.OrdinalIgnoreCase)
-        && double.TryParse(tokens[index], NumberStyles.Float, CultureInfo.InvariantCulture, out _);
+        string? action)
+    {
+        if (action is not ("set" or "dim" or "brighten" or "increase" or "decrease")
+            || !double.TryParse(tokens[index], NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+        {
+            return false;
+        }
+
+        var followsTo = index > 0
+            && string.Equals(tokens[index - 1], "to", StringComparison.OrdinalIgnoreCase);
+        var isTrailingValue = index == tokens.Count - 1
+            || (index == tokens.Count - 2 && TargetUnitTokens.Contains(tokens[index + 1]));
+        return followsTo || isTrailingValue;
+    }
 
     private static bool IsTargetUnitToken(
         IReadOnlyList<string> tokens,
