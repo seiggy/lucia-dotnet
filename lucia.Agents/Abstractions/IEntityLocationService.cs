@@ -98,13 +98,6 @@ public interface IEntityLocationService
         IReadOnlyList<string>? domainFilter = null,
         CancellationToken ct = default);
 
-    Task<HierarchicalSearchResult> SearchHierarchyAsync(
-        string query,
-        HybridMatchOptions? options,
-        IReadOnlyList<string>? domainFilter,
-        string? callerAgentId,
-        CancellationToken ct = default);
-
     /// <summary>
     /// Get the area for an entity (0..1 relationship). Returns null if no area assigned.
     /// Thread-safe: reads from immutable snapshot.

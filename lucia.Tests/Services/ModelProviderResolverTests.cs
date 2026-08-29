@@ -29,6 +29,14 @@ public sealed class ModelProviderResolverTests
             serviceProvider);
     }
 
+    [Fact]
+    public void ProviderType_ExistingNumericValuesRemainStable()
+    {
+        Assert.Equal(2, (int)ProviderType.AzureOpenAI);
+        Assert.Equal(7, (int)ProviderType.GitHubCopilot);
+        Assert.Equal(8, (int)ProviderType.LlamaCpp);
+    }
+
     #region Helpers
 
     private static ModelProvider MakeProvider(

@@ -19,7 +19,7 @@ namespace lucia.Data.InMemory;
 /// and stores all location data in-process without any Redis persistence.
 /// Designed for lightweight/mono-container deployments where cross-process cache sharing is not needed.
 /// </summary>
-public sealed class InMemoryEntityLocationService : IEntityLocationService
+public sealed class InMemoryEntityLocationService : IEntityLocationService, IAgentFilteredEntityLocationService
 {
     private const int EmbeddingBatchSize = 25;
     private const int EmbeddingBatchMaxAttempts = 3;
@@ -235,14 +235,22 @@ public sealed class InMemoryEntityLocationService : IEntityLocationService
         HybridMatchOptions? options = null,
         IReadOnlyList<string>? domainFilter = null,
         CancellationToken ct = default) =>
-        SearchHierarchyAsync(query, options, domainFilter, callerAgentId: null, ct);
+        SearchHierarchyCoreAsync(query, options, domainFilter, callerAgentId: null, ct);
 
-    public async Task<HierarchicalSearchResult> SearchHierarchyAsync(
+    public Task<HierarchicalSearchResult> SearchHierarchyForAgentAsync(
+        string query,
+        HybridMatchOptions? options,
+        IReadOnlyList<string>? domainFilter,
+        string callerAgentId,
+        CancellationToken ct = default) =>
+        SearchHierarchyCoreAsync(query, options, domainFilter, callerAgentId, ct);
+
+    private async Task<HierarchicalSearchResult> SearchHierarchyCoreAsync(
         string query,
         HybridMatchOptions? options,
         IReadOnlyList<string>? domainFilter,
         string? callerAgentId,
-        CancellationToken ct = default)
+        CancellationToken ct)
     {
         await EnsureLoadedAsync(ct).ConfigureAwait(false);
 

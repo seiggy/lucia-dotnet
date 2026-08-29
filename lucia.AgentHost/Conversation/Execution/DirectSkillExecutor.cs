@@ -293,11 +293,19 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
         var resolvedIds = result.ResolvedEntityIds;
         if (!result.IsResolved && result.BailReason == BailReason.NoMatch)
         {
-            var fuzzyResult = await _entityLocationService.SearchHierarchyAsync(
+            if (_entityLocationService is not IAgentFilteredEntityLocationService filteredLocationService
+                || callerAgentId is null)
+            {
+                throw new EntityResolutionBailException(
+                    result.BailReason.Value.ToString(),
+                    result.Explanation ?? "Agent-filtered entity search is unavailable");
+            }
+
+            var fuzzyResult = await filteredLocationService.SearchHierarchyForAgentAsync(
                 ResolveEntitySearchQuery(route),
                 options: matchOptions,
                 domainFilter: domains,
-                callerAgentId: callerAgentId,
+                callerAgentId,
                 ct: ct).ConfigureAwait(false);
             resolvedIds = fuzzyResult.ResolvedEntities
                 .Select(entity => entity.EntityId)

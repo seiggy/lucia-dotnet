@@ -138,7 +138,9 @@ public sealed class DirectSkillExecutorTests
     public async Task ExecuteAsync_CascadeMiss_UsesEmbeddingEntityMatch()
     {
         var haClient = A.Fake<IHomeAssistantClient>();
-        var locationService = A.Fake<IEntityLocationService>();
+        var locationService = A.Fake<IEntityLocationService>(
+            options => options.Implements<IAgentFilteredEntityLocationService>());
+        var filteredLocationService = (IAgentFilteredEntityLocationService)locationService;
         var cascadingResolver = A.Fake<ICascadingEntityResolver>();
         var featureManager = A.Fake<IFeatureManager>();
         var options = A.Fake<IOptionsMonitor<LightControlSkillOptions>>();
@@ -166,7 +168,7 @@ public sealed class DirectSkillExecutorTests
                 BailReason = BailReason.NoMatch,
                 Explanation = "No deterministic match"
             });
-        A.CallTo(() => locationService.SearchHierarchyAsync(
+        A.CallTo(() => filteredLocationService.SearchHierarchyForAgentAsync(
                 "Zach's light",
                 A<HybridMatchOptions?>._,
                 A<IReadOnlyList<string>?>._,
@@ -228,7 +230,7 @@ public sealed class DirectSkillExecutorTests
         var result = await executor.ExecuteAsync(route, CreateContext());
 
         Assert.True(result.Success, result.Error);
-        A.CallTo(() => locationService.SearchHierarchyAsync(
+        A.CallTo(() => filteredLocationService.SearchHierarchyForAgentAsync(
                 "Zach's light",
                 A<HybridMatchOptions?>.That.Matches(matchOptions => HasExpectedThreshold(matchOptions)),
                 A<IReadOnlyList<string>?>._,

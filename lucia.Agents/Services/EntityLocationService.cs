@@ -21,7 +21,7 @@ namespace lucia.Agents.Services;
 /// All in-memory data is stored in immutable collections swapped atomically via <see cref="Volatile"/>.
 /// Redis provides 24h persistence; HA config registry is the source of truth.
 /// </summary>
-public sealed class EntityLocationService : IEntityLocationService
+public sealed class EntityLocationService : IEntityLocationService, IAgentFilteredEntityLocationService
 {
     private const string FloorsKey = "lucia:location:floors";
     private const string AreasKey = "lucia:location:areas";
@@ -355,14 +355,22 @@ public sealed class EntityLocationService : IEntityLocationService
         HybridMatchOptions? options = null,
         IReadOnlyList<string>? domainFilter = null,
         CancellationToken ct = default) =>
-        SearchHierarchyAsync(query, options, domainFilter, callerAgentId: null, ct);
+        SearchHierarchyCoreAsync(query, options, domainFilter, callerAgentId: null, ct);
 
-    public async Task<HierarchicalSearchResult> SearchHierarchyAsync(
+    public Task<HierarchicalSearchResult> SearchHierarchyForAgentAsync(
+        string query,
+        HybridMatchOptions? options,
+        IReadOnlyList<string>? domainFilter,
+        string callerAgentId,
+        CancellationToken ct = default) =>
+        SearchHierarchyCoreAsync(query, options, domainFilter, callerAgentId, ct);
+
+    private async Task<HierarchicalSearchResult> SearchHierarchyCoreAsync(
         string query,
         HybridMatchOptions? options,
         IReadOnlyList<string>? domainFilter,
         string? callerAgentId,
-        CancellationToken ct = default)
+        CancellationToken ct)
     {
         await EnsureFreshAsync(ct).ConfigureAwait(false);
 
