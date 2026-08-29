@@ -79,6 +79,21 @@ public sealed class MongoSpeakerProfileStoreTests : IAsyncLifetime
         Assert.Equal(2, updated.Revision);
     }
 
+    [Fact, Trait("Category", "Integration")]
+    public async Task UpdateAsync_AllowsSequentialReplacementWithSameProfileInstance()
+    {
+        var profile = new SpeakerProfile { Id = "profile-1", Name = "Original" };
+        await Store.CreateAsync(profile, CancellationToken.None);
+
+        await Store.UpdateAsync(profile with { Name = "First" }, CancellationToken.None);
+        await Store.UpdateAsync(profile with { Name = "Second" }, CancellationToken.None);
+
+        var updated = await Store.GetAsync("profile-1", CancellationToken.None);
+        Assert.NotNull(updated);
+        Assert.Equal("Second", updated.Name);
+        Assert.Equal(2, updated.Revision);
+    }
+
     private MongoSpeakerProfileStore Store =>
         _store ?? throw new InvalidOperationException("The MongoDB fixture has not started.");
 

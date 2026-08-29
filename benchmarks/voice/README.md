@@ -16,6 +16,7 @@ The manifest is a JSON object with a top-level `clips` array. Each clip object r
 
 - `path`: a WAV file path relative to the manifest file
 - `speaker_id`: the labeled speaker identifier
+- `session_id`: the recording-session identifier
 - `split`: `enroll` or `test`
 
 The benchmark resolves relative paths from the manifest folder before loading audio.
@@ -38,14 +39,14 @@ Example manifest:
 
 {
   "clips": [
-    { "path": "user-provided/speaker_a/enroll_01.wav", "speaker_id": "speaker_a", "split": "enroll" },
-    { "path": "user-provided/speaker_a/test_01.wav", "speaker_id": "speaker_a", "split": "test" },
-    { "path": "user-provided/speaker_b/enroll_01.wav", "speaker_id": "speaker_b", "split": "enroll" },
-    { "path": "user-provided/speaker_b/test_01.wav", "speaker_id": "speaker_b", "split": "test" }
+    { "path": "user-provided/speaker_a/enroll_01.wav", "speaker_id": "speaker_a", "session_id": "speaker_a_enroll_01", "split": "enroll" },
+    { "path": "user-provided/speaker_a/test_01.wav", "speaker_id": "speaker_a", "session_id": "speaker_a_test_01", "split": "test" },
+    { "path": "user-provided/speaker_b/enroll_01.wav", "speaker_id": "speaker_b", "session_id": "speaker_b_enroll_01", "split": "enroll" },
+    { "path": "user-provided/speaker_b/test_01.wav", "speaker_id": "speaker_b", "session_id": "speaker_b_test_01", "split": "test" }
   ]
 }
 
-The dataset must contain at least two speakers so verification has impostor scores. Every speaker must have at least one enrollment clip and one test clip. The benchmark fails clearly when the manifest is incomplete.
+The dataset must contain at least two speakers so verification has impostor scores. Every speaker must have at least one enrollment clip and one test clip, recorded in separate sessions. The benchmark fails clearly when the manifest is incomplete or reuses a session across splits.
 
 ## CLI usage
 

@@ -91,6 +91,7 @@ public sealed class SpeakerBenchmarkRunner
                 .Select(clip => new BenchmarkClipProvenance(
                     clip.Path,
                     clip.SpeakerId,
+                    clip.SessionId,
                     clip.Split,
                     ComputeSha256(clip.ResolvedPath)))
                 .ToArray();
@@ -115,6 +116,7 @@ public sealed class SpeakerBenchmarkRunner
             .Select(clip => new BenchmarkClipProvenance(
                 clip.Path,
                 clip.SpeakerId,
+                clip.SessionId,
                 clip.Split,
                 ComputeSha256(clip.ResolvedPath)))
             .OrderBy(static clip => clip.Split, StringComparer.Ordinal)

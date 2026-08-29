@@ -85,18 +85,16 @@ public sealed class MongoSpeakerProfileStore : ISpeakerProfileStore, IConditiona
     {
         ArgumentNullException.ThrowIfNull(profile);
 
-        var filter = Builders<SpeakerProfile>.Filter.And(
-            Builders<SpeakerProfile>.Filter.Eq(p => p.Id, profile.Id),
-            BuildRevisionFilter(profile.Revision),
-            Builders<SpeakerProfile>.Filter.Or(
-                Builders<SpeakerProfile>.Filter.Eq(p => p.MergeTargetProfileId, null),
-                Builders<SpeakerProfile>.Filter.Exists(p => p.MergeTargetProfileId, false)));
-        var updated = profile with { Revision = profile.Revision + 1 };
-        var result = await _collection.ReplaceOneAsync(filter, updated, cancellationToken: ct).ConfigureAwait(false);
-
-        if (result.MatchedCount == 0)
+        if (await UpdateAtomicAsync(
+                profile.Id,
+                existing =>
+                {
+                    SpeakerProfileUpdate.EnsureNotClaimed(existing);
+                    return profile;
+                },
+                ct).ConfigureAwait(false) is null)
         {
-            throw new InvalidOperationException($"Speaker profile '{profile.Id}' changed or was not found.");
+            throw new KeyNotFoundException($"Speaker profile '{profile.Id}' was not found.");
         }
     }
 

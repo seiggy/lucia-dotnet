@@ -3,7 +3,7 @@ namespace lucia.Wyoming.Diarization;
 public sealed record OnboardingSession
 {
     public required string Id { get; init; }
-    public string ProfileId { get; init; } = string.Empty;
+    public required string ProfileId { get; init; }
     public required string SpeakerName { get; init; }
     public string? ProvisionalProfileId { get; init; }
     public required IReadOnlyList<string> Prompts { get; init; }

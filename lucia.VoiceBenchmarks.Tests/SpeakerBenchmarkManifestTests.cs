@@ -15,9 +15,9 @@ public sealed class SpeakerBenchmarkManifestTests
         {
             clips = new[]
             {
-                new { path = "speaker-a/enroll.wav", speaker_id = "speaker-a", split = "enroll" },
-                new { path = "speaker-a/test.wav", speaker_id = "speaker-a", split = "test" },
-                new { path = "speaker-b/enroll.wav", speaker_id = "speaker-b", split = "enroll" }
+                new { path = "speaker-a/enroll.wav", speaker_id = "speaker-a", session_id = "a-enroll", split = "enroll" },
+                new { path = "speaker-a/test.wav", speaker_id = "speaker-a", session_id = "a-test", split = "test" },
+                new { path = "speaker-b/enroll.wav", speaker_id = "speaker-b", session_id = "b-enroll", split = "enroll" }
             }
         };
 
@@ -53,8 +53,8 @@ public sealed class SpeakerBenchmarkManifestTests
             """
             {
               "clips": [
-                { "path": "enroll.wav", "speaker_id": "speaker-a", "split": "enroll" },
-                { "path": "test.wav", "speaker_id": "speaker-a", "split": "test" }
+                { "path": "enroll.wav", "speaker_id": "speaker-a", "session_id": "enroll-session", "split": "enroll" },
+                { "path": "test.wav", "speaker_id": "speaker-a", "session_id": "test-session", "split": "test" }
               ]
             }
             """);
@@ -75,10 +75,10 @@ public sealed class SpeakerBenchmarkManifestTests
             """
             {
               "clips": [
-                { "path": "a.wav", "speaker_id": "speaker-a", "split": "enroll" },
-                { "path": "a.wav", "speaker_id": "speaker-a", "split": "test" },
-                { "path": "b-enroll.wav", "speaker_id": "speaker-b", "split": "enroll" },
-                { "path": "b-test.wav", "speaker_id": "speaker-b", "split": "test" }
+                { "path": "a.wav", "speaker_id": "speaker-a", "session_id": "a-enroll", "split": "enroll" },
+                { "path": "a.wav", "speaker_id": "speaker-a", "session_id": "a-test", "split": "test" },
+                { "path": "b-enroll.wav", "speaker_id": "speaker-b", "session_id": "b-enroll", "split": "enroll" },
+                { "path": "b-test.wav", "speaker_id": "speaker-b", "session_id": "b-test", "split": "test" }
               ]
             }
             """);
@@ -89,12 +89,36 @@ public sealed class SpeakerBenchmarkManifestTests
     }
 
     [Fact]
+    public void Validate_RejectsEnrollmentAndTestFromSameRecordingSession()
+    {
+        var tempDirectory = Path.Combine(Path.GetTempPath(), $"voice-benchmark-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDirectory);
+        var manifestPath = Path.Combine(tempDirectory, "manifest.json");
+        File.WriteAllText(
+            manifestPath,
+            """
+            {
+              "clips": [
+                { "path": "a-enroll.wav", "speaker_id": "speaker-a", "session_id": "a-session", "split": "enroll" },
+                { "path": "a-test.wav", "speaker_id": "speaker-a", "session_id": "a-session", "split": "test" },
+                { "path": "b-enroll.wav", "speaker_id": "speaker-b", "session_id": "b-enroll", "split": "enroll" },
+                { "path": "b-test.wav", "speaker_id": "speaker-b", "session_id": "b-test", "split": "test" }
+              ]
+            }
+            """);
+
+        var errors = SpeakerBenchmarkManifest.Load(manifestPath).Validate();
+
+        Assert.Contains(errors, error => error.Contains("recording session", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void ValidateContentHashes_RejectsRenamedCopyAcrossSplits()
     {
         var clips = new[]
         {
-            new BenchmarkClipProvenance("enroll.wav", "speaker-a", "enroll", "same-hash"),
-            new BenchmarkClipProvenance("renamed.wav", "speaker-a", "test", "same-hash"),
+            new BenchmarkClipProvenance("enroll.wav", "speaker-a", "enroll-session", "enroll", "same-hash"),
+            new BenchmarkClipProvenance("renamed.wav", "speaker-a", "test-session", "test", "same-hash"),
         };
 
         var errors = SpeakerBenchmarkManifest.ValidateContentHashes(clips);
@@ -107,8 +131,8 @@ public sealed class SpeakerBenchmarkManifestTests
     {
         var clips = new[]
         {
-            new BenchmarkClipProvenance("test.wav", "speaker-a", "test", "same-hash"),
-            new BenchmarkClipProvenance("renamed.wav", "speaker-a", "test", "same-hash"),
+            new BenchmarkClipProvenance("test.wav", "speaker-a", "test-session", "test", "same-hash"),
+            new BenchmarkClipProvenance("renamed.wav", "speaker-a", "test-session", "test", "same-hash"),
         };
 
         var errors = SpeakerBenchmarkManifest.ValidateContentHashes(clips);
@@ -127,10 +151,10 @@ public sealed class SpeakerBenchmarkManifestTests
             """
             {
               "clips": [
-                { "path": "A.wav", "speaker_id": "a", "split": "enroll" },
-                { "path": "a.wav", "speaker_id": "a", "split": "test" },
-                { "path": "b-enroll.wav", "speaker_id": "b", "split": "enroll" },
-                { "path": "b-test.wav", "speaker_id": "b", "split": "test" }
+                { "path": "A.wav", "speaker_id": "a", "session_id": "a-enroll", "split": "enroll" },
+                { "path": "a.wav", "speaker_id": "a", "session_id": "a-test", "split": "test" },
+                { "path": "b-enroll.wav", "speaker_id": "b", "session_id": "b-enroll", "split": "enroll" },
+                { "path": "b-test.wav", "speaker_id": "b", "session_id": "b-test", "split": "test" }
               ]
             }
             """);

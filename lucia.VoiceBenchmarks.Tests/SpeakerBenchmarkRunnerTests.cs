@@ -13,10 +13,10 @@ public sealed class SpeakerBenchmarkRunnerTests
             """
             {
               "clips": [
-                { "path": "a-enroll.wav", "speaker_id": "a", "split": "enroll" },
-                { "path": "a-test.wav", "speaker_id": "a", "split": "test" },
-                { "path": "b-enroll.wav", "speaker_id": "b", "split": "enroll" },
-                { "path": "b-test.wav", "speaker_id": "b", "split": "test" }
+                { "path": "a-enroll.wav", "speaker_id": "a", "session_id": "a-enroll", "split": "enroll" },
+                { "path": "a-test.wav", "speaker_id": "a", "session_id": "a-test", "split": "test" },
+                { "path": "b-enroll.wav", "speaker_id": "b", "session_id": "b-enroll", "split": "enroll" },
+                { "path": "b-test.wav", "speaker_id": "b", "session_id": "b-test", "split": "test" }
               ]
             }
             """);
@@ -57,10 +57,10 @@ public sealed class SpeakerBenchmarkRunnerTests
         const string Manifest = """
             {
               "clips": [
-                { "path": "a-enroll.wav", "speaker_id": "a", "split": "enroll" },
-                { "path": "a-test.wav", "speaker_id": "a", "split": "test" },
-                { "path": "b-enroll.wav", "speaker_id": "b", "split": "enroll" },
-                { "path": "b-test.wav", "speaker_id": "b", "split": "test" }
+                { "path": "a-enroll.wav", "speaker_id": "a", "session_id": "a-enroll", "split": "enroll" },
+                { "path": "a-test.wav", "speaker_id": "a", "session_id": "a-test", "split": "test" },
+                { "path": "b-enroll.wav", "speaker_id": "b", "session_id": "b-enroll", "split": "enroll" },
+                { "path": "b-test.wav", "speaker_id": "b", "session_id": "b-test", "split": "test" }
               ]
             }
             """;
@@ -99,10 +99,10 @@ public sealed class SpeakerBenchmarkRunnerTests
             """
             {
               "clips": [
-                { "path": "evaluation-a-enroll.wav", "speaker_id": "a", "split": "enroll" },
-                { "path": "evaluation-a-test.wav", "speaker_id": "a", "split": "test" },
-                { "path": "evaluation-b-enroll.wav", "speaker_id": "b", "split": "enroll" },
-                { "path": "evaluation-b-test.wav", "speaker_id": "b", "split": "test" }
+                { "path": "evaluation-a-enroll.wav", "speaker_id": "a", "session_id": "a-enroll", "split": "enroll" },
+                { "path": "evaluation-a-test.wav", "speaker_id": "a", "session_id": "a-test", "split": "test" },
+                { "path": "evaluation-b-enroll.wav", "speaker_id": "b", "session_id": "b-enroll", "split": "enroll" },
+                { "path": "evaluation-b-test.wav", "speaker_id": "b", "session_id": "b-test", "split": "test" }
               ]
             }
             """);
@@ -111,10 +111,10 @@ public sealed class SpeakerBenchmarkRunnerTests
             """
             {
               "clips": [
-                { "path": "development-a-enroll.wav", "speaker_id": "a", "split": "enroll" },
-                { "path": "development-a-test.wav", "speaker_id": "a", "split": "test" },
-                { "path": "development-b-enroll.wav", "speaker_id": "b", "split": "enroll" },
-                { "path": "development-b-test.wav", "speaker_id": "b", "split": "test" }
+                { "path": "development-a-enroll.wav", "speaker_id": "a", "session_id": "a-enroll", "split": "enroll" },
+                { "path": "development-a-test.wav", "speaker_id": "a", "session_id": "a-test", "split": "test" },
+                { "path": "development-b-enroll.wav", "speaker_id": "b", "session_id": "b-enroll", "split": "enroll" },
+                { "path": "development-b-test.wav", "speaker_id": "b", "session_id": "b-test", "split": "test" }
               ]
             }
             """);

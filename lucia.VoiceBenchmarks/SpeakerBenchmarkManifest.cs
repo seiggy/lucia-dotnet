@@ -42,13 +42,18 @@ public sealed class SpeakerBenchmarkManifest
 
             var path = GetJsonString(clipElement, "path");
             var speakerId = GetJsonString(clipElement, "speaker_id") ?? GetJsonString(clipElement, "speakerId");
+            var sessionId = GetJsonString(clipElement, "session_id") ?? GetJsonString(clipElement, "sessionId");
             var split = GetJsonString(clipElement, "split");
-            if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(speakerId) || string.IsNullOrWhiteSpace(split))
+            if (string.IsNullOrWhiteSpace(path)
+                || string.IsNullOrWhiteSpace(speakerId)
+                || string.IsNullOrWhiteSpace(sessionId)
+                || string.IsNullOrWhiteSpace(split))
             {
-                throw new InvalidOperationException("Each clip requires 'path', 'speaker_id', and 'split' fields.");
+                throw new InvalidOperationException(
+                    "Each clip requires 'path', 'speaker_id', 'session_id', and 'split' fields.");
             }
 
-            clips.Add(new SpeakerBenchmarkClip(path, speakerId, split, fullPath));
+            clips.Add(new SpeakerBenchmarkClip(path, speakerId, sessionId, split, fullPath));
         }
 
         return new SpeakerBenchmarkManifest(fullPath, clips);
@@ -97,6 +102,18 @@ public sealed class SpeakerBenchmarkManifest
             if (enrollCount == 0 || testCount == 0)
             {
                 errors.Add($"Speaker '{speakerGroup.Key}' is missing at least one enrollment and one test clip; each evaluated speaker must include both.");
+            }
+
+            var enrollmentSessionIds = speakerGroup
+                .Where(static clip => string.Equals(clip.Split, "enroll", StringComparison.OrdinalIgnoreCase))
+                .Select(static clip => clip.SessionId)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (speakerGroup
+                .Where(static clip => string.Equals(clip.Split, "test", StringComparison.OrdinalIgnoreCase))
+                .Any(clip => enrollmentSessionIds.Contains(clip.SessionId)))
+            {
+                errors.Add(
+                    $"Speaker '{speakerGroup.Key}' uses the same recording session for enrollment and test clips.");
             }
         }
 
