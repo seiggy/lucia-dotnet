@@ -55,6 +55,17 @@ public sealed class QueryDecomposerTests
         Assert.Contains("room 101", intent.CandidateEntityNames);
     }
 
+    [Theory]
+    [InlineData("set the office to 73 degrees", "degrees")]
+    [InlineData("dim the kitchen light to 50 percent", "percent")]
+    public void Decompose_NumericTargetUnit_IsNotAnEntityCandidate(string command, string unit)
+    {
+        var intent = QueryDecomposer.Decompose(command, speakerId: null);
+
+        Assert.DoesNotContain(intent.CandidateEntityNames, candidate =>
+            candidate.Contains(unit, StringComparison.OrdinalIgnoreCase));
+    }
+
     // ── Complexity detection: temporal ──────────────────────────
 
     [Fact]

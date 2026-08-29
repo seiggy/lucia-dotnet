@@ -30,6 +30,11 @@ internal sealed partial class QueryDecomposer
         "the", "a", "an", "in", "on", "of", "to", "for", "please", "my", "it"
     };
 
+    private static readonly HashSet<string> TargetUnitTokens = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "degree", "degrees", "percent", "percentage"
+    };
+
     private static readonly HashSet<string> ConjunctionTokens = new(StringComparer.OrdinalIgnoreCase)
     {
         "and", "then", "also"
@@ -209,6 +214,7 @@ internal sealed partial class QueryDecomposer
             .Where(item => deviceType is null
                 || !string.Equals(item.Token, deviceType, StringComparison.OrdinalIgnoreCase))
             .Where(item => !IsTargetValueToken(tokens, item.Index, action))
+            .Where(item => !IsTargetUnitToken(tokens, item.Index, action))
             .Select(static item => item.Token)
             .ToArray();
 
@@ -280,6 +286,14 @@ internal sealed partial class QueryDecomposer
         && index > 0
         && string.Equals(tokens[index - 1], "to", StringComparison.OrdinalIgnoreCase)
         && double.TryParse(tokens[index], NumberStyles.Float, CultureInfo.InvariantCulture, out _);
+
+    private static bool IsTargetUnitToken(
+        IReadOnlyList<string> tokens,
+        int index,
+        string? action) =>
+        index > 0
+        && TargetUnitTokens.Contains(tokens[index])
+        && IsTargetValueToken(tokens, index - 1, action);
 
     private static int IndexOf(IReadOnlyList<string> tokens, string value)
     {

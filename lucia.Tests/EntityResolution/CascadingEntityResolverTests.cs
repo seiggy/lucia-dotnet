@@ -261,6 +261,27 @@ public sealed class CascadingEntityResolverTests
     }
 
     [Fact]
+    public void Resolve_NamedLight_DoesNotAlsoResolveGenericLight()
+    {
+        var entities = new[]
+        {
+            CreateEntity("light.kitchen", "Kitchen Light", areaId: null),
+            CreateEntity("light.generic", "Light", areaId: null)
+        };
+        var resolver = new CascadingEntityResolver(
+            SetupLocationService(areas: [], entities: entities));
+
+        var result = resolver.Resolve(
+            "turn off kitchen light",
+            callerArea: null,
+            speakerId: null,
+            domains: ["light", "switch"]);
+
+        Assert.True(result.IsResolved, $"{result.BailReason}: {result.Explanation}");
+        Assert.Equal("light.kitchen", Assert.Single(result.ResolvedEntityIds));
+    }
+
+    [Fact]
     public void Resolve_SetOfficeTemperature_IgnoresTargetValueWhenGroundingArea()
     {
         var office = CreateArea("office", "Office");
@@ -272,7 +293,7 @@ public sealed class CascadingEntityResolverTests
             SetupLocationService(areas: [office], entities: entities));
 
         var result = resolver.Resolve(
-            "set the office to 72.5",
+            "set the office to 72.5 degrees",
             callerArea: null,
             speakerId: null,
             domains: ["climate"]);

@@ -426,15 +426,18 @@ export default function ModelProvidersPage() {
               value={form.providerType ?? 'OpenAI'}
               onChange={value => {
                 const newType = value as ProviderType
+                const usesNoAuthByDefault = newType === 'Ollama' || newType === 'LlamaCpp'
                 setForm(prev => ({
                   ...prev,
                   providerType: newType,
-                  // Reset Copilot-specific fields when switching away
-                  ...(newType === 'GitHubCopilot'
-                    ? { auth: { authType: 'api-key', apiKey: '', useDefaultCredentials: false }, endpoint: '', modelName: '' }
-                    : newType === 'LlamaCpp'
-                      ? { auth: { authType: 'none', apiKey: '', useDefaultCredentials: false } }
-                    : {}),
+                  endpoint: '',
+                  modelName: '',
+                  copilotMetadata: undefined,
+                  auth: {
+                    authType: usesNoAuthByDefault ? 'none' : 'api-key',
+                    apiKey: '',
+                    useDefaultCredentials: false,
+                  },
                 }))
                 if (newType !== 'GitHubCopilot') resetCopilotState()
                 if (newType !== 'Ollama') {

@@ -107,7 +107,8 @@ public sealed class CascadingEntityResolver : ICascadingEntityResolver
             candidateNames =
             [
                 candidateName,
-                .. candidateNames,
+                .. candidateNames.Where(name => intent.DeviceType is null
+                    || !string.Equals(name, intent.DeviceType, StringComparison.OrdinalIgnoreCase)),
             ];
         }
 
