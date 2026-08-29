@@ -87,8 +87,22 @@ public sealed class SpeakerBenchmarkRunner
             evaluationClipHashes ??= manifest.Clips
                 .Select(static clip => ComputeSha256(clip.ResolvedPath))
                 .ToHashSet(StringComparer.Ordinal);
-            var thresholdClipHashes = thresholdManifest.Clips
-                .Select(static clip => ComputeSha256(clip.ResolvedPath))
+            var thresholdClips = thresholdManifest.Clips
+                .Select(clip => new BenchmarkClipProvenance(
+                    clip.Path,
+                    clip.SpeakerId,
+                    clip.Split,
+                    ComputeSha256(clip.ResolvedPath)))
+                .ToArray();
+            var thresholdContentErrors = SpeakerBenchmarkManifest.ValidateContentHashes(thresholdClips);
+            if (thresholdContentErrors.Count > 0)
+            {
+                throw new InvalidOperationException(
+                    $"Threshold development manifest validation failed: {string.Join("; ", thresholdContentErrors)}");
+            }
+
+            var thresholdClipHashes = thresholdClips
+                .Select(static clip => clip.Sha256)
                 .ToHashSet(StringComparer.Ordinal);
             if (evaluationClipHashes.Overlaps(thresholdClipHashes))
             {
