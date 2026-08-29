@@ -55,6 +55,14 @@ public sealed class QueryDecomposerTests
         Assert.Contains("room 101", intent.CandidateEntityNames);
     }
 
+    [Fact]
+    public void Decompose_EntityNamedLikeComfortAction_PreservesName()
+    {
+        var intent = QueryDecomposer.Decompose("turn off cooler light", speakerId: null);
+
+        Assert.Equal("cooler", intent.ExplicitLocation);
+    }
+
     [Theory]
     [InlineData("set the office to 73 degrees", "degrees")]
     [InlineData("dim the kitchen light to 50 percent", "percent")]
