@@ -40,4 +40,49 @@ public sealed class SpeakerBenchmarkRunnerTests
             Directory.Delete(tempDirectory, recursive: true);
         }
     }
+
+    [Fact]
+    public void Run_RejectsDevelopmentManifestWithEvaluationAudio()
+    {
+        var tempDirectory = Path.Combine(Path.GetTempPath(), $"voice-benchmark-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDirectory);
+        foreach (var name in new[] { "a-enroll.wav", "a-test.wav", "b-enroll.wav", "b-test.wav" })
+        {
+            File.WriteAllBytes(Path.Combine(tempDirectory, name), [1, 2, 3]);
+        }
+
+        var evaluationManifestPath = Path.Combine(tempDirectory, "evaluation.json");
+        var developmentManifestPath = Path.Combine(tempDirectory, "development.json");
+        const string Manifest = """
+            {
+              "clips": [
+                { "path": "a-enroll.wav", "speaker_id": "a", "split": "enroll" },
+                { "path": "a-test.wav", "speaker_id": "a", "split": "test" },
+                { "path": "b-enroll.wav", "speaker_id": "b", "split": "enroll" },
+                { "path": "b-test.wav", "speaker_id": "b", "split": "test" }
+              ]
+            }
+            """;
+        File.WriteAllText(evaluationManifestPath, Manifest);
+        File.WriteAllText(developmentManifestPath, $"{Manifest}{Environment.NewLine}");
+        try
+        {
+            var runner = new SpeakerBenchmarkRunner(
+                evaluationManifestPath,
+                ["model.onnx"],
+                ["https://example.com/model.onnx"],
+                [0.7],
+                [developmentManifestPath],
+                tempDirectory,
+                "test");
+
+            var exception = Assert.Throws<InvalidOperationException>(runner.Run);
+
+            Assert.Contains("audio must not overlap", exception.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
 }

@@ -63,6 +63,7 @@ public sealed class SpeakerBenchmarkRunner
         }
 
         var evaluationManifestSha256 = ComputeSha256(manifest.ManifestPath);
+        HashSet<string>? evaluationClipHashes = null;
         foreach (var thresholdManifestPath in _models
             .Select(static model => model.ThresholdManifestPath)
             .Distinct(FileSystemPathComparer.Instance))
@@ -81,6 +82,18 @@ public sealed class SpeakerBenchmarkRunner
             {
                 throw new InvalidOperationException(
                     "Threshold development manifest must differ from the evaluation manifest.");
+            }
+
+            evaluationClipHashes ??= manifest.Clips
+                .Select(static clip => ComputeSha256(clip.ResolvedPath))
+                .ToHashSet(StringComparer.Ordinal);
+            var thresholdClipHashes = thresholdManifest.Clips
+                .Select(static clip => ComputeSha256(clip.ResolvedPath))
+                .ToHashSet(StringComparer.Ordinal);
+            if (evaluationClipHashes.Overlaps(thresholdClipHashes))
+            {
+                throw new InvalidOperationException(
+                    "Threshold development audio must not overlap evaluation audio.");
             }
         }
 
