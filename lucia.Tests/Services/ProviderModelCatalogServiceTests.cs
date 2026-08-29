@@ -180,6 +180,51 @@ public sealed class ProviderModelCatalogServiceTests
         Assert.Equal("https://api.openai.com/v1/models", capturedRequest!.RequestUri!.ToString());
     }
 
+    [Theory]
+    [InlineData("http://localhost:8000/", "http://localhost:8000/v1/models")]
+    [InlineData("http://localhost:8000/llama", "http://localhost:8000/llama/v1/models")]
+    public async Task ListModelsAsync_LlamaCppEndpoint_UsesV1ModelsUrl(
+        string endpoint,
+        string expectedModelsEndpoint)
+    {
+        HttpRequestMessage? capturedRequest = null;
+        var httpFactory = A.Fake<IHttpClientFactory>();
+        A.CallTo(() => httpFactory.CreateClient("ProviderModelCatalog"))
+            .Returns(new HttpClient(new FakeHttpMessageHandler(request =>
+            {
+                capturedRequest = request;
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""{ "data": [] }""", Encoding.UTF8, "application/json")
+                };
+            })));
+
+        var service = new ProviderModelCatalogService(httpFactory, NullLogger<ProviderModelCatalogService>.Instance);
+        var provider = BuildProvider(ProviderType.LlamaCpp, endpoint: endpoint, apiKey: null);
+
+        var result = await service.ListModelsAsync(provider);
+
+        Assert.Null(result.Error);
+        Assert.NotNull(capturedRequest);
+        Assert.Equal(expectedModelsEndpoint, capturedRequest!.RequestUri!.ToString());
+    }
+
+    [Fact]
+    public async Task ListModelsAsync_LlamaCppMalformedEndpoint_ReturnsValidationError()
+    {
+        var service = new ProviderModelCatalogService(
+            A.Fake<IHttpClientFactory>(),
+            NullLogger<ProviderModelCatalogService>.Instance);
+
+        var result = await service.ListModelsAsync(
+            ProviderType.LlamaCpp,
+            "not a URL",
+            auth: null);
+
+        Assert.Contains("Invalid", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(result.Models);
+    }
+
     [Fact]
     public async Task ListModelsAsync_OpenAiCompatibleUnauthorized_ReturnsExplicitAuthError()
     {

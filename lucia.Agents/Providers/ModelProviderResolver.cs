@@ -20,7 +20,7 @@ namespace lucia.Agents.Providers;
 
 /// <summary>
 /// Creates IChatClient and IEmbeddingGenerator instances from stored ModelProvider configurations.
-/// Supports OpenAI, OpenRouter, Azure OpenAI, Azure AI Inference, Ollama, Anthropic, Google Gemini,
+/// Supports OpenAI, OpenRouter, llama.cpp, Azure OpenAI, Azure AI Inference, Ollama, Anthropic, Google Gemini,
 /// and GitHub Copilot SDK.
 /// </summary>
 public sealed class ModelProviderResolver : IModelProviderResolver
@@ -50,6 +50,7 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         {
             ProviderType.OpenAI => CreateOpenAIClient(provider),
             ProviderType.OpenRouter => CreateOpenRouterClient(provider),
+            ProviderType.LlamaCpp => CreateLlamaCppClient(provider),
             ProviderType.AzureOpenAI => CreateAzureOpenAIClient(provider),
             ProviderType.AzureAIInference => CreateAzureAIInferenceClient(provider),
             ProviderType.Ollama => CreateOllamaClient(provider),
@@ -76,13 +77,14 @@ public sealed class ModelProviderResolver : IModelProviderResolver
         {
             ProviderType.OpenAI => CreateOpenAIEmbeddingGenerator(provider),
             ProviderType.OpenRouter => CreateOpenRouterEmbeddingGenerator(provider),
+            ProviderType.LlamaCpp => CreateLlamaCppEmbeddingGenerator(provider),
             ProviderType.AzureOpenAI => CreateAzureOpenAIEmbeddingGenerator(provider),
             ProviderType.AzureAIInference => CreateAzureAIInferenceEmbeddingGenerator(provider),
             ProviderType.Ollama => CreateOllamaEmbeddingGenerator(provider),
             ProviderType.GoogleGemini => CreateGeminiEmbeddingGenerator(provider),
             _ => throw new NotSupportedException(
                 $"Provider type '{provider.ProviderType}' does not support embedding generation. " +
-                "Supported types: OpenAI, OpenRouter, AzureOpenAI, AzureAIInference, Ollama, GoogleGemini.")
+                "Supported types: OpenAI, OpenRouter, LlamaCpp, AzureOpenAI, AzureAIInference, Ollama, GoogleGemini.")
         };
     }
 
@@ -147,6 +149,14 @@ public sealed class ModelProviderResolver : IModelProviderResolver
             .UseOpenTelemetry(sourceName: "lucia", configure: (cfg) =>
                 cfg.EnableSensitiveData = true)
             .Build();
+    }
+
+    private static IChatClient CreateLlamaCppClient(ModelProvider provider)
+    {
+        var client = new OpenAIClient(
+            new ApiKeyCredential(GetLlamaCppApiKey(provider.Auth.ApiKey)),
+            new OpenAIClientOptions { Endpoint = LlamaCppEndpoint.Normalize(provider.Endpoint) });
+        return client.GetChatClient(provider.ModelName).AsIChatClient();
     }
 
     private static OpenAIClientOptions CreateOpenAiCompatibleOptions(string? endpoint, string? defaultEndpoint = null)
@@ -339,6 +349,21 @@ public sealed class ModelProviderResolver : IModelProviderResolver
                 cfg.EnableSensitiveData = true)
             .Build();
     }
+
+    private static IEmbeddingGenerator<string, Embedding<float>> CreateLlamaCppEmbeddingGenerator(ModelProvider provider)
+    {
+        var client = new OpenAIClient(
+            new ApiKeyCredential(GetLlamaCppApiKey(provider.Auth.ApiKey)),
+            new OpenAIClientOptions { Endpoint = LlamaCppEndpoint.Normalize(provider.Endpoint) });
+        return client.GetEmbeddingClient(provider.ModelName).AsIEmbeddingGenerator()
+            .AsBuilder()
+            .UseOpenTelemetry(sourceName: "lucia", configure: cfg =>
+                cfg.EnableSensitiveData = true)
+            .Build();
+    }
+
+    private static string GetLlamaCppApiKey(string? apiKey) =>
+        string.IsNullOrWhiteSpace(apiKey) ? "unused" : apiKey;
 
     private static IEmbeddingGenerator<string, Embedding<float>> CreateAzureOpenAIEmbeddingGenerator(ModelProvider provider)
     {

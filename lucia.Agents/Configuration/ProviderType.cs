@@ -30,5 +30,8 @@ public enum ProviderType
     GoogleGemini,
 
     /// <summary>GitHub Copilot SDK (requires copilot CLI installed and authenticated).</summary>
-    GitHubCopilot
+    GitHubCopilot,
+
+    /// <summary>llama.cpp server using its OpenAI-compatible API.</summary>
+    LlamaCpp
 }

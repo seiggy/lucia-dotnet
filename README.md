@@ -35,7 +35,7 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
 - **📅 Scheduled Task System** — Extensible CRON-based scheduler with MongoDB persistence supporting alarms, timers, and deferred agent actions
 - **🔌 Extensible** — Script-based plugin system for adding capabilities without recompiling. Plugin repository for discovery and one-click install.
 - **🛠️ Runtime Agent Builder** — Create custom agents via the dashboard with MCP tool integration—no code required
-- **🔌 Model Provider System** — Configure 6+ LLM backends (OpenAI, Azure OpenAI, Azure AI Inference, Ollama, Anthropic, Google Gemini) from the dashboard with per-agent model assignment
+- **🔌 Model Provider System** — Configure OpenAI, llama.cpp, OpenRouter, Azure OpenAI, Azure AI Inference, Ollama, Anthropic, and Google Gemini from the dashboard with per-agent model assignment
 - **🧭 General Knowledge Fallback** — Built-in `general-assistant` handles open-ended requests when no specialist is a clean match
 - **🎭 Dynamic Agent Selection** — Switch between specialized agents (light control, climate, scenes, music, timers, lists, etc.) without reconfiguring
 - **💬 Conversation Threading** — Context-aware conversations with proper message threading support
@@ -47,6 +47,7 @@ The name is pronounced **LOO-sha** (or **LOO-thee-ah** in traditional Nordic pro
 |----------|--------|
 | Azure OpenAI / AI Foundry | ✅ Supported |
 | OpenAI | ✅ Supported |
+| llama.cpp | ✅ Supported |
 | Ollama | ✅ Supported |
 | Anthropic (Claude) | ✅ Supported |
 | Google Gemini | ✅ Supported |
@@ -936,7 +937,7 @@ The Aspire Dashboard provides built-in log aggregation, trace visualization, and
 - Per-agent error rate metrics and observability
 - Two-tier prompt caching (routing + chat) with semantic similarity and hot-reloadable thresholds
 - Helm charts and Kubernetes manifests
-- Multi-LLM support (Azure AI Foundry, OpenAI, Ollama, Anthropic, Google Gemini, Azure AI Inference)
+- Multi-LLM support (Azure AI Foundry, OpenAI, llama.cpp, OpenRouter, Ollama, Anthropic, Google Gemini, Azure AI Inference)
 - Dataset export for fine-tuning workflows
 - Schema-driven configuration system
 - Playwright E2E tests for all agent routing modes

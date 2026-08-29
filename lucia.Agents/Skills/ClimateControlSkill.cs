@@ -96,8 +96,8 @@ public sealed class ClimateControlSkill : IAgentSkill, IOptimizableSkill, IComma
             Action = "set_temperature",
             Templates =
             [
-                "set [the] {entity} [temperature] to {value} [degrees]",
-                "set [the] thermostat [in] [the] {area} to {value}",
+                "{action:set} [the] {entity} [temperature] to {value} [degrees]",
+                "{action:set} [the] thermostat [in] [the] {area} to {value}",
             ],
         },
         new()

@@ -75,7 +75,7 @@ Integration tests verify components with real infrastructure (Redis, MongoDB) us
 | Test File | Infrastructure | What's Tested |
 |-----------|---------------|---------------|
 | `Services/RedisTaskStoreTests.cs` | Redis (Testcontainers) | Task CRUD, TTL expiry, key scanning |
-| `Services/ModelProviderResolverTests.cs` | None (mocked providers) | Provider creation for all 7 types, OpenTelemetry wrapping |
+| `Services/ModelProviderResolverTests.cs` | None (mocked providers) | Provider client creation and OpenTelemetry wrapping |
 | `Integration/DurableTaskPersistenceTests.cs` | Redis | Task durability across restarts |
 | `Integration/ExtractDeviceIdTests.cs` | None | Device ID extraction from HA entities |
 

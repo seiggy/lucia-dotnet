@@ -17,6 +17,7 @@ public sealed class TranscriptNormalizerTests
     [InlineData("uh like set the thermostat", "set the thermostat")]
     [InlineData("okay actually turn off lights", "turn off lights")]
     [InlineData("you know turn on the lights thank you", "turn on the lights")]
+    [InlineData("you, know turn on the lights", "turn on the lights")]
     public void Normalize_RemovesFillerAndPoliteWords(string input, string expected)
     {
         Assert.Equal(expected, TranscriptNormalizer.Normalize(input));
@@ -32,6 +33,16 @@ public sealed class TranscriptNormalizerTests
     public void Normalize_RemovesPunctuation()
     {
         Assert.Equal("turn on the lights", TranscriptNormalizer.Normalize("Turn on the lights!"));
+    }
+
+    [Theory]
+    [InlineData("Set kitchen-light to 72.5.", "set kitchen light to 72.5")]
+    [InlineData("Set the thermostat to -5.", "set the thermostat to -5")]
+    [InlineData("Set the thermostat to (-5).", "set the thermostat to -5")]
+    [InlineData("Set the thermostat to (-.5).", "set the thermostat to -.5")]
+    public void Normalize_PreservesNumericPunctuationAndSeparatesWords(string input, string expected)
+    {
+        Assert.Equal(expected, TranscriptNormalizer.Normalize(input));
     }
 
     [Theory]
@@ -79,6 +90,7 @@ public sealed class TranscriptNormalizerTests
 
     [Theory]
     [InlineData("TURN OF THE OFFICE LIGHTS", "turn off the office lights")]
+    [InlineData("turn, of the office lights", "turn off the office lights")]
     [InlineData("turn of the kitchen lights", "turn off the kitchen lights")]
     [InlineData("shut of the bedroom lights", "shut off the bedroom lights")]
     [InlineData("trun on the lights", "turn on the lights")]
