@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace lucia.Wyoming.CommandRouting;
@@ -57,9 +58,6 @@ public static partial class TranscriptNormalizer
     [GeneratedRegex(@"\s+")]
     private static partial Regex MultipleSpaces();
 
-    [GeneratedRegex(@"[^\w\s]")]
-    private static partial Regex Punctuation();
-
     /// <summary>
     /// Normalize transcript for pattern matching.
     /// </summary>
@@ -69,7 +67,7 @@ public static partial class TranscriptNormalizer
             return string.Empty;
 
         var result = transcript.ToLowerInvariant().Trim();
-        result = Punctuation().Replace(result, "");
+        result = NormalizePunctuation(result);
 
         // Apply phrase-level STT corrections before word filtering
         foreach (var (pattern, replacement) in PhraseCorrections)
@@ -91,6 +89,36 @@ public static partial class TranscriptNormalizer
         result = string.Join(' ', words);
 
         return result;
+    }
+
+    private static string NormalizePunctuation(string value)
+    {
+        var result = new StringBuilder(value.Length);
+        for (var index = 0; index < value.Length; index++)
+        {
+            var character = value[index];
+            if (char.IsLetterOrDigit(character)
+                || char.IsWhiteSpace(character)
+                || character == '_')
+            {
+                result.Append(character);
+                continue;
+            }
+
+            var isDecimalPoint = character == '.'
+                && index > 0
+                && index < value.Length - 1
+                && char.IsDigit(value[index - 1])
+                && char.IsDigit(value[index + 1]);
+            var isNumericSign = character is '-' or '+'
+                && index < value.Length - 1
+                && char.IsDigit(value[index + 1])
+                && (index == 0 || char.IsWhiteSpace(value[index - 1]));
+
+            result.Append(isDecimalPoint || isNumericSign ? character : ' ');
+        }
+
+        return result.ToString();
     }
 
     /// <summary>

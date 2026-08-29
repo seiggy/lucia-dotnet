@@ -13,8 +13,11 @@ namespace lucia.Tests.Wyoming;
 
 public sealed class ClimateCommandPatternTests
 {
-    [Fact]
-    public void SetAreaToTemperature_MatchesClimateFastPath()
+    [Theory]
+    [InlineData("Set the office to 73.", "73")]
+    [InlineData("Set the office to 72.5.", "72.5")]
+    [InlineData("Set the office to -5.", "-5")]
+    public void SetAreaToTemperature_MatchesClimateFastPath(string input, string expectedTemperature)
     {
         var skill = new ClimateControlSkill(
             A.Fake<IHomeAssistantClient>(),
@@ -27,12 +30,12 @@ public sealed class ClimateCommandPatternTests
             new ConfigurationBuilder().Build());
         var matcher = new CommandPatternMatcher(new CommandPatternRegistry([skill]));
 
-        var result = matcher.Match("Set the office to 73.");
+        var result = matcher.Match(input);
 
         Assert.True(result.IsMatch);
         Assert.Equal("ClimateControlSkill", result.MatchedPattern!.SkillId);
         Assert.Equal("office", result.CapturedValues!["entity"]);
-        Assert.Equal("73", result.CapturedValues["value"]);
+        Assert.Equal(expectedTemperature, result.CapturedValues["value"]);
         Assert.True(result.Confidence >= result.MatchedPattern.MinConfidence);
     }
 }

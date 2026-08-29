@@ -47,6 +47,14 @@ public sealed class QueryDecomposerTests
         Assert.Equal("welcome to home", intent.ExplicitLocation);
     }
 
+    [Fact]
+    public void Decompose_NumberedEntity_PreservesNumber()
+    {
+        var intent = QueryDecomposer.Decompose("turn on room 101", speakerId: null);
+
+        Assert.Contains("room 101", intent.CandidateEntityNames);
+    }
+
     // ── Complexity detection: temporal ──────────────────────────
 
     [Fact]

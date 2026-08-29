@@ -194,12 +194,16 @@ internal sealed partial class QueryDecomposer
             : explicitLocation.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
         var remaining = tokens
-            .Where(t => !ActionTokens.Contains(t))
-            .Where(t => !ActionValues.Contains(t))
-            .Where(t => !IgnoreTokens.Contains(t))
-            .Where(t => explicitTokens.Length == 0 || !explicitTokens.Contains(t, StringComparer.OrdinalIgnoreCase))
-            .Where(t => deviceType is null || !string.Equals(t, deviceType, StringComparison.OrdinalIgnoreCase))
-            .Where(t => !double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+            .Select(static (token, index) => (Token: token, Index: index))
+            .Where(item => !ActionTokens.Contains(item.Token))
+            .Where(item => !ActionValues.Contains(item.Token))
+            .Where(item => !IgnoreTokens.Contains(item.Token))
+            .Where(item => explicitTokens.Length == 0
+                || !explicitTokens.Contains(item.Token, StringComparer.OrdinalIgnoreCase))
+            .Where(item => deviceType is null
+                || !string.Equals(item.Token, deviceType, StringComparison.OrdinalIgnoreCase))
+            .Where(item => !IsTargetValueToken(tokens, item.Index))
+            .Select(static item => item.Token)
             .ToArray();
 
         if (remaining.Length > 0)
@@ -231,8 +235,7 @@ internal sealed partial class QueryDecomposer
             var token = tokens[i];
             if (string.Equals(token, "to", StringComparison.OrdinalIgnoreCase))
             {
-                if (i < end
-                    && double.TryParse(tokens[i + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+                if (i < end && IsTargetValueToken(tokens, i + 1))
                 {
                     break;
                 }
@@ -257,6 +260,11 @@ internal sealed partial class QueryDecomposer
             ? null
             : string.Join(' ', phraseTokens);
     }
+
+    private static bool IsTargetValueToken(IReadOnlyList<string> tokens, int index) =>
+        index > 0
+        && string.Equals(tokens[index - 1], "to", StringComparison.OrdinalIgnoreCase)
+        && double.TryParse(tokens[index], NumberStyles.Float, CultureInfo.InvariantCulture, out _);
 
     private static int IndexOf(IReadOnlyList<string> tokens, string value)
     {
