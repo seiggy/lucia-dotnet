@@ -148,7 +148,8 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
 
         var state = captures.GetValueOrDefault("action", "on");
         var resolvedIds = useCascadingResolver
-            ? await ResolveEntitiesWithCascadeAsync(route, context, LightDomains, requireSingle: false, "light-agent", ct)
+            ? await ResolveEntitiesWithCascadeAsync(
+                route, context, LightDomains, skill.GetCurrentMatchOptions(), requireSingle: false, "light-agent", ct)
                 .ConfigureAwait(false)
             : ResolveSearchTermsToEntityIds(BuildSearchTerms(route, context), LightDomains);
 
@@ -172,7 +173,8 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
         }
 
         var resolvedIds = useCascadingResolver
-            ? await ResolveEntitiesWithCascadeAsync(route, context, LightDomains, requireSingle: false, "light-agent", ct)
+            ? await ResolveEntitiesWithCascadeAsync(
+                route, context, LightDomains, skill.GetCurrentMatchOptions(), requireSingle: false, "light-agent", ct)
                 .ConfigureAwait(false)
             : ResolveSearchTermsToEntityIds(BuildSearchTerms(route, context), LightDomains);
 
@@ -196,7 +198,8 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
         }
 
         var entityId = useCascadingResolver
-            ? await ResolveSingleEntityWithCascadeAsync(route, context, ClimateDomains, "climate-agent", ct)
+            ? await ResolveSingleEntityWithCascadeAsync(
+                route, context, ClimateDomains, skill.GetCurrentMatchOptions(), "climate-agent", ct)
                 .ConfigureAwait(false)
             : ResolveEntityIdFromCache(route, ClimateDomains);
 
@@ -214,7 +217,8 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
 
         var direction = captures.GetValueOrDefault("action", "warmer");
         var entityId = useCascadingResolver
-            ? await ResolveSingleEntityWithCascadeAsync(route, context, ClimateDomains, "climate-agent", ct)
+            ? await ResolveSingleEntityWithCascadeAsync(
+                route, context, ClimateDomains, skill.GetCurrentMatchOptions(), "climate-agent", ct)
                 .ConfigureAwait(false)
             : ResolveEntityIdFromCache(route, ClimateDomains);
 
@@ -254,7 +258,8 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
     {
         var skill = _serviceProvider.GetRequiredService<SceneControlSkill>();
         var entityId = useCascadingResolver
-            ? await ResolveSingleEntityWithCascadeAsync(route, context, SceneDomains, "scene-agent", ct)
+            ? await ResolveSingleEntityWithCascadeAsync(
+                route, context, SceneDomains, skill.GetCurrentMatchOptions(), "scene-agent", ct)
                 .ConfigureAwait(false)
             : ResolveEntityIdFromCache(route, SceneDomains, captureKey: "scene");
 
@@ -270,6 +275,7 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
         CommandRouteResult route,
         ConversationContext context,
         IReadOnlyList<string> domains,
+        HybridMatchOptions matchOptions,
         bool requireSingle,
         string? callerAgentId,
         CancellationToken ct)
@@ -288,6 +294,7 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
         {
             var fuzzyResult = await _entityLocationService.SearchHierarchyAsync(
                 ResolveEntitySearchQuery(route),
+                options: matchOptions,
                 domainFilter: domains,
                 ct: ct).ConfigureAwait(false);
             resolvedIds = fuzzyResult.ResolvedEntities
@@ -319,11 +326,12 @@ public sealed partial class DirectSkillExecutor : IDirectSkillExecutor
         CommandRouteResult route,
         ConversationContext context,
         IReadOnlyList<string> domains,
+        HybridMatchOptions matchOptions,
         string? callerAgentId,
         CancellationToken ct)
     {
         var resolvedIds = await ResolveEntitiesWithCascadeAsync(
-            route, context, domains, requireSingle: true, callerAgentId, ct).ConfigureAwait(false);
+            route, context, domains, matchOptions, requireSingle: true, callerAgentId, ct).ConfigureAwait(false);
         return resolvedIds[0];
     }
 

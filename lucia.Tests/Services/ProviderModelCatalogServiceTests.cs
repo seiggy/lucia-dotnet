@@ -210,6 +210,22 @@ public sealed class ProviderModelCatalogServiceTests
     }
 
     [Fact]
+    public async Task ListModelsAsync_LlamaCppMalformedEndpoint_ReturnsValidationError()
+    {
+        var service = new ProviderModelCatalogService(
+            A.Fake<IHttpClientFactory>(),
+            NullLogger<ProviderModelCatalogService>.Instance);
+
+        var result = await service.ListModelsAsync(
+            ProviderType.LlamaCpp,
+            "not a URL",
+            auth: null);
+
+        Assert.Contains("Invalid", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(result.Models);
+    }
+
+    [Fact]
     public async Task ListModelsAsync_OpenAiCompatibleUnauthorized_ReturnsExplicitAuthError()
     {
         var httpFactory = A.Fake<IHttpClientFactory>();

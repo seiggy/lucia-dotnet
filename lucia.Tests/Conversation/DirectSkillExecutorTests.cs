@@ -147,7 +147,10 @@ public sealed class DirectSkillExecutorTests
         };
 
         A.CallTo(() => featureManager.IsEnabledAsync(A<string>._)).Returns(true);
-        A.CallTo(() => options.CurrentValue).Returns(new LightControlSkillOptions());
+        A.CallTo(() => options.CurrentValue).Returns(new LightControlSkillOptions
+        {
+            HybridSimilarityThreshold = 0.77
+        });
         A.CallTo(() => cascadingResolver.Resolve(
                 A<string>._,
                 A<string?>._,
@@ -222,6 +225,12 @@ public sealed class DirectSkillExecutorTests
         var result = await executor.ExecuteAsync(route, CreateContext());
 
         Assert.True(result.Success, result.Error);
+        A.CallTo(() => locationService.SearchHierarchyAsync(
+                "Zach's light",
+                A<HybridMatchOptions?>.That.Matches(matchOptions => HasExpectedThreshold(matchOptions)),
+                A<IReadOnlyList<string>?>._,
+                A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
         A.CallTo(() => haClient.CallServiceAsync(
                 "light",
                 "turn_off",
@@ -291,6 +300,9 @@ public sealed class DirectSkillExecutorTests
         Assert.Equal("LightControlSkill", result.SkillId);
         Assert.NotNull(result.Error);
     }
+
+    private static bool HasExpectedThreshold(HybridMatchOptions? matchOptions) =>
+        matchOptions is { Threshold: 0.77 };
 
     private static ConversationContext CreateContext() => new()
     {

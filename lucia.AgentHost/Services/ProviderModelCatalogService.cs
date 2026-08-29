@@ -45,13 +45,7 @@ public sealed class ProviderModelCatalogService
             ProviderType.Ollama => await ListOllamaModelsAsync(endpoint, ct).ConfigureAwait(false),
             ProviderType.OpenAI => await ListOpenAiCompatibleModelsAsync(endpoint, auth?.ApiKey, DefaultOpenAiEndpoint, ct).ConfigureAwait(false),
             ProviderType.OpenRouter => await ListOpenRouterModelsAsync(endpoint, auth?.ApiKey, ct).ConfigureAwait(false),
-            ProviderType.LlamaCpp => string.IsNullOrWhiteSpace(endpoint)
-                ? new ProviderModelsResponse { Error = "llama.cpp provider requires an endpoint URL." }
-                : await ListOpenAiCompatibleModelsAsync(
-                    LlamaCppEndpoint.Normalize(endpoint).ToString(),
-                    auth?.ApiKey,
-                    string.Empty,
-                    ct).ConfigureAwait(false),
+            ProviderType.LlamaCpp => await ListLlamaCppModelsAsync(endpoint, auth?.ApiKey, ct).ConfigureAwait(false),
             ProviderType.GoogleGemini => await ListOpenAiCompatibleModelsAsync(endpoint, auth?.ApiKey, DefaultGeminiEndpoint, ct).ConfigureAwait(false),
             _ => new ProviderModelsResponse
             {
@@ -102,6 +96,24 @@ public sealed class ProviderModelCatalogService
         }
 
         return result;
+    }
+
+    private async Task<ProviderModelsResponse> ListLlamaCppModelsAsync(
+        string? endpoint,
+        string? apiKey,
+        CancellationToken ct)
+    {
+        if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            return new ProviderModelsResponse { Error = "Invalid llama.cpp endpoint URL" };
+        }
+
+        return await ListOpenAiCompatibleModelsAsync(
+            LlamaCppEndpoint.Normalize(uri.ToString()).ToString(),
+            apiKey,
+            string.Empty,
+            ct).ConfigureAwait(false);
     }
 
     private async Task<ProviderModelsResponse> ListOpenRouterModelsAsync(
