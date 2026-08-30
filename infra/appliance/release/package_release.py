@@ -55,6 +55,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--installer", type=pathlib.Path, required=True)
     parser.add_argument("--lucia", type=pathlib.Path, required=True)
     parser.add_argument("--os", type=pathlib.Path, required=True)
+    parser.add_argument("--lucia-version")
+    parser.add_argument("--os-version")
     parser.add_argument("--output-dir", type=pathlib.Path, required=True)
     parser.add_argument("--chunk-bytes", type=int, default=1_900_000_000)
     return parser.parse_args()
@@ -66,6 +68,14 @@ def main() -> None:
         raise SystemExit("--tag must match vMAJOR.MINOR.PATCH")
     if arguments.chunk_bytes < 1:
         raise SystemExit("--chunk-bytes must be positive")
+    release_version = arguments.tag.removeprefix("v")
+    lucia_version = arguments.lucia_version or release_version
+    os_version = arguments.os_version or release_version
+    version_pattern = r"[0-9]+\.[0-9]+\.[0-9]+"
+    if re.fullmatch(version_pattern, lucia_version) is None:
+        raise SystemExit("--lucia-version must match MAJOR.MINOR.PATCH")
+    if re.fullmatch(version_pattern, os_version) is None:
+        raise SystemExit("--os-version must match MAJOR.MINOR.PATCH")
 
     inputs = {
         "installer": arguments.installer.resolve(),
@@ -88,16 +98,17 @@ def main() -> None:
         f"{arguments.tag}/"
     )
     channel_metadata = {
-        "installer": ("full-image", "raw-zstd"),
-        "lucia": ("lucia-update", "tar-zstd"),
-        "os": ("os-update", "tar-zstd"),
+        "installer": ("full-image", "raw-zstd", release_version),
+        "lucia": ("lucia-update", "tar-zstd", lucia_version),
+        "os": ("os-update", "tar-zstd", os_version),
     }
     channels: dict[str, object] = {}
     for name, source in inputs.items():
-        kind, file_format = channel_metadata[name]
+        kind, file_format, channel_version = channel_metadata[name]
         channels[name] = {
             "kind": kind,
             "format": file_format,
+            "version": channel_version,
             "bytes": source.stat().st_size,
             "sha256": hash_file(source),
             "parts": chunk_file(
@@ -115,7 +126,7 @@ def main() -> None:
             f"https://api.github.com/repos/{arguments.repository}/releases/latest"
         ),
         "tag": arguments.tag,
-        "version": arguments.tag.removeprefix("v"),
+        "version": release_version,
         "compatibility": {
             "architecture": "arm64",
             "board": "jetson-orin-nano-super-p3767-0005",

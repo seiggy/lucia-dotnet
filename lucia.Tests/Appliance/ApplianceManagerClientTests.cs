@@ -32,7 +32,7 @@ public sealed class ApplianceManagerClientTests
 
                 const string Body =
                     """
-                    {"hostname":"lucia","architecture":"arm64","board":"jetson-orin-nano-super-p3767-0005","luciaVersion":"1.2.3","rebootRequired":false,"network":{"ssid":"Home WiFi","signal":87},"os":{"name":"Ubuntu","versionId":"22.04","imageVersion":"1.1.0","jetsonLinuxVersion":"36.5.2"},"services":[{"id":"agenthost","activeState":"active","unitFileState":"enabled"}]}
+                    {"hostname":"lucia","architecture":"arm64","board":"jetson-orin-nano-super-p3767-0005","luciaVersion":"1.2.3","storageBytes":2000000000000,"rebootRequired":false,"network":{"ssid":"Home WiFi","signal":87},"os":{"name":"Ubuntu","versionId":"22.04","imageVersion":"1.1.0","jetsonLinuxVersion":"36.5.2"},"services":[{"id":"agenthost","activeState":"active","unitFileState":"enabled"}]}
                     """;
                 var response = Encoding.UTF8.GetBytes(
                     "HTTP/1.1 200 OK\r\n"

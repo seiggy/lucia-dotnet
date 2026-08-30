@@ -113,7 +113,7 @@ function AppRoutes() {
     }
 
     fetch('/api/appliance/status')
-      .then((response) => setHasAppliance(response.ok))
+      .then((response) => setHasAppliance(response.status !== 404))
       .catch(() => setHasAppliance(false))
   }, [authenticated, setupComplete])
 

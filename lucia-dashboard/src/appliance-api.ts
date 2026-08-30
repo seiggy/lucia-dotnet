@@ -9,6 +9,7 @@ export interface ApplianceStatus {
   architecture: string
   board: string
   luciaVersion: string
+  storageBytes: number
   rebootRequired: boolean
   network: {
     ssid: string
@@ -43,7 +44,8 @@ export interface ApplianceTelemetryConfiguration {
 export interface ApplianceUpdateStatus {
   currentLuciaVersion: string
   currentOsVersion: string
-  latestVersion: string | null
+  latestLuciaVersion: string | null
+  latestOsVersion: string | null
   manifestAvailable: boolean
   compatible: boolean
   luciaUpdateAvailable: boolean
@@ -98,7 +100,11 @@ function parseStatus(value: unknown): ApplianceStatus {
   const status = requireRecord(value, 'status')
   const os = requireRecord(status.os, 'OS status')
   const network = requireRecord(status.network, 'network status')
-  if (!Array.isArray(status.services) || typeof status.rebootRequired !== 'boolean') {
+  if (
+    !Array.isArray(status.services)
+    || typeof status.rebootRequired !== 'boolean'
+    || typeof status.storageBytes !== 'number'
+  ) {
     throw new Error('The appliance returned invalid service status.')
   }
   if (network.signal !== null && typeof network.signal !== 'number') {
@@ -117,6 +123,7 @@ function parseStatus(value: unknown): ApplianceStatus {
     architecture: requireString(status, 'architecture'),
     board: requireString(status, 'board'),
     luciaVersion: requireString(status, 'luciaVersion'),
+    storageBytes: status.storageBytes,
     rebootRequired: status.rebootRequired,
     network: {
       ssid: requireString(network, 'ssid'),
@@ -161,7 +168,8 @@ function parseUpdates(value: unknown): ApplianceUpdateStatus {
   return {
     currentLuciaVersion: requireString(updates, 'currentLuciaVersion'),
     currentOsVersion: requireString(updates, 'currentOsVersion'),
-    latestVersion: optionalString('latestVersion'),
+    latestLuciaVersion: optionalString('latestLuciaVersion'),
+    latestOsVersion: optionalString('latestOsVersion'),
     manifestAvailable: requireBoolean(updates, 'manifestAvailable'),
     compatible: requireBoolean(updates, 'compatible'),
     luciaUpdateAvailable: requireBoolean(updates, 'luciaUpdateAvailable'),

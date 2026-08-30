@@ -166,3 +166,27 @@ test('restores persisted installation progress after reload', async ({ page }) =
   await expect(page.getByRole('heading', { name: 'Lucia is moving in' })).toBeVisible();
   await expect(page.getByText('50.0%')).toBeVisible();
 });
+
+test('shows the server error when another browser owns setup', async ({ page }) => {
+  await page.addInitScript(() => {
+    sessionStorage.setItem('lucia-installer-boot-seen', 'true');
+  });
+  await page.route('**/api/installer/capabilities', async (route) => {
+    await route.fulfill({
+      json: { mode: 'installer', requiresSetupCode: false, isClaimed: true },
+    });
+  });
+  await page.route('**/api/installer/claim', async (route) => {
+    await route.fulfill({
+      status: 409,
+      json: { error: 'This Lucia is already being set up in another browser.' },
+    });
+  });
+
+  await page.goto('/install');
+  await page.getByRole('button', { name: 'Begin setup' }).click();
+
+  await expect(page.getByRole('alert')).toHaveText(
+    'This Lucia is already being set up in another browser.',
+  );
+});

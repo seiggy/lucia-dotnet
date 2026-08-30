@@ -5,6 +5,7 @@ public sealed record ApplianceStatusResponse(
     string Architecture,
     string Board,
     string LuciaVersion,
+    long StorageBytes,
     bool RebootRequired,
     ApplianceNetworkStatus Network,
     ApplianceOsStatus Os,

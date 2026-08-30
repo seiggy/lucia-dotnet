@@ -84,6 +84,8 @@ static async Task<IResult> GetStatusAsync(CancellationToken cancellationToken)
     var unitStates = ParseUnitStates(systemctlResult.StandardOutput);
     var network = await ReadWifiStatusAsync(cancellationToken)
         .ConfigureAwait(false);
+    var storageBytes = await ReadStorageBytesAsync(cancellationToken)
+        .ConfigureAwait(false);
     var osRelease = ReadKeyValueFile(
         Environment.GetEnvironmentVariable("LUCIA_OS_RELEASE_PATH")
             ?? "/etc/os-release");
@@ -115,6 +117,7 @@ static async Task<IResult> GetStatusAsync(CancellationToken cancellationToken)
         Board = Environment.GetEnvironmentVariable("LUCIA_APPLIANCE_BOARD")
             ?? "jetson-orin-nano-super-p3767-0005",
         LuciaVersion = luciaVersion,
+        StorageBytes = storageBytes,
         RebootRequired = File.Exists(rebootRequiredPath),
         Network = new
         {
@@ -127,7 +130,7 @@ static async Task<IResult> GetStatusAsync(CancellationToken cancellationToken)
             VersionId = osRelease.GetValueOrDefault("VERSION_ID", "unknown"),
             ImageVersion = File.Exists(osVersionPath)
                 ? File.ReadAllText(osVersionPath).Trim()
-                : luciaVersion,
+                : "unknown",
             JetsonLinuxVersion = ReadJetsonLinuxVersion(jetsonReleasePath),
         },
         Services = services.Select(service =>
@@ -297,7 +300,7 @@ static async Task<IResult> UpdateTelemetryConfigurationAsync(
         RestoreTelemetryFile(path, previousLines);
         var rollbackResult = await RunSystemctlAsync(
                 GetTelemetrySystemdArguments(previousEnabled),
-                cancellationToken)
+                CancellationToken.None)
             .ConfigureAwait(false);
         var detail = rollbackResult.ExitCode == 0
             ? result.StandardError.Trim()
@@ -546,4 +549,37 @@ static async Task<(string Ssid, int? Signal)> ReadWifiStatusAsync(
                 match.Groups["signal"].Value,
                 System.Globalization.CultureInfo.InvariantCulture))
         : ("Ethernet", null);
+}
+
+static async Task<long> ReadStorageBytesAsync(
+    CancellationToken cancellationToken)
+{
+    var blockdevPath = Environment.GetEnvironmentVariable("LUCIA_BLOCKDEV_PATH")
+        ?? "/usr/sbin/blockdev";
+    var device = Environment.GetEnvironmentVariable("LUCIA_APPLIANCE_DEVICE")
+        ?? "/dev/nvme0n1";
+    var startInfo = new ProcessStartInfo
+    {
+        FileName = blockdevPath,
+        RedirectStandardError = true,
+        RedirectStandardOutput = true,
+        UseShellExecute = false,
+    };
+    startInfo.ArgumentList.Add("--getsize64");
+    startInfo.ArgumentList.Add(device);
+
+    using var process = Process.Start(startInfo)
+        ?? throw new InvalidOperationException("Failed to start blockdev.");
+    var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+    var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+    await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+    var output = await outputTask.ConfigureAwait(false);
+    _ = await errorTask.ConfigureAwait(false);
+    return process.ExitCode == 0
+        && long.TryParse(
+            output.Trim(),
+            System.Globalization.CultureInfo.InvariantCulture,
+            out var bytes)
+        ? bytes
+        : 0;
 }

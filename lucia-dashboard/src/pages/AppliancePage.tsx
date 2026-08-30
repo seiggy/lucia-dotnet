@@ -183,7 +183,7 @@ export default function AppliancePage() {
             icon={Cpu}
             title="Lucia"
             current={updates?.currentLuciaVersion ?? status?.luciaVersion ?? 'unknown'}
-            latest={updates?.latestVersion}
+            latest={updates?.latestLuciaVersion}
             available={updates?.luciaUpdateAvailable ?? false}
             checked={updates !== null}
           />
@@ -191,7 +191,7 @@ export default function AppliancePage() {
             icon={HardDrive}
             title="Jetson OS"
             current={updates?.currentOsVersion ?? status?.os.imageVersion ?? 'unknown'}
-            latest={updates?.latestVersion}
+            latest={updates?.latestOsVersion}
             available={updates?.osUpdateAvailable ?? false}
             checked={updates !== null}
           />

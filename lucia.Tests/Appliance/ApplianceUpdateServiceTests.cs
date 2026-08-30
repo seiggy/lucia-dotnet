@@ -34,7 +34,7 @@ public sealed class ApplianceUpdateServiceTests
 
                 const string Body =
                     """
-                    {"hostname":"lucia","architecture":"arm64","board":"jetson-orin-nano-super-p3767-0005","luciaVersion":"1.2.3","rebootRequired":false,"network":{"ssid":"Home WiFi","signal":87},"os":{"name":"Ubuntu","versionId":"22.04","imageVersion":"1.1.0","jetsonLinuxVersion":"36.5.2"},"services":[]}
+                    {"hostname":"lucia","architecture":"arm64","board":"jetson-orin-nano-super-p3767-0005","luciaVersion":"1.2.3","storageBytes":2000000000000,"rebootRequired":false,"network":{"ssid":"Home WiFi","signal":87},"os":{"name":"Ubuntu","versionId":"22.04","imageVersion":"1.1.0","jetsonLinuxVersion":"36.5.2"},"services":[]}
                     """;
                 var response = Encoding.UTF8.GetBytes(
                     "HTTP/1.1 200 OK\r\n"
@@ -53,7 +53,7 @@ public sealed class ApplianceUpdateServiceTests
                           {"html_url":"https://github.com/seiggy/lucia-dotnet/releases/tag/v1.3.0","assets":[{"name":"lucia-appliance-manifest.json","browser_download_url":"https://downloads.example/manifest.json"}]}
                           """
                         : """
-                          {"schemaVersion":1,"version":"1.3.0","compatibility":{"architecture":"arm64","board":"jetson-orin-nano-super-p3767-0005","jetsonLinux":"36.5.2"},"channels":{"lucia":{},"os":{}}}
+                          {"schemaVersion":1,"version":"1.3.0","compatibility":{"architecture":"arm64","board":"jetson-orin-nano-super-p3767-0005","jetsonLinux":"36.5.2","minimumDiskBytes":61203283968},"channels":{"lucia":{"version":"1.3.0"},"os":{"version":"1.4.0"}}}
                           """;
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
@@ -79,7 +79,8 @@ public sealed class ApplianceUpdateServiceTests
             Assert.True(result.Compatible);
             Assert.False(result.LuciaUpdateAvailable);
             Assert.False(result.OsUpdateAvailable);
-            Assert.Equal("1.3.0", result.LatestVersion);
+            Assert.Equal("1.3.0", result.LatestLuciaVersion);
+            Assert.Equal("1.4.0", result.LatestOsVersion);
             Assert.Contains("attestation", result.Message);
             await serverTask;
         }

@@ -4,7 +4,7 @@
 GitHub releases:
 
 | Channel | Purpose |
-|---|---|
+| --- | --- |
 | Installer | Complete microSD image for Rufus and first installation |
 | Lucia | AgentHost, dashboard, plugins, GPU native libraries, and Redis |
 | OS | Jetson rootfs, kernel, and device tree for inactive-slot updates |

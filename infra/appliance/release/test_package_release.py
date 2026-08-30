@@ -34,6 +34,10 @@ class PackageReleaseTests(unittest.TestCase):
                     str(lucia),
                     "--os",
                     str(os_update),
+                    "--lucia-version",
+                    "1.2.4",
+                    "--os-version",
+                    "2.0.0",
                     "--output-dir",
                     str(output),
                     "--chunk-bytes",
@@ -47,6 +51,8 @@ class PackageReleaseTests(unittest.TestCase):
             )
             self.assertEqual(manifest["schemaVersion"], 1)
             self.assertEqual(manifest["version"], "1.2.3")
+            self.assertEqual(manifest["channels"]["lucia"]["version"], "1.2.4")
+            self.assertEqual(manifest["channels"]["os"]["version"], "2.0.0")
             self.assertEqual(manifest["compatibility"]["jetsonLinux"], "36.5.2")
             self.assertEqual(len(manifest["channels"]["installer"]["parts"]), 3)
             self.assertEqual(len(manifest["channels"]["lucia"]["parts"]), 1)

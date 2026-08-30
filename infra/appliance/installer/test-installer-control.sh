@@ -19,6 +19,14 @@ truncate --size 70G "$work_dir/disk.img"
 loop_device="$(losetup --find --show "$work_dir/disk.img")"
 ln -s "$loop_device" "$work_dir/devices/nvme-Lab_SSD_LAB123"
 
+LUCIA_DEVICE_DIRECTORY="$work_dir/devices" \
+LUCIA_INSTALL_PATH="$script_dir/lucia-install" \
+LUCIA_INSTALLER_STATE_DIR="$work_dir/state" \
+    "$control" disks > "$work_dir/non-nvme-disks.json"
+grep -qx '\[\]' "$work_dir/non-nvme-disks.json"
+
+echo "PASS: control excludes non-NVMe storage"
+
 LUCIA_ALLOW_LOOP_DEVICES=1 \
 LUCIA_DEVICE_DIRECTORY="$work_dir/devices" \
 LUCIA_INSTALL_PATH="$script_dir/lucia-install" \

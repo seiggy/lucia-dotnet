@@ -123,6 +123,10 @@ download_sha256 \
     "$REDIS_EXPORTER_URL" \
     "$REDIS_EXPORTER_SHA256" \
     "$downloads/redis_exporter-v${REDIS_EXPORTER_VERSION}.linux-arm64.tar.gz"
+download_sha256 \
+    "$REDIS_SOURCE_URL" \
+    "$REDIS_SOURCE_SHA256" \
+    "$downloads/redis-${REDIS_COMMIT}.tar.gz"
 
 rm -rf \
     "$publish_dir" \
@@ -162,18 +166,20 @@ cp -a "$repo_root/lucia-dashboard/dist/." "$installer_publish_dir/wwwroot/"
 
 mkdir -p "$redis_dir"
 docker run --rm --platform linux/arm64 \
+    -v "$downloads/redis-${REDIS_COMMIT}.tar.gz:/inputs/redis-source.tar.gz:ro" \
     -v "$redis_dir:/output" \
-    ubuntu:22.04 \
+    "$REDIS_BUILD_IMAGE" \
     bash -lc "
         set -euo pipefail
-        export DEBIAN_FRONTEND=noninteractive
-        apt-get update -qq
-        apt-get install -y -qq ca-certificates git build-essential >/dev/null
-        git clone --quiet --depth 1 --branch '$REDIS_VERSION' \
-            https://github.com/redis/redis.git /src/redis
-        test \"\$(git -C /src/redis rev-parse HEAD)\" = '$REDIS_COMMIT'
-        make -C /src/redis -j2 BUILD_TLS=no MALLOC=libc redis-server >/dev/null
-        install -m 0755 /src/redis/src/redis-server /output/redis-server
+        mkdir -p /src/redis
+        tar -xzf /inputs/redis-source.tar.gz \
+            --strip-components=1 \
+            -C /src/redis
+        make -C /src/redis -j2 BUILD_TLS=no MALLOC=libc \
+            redis-server >/dev/null
+        install -m 0755 \
+            /src/redis/src/redis-server \
+            /output/redis-server
     "
 
 mkdir -p "$telemetry_dir/otelcol" "$telemetry_dir/redis-exporter"
@@ -217,11 +223,17 @@ sudo "$repo_root/infra/appliance/build-native-bundle.sh" \
     --otelcol "$telemetry_dir/otelcol/otelcol-contrib" \
     --redis-exporter "$telemetry_dir/redis-exporter/redis_exporter" \
     --output-dir "$bundle_root"
-sudo chown -R "$(id -u):$(id -g)" "$bundle_root"
-tar -I 'zstd -T0 -10' \
+sudo chown -R root:root "$bundle_root"
+sudo chown -R 1100:1100 "$bundle_root/var/lib/lucia"
+sudo chown root:1100 \
+    "$bundle_root/var/lib/lucia/config" \
+    "$bundle_root/var/lib/lucia/config/lucia.env"
+sudo tar --numeric-owner -I 'zstd -T0 -10' \
     -cf "$raw_dir/lucia-appliance-${version}-lucia.tar.zst" \
     -C "$bundle_root" \
     .
+sudo chown "$(id -u):$(id -g)" \
+    "$raw_dir/lucia-appliance-${version}-lucia.tar.zst"
 
 prepare_bsp() {
     local destination="$1"
@@ -300,6 +312,8 @@ prepare_bsp "$bsp_dir"
 root="$bsp_dir/Linux_for_Tegra/rootfs"
 install_compute_runtime "$root"
 sudo cp -a "$repo_root/infra/appliance/rootfs/." "$root/"
+printf '%s\n' "$version" \
+    | sudo tee "$root/etc/lucia/os-version" >/dev/null
 sudo mkdir -p "$root/opt/lucia" "$root/var/lib/lucia"
 grep -q '^PARTLABEL=LUCIA ' "$root/etc/fstab" \
     || printf 'PARTLABEL=LUCIA /opt/lucia ext4 defaults,nodev,nosuid 0 2\n' \

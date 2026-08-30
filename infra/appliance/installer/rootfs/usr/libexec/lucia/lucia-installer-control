@@ -110,6 +110,9 @@ def list_disks() -> None:
             run([install_path, "plan", "--device", str(device_id)])
         )
         details = get_device_details(resolved_device)
+        transport = str(details.get("tran") or "").strip()
+        if device_type == "disk" and transport != "nvme":
+            continue
         confirmation_phrase = get_confirmation_phrase(
             details,
             plan["device_identity"],
@@ -311,6 +314,20 @@ def configure_installation() -> None:
             f"Selected storage is not installable: {plan['classification']}"
         )
     details = get_device_details(os.path.realpath(device_id))
+    device_type = run(
+        [
+            "lsblk",
+            "--nodeps",
+            "--noheadings",
+            "--output",
+            "TYPE",
+            os.path.realpath(device_id),
+        ]
+    ).strip()
+    transport = str(details.get("tran") or "").strip()
+    allow_loop = os.environ.get("LUCIA_ALLOW_LOOP_DEVICES") == "1"
+    if transport != "nvme" and not (allow_loop and device_type == "loop"):
+        raise ValueError("Selected storage must be an NVMe device")
     confirmation_phrase = get_confirmation_phrase(
         details,
         plan["device_identity"],

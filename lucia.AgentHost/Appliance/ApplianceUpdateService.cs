@@ -43,7 +43,8 @@ public sealed class ApplianceUpdateService(
             return new ApplianceUpdateStatus(
                 current.LuciaVersion,
                 current.Os.ImageVersion,
-                LatestVersion: null,
+                LatestLuciaVersion: null,
+                LatestOsVersion: null,
                 ManifestAvailable: false,
                 Compatible: false,
                 LuciaUpdateAvailable: false,
@@ -67,6 +68,9 @@ public sealed class ApplianceUpdateService(
         var architecture = compatibility.GetProperty("architecture").GetString();
         var board = compatibility.GetProperty("board").GetString();
         var jetsonLinux = compatibility.GetProperty("jetsonLinux").GetString();
+        var minimumDiskBytes = compatibility
+            .GetProperty("minimumDiskBytes")
+            .GetInt64();
         var compatible =
             string.Equals(
                 architecture,
@@ -79,16 +83,26 @@ public sealed class ApplianceUpdateService(
             && string.Equals(
                 jetsonLinux,
                 current.Os.JetsonLinuxVersion,
-                StringComparison.Ordinal);
-        var latestVersion = manifest.GetProperty("version").GetString();
+                StringComparison.Ordinal)
+            && current.StorageBytes >= minimumDiskBytes;
+        var channels = manifest.GetProperty("channels");
+        var latestLuciaVersion = channels
+            .GetProperty("lucia")
+            .GetProperty("version")
+            .GetString();
+        var latestOsVersion = channels
+            .GetProperty("os")
+            .GetProperty("version")
+            .GetString();
         var hasNewerRelease =
-            IsNewer(latestVersion, current.LuciaVersion)
-            || IsNewer(latestVersion, current.Os.ImageVersion);
+            IsNewer(latestLuciaVersion, current.LuciaVersion)
+            || IsNewer(latestOsVersion, current.Os.ImageVersion);
 
         return new ApplianceUpdateStatus(
             current.LuciaVersion,
             current.Os.ImageVersion,
-            latestVersion,
+            latestLuciaVersion,
+            latestOsVersion,
             ManifestAvailable: true,
             Compatible: compatible,
             LuciaUpdateAvailable: false,

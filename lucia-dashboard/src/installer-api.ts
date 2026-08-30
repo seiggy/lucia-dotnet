@@ -152,8 +152,12 @@ function parseNetwork(value: unknown): InstallerNetwork {
 
 async function readJson(response: Response): Promise<unknown> {
   if (!response.ok) {
+    const body = await response.json().catch(() => null)
+    if (isRecord(body) && typeof body.error === 'string') {
+      throw new Error(body.error)
+    }
     if (response.status === 401) {
-      throw new Error('That setup code did not match this Lucia.')
+      throw new Error('This browser does not own the current setup session. Restart the installer to claim it again.')
     }
     throw new Error(`Installer request failed with status ${response.status}.`)
   }
