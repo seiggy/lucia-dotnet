@@ -7,7 +7,8 @@ work_dir="$(mktemp -d)"
 socket_path="$work_dir/appliance-manager.sock"
 systemctl_log="$work_dir/systemctl.log"
 nmcli_log="$work_dir/nmcli.log"
-storage_size="$work_dir/nvme-size"
+mountinfo="$work_dir/mountinfo"
+sys_block="$work_dir/sys-class-block"
 manager_log="$work_dir/manager.log"
 manager_pid=""
 os_release="$work_dir/os-release"
@@ -64,7 +65,11 @@ printf '%s\n' "$*" >> "$LUCIA_TEST_NMCLI_LOG"
 printf '%s\n' 'yes:Home WiFi:87'
 EOF
 chmod +x "$work_dir/nmcli"
-printf '%s\n' '3906250000' > "$storage_size"
+mkdir -p "$sys_block/nvme1n1"
+printf '%s\n' '3906250000' > "$sys_block/nvme1n1/size"
+printf '%s\n' \
+    '36 25 259:18 / /var/lib/lucia rw,relatime - ext4 /dev/nvme1n1p18 rw' \
+    > "$mountinfo"
 cat > "$os_release" <<'EOF'
 NAME="Ubuntu"
 VERSION_ID="22.04"
@@ -82,7 +87,8 @@ LUCIA_OS_RELEASE_PATH="$os_release" \
 LUCIA_OS_VERSION_PATH="$os_version" \
 LUCIA_JETSON_RELEASE_PATH="$jetson_release" \
 LUCIA_NMCLI_PATH="$work_dir/nmcli" \
-LUCIA_DEVICE_SIZE_PATH="$storage_size" \
+LUCIA_MOUNTINFO_PATH="$mountinfo" \
+LUCIA_SYS_BLOCK_PATH="$sys_block" \
 LUCIA_REBOOT_REQUIRED_PATH="$reboot_required" \
 LUCIA_TELEMETRY_ENV_PATH="$telemetry_environment" \
 LUCIA_SYSTEMCTL_PATH="$work_dir/systemctl" \

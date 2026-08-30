@@ -19,14 +19,22 @@ iptables_path="${LUCIA_IPTABLES_PATH:-/usr/sbin/iptables}"
 # shellcheck disable=SC1090
 source "$bootstrap_env"
 
-: "${LUCIA_SETUP_SSID:?LUCIA_SETUP_SSID is required}"
-[[ "$LUCIA_SETUP_SSID" =~ ^[A-Za-z0-9_-]{1,32}$ ]] || {
+device_serial=""
+serial_path="${LUCIA_DEVICE_SERIAL_PATH:-/proc/device-tree/serial-number}"
+if [[ -r "$serial_path" ]]; then
+    device_serial="$(tr -d '\0\r\n ' < "$serial_path")"
+fi
+setup_ssid="${LUCIA_SETUP_SSID:-}"
+if [[ -z "$setup_ssid" && -n "$device_serial" ]]; then
+    setup_ssid="Lucia-${device_serial: -6}"
+fi
+[[ "$setup_ssid" =~ ^[A-Za-z0-9_-]{1,32}$ ]] || {
     printf 'Setup SSID is invalid\n' >&2
     exit 1
 }
 setup_psk="${LUCIA_SETUP_PSK:-}"
-if [[ -z "$setup_psk" && -r /proc/device-tree/serial-number ]]; then
-    setup_psk="$(tr -d '\0\r\n ' < /proc/device-tree/serial-number)"
+if [[ -z "$setup_psk" ]]; then
+    setup_psk="$device_serial"
 fi
 [[ "$setup_psk" =~ ^[A-Za-z0-9_-]{8,63}$ ]] || {
     printf 'A device-unique setup passphrase is unavailable\n' >&2
@@ -72,7 +80,7 @@ autoconnect-retries=0
 [wifi]
 mode=ap
 band=bg
-ssid=$LUCIA_SETUP_SSID
+ssid=$setup_ssid
 ap-isolation=1
 
 [wifi-security]

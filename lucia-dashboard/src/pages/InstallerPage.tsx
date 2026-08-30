@@ -114,6 +114,9 @@ export default function InstallerPage() {
         .then((status) => {
           setInstallerStatus(status)
           setError('')
+          if (status.phase === 'installed') {
+            window.clearInterval(interval)
+          }
         })
         .catch(() => {
           setError('Connection to the installer was lost. Lucia may be powering off; check the appliance before disconnecting power.')

@@ -610,37 +610,37 @@ html[data-theme='light'] .bg-observatory {
   .installer-orbit::after {
     animation: none;
   }
+}
 
-  .appliance-update-scan {
-    position: relative;
-    overflow: hidden;
+.appliance-update-scan {
+  position: relative;
+  overflow: hidden;
+}
+
+.appliance-update-scan::after {
+  position: absolute;
+  inset: 0 auto 0 -20%;
+  width: 18%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--color-amber) 16%, transparent),
+    transparent
+  );
+  content: '';
+  pointer-events: none;
+  animation: appliance-update-scan 1.1s linear infinite;
+}
+
+@keyframes appliance-update-scan {
+  to {
+    transform: translateX(670%);
   }
+}
 
+@media (prefers-reduced-motion: reduce) {
   .appliance-update-scan::after {
-    position: absolute;
-    inset: 0 auto 0 -20%;
-    width: 18%;
-    background: linear-gradient(
-      90deg,
-      transparent,
-      color-mix(in srgb, var(--color-amber) 16%, transparent),
-      transparent
-    );
-    content: '';
-    pointer-events: none;
-    animation: appliance-update-scan 1.1s linear infinite;
-  }
-
-  @keyframes appliance-update-scan {
-    to {
-      transform: translateX(670%);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .appliance-update-scan::after {
-      animation: none;
-      display: none;
-    }
+    animation: none;
+    display: none;
   }
 }

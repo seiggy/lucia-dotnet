@@ -552,8 +552,38 @@ static async Task<(string Ssid, int? Signal)> ReadWifiStatusAsync(
 
 static long ReadStorageBytes()
 {
-    var sizePath = Environment.GetEnvironmentVariable("LUCIA_DEVICE_SIZE_PATH")
-        ?? "/sys/class/block/nvme0n1/size";
+    var mountInfoPath =
+        Environment.GetEnvironmentVariable("LUCIA_MOUNTINFO_PATH")
+            ?? "/proc/self/mountinfo";
+    var sysBlockPath =
+        Environment.GetEnvironmentVariable("LUCIA_SYS_BLOCK_PATH")
+            ?? "/sys/class/block";
+    var mountLine = File.ReadLines(mountInfoPath)
+        .Select(line => line.Split(' '))
+        .FirstOrDefault(fields =>
+            fields.Length > 6 && fields[4] == "/var/lib/lucia");
+    if (mountLine is null)
+    {
+        return 0;
+    }
+
+    var separator = Array.IndexOf(mountLine, "-");
+    if (separator < 0 || separator + 2 >= mountLine.Length)
+    {
+        return 0;
+    }
+
+    var partition = Path.GetFileName(mountLine[separator + 2]);
+    var match = Regex.Match(partition, @"^(?<disk>nvme\d+n\d+)p\d+$");
+    if (!match.Success)
+    {
+        return 0;
+    }
+
+    var sizePath = Path.Combine(
+        sysBlockPath,
+        match.Groups["disk"].Value,
+        "size");
     return File.Exists(sizePath)
         && long.TryParse(
             File.ReadAllText(sizePath).Trim(),

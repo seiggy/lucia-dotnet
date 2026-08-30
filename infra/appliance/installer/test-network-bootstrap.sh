@@ -20,6 +20,8 @@ if [[ "$*" == *"-g WIFI-PROPERTIES.AP device show wlan0"* ]]; then
     printf 'yes\n'
 elif [[ "$*" == *"-g GENERAL.STATE connection show lucia-setup"* ]]; then
     printf 'activated\n'
+elif [[ "$*" == *"--fields DEVICE,TYPE device status"* ]]; then
+    printf 'wlan0:wifi\n'
 fi
 EOF
 cat > "$work_dir/iptables" <<'EOF'
@@ -62,3 +64,20 @@ grep -q 'radio wifi on' "$work_dir/nmcli.log"
 [[ "$(grep -c -- '-I FORWARD 1 -i wlan0 -j DROP' "$work_dir/iptables.log")" == "1" ]]
 
 echo "PASS: network bootstrap creates an encrypted isolated setup network"
+
+printf '%s\n' '# derive setup identity from device serial' > "$work_dir/derived.env"
+chmod 0600 "$work_dir/derived.env"
+printf 'JETSONABC123\n' > "$work_dir/serial"
+rm "$work_dir/nmcli.log" "$work_dir/iptables.log"
+LUCIA_BOOTSTRAP_ENV="$work_dir/derived.env" \
+LUCIA_CONNECTION_PATH="$work_dir/derived.nmconnection" \
+LUCIA_DEVICE_SERIAL_PATH="$work_dir/serial" \
+LUCIA_NMCLI_PATH="$work_dir/nmcli" \
+LUCIA_IPTABLES_PATH="$work_dir/iptables" \
+LUCIA_TEST_NMCLI_LOG="$work_dir/nmcli.log" \
+LUCIA_TEST_IPTABLES_LOG="$work_dir/iptables.log" \
+    "$bootstrap"
+grep -qx 'ssid=Lucia-ABC123' "$work_dir/derived.nmconnection"
+grep -qx 'psk=JETSONABC123' "$work_dir/derived.nmconnection"
+
+echo "PASS: setup identity derives from the Jetson serial"

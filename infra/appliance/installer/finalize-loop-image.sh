@@ -29,6 +29,10 @@ if [[ -n "${3:-}" ]]; then
 fi
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 rootfs_overlay="$script_dir/../rootfs"
+lucia_partition_guid="${LUCIA_PARTITION_GUID:-95270b8b-a9a3-4775-8921-46d9f5d822fa}"
+data_partition_guid="${LUCIA_DATA_PARTITION_GUID:-9348df64-dff5-4a35-ab34-e09c6941ac24}"
+lucia_filesystem_uuid="${LUCIA_FILESYSTEM_UUID:-032d7831-4eee-473c-8632-65378ac96cba}"
+data_filesystem_uuid="${LUCIA_DATA_FILESYSTEM_UUID:-2226d852-2202-4f42-94da-dbde4d7a88f9}"
 work="$(mktemp -d)"
 loop_device=""
 mounts=()
@@ -116,9 +120,11 @@ sgdisk \
     --new="17:0:+${lucia_partition_size}" \
     --change-name="17:LUCIA" \
     --typecode="17:8300" \
+    --partition-guid="17:${lucia_partition_guid}" \
     --new="18:0:0" \
     --change-name="18:LUCIA_DATA" \
     --typecode="18:8300" \
+    --partition-guid="18:${data_partition_guid}" \
     "$loop_device"
 materialize_partitions
 
@@ -129,8 +135,8 @@ data_device="/dev/${loop_name}p18"
     exit 1
 }
 
-mkfs.ext4 -q -F -L LUCIA "$lucia_device"
-mkfs.ext4 -q -F -L LUCIA_DATA "$data_device"
+mkfs.ext4 -q -F -L LUCIA -U "$lucia_filesystem_uuid" "$lucia_device"
+mkfs.ext4 -q -F -L LUCIA_DATA -U "$data_filesystem_uuid" "$data_device"
 
 for name in app app_b lucia data; do
     mkdir "$work/$name"

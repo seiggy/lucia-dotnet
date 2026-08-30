@@ -364,7 +364,12 @@ sudo "$repo_root/infra/appliance/installer/build-loop-image.sh" \
     "$bsp_dir/Linux_for_Tegra" \
     "$work_dir/lucia-nvme-${version}.img" \
     "$MINIMUM_DISK_BYTES"
-sudo "$repo_root/infra/appliance/installer/finalize-loop-image.sh" \
+sudo env \
+    LUCIA_PARTITION_GUID="$LUCIA_PARTITION_GUID" \
+    LUCIA_DATA_PARTITION_GUID="$LUCIA_DATA_PARTITION_GUID" \
+    LUCIA_FILESYSTEM_UUID="$LUCIA_FILESYSTEM_UUID" \
+    LUCIA_DATA_FILESYSTEM_UUID="$LUCIA_DATA_FILESYSTEM_UUID" \
+    "$repo_root/infra/appliance/installer/finalize-loop-image.sh" \
     "$work_dir/lucia-nvme-${version}.img" \
     6G \
     "$bundle_root"
@@ -396,8 +401,7 @@ sudo cp -a "$installer_publish_dir/." "$sd_root/opt/lucia-installer/app/"
 sudo cp \
     "$sd_root/etc/lucia-installer/installer.env.example" \
     "$sd_root/etc/lucia-installer/installer.env"
-setup_suffix="$(openssl rand -hex 3 | tr '[:lower:]' '[:upper:]')"
-printf 'LUCIA_SETUP_SSID=Lucia-%s\n' "$setup_suffix" \
+printf '%s\n' '# SSID and WPA2 passphrase derive from the Jetson serial at boot.' \
     | sudo tee "$sd_root/etc/lucia-installer/bootstrap.env" >/dev/null
 sudo chmod 0600 \
     "$sd_root/etc/lucia-installer/bootstrap.env" \
