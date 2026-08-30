@@ -113,8 +113,9 @@ export default function InstallerPage() {
       fetchInstallerStatus()
         .then((status) => {
           setInstallerStatus(status)
+          if (status.hostname) setHostname(status.hostname)
           setError('')
-          if (status.phase === 'installed') {
+          if (status.phase === 'installed' || status.phase === 'failed') {
             window.clearInterval(interval)
           }
         })
@@ -133,6 +134,7 @@ export default function InstallerPage() {
       await claimInstaller()
       const status = await fetchInstallerStatus()
       setInstallerStatus(status)
+      if (status.hostname) setHostname(status.hostname)
       if (status.phase !== 'waiting-for-configuration') {
         setStep('installing')
         return
@@ -483,6 +485,7 @@ function StorageStep({
   onBack: () => void
   onContinue: () => void
 }) {
+  const hasInstallableDisk = disks.some((disk) => disk.action !== 'reject')
   return (
     <div className="installer-step">
       <StepHeading
@@ -491,14 +494,19 @@ function StorageStep({
         description="Lucia runs from an internal drive. Pick the drive you want this appliance to use."
       />
       <div className="space-y-3">
-        {disks.length === 0 && (
+        {!hasInstallableDisk && (
           <div className="rounded-xl border border-rose/30 bg-rose/8 p-4 text-sm text-rose">
-            No compatible storage was found. Check that an NVMe drive is installed, then restart the appliance.
+            No installable NVMe storage was found. Unmount a protected drive or install a drive with at least 61.2 GB.
           </div>
         )}
         {disks.map((disk) => {
           const isSelected = selectedDiskId === disk.id
           const isRejected = disk.action === 'reject'
+          const rejectionReason = disk.classification === 'protected'
+            ? 'Mounted or currently in use'
+            : disk.classification === 'too-small'
+              ? 'Smaller than the 61.2 GB minimum'
+              : null
           return (
             <button
               key={disk.id}
@@ -510,8 +518,10 @@ function StorageStep({
                 isSelected
                   ? 'border-amber/60 bg-amber/8'
                   : 'border-stone bg-basalt/70 hover:border-amber/30'
-              } disabled:cursor-not-allowed disabled:opacity-45`}
-              aria-label={`Use ${disk.model || 'storage drive'}`}
+              } disabled:cursor-not-allowed disabled:opacity-75`}
+              aria-label={isRejected
+                ? `${disk.model || 'Storage drive'} unavailable: ${rejectionReason}`
+                : `Use ${disk.model || 'storage drive'}`}
             >
               <span className="flex items-start justify-between gap-4">
                 <span className="min-w-0">
@@ -524,6 +534,11 @@ function StorageStep({
                   <span className="mt-2 block break-all font-mono text-xs text-dust">
                     {disk.id}
                   </span>
+                  {rejectionReason && (
+                    <span className="mt-2 block text-sm font-medium text-rose">
+                      {rejectionReason}
+                    </span>
+                  )}
                 </span>
                 <span className={`mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${
                   isSelected ? 'border-amber bg-amber text-on-accent' : 'border-ash text-transparent'
@@ -795,6 +810,7 @@ function InstallingStep({
   error: string
 }) {
   const isInstalled = status.phase === 'installed'
+  const isFailed = status.phase === 'failed'
   const stages = [
     { key: 'validating', label: 'Verify installation image' },
     { key: 'writing', label: 'Write Lucia to NVMe' },
@@ -824,11 +840,17 @@ function InstallingStep({
           : <Cpu className="h-10 w-10 text-amber" />}
       </div>
       <h1 className="text-balance text-center font-display text-3xl font-semibold tracking-tight text-light">
-        {isInstalled ? 'Lucia is ready to wake up' : 'Lucia is moving in'}
+        {isInstalled
+          ? 'Lucia is ready to wake up'
+          : isFailed
+            ? 'Installation needs attention'
+            : 'Lucia is moving in'}
       </h1>
       <p className="mx-auto mt-3 max-w-lg text-center text-base leading-6 text-fog">
         {isInstalled
           ? `The installer has handed off to ${hostname}.local. Remove the SD card when the appliance powers down, then turn it back on.`
+          : isFailed
+            ? 'Lucia stopped before installation completed. Keep the SD card inserted and restart the appliance to retry safely.'
           : 'The image is being verified, written, and personalized. Keep the appliance powered on. This page may disconnect during the restart.'}
       </p>
       {hasWriteProgress && (
@@ -888,7 +910,7 @@ function InstallingStep({
       </ol>
 
       {error && <ErrorMessage message={error} />}
-      {!isInstalled && !error && (
+      {!isInstalled && !isFailed && !error && (
         <p className="mt-5 flex items-center justify-center gap-2 text-xs text-dust">
           <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
           Status updates automatically

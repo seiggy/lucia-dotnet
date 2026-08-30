@@ -6,6 +6,9 @@ test('manages an installed appliance from mobile', async ({ page }) => {
     await route.fulfill({
       json: { authenticated: true, setupComplete: true, hasKeys: true },
     });
+    await page.route('**/api/appliance/capabilities', async (route) => {
+      await route.fulfill({ json: { enabled: true } });
+    });
   });
   await page.route('**/api/appliance/status', async (route) => {
     await route.fulfill({
@@ -89,6 +92,9 @@ test('keeps appliance navigation when the manager is temporarily unavailable', a
   await page.route('**/api/auth/status', async (route) => {
     await route.fulfill({
       json: { authenticated: true, setupComplete: true, hasKeys: true },
+    });
+    await page.route('**/api/appliance/capabilities', async (route) => {
+      await route.fulfill({ json: { enabled: true } });
     });
   });
   await page.route('**/api/appliance/status', async (route) => {

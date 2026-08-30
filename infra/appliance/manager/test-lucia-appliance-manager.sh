@@ -175,6 +175,20 @@ echo "PASS: host reboot uses the fixed systemd operation"
 status="$(
     curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
         --unix-socket "$socket_path" \
+        --header 'Content-Type: application/json' \
+        --request PUT \
+        --data '{"enabled":true,"endpoint":"https://user:embedded-secret@telemetry.example:4317","username":null,"password":null,"insecureSkipVerify":false}' \
+        http://localhost/v1/telemetry
+)"
+[[ "$status" == "400" ]]
+! grep -q 'embedded-secret' "$work_dir/response.json"
+[[ ! -e "$telemetry_environment" ]]
+
+echo "PASS: telemetry rejects credentials embedded in endpoint URLs"
+
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
         http://localhost/v1/telemetry
 )"
 

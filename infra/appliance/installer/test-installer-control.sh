@@ -69,6 +69,14 @@ rm "$work_dir/state/progress.json"
 
 echo "PASS: control reports persistent installation state"
 
+printf '%s\n' '{"stage":"failed"}' > "$work_dir/state/progress.json"
+LUCIA_INSTALLER_STATE_DIR="$work_dir/state" "$control" status \
+    > "$work_dir/status.json"
+grep -q '"phase":"failed"' "$work_dir/status.json"
+rm "$work_dir/state/progress.json"
+
+echo "PASS: control reports failed installation state"
+
 cat > "$work_dir/nmcli" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail

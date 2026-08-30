@@ -122,7 +122,12 @@ public static class ApplianceApi
                         statusCode: StatusCodes.Status502BadGateway,
                         title: "GitHub update check failed");
                 }
-                catch (JsonException exception)
+                catch (Exception exception) when (
+                    exception is JsonException
+                        or KeyNotFoundException
+                        or InvalidOperationException
+                        or FormatException
+                        or OverflowException)
                 {
                     return Results.Problem(
                         detail: exception.Message,

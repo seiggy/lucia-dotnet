@@ -182,11 +182,14 @@ def provision(target_root: pathlib.Path, provisioning: dict[str, object]) -> Non
     os.sync()
 
 
-def complete_provisioning(state_directory: pathlib.Path) -> None:
+def complete_provisioning(
+    state_directory: pathlib.Path,
+    hostname: str,
+) -> None:
     (state_directory / "provisioning.json").unlink()
     write_atomic(
         state_directory / "provision.state",
-        "status=provisioned\n",
+        f"status=provisioned\nhostname={hostname}\n",
         mode=0o600,
     )
     os.sync()
@@ -245,7 +248,7 @@ def main() -> None:
         configured_lucia_root = os.environ.get("LUCIA_TARGET_LUCIA_ROOT")
         if configured_lucia_root is not None:
             install_manager_override(pathlib.Path(configured_lucia_root))
-        complete_provisioning(state_directory)
+        complete_provisioning(state_directory, str(provisioning["hostname"]))
         return
 
     target_root = pathlib.Path("/mnt/lucia-target")
@@ -278,7 +281,7 @@ def main() -> None:
         install_manager_override(target_lucia_root)
     finally:
         subprocess.run(["umount", str(target_lucia_root)], check=True)
-    complete_provisioning(state_directory)
+    complete_provisioning(state_directory, str(provisioning["hostname"]))
 
 
 if __name__ == "__main__":

@@ -112,8 +112,20 @@ function AppRoutes() {
       return
     }
 
-    fetch('/api/appliance/status')
-      .then((response) => setHasAppliance(response.status !== 404))
+    fetch('/api/appliance/capabilities')
+      .then(async (response) => {
+        if (!response.ok) {
+          setHasAppliance(false)
+          return
+        }
+        const capability: unknown = await response.json()
+        setHasAppliance(
+          typeof capability === 'object'
+            && capability !== null
+            && 'enabled' in capability
+            && capability.enabled === true,
+        )
+      })
       .catch(() => setHasAppliance(false))
   }, [authenticated, setupComplete])
 

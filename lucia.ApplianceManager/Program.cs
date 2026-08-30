@@ -212,7 +212,8 @@ static async Task<IResult> UpdateTelemetryConfigurationAsync(
 {
     if (!Uri.TryCreate(request.Endpoint, UriKind.Absolute, out var endpoint)
         || endpoint.Scheme is not ("http" or "https")
-        || string.IsNullOrWhiteSpace(endpoint.Host))
+        || string.IsNullOrWhiteSpace(endpoint.Host)
+        || !string.IsNullOrEmpty(endpoint.UserInfo))
     {
         return Results.BadRequest(new
         {

@@ -225,6 +225,14 @@ def show_status() -> None:
         }.get(state.get("status"), "waiting-for-configuration")
 
     status: dict[str, object] = {"phase": phase}
+    provision_state_path = state_directory / "provision.state"
+    if provision_state_path.exists():
+        provision_state = read_key_values(
+            provision_state_path.read_text(encoding="utf-8")
+        )
+        hostname = provision_state.get("hostname")
+        if hostname:
+            status["hostname"] = hostname
     progress_path = state_directory / "progress.json"
     if progress_path.exists():
         progress = json.loads(progress_path.read_text(encoding="utf-8"))
@@ -242,6 +250,8 @@ def show_status() -> None:
             status["phase"] = "installing"
         elif stage == "powering-off":
             status["phase"] = "installed"
+        elif stage == "failed":
+            status["phase"] = "failed"
 
     print(json.dumps(status, separators=(",", ":")))
 

@@ -3,6 +3,7 @@ export type InstallerPhase =
   | 'authorized'
   | 'installing'
   | 'installed'
+  | 'failed'
 
 export type InstallerStage =
   | 'validating'
@@ -11,9 +12,11 @@ export type InstallerStage =
   | 'provisioning'
   | 'syncing'
   | 'powering-off'
+  | 'failed'
 
 export interface InstallerStatus {
   phase: InstallerPhase
+  hostname?: string
   stage?: InstallerStage
   bytesWritten?: number
   totalBytes?: number
@@ -55,6 +58,7 @@ function isInstallerPhase(value: unknown): value is InstallerPhase {
     || value === 'authorized'
     || value === 'installing'
     || value === 'installed'
+    || value === 'failed'
 }
 
 function isInstallerStage(value: unknown): value is InstallerStage {
@@ -64,6 +68,7 @@ function isInstallerStage(value: unknown): value is InstallerStage {
     || value === 'provisioning'
     || value === 'syncing'
     || value === 'powering-off'
+    || value === 'failed'
 }
 
 function parseStatus(value: unknown): InstallerStatus {
@@ -79,8 +84,12 @@ function parseStatus(value: unknown): InstallerStatus {
   if (value.totalBytes !== undefined && typeof value.totalBytes !== 'number') {
     throw new Error('The installer returned an invalid image size.')
   }
+  if (value.hostname !== undefined && typeof value.hostname !== 'string') {
+    throw new Error('The installer returned an invalid hostname.')
+  }
   return {
     phase: value.phase,
+    hostname: value.hostname,
     stage: value.stage,
     bytesWritten: value.bytesWritten,
     totalBytes: value.totalBytes,

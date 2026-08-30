@@ -25,6 +25,10 @@ write_progress() {
     chmod 0600 "$temporary_file"
     mv "$temporary_file" "$progress_file"
 }
+on_error() {
+    write_progress failed
+}
+trap on_error ERR
 
 if [[ -f "$state_file" ]] \
     && grep -q '^status=installed$' "$state_file"; then

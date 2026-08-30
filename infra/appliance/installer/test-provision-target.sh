@@ -47,6 +47,7 @@ grep -qx 'psk=lab-wifi-password' \
     "$target_root/etc/NetworkManager/system-connections/lucia-home.nmconnection")" == "600" ]]
 [[ ! -e "$state_dir/provisioning.json" ]]
 grep -q '^status=provisioned$' "$state_dir/provision.state"
+grep -q '^hostname=lucia-lab$' "$state_dir/provision.state"
 cmp -s \
     "$work_dir/lucia.ApplianceManager" \
     "$target_lucia_root/current/manager/lucia.ApplianceManager"

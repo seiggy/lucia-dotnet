@@ -176,11 +176,27 @@ jobs:
             echo "- Assets are split below 2 GB for GitHub Releases."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Clean successful build
+      - name: Clean build workspace
+        if: ${{ always() }}
         run: |
           version="${RELEASE_TAG#v}"
+          work_dir="$RUNNER_TEMP/lucia-appliance-$version"
+          mapfile -t mounts < <(
+            findmnt -rn -o TARGET \
+              | awk -v root="$work_dir" \
+                  '$0 == root || index($0, root "/") == 1'
+          )
+          for ((index=${#mounts[@]} - 1; index >= 0; index--)); do
+            sudo umount "${mounts[$index]}"
+          done
+          if findmnt -rn -o TARGET \
+              | awk -v root="$work_dir" \
+                  '$0 == root || index($0, root "/") == 1 { found = 1 } END { exit !found }'; then
+            echo "::error::Active mounts remain under $work_dir; cleanup refused."
+            exit 1
+          fi
           sudo rm -rf --one-file-system -- \
-            "$RUNNER_TEMP/lucia-appliance-$version" \
+            "$work_dir" \
             "$GITHUB_WORKSPACE/dist"
           docker image rm "lucia-appliance-voice-assets:$version" \
             >/dev/null 2>&1 || true

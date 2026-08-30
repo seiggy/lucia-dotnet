@@ -516,6 +516,11 @@ app.MapOnboardingEndpoints();
 app.MapVoiceClipEndpoints();
 #endif
 app.MapSystemApi();
+app.MapGet(
+        "/api/appliance/capabilities",
+        () => Results.Ok(new { Enabled = isInstalledAppliance }))
+    .RequireAuthorization()
+    .WithTags("Appliance");
 if (isInstalledAppliance)
 {
     app.MapApplianceApi();
