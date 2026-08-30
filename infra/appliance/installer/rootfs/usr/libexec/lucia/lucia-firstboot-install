@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+payload="${LUCIA_PAYLOAD_PATH:-/opt/lucia-installer/lucia-nvme.img.zst}"
+checksum_file="${LUCIA_CHECKSUM_PATH:-/opt/lucia-installer/lucia-nvme.img.zst.sha256}"
+state_dir="${LUCIA_INSTALLER_STATE_DIR:-/var/lib/lucia-installer}"
+install_path="${LUCIA_INSTALL_PATH:-/usr/libexec/lucia/lucia-install}"
+provision_path="${LUCIA_PROVISION_PATH:-/usr/libexec/lucia/lucia-provision-target}"
+systemctl_path="${LUCIA_SYSTEMCTL_PATH:-/usr/bin/systemctl}"
+state_file="$state_dir/install.state"
+authorization_file="$state_dir/erase.authorization"
+provisioning_file="$state_dir/provisioning.json"
+provision_state_file="$state_dir/provision.state"
+progress_file="$state_dir/progress.json"
+
+mkdir -p "$state_dir"
+
+write_progress() {
+    local stage="$1"
+    local temporary_file="${progress_file}.tmp.$$"
+
+    printf '{"stage":"%s"}\n' "$stage" > "$temporary_file"
+    chmod 0600 "$temporary_file"
+    mv "$temporary_file" "$progress_file"
+}
+
+if [[ -f "$state_file" ]] \
+    && grep -q '^status=installed$' "$state_file"; then
+    if [[ -f "$provisioning_file" ]]; then
+        device="$(sed -n 's/^device=//p' "$state_file")"
+        write_progress provisioning
+        "$provision_path" "$device"
+        write_progress syncing
+        sync
+        write_progress powering-off
+        printf 'Lucia installation completed. Powering off for SD card removal.\n'
+        "$systemctl_path" --no-block poweroff
+        exit 0
+    fi
+    if [[ -f "$provision_state_file" ]] \
+        && grep -q '^status=provisioned$' "$provision_state_file"; then
+        printf 'Lucia is already installed. Remove the SD card if NVMe did not boot.\n'
+        exit 0
+    fi
+    printf 'Lucia is already installed. Remove the SD card if NVMe did not boot.\n'
+    exit 0
+fi
+
+[[ -f "$payload" && -f "$checksum_file" ]] || {
+    printf 'Installer payload or checksum is missing\n' >&2
+    exit 1
+}
+
+expected_sha256="$(awk 'NR == 1 { print $1 }' "$checksum_file")"
+authorization_arguments=()
+if [[ -f "$state_file" ]] \
+    && grep -q '^status=writing$' "$state_file"; then
+    device="$(sed -n 's/^device=//p' "$state_file")"
+elif [[ -f "$authorization_file" ]] \
+    && grep -q '^status=approved$' "$authorization_file" \
+    && [[ -f "$provisioning_file" ]]; then
+    device="$(sed -n 's/^device=//p' "$authorization_file")"
+    authorization_arguments=(--authorization-file "$authorization_file")
+else
+    printf 'Waiting for storage selection and erase authorization.\n'
+    exit 0
+fi
+
+[[ "$device" == /dev/disk/by-id/* && -b "$device" ]] || {
+    printf 'Authorized storage identity is invalid or unavailable\n' >&2
+    exit 1
+}
+
+"$install_path" install \
+    --device "$device" \
+    --image "$payload" \
+    --sha256 "$expected_sha256" \
+    --state-file "$state_file" \
+    "${authorization_arguments[@]}"
+
+write_progress provisioning
+"$provision_path" "$device"
+write_progress syncing
+sync
+write_progress powering-off
+printf 'Lucia installation completed. Powering off for SD card removal.\n'
+"$systemctl_path" --no-block poweroff

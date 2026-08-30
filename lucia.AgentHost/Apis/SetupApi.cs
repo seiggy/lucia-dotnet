@@ -125,6 +125,7 @@ public static class SetupApi
     private static async Task<IResult> ConfigureHomeAssistantAsync(
         [FromBody] ConfigureHaRequest request,
         IConfigStoreWriter configStore,
+        IConfiguration configuration,
         HttpContext httpContext)
     {
         if (string.IsNullOrWhiteSpace(request.BaseUrl))
@@ -151,6 +152,11 @@ public static class SetupApi
         if (!string.IsNullOrWhiteSpace(request.AccessToken))
         {
             await configStore.SetAsync("HomeAssistant:AccessToken", request.AccessToken, "setup-wizard", isSensitive: true, cancellationToken: ct).ConfigureAwait(false);
+        }
+
+        if (configuration is IConfigurationRoot configurationRoot)
+        {
+            configurationRoot.Reload();
         }
 
         return Results.Ok(new { saved = true });

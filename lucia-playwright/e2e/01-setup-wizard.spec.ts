@@ -66,6 +66,12 @@ test.describe.serial('Setup Wizard', () => {
   });
 
   test('Step 2: Generate dashboard key and configure Home Assistant', async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: undefined,
+      });
+    });
     await page.goto('/', { waitUntil: 'networkidle' });
     // Advance past welcome
     await page.getByRole('button', { name: /Get Started/i }).click();
@@ -82,6 +88,10 @@ test.describe.serial('Setup Wizard', () => {
     dashboardKey = (await codeEl.textContent())?.trim() || '';
     expect(dashboardKey).toMatch(/^lk_/);
     persistWizardState(dashboardKey);
+
+    const copyButton = codeEl.locator('xpath=..').getByRole('button');
+    await copyButton.click();
+    await expect(copyButton).toHaveAttribute('aria-label', 'Dashboard key copied');
 
     // 2b: Fill Home Assistant connection details
     const urlInput = page.locator('input[type="url"], input[placeholder*="homeassistant"]').first();

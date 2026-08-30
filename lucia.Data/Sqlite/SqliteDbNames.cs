@@ -14,4 +14,36 @@ public static class SqliteDbNames
 
     /// <summary>Scheduled tasks, alarm clocks, task archive.</summary>
     public const string Tasks = "luciatasks";
+
+    public static string GetPath(string basePath, string databaseName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(basePath);
+
+        var suffix = databaseName switch
+        {
+            Config => "config",
+            Traces => "traces",
+            Tasks => "tasks",
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(databaseName),
+                databaseName,
+                "Unknown SQLite database name.")
+        };
+        var directory = Path.GetDirectoryName(basePath);
+        var fileName = Path.GetFileNameWithoutExtension(basePath);
+        var extension = Path.GetExtension(basePath);
+        var databaseFileName = $"{fileName}-{suffix}{extension}";
+
+        return string.IsNullOrEmpty(directory)
+            ? databaseFileName
+            : Path.Combine(directory, databaseFileName);
+    }
+
+    public static string GetConfigPath(string basePath)
+    {
+        var configPath = GetPath(basePath, Config);
+        return !File.Exists(configPath) && File.Exists(basePath)
+            ? basePath
+            : configPath;
+    }
 }

@@ -70,24 +70,15 @@ public static class ServiceCollectionExtensions
         var options = new DataProviderOptions();
         builder.Configuration.GetSection(DataProviderOptions.SectionName).Bind(options);
 
-        // Derive three database file paths from the configured base path.
-        // e.g. "./data/lucia.db" → "./data/lucia-config.db", "./data/lucia-traces.db", "./data/lucia-tasks.db"
         var basePath = options.SqlitePath;
-        var dir = Path.GetDirectoryName(basePath) ?? ".";
-        var name = Path.GetFileNameWithoutExtension(basePath);
-        var ext = Path.GetExtension(basePath);
-
-        var configPath = Path.Combine(dir, $"{name}-config{ext}");
-        var tracesPath = Path.Combine(dir, $"{name}-traces{ext}");
-        var tasksPath = Path.Combine(dir, $"{name}-tasks{ext}");
 
         // Register three keyed SqliteConnectionFactory instances.
         builder.Services.AddKeyedSingleton<SqliteConnectionFactory>(SqliteDbNames.Config, (_, _) =>
-            new SqliteConnectionFactory(configPath));
+            new SqliteConnectionFactory(SqliteDbNames.GetConfigPath(basePath)));
         builder.Services.AddKeyedSingleton<SqliteConnectionFactory>(SqliteDbNames.Traces, (_, _) =>
-            new SqliteConnectionFactory(tracesPath));
+            new SqliteConnectionFactory(SqliteDbNames.GetPath(basePath, SqliteDbNames.Traces)));
         builder.Services.AddKeyedSingleton<SqliteConnectionFactory>(SqliteDbNames.Tasks, (_, _) =>
-            new SqliteConnectionFactory(tasksPath));
+            new SqliteConnectionFactory(SqliteDbNames.GetPath(basePath, SqliteDbNames.Tasks)));
 
         // Non-keyed factory for backward compat (migration runner, config provider).
         builder.Services.TryAddSingleton<SqliteConnectionFactory>(sp =>

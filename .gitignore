@@ -28,6 +28,8 @@ obj/
 *.o
 [Dd]ebug*/
 [Rr]elease*/
+!infra/appliance/release/
+!infra/appliance/release/**
 *.mode*
 *.app/
 *.pyc

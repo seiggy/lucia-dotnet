@@ -1,0 +1,37 @@
+[Unit]
+Description=Lucia captive installer
+Documentation=https://github.com/seiggy/lucia-dotnet
+After=network-online.target lucia-network-bootstrap.service
+Wants=network-online.target lucia-network-bootstrap.service
+Before=lucia-firstboot-install.service
+RequiresMountsFor=/opt/lucia-installer
+ConditionPathExists=/etc/lucia-installer/installer.env
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/lucia-installer/app
+ExecStart=/opt/lucia-installer/app/lucia.InstallerHost
+EnvironmentFile=/etc/lucia-installer/installer.env
+RuntimeDirectory=lucia-installer
+RuntimeDirectoryMode=0700
+Restart=on-failure
+RestartSec=3s
+TimeoutStartSec=30s
+TimeoutStopSec=15s
+ReadWritePaths=/var/lib/lucia-installer
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

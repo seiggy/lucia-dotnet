@@ -1,0 +1,416 @@
+#!/usr/bin/env python3
+
+import fcntl
+import json
+import os
+import pathlib
+import re
+import subprocess
+import sys
+import tempfile
+
+
+def read_key_values(output: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for line in output.splitlines():
+        key, separator, value = line.partition("=")
+        if separator:
+            values[key] = value
+    return values
+
+
+def run(command: list[str]) -> str:
+    result = subprocess.run(
+        command,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    return result.stdout
+
+
+def get_device_details(device: str) -> dict[str, object]:
+    details = json.loads(
+        run(
+            [
+                "lsblk",
+                "--json",
+                "--bytes",
+                "--nodeps",
+                "--output",
+                "MODEL,SERIAL,SIZE,TRAN",
+                device,
+            ]
+        )
+    )["blockdevices"][0]
+    if not isinstance(details, dict):
+        raise ValueError("Storage details are invalid")
+    return details
+
+
+def get_confirmation_phrase(
+    details: dict[str, object],
+    device_identity: str,
+) -> str:
+    serial = str(details.get("serial") or "").strip()
+    return f"ERASE {serial or device_identity[:8].upper()}"
+
+
+def write_atomic(path: pathlib.Path, content: str, mode: int = 0o600) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    file_descriptor, temporary_path = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f".{path.name}.",
+    )
+    try:
+        os.fchmod(file_descriptor, mode)
+        with os.fdopen(file_descriptor, "w", encoding="utf-8") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, path)
+        directory_descriptor = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    finally:
+        if os.path.exists(temporary_path):
+            os.unlink(temporary_path)
+
+
+def list_disks() -> None:
+    device_directory = pathlib.Path(
+        os.environ.get("LUCIA_DEVICE_DIRECTORY", "/dev/disk/by-id")
+    )
+    install_path = os.environ.get(
+        "LUCIA_INSTALL_PATH", "/usr/libexec/lucia/lucia-install"
+    )
+    allow_loop = os.environ.get("LUCIA_ALLOW_LOOP_DEVICES") == "1"
+    allowed_types = {"disk", "loop"} if allow_loop else {"disk"}
+    disks: list[dict[str, object]] = []
+    seen_devices: set[str] = set()
+
+    for device_id in sorted(device_directory.glob("*")):
+        if "-part" in device_id.name:
+            continue
+
+        resolved_device = os.path.realpath(device_id)
+        if resolved_device in seen_devices:
+            continue
+
+        device_type = run(
+            ["lsblk", "--nodeps", "--noheadings", "--output", "TYPE", resolved_device]
+        ).strip()
+        if device_type not in allowed_types:
+            continue
+
+        plan = read_key_values(
+            run([install_path, "plan", "--device", str(device_id)])
+        )
+        details = get_device_details(resolved_device)
+        confirmation_phrase = get_confirmation_phrase(
+            details,
+            plan["device_identity"],
+        )
+
+        disks.append(
+            {
+                "id": str(device_id),
+                "model": (details.get("model") or "").strip(),
+                "serial": (details.get("serial") or "").strip(),
+                "confirmationPhrase": confirmation_phrase,
+                "sizeBytes": int(plan["size_bytes"]),
+                "classification": plan["classification"],
+                "action": plan["action"],
+            }
+        )
+        seen_devices.add(resolved_device)
+
+    print(json.dumps(disks, separators=(",", ":")))
+
+
+def split_nmcli_fields(line: str) -> list[str]:
+    fields: list[str] = []
+    current: list[str] = []
+    escaped = False
+
+    for character in line:
+        if escaped:
+            current.append(character)
+            escaped = False
+        elif character == "\\":
+            escaped = True
+        elif character == ":":
+            fields.append("".join(current))
+            current = []
+        else:
+            current.append(character)
+
+    if escaped:
+        current.append("\\")
+    fields.append("".join(current))
+    return fields
+
+
+def list_networks() -> None:
+    nmcli_path = os.environ.get("LUCIA_NMCLI_PATH", "/usr/bin/nmcli")
+    output = run(
+        [
+            nmcli_path,
+            "--terse",
+            "--escape",
+            "yes",
+            "--fields",
+            "SSID,SIGNAL,SECURITY",
+            "device",
+            "wifi",
+            "list",
+            "--rescan",
+            "yes",
+        ]
+    )
+    strongest_by_ssid: dict[str, dict[str, object]] = {}
+
+    for line in output.splitlines():
+        fields = split_nmcli_fields(line)
+        if len(fields) != 3 or not fields[0]:
+            continue
+
+        ssid, signal_text, security = fields
+        signal = int(signal_text)
+        existing = strongest_by_ssid.get(ssid)
+        if existing is None or signal > int(existing["signal"]):
+            strongest_by_ssid[ssid] = {
+                "ssid": ssid,
+                "signal": signal,
+                "security": security,
+            }
+
+    networks = sorted(
+        strongest_by_ssid.values(),
+        key=lambda network: int(network["signal"]),
+        reverse=True,
+    )
+    print(json.dumps(networks, separators=(",", ":")))
+
+
+def show_status() -> None:
+    state_directory = pathlib.Path(
+        os.environ.get("LUCIA_INSTALLER_STATE_DIR", "/var/lib/lucia-installer")
+    )
+    state_file = state_directory / "install.state"
+
+    if not state_file.exists():
+        phase = (
+            "authorized"
+            if (state_directory / "provisioning.json").exists()
+            else "waiting-for-configuration"
+        )
+    else:
+        state = read_key_values(state_file.read_text(encoding="utf-8"))
+        phase = {
+            "writing": "installing",
+            "installed": "installed",
+        }.get(state.get("status"), "waiting-for-configuration")
+
+    status: dict[str, object] = {"phase": phase}
+    progress_path = state_directory / "progress.json"
+    if progress_path.exists():
+        progress = json.loads(progress_path.read_text(encoding="utf-8"))
+        if not isinstance(progress, dict):
+            raise ValueError("Installer progress must be an object")
+        status.update(progress)
+        stage = progress.get("stage")
+        if stage in {
+            "validating",
+            "writing",
+            "image-written",
+            "provisioning",
+            "syncing",
+        }:
+            status["phase"] = "installing"
+        elif stage == "powering-off":
+            status["phase"] = "installed"
+
+    print(json.dumps(status, separators=(",", ":")))
+
+
+def validate_text(
+    value: object,
+    name: str,
+    minimum_length: int,
+    maximum_length: int,
+) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{name} must be a string")
+    if not minimum_length <= len(value) <= maximum_length:
+        raise ValueError(
+            f"{name} must be {minimum_length}-{maximum_length} characters"
+        )
+    if "\x00" in value or "\r" in value or "\n" in value:
+        raise ValueError(f"{name} contains an invalid character")
+    return value
+
+
+def configure_installation() -> None:
+    request = json.load(sys.stdin)
+    if not isinstance(request, dict):
+        raise ValueError("Configuration must be a JSON object")
+
+    device_directory = pathlib.Path(
+        os.environ.get("LUCIA_DEVICE_DIRECTORY", "/dev/disk/by-id")
+    ).absolute()
+    device_id = pathlib.Path(
+        validate_text(request.get("deviceId"), "deviceId", 1, 4096)
+    ).absolute()
+    erase_confirmation = validate_text(
+        request.get("eraseConfirmation"),
+        "eraseConfirmation",
+        1,
+        4096,
+    )
+    if device_id.parent != device_directory or not device_id.exists():
+        raise ValueError("deviceId is not an available stable device identity")
+    hostname = validate_text(request.get("hostname"), "hostname", 1, 63)
+    if re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", hostname) is None:
+        raise ValueError("hostname must be a lowercase DNS label")
+
+    recovery_password = validate_text(
+        request.get("recoveryPassword"),
+        "recoveryPassword",
+        12,
+        128,
+    )
+
+    wifi = request.get("wifi")
+    provisioning_wifi = None
+    if wifi is not None:
+        if not isinstance(wifi, dict):
+            raise ValueError("wifi must be an object or null")
+        ssid = validate_text(wifi.get("ssid"), "wifi.ssid", 1, 32)
+        passphrase = validate_text(
+            wifi.get("passphrase"),
+            "wifi.passphrase",
+            8,
+            64,
+        )
+        if len(passphrase) == 64 and re.fullmatch(r"[0-9A-Fa-f]{64}", passphrase) is None:
+            raise ValueError(
+                "A 64-character Wi-Fi passphrase must be hexadecimal"
+            )
+        provisioning_wifi = {"ssid": ssid, "passphrase": passphrase}
+
+    install_path = os.environ.get(
+        "LUCIA_INSTALL_PATH", "/usr/libexec/lucia/lucia-install"
+    )
+    plan = read_key_values(run([install_path, "plan", "--device", str(device_id)]))
+    if plan["action"] == "reject":
+        raise ValueError(
+            f"Selected storage is not installable: {plan['classification']}"
+        )
+    details = get_device_details(os.path.realpath(device_id))
+    confirmation_phrase = get_confirmation_phrase(
+        details,
+        plan["device_identity"],
+    )
+    if erase_confirmation != confirmation_phrase:
+        raise ValueError("eraseConfirmation does not match the selected storage")
+
+    checksum_path = pathlib.Path(
+        os.environ.get(
+            "LUCIA_CHECKSUM_PATH",
+            "/opt/lucia-installer/lucia-nvme.img.zst.sha256",
+        )
+    )
+    image_sha256 = checksum_path.read_text(encoding="utf-8").split()[0]
+    if re.fullmatch(r"[0-9A-Fa-f]{64}", image_sha256) is None:
+        raise ValueError("Installer image checksum is invalid")
+
+    openssl_path = os.environ.get("LUCIA_OPENSSL_PATH", "/usr/bin/openssl")
+    password_result = subprocess.run(
+        [openssl_path, "passwd", "-6", "-stdin"],
+        check=True,
+        input=f"{recovery_password}\n",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    password_hash = password_result.stdout.strip()
+    if not password_hash.startswith("$6$"):
+        raise ValueError("Failed to hash the recovery password")
+
+    state_directory = pathlib.Path(
+        os.environ.get("LUCIA_INSTALLER_STATE_DIR", "/var/lib/lucia-installer")
+    )
+    state_directory.mkdir(parents=True, exist_ok=True)
+    lock_path = state_directory / "configure.lock"
+    with lock_path.open("a", encoding="utf-8") as lock_stream:
+        fcntl.flock(lock_stream, fcntl.LOCK_EX)
+
+        install_state_path = state_directory / "install.state"
+        if install_state_path.exists():
+            install_state = read_key_values(
+                install_state_path.read_text(encoding="utf-8")
+            )
+            if install_state.get("status") in {"writing", "installed"}:
+                raise ValueError("Installation has already started")
+
+        authorization = "\n".join(
+            [
+                "status=approved",
+                f"device={device_id}",
+                f"device_identity={plan['device_identity']}",
+                f"device_size_bytes={plan['size_bytes']}",
+                f"layout_sha256={plan['layout_sha256']}",
+                f"image_sha256={image_sha256}",
+                "",
+            ]
+        )
+        provisioning = {
+            "hostname": hostname,
+            "recoveryPasswordHash": password_hash,
+            "wifi": provisioning_wifi,
+        }
+        write_atomic(
+            state_directory / "provisioning.json",
+            json.dumps(provisioning, separators=(",", ":")),
+        )
+        write_atomic(state_directory / "erase.authorization", authorization)
+
+        systemctl_path = os.environ.get(
+            "LUCIA_SYSTEMCTL_PATH", "/usr/bin/systemctl"
+        )
+        subprocess.run(
+            [
+                systemctl_path,
+                "start",
+                "--no-block",
+                "lucia-firstboot-install.service",
+            ],
+            check=True,
+        )
+
+    print(json.dumps({"phase": "authorized"}, separators=(",", ":")))
+
+
+def main() -> None:
+    if len(sys.argv) != 2:
+        raise SystemExit("Usage: lucia-installer-control disks|status")
+
+    command = sys.argv[1]
+    if command == "disks":
+        list_disks()
+    elif command == "configure":
+        configure_installation()
+    elif command == "networks":
+        list_networks()
+    elif command == "status":
+        show_status()
+    else:
+        raise SystemExit(f"Unknown command: {command}")
+
+
+if __name__ == "__main__":
+    main()

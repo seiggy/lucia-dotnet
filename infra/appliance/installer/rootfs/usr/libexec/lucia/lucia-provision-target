@@ -1,0 +1,285 @@
+#!/usr/bin/env python3
+
+import json
+import os
+import pathlib
+import re
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import uuid
+
+
+def write_atomic(path: pathlib.Path, content: str, mode: int | None = None) -> None:
+    existing = path.stat() if path.exists() else None
+    file_descriptor, temporary_path = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f".{path.name}.",
+    )
+    try:
+        target_mode = mode
+        if target_mode is None:
+            target_mode = stat.S_IMODE(existing.st_mode) if existing else 0o600
+        os.fchmod(file_descriptor, target_mode)
+        if existing is not None:
+            os.fchown(file_descriptor, existing.st_uid, existing.st_gid)
+        with os.fdopen(file_descriptor, "w", encoding="utf-8") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, path)
+    finally:
+        if os.path.exists(temporary_path):
+            os.unlink(temporary_path)
+
+
+def read_partitions(device: str) -> list[tuple[str, str]]:
+    output = subprocess.run(
+        [
+            "lsblk",
+            "--raw",
+            "--paths",
+            "--noheadings",
+            "--output",
+            "NAME,TYPE,PARTLABEL",
+            device,
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    ).stdout
+    return [
+        (line.split()[0], line.split()[2])
+        for line in output.splitlines()
+        if len(line.split()) == 3
+        and line.split()[1] == "part"
+    ]
+
+
+def find_app_partitions(device: str) -> list[str]:
+    candidates = [
+        (path, label)
+        for path, label in read_partitions(device)
+        if label in {"APP", "APP_b"}
+    ]
+    labels = {label for _, label in candidates}
+    if labels != {"APP", "APP_b"}:
+        raise ValueError(
+            "Expected one APP and one APP_b partition on selected storage"
+        )
+    return [path for path, _ in sorted(candidates, key=lambda item: item[1])]
+
+
+def find_partition(device: str, label: str) -> str:
+    candidates = [
+        path
+        for path, partition_label in read_partitions(device)
+        if partition_label == label
+    ]
+    if len(candidates) != 1:
+        raise ValueError(f"Expected exactly one {label} partition")
+    return candidates[0]
+
+
+def replace_recovery_password(shadow_path: pathlib.Path, password_hash: str) -> None:
+    lines = shadow_path.read_text(encoding="utf-8").splitlines()
+    found = False
+    updated_lines: list[str] = []
+    for line in lines:
+        fields = line.split(":")
+        if fields[0] == "lucia-recovery":
+            fields[1] = password_hash
+            line = ":".join(fields)
+            found = True
+        updated_lines.append(line)
+    if not found:
+        raise ValueError("Target does not contain the Lucia recovery account")
+    write_atomic(shadow_path, "\n".join(updated_lines) + "\n")
+
+
+def replace_hostname(hosts_path: pathlib.Path, hostname: str) -> None:
+    lines = hosts_path.read_text(encoding="utf-8").splitlines()
+    updated_lines: list[str] = []
+    replaced = False
+    for line in lines:
+        if line.startswith("127.0.1.1"):
+            updated_lines.append(f"127.0.1.1 {hostname}")
+            replaced = True
+        else:
+            updated_lines.append(line)
+    if not replaced:
+        updated_lines.append(f"127.0.1.1 {hostname}")
+    write_atomic(hosts_path, "\n".join(updated_lines) + "\n")
+
+
+def escape_keyfile_value(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("\t", "\\t")
+
+
+def write_wifi_profile(
+    target_root: pathlib.Path,
+    ssid: str,
+    passphrase: str,
+) -> None:
+    connection_path = (
+        target_root
+        / "etc"
+        / "NetworkManager"
+        / "system-connections"
+        / "lucia-home.nmconnection"
+    )
+    connection_path.parent.mkdir(parents=True, exist_ok=True)
+    profile = "\n".join(
+        [
+            "[connection]",
+            "id=lucia-home",
+            f"uuid={uuid.uuid4()}",
+            "type=wifi",
+            "autoconnect=true",
+            "",
+            "[wifi]",
+            "mode=infrastructure",
+            f"ssid={escape_keyfile_value(ssid)}",
+            "",
+            "[wifi-security]",
+            "key-mgmt=wpa-psk",
+            f"psk={escape_keyfile_value(passphrase)}",
+            "",
+            "[ipv4]",
+            "method=auto",
+            "",
+            "[ipv6]",
+            "addr-gen-mode=default",
+            "method=auto",
+            "",
+            "[proxy]",
+            "",
+        ]
+    )
+    write_atomic(connection_path, profile, mode=0o600)
+
+
+def provision(target_root: pathlib.Path, provisioning: dict[str, object]) -> None:
+    hostname = provisioning["hostname"]
+    password_hash = provisioning["recoveryPasswordHash"]
+    wifi = provisioning.get("wifi")
+
+    if re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", hostname) is None:
+        raise ValueError("Provisioning hostname is invalid")
+    if not isinstance(password_hash, str) or not password_hash.startswith("$6$"):
+        raise ValueError("Provisioning recovery password hash is invalid")
+
+    write_atomic(target_root / "etc" / "hostname", f"{hostname}\n")
+    replace_hostname(target_root / "etc" / "hosts", hostname)
+    replace_recovery_password(target_root / "etc" / "shadow", password_hash)
+
+    if wifi is not None:
+        write_wifi_profile(target_root, wifi["ssid"], wifi["passphrase"])
+
+    os.sync()
+
+
+def complete_provisioning(state_directory: pathlib.Path) -> None:
+    (state_directory / "provisioning.json").unlink()
+    write_atomic(
+        state_directory / "provision.state",
+        "status=provisioned\n",
+        mode=0o600,
+    )
+    os.sync()
+
+
+def install_manager_override(target_lucia_root: pathlib.Path) -> None:
+    override_path = pathlib.Path(
+        os.environ.get(
+            "LUCIA_MANAGER_OVERRIDE",
+            "/opt/lucia-installer/payload-overrides/lucia.ApplianceManager",
+        )
+    )
+    if not override_path.exists():
+        return
+
+    manager_path = (
+        target_lucia_root
+        / "current"
+        / "manager"
+        / "lucia.ApplianceManager"
+    )
+    manager_path.parent.mkdir(parents=True, exist_ok=True)
+    file_descriptor, temporary_path = tempfile.mkstemp(
+        dir=manager_path.parent,
+        prefix=".lucia.ApplianceManager.",
+    )
+    try:
+        with os.fdopen(file_descriptor, "wb") as stream:
+            with override_path.open("rb") as source:
+                shutil.copyfileobj(source, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temporary_path, 0o755)
+        os.replace(temporary_path, manager_path)
+    finally:
+        if os.path.exists(temporary_path):
+            os.unlink(temporary_path)
+
+
+def main() -> None:
+    if len(sys.argv) != 2:
+        raise SystemExit("Usage: lucia-provision-target BLOCK_DEVICE")
+
+    state_directory = pathlib.Path(
+        os.environ.get("LUCIA_INSTALLER_STATE_DIR", "/var/lib/lucia-installer")
+    )
+    configured_target = os.environ.get("LUCIA_TARGET_ROOT")
+    provisioning = json.loads(
+        (state_directory / "provisioning.json").read_text(encoding="utf-8")
+    )
+    if not isinstance(provisioning, dict):
+        raise ValueError("Provisioning configuration must be an object")
+
+    if configured_target is not None:
+        provision(pathlib.Path(configured_target), provisioning)
+        configured_lucia_root = os.environ.get("LUCIA_TARGET_LUCIA_ROOT")
+        if configured_lucia_root is not None:
+            install_manager_override(pathlib.Path(configured_lucia_root))
+        complete_provisioning(state_directory)
+        return
+
+    target_root = pathlib.Path("/mnt/lucia-target")
+    target_lucia_root = pathlib.Path("/mnt/lucia-target-app")
+    target_root.mkdir(parents=True, exist_ok=True)
+    target_lucia_root.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["blockdev", "--rereadpt", sys.argv[1]], check=True)
+    subprocess.run(["udevadm", "settle"], check=True)
+    for app_partition in find_app_partitions(sys.argv[1]):
+        subprocess.run(
+            ["mount", "-o", "rw,nodev,nosuid", app_partition, str(target_root)],
+            check=True,
+        )
+        try:
+            provision(target_root, provisioning)
+        finally:
+            subprocess.run(["umount", str(target_root)], check=True)
+    lucia_partition = find_partition(sys.argv[1], "LUCIA")
+    subprocess.run(
+        [
+            "mount",
+            "-o",
+            "rw,nodev,nosuid",
+            lucia_partition,
+            str(target_lucia_root),
+        ],
+        check=True,
+    )
+    try:
+        install_manager_override(target_lucia_root)
+    finally:
+        subprocess.run(["umount", str(target_lucia_root)], check=True)
+    complete_provisioning(state_directory)
+
+
+if __name__ == "__main__":
+    main()

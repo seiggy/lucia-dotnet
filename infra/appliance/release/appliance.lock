@@ -1,0 +1,14 @@
+JETSON_LINUX_VERSION=36.5.2
+JETSON_BSP_URL=https://developer.nvidia.com/downloads/embedded/l4t/r36_release_v5.2/releases/Jetson_Linux_r36.5.2_aarch64.tbz2
+JETSON_BSP_SHA1=7ef67819e28b1dfb72bc6cb30d667b558d67063d
+JETSON_ROOTFS_URL=https://developer.nvidia.com/downloads/embedded/l4t/r36_release_v5.2/releases/Tegra_Linux_Sample-Root-Filesystem_r36.5.2_aarch64.tbz2
+JETSON_ROOTFS_SHA1=fb95b63ddf297a5f42613c94b2085eaa23e740f2
+REDIS_VERSION=8.2.9
+REDIS_COMMIT=0eb14894da51df6d1e4a748e3308b95deb85617d
+OTELCOL_VERSION=0.139.0
+OTELCOL_URL=https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.139.0/otelcol-contrib_0.139.0_linux_arm64.tar.gz
+OTELCOL_SHA256=cd7d485dd17a82b423c1b2f8123beb2f0d171a334b4d649321a09305161f6b1c
+REDIS_EXPORTER_VERSION=1.89.0
+REDIS_EXPORTER_URL=https://github.com/oliver006/redis_exporter/releases/download/v1.89.0/redis_exporter-v1.89.0.linux-arm64.tar.gz
+REDIS_EXPORTER_SHA256=1a70d42cd1d96a9388f8b528f55ad5bdc2c3cbd911c1dff3875fcb9ac01fa28a
+MINIMUM_DISK_BYTES=61203283968

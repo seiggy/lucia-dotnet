@@ -1,0 +1,229 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+manager_project="$repo_root/lucia.ApplianceManager/lucia.ApplianceManager.csproj"
+work_dir="$(mktemp -d)"
+socket_path="$work_dir/appliance-manager.sock"
+systemctl_log="$work_dir/systemctl.log"
+nmcli_log="$work_dir/nmcli.log"
+manager_log="$work_dir/manager.log"
+manager_pid=""
+os_release="$work_dir/os-release"
+hostname_file="$work_dir/hostname"
+current_release="$work_dir/current"
+reboot_required="$work_dir/reboot-required"
+telemetry_environment="$work_dir/telemetry.env"
+fail_enable="$work_dir/fail-enable"
+os_version="$work_dir/os-version"
+jetson_release="$work_dir/nv_tegra_release"
+
+cleanup() {
+    if [[ -n "$manager_pid" ]]; then
+        kill "$manager_pid" 2>/dev/null || true
+        wait "$manager_pid" 2>/dev/null || true
+    fi
+    rm -rf "$work_dir"
+}
+trap cleanup EXIT
+
+cat > "$work_dir/systemctl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$LUCIA_TEST_SYSTEMCTL_LOG"
+if [[ "$1" == "enable" && -f "$LUCIA_TEST_FAIL_ENABLE_FILE" ]]; then
+    printf 'simulated enable failure\n' >&2
+    exit 1
+fi
+if [[ "$1" == "show" ]]; then
+    cat <<'STATUS'
+Id=lucia-agenthost.service
+ActiveState=active
+UnitFileState=enabled
+
+Id=lucia-redis.service
+ActiveState=active
+UnitFileState=enabled
+
+Id=lucia-otelcol.service
+ActiveState=inactive
+UnitFileState=disabled
+
+Id=lucia-redis-exporter.service
+ActiveState=inactive
+UnitFileState=disabled
+STATUS
+fi
+EOF
+chmod +x "$work_dir/systemctl"
+cat > "$work_dir/nmcli" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$LUCIA_TEST_NMCLI_LOG"
+printf '%s\n' 'yes:Home WiFi:87'
+EOF
+chmod +x "$work_dir/nmcli"
+cat > "$os_release" <<'EOF'
+NAME="Ubuntu"
+VERSION_ID="22.04"
+EOF
+printf 'lucia-lab\n' > "$hostname_file"
+printf '1.1.0\n' > "$os_version"
+printf '# R36 (release), REVISION: 5.2\n' > "$jetson_release"
+mkdir -p "$work_dir/releases/1.2.3"
+ln -s releases/1.2.3 "$current_release"
+
+LUCIA_APPLIANCE_SOCKET="$socket_path" \
+LUCIA_CURRENT_RELEASE_PATH="$current_release" \
+LUCIA_HOSTNAME_PATH="$hostname_file" \
+LUCIA_OS_RELEASE_PATH="$os_release" \
+LUCIA_OS_VERSION_PATH="$os_version" \
+LUCIA_JETSON_RELEASE_PATH="$jetson_release" \
+LUCIA_NMCLI_PATH="$work_dir/nmcli" \
+LUCIA_REBOOT_REQUIRED_PATH="$reboot_required" \
+LUCIA_TELEMETRY_ENV_PATH="$telemetry_environment" \
+LUCIA_SYSTEMCTL_PATH="$work_dir/systemctl" \
+LUCIA_TEST_SYSTEMCTL_LOG="$systemctl_log" \
+LUCIA_TEST_FAIL_ENABLE_FILE="$fail_enable" \
+LUCIA_TEST_NMCLI_LOG="$nmcli_log" \
+    dotnet run --no-launch-profile --project "$manager_project" \
+    >"$manager_log" 2>&1 &
+manager_pid=$!
+
+status=""
+for _ in {1..120}; do
+    status="$(
+        curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+            --unix-socket "$socket_path" \
+            http://localhost/v1/status \
+            2>/dev/null || true
+    )"
+    if [[ "$status" == "200" ]]; then
+        break
+    fi
+    if ! kill -0 "$manager_pid" 2>/dev/null; then
+        cat "$manager_log" >&2
+        exit 1
+    fi
+    sleep 0.25
+done
+
+if [[ "$status" != "200" ]]; then
+    cat "$manager_log" >&2
+    echo "manager socket did not return appliance status" >&2
+    exit 1
+fi
+
+[[ "$status" == "200" ]]
+grep -q '"hostname":"lucia-lab"' "$work_dir/response.json"
+grep -q '"luciaVersion":"1.2.3"' "$work_dir/response.json"
+grep -q '"name":"Ubuntu"' "$work_dir/response.json"
+grep -q '"versionId":"22.04"' "$work_dir/response.json"
+grep -q '"imageVersion":"1.1.0"' "$work_dir/response.json"
+grep -q '"jetsonLinuxVersion":"36.5.2"' "$work_dir/response.json"
+grep -q '"network":{"ssid":"Home WiFi","signal":87}' "$work_dir/response.json"
+grep -q '"rebootRequired":false' "$work_dir/response.json"
+grep -q '"id":"agenthost","activeState":"active","unitFileState":"enabled"' \
+    "$work_dir/response.json"
+grep -q '"id":"collector","activeState":"inactive","unitFileState":"disabled"' \
+    "$work_dir/response.json"
+
+echo "PASS: status reports the appliance and allowlisted services"
+
+for service_and_unit in \
+    "redis lucia-redis.service" \
+    "collector lucia-otelcol.service" \
+    "redis-exporter lucia-redis-exporter.service"; do
+    read -r service unit <<< "$service_and_unit"
+    status="$(
+        curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+            --unix-socket "$socket_path" \
+            --request POST \
+            "http://localhost/v1/services/$service/restart"
+    )"
+
+    [[ "$status" == "202" ]]
+    grep -q "\"service\":\"$service\"" "$work_dir/response.json"
+    grep -qx -- "restart $unit" "$systemctl_log"
+done
+
+echo "PASS: appliance dependencies restart through fixed systemd units"
+
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
+        --request POST \
+        http://localhost/v1/host/reboot
+)"
+
+[[ "$status" == "202" ]]
+grep -q '"status":"reboot-requested"' "$work_dir/response.json"
+grep -qx -- '--no-block reboot' "$systemctl_log"
+
+echo "PASS: host reboot uses the fixed systemd operation"
+
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
+        http://localhost/v1/telemetry
+)"
+
+[[ "$status" == "200" ]]
+grep -q '"configured":false' "$work_dir/response.json"
+grep -q '"hasAuthorization":false' "$work_dir/response.json"
+
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
+        --header 'Content-Type: application/json' \
+        --request PUT \
+        --data '{"enabled":true,"endpoint":"https://telemetry.example:4317","username":"lucia","password":"telemetry-secret","insecureSkipVerify":false}' \
+        http://localhost/v1/telemetry
+)"
+
+[[ "$status" == "200" ]]
+grep -q '"configured":true' "$work_dir/response.json"
+grep -q '"enabled":true' "$work_dir/response.json"
+grep -q '"endpoint":"https://telemetry.example:4317"' "$work_dir/response.json"
+grep -q '"hasAuthorization":true' "$work_dir/response.json"
+! grep -q 'telemetry-secret' "$work_dir/response.json"
+grep -qx 'OTEL_EXPORTER_OTLP_ENDPOINT=https://telemetry.example:4317' \
+    "$telemetry_environment"
+grep -qx 'OTEL_EXPORTER_OTLP_INSECURE=false' "$telemetry_environment"
+grep -qx 'OTEL_EXPORTER_OTLP_INSECURE_SKIP_VERIFY=false' \
+    "$telemetry_environment"
+grep -qx 'OTEL_EXPORTER_OTLP_AUTHORIZATION=Basic bHVjaWE6dGVsZW1ldHJ5LXNlY3JldA==' \
+    "$telemetry_environment"
+[[ "$(stat --format '%a' "$telemetry_environment")" == "600" ]]
+grep -qx -- 'enable --now lucia-redis-exporter.service lucia-otelcol.service' \
+    "$systemctl_log"
+
+echo "PASS: telemetry configuration is validated, redacted, and enabled"
+
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
+        --header 'Content-Type: application/json' \
+        --request PUT \
+        --data '{"enabled":false,"endpoint":"https://telemetry.example:4317","username":null,"password":null,"insecureSkipVerify":false}' \
+        http://localhost/v1/telemetry
+)"
+[[ "$status" == "200" ]]
+
+cp "$telemetry_environment" "$work_dir/telemetry.before"
+touch "$fail_enable"
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
+        --header 'Content-Type: application/json' \
+        --request PUT \
+        --data '{"enabled":true,"endpoint":"https://other.example:4317","username":"other","password":"other-secret","insecureSkipVerify":false}' \
+        http://localhost/v1/telemetry
+)"
+
+[[ "$status" == "503" ]]
+cmp -s "$work_dir/telemetry.before" "$telemetry_environment"
+grep -qx -- 'disable --now lucia-otelcol.service lucia-redis-exporter.service' \
+    "$systemctl_log"
+
+echo "PASS: failed telemetry enable restores prior configuration and state"

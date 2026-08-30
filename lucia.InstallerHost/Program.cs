@@ -1,0 +1,134 @@
+using lucia.InstallerHost;
+
+var builder = WebApplication.CreateSlimBuilder(args);
+
+var applianceMode = builder.Configuration["Appliance:Mode"] ?? "Off";
+if (!string.Equals(applianceMode, "Installer", StringComparison.Ordinal))
+{
+    throw new InvalidOperationException(
+        "lucia.InstallerHost requires Appliance:Mode=Installer.");
+}
+
+var controlPath = builder.Configuration["Appliance:ControlPath"]
+    ?? "/usr/libexec/lucia/lucia-installer-control";
+var claimPath = builder.Configuration["Appliance:ClaimPath"]
+    ?? "/run/lucia-installer/claim.sha256";
+builder.Services.AddSingleton(
+    serviceProvider => new InstallerControlClient(
+        controlPath,
+        serviceProvider.GetRequiredService<ILogger<InstallerControlClient>>()));
+builder.Services.AddSingleton(new InstallerClaimStore(claimPath));
+
+var app = builder.Build();
+
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/api/installer")
+        && context.Request.Path != "/api/installer/capabilities"
+        && context.Request.Path != "/api/installer/claim")
+    {
+        var claimStore = context.RequestServices
+            .GetRequiredService<InstallerClaimStore>();
+        if (!context.Request.Cookies.TryGetValue(
+                InstallerClaimStore.CookieName,
+                out var token)
+            || !claimStore.IsValid(token))
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
+    }
+
+    await next(context).ConfigureAwait(false);
+});
+
+app.MapGet(
+    "/api/installer/capabilities",
+    (InstallerClaimStore claimStore) => Results.Ok(new
+    {
+        Mode = "installer",
+        RequiresSetupCode = false,
+        IsClaimed = claimStore.IsClaimed,
+    }));
+app.MapPost(
+    "/api/installer/claim",
+    (HttpContext context, InstallerClaimStore claimStore) =>
+    {
+        if (context.Request.Cookies.TryGetValue(
+                InstallerClaimStore.CookieName,
+                out var existingToken)
+            && claimStore.IsValid(existingToken))
+        {
+            return Results.Ok(new { Claimed = true });
+        }
+
+        var token = claimStore.TryClaim();
+        if (token is null)
+        {
+            return Results.Conflict(new
+            {
+                Error = "This Lucia is already being set up in another browser.",
+            });
+        }
+
+        context.Response.Cookies.Append(
+            InstallerClaimStore.CookieName,
+            token,
+            new CookieOptions
+            {
+                HttpOnly = true,
+                IsEssential = true,
+                SameSite = SameSiteMode.Strict,
+                Secure = false,
+            });
+        return Results.Ok(new { Claimed = true });
+    });
+app.MapGet(
+    "/api/installer/status",
+    async (
+        InstallerControlClient control,
+        CancellationToken cancellationToken) =>
+        Results.Ok(await control.GetStatusAsync(cancellationToken)
+            .ConfigureAwait(false)));
+app.MapGet(
+    "/api/installer/disks",
+    async (
+        InstallerControlClient control,
+        CancellationToken cancellationToken) =>
+        Results.Ok(await control.GetDisksAsync(cancellationToken)
+            .ConfigureAwait(false)));
+app.MapGet(
+    "/api/installer/networks",
+    async (
+        InstallerControlClient control,
+        CancellationToken cancellationToken) =>
+        Results.Ok(await control.GetNetworksAsync(cancellationToken)
+            .ConfigureAwait(false)));
+app.MapPost(
+    "/api/installer/install",
+    async (
+        InstallerConfigurationRequest request,
+        InstallerControlClient control,
+        CancellationToken cancellationToken) =>
+        Results.Accepted(
+            value: await control.StartInstallationAsync(request, cancellationToken)
+                .ConfigureAwait(false)));
+app.MapGet("/", () => Results.Redirect("/install"));
+foreach (var captivePath in new[]
+{
+    "/connecttest.txt",
+    "/generate_204",
+    "/gen_204",
+    "/hotspot-detect.html",
+    "/library/test/success.html",
+    "/ncsi.txt",
+})
+{
+    app.MapGet(captivePath, () => Results.Redirect("/install"));
+}
+app.MapFallbackToFile("index.html");
+
+await app.RunAsync().ConfigureAwait(false);

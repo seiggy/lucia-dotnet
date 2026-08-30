@@ -40,13 +40,13 @@ export default function ConfirmDialog({
         <div className="mt-5 flex justify-end gap-3">
           <button
             onClick={onCancel}
-            className="rounded-lg px-4 py-2 text-sm text-fog hover:text-cloud hover:bg-stone/40 transition-colors"
+            className="min-h-11 rounded-lg px-4 py-2 text-sm text-fog hover:text-cloud hover:bg-stone/40 transition-colors"
           >
             Cancel
           </button>
           <button
             onClick={onConfirm}
-            className="rounded-lg bg-rose/20 px-4 py-2 text-sm font-medium text-rose hover:bg-rose/30 transition-colors"
+            className="min-h-11 rounded-lg bg-rose/20 px-4 py-2 text-sm font-medium text-rose hover:bg-rose/30 transition-colors"
           >
             {confirmLabel}
           </button>

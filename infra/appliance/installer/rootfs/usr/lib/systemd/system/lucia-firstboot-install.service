@@ -1,0 +1,16 @@
+[Unit]
+Description=Install Lucia appliance to NVMe
+Documentation=https://github.com/seiggy/lucia-dotnet
+After=local-fs.target systemd-udev-settle.service lucia-installer-host.service
+Wants=systemd-udev-settle.service lucia-installer-host.service
+ConditionPathExists=/opt/lucia-installer/lucia-nvme.img.zst
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/lucia/lucia-firstboot-install
+TimeoutStartSec=infinity
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

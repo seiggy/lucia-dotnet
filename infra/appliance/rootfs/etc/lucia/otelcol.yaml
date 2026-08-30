@@ -1,0 +1,76 @@
+extensions:
+  file_storage:
+    directory: /var/lib/lucia/otelcol
+  health_check:
+    endpoint: 127.0.0.1:13133
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 127.0.0.1:4317
+      http:
+        endpoint: 127.0.0.1:4318
+  hostmetrics:
+    collection_interval: 30s
+    scrapers:
+      cpu: {}
+      disk: {}
+      filesystem: {}
+      load: {}
+      memory: {}
+      network: {}
+      paging: {}
+      processes: {}
+      system: {}
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: lucia-redis
+          scrape_interval: 30s
+          static_configs:
+            - targets: [127.0.0.1:9121]
+
+processors:
+  batch:
+    send_batch_size: 512
+    timeout: 10s
+  resourcedetection/system:
+    detectors: [system]
+    override: false
+
+exporters:
+  otlp/remote:
+    endpoint: ${env:OTEL_EXPORTER_OTLP_ENDPOINT}
+    tls:
+      insecure: ${env:OTEL_EXPORTER_OTLP_INSECURE}
+      insecure_skip_verify: ${env:OTEL_EXPORTER_OTLP_INSECURE_SKIP_VERIFY}
+    headers:
+      Authorization: ${env:OTEL_EXPORTER_OTLP_AUTHORIZATION}
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 5m
+    sending_queue:
+      enabled: true
+      num_consumers: 2
+      queue_size: 1024
+      storage: file_storage
+    timeout: 10s
+
+service:
+  extensions: [file_storage, health_check]
+  pipelines:
+    metrics:
+      receivers: [otlp, hostmetrics, prometheus]
+      processors: [resourcedetection/system, batch]
+      exporters: [otlp/remote]
+    traces:
+      receivers: [otlp]
+      processors: [resourcedetection/system, batch]
+      exporters: [otlp/remote]
+    logs:
+      receivers: [otlp]
+      processors: [resourcedetection/system, batch]
+      exporters: [otlp/remote]

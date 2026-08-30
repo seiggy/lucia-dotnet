@@ -1,0 +1,333 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: lucia-install plan --device BLOCK_DEVICE
+       lucia-install install --device BLOCK_DEVICE --image FILE --sha256 HEX \
+         [--state-file FILE] [--authorization-file FILE]
+EOF
+}
+
+die_usage() {
+    printf 'Error: %s\n\n' "$1" >&2
+    usage >&2
+    exit 2
+}
+
+command="${1:-}"
+[[ "$command" == "plan" || "$command" == "install" ]] \
+    || die_usage "expected plan or install command"
+shift
+
+device=""
+image=""
+expected_sha256=""
+state_file=""
+authorization_file=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --device)
+            [[ $# -ge 2 ]] || die_usage "--device requires a value"
+            device="$2"
+            shift 2
+            ;;
+        --image)
+            [[ $# -ge 2 ]] || die_usage "--image requires a value"
+            image="$2"
+            shift 2
+            ;;
+        --sha256)
+            [[ $# -ge 2 ]] || die_usage "--sha256 requires a value"
+            expected_sha256="$2"
+            shift 2
+            ;;
+        --state-file)
+            [[ $# -ge 2 ]] || die_usage "--state-file requires a value"
+            state_file="$2"
+            shift 2
+            ;;
+        --authorization-file)
+            [[ $# -ge 2 ]] || die_usage "--authorization-file requires a value"
+            authorization_file="$2"
+            shift 2
+            ;;
+        --help)
+            usage
+            exit 0
+            ;;
+        *)
+            die_usage "unknown option: $1"
+            ;;
+    esac
+done
+
+[[ -n "$device" ]] || die_usage "--device is required"
+[[ -b "$device" ]] || die_usage "--device must be a block device"
+
+device_type="$(lsblk --nodeps --noheadings --output TYPE "$device" | tr -d '[:space:]')"
+[[ "$device_type" == "disk" || "$device_type" == "loop" ]] \
+    || die_usage "--device must be a whole disk"
+
+size_bytes="$(blockdev --getsize64 "$device")"
+minimum_size_bytes=61203283968
+identity_source="$(
+    LC_ALL=C lsblk \
+        --nodeps \
+        --noheadings \
+        --pairs \
+        --output TYPE,SIZE,MODEL,SERIAL,WWN,TRAN \
+        "$device"
+)"
+if [[ "$device_type" == "loop" ]]; then
+    identity_source+=" BACK_FILE=\"$(losetup --noheadings --output BACK-FILE "$device")\""
+fi
+device_identity="$(printf '%s' "$identity_source" | sha256sum | cut -d' ' -f1)"
+layout_source="$(
+    set -e
+    {
+        LC_ALL=C lsblk \
+            --bytes \
+            --noheadings \
+            --raw \
+            --output TYPE,SIZE,FSTYPE,FSVER,LABEL,UUID,PTTYPE,PTUUID,PARTLABEL,PARTTYPE,PARTUUID,MOUNTPOINTS \
+            "$device"
+        while read -r block_name; do
+            start_file="/sys/class/block/${block_name}/start"
+            if [[ -r "$start_file" ]]; then
+                printf 'START %s %s\n' "$block_name" "$(cat "$start_file")"
+            else
+                printf 'START %s 0\n' "$block_name"
+            fi
+        done < <(lsblk --noheadings --raw --output NAME "$device")
+        LC_ALL=C wipefs --no-act --noheadings --output OFFSET,TYPE,UUID,LABEL "$device"
+    }
+)"
+layout_sha256="$(printf '%s' "$layout_source" | sha256sum | cut -d' ' -f1)"
+classification=""
+action=""
+
+if (( size_bytes < minimum_size_bytes )); then
+    classification="too-small"
+    action="reject"
+elif lsblk --noheadings --output MOUNTPOINTS "$device" \
+    | grep -q '[^[:space:]]'; then
+    classification="protected"
+    action="reject"
+elif [[ -n "$(wipefs --no-act --noheadings --output TYPE "$device")" ]] \
+    || lsblk --noheadings --output TYPE "$device" | grep -q 'part'; then
+    classification="occupied"
+    action="confirmation-required"
+else
+    classification="blank"
+    action="install"
+fi
+
+if [[ "$command" == "plan" ]]; then
+    printf 'device=%s\n' "$device"
+    printf 'device_identity=%s\n' "$device_identity"
+    printf 'layout_sha256=%s\n' "$layout_sha256"
+    printf 'size_bytes=%s\n' "$size_bytes"
+    printf 'classification=%s\n' "$classification"
+    printf 'action=%s\n' "$action"
+    exit 0
+fi
+
+[[ -f "$image" ]] || die_usage "--image must be a file"
+[[ "$image" != *$'\n'* \
+    && "$state_file" != *$'\n'* \
+    && "$authorization_file" != *$'\n'* ]] \
+    || die_usage "file paths must not contain newlines"
+[[ "$expected_sha256" =~ ^[0-9A-Fa-f]{64}$ ]] \
+    || die_usage "--sha256 must be a 64-character hexadecimal digest"
+
+can_resume=false
+if [[ "$classification" == "occupied" \
+    && -n "$state_file" \
+    && -f "$state_file" \
+    && ! -L "$state_file" ]]; then
+    prior_status="$(sed -n 's/^status=//p' "$state_file")"
+    prior_device="$(sed -n 's/^device=//p' "$state_file")"
+    prior_identity="$(sed -n 's/^device_identity=//p' "$state_file")"
+    prior_size="$(sed -n 's/^device_size_bytes=//p' "$state_file")"
+    prior_sha256="$(sed -n 's/^image_sha256=//p' "$state_file")"
+    if [[ "$prior_status" == "writing" \
+        && "$prior_device" == "$device" \
+        && "$prior_identity" == "$device_identity" \
+        && "$prior_size" == "$size_bytes" \
+        && "$prior_sha256" == "$expected_sha256" ]]; then
+        can_resume=true
+    fi
+fi
+
+can_authorize=false
+if [[ "$classification" != "protected" \
+    && "$classification" != "too-small" \
+    && -n "$authorization_file" \
+    && -f "$authorization_file" \
+    && ! -L "$authorization_file" ]]; then
+    authorization_status="$(sed -n 's/^status=//p' "$authorization_file")"
+    authorization_device="$(sed -n 's/^device=//p' "$authorization_file")"
+    authorization_identity="$(sed -n 's/^device_identity=//p' "$authorization_file")"
+    authorization_size="$(sed -n 's/^device_size_bytes=//p' "$authorization_file")"
+    authorization_layout="$(sed -n 's/^layout_sha256=//p' "$authorization_file")"
+    authorization_sha256="$(sed -n 's/^image_sha256=//p' "$authorization_file")"
+    if [[ "$authorization_status" == "approved" \
+        && "$authorization_device" == "$device" \
+        && "$authorization_identity" == "$device_identity" \
+        && "$authorization_size" == "$size_bytes" \
+        && "$authorization_layout" == "$layout_sha256" \
+        && "$authorization_sha256" == "$expected_sha256" ]]; then
+        can_authorize=true
+    fi
+fi
+
+if [[ "$can_resume" != true && "$can_authorize" != true ]]; then
+        printf 'Error: device classification is %s; install refused\n' "$classification" >&2
+        exit 1
+fi
+if [[ "$can_authorize" == true && -z "$state_file" ]]; then
+    printf 'Error: authorized erase requires persistent installer state\n' >&2
+    exit 1
+fi
+
+write_progress() {
+    [[ -n "$state_file" ]] || return 0
+
+    local stage="$1"
+    local bytes_written="${2:-}"
+    local total_bytes="${3:-}"
+    local progress_file="$(dirname "$state_file")/progress.json"
+    local temporary_file
+
+    mkdir -p "$(dirname "$progress_file")"
+    temporary_file="$(mktemp "${progress_file}.tmp.XXXXXX")"
+    if [[ -n "$bytes_written" && -n "$total_bytes" ]]; then
+        printf \
+            '{"stage":"%s","bytesWritten":%s,"totalBytes":%s}\n' \
+            "$stage" \
+            "$bytes_written" \
+            "$total_bytes" \
+            > "$temporary_file"
+    else
+        printf '{"stage":"%s"}\n' "$stage" > "$temporary_file"
+    fi
+    chmod 0600 "$temporary_file"
+    mv "$temporary_file" "$progress_file"
+}
+
+track_dd_progress() {
+    local line
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^[[:space:]]*([0-9]+)[[:space:]]+bytes ]]; then
+            write_progress writing "${BASH_REMATCH[1]}" "$image_size_bytes"
+        fi
+    done
+}
+
+copy_with_progress() {
+    local progress_pipe
+    local progress_pid
+    local copy_status
+    local parser_status
+
+    progress_pipe="$(mktemp -u "${TMPDIR:-/tmp}/lucia-dd-progress.XXXXXX")"
+    mkfifo "$progress_pipe"
+    tr '\r' '\n' < "$progress_pipe" | track_dd_progress &
+    progress_pid=$!
+
+    set +e
+    "$@" 2> "$progress_pipe"
+    copy_status=$?
+    set -e
+
+    wait "$progress_pid"
+    parser_status=$?
+    rm -f "$progress_pipe"
+
+    (( copy_status == 0 && parser_status == 0 ))
+}
+
+write_progress validating
+printf '%s  %s\n' "$expected_sha256" "$image" \
+    | sha256sum --check --status \
+    || {
+        printf 'Error: image checksum does not match\n' >&2
+        exit 1
+    }
+
+write_state() {
+    [[ -n "$state_file" ]] || return 0
+
+    local status="$1"
+    local temporary_file="${state_file}.tmp.$$"
+
+    mkdir -p "$(dirname "$state_file")"
+    {
+        printf 'status=%s\n' "$status"
+        printf 'device=%s\n' "$device"
+        printf 'device_identity=%s\n' "$device_identity"
+        printf 'device_size_bytes=%s\n' "$size_bytes"
+        printf 'image=%s\n' "$image"
+        printf 'image_sha256=%s\n' "$expected_sha256"
+    } > "$temporary_file"
+    chmod 0600 "$temporary_file"
+    mv "$temporary_file" "$state_file"
+    sync "$state_file"
+}
+
+write_state writing
+if [[ "$can_authorize" == true ]]; then
+    rm "$authorization_file"
+    sync -f "$(dirname "$authorization_file")"
+fi
+
+if [[ "$image" == *.zst ]]; then
+    command -v zstd >/dev/null \
+        || {
+            printf 'Error: zstd is required for compressed images\n' >&2
+            exit 1
+        }
+    image_size_bytes="$(
+        zstd -lv "$image" 2>&1 \
+            | awk '/Decompressed Size:/ {
+                value = $0
+                sub(/^.*\(/, "", value)
+                sub(/ B\).*$/, "", value)
+                print value
+            }'
+    )"
+    [[ "$image_size_bytes" =~ ^[0-9]+$ ]] \
+        || {
+            printf 'Error: compressed image does not declare its size\n' >&2
+            exit 1
+        }
+    (( image_size_bytes <= size_bytes )) \
+        || {
+            printf 'Error: decompressed image is larger than target device\n' >&2
+            exit 1
+        }
+    write_progress writing 0 "$image_size_bytes"
+    zstd --decompress --stdout "$image" \
+        | copy_with_progress \
+            dd of="$device" bs=4M conv=fsync,notrunc status=progress
+else
+    image_size_bytes="$(stat --format '%s' "$image")"
+    (( image_size_bytes <= size_bytes )) \
+        || {
+            printf 'Error: image is larger than target device\n' >&2
+            exit 1
+        }
+    write_progress writing 0 "$image_size_bytes"
+    copy_with_progress \
+        dd if="$image" of="$device" bs=4M conv=fsync,notrunc status=progress
+fi
+
+write_progress image-written "$image_size_bytes" "$image_size_bytes"
+sync
+write_state installed
+
+printf 'device=%s\n' "$device"
+printf 'bytes_written=%s\n' "$image_size_bytes"
+printf 'result=installed\n'
