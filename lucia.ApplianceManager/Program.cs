@@ -161,6 +161,14 @@ static async Task<IResult> RestartServiceAsync(
     {
         return TypedResults.NotFound();
     }
+    if (service is "collector" or "redis-exporter"
+        && !IsTelemetryEnabled())
+    {
+        return Results.Conflict(new
+        {
+            Error = "Telemetry is disabled. Enable it before restarting telemetry services.",
+        });
+    }
 
     var result = await RunSystemctlAsync(
             ["restart", unit],
@@ -438,6 +446,18 @@ static object ReadTelemetryConfiguration(string path)
         HasAuthorization = !string.IsNullOrWhiteSpace(
             values.GetValueOrDefault("OTEL_EXPORTER_OTLP_AUTHORIZATION")),
     };
+}
+
+static bool IsTelemetryEnabled()
+{
+    var path = Environment.GetEnvironmentVariable("LUCIA_TELEMETRY_ENV_PATH")
+        ?? "/var/lib/lucia/config/telemetry.env";
+    return File.Exists(path)
+        && bool.TryParse(
+            ReadKeyValueFile(path).GetValueOrDefault(
+                "LUCIA_TELEMETRY_ENABLED"),
+            out var enabled)
+        && enabled;
 }
 
 static void WriteEnvironmentFile(string path, IEnumerable<string> values)

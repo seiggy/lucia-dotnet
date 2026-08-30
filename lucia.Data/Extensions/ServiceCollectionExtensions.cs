@@ -74,11 +74,11 @@ public static class ServiceCollectionExtensions
 
         // Register three keyed SqliteConnectionFactory instances.
         builder.Services.AddKeyedSingleton<SqliteConnectionFactory>(SqliteDbNames.Config, (_, _) =>
-            new SqliteConnectionFactory(SqliteDbNames.GetConfigPath(basePath)));
+            new SqliteConnectionFactory(SqliteDbNames.GetCompatiblePath(basePath, SqliteDbNames.Config)));
         builder.Services.AddKeyedSingleton<SqliteConnectionFactory>(SqliteDbNames.Traces, (_, _) =>
-            new SqliteConnectionFactory(SqliteDbNames.GetPath(basePath, SqliteDbNames.Traces)));
+            new SqliteConnectionFactory(SqliteDbNames.GetCompatiblePath(basePath, SqliteDbNames.Traces)));
         builder.Services.AddKeyedSingleton<SqliteConnectionFactory>(SqliteDbNames.Tasks, (_, _) =>
-            new SqliteConnectionFactory(SqliteDbNames.GetPath(basePath, SqliteDbNames.Tasks)));
+            new SqliteConnectionFactory(SqliteDbNames.GetCompatiblePath(basePath, SqliteDbNames.Tasks)));
 
         // Non-keyed factory for backward compat (migration runner, config provider).
         builder.Services.TryAddSingleton<SqliteConnectionFactory>(sp =>

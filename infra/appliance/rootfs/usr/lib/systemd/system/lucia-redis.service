@@ -18,6 +18,7 @@ RuntimeDirectory=lucia-redis
 ReadWritePaths=/var/lib/lucia/redis
 UMask=0077
 LimitNOFILE=10032
+MemoryMax=768M
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true

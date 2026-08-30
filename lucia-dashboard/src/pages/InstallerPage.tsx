@@ -308,6 +308,7 @@ function BootSequence({
             src="/lucia.png"
             alt="Lucia is starting"
             onLoad={onReady}
+            onError={onReady}
             className="installer-boot-logo relative z-10 h-36 w-36 sm:h-44 sm:w-44"
           />
           <span className="installer-boot-spark" aria-hidden="true" />

@@ -141,9 +141,7 @@ grep -q '"id":"collector","activeState":"inactive","unitFileState":"disabled"' \
 echo "PASS: status reports the appliance and allowlisted services"
 
 for service_and_unit in \
-    "redis lucia-redis.service" \
-    "collector lucia-otelcol.service" \
-    "redis-exporter lucia-redis-exporter.service"; do
+    "redis lucia-redis.service"; do
     read -r service unit <<< "$service_and_unit"
     status="$(
         curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
@@ -224,6 +222,22 @@ grep -qx -- 'enable --now lucia-redis-exporter.service lucia-otelcol.service' \
 
 echo "PASS: telemetry configuration is validated, redacted, and enabled"
 
+for service_and_unit in \
+    "collector lucia-otelcol.service" \
+    "redis-exporter lucia-redis-exporter.service"; do
+    read -r service unit <<< "$service_and_unit"
+    status="$(
+        curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+            --unix-socket "$socket_path" \
+            --request POST \
+            "http://localhost/v1/services/$service/restart"
+    )"
+    [[ "$status" == "202" ]]
+    grep -qx -- "restart $unit" "$systemctl_log"
+done
+
+echo "PASS: enabled telemetry services can be restarted"
+
 status="$(
     curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
         --unix-socket "$socket_path" \
@@ -233,6 +247,17 @@ status="$(
         http://localhost/v1/telemetry
 )"
 [[ "$status" == "200" ]]
+
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
+        --request POST \
+        http://localhost/v1/services/collector/restart
+)"
+[[ "$status" == "409" ]]
+grep -q 'Telemetry is disabled' "$work_dir/response.json"
+
+echo "PASS: disabled telemetry services cannot be restarted"
 
 cp "$telemetry_environment" "$work_dir/telemetry.before"
 touch "$fail_enable"

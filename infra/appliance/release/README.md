@@ -35,9 +35,10 @@ Each manifest channel contains:
 - ordered part names, sizes, hashes, and release URLs;
 - board, architecture, Jetson Linux, and minimum disk compatibility.
 
-A future updater must download parts in manifest order, verify every part, join
-them, verify the complete payload and its GitHub attestation, then write it.
-The current dashboard performs discovery only; apply controls remain locked.
+A future updater must download parts in manifest order, verify every part's
+GitHub attestation and hash, join them, then verify the complete payload against
+the digest in the attested manifest before writing it. The current dashboard
+performs discovery only; apply controls remain locked.
 
 GitHub Release assets are limited to 2 GiB per file. The packager uses
 1.9-billion-byte parts so installer and OS images stay within that limit.

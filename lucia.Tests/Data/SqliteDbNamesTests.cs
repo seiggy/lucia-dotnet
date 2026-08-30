@@ -38,4 +38,30 @@ public sealed class SqliteDbNamesTests
             Directory.Delete(directory, recursive: true);
         }
     }
+
+    [Theory]
+    [InlineData(SqliteDbNames.Config)]
+    [InlineData(SqliteDbNames.Traces)]
+    [InlineData(SqliteDbNames.Tasks)]
+    public void GetCompatiblePath_LegacyDatabaseOnly_UsesLegacyPath(
+        string databaseName)
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"lucia-sqlite-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var basePath = Path.Combine(directory, "lucia.db");
+        File.WriteAllText(basePath, string.Empty);
+
+        try
+        {
+            Assert.Equal(
+                basePath,
+                SqliteDbNames.GetCompatiblePath(basePath, databaseName));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
 }

@@ -40,10 +40,15 @@ public static class SqliteDbNames
     }
 
     public static string GetConfigPath(string basePath)
+        => GetCompatiblePath(basePath, Config);
+
+    public static string GetCompatiblePath(
+        string basePath,
+        string databaseName)
     {
-        var configPath = GetPath(basePath, Config);
-        return !File.Exists(configPath) && File.Exists(basePath)
+        var splitPath = GetPath(basePath, databaseName);
+        return !File.Exists(splitPath) && File.Exists(basePath)
             ? basePath
-            : configPath;
+            : splitPath;
     }
 }

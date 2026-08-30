@@ -142,6 +142,8 @@ test_bundle_contains_native_service_contract() {
         && grep -q '^ExecStart=/opt/lucia/current/redis/bin/redis-server /etc/lucia/redis.conf$' "$redis_unit" \
         && grep -q '^appendonly yes$' "$redis_config" \
         && grep -q '^maxmemory-policy noeviction$' "$redis_config" \
+        && grep -q '^maxmemory 512mb$' "$redis_config" \
+        && grep -q '^MemoryMax=768M$' "$redis_unit" \
         && grep -q '^dir /var/lib/lucia/redis$' "$redis_config" \
         && grep -q '^DataProvider__Cache=Redis$' "$environment" \
         && grep -q '^DataProvider__Store=SQLite$' "$environment" \

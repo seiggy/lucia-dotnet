@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Net.Sockets;
+using System.Text.Json;
 
 namespace lucia.AgentHost.Appliance;
 
@@ -45,10 +46,13 @@ public sealed class ApplianceManagerClient : IDisposable
     public async Task<ApplianceStatusResponse> GetStatusAsync(
         CancellationToken cancellationToken)
     {
-        return await _httpClient
-            .GetFromJsonAsync<ApplianceStatusResponse>(
-                "/v1/status",
-                cancellationToken)
+        using var response = await _httpClient
+            .GetAsync("/v1/status", cancellationToken)
+            .ConfigureAwait(false);
+        await EnsureSuccessAsync(response, cancellationToken)
+            .ConfigureAwait(false);
+        return await response.Content
+            .ReadFromJsonAsync<ApplianceStatusResponse>(cancellationToken)
             .ConfigureAwait(false)
             ?? throw new InvalidOperationException(
                 "Appliance manager returned an empty status response.");
@@ -64,7 +68,8 @@ public sealed class ApplianceManagerClient : IDisposable
                 content: null,
                 cancellationToken)
             .ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     public async Task RebootHostAsync(CancellationToken cancellationToken)
@@ -72,16 +77,20 @@ public sealed class ApplianceManagerClient : IDisposable
         using var response = await _httpClient
             .PostAsync("/v1/host/reboot", content: null, cancellationToken)
             .ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     public async Task<ApplianceTelemetryStatus> GetTelemetryAsync(
         CancellationToken cancellationToken)
     {
-        return await _httpClient
-            .GetFromJsonAsync<ApplianceTelemetryStatus>(
-                "/v1/telemetry",
-                cancellationToken)
+        using var response = await _httpClient
+            .GetAsync("/v1/telemetry", cancellationToken)
+            .ConfigureAwait(false);
+        await EnsureSuccessAsync(response, cancellationToken)
+            .ConfigureAwait(false);
+        return await response.Content
+            .ReadFromJsonAsync<ApplianceTelemetryStatus>(cancellationToken)
             .ConfigureAwait(false)
             ?? throw new InvalidOperationException(
                 "Appliance manager returned an empty telemetry response.");
@@ -94,7 +103,8 @@ public sealed class ApplianceManagerClient : IDisposable
         using var response = await _httpClient
             .PutAsJsonAsync("/v1/telemetry", request, cancellationToken)
             .ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, cancellationToken)
+            .ConfigureAwait(false);
         return await response.Content
             .ReadFromJsonAsync<ApplianceTelemetryStatus>(
                 cancellationToken)
@@ -104,4 +114,42 @@ public sealed class ApplianceManagerClient : IDisposable
     }
 
     public void Dispose() => _httpClient.Dispose();
+
+    private static async Task EnsureSuccessAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
+        if (response.IsSuccessStatusCode)
+        {
+            return;
+        }
+
+        var content = await response.Content
+            .ReadAsStringAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var message = response.ReasonPhrase
+            ?? $"Appliance manager returned {(int)response.StatusCode}.";
+        if (response.Content.Headers.ContentType?.MediaType
+                is "application/json" or "application/problem+json"
+            && !string.IsNullOrWhiteSpace(content))
+        {
+            using var document = JsonDocument.Parse(content);
+            var root = document.RootElement;
+            if (root.TryGetProperty("detail", out var detail)
+                && detail.ValueKind == JsonValueKind.String)
+            {
+                message = detail.GetString() ?? message;
+            }
+            else if (root.TryGetProperty("error", out var error)
+                && error.ValueKind == JsonValueKind.String)
+            {
+                message = error.GetString() ?? message;
+            }
+        }
+
+        throw new HttpRequestException(
+            message,
+            inner: null,
+            response.StatusCode);
+    }
 }

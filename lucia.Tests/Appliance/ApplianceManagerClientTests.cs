@@ -56,4 +56,59 @@ public sealed class ApplianceManagerClientTests
             File.Delete(socketPath);
         }
     }
+
+    [Fact]
+    public async Task RestartServiceAsync_PropagatesManagerProblemDetail()
+    {
+        var socketPath = Path.Combine(
+            Path.GetTempPath(),
+            $"lucia-manager-{Guid.NewGuid():N}.sock");
+        using var listener = new Socket(
+            AddressFamily.Unix,
+            SocketType.Stream,
+            ProtocolType.Unspecified);
+        listener.Bind(new UnixDomainSocketEndPoint(socketPath));
+        listener.Listen();
+
+        try
+        {
+            var serverTask = Task.Run(async () =>
+            {
+                using var accepted = await listener.AcceptAsync();
+                await using var stream = new NetworkStream(
+                    accepted,
+                    ownsSocket: false);
+                var requestBuffer = new byte[4096];
+                _ = await stream.ReadAsync(requestBuffer);
+
+                const string Body =
+                    """
+                    {"detail":"Telemetry is disabled. Enable it before restarting telemetry services.","status":409}
+                    """;
+                var response = Encoding.UTF8.GetBytes(
+                    "HTTP/1.1 409 Conflict\r\n"
+                    + "Content-Type: application/problem+json\r\n"
+                    + $"Content-Length: {Encoding.UTF8.GetByteCount(Body)}\r\n"
+                    + "Connection: close\r\n\r\n"
+                    + Body);
+                await stream.WriteAsync(response);
+            });
+
+            using var client = new ApplianceManagerClient(socketPath);
+            var exception = await Assert.ThrowsAsync<HttpRequestException>(
+                () => client.RestartServiceAsync(
+                    "collector",
+                    CancellationToken.None));
+
+            Assert.Equal(
+                "Telemetry is disabled. Enable it before restarting telemetry services.",
+                exception.Message);
+            Assert.Equal(HttpStatusCode.Conflict, exception.StatusCode);
+            await serverTask;
+        }
+        finally
+        {
+            File.Delete(socketPath);
+        }
+    }
 }
