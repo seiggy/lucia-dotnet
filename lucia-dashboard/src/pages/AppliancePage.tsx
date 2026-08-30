@@ -185,6 +185,7 @@ export default function AppliancePage() {
             current={updates?.currentLuciaVersion ?? status?.luciaVersion ?? 'unknown'}
             latest={updates?.latestLuciaVersion}
             available={updates?.luciaUpdateAvailable ?? false}
+            newerDiscovered={updates?.luciaNewerDiscovered ?? false}
             checked={updates !== null}
           />
           <UpdateRail
@@ -193,6 +194,7 @@ export default function AppliancePage() {
             current={updates?.currentOsVersion ?? status?.os.imageVersion ?? 'unknown'}
             latest={updates?.latestOsVersion}
             available={updates?.osUpdateAvailable ?? false}
+            newerDiscovered={updates?.osNewerDiscovered ?? false}
             checked={updates !== null}
           />
         </div>
@@ -313,6 +315,7 @@ function UpdateRail({
   current,
   latest,
   available,
+  newerDiscovered,
   checked,
 }: {
   icon: typeof Cpu
@@ -320,10 +323,10 @@ function UpdateRail({
   current: string
   latest?: string | null
   available: boolean
+  newerDiscovered: boolean
   checked: boolean
 }) {
-  const verificationRequired =
-    checked && latest !== null && latest !== undefined && latest !== current
+  const verificationRequired = checked && newerDiscovered
   return (
     <div className="grid gap-4 border-b border-stone p-5 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
       <div className="flex min-w-0 items-center gap-3">
@@ -439,7 +442,9 @@ function TelemetryPanel({
         clearAuthorization,
         insecureSkipVerify,
       }))
+      setUsername('')
       setPassword('')
+      setClearAuthorization(false)
     } catch (saveError: unknown) {
       onError(saveError instanceof Error ? saveError.message : 'Telemetry configuration failed.')
     } finally {
@@ -472,6 +477,7 @@ function TelemetryPanel({
           <input
             value={username}
             onChange={(event) => setUsername(event.target.value)}
+            disabled={clearAuthorization}
             autoComplete="username"
             className={inputStyle}
           />
@@ -482,6 +488,7 @@ function TelemetryPanel({
             type="password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
+            disabled={clearAuthorization}
             autoComplete="new-password"
             placeholder={telemetry.hasAuthorization ? 'Saved; enter to replace' : ''}
             className={inputStyle}
@@ -491,7 +498,13 @@ function TelemetryPanel({
           <input
             type="checkbox"
             checked={clearAuthorization}
-            onChange={(event) => setClearAuthorization(event.target.checked)}
+            onChange={(event) => {
+              setClearAuthorization(event.target.checked)
+              if (event.target.checked) {
+                setUsername('')
+                setPassword('')
+              }
+            }}
             className="h-4 w-4 accent-amber"
           />
           Remove saved authorization

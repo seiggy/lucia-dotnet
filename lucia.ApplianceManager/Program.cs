@@ -84,8 +84,7 @@ static async Task<IResult> GetStatusAsync(CancellationToken cancellationToken)
     var unitStates = ParseUnitStates(systemctlResult.StandardOutput);
     var network = await ReadWifiStatusAsync(cancellationToken)
         .ConfigureAwait(false);
-    var storageBytes = await ReadStorageBytesAsync(cancellationToken)
-        .ConfigureAwait(false);
+    var storageBytes = ReadStorageBytes();
     var osRelease = ReadKeyValueFile(
         Environment.GetEnvironmentVariable("LUCIA_OS_RELEASE_PATH")
             ?? "/etc/os-release");
@@ -551,35 +550,15 @@ static async Task<(string Ssid, int? Signal)> ReadWifiStatusAsync(
         : ("Ethernet", null);
 }
 
-static async Task<long> ReadStorageBytesAsync(
-    CancellationToken cancellationToken)
+static long ReadStorageBytes()
 {
-    var blockdevPath = Environment.GetEnvironmentVariable("LUCIA_BLOCKDEV_PATH")
-        ?? "/usr/sbin/blockdev";
-    var device = Environment.GetEnvironmentVariable("LUCIA_APPLIANCE_DEVICE")
-        ?? "/dev/nvme0n1";
-    var startInfo = new ProcessStartInfo
-    {
-        FileName = blockdevPath,
-        RedirectStandardError = true,
-        RedirectStandardOutput = true,
-        UseShellExecute = false,
-    };
-    startInfo.ArgumentList.Add("--getsize64");
-    startInfo.ArgumentList.Add(device);
-
-    using var process = Process.Start(startInfo)
-        ?? throw new InvalidOperationException("Failed to start blockdev.");
-    var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-    var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-    await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-    var output = await outputTask.ConfigureAwait(false);
-    _ = await errorTask.ConfigureAwait(false);
-    return process.ExitCode == 0
+    var sizePath = Environment.GetEnvironmentVariable("LUCIA_DEVICE_SIZE_PATH")
+        ?? "/sys/class/block/nvme0n1/size";
+    return File.Exists(sizePath)
         && long.TryParse(
-            output.Trim(),
+            File.ReadAllText(sizePath).Trim(),
             System.Globalization.CultureInfo.InvariantCulture,
-            out var bytes)
-        ? bytes
+            out var sectors)
+        ? checked(sectors * 512)
         : 0;
 }

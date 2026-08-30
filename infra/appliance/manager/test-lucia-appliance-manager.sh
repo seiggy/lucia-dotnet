@@ -7,7 +7,7 @@ work_dir="$(mktemp -d)"
 socket_path="$work_dir/appliance-manager.sock"
 systemctl_log="$work_dir/systemctl.log"
 nmcli_log="$work_dir/nmcli.log"
-blockdev_log="$work_dir/blockdev.log"
+storage_size="$work_dir/nvme-size"
 manager_log="$work_dir/manager.log"
 manager_pid=""
 os_release="$work_dir/os-release"
@@ -64,13 +64,7 @@ printf '%s\n' "$*" >> "$LUCIA_TEST_NMCLI_LOG"
 printf '%s\n' 'yes:Home WiFi:87'
 EOF
 chmod +x "$work_dir/nmcli"
-cat > "$work_dir/blockdev" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-printf '%s\n' "$*" >> "$LUCIA_TEST_BLOCKDEV_LOG"
-printf '%s\n' '2000000000000'
-EOF
-chmod +x "$work_dir/blockdev"
+printf '%s\n' '3906250000' > "$storage_size"
 cat > "$os_release" <<'EOF'
 NAME="Ubuntu"
 VERSION_ID="22.04"
@@ -88,15 +82,13 @@ LUCIA_OS_RELEASE_PATH="$os_release" \
 LUCIA_OS_VERSION_PATH="$os_version" \
 LUCIA_JETSON_RELEASE_PATH="$jetson_release" \
 LUCIA_NMCLI_PATH="$work_dir/nmcli" \
-LUCIA_BLOCKDEV_PATH="$work_dir/blockdev" \
-LUCIA_APPLIANCE_DEVICE="/dev/nvme-test" \
+LUCIA_DEVICE_SIZE_PATH="$storage_size" \
 LUCIA_REBOOT_REQUIRED_PATH="$reboot_required" \
 LUCIA_TELEMETRY_ENV_PATH="$telemetry_environment" \
 LUCIA_SYSTEMCTL_PATH="$work_dir/systemctl" \
 LUCIA_TEST_SYSTEMCTL_LOG="$systemctl_log" \
 LUCIA_TEST_FAIL_ENABLE_FILE="$fail_enable" \
 LUCIA_TEST_NMCLI_LOG="$nmcli_log" \
-LUCIA_TEST_BLOCKDEV_LOG="$blockdev_log" \
     dotnet run --no-launch-profile --project "$manager_project" \
     >"$manager_log" 2>&1 &
 manager_pid=$!

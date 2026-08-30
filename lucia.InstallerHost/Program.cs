@@ -10,12 +10,20 @@ if (!string.Equals(applianceMode, "Installer", StringComparison.Ordinal))
 }
 
 var controlPath = builder.Configuration["Appliance:ControlPath"]
-    ?? "/usr/libexec/lucia/lucia-installer-control";
+    ?? "/usr/bin/sudo";
+var configuredControlCommand =
+    builder.Configuration["Appliance:ControlCommand"];
+var controlCommand = configuredControlCommand is null
+    ? "/usr/libexec/lucia/lucia-installer-control"
+    : string.IsNullOrWhiteSpace(configuredControlCommand)
+        ? null
+        : configuredControlCommand;
 var claimPath = builder.Configuration["Appliance:ClaimPath"]
     ?? "/run/lucia-installer/claim.sha256";
 builder.Services.AddSingleton(
     serviceProvider => new InstallerControlClient(
         controlPath,
+        controlCommand,
         serviceProvider.GetRequiredService<ILogger<InstallerControlClient>>()));
 builder.Services.AddSingleton(new InstallerClaimStore(claimPath));
 

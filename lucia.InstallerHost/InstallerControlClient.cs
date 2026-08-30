@@ -6,6 +6,7 @@ namespace lucia.InstallerHost;
 
 internal sealed partial class InstallerControlClient(
     string controlPath,
+    string? controlCommand,
     ILogger<InstallerControlClient> logger)
 {
     public Task<JsonNode> GetDisksAsync(CancellationToken cancellationToken) =>
@@ -35,6 +36,11 @@ internal sealed partial class InstallerControlClient(
             RedirectStandardOutput = true,
             UseShellExecute = false,
         };
+        if (controlCommand is not null)
+        {
+            startInfo.ArgumentList.Add("--non-interactive");
+            startInfo.ArgumentList.Add(controlCommand);
+        }
         startInfo.ArgumentList.Add(command);
 
         using var process = Process.Start(startInfo)

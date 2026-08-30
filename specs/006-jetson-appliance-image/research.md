@@ -570,12 +570,11 @@ appliance should program QSPI before shipment.
 
 Do not ship a shared Wi-Fi password, dashboard key, or Linux password.
 
-A generic DIY image written by Rufus has no channel for delivering a unique
-secret to its owner. Its setup network is therefore open, client-isolated, and
-blocked from forwarding traffic. Setup binds only to the AP address, and the
-first browser atomically claims the installer with an HttpOnly session cookie.
-A reboot clears an abandoned claim. This reduces exposure to nearby first-claim
-races but does not eliminate it.
+A generic DIY image derives its WPA2 setup passphrase from the Jetson serial
+printed on the device. Its setup network is client-isolated and blocked from
+forwarding traffic. Setup binds only to the AP address, and the first browser
+atomically claims the installer with an HttpOnly session cookie. A reboot
+clears an abandoned claim.
 
 Manufactured appliances should use a unique code or QR label. Their temporary
 access point can use that secret as its WPA2 or WPA3 passphrase and require the

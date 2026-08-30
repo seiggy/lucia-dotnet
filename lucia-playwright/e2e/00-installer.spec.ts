@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('guides a new owner from setup code to installation', async ({ page }) => {
+test('guides the first browser claim through installation', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
 
   let installRequest: unknown;

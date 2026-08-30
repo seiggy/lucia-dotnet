@@ -157,7 +157,7 @@ def split_nmcli_fields(line: str) -> list[str]:
     return fields
 
 
-def list_networks() -> None:
+def read_supported_networks() -> list[dict[str, object]]:
     nmcli_path = os.environ.get("LUCIA_NMCLI_PATH", "/usr/bin/nmcli")
     output = run(
         [
@@ -182,6 +182,8 @@ def list_networks() -> None:
             continue
 
         ssid, signal_text, security = fields
+        if "WPA2" not in security or "802.1X" in security:
+            continue
         signal = int(signal_text)
         existing = strongest_by_ssid.get(ssid)
         if existing is None or signal > int(existing["signal"]):
@@ -191,11 +193,15 @@ def list_networks() -> None:
                 "security": security,
             }
 
-    networks = sorted(
+    return sorted(
         strongest_by_ssid.values(),
         key=lambda network: int(network["signal"]),
         reverse=True,
     )
+
+
+def list_networks() -> None:
+    networks = read_supported_networks()
     print(json.dumps(networks, separators=(",", ":")))
 
 
@@ -303,6 +309,8 @@ def configure_installation() -> None:
             raise ValueError(
                 "A 64-character Wi-Fi passphrase must be hexadecimal"
             )
+        if ssid not in {network["ssid"] for network in read_supported_networks()}:
+            raise ValueError("Selected Wi-Fi network does not support WPA-PSK")
         provisioning_wifi = {"ssid": ssid, "passphrase": passphrase}
 
     install_path = os.environ.get(

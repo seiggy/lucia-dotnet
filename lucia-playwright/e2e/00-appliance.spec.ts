@@ -52,6 +52,8 @@ test('manages an installed appliance from mobile', async ({ page }) => {
         latestOsVersion: '0.4.0',
         manifestAvailable: true,
         compatible: true,
+        luciaNewerDiscovered: true,
+        osNewerDiscovered: true,
         luciaUpdateAvailable: false,
         osUpdateAvailable: false,
         releaseUrl: 'https://github.com/seiggy/lucia-dotnet/releases/tag/v0.3.0',

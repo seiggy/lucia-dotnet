@@ -47,6 +47,8 @@ public sealed class ApplianceUpdateService(
                 LatestOsVersion: null,
                 ManifestAvailable: false,
                 Compatible: false,
+                LuciaNewerDiscovered: false,
+                OsNewerDiscovered: false,
                 LuciaUpdateAvailable: false,
                 OsUpdateAvailable: false,
                 releaseUrl,
@@ -94,9 +96,11 @@ public sealed class ApplianceUpdateService(
             .GetProperty("os")
             .GetProperty("version")
             .GetString();
-        var hasNewerRelease =
-            IsNewer(latestLuciaVersion, current.LuciaVersion)
-            || IsNewer(latestOsVersion, current.Os.ImageVersion);
+        var luciaNewerDiscovered =
+            IsNewer(latestLuciaVersion, current.LuciaVersion);
+        var osNewerDiscovered =
+            IsNewer(latestOsVersion, current.Os.ImageVersion);
+        var hasNewerRelease = luciaNewerDiscovered || osNewerDiscovered;
 
         return new ApplianceUpdateStatus(
             current.LuciaVersion,
@@ -105,6 +109,8 @@ public sealed class ApplianceUpdateService(
             latestOsVersion,
             ManifestAvailable: true,
             Compatible: compatible,
+            LuciaNewerDiscovered: compatible && luciaNewerDiscovered,
+            OsNewerDiscovered: compatible && osNewerDiscovered,
             LuciaUpdateAvailable: false,
             OsUpdateAvailable: false,
             releaseUrl,

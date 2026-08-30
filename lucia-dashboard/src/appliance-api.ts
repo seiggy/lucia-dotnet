@@ -48,6 +48,8 @@ export interface ApplianceUpdateStatus {
   latestOsVersion: string | null
   manifestAvailable: boolean
   compatible: boolean
+  luciaNewerDiscovered: boolean
+  osNewerDiscovered: boolean
   luciaUpdateAvailable: boolean
   osUpdateAvailable: boolean
   releaseUrl: string | null
@@ -172,6 +174,8 @@ function parseUpdates(value: unknown): ApplianceUpdateStatus {
     latestOsVersion: optionalString('latestOsVersion'),
     manifestAvailable: requireBoolean(updates, 'manifestAvailable'),
     compatible: requireBoolean(updates, 'compatible'),
+    luciaNewerDiscovered: requireBoolean(updates, 'luciaNewerDiscovered'),
+    osNewerDiscovered: requireBoolean(updates, 'osNewerDiscovered'),
     luciaUpdateAvailable: requireBoolean(updates, 'luciaUpdateAvailable'),
     osUpdateAvailable: requireBoolean(updates, 'osUpdateAvailable'),
     releaseUrl: optionalString('releaseUrl'),

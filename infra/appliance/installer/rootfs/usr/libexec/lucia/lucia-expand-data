@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+[[ $# -eq 1 && -b "$1" ]] || {
+    printf 'Usage: lucia-expand-data BLOCK_DEVICE\n' >&2
+    exit 2
+}
+device="$1"
+
+for command in e2fsck lsblk partx resize2fs sgdisk udevadm; do
+    command -v "$command" >/dev/null || {
+        printf 'Error: required command is missing: %s\n' "$command" >&2
+        exit 1
+    }
+done
+
+partition_info="$(sgdisk --info=18 "$device")"
+first_sector="$(
+    awk -F: '/First sector:/ {
+        sub(/^[[:space:]]*/, "", $2)
+        split($2, fields, /[[:space:]]+/)
+        print fields[1]
+    }' \
+        <<< "$partition_info"
+)"
+partition_guid="$(
+    awk -F: '/Partition unique GUID:/ { gsub(/[[:space:]]/, "", $2); print $2 }' \
+        <<< "$partition_info"
+)"
+[[ "$first_sector" =~ ^[0-9]+$ \
+    && "$partition_guid" =~ ^[0-9A-Fa-f-]{36}$ ]] || {
+    printf 'Error: LUCIA_DATA partition metadata is invalid\n' >&2
+    exit 1
+}
+
+sgdisk --move-second-header "$device" >/dev/null
+sgdisk \
+    --delete=18 \
+    --new="18:${first_sector}:0" \
+    --typecode=18:8300 \
+    --change-name=18:LUCIA_DATA \
+    --partition-guid="18:${partition_guid}" \
+    "$device" >/dev/null
+partx --update "$device"
+udevadm settle
+
+data_partition="$(
+    lsblk \
+        --raw \
+        --paths \
+        --noheadings \
+        --output NAME,TYPE,PARTLABEL \
+        "$device" \
+        | awk '$2 == "part" && $3 == "LUCIA_DATA" { print $1 }'
+)"
+[[ -b "$data_partition" ]] || {
+    printf 'Error: expanded LUCIA_DATA partition is unavailable\n' >&2
+    exit 1
+}
+
+set +e
+e2fsck -pf "$data_partition"
+fsck_status=$?
+set -e
+(( fsck_status <= 1 )) || exit "$fsck_status"
+resize2fs "$data_partition" >/dev/null

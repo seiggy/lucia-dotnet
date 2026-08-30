@@ -9,6 +9,10 @@ GitHub releases:
 | Lucia | AgentHost, dashboard, plugins, GPU native libraries, and Redis |
 | OS | Jetson rootfs, kernel, and device tree for inactive-slot updates |
 
+The captive setup network uses the Jetson serial printed on the device as its
+unique WPA2 passphrase. Manufactured appliances should print the same value as
+a setup credential or QR code.
+
 These are full component payloads, not binary deltas. Full payloads are larger,
 but they are deterministic, recoverable, and do not require every user to have
 the same prior version.

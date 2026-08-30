@@ -7,6 +7,7 @@ checksum_file="${LUCIA_CHECKSUM_PATH:-/opt/lucia-installer/lucia-nvme.img.zst.sh
 state_dir="${LUCIA_INSTALLER_STATE_DIR:-/var/lib/lucia-installer}"
 install_path="${LUCIA_INSTALL_PATH:-/usr/libexec/lucia/lucia-install}"
 provision_path="${LUCIA_PROVISION_PATH:-/usr/libexec/lucia/lucia-provision-target}"
+expand_path="${LUCIA_EXPAND_PATH:-/usr/libexec/lucia/lucia-expand-data}"
 systemctl_path="${LUCIA_SYSTEMCTL_PATH:-/usr/bin/systemctl}"
 state_file="$state_dir/install.state"
 authorization_file="$state_dir/erase.authorization"
@@ -30,6 +31,7 @@ if [[ -f "$state_file" ]] \
     if [[ -f "$provisioning_file" ]]; then
         device="$(sed -n 's/^device=//p' "$state_file")"
         write_progress provisioning
+        "$expand_path" "$device"
         "$provision_path" "$device"
         write_progress syncing
         sync
@@ -80,6 +82,7 @@ fi
     "${authorization_arguments[@]}"
 
 write_progress provisioning
+"$expand_path" "$device"
 "$provision_path" "$device"
 write_progress syncing
 sync

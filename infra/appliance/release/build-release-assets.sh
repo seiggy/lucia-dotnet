@@ -402,6 +402,7 @@ printf 'LUCIA_SETUP_SSID=Lucia-%s\n' "$setup_suffix" \
 sudo chmod 0600 \
     "$sd_root/etc/lucia-installer/bootstrap.env" \
     "$sd_root/etc/lucia-installer/installer.env"
+sudo chmod 0440 "$sd_root/etc/sudoers.d/lucia-installer"
 sudo install -m 0644 \
     "$work_dir/lucia-nvme-${version}.img.zst" \
     "$sd_root/opt/lucia-installer/lucia-nvme.img.zst"

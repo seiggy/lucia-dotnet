@@ -77,6 +77,8 @@ public sealed class ApplianceUpdateServiceTests
             var result = await service.CheckAsync(CancellationToken.None);
 
             Assert.True(result.Compatible);
+            Assert.True(result.LuciaNewerDiscovered);
+            Assert.True(result.OsNewerDiscovered);
             Assert.False(result.LuciaUpdateAvailable);
             Assert.False(result.OsUpdateAvailable);
             Assert.Equal("1.3.0", result.LatestLuciaVersion);

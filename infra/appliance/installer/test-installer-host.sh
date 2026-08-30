@@ -48,6 +48,7 @@ trap cleanup EXIT
 
 Appliance__Mode=Installer \
 Appliance__ControlPath="$work_dir/lucia-installer-control" \
+Appliance__ControlCommand="" \
 Appliance__ClaimPath="$claim_path" \
 LUCIA_TEST_CONTROL_LOG="$control_log" \
 LUCIA_TEST_CONTROL_INPUT="$control_input" \

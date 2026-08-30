@@ -49,6 +49,11 @@ printf '%s\n' "$*" > "$LUCIA_TEST_PROVISION_LOG"
 rm "$LUCIA_INSTALLER_STATE_DIR/provisioning.json"
 printf 'status=provisioned\n' > "$LUCIA_INSTALLER_STATE_DIR/provision.state"
 EOF
+cat > "$work_dir/lucia-expand-data" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" > "$LUCIA_TEST_EXPAND_LOG"
+EOF
 cat > "$work_dir/systemctl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -56,12 +61,14 @@ printf '%s\n' "$*" >> "$LUCIA_TEST_SYSTEMCTL_LOG"
 EOF
 chmod +x \
     "$work_dir/lucia-install" \
+    "$work_dir/lucia-expand-data" \
     "$work_dir/lucia-provision-target" \
     "$work_dir/systemctl"
 
 output="$(
     LUCIA_CHECKSUM_PATH="$work_dir/payload.img.sha256" \
     LUCIA_INSTALL_PATH="$work_dir/lucia-install" \
+    LUCIA_EXPAND_PATH="$work_dir/lucia-expand-data" \
     LUCIA_INSTALLER_STATE_DIR="$work_dir/state" \
     LUCIA_PAYLOAD_PATH="$work_dir/payload.img" \
     LUCIA_PROVISION_PATH="$work_dir/lucia-provision-target" \
@@ -77,16 +84,19 @@ grep -q 'Waiting for storage selection and erase authorization.' <<< "$output"
 printf '{}\n' > "$work_dir/state/provisioning.json"
 LUCIA_CHECKSUM_PATH="$work_dir/payload.img.sha256" \
 LUCIA_INSTALL_PATH="$work_dir/lucia-install" \
+LUCIA_EXPAND_PATH="$work_dir/lucia-expand-data" \
 LUCIA_INSTALLER_STATE_DIR="$work_dir/state" \
 LUCIA_PAYLOAD_PATH="$work_dir/payload.img" \
 LUCIA_PROVISION_PATH="$work_dir/lucia-provision-target" \
 LUCIA_SYSTEMCTL_PATH="$work_dir/systemctl" \
 LUCIA_TEST_INSTALL_LOG="$work_dir/install.log" \
+LUCIA_TEST_EXPAND_LOG="$work_dir/expand.log" \
 LUCIA_TEST_PROVISION_LOG="$work_dir/provision.log" \
 LUCIA_TEST_SYSTEMCTL_LOG="$work_dir/systemctl.log" \
     "$firstboot"
 
 grep -q -- "--device $device_id" "$work_dir/install.log"
+grep -qx -- "$device_id" "$work_dir/expand.log"
 grep -qx -- "$device_id" "$work_dir/provision.log"
 grep -qx -- '--no-block poweroff' "$work_dir/systemctl.log"
 grep -q '^status=provisioned$' "$work_dir/state/provision.state"

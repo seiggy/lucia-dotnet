@@ -75,7 +75,9 @@ set -euo pipefail
 printf '%s\n' \
     'Lab WiFi:82:WPA2' \
     'Lab WiFi:41:WPA2' \
-    'Guest:63:WPA2 WPA3'
+    'Guest:63:WPA2 WPA3' \
+    'Cafe:75:--' \
+    'Enterprise:70:WPA2 802.1X'
 EOF
 chmod +x "$work_dir/nmcli"
 
@@ -121,6 +123,7 @@ printf \
         LUCIA_DEVICE_DIRECTORY="$work_dir/devices" \
         LUCIA_INSTALL_PATH="$script_dir/lucia-install" \
         LUCIA_INSTALLER_STATE_DIR="$work_dir/state" \
+        LUCIA_NMCLI_PATH="$work_dir/nmcli" \
         LUCIA_PAYLOAD_PATH="$work_dir/payload.img" \
         LUCIA_SYSTEMCTL_PATH="$work_dir/systemctl" \
         LUCIA_TEST_SYSTEMCTL_LOG="$work_dir/systemctl.log" \

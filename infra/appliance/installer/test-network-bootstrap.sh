@@ -8,6 +8,7 @@ trap 'rm -rf "$work_dir"' EXIT
 
 cat > "$work_dir/bootstrap.env" <<'EOF'
 LUCIA_SETUP_SSID=Lucia-LAB123
+LUCIA_SETUP_PSK=labsetuppassword
 LUCIA_WIFI_INTERFACE=wlan0
 EOF
 chmod 0600 "$work_dir/bootstrap.env"
@@ -50,8 +51,9 @@ LUCIA_TEST_IPTABLES_LOG="$work_dir/iptables.log" \
 
 grep -qx 'mode=ap' "$work_dir/lucia-setup.nmconnection"
 grep -qx 'ap-isolation=1' "$work_dir/lucia-setup.nmconnection"
-! grep -q '^\\[wifi-security\\]$' "$work_dir/lucia-setup.nmconnection"
-! grep -q '^psk=' "$work_dir/lucia-setup.nmconnection"
+grep -qx '^\[wifi-security\]$' "$work_dir/lucia-setup.nmconnection"
+grep -qx 'key-mgmt=wpa-psk' "$work_dir/lucia-setup.nmconnection"
+grep -qx 'psk=labsetuppassword' "$work_dir/lucia-setup.nmconnection"
 grep -qx 'method=shared' "$work_dir/lucia-setup.nmconnection"
 [[ "$(stat --format '%a' "$work_dir/lucia-setup.nmconnection")" == "600" ]]
 grep -q 'connection load .*lucia-setup.nmconnection' "$work_dir/nmcli.log"
@@ -59,4 +61,4 @@ grep -q 'radio wifi on' "$work_dir/nmcli.log"
 [[ "$(grep -c 'connection up lucia-setup' "$work_dir/nmcli.log")" == "1" ]]
 [[ "$(grep -c -- '-I FORWARD 1 -i wlan0 -j DROP' "$work_dir/iptables.log")" == "1" ]]
 
-echo "PASS: network bootstrap creates an isolated non-routed setup network"
+echo "PASS: network bootstrap creates an encrypted isolated setup network"

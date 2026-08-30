@@ -1,0 +1,4 @@
+lucia-installer ALL=(root) NOPASSWD: /usr/libexec/lucia/lucia-installer-control disks
+lucia-installer ALL=(root) NOPASSWD: /usr/libexec/lucia/lucia-installer-control networks
+lucia-installer ALL=(root) NOPASSWD: /usr/libexec/lucia/lucia-installer-control status
+lucia-installer ALL=(root) NOPASSWD: /usr/libexec/lucia/lucia-installer-control configure

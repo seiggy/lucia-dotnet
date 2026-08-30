@@ -24,6 +24,14 @@ source "$bootstrap_env"
     printf 'Setup SSID is invalid\n' >&2
     exit 1
 }
+setup_psk="${LUCIA_SETUP_PSK:-}"
+if [[ -z "$setup_psk" && -r /proc/device-tree/serial-number ]]; then
+    setup_psk="$(tr -d '\0\r\n ' < /proc/device-tree/serial-number)"
+fi
+[[ "$setup_psk" =~ ^[A-Za-z0-9_-]{8,63}$ ]] || {
+    printf 'A device-unique setup passphrase is unavailable\n' >&2
+    exit 1
+}
 
 wifi_interface="${LUCIA_WIFI_INTERFACE:-}"
 "$nmcli_path" radio wifi on
@@ -66,6 +74,10 @@ mode=ap
 band=bg
 ssid=$LUCIA_SETUP_SSID
 ap-isolation=1
+
+[wifi-security]
+key-mgmt=wpa-psk
+psk=$setup_psk
 
 [ipv4]
 address1=10.42.0.1/24
