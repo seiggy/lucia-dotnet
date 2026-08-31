@@ -116,7 +116,11 @@ def replace_hostname(hosts_path: pathlib.Path, hostname: str) -> None:
 
 
 def escape_keyfile_value(value: str) -> str:
-    return value.replace("\\", "\\\\").replace("\t", "\\t")
+    return (
+        value.replace("\\", "\\\\")
+        .replace(" ", "\\s")
+        .replace("\t", "\\t")
+    )
 
 
 def write_wifi_profile(

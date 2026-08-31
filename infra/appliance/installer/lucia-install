@@ -143,7 +143,7 @@ fi
     || die_usage "--sha256 must be a 64-character hexadecimal digest"
 
 can_resume=false
-if [[ "$classification" == "occupied" \
+if [[ "$classification" =~ ^(blank|occupied)$ \
     && -n "$state_file" \
     && -f "$state_file" \
     && ! -L "$state_file" ]]; then

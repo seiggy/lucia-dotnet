@@ -293,9 +293,10 @@ test_installation_state_is_persisted() {
 }
 
 test_interrupted_installation_can_restart_safely() {
-    local disk_image="$WORK/resume-target.img"
-    local payload="$WORK/resume.img"
-    local state_file="$WORK/resume.state"
+    local initial_classification="$1"
+    local disk_image="$WORK/resume-${initial_classification}-target.img"
+    local payload="$WORK/resume-${initial_classification}.img"
+    local state_file="$WORK/resume-${initial_classification}.state"
     local device_identity
     local device_size
     local expected_hash
@@ -305,7 +306,9 @@ test_interrupted_installation_can_restart_safely() {
 
     truncate --size 70G "$disk_image"
     LOOP_DEVICE="$(losetup --find --show "$disk_image")"
-    mkfs.ext4 -q "$LOOP_DEVICE"
+    if [[ "$initial_classification" == "occupied" ]]; then
+        mkfs.ext4 -q "$LOOP_DEVICE"
+    fi
     printf 'LUCIA-RESUME-v1\n' > "$payload"
     truncate --size 1M "$payload"
     expected_hash="$(sha256sum "$payload" | awk '{print $1}')"
@@ -332,9 +335,9 @@ test_interrupted_installation_can_restart_safely() {
         && "$output" == *"result=installed"* \
         && "$(grep '^status=' "$state_file")" == "status=installed" \
         && "$(dd if="$LOOP_DEVICE" bs=15 count=1 status=none)" == "LUCIA-RESUME-v1" ]]; then
-        pass "interrupted installation can restart safely"
+        pass "$initial_classification interrupted installation can restart safely"
     else
-        fail "interrupted installation can restart safely (status=$status output=$output)"
+        fail "$initial_classification interrupted installation can restart safely (status=$status output=$output)"
     fi
 
     losetup --detach "$LOOP_DEVICE"
@@ -488,7 +491,8 @@ test_nvidia_minimum_disk_size_is_installable
 test_verified_image_is_written_to_blank_disk
 test_verified_zstd_image_is_streamed_to_blank_disk
 test_installation_state_is_persisted
-test_interrupted_installation_can_restart_safely
+test_interrupted_installation_can_restart_safely blank
+test_interrupted_installation_can_restart_safely occupied
 test_matching_authorization_can_erase_occupied_disk
 test_blank_disk_requires_authorization
 test_stale_layout_authorization_is_rejected

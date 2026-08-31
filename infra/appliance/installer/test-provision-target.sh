@@ -25,7 +25,7 @@ root:!:20000:0:99999:7:::
 lucia-recovery:!:20000:0:99999:7:::
 EOF
 cat > "$state_dir/provisioning.json" <<'EOF'
-{"hostname":"lucia-lab","recoveryPasswordHash":"$6$salt$hashed-password","wifi":{"ssid":"Lab WiFi","passphrase":"lab-wifi-password"}}
+{"hostname":"lucia-lab","recoveryPasswordHash":"$6$salt$hashed-password","wifi":{"ssid":"Lab WiFi","passphrase":"lab wifi password"}}
 EOF
 chmod 0600 "$state_dir/provisioning.json"
 printf 'old-manager\n' > "$target_lucia_root/current/manager/lucia.ApplianceManager"
@@ -56,9 +56,9 @@ grep -qx 'lucia-lab' "$target_root/etc/hostname"
 grep -qx '127.0.1.1 lucia-lab' "$target_root/etc/hosts"
 grep -q '^lucia-recovery:\$6\$salt\$hashed-password:' \
     "$target_root/etc/shadow"
-grep -qx 'ssid=Lab WiFi' \
+grep -Fqx 'ssid=Lab\sWiFi' \
     "$target_root/etc/NetworkManager/system-connections/lucia-home.nmconnection"
-grep -qx 'psk=lab-wifi-password' \
+grep -Fqx 'psk=lab\swifi\spassword' \
     "$target_root/etc/NetworkManager/system-connections/lucia-home.nmconnection"
 [[ "$(stat --format '%a' \
     "$target_root/etc/NetworkManager/system-connections/lucia-home.nmconnection")" == "600" ]]
