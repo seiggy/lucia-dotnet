@@ -334,10 +334,17 @@ public sealed class MongoApiKeyService : IApiKeyService
                         lockOwner,
                         CancellationToken.None)
                     .ConfigureAwait(false);
-                await _collection.DeleteOneAsync(
-                        key => key.Id == newKey.Id,
-                        CancellationToken.None)
+                var oldKey = await _collection
+                    .Find(key => key.Id == keyId)
+                    .FirstOrDefaultAsync(CancellationToken.None)
                     .ConfigureAwait(false);
+                if (oldKey is not null && !oldKey.IsRevoked)
+                {
+                    await _collection.DeleteOneAsync(
+                            key => key.Id == newKey.Id,
+                            CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
                 throw;
             }
 
@@ -482,21 +489,6 @@ public sealed class MongoApiKeyService : IApiKeyService
                         lockOwner,
                         CancellationToken.None)
                     .ConfigureAwait(false);
-                if (existingHash is null)
-                {
-                    await _collection.DeleteOneAsync(
-                            key => key.Id == replacement.Id,
-                            CancellationToken.None)
-                        .ConfigureAwait(false);
-                }
-                else
-                {
-                    await _collection.ReplaceOneAsync(
-                            key => key.Id == existingHash.Id,
-                            existingHash,
-                            cancellationToken: CancellationToken.None)
-                        .ConfigureAwait(false);
-                }
                 throw;
             }
         }

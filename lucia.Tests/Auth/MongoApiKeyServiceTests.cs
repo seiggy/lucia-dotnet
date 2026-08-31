@@ -313,7 +313,7 @@ public class MongoApiKeyServiceTests
     }
 
     [Fact]
-    public async Task RegenerateKeyAsync_RevokeFailure_DeletesReplacement()
+    public async Task RegenerateKeyAsync_AmbiguousRevokeFailure_KeepsReplacement()
     {
         var entry = new ApiKeyEntry
         {
@@ -335,7 +335,7 @@ public class MongoApiKeyServiceTests
 
         A.CallTo(_collection)
             .Where(call => call.Method.Name == "DeleteOneAsync")
-            .MustHaveHappenedOnceExactly();
+            .MustNotHaveHappened();
     }
 
     private static string ComputeSha256Hash(string input)
