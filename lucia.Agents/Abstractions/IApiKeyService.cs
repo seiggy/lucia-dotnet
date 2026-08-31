@@ -39,6 +39,16 @@ public interface IApiKeyService
     /// </summary>
     Task<IReadOnlyList<ApiKeySummary>> ListKeysAsync(CancellationToken cancellationToken = default);
 
+    async Task<ApiKeySummary?> GetKeyAsync(
+        string keyId,
+        CancellationToken cancellationToken = default)
+    {
+        var keys = await ListKeysAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return keys.FirstOrDefault(key =>
+            string.Equals(key.Id, keyId, StringComparison.Ordinal));
+    }
+
     /// <summary>
     /// Revokes an API key by ID. Returns false if key not found or already revoked.
     /// Throws if this is the last active key (lockout prevention).

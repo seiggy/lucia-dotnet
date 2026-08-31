@@ -19,8 +19,10 @@ public sealed class ApiKeyAuthenticationHandlerTests
     public async Task AdministratorSession_RevokedKey_FailsAuthentication()
     {
         var keys = A.Fake<IApiKeyService>();
-        A.CallTo(() => keys.ListKeysAsync(A<CancellationToken>._))
-            .Returns([CreateKey(isRevoked: true)]);
+        A.CallTo(() => keys.GetKeyAsync(
+                A<string>._,
+                A<CancellationToken>._))
+            .Returns(CreateKey(isRevoked: true));
 
         var result = await AuthenticateSessionAsync(
             keys,
@@ -34,8 +36,10 @@ public sealed class ApiKeyAuthenticationHandlerTests
     public async Task AdministratorSession_ActiveAdministratorKey_Succeeds()
     {
         var keys = A.Fake<IApiKeyService>();
-        A.CallTo(() => keys.ListKeysAsync(A<CancellationToken>._))
-            .Returns([CreateKey()]);
+        A.CallTo(() => keys.GetKeyAsync(
+                A<string>._,
+                A<CancellationToken>._))
+            .Returns(CreateKey());
 
         var result = await AuthenticateSessionAsync(
             keys,
@@ -59,7 +63,9 @@ public sealed class ApiKeyAuthenticationHandlerTests
             ]);
 
         Assert.True(result.Succeeded);
-        A.CallTo(() => keys.ListKeysAsync(A<CancellationToken>._))
+        A.CallTo(() => keys.GetKeyAsync(
+                A<string>._,
+                A<CancellationToken>._))
             .MustNotHaveHappened();
     }
 

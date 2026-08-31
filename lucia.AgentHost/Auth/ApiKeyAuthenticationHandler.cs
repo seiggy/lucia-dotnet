@@ -101,11 +101,9 @@ public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<Authenti
         {
             var keyId = claimList.FirstOrDefault(
                 claim => claim.Type == ClaimTypes.NameIdentifier)?.Value;
-            var keys = await _apiKeyService
-                .ListKeysAsync(Context.RequestAborted)
+            var key = await _apiKeyService
+                .GetKeyAsync(keyId ?? string.Empty, Context.RequestAborted)
                 .ConfigureAwait(false);
-            var key = keys.FirstOrDefault(candidate =>
-                string.Equals(candidate.Id, keyId, StringComparison.Ordinal));
             if (key is null
                 || key.IsRevoked
                 || key.ExpiresAt <= DateTime.UtcNow

@@ -269,6 +269,50 @@ public sealed partial class PostgresApiKeyService : IApiKeyService
         return summaries;
     }
 
+    public async Task<ApiKeySummary?> GetKeyAsync(
+        string keyId,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _connectionFactory
+            .CreateConnectionAsync(cancellationToken)
+            .ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, key_hash, key_prefix, name, created_at, last_used_at,
+                   expires_at, is_revoked, revoked_at, scopes::text
+            FROM api_keys
+            WHERE id = @id;
+            """;
+        command.Parameters.AddWithValue("id", keyId);
+        await using var reader = await command
+            .ExecuteReaderAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+        return new ApiKeySummary
+        {
+            Id = reader.GetString(0),
+            KeyPrefix = reader.GetString(2),
+            Name = reader.GetString(3),
+            CreatedAt = reader.GetFieldValue<DateTime>(4),
+            LastUsedAt = reader.IsDBNull(5)
+                ? null
+                : reader.GetFieldValue<DateTime>(5),
+            ExpiresAt = reader.IsDBNull(6)
+                ? null
+                : reader.GetFieldValue<DateTime>(6),
+            IsRevoked = reader.GetBoolean(7),
+            RevokedAt = reader.IsDBNull(8)
+                ? null
+                : reader.GetFieldValue<DateTime>(8),
+            Scopes =
+                JsonSerializer.Deserialize<string[]>(reader.GetString(9))
+                ?? ["*"],
+        };
+    }
+
     public async Task<bool> RevokeKeyAsync(string keyId, CancellationToken cancellationToken = default)
     {
         var revokedAt = DateTime.UtcNow;

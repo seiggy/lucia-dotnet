@@ -195,6 +195,30 @@ public sealed class MongoApiKeyService : IApiKeyService
         }).ToList();
     }
 
+    public async Task<ApiKeySummary?> GetKeyAsync(
+        string keyId,
+        CancellationToken cancellationToken = default)
+    {
+        var entry = await _collection
+            .Find(key => key.Id == keyId)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return entry is null
+            ? null
+            : new ApiKeySummary
+            {
+                Id = entry.Id,
+                KeyPrefix = entry.KeyPrefix,
+                Name = entry.Name,
+                CreatedAt = entry.CreatedAt,
+                LastUsedAt = entry.LastUsedAt,
+                ExpiresAt = entry.ExpiresAt,
+                IsRevoked = entry.IsRevoked,
+                RevokedAt = entry.RevokedAt,
+                Scopes = entry.Scopes,
+            };
+    }
+
     public async Task<bool> RevokeKeyAsync(string keyId, CancellationToken cancellationToken = default)
     {
         var lockOwner = await AcquireMutationLockAsync(cancellationToken)

@@ -256,6 +256,48 @@ public sealed class SqliteApiKeyService : IApiKeyService
         return summaries;
     }
 
+    public async Task<ApiKeySummary?> GetKeyAsync(
+        string keyId,
+        CancellationToken cancellationToken = default)
+    {
+        using var connection = _connectionFactory.CreateConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, key_hash, key_prefix, name, created_at, last_used_at,
+                   expires_at, is_revoked, revoked_at, scopes
+            FROM api_keys
+            WHERE id = @id;
+            """;
+        command.Parameters.AddWithValue("@id", keyId);
+        using var reader = await command
+            .ExecuteReaderAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+        return new ApiKeySummary
+        {
+            Id = reader.GetString(0),
+            KeyPrefix = reader.GetString(2),
+            Name = reader.GetString(3),
+            CreatedAt = DateTime.Parse(reader.GetString(4)),
+            LastUsedAt = reader.IsDBNull(5)
+                ? null
+                : DateTime.Parse(reader.GetString(5)),
+            ExpiresAt = reader.IsDBNull(6)
+                ? null
+                : DateTime.Parse(reader.GetString(6)),
+            IsRevoked = reader.GetInt64(7) != 0,
+            RevokedAt = reader.IsDBNull(8)
+                ? null
+                : DateTime.Parse(reader.GetString(8)),
+            Scopes =
+                JsonSerializer.Deserialize<string[]>(reader.GetString(9))
+                ?? ["*"],
+        };
+    }
+
     public async Task<bool> RevokeKeyAsync(string keyId, CancellationToken cancellationToken = default)
     {
         var now = DateTime.UtcNow;

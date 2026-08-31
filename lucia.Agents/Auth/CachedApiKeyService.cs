@@ -133,6 +133,11 @@ public sealed class CachedApiKeyService : IApiKeyService
     public Task<IReadOnlyList<ApiKeySummary>> ListKeysAsync(CancellationToken cancellationToken = default)
         => _inner.ListKeysAsync(cancellationToken);
 
+    public Task<ApiKeySummary?> GetKeyAsync(
+        string keyId,
+        CancellationToken cancellationToken = default)
+        => _inner.GetKeyAsync(keyId, cancellationToken);
+
     public Task<int> GetActiveKeyCountAsync(CancellationToken cancellationToken = default)
         => _inner.GetActiveKeyCountAsync(cancellationToken);
 

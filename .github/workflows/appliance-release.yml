@@ -158,6 +158,10 @@ jobs:
                     '$1 == name { print $2 "\t" $3 }'
             )"
             if [[ -z "$existing" ]]; then
+              if [[ "$manifest_published" == "true" ]]; then
+                echo "::error::Published manifest references a release missing $name."
+                exit 1
+              fi
               gh release upload "$RELEASE_TAG" "$file"
               return
             fi
