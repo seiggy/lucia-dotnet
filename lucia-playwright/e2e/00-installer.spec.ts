@@ -56,7 +56,10 @@ test('guides the first browser claim through installation', async ({ page }) => 
     installStarted = true;
     await route.fulfill({
       status: 202,
-      json: { phase: 'authorized' },
+      json: {
+        phase: 'authorized',
+        dashboardKey: 'lk_dashboard-owner-bootstrap-key',
+      },
     });
   });
 
@@ -116,6 +119,7 @@ test('guides the first browser claim through installation', async ({ page }) => 
       passphrase: 'lab-wifi-password',
     },
   });
+  await expect(page.getByText('lk_dashboard-owner-bootstrap-key')).toBeVisible();
 });
 
 test('does not expose installer setup on a non-appliance host', async ({ page }) => {

@@ -1,4 +1,5 @@
 using lucia.Agents.Abstractions;
+using lucia.Agents.Auth;
 using Microsoft.AspNetCore.Mvc;
 
 namespace lucia.AgentHost.Apis;
@@ -12,7 +13,7 @@ public static class ApiKeyManagementApi
     {
         var group = app.MapGroup("/api/keys")
             .WithTags("API Key Management")
-            .RequireAuthorization();
+            .RequireAuthorization(AuthOptions.AdministratorPolicy);
 
         group.MapGet("/", ListKeysAsync);
         group.MapPost("/", CreateKeyAsync);

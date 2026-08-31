@@ -71,6 +71,14 @@ export default function InstallerPage() {
   const [installerStatus, setInstallerStatus] = useState<InstallerStatus>({
     phase: 'waiting-for-configuration',
   })
+  const [dashboardKey, setDashboardKey] = useState(() => {
+    try {
+      return window.sessionStorage.getItem('lucia-dashboard-bootstrap-key') ?? ''
+    } catch (storageError: unknown) {
+      if (!(storageError instanceof DOMException)) throw storageError
+      return ''
+    }
+  })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -207,6 +215,17 @@ export default function InstallerPage() {
           : null,
       })
       setInstallerStatus(status)
+      if (status.dashboardKey) {
+        setDashboardKey(status.dashboardKey)
+        try {
+          window.sessionStorage.setItem(
+            'lucia-dashboard-bootstrap-key',
+            status.dashboardKey,
+          )
+        } catch (storageError: unknown) {
+          if (!(storageError instanceof DOMException)) throw storageError
+        }
+      }
       setRecoveryPassword('')
       setRecoveryPasswordConfirmation('')
       setWifiPassword('')
@@ -315,6 +334,7 @@ export default function InstallerPage() {
               selectedSsid={selectedSsid}
               wifiPassword={wifiPassword}
               busy={busy}
+              dashboardKey={dashboardKey}
               onSelectedSsidChange={setSelectedSsid}
               onWifiPasswordChange={setWifiPassword}
               onRetryNetwork={handleNetworkRetry}
@@ -855,6 +875,7 @@ function InstallingStep({
   selectedSsid,
   wifiPassword,
   busy,
+  dashboardKey,
   onSelectedSsidChange,
   onWifiPasswordChange,
   onRetryNetwork,
@@ -866,6 +887,7 @@ function InstallingStep({
   selectedSsid: string
   wifiPassword: string
   busy: boolean
+  dashboardKey: string
   onSelectedSsidChange: (value: string) => void
   onWifiPasswordChange: (value: string) => void
   onRetryNetwork: () => void
@@ -916,6 +938,17 @@ function InstallingStep({
             : 'Lucia stopped before installation completed. Keep the SD card inserted and restart the appliance to retry safely.'
           : 'The image is being verified, written, and personalized. Keep the appliance powered on. This page may disconnect when the appliance powers down.'}
       </p>
+      {dashboardKey && (
+        <div className="mx-auto mt-6 max-w-md rounded-xl border border-sage/25 bg-sage/8 p-4">
+          <p className="text-sm font-semibold text-light">Dashboard owner key</p>
+          <code className="mt-2 block break-all rounded-lg bg-obsidian px-3 py-2 text-sm text-sage">
+            {dashboardKey}
+          </code>
+          <p className="mt-2 text-xs leading-5 text-fog">
+            Save this key now. Lucia cannot show it again after the installer powers down.
+          </p>
+        </div>
+      )}
       {hasWriteProgress && (
         <div className="mx-auto mt-7 max-w-md">
           <div className="mb-2 flex items-center justify-between gap-3 text-sm">

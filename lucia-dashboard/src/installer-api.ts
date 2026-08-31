@@ -21,6 +21,7 @@ export interface InstallerStatus {
   bytesWritten?: number
   totalBytes?: number
   canRetryNetwork?: boolean
+  dashboardKey?: string
 }
 
 export interface InstallerDisk {
@@ -91,6 +92,9 @@ function parseStatus(value: unknown): InstallerStatus {
   if (value.canRetryNetwork !== undefined && typeof value.canRetryNetwork !== 'boolean') {
     throw new Error('The installer returned an invalid retry state.')
   }
+  if (value.dashboardKey !== undefined && typeof value.dashboardKey !== 'string') {
+    throw new Error('The installer returned an invalid dashboard key.')
+  }
   return {
     phase: value.phase,
     hostname: value.hostname,
@@ -98,6 +102,7 @@ function parseStatus(value: unknown): InstallerStatus {
     bytesWritten: value.bytesWritten,
     totalBytes: value.totalBytes,
     canRetryNetwork: value.canRetryNetwork,
+    dashboardKey: value.dashboardKey,
   }
 }
 

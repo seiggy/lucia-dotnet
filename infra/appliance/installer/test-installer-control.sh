@@ -178,17 +178,24 @@ printf \
         "$control" configure > "$work_dir/configure.json"
 
 grep -q '"phase":"authorized"' "$work_dir/configure.json"
+grep -q '"dashboardKey":"lk_' "$work_dir/configure.json"
 grep -q '^status=approved$' "$work_dir/state/erase.authorization"
 grep -q '^status=started$' "$work_dir/state/install.requested"
-python3 - "$work_dir/state/provisioning.json" <<'PY'
+python3 - \
+    "$work_dir/state/provisioning.json" \
+    "$work_dir/configure.json" <<'PY'
 import json
 import sys
 
 with open(sys.argv[1], encoding="utf-8") as stream:
     provisioning = json.load(stream)
+with open(sys.argv[2], encoding="utf-8") as stream:
+    response = json.load(stream)
 
 assert provisioning["hostname"] == "lucia-lab"
 assert provisioning["recoveryPasswordHash"].startswith("$6$")
+assert provisioning["dashboardApiKey"].startswith("lk_")
+assert response["dashboardKey"] == provisioning["dashboardApiKey"]
 assert provisioning["wifi"] == {
     "ssid": "Lab WiFi",
     "passphrase": "lab-wifi-password",

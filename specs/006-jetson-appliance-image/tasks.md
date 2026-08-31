@@ -41,7 +41,7 @@
 - [x] T021 Add an atomic first-browser claim for generic DIY images.
 - [x] T022 Start the validated client-isolated, non-routed SoftAP and captive
   setup.
-- [ ] T023 Claim ownership, create the dashboard key, and set the recovery
+- [x] T023 Claim ownership, create the dashboard key, and set the recovery
   account password atomically.
 - [x] T024 Join home Wi-Fi through a timed NetworkManager checkpoint.
 - [x] T025 Restore setup mode after failed Wi-Fi activation.

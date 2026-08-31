@@ -5,6 +5,7 @@ import json
 import os
 import pathlib
 import re
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -399,6 +400,7 @@ def configure_installation() -> None:
     password_hash = password_result.stdout.strip()
     if not password_hash.startswith("$6$"):
         raise ValueError("Failed to hash the recovery password")
+    dashboard_key = f"lk_{secrets.token_urlsafe(32)}"
 
     state_directory = pathlib.Path(
         os.environ.get("LUCIA_INSTALLER_STATE_DIR", "/var/lib/lucia-installer")
@@ -432,6 +434,7 @@ def configure_installation() -> None:
         provisioning = {
             "hostname": hostname,
             "recoveryPasswordHash": password_hash,
+            "dashboardApiKey": dashboard_key,
             "wifi": provisioning_wifi,
         }
         write_atomic(
@@ -459,7 +462,12 @@ def configure_installation() -> None:
             (state_directory / "install.requested").unlink(missing_ok=True)
             raise
 
-    print(json.dumps({"phase": "authorized"}, separators=(",", ":")))
+    print(
+        json.dumps(
+            {"phase": "authorized", "dashboardKey": dashboard_key},
+            separators=(",", ":"),
+        )
+    )
 
 
 def retry_network_configuration() -> None:

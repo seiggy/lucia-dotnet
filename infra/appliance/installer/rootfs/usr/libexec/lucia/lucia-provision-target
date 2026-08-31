@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 
+import datetime
+import hashlib
 import json
 import os
 import pathlib
 import re
 import shutil
+import sqlite3
 import stat
 import subprocess
 import sys
@@ -349,6 +352,55 @@ def provision(
     os.sync()
 
 
+def seed_dashboard_key(
+    target_data_root: pathlib.Path,
+    dashboard_key: str,
+) -> None:
+    if not dashboard_key.startswith("lk_") or len(dashboard_key) < 32:
+        raise ValueError("Provisioning dashboard key is invalid")
+    database_directory = target_data_root / "db"
+    database_directory.mkdir(parents=True, exist_ok=True, mode=0o750)
+    database_path = database_directory / "lucia-config.db"
+    key_hash = hashlib.sha256(dashboard_key.encode("utf-8")).hexdigest()
+    key_prefix = f"{dashboard_key[:12]}..."
+    with sqlite3.connect(database_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS api_keys (
+                id TEXT PRIMARY KEY,
+                key_hash TEXT NOT NULL UNIQUE,
+                key_prefix TEXT NOT NULL,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                last_used_at TEXT,
+                expires_at TEXT,
+                is_revoked INTEGER NOT NULL DEFAULT 0,
+                revoked_at TEXT,
+                scopes TEXT NOT NULL DEFAULT '["*"]'
+            );
+            CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
+            CREATE INDEX IF NOT EXISTS idx_api_keys_revoked ON api_keys(is_revoked);
+            """
+        )
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO api_keys
+                (id, key_hash, key_prefix, name, created_at, scopes)
+            VALUES (?, ?, ?, 'Dashboard', ?, '["*"]')
+            """,
+            (
+                uuid.uuid4().hex,
+                key_hash,
+                key_prefix,
+                datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            ),
+        )
+    os.chown(database_directory, 1100, 1100)
+    os.chown(database_path, 1100, 1100)
+    database_directory.chmod(0o750)
+    database_path.chmod(0o640)
+
+
 def complete_provisioning(
     state_directory: pathlib.Path,
     hostname: str,
@@ -411,6 +463,7 @@ def main() -> None:
     )
     if not isinstance(provisioning, dict):
         raise ValueError("Provisioning configuration must be an object")
+    dashboard_key = str(provisioning.get("dashboardApiKey", ""))
     wifi = provisioning.get("wifi")
     if wifi is not None:
         validate_wifi_checkpoint(
@@ -433,6 +486,12 @@ def main() -> None:
         configured_lucia_root = os.environ.get("LUCIA_TARGET_LUCIA_ROOT")
         if configured_lucia_root is not None:
             install_manager_override(pathlib.Path(configured_lucia_root))
+        configured_data_root = os.environ.get("LUCIA_TARGET_DATA_ROOT")
+        if configured_data_root is not None:
+            seed_dashboard_key(
+                pathlib.Path(configured_data_root),
+                dashboard_key,
+            )
         complete_provisioning(state_directory, str(provisioning["hostname"]))
         return
 
@@ -471,6 +530,23 @@ def main() -> None:
         install_manager_override(target_lucia_root)
     finally:
         subprocess.run(["umount", str(target_lucia_root)], check=True)
+    target_data_root = pathlib.Path("/mnt/lucia-target-data")
+    target_data_root.mkdir(parents=True, exist_ok=True)
+    data_partition = find_partition(sys.argv[1], "LUCIA_DATA")
+    subprocess.run(
+        [
+            "mount",
+            "-o",
+            "rw,nodev,nosuid,noexec",
+            data_partition,
+            str(target_data_root),
+        ],
+        check=True,
+    )
+    try:
+        seed_dashboard_key(target_data_root, dashboard_key)
+    finally:
+        subprocess.run(["umount", str(target_data_root)], check=True)
     complete_provisioning(state_directory, str(provisioning["hostname"]))
 
 

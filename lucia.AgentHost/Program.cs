@@ -343,6 +343,10 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization(options =>
 {
+    options.AddPolicy(
+        AuthOptions.AdministratorPolicy,
+        policy => policy.RequireRole(AuthOptions.AdministratorRole));
+
     // Internal-only: only platform-injected token (agent → registry)
     options.AddPolicy("InternalOnly", policy =>
         policy.AddAuthenticationSchemes(InternalTokenDefaults.AuthenticationScheme)

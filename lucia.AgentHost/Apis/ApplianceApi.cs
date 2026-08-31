@@ -1,5 +1,6 @@
 using System.Text.Json;
 using lucia.AgentHost.Appliance;
+using lucia.Agents.Auth;
 
 namespace lucia.AgentHost.Apis;
 
@@ -10,7 +11,7 @@ public static class ApplianceApi
     {
         var group = endpoints.MapGroup("/api/appliance")
             .WithTags("Appliance")
-            .RequireAuthorization();
+            .RequireAuthorization(AuthOptions.AdministratorPolicy);
 
         group.MapGet(
             "/status",

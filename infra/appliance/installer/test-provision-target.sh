@@ -6,6 +6,7 @@ provision="$script_dir/rootfs/usr/libexec/lucia/lucia-provision-target"
 work_dir="$(mktemp -d)"
 target_root="$work_dir/target"
 target_lucia_root="$work_dir/lucia"
+target_data_root="$work_dir/data"
 state_dir="$work_dir/state"
 nmcli_log="$work_dir/nmcli.log"
 fail_checkpoint="$work_dir/fail-checkpoint"
@@ -14,6 +15,7 @@ trap 'rm -rf "$work_dir"' EXIT
 mkdir -p \
     "$target_root/etc/NetworkManager/system-connections" \
     "$target_lucia_root/current/manager" \
+    "$target_data_root" \
     "$state_dir"
 printf 'lucia\n' > "$target_root/etc/hostname"
 cat > "$target_root/etc/hosts" <<'EOF'
@@ -25,7 +27,7 @@ root:!:20000:0:99999:7:::
 lucia-recovery:!:20000:0:99999:7:::
 EOF
 cat > "$state_dir/provisioning.json" <<'EOF'
-{"hostname":"lucia-lab","recoveryPasswordHash":"$6$salt$hashed-password","wifi":{"ssid":"Lab WiFi","passphrase":"lab wifi password"}}
+{"hostname":"lucia-lab","recoveryPasswordHash":"$6$salt$hashed-password","dashboardApiKey":"lk_dashboard-bootstrap-key-1234567890","wifi":{"ssid":"Lab WiFi","passphrase":"lab wifi password"}}
 EOF
 chmod 0600 "$state_dir/provisioning.json"
 printf 'old-manager\n' > "$target_lucia_root/current/manager/lucia.ApplianceManager"
@@ -48,6 +50,7 @@ LUCIA_NMCLI_PATH="$work_dir/nmcli" \
 LUCIA_INSTALLER_STATE_DIR="$state_dir" \
 LUCIA_TEST_FAIL_CHECKPOINT="$fail_checkpoint" \
 LUCIA_TEST_NMCLI_LOG="$nmcli_log" \
+LUCIA_TARGET_DATA_ROOT="$target_data_root" \
 LUCIA_TARGET_LUCIA_ROOT="$target_lucia_root" \
 LUCIA_TARGET_ROOT="$target_root" \
     "$provision" /dev/disk/by-id/nvme-lab
@@ -76,6 +79,21 @@ openssl pkey \
 [[ "$(stat --format '%a' "$target_root/etc/lucia/tls/agenthost.crt")" == "644" ]]
 [[ "$(stat --format '%a:%g' "$target_root/etc/lucia/tls/agenthost.key")" == "640:1100" ]]
 [[ ! -e "$state_dir/agenthost-tls" ]]
+python3 - "$target_data_root/db/lucia-config.db" <<'PY'
+import hashlib
+import sqlite3
+import sys
+
+with sqlite3.connect(sys.argv[1]) as connection:
+    row = connection.execute(
+        "SELECT key_hash, name FROM api_keys"
+    ).fetchone()
+
+assert row == (
+    hashlib.sha256(b"lk_dashboard-bootstrap-key-1234567890").hexdigest(),
+    "Dashboard",
+)
+PY
 cmp -s \
     "$work_dir/lucia.ApplianceManager" \
     "$target_lucia_root/current/manager/lucia.ApplianceManager"

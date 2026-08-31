@@ -40,4 +40,8 @@ public sealed class AuthOptions
     /// Authentication scheme name.
     /// </summary>
     public const string AuthenticationScheme = "ApiKey";
+
+    public const string AdministratorRole = "Administrator";
+
+    public const string AdministratorPolicy = "Administrator";
 }

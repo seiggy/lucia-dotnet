@@ -134,6 +134,11 @@ jobs:
 
       - name: Upload immutable release assets
         run: |
+          manifest_published="$(
+            gh release view "$RELEASE_TAG" \
+              --json assets \
+              --jq 'any(.assets[]; .name == "lucia-appliance-manifest.json")'
+          )"
           upload_immutable() {
             local file="$1"
             local name
@@ -160,6 +165,11 @@ jobs:
             IFS=$'\t' read -r existing_bytes existing_digest <<< "$existing"
             if [[ "$existing_bytes" != "$bytes" \
                 || "$existing_digest" != "sha256:$sha256" ]]; then
+              if [[ "$manifest_published" == "false" ]]; then
+                gh release delete-asset "$RELEASE_TAG" "$name" --yes
+                gh release upload "$RELEASE_TAG" "$file"
+                return
+              fi
               echo "::error::Existing release asset $name does not match this build."
               exit 1
             fi

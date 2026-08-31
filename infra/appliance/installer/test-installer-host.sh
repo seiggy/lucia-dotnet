@@ -26,7 +26,8 @@ case "$1" in
                 '{"error":"Selected storage is no longer available."}' >&2
             exit 2
         fi
-        printf '%s\n' '{"phase":"authorized"}'
+        printf '%s\n' \
+            '{"phase":"authorized","dashboardKey":"lk_host-bootstrap-key"}'
         ;;
     retry-network)
         cat > "$LUCIA_TEST_CONTROL_INPUT"
@@ -215,6 +216,7 @@ status="$(
 
 [[ "$status" == "202" ]]
 grep -q '"phase":"authorized"' "$work_dir/configure.json"
+grep -q '"dashboardKey":"lk_host-bootstrap-key"' "$work_dir/configure.json"
 grep -qx 'configure' "$control_log"
 grep -q '"recoveryPassword":"correct horse battery staple"' "$control_input"
 

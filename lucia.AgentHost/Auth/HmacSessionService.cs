@@ -201,12 +201,22 @@ public sealed partial class HmacSessionService : ISessionService, IAsyncInitiali
                 return null;
             }
 
-            return
+            List<Claim> claims =
             [
                 new Claim(ClaimTypes.NameIdentifier, payload.KeyId),
                 new Claim(ClaimTypes.Name, payload.KeyName),
                 new Claim("auth_method", "session"),
             ];
+            if (string.Equals(
+                    payload.KeyName,
+                    "Dashboard",
+                    StringComparison.Ordinal))
+            {
+                claims.Add(new Claim(
+                    ClaimTypes.Role,
+                    AuthOptions.AdministratorRole));
+            }
+            return claims;
         }
         catch (Exception ex)
         {

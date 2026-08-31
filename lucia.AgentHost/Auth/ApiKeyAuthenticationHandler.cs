@@ -61,13 +61,19 @@ public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<Authenti
             return AuthenticateResult.Fail("Invalid or revoked API key.");
         }
 
-        var claims = new[]
+        var claims = new List<Claim>
         {
             new Claim(ClaimTypes.NameIdentifier, entry.Id),
             new Claim(ClaimTypes.Name, entry.Name),
             new Claim("auth_method", "api_key"),
             new Claim("key_prefix", entry.KeyPrefix),
         };
+        if (string.Equals(entry.Name, "Dashboard", StringComparison.Ordinal))
+        {
+            claims.Add(new Claim(
+                ClaimTypes.Role,
+                AuthOptions.AdministratorRole));
+        }
 
         var identity = new ClaimsIdentity(claims, AuthOptions.AuthenticationScheme);
         var principal = new ClaimsPrincipal(identity);
