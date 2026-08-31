@@ -234,6 +234,11 @@ def show_status() -> None:
             phase = "waiting-for-configuration"
 
     status: dict[str, object] = {"phase": phase}
+    dashboard_key_path = state_directory / "dashboard-key.handoff"
+    if dashboard_key_path.exists():
+        status["dashboardKey"] = dashboard_key_path.read_text(
+            encoding="utf-8"
+        ).strip()
     provision_state_path = state_directory / "provision.state"
     if provision_state_path.exists():
         provision_state = read_key_values(
@@ -272,6 +277,14 @@ def show_status() -> None:
             )
 
     print(json.dumps(status, separators=(",", ":")))
+
+
+def acknowledge_dashboard_key() -> None:
+    state_directory = pathlib.Path(
+        os.environ.get("LUCIA_INSTALLER_STATE_DIR", "/var/lib/lucia-installer")
+    )
+    (state_directory / "dashboard-key.handoff").unlink(missing_ok=True)
+    print(json.dumps({"acknowledged": True}, separators=(",", ":")))
 
 
 def validate_text(
@@ -442,6 +455,10 @@ def configure_installation() -> None:
             state_directory / "provisioning.json",
             json.dumps(provisioning, separators=(",", ":")),
         )
+        write_atomic(
+            state_directory / "dashboard-key.handoff",
+            f"{dashboard_key}\n",
+        )
         write_atomic(state_directory / "erase.authorization", authorization)
         write_atomic(state_directory / "install.requested", "status=started\n")
 
@@ -461,6 +478,7 @@ def configure_installation() -> None:
         except (subprocess.CalledProcessError, OSError):
             (state_directory / "erase.authorization").unlink(missing_ok=True)
             (state_directory / "install.requested").unlink(missing_ok=True)
+            (state_directory / "dashboard-key.handoff").unlink(missing_ok=True)
             raise
 
     print(
@@ -550,6 +568,8 @@ def main() -> None:
         list_networks()
     elif command == "status":
         show_status()
+    elif command == "ack-dashboard-key":
+        acknowledge_dashboard_key()
     else:
         raise SystemExit(f"Unknown command: {command}")
 

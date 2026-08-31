@@ -167,6 +167,16 @@ app.MapPost(
             value: await control.StartInstallationAsync(request, cancellationToken)
                 .ConfigureAwait(false)));
 app.MapPost(
+    "/api/installer/dashboard-key/acknowledge",
+    async (
+        InstallerControlClient control,
+        CancellationToken cancellationToken) =>
+    {
+        await control.AcknowledgeDashboardKeyAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return Results.NoContent();
+    });
+app.MapPost(
     "/api/installer/retry-network",
     async (
         WifiConfigurationRequest request,

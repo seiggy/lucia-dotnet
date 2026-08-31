@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ArrowLeft,
   ArrowRight,
@@ -21,6 +21,7 @@ import {
   fetchInstallerDisks,
   fetchInstallerNetworks,
   fetchInstallerStatus,
+  acknowledgeInstallerDashboardKey,
   claimInstaller,
   retryInstallerNetwork,
   startInstallation,
@@ -81,6 +82,26 @@ export default function InstallerPage() {
   })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const captureDashboardKey = useCallback((status: InstallerStatus) => {
+    if (!status.dashboardKey) return
+
+    setDashboardKey(status.dashboardKey)
+    try {
+      window.sessionStorage.setItem(
+        'lucia-dashboard-bootstrap-key',
+        status.dashboardKey,
+      )
+    } catch (storageError: unknown) {
+      if (!(storageError instanceof DOMException)) throw storageError
+      setError('Keep this page open and copy the Dashboard key now. This browser could not save it for reload recovery.')
+      return
+    }
+    void acknowledgeInstallerDashboardKey().catch((acknowledgmentError: unknown) => {
+      setError(acknowledgmentError instanceof Error
+        ? acknowledgmentError.message
+        : 'Lucia could not confirm the Dashboard key handoff. It will retry automatically.')
+    })
+  }, [])
 
   const selectedDisk = useMemo(
     () => disks.find((disk) => disk.id === selectedDiskId) ?? null,
@@ -128,6 +149,7 @@ export default function InstallerPage() {
       try {
         const status = await fetchInstallerStatus()
         if (!cancelled) {
+          captureDashboardKey(status)
           setInstallerStatus(status)
           if (status.hostname) setHostname(status.hostname)
           setError('')
@@ -146,7 +168,7 @@ export default function InstallerPage() {
       cancelled = true
       if (timeout !== undefined) window.clearTimeout(timeout)
     }
-  }, [step, installerStatus.phase])
+  }, [captureDashboardKey, step, installerStatus.phase])
 
   async function handleClaim() {
     setBusy(true)
@@ -154,6 +176,7 @@ export default function InstallerPage() {
     try {
       await claimInstaller()
       const status = await fetchInstallerStatus()
+      captureDashboardKey(status)
       setInstallerStatus(status)
       if (status.hostname) setHostname(status.hostname)
       if (status.phase !== 'waiting-for-configuration') {
@@ -215,17 +238,7 @@ export default function InstallerPage() {
           : null,
       })
       setInstallerStatus(status)
-      if (status.dashboardKey) {
-        setDashboardKey(status.dashboardKey)
-        try {
-          window.sessionStorage.setItem(
-            'lucia-dashboard-bootstrap-key',
-            status.dashboardKey,
-          )
-        } catch (storageError: unknown) {
-          if (!(storageError instanceof DOMException)) throw storageError
-        }
-      }
+      captureDashboardKey(status)
       setRecoveryPassword('')
       setRecoveryPasswordConfirmation('')
       setWifiPassword('')

@@ -18,6 +18,10 @@ internal sealed partial class InstallerControlClient(
     public Task<JsonNode> GetStatusAsync(CancellationToken cancellationToken) =>
         ExecuteJsonAsync("status", null, cancellationToken);
 
+    public Task<JsonNode> AcknowledgeDashboardKeyAsync(
+        CancellationToken cancellationToken) =>
+        ExecuteJsonAsync("ack-dashboard-key", null, cancellationToken);
+
     public Task<JsonNode> StartInstallationAsync(
         InstallerConfigurationRequest request,
         CancellationToken cancellationToken) =>

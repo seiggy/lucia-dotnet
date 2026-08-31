@@ -21,17 +21,20 @@ public sealed class SqliteMigrationRunner : IHostedService
     private readonly SqliteConnectionFactory _tracesFactory;
     private readonly SqliteConnectionFactory _tasksFactory;
     private readonly ILogger<SqliteMigrationRunner> _logger;
+    private readonly string? _legacyPath;
 
     public SqliteMigrationRunner(
         [FromKeyedServices(SqliteDbNames.Config)] SqliteConnectionFactory configFactory,
         [FromKeyedServices(SqliteDbNames.Traces)] SqliteConnectionFactory tracesFactory,
         [FromKeyedServices(SqliteDbNames.Tasks)] SqliteConnectionFactory tasksFactory,
-        ILogger<SqliteMigrationRunner> logger)
+        ILogger<SqliteMigrationRunner> logger,
+        string? legacyPath = null)
     {
         _configFactory = configFactory;
         _tracesFactory = tracesFactory;
         _tasksFactory = tasksFactory;
         _logger = logger;
+        _legacyPath = legacyPath;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -45,6 +48,10 @@ public sealed class SqliteMigrationRunner : IHostedService
             ApplyConfigV3);
         MigrateDatabase(_tracesFactory, "traces", TracesSchemaVersion, ApplyTracesV1, ApplyTracesV2);
         MigrateDatabase(_tasksFactory, "tasks", TasksSchemaVersion, ApplyTasksV1, ApplyTasksV2);
+        if (_legacyPath is not null)
+        {
+            SqliteDbNames.ArchiveLegacyDatabase(_legacyPath);
+        }
         return Task.CompletedTask;
     }
 

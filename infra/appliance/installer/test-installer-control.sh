@@ -204,6 +204,26 @@ PY
 ! grep -R -q 'correct horse battery staple' "$work_dir/state"
 [[ "$(stat --format '%a' "$work_dir/state/provisioning.json")" == "600" ]]
 grep -qx 'start --no-block lucia-firstboot-install.service' "$work_dir/systemctl.log"
+[[ "$(stat --format '%a' "$work_dir/state/dashboard-key.handoff")" == "600" ]]
+LUCIA_INSTALLER_STATE_DIR="$work_dir/state" "$control" status \
+    > "$work_dir/status.json"
+python3 - \
+    "$work_dir/status.json" \
+    "$work_dir/configure.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as stream:
+    status = json.load(stream)
+with open(sys.argv[2], encoding="utf-8") as stream:
+    response = json.load(stream)
+
+assert status["dashboardKey"] == response["dashboardKey"]
+PY
+LUCIA_INSTALLER_STATE_DIR="$work_dir/state" \
+    "$control" ack-dashboard-key > "$work_dir/ack.json"
+grep -q '"acknowledged":true' "$work_dir/ack.json"
+[[ ! -e "$work_dir/state/dashboard-key.handoff" ]]
 
 echo "PASS: control binds approved setup to the selected disk and image"
 

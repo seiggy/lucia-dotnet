@@ -21,7 +21,7 @@ public sealed class SqliteDbNamesTests
     }
 
     [Fact]
-    public void GetConfigPath_LegacyDatabaseOnly_CopiesToSplitPath()
+    public void GetConfigPath_LegacyDatabaseOnly_ImportsConfigTables()
     {
         var directory = Path.Combine(
             Path.GetTempPath(),
@@ -35,7 +35,7 @@ public sealed class SqliteDbNamesTests
             var expectedPath = SqliteDbNames.GetPath(basePath, SqliteDbNames.Config);
 
             Assert.Equal(expectedPath, SqliteDbNames.GetConfigPath(basePath));
-            AssertLegacyDataCopied(expectedPath);
+            AssertSelectiveDataCopied(expectedPath, "configuration");
         }
         finally
         {
@@ -44,11 +44,12 @@ public sealed class SqliteDbNamesTests
     }
 
     [Theory]
-    [InlineData(SqliteDbNames.Config)]
-    [InlineData(SqliteDbNames.Traces)]
-    [InlineData(SqliteDbNames.Tasks)]
-    public void GetCompatiblePath_LegacyDatabaseOnly_CopiesToSplitPath(
-        string databaseName)
+    [InlineData(SqliteDbNames.Config, "configuration")]
+    [InlineData(SqliteDbNames.Traces, "command_traces")]
+    [InlineData(SqliteDbNames.Tasks, "scheduled_tasks")]
+    public void GetCompatiblePath_LegacyDatabaseOnly_ImportsOwnedTables(
+        string databaseName,
+        string expectedTable)
     {
         var directory = Path.Combine(
             Path.GetTempPath(),
@@ -64,7 +65,7 @@ public sealed class SqliteDbNamesTests
             Assert.Equal(
                 expectedPath,
                 SqliteDbNames.GetCompatiblePath(basePath, databaseName));
-            AssertLegacyDataCopied(expectedPath);
+            AssertSelectiveDataCopied(expectedPath, expectedTable);
         }
         finally
         {
@@ -101,6 +102,37 @@ public sealed class SqliteDbNamesTests
             Assert.Equal("legacy", ReadConfiguration(splitPath, "legacy-only"));
             Assert.Equal("legacy", ReadConfiguration(splitPath, "legacy-newer"));
             Assert.Equal("split", ReadConfiguration(splitPath, "split-newer"));
+            DeleteConfiguration(splitPath, "legacy-only");
+
+            _ = SqliteDbNames.GetConfigPath(basePath);
+
+            Assert.Null(ReadConfiguration(splitPath, "legacy-only"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ArchiveLegacyDatabase_AllImportsComplete_ArchivesLegacyDatabase()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"lucia-sqlite-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var basePath = Path.Combine(directory, "lucia.db");
+        CreateLegacyDatabase(basePath);
+
+        try
+        {
+            _ = SqliteDbNames.GetCompatiblePath(basePath, SqliteDbNames.Config);
+            _ = SqliteDbNames.GetCompatiblePath(basePath, SqliteDbNames.Traces);
+            _ = SqliteDbNames.GetCompatiblePath(basePath, SqliteDbNames.Tasks);
+            SqliteDbNames.ArchiveLegacyDatabase(basePath);
+
+            Assert.False(File.Exists(basePath));
+            Assert.True(File.Exists($"{basePath}.legacy"));
         }
         finally
         {
@@ -119,8 +151,38 @@ public sealed class SqliteDbNamesTests
         connection.Open();
         using var command = connection.CreateCommand();
         command.CommandText = """
-            CREATE TABLE legacy_data (value TEXT NOT NULL);
-            INSERT INTO legacy_data (value) VALUES ('preserved');
+            CREATE TABLE configuration (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                section TEXT,
+                updated_at TEXT NOT NULL,
+                updated_by TEXT NOT NULL,
+                is_sensitive INTEGER NOT NULL
+            );
+            INSERT INTO configuration
+                (key, value, section, updated_at, updated_by, is_sensitive)
+            VALUES ('config-key', 'preserved', 'test', '2026-01-01T00:00:00Z', 'test', 0);
+            CREATE TABLE command_traces (
+                id TEXT PRIMARY KEY,
+                timestamp TEXT NOT NULL,
+                clean_text TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                total_duration_ms REAL NOT NULL,
+                data TEXT NOT NULL
+            );
+            INSERT INTO command_traces
+                (id, timestamp, clean_text, outcome, confidence, total_duration_ms, data)
+            VALUES ('trace-1', '2026-01-01T00:00:00Z', 'test', 'handled', 1, 1, '{}');
+            CREATE TABLE scheduled_tasks (
+                id TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                data TEXT NOT NULL
+            );
+            INSERT INTO scheduled_tasks (id, status, data)
+            VALUES ('task-1', 'pending', '{}');
+            CREATE TABLE unrelated_data (value TEXT NOT NULL);
+            INSERT INTO unrelated_data (value) VALUES ('do not copy');
             CREATE TABLE schema_version (
                 id INTEGER PRIMARY KEY,
                 version INTEGER NOT NULL
@@ -130,7 +192,9 @@ public sealed class SqliteDbNamesTests
         command.ExecuteNonQuery();
     }
 
-    private static void AssertLegacyDataCopied(string path)
+    private static void AssertSelectiveDataCopied(
+        string path,
+        string expectedTable)
     {
         using var connection = new SqliteConnection(
             new SqliteConnectionStringBuilder
@@ -140,8 +204,20 @@ public sealed class SqliteDbNamesTests
             }.ToString());
         connection.Open();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT value FROM legacy_data;";
-        Assert.Equal("preserved", command.ExecuteScalar());
+        command.CommandText = """
+            SELECT COUNT(*)
+            FROM sqlite_master
+            WHERE type = 'table' AND name = @table;
+            """;
+        command.Parameters.AddWithValue("@table", expectedTable);
+        Assert.Equal(1L, command.ExecuteScalar());
+        command.Parameters.Clear();
+        command.CommandText = """
+            SELECT COUNT(*)
+            FROM sqlite_master
+            WHERE type = 'table' AND name = 'unrelated_data';
+            """;
+        Assert.Equal(0L, command.ExecuteScalar());
         command.CommandText = """
             SELECT COUNT(*)
             FROM sqlite_master
@@ -190,6 +266,16 @@ public sealed class SqliteDbNamesTests
             "SELECT value FROM configuration WHERE key = @key;";
         command.Parameters.AddWithValue("@key", key);
         return command.ExecuteScalar() as string;
+    }
+
+    private static void DeleteConfiguration(string path, string key)
+    {
+        using var connection = OpenConnection(path);
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            "DELETE FROM configuration WHERE key = @key;";
+        command.Parameters.AddWithValue("@key", key);
+        command.ExecuteNonQuery();
     }
 
     private static SqliteConnection OpenConnection(string path)

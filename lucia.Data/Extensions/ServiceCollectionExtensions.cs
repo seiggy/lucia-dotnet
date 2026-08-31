@@ -85,7 +85,12 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredKeyedService<SqliteConnectionFactory>(SqliteDbNames.Config));
 
         // Schema migration (registered as itself for direct resolution + as IHostedService)
-        builder.Services.AddSingleton<SqliteMigrationRunner>();
+        builder.Services.AddSingleton(sp => new SqliteMigrationRunner(
+            sp.GetRequiredKeyedService<SqliteConnectionFactory>(SqliteDbNames.Config),
+            sp.GetRequiredKeyedService<SqliteConnectionFactory>(SqliteDbNames.Traces),
+            sp.GetRequiredKeyedService<SqliteConnectionFactory>(SqliteDbNames.Tasks),
+            sp.GetRequiredService<ILogger<SqliteMigrationRunner>>(),
+            basePath));
         builder.Services.AddHostedService(sp => sp.GetRequiredService<SqliteMigrationRunner>());
 
         // luciaconfig repositories

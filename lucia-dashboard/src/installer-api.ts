@@ -231,6 +231,15 @@ export async function startInstallation(
   return parseStatus(await readJson(response))
 }
 
+export async function acknowledgeInstallerDashboardKey(): Promise<void> {
+  const response = await fetch('/api/installer/dashboard-key/acknowledge', {
+    method: 'POST',
+  })
+  if (!response.ok) {
+    throw new Error(`Dashboard key acknowledgment failed with status ${response.status}.`)
+  }
+}
+
 export async function retryInstallerNetwork(
   wifi: InstallerConfiguration['wifi'],
 ): Promise<InstallerStatus> {

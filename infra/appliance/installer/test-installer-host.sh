@@ -12,6 +12,7 @@ base_url="http://127.0.0.1:18098"
 canonical_host="lucia.setup"
 canonical_origin="http://lucia.setup"
 claim_path="$work_dir/claim.sha256"
+dashboard_key_path="$work_dir/dashboard-key.handoff"
 cookie_jar="$work_dir/cookies.txt"
 block_control="$work_dir/block-control"
 control_started="$work_dir/control-started"
@@ -28,8 +29,15 @@ case "$1" in
                 '{"error":"Selected storage is no longer available."}' >&2
             exit 2
         fi
+        printf '%s\n' 'lk_host-bootstrap-key' \
+            > "$LUCIA_TEST_DASHBOARD_KEY_PATH"
+        chmod 0600 "$LUCIA_TEST_DASHBOARD_KEY_PATH"
         printf '%s\n' \
             '{"phase":"authorized","dashboardKey":"lk_host-bootstrap-key"}'
+        ;;
+    ack-dashboard-key)
+        rm -f "$LUCIA_TEST_DASHBOARD_KEY_PATH"
+        printf '%s\n' '{"acknowledged":true}'
         ;;
     retry-network)
         cat > "$LUCIA_TEST_CONTROL_INPUT"
@@ -46,7 +54,12 @@ case "$1" in
             printf '%s\n' "$$" > "$LUCIA_TEST_CONTROL_STARTED"
             sleep 30
         fi
-        printf '%s\n' '{"phase":"waiting-for-configuration"}'
+        if [[ -f "$LUCIA_TEST_DASHBOARD_KEY_PATH" ]]; then
+            printf '%s\n' \
+                '{"phase":"authorized","dashboardKey":"lk_host-bootstrap-key"}'
+        else
+            printf '%s\n' '{"phase":"waiting-for-configuration"}'
+        fi
         ;;
     *)
         exit 64
@@ -72,6 +85,7 @@ LUCIA_TEST_CONTROL_LOG="$control_log" \
 LUCIA_TEST_CONTROL_INPUT="$control_input" \
 LUCIA_TEST_BLOCK_CONTROL="$block_control" \
 LUCIA_TEST_CONTROL_STARTED="$control_started" \
+LUCIA_TEST_DASHBOARD_KEY_PATH="$dashboard_key_path" \
 ASPNETCORE_URLS="$base_url" \
     dotnet run --no-launch-profile --project "$installer_project" \
     >"$installer_log" 2>&1 &
@@ -244,10 +258,40 @@ status="$(
 [[ "$status" == "202" ]]
 grep -q '"phase":"authorized"' "$work_dir/configure.json"
 grep -q '"dashboardKey":"lk_host-bootstrap-key"' "$work_dir/configure.json"
+[[ -s "$dashboard_key_path" ]]
+[[ "$(stat --format '%a' "$dashboard_key_path")" == "600" ]]
 grep -qx 'configure' "$control_log"
 grep -q '"recoveryPassword":"correct horse battery staple"' "$control_input"
 
 echo "PASS: installer sends approved setup to control over standard input"
+
+status="$(
+    curl --silent --output "$work_dir/status.json" --write-out '%{http_code}' \
+        --cookie "$cookie_jar" \
+        --header "Host: $canonical_host" \
+        "$base_url/api/installer/status"
+)"
+[[ "$status" == "200" ]]
+grep -q '"dashboardKey":"lk_host-bootstrap-key"' "$work_dir/status.json"
+
+status="$(
+    curl --silent --output /dev/null --write-out '%{http_code}' \
+        --cookie "$cookie_jar" \
+        --header "Host: $canonical_host" \
+        --header "Origin: $canonical_origin" \
+        --request POST \
+        "$base_url/api/installer/dashboard-key/acknowledge"
+)"
+[[ "$status" == "204" ]]
+[[ ! -e "$dashboard_key_path" ]]
+
+curl --silent --output "$work_dir/status.json" \
+    --cookie "$cookie_jar" \
+    --header "Host: $canonical_host" \
+    "$base_url/api/installer/status"
+! grep -q '"dashboardKey"' "$work_dir/status.json"
+
+echo "PASS: dashboard key handoff survives until browser acknowledgment"
 
 status="$(
     curl --silent --output "$work_dir/retry.json" --write-out '%{http_code}' \
