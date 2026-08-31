@@ -520,7 +520,7 @@ public sealed class MongoApiKeyService : IApiKeyService
                     DateTime.UtcNow.Add(s_mutationLockLease)),
                 cancellationToken: cancellationToken)
             .ConfigureAwait(false);
-        if (result.ModifiedCount != 1)
+        if (result.MatchedCount != 1)
         {
             throw new InvalidOperationException(
                 "API key mutation lock ownership was lost.");

@@ -1,3 +1,5 @@
+using System.Security.Claims;
+
 using lucia.AgentHost;
 using lucia.AgentHost.Apis;
 using lucia.AgentHost.Appliance;
@@ -525,7 +527,11 @@ app.MapVoiceClipEndpoints();
 app.MapSystemApi(isInstalledAppliance);
 app.MapGet(
         "/api/appliance/capabilities",
-        () => Results.Ok(new { Enabled = isInstalledAppliance }))
+        (ClaimsPrincipal user) => Results.Ok(new
+        {
+            Enabled = isInstalledAppliance
+                && user.IsInRole(AuthOptions.AdministratorRole),
+        }))
     .RequireAuthorization()
     .WithTags("Appliance");
 if (isInstalledAppliance)

@@ -42,7 +42,7 @@ public class MongoApiKeyServiceTests
             .WithReturnType<Task>()
             .Returns(Task.CompletedTask);
         var renewedLock = A.Fake<UpdateResult>();
-        A.CallTo(() => renewedLock.ModifiedCount).Returns(1);
+        A.CallTo(() => renewedLock.MatchedCount).Returns(1);
         A.CallTo(_mutationLocks)
             .Where(call => call.Method.Name == "UpdateOneAsync")
             .WithReturnType<Task<UpdateResult>>()
@@ -230,7 +230,7 @@ public class MongoApiKeyServiceTests
         });
         SetupCountDocumentsAsync(2);
         var lostLock = A.Fake<UpdateResult>();
-        A.CallTo(() => lostLock.ModifiedCount).Returns(0);
+        A.CallTo(() => lostLock.MatchedCount).Returns(0);
         A.CallTo(_mutationLocks)
             .Where(call => call.Method.Name == "UpdateOneAsync")
             .WithReturnType<Task<UpdateResult>>()
