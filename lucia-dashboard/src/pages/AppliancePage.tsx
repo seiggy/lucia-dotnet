@@ -102,7 +102,7 @@ export default function AppliancePage() {
     try {
       await restartApplianceService(service)
       setNotice(`${serviceLabels[service]?.label ?? service} restart requested.`)
-      await load()
+      if (service !== 'agenthost') await load()
     } catch (restartError: unknown) {
       setError(restartError instanceof Error ? restartError.message : 'Service restart failed.')
     } finally {

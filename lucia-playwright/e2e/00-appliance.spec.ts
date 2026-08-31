@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 
 test('manages an installed appliance from mobile', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
+  let statusRequestCount = 0;
   await page.route('**/api/auth/status', async (route) => {
     await route.fulfill({
       json: { authenticated: true, setupComplete: true, hasKeys: true },
@@ -11,6 +12,7 @@ test('manages an installed appliance from mobile', async ({ page }) => {
     });
   });
   await page.route('**/api/appliance/status', async (route) => {
+    statusRequestCount++;
     await route.fulfill({
       json: {
         hostname: 'lucia',
@@ -63,6 +65,9 @@ test('manages an installed appliance from mobile', async ({ page }) => {
         message: 'A compatible release was found, but installation remains locked until GitHub attestation verification is implemented.',
       },
     });
+    await page.route('**/api/system/restart', async (route) => {
+      await route.fulfill({ status: 202 });
+    });
   });
 
   await page.goto('/appliance');
@@ -74,6 +79,14 @@ test('manages an installed appliance from mobile', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Install' })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'OpenTelemetry', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Restart', exact: true })).toHaveCount(2);
+  const agentHostRow = page
+    .getByRole('heading', { name: 'Lucia AgentHost', exact: true })
+    .locator('..')
+    .locator('..')
+    .locator('..');
+  await agentHostRow.getByRole('button', { name: 'Restart' }).click();
+  await expect(page.getByText('Lucia AgentHost restart requested.')).toBeVisible();
+  expect(statusRequestCount).toBe(1);
 
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   const shortControls = await page.locator(
