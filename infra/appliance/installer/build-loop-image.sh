@@ -6,8 +6,8 @@ usage() {
     cat <<'EOF'
 Usage: build-loop-image.sh BSP_DIR OUTPUT_IMAGE [SIZE]
 
-Builds a raw disk image from an existing NVIDIA initrd-flash package.
-This is a host-side test helper; production flashing uses a real NVMe device.
+Builds the raw NVMe disk image embedded in the production installer payload
+from an existing NVIDIA initrd-flash package.
 EOF
 }
 

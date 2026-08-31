@@ -276,9 +276,6 @@ function LuciaHaStep({
     try {
       await login(resumeKey)
       setResumed(true)
-      if (!status?.hasAdministratorKey) {
-        setDashboardKey(await generateDashboardKey())
-      }
     } catch {
       setResumeError('Invalid API key. Please check and try again.')
     } finally {
@@ -333,9 +330,9 @@ function LuciaHaStep({
                   <CheckCircle2 className="h-4 w-4" /> Authenticated — continue setup below
                 </p>
               ) : (
-                <button onClick={handleGenerateKey} disabled={busy} className={btnPrimary}>
-                  {busy ? 'Generating...' : 'Create Administrator Key'}
-                </button>
+                <p className="text-sm text-rose">
+                  This installation has no appliance owner key. Reset its data or reinstall the appliance to recover ownership.
+                </p>
               )
             ) : (
               <>

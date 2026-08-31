@@ -107,10 +107,12 @@ public static class SetupApi
         var activeKeyCount = await apiKeyService
             .GetActiveKeyCountAsync(httpContext.RequestAborted)
             .ConfigureAwait(false);
-        if (activeKeyCount > 0
-            && httpContext.User.Identity?.IsAuthenticated != true)
+        if (activeKeyCount > 0)
         {
-            return Results.Unauthorized();
+            return Results.Conflict(new
+            {
+                error = "API keys already exist. Reset storage before creating a new setup owner.",
+            });
         }
 
         var result = await apiKeyService
