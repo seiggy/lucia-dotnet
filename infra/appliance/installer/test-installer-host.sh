@@ -21,6 +21,11 @@ printf '%s\n' "$*" >> "$LUCIA_TEST_CONTROL_LOG"
 case "$1" in
     configure)
         cat > "$LUCIA_TEST_CONTROL_INPUT"
+        if grep -q '"deviceId":"/gone"' "$LUCIA_TEST_CONTROL_INPUT"; then
+            printf '%s\n' \
+                '{"error":"Selected storage is no longer available."}' >&2
+            exit 2
+        fi
         printf '%s\n' '{"phase":"authorized"}'
         ;;
     retry-network)
@@ -180,6 +185,22 @@ grep -q '"ssid":"Lab WiFi"' "$work_dir/networks.json"
 grep -qx 'networks' "$control_log"
 
 echo "PASS: installer lists Wi-Fi networks through the control interface"
+
+status="$(
+    curl --silent --output "$work_dir/configure-error.json" --write-out '%{http_code}' \
+        --header "Content-Type: application/json" \
+        --header "Host: $canonical_host" \
+        --header "Origin: $canonical_origin" \
+        --cookie "$cookie_jar" \
+        --request POST \
+        --data '{"deviceId":"/gone","eraseConfirmation":"ERASE GONE","hostname":"lucia-lab","recoveryPassword":"correct horse battery staple","wifi":null}' \
+        "$base_url/api/installer/install"
+)"
+[[ "$status" == "400" ]]
+grep -q 'Selected storage is no longer available.' \
+    "$work_dir/configure-error.json"
+
+echo "PASS: installer returns sanitized control validation errors"
 
 status="$(
     curl --silent --output "$work_dir/configure.json" --write-out '%{http_code}' \

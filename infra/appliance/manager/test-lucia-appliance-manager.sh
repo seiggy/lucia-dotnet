@@ -7,6 +7,7 @@ work_dir="$(mktemp -d)"
 socket_path="$work_dir/appliance-manager.sock"
 systemctl_log="$work_dir/systemctl.log"
 nmcli_log="$work_dir/nmcli.log"
+network_mode="$work_dir/network-mode"
 mountinfo="$work_dir/mountinfo"
 sys_block="$work_dir/sys-class-block"
 manager_log="$work_dir/manager.log"
@@ -72,9 +73,16 @@ cat > "$work_dir/nmcli" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$LUCIA_TEST_NMCLI_LOG"
-printf '%s\n' 'yes:Home WiFi:87'
+mode="$(cat "$LUCIA_TEST_NETWORK_MODE")"
+if [[ "$*" == *"IN-USE,SSID,SIGNAL device wifi list"* ]]; then
+    [[ "$mode" != "wifi" ]] || printf '%s\n' 'yes:Home WiFi:87'
+elif [[ "$*" == *"DEVICE,TYPE,STATE device status"* \
+        && "$mode" == "ethernet" ]]; then
+    printf '%s\n' 'eth0:ethernet:connected'
+fi
 EOF
 chmod +x "$work_dir/nmcli"
+printf 'wifi\n' > "$network_mode"
 mkdir -p "$sys_block/nvme1n1"
 printf '%s\n' '3906250000' > "$sys_block/nvme1n1/size"
 printf '%s\n' \
@@ -111,6 +119,7 @@ LUCIA_TEST_BLOCK_RESTART_FILE="$block_restart" \
 LUCIA_TEST_RESTART_STARTED_FILE="$restart_started" \
 LUCIA_TEST_RESTART_COMPLETED_FILE="$restart_completed" \
 LUCIA_TEST_NMCLI_LOG="$nmcli_log" \
+LUCIA_TEST_NETWORK_MODE="$network_mode" \
     dotnet run --no-launch-profile --project "$manager_project" \
     >"$manager_log" 2>&1 &
 manager_pid=$!
@@ -155,6 +164,22 @@ grep -q '"id":"collector","activeState":"inactive","unitFileState":"disabled"' \
     "$work_dir/response.json"
 
 echo "PASS: status reports the appliance and allowlisted services"
+
+printf 'ethernet\n' > "$network_mode"
+curl --silent --output "$work_dir/response.json" \
+    --unix-socket "$socket_path" \
+    http://localhost/v1/status
+grep -q '"network":{"ssid":"Ethernet","signal":null}' \
+    "$work_dir/response.json"
+printf 'unavailable\n' > "$network_mode"
+curl --silent --output "$work_dir/response.json" \
+    --unix-socket "$socket_path" \
+    http://localhost/v1/status
+grep -q '"network":{"ssid":"Unavailable","signal":null}' \
+    "$work_dir/response.json"
+printf 'wifi\n' > "$network_mode"
+
+echo "PASS: status distinguishes wired and unavailable networking"
 
 for service_and_unit in \
     "redis lucia-redis.service"; do

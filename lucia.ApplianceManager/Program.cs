@@ -588,6 +588,65 @@ static async Task<(string Ssid, int? Signal)> ReadWifiStatusAsync(
 {
     var nmcliPath = Environment.GetEnvironmentVariable("LUCIA_NMCLI_PATH")
         ?? "/usr/bin/nmcli";
+    var wifiResult = await RunNmcliAsync(
+            nmcliPath,
+            [
+                "--terse",
+                "--escape",
+                "yes",
+                "--fields",
+                "IN-USE,SSID,SIGNAL",
+                "device",
+                "wifi",
+                "list",
+                "--rescan",
+                "no",
+            ],
+            cancellationToken)
+        .ConfigureAwait(false);
+
+    var match = Regex.Match(
+        wifiResult.StandardOutput,
+        @"^(?:yes|\*):(?<ssid>.*):(?<signal>\d+)$",
+        RegexOptions.Multiline);
+    if (wifiResult.ExitCode == 0 && match.Success)
+    {
+        return (
+            match.Groups["ssid"].Value
+                .Replace(@"\:", ":", StringComparison.Ordinal)
+                .Replace(@"\\", @"\", StringComparison.Ordinal),
+            int.Parse(
+                match.Groups["signal"].Value,
+                System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    var wiredResult = await RunNmcliAsync(
+            nmcliPath,
+            [
+                "--terse",
+                "--escape",
+                "yes",
+                "--fields",
+                "DEVICE,TYPE,STATE",
+                "device",
+                "status",
+            ],
+            cancellationToken)
+        .ConfigureAwait(false);
+    return wiredResult.ExitCode == 0
+        && Regex.IsMatch(
+            wiredResult.StandardOutput,
+            @"^[^:]+:ethernet:connected$",
+            RegexOptions.Multiline)
+        ? ("Ethernet", null)
+        : ("Unavailable", null);
+}
+
+static async Task<(int ExitCode, string StandardOutput)> RunNmcliAsync(
+    string nmcliPath,
+    IEnumerable<string> arguments,
+    CancellationToken cancellationToken)
+{
     var startInfo = new ProcessStartInfo
     {
         FileName = nmcliPath,
@@ -595,19 +654,8 @@ static async Task<(string Ssid, int? Signal)> ReadWifiStatusAsync(
         RedirectStandardOutput = true,
         UseShellExecute = false,
     };
-    foreach (var argument in new[]
-    {
-        "--terse",
-        "--escape",
-        "yes",
-        "--fields",
-        "IN-USE,SSID,SIGNAL",
-        "device",
-        "wifi",
-        "list",
-        "--rescan",
-        "no",
-    })
+    startInfo.Environment["LC_ALL"] = "C";
+    foreach (var argument in arguments)
     {
         startInfo.ArgumentList.Add(argument);
     }
@@ -619,24 +667,7 @@ static async Task<(string Ssid, int? Signal)> ReadWifiStatusAsync(
     await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
     var output = await outputTask.ConfigureAwait(false);
     _ = await errorTask.ConfigureAwait(false);
-    if (process.ExitCode != 0)
-    {
-        return ("Ethernet", null);
-    }
-
-    var match = Regex.Match(
-        output,
-        @"^(?:yes|\*):(?<ssid>.*):(?<signal>\d+)$",
-        RegexOptions.Multiline);
-    return match.Success
-        ? (
-            match.Groups["ssid"].Value
-                .Replace(@"\:", ":", StringComparison.Ordinal)
-                .Replace(@"\\", @"\", StringComparison.Ordinal),
-            int.Parse(
-                match.Groups["signal"].Value,
-                System.Globalization.CultureInfo.InvariantCulture))
-        : ("Ethernet", null);
+    return (process.ExitCode, output);
 }
 
 static long ReadStorageBytes()

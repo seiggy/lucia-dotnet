@@ -76,6 +76,22 @@ app.Use(async (context, next) =>
     await next(context).ConfigureAwait(false);
 });
 
+app.Use(async (context, next) =>
+{
+    try
+    {
+        await next(context).ConfigureAwait(false);
+    }
+    catch (InstallerControlException exception)
+    {
+        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+        await context.Response.WriteAsJsonAsync(
+                new { Error = exception.Message },
+                context.RequestAborted)
+            .ConfigureAwait(false);
+    }
+});
+
 app.UseDefaultFiles();
 app.UseStaticFiles();
 

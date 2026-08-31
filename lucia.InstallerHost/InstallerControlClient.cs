@@ -80,13 +80,26 @@ internal sealed partial class InstallerControlClient(
         if (process.ExitCode != 0)
         {
             LogControlFailure(command, process.ExitCode, standardError.Trim());
-            throw new InvalidOperationException(
-                $"Installer control command '{command}' failed.");
+            throw new InstallerControlException(
+                ParseControlError(standardError)
+                ?? $"Installer control command '{command}' failed.");
         }
 
         return JsonNode.Parse(standardOutput)
             ?? throw new InvalidOperationException(
                 $"Installer control command '{command}' returned no JSON.");
+    }
+
+    private static string? ParseControlError(string standardError)
+    {
+        try
+        {
+            return JsonNode.Parse(standardError)?["error"]?.GetValue<string>();
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     [LoggerMessage(

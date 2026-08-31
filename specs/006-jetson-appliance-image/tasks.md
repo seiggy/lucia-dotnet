@@ -44,7 +44,7 @@
 - [ ] T023 Claim ownership, create the dashboard key, and set the recovery
   account password atomically.
 - [x] T024 Join home Wi-Fi through a timed NetworkManager checkpoint.
-- [ ] T025 Restore setup mode after failed Wi-Fi activation.
+- [x] T025 Restore setup mode after failed Wi-Fi activation.
 - [ ] T026 Set the hostname and publish dashboard and Wyoming Avahi records.
 - [ ] T027 Add USB Ethernet setup and restricted `nmtui` recovery.
 
