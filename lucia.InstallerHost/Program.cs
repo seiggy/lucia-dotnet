@@ -150,6 +150,15 @@ app.MapPost(
         Results.Accepted(
             value: await control.StartInstallationAsync(request, cancellationToken)
                 .ConfigureAwait(false)));
+app.MapPost(
+    "/api/installer/retry-network",
+    async (
+        WifiConfigurationRequest request,
+        InstallerControlClient control,
+        CancellationToken cancellationToken) =>
+        Results.Accepted(
+            value: await control.RetryNetworkAsync(request, cancellationToken)
+                .ConfigureAwait(false)));
 app.MapGet(
     "/",
     () => Results.Redirect(new Uri(installerOrigin, "/install").AbsoluteUri));

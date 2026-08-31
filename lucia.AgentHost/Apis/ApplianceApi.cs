@@ -88,13 +88,21 @@ public static class ApplianceApi
             async (
                 ApplianceTelemetryConfigurationRequest request,
                 ApplianceManagerClient manager,
+                HttpContext context,
+                IHostApplicationLifetime lifetime,
                 CancellationToken cancellationToken) =>
             {
                 try
                 {
-                    return Results.Ok(await manager
+                    var status = await manager
                         .UpdateTelemetryAsync(request, cancellationToken)
-                        .ConfigureAwait(false));
+                        .ConfigureAwait(false);
+                    context.Response.OnCompleted(() =>
+                    {
+                        lifetime.StopApplication();
+                        return Task.CompletedTask;
+                    });
+                    return Results.Ok(status);
                 }
                 catch (HttpRequestException exception)
                 {

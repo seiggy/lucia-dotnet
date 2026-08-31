@@ -20,6 +20,7 @@ export interface InstallerStatus {
   stage?: InstallerStage
   bytesWritten?: number
   totalBytes?: number
+  canRetryNetwork?: boolean
 }
 
 export interface InstallerDisk {
@@ -87,12 +88,16 @@ function parseStatus(value: unknown): InstallerStatus {
   if (value.hostname !== undefined && typeof value.hostname !== 'string') {
     throw new Error('The installer returned an invalid hostname.')
   }
+  if (value.canRetryNetwork !== undefined && typeof value.canRetryNetwork !== 'boolean') {
+    throw new Error('The installer returned an invalid retry state.')
+  }
   return {
     phase: value.phase,
     hostname: value.hostname,
     stage: value.stage,
     bytesWritten: value.bytesWritten,
     totalBytes: value.totalBytes,
+    canRetryNetwork: value.canRetryNetwork,
   }
 }
 
@@ -215,6 +220,18 @@ export async function startInstallation(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(configuration),
+  })
+  return parseStatus(await readJson(response))
+}
+
+export async function retryInstallerNetwork(
+  wifi: InstallerConfiguration['wifi'],
+): Promise<InstallerStatus> {
+  if (wifi === null) throw new Error('Choose a Wi-Fi network to retry.')
+  const response = await fetch('/api/installer/retry-network', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(wifi),
   })
   return parseStatus(await readJson(response))
 }

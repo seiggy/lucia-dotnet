@@ -21,11 +21,26 @@ internal sealed partial class InstallerControlClient(
     public Task<JsonNode> StartInstallationAsync(
         InstallerConfigurationRequest request,
         CancellationToken cancellationToken) =>
-        ExecuteJsonAsync("configure", request, cancellationToken);
+        ExecuteJsonAsync(
+            "configure",
+            JsonSerializer.Serialize(
+                request,
+                InstallerJsonContext.Default.InstallerConfigurationRequest),
+            cancellationToken);
+
+    public Task<JsonNode> RetryNetworkAsync(
+        WifiConfigurationRequest request,
+        CancellationToken cancellationToken) =>
+        ExecuteJsonAsync(
+            "retry-network",
+            JsonSerializer.Serialize(
+                request,
+                InstallerJsonContext.Default.WifiConfigurationRequest),
+            cancellationToken);
 
     private async Task<JsonNode> ExecuteJsonAsync(
         string command,
-        InstallerConfigurationRequest? request,
+        string? request,
         CancellationToken cancellationToken)
     {
         var startInfo = new ProcessStartInfo
@@ -52,11 +67,8 @@ internal sealed partial class InstallerControlClient(
             process.StandardError.ReadToEndAsync(cancellationToken);
         if (request is not null)
         {
-            await JsonSerializer.SerializeAsync(
-                    process.StandardInput.BaseStream,
-                    request,
-                    InstallerJsonContext.Default.InstallerConfigurationRequest,
-                    cancellationToken)
+            await process.StandardInput
+                .WriteAsync(request.AsMemory(), cancellationToken)
                 .ConfigureAwait(false);
             process.StandardInput.Close();
         }

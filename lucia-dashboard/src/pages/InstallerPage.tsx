@@ -22,6 +22,7 @@ import {
   fetchInstallerNetworks,
   fetchInstallerStatus,
   claimInstaller,
+  retryInstallerNetwork,
   startInstallation,
 } from '../installer-api'
 import { ThemeSelector } from '../theme/ThemeSelector'
@@ -107,7 +108,11 @@ export default function InstallerPage() {
   }, [bootState])
 
   useEffect(() => {
-    if (step !== 'installing') return
+    if (
+      step !== 'installing'
+      || installerStatus.phase === 'installed'
+      || installerStatus.phase === 'failed'
+    ) return
 
     const interval = window.setInterval(() => {
       fetchInstallerStatus()
@@ -125,7 +130,7 @@ export default function InstallerPage() {
     }, 1000)
 
     return () => window.clearInterval(interval)
-  }, [step])
+  }, [step, installerStatus.phase])
 
   async function handleClaim() {
     setBusy(true)
@@ -136,6 +141,9 @@ export default function InstallerPage() {
       setInstallerStatus(status)
       if (status.hostname) setHostname(status.hostname)
       if (status.phase !== 'waiting-for-configuration') {
+        if (status.canRetryNetwork) {
+          setNetworks(await fetchInstallerNetworks())
+        }
         setStep('installing')
         return
       }
@@ -197,6 +205,29 @@ export default function InstallerPage() {
       setStep('installing')
     } catch (installError: unknown) {
       setError(installError instanceof Error ? installError.message : 'Installation could not start.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleNetworkRetry() {
+    if (!selectedSsid || wifiPassword.length < 8) {
+      setError('Choose your home Wi-Fi and enter its password.')
+      return
+    }
+    setBusy(true)
+    setError('')
+    try {
+      const status = await retryInstallerNetwork({
+        ssid: selectedSsid,
+        passphrase: wifiPassword,
+      })
+      setInstallerStatus(status)
+      setWifiPassword('')
+    } catch (retryError: unknown) {
+      setError(retryError instanceof Error
+        ? retryError.message
+        : 'Lucia could not retry that network.')
     } finally {
       setBusy(false)
     }
@@ -272,6 +303,13 @@ export default function InstallerPage() {
               status={installerStatus}
               hostname={hostname}
               error={error}
+              networks={networks}
+              selectedSsid={selectedSsid}
+              wifiPassword={wifiPassword}
+              busy={busy}
+              onSelectedSsidChange={setSelectedSsid}
+              onWifiPasswordChange={setWifiPassword}
+              onRetryNetwork={handleNetworkRetry}
             />
           )}
         </section>
@@ -805,10 +843,24 @@ function InstallingStep({
   status,
   hostname,
   error,
+  networks,
+  selectedSsid,
+  wifiPassword,
+  busy,
+  onSelectedSsidChange,
+  onWifiPasswordChange,
+  onRetryNetwork,
 }: {
   status: InstallerStatus
   hostname: string
   error: string
+  networks: InstallerNetwork[]
+  selectedSsid: string
+  wifiPassword: string
+  busy: boolean
+  onSelectedSsidChange: (value: string) => void
+  onWifiPasswordChange: (value: string) => void
+  onRetryNetwork: () => void
 }) {
   const isInstalled = status.phase === 'installed'
   const isFailed = status.phase === 'failed'
@@ -911,6 +963,50 @@ function InstallingStep({
       </ol>
 
       {error && <ErrorMessage message={error} />}
+      {isFailed && status.canRetryNetwork && (
+        <div className="mx-auto mt-6 max-w-md space-y-4 rounded-xl border border-amber/25 bg-amber/8 p-4">
+          <div>
+            <label htmlFor="retry-wifi" className="mb-1.5 block text-sm font-medium text-light">
+              Home Wi-Fi
+            </label>
+            <select
+              id="retry-wifi"
+              value={selectedSsid}
+              onChange={(event) => onSelectedSsidChange(event.target.value)}
+              className={inputStyle}
+            >
+              <option value="">Choose a network</option>
+              {networks.map((network) => (
+                <option key={network.ssid} value={network.ssid}>
+                  {network.ssid} · {network.signal}%
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="retry-wifi-password" className="mb-1.5 block text-sm font-medium text-light">
+              Wi-Fi password
+            </label>
+            <input
+              id="retry-wifi-password"
+              type="password"
+              value={wifiPassword}
+              onChange={(event) => onWifiPasswordChange(event.target.value)}
+              autoComplete="new-password"
+              className={inputStyle}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={onRetryNetwork}
+            disabled={busy || !selectedSsid || wifiPassword.length < 8}
+            className={`w-full ${primaryButton}`}
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            Retry Wi-Fi
+          </button>
+        </div>
+      )}
       {!isInstalled && !isFailed && !error && (
         <p className="mt-5 flex items-center justify-center gap-2 text-xs text-dust">
           <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />

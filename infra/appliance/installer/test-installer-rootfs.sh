@@ -21,6 +21,7 @@ grep -q '^EnvironmentFile=/etc/lucia-installer/installer.env$' "$host_unit"
 grep -q '^Appliance__Mode=Installer$' "$environment"
 grep -q '^address=/#/10.42.0.1$' "$dnsmasq_config"
 grep -q 'lucia-installer-control configure$' "$sudoers"
+grep -q 'lucia-installer-control retry-network$' "$sudoers"
 grep -q '^After=.*lucia-installer-host.service' "$install_unit"
 
 echo "PASS: installer rootfs starts the captive host before disk installation"

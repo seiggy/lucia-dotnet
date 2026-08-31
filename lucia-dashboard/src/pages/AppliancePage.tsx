@@ -228,6 +228,9 @@ export default function AppliancePage() {
               key={service.id}
               service={service}
               busy={busyService === service.id}
+              canRestart={service.id === 'redis'
+                || (telemetry?.enabled === true
+                  && (service.id === 'collector' || service.id === 'redis-exporter'))}
               onRestart={() => handleRestart(service.id)}
             />
           ))}
@@ -242,7 +245,6 @@ export default function AppliancePage() {
             setNotice(nextTelemetry.enabled
               ? 'Telemetry configuration saved and enabled.'
               : 'Telemetry configuration saved and disabled.')
-            void load()
           }}
           onError={setError}
         />
@@ -382,10 +384,12 @@ function UpdateRail({
 function ServiceRow({
   service,
   busy,
+  canRestart,
   onRestart,
 }: {
   service: ApplianceServiceStatus
   busy: boolean
+  canRestart: boolean
   onRestart: () => void
 }) {
   const labels = serviceLabels[service.id] ?? {
@@ -407,15 +411,17 @@ function ServiceRow({
           </p>
         </div>
       </div>
-      <button
-        type="button"
-        onClick={onRestart}
-        disabled={busy}
-        className={secondaryButton}
-      >
-        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
-        Restart
-      </button>
+      {canRestart && (
+        <button
+          type="button"
+          onClick={onRestart}
+          disabled={busy}
+          className={secondaryButton}
+        >
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
+          Restart
+        </button>
+      )}
     </div>
   )
 }

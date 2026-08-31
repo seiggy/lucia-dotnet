@@ -308,7 +308,7 @@ grep -qx 'PluginDirectory=/var/lib/lucia/plugins' "$agenthost_environment"
 [[ "$(stat --format '%a' "$telemetry_environment")" == "600" ]]
 grep -qx -- 'enable --now lucia-redis-exporter.service lucia-otelcol.service' \
     "$systemctl_log"
-grep -qx -- 'restart lucia-agenthost.service' "$systemctl_log"
+! grep -q '^restart lucia-agenthost.service$' "$systemctl_log"
 
 echo "PASS: telemetry configuration is validated, redacted, and enabled"
 

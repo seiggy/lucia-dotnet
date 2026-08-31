@@ -342,7 +342,7 @@ static async Task<IResult> UpdateTelemetryConfigurationAsync(
 static async Task<(int ExitCode, string StandardOutput, string StandardError)>
     ApplyTelemetrySystemdStateAsync(bool enabled)
 {
-    var result = await RunSystemctlMutationAsync(
+    return await RunSystemctlMutationAsync(
             enabled
                 ?
                 [
@@ -359,11 +359,6 @@ static async Task<(int ExitCode, string StandardOutput, string StandardError)>
                     "lucia-redis-exporter.service",
                 ])
         .ConfigureAwait(false);
-    return result.ExitCode == 0
-        ? await RunSystemctlMutationAsync(
-                ["restart", "lucia-agenthost.service"])
-            .ConfigureAwait(false)
-        : result;
 }
 
 static void WriteAgentHostTelemetryConfiguration(string path, bool enabled)

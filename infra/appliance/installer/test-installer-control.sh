@@ -195,3 +195,24 @@ PY
 grep -qx 'start --no-block lucia-firstboot-install.service' "$work_dir/systemctl.log"
 
 echo "PASS: control binds approved setup to the selected disk and image"
+
+printf 'status=installed\n' > "$work_dir/state/install.state"
+printf '{"stage":"failed"}\n' > "$work_dir/state/progress.json"
+LUCIA_INSTALLER_STATE_DIR="$work_dir/state" "$control" status \
+    > "$work_dir/status.json"
+grep -q '"canRetryNetwork":true' "$work_dir/status.json"
+authorization_before="$(sha256sum "$work_dir/state/erase.authorization")"
+printf '{"ssid":"Lab WiFi","passphrase":"corrected-password"}' \
+    | LUCIA_INSTALLER_STATE_DIR="$work_dir/state" \
+        LUCIA_NMCLI_PATH="$work_dir/nmcli" \
+        LUCIA_SYSTEMCTL_PATH="$work_dir/systemctl" \
+        LUCIA_TEST_SYSTEMCTL_LOG="$work_dir/systemctl.log" \
+        "$control" retry-network > "$work_dir/retry.json"
+
+grep -q '"phase":"authorized"' "$work_dir/retry.json"
+[[ ! -e "$work_dir/state/progress.json" ]]
+[[ "$(sha256sum "$work_dir/state/erase.authorization")" == "$authorization_before" ]]
+grep -q '"passphrase":"corrected-password"' \
+    "$work_dir/state/provisioning.json"
+
+echo "PASS: installed images accept credentials-only network retries"

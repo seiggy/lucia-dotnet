@@ -23,6 +23,10 @@ case "$1" in
         cat > "$LUCIA_TEST_CONTROL_INPUT"
         printf '%s\n' '{"phase":"authorized"}'
         ;;
+    retry-network)
+        cat > "$LUCIA_TEST_CONTROL_INPUT"
+        printf '%s\n' '{"phase":"authorized"}'
+        ;;
     disks)
         printf '%s\n' '[{"id":"/dev/disk/by-id/nvme-lab","model":"Lab NVMe","serial":"LAB123","confirmationPhrase":"ERASE LAB123","sizeBytes":2000000000000,"classification":"occupied","action":"confirmation-required"}]'
         ;;
@@ -194,3 +198,20 @@ grep -qx 'configure' "$control_log"
 grep -q '"recoveryPassword":"correct horse battery staple"' "$control_input"
 
 echo "PASS: installer sends approved setup to control over standard input"
+
+status="$(
+    curl --silent --output "$work_dir/retry.json" --write-out '%{http_code}' \
+        --header "Content-Type: application/json" \
+        --header "Host: $canonical_host" \
+        --header "Origin: $canonical_origin" \
+        --cookie "$cookie_jar" \
+        --request POST \
+        --data '{"ssid":"Lab WiFi","passphrase":"corrected-password"}' \
+        "$base_url/api/installer/retry-network"
+)"
+[[ "$status" == "202" ]]
+grep -q '"phase":"authorized"' "$work_dir/retry.json"
+grep -qx 'retry-network' "$control_log"
+grep -q '"passphrase":"corrected-password"' "$control_input"
+
+echo "PASS: installer forwards credentials-only network retries"

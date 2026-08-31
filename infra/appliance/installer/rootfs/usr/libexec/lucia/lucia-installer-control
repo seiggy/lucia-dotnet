@@ -221,10 +221,16 @@ def show_status() -> None:
         )
     else:
         state = read_key_values(state_file.read_text(encoding="utf-8"))
-        phase = {
-            "writing": "installing",
-            "installed": "installed",
-        }.get(state.get("status"), "waiting-for-configuration")
+        if state.get("status") == "writing":
+            phase = "installing"
+        elif state.get("status") == "installed":
+            phase = (
+                "authorized"
+                if (state_directory / "provisioning.json").exists()
+                else "installed"
+            )
+        else:
+            phase = "waiting-for-configuration"
 
     status: dict[str, object] = {"phase": phase}
     provision_state_path = state_directory / "provision.state"
@@ -254,6 +260,14 @@ def show_status() -> None:
             status["phase"] = "installed"
         elif stage == "failed":
             status["phase"] = "failed"
+            status["canRetryNetwork"] = (
+                state_file.exists()
+                and read_key_values(
+                    state_file.read_text(encoding="utf-8")
+                ).get("status")
+                == "installed"
+                and (state_directory / "provisioning.json").exists()
+            )
 
     print(json.dumps(status, separators=(",", ":")))
 
@@ -273,6 +287,32 @@ def validate_text(
     if "\x00" in value or "\r" in value or "\n" in value:
         raise ValueError(f"{name} contains an invalid character")
     return value
+
+
+def validate_wifi_configuration(wifi: object) -> dict[str, str] | None:
+    if wifi is None:
+        return None
+    if not isinstance(wifi, dict):
+        raise ValueError("wifi must be an object or null")
+    ssid = validate_text(wifi.get("ssid"), "wifi.ssid", 1, 32)
+    passphrase = validate_text(
+        wifi.get("passphrase"),
+        "wifi.passphrase",
+        8,
+        64,
+    )
+    if len(passphrase) == 64:
+        if re.fullmatch(r"[0-9A-Fa-f]{64}", passphrase) is None:
+            raise ValueError(
+                "A 64-character Wi-Fi passphrase must be hexadecimal"
+            )
+    elif re.fullmatch(r"[\x20-\x7E]{8,63}", passphrase) is None:
+        raise ValueError(
+            "A Wi-Fi passphrase must contain 8-63 printable ASCII characters"
+        )
+    if ssid not in {network["ssid"] for network in read_supported_networks()}:
+        raise ValueError("Selected Wi-Fi network does not support WPA-PSK")
+    return {"ssid": ssid, "passphrase": passphrase}
 
 
 def configure_installation() -> None:
@@ -305,30 +345,7 @@ def configure_installation() -> None:
         128,
     )
 
-    wifi = request.get("wifi")
-    provisioning_wifi = None
-    if wifi is not None:
-        if not isinstance(wifi, dict):
-            raise ValueError("wifi must be an object or null")
-        ssid = validate_text(wifi.get("ssid"), "wifi.ssid", 1, 32)
-        passphrase = validate_text(
-            wifi.get("passphrase"),
-            "wifi.passphrase",
-            8,
-            64,
-        )
-        if len(passphrase) == 64:
-            if re.fullmatch(r"[0-9A-Fa-f]{64}", passphrase) is None:
-                raise ValueError(
-                    "A 64-character Wi-Fi passphrase must be hexadecimal"
-                )
-        elif re.fullmatch(r"[\x20-\x7E]{8,63}", passphrase) is None:
-            raise ValueError(
-                "A Wi-Fi passphrase must contain 8-63 printable ASCII characters"
-            )
-        if ssid not in {network["ssid"] for network in read_supported_networks()}:
-            raise ValueError("Selected Wi-Fi network does not support WPA-PSK")
-        provisioning_wifi = {"ssid": ssid, "passphrase": passphrase}
+    provisioning_wifi = validate_wifi_configuration(request.get("wifi"))
 
     install_path = os.environ.get(
         "LUCIA_INSTALL_PATH", "/usr/libexec/lucia/lucia-install"
@@ -445,6 +462,59 @@ def configure_installation() -> None:
     print(json.dumps({"phase": "authorized"}, separators=(",", ":")))
 
 
+def retry_network_configuration() -> None:
+    request = json.load(sys.stdin)
+    if not isinstance(request, dict):
+        raise ValueError("Wi-Fi configuration must be a JSON object")
+    wifi = validate_wifi_configuration(request)
+    if wifi is None:
+        raise ValueError("Wi-Fi configuration is required")
+
+    state_directory = pathlib.Path(
+        os.environ.get("LUCIA_INSTALLER_STATE_DIR", "/var/lib/lucia-installer")
+    )
+    lock_path = state_directory / "configure.lock"
+    with lock_path.open("a", encoding="utf-8") as lock_stream:
+        fcntl.flock(lock_stream, fcntl.LOCK_EX)
+        install_state = read_key_values(
+            (state_directory / "install.state").read_text(encoding="utf-8")
+        )
+        provisioning_path = state_directory / "provisioning.json"
+        if (
+            install_state.get("status") != "installed"
+            or not provisioning_path.exists()
+        ):
+            raise ValueError("Network retry requires an installed image")
+        provisioning = json.loads(provisioning_path.read_text(encoding="utf-8"))
+        if not isinstance(provisioning, dict):
+            raise ValueError("Provisioning configuration must be a JSON object")
+        provisioning["wifi"] = wifi
+        write_atomic(
+            provisioning_path,
+            json.dumps(provisioning, separators=(",", ":")),
+        )
+        pathlib.Path(
+            os.environ.get(
+                "LUCIA_INSTALLER_PROGRESS_PATH",
+                state_directory / "progress.json",
+            )
+        ).unlink(missing_ok=True)
+        systemctl_path = os.environ.get(
+            "LUCIA_SYSTEMCTL_PATH", "/usr/bin/systemctl"
+        )
+        subprocess.run(
+            [
+                systemctl_path,
+                "start",
+                "--no-block",
+                "lucia-firstboot-install.service",
+            ],
+            check=True,
+        )
+
+    print(json.dumps({"phase": "authorized"}, separators=(",", ":")))
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit("Usage: lucia-installer-control disks|status")
@@ -454,6 +524,8 @@ def main() -> None:
         list_disks()
     elif command == "configure":
         configure_installation()
+    elif command == "retry-network":
+        retry_network_configuration()
     elif command == "networks":
         list_networks()
     elif command == "status":
