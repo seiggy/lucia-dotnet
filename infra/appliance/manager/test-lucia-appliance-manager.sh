@@ -21,6 +21,7 @@ reboot_required="$work_dir/reboot-required"
 telemetry_environment="$work_dir/telemetry.env"
 agenthost_environment="$work_dir/lucia.env"
 fail_enable="$work_dir/fail-enable"
+fail_collector_restart="$work_dir/fail-collector-restart"
 block_restart="$work_dir/block-restart"
 restart_started="$work_dir/restart-started"
 restart_completed="$work_dir/restart-completed"
@@ -43,6 +44,12 @@ set -euo pipefail
 printf '%s\n' "$*" >> "$LUCIA_TEST_SYSTEMCTL_LOG"
 if [[ "$1" == "enable" && -f "$LUCIA_TEST_FAIL_ENABLE_FILE" ]]; then
     printf 'simulated enable failure\n' >&2
+    exit 1
+fi
+if [[ "$*" == "restart lucia-otelcol.service" \
+        && -f "$LUCIA_TEST_FAIL_COLLECTOR_RESTART_FILE" ]]; then
+    rm "$LUCIA_TEST_FAIL_COLLECTOR_RESTART_FILE"
+    printf 'simulated collector restart failure\n' >&2
     exit 1
 fi
 if [[ "$*" == "restart lucia-redis.service" \
@@ -125,6 +132,7 @@ LUCIA_AGENTHOST_ENV_PATH="$agenthost_environment" \
 LUCIA_SYSTEMCTL_PATH="$work_dir/systemctl" \
 LUCIA_TEST_SYSTEMCTL_LOG="$systemctl_log" \
 LUCIA_TEST_FAIL_ENABLE_FILE="$fail_enable" \
+LUCIA_TEST_FAIL_COLLECTOR_RESTART_FILE="$fail_collector_restart" \
 LUCIA_TEST_BLOCK_RESTART_FILE="$block_restart" \
 LUCIA_TEST_RESTART_STARTED_FILE="$restart_started" \
 LUCIA_TEST_RESTART_COMPLETED_FILE="$restart_completed" \
@@ -378,6 +386,7 @@ grep -qx 'PluginDirectory=/var/lib/lucia/plugins' "$agenthost_environment"
 [[ "$(stat --format '%a' "$telemetry_environment")" == "600" ]]
 grep -qx -- 'enable --now lucia-redis-exporter.service lucia-otelcol.service' \
     "$systemctl_log"
+grep -qx -- 'restart lucia-otelcol.service' "$systemctl_log"
 ! grep -q '^restart lucia-agenthost.service$' "$systemctl_log"
 
 echo "PASS: telemetry configuration is validated, redacted, and enabled"
@@ -410,6 +419,23 @@ grep -q 'requires replacing or clearing saved credentials' \
 cmp -s "$work_dir/telemetry.https" "$telemetry_environment"
 
 echo "PASS: saved telemetry credentials remain scoped to their host"
+
+cp "$agenthost_environment" "$work_dir/agenthost.https"
+touch "$fail_collector_restart"
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
+        --header 'Content-Type: application/json' \
+        --request PUT \
+        --data '{"enabled":true,"endpoint":"https://new.example:4317","username":"new","password":"new-secret","insecureSkipVerify":false}' \
+        http://localhost/v1/telemetry
+)"
+[[ "$status" == "503" ]]
+cmp -s "$work_dir/telemetry.https" "$telemetry_environment"
+cmp -s "$work_dir/agenthost.https" "$agenthost_environment"
+[[ "$(grep -c '^restart lucia-otelcol.service$' "$systemctl_log")" -ge 3 ]]
+
+echo "PASS: failed collector restart restores prior telemetry configuration"
 
 for service_and_unit in \
     "collector lucia-otelcol.service" \

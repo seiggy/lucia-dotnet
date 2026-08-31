@@ -42,7 +42,15 @@ public static class SqliteDbNames
     }
 
     public static string GetConfigPath(string basePath)
-        => GetCompatiblePath(basePath, Config);
+    {
+        var configPath = GetCompatiblePath(basePath, Config);
+        if (File.Exists(basePath) && File.Exists(configPath))
+        {
+            MergeLegacyConfiguration(basePath, configPath);
+        }
+
+        return configPath;
+    }
 
     public static string GetCompatiblePath(
         string basePath,
@@ -90,5 +98,63 @@ public static class SqliteDbNames
         {
             File.Delete(temporaryPath);
         }
+    }
+
+    private static void MergeLegacyConfiguration(
+        string legacyPath,
+        string configPath)
+    {
+        var connectionString = new SqliteConnectionStringBuilder
+        {
+            DataSource = configPath,
+            Pooling = false,
+        }.ToString();
+        using var connection = new SqliteConnection(connectionString);
+        connection.Open();
+        using var attachCommand = connection.CreateCommand();
+        attachCommand.CommandText = "ATTACH DATABASE @legacyPath AS legacy;";
+        attachCommand.Parameters.AddWithValue("@legacyPath", legacyPath);
+        attachCommand.ExecuteNonQuery();
+
+        using var tableCommand = connection.CreateCommand();
+        tableCommand.CommandText = """
+            SELECT COUNT(*)
+            FROM legacy.sqlite_master
+            WHERE type = 'table' AND name = 'configuration';
+            """;
+        if ((long)tableCommand.ExecuteScalar()! == 0)
+        {
+            return;
+        }
+
+        using var transaction = connection.BeginTransaction();
+        using var mergeCommand = connection.CreateCommand();
+        mergeCommand.Transaction = transaction;
+        mergeCommand.CommandText = """
+            CREATE TABLE IF NOT EXISTS configuration (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                section TEXT,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_by TEXT NOT NULL DEFAULT 'system',
+                is_sensitive INTEGER NOT NULL DEFAULT 0
+            );
+            INSERT INTO configuration
+                (key, value, section, updated_at, updated_by, is_sensitive)
+            SELECT
+                key, value, section, updated_at, updated_by, is_sensitive
+            FROM legacy.configuration
+            WHERE true
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                section = excluded.section,
+                updated_at = excluded.updated_at,
+                updated_by = excluded.updated_by,
+                is_sensitive = excluded.is_sensitive
+            WHERE julianday(excluded.updated_at)
+                > julianday(configuration.updated_at);
+            """;
+        mergeCommand.ExecuteNonQuery();
+        transaction.Commit();
     }
 }

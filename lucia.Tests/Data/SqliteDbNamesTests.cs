@@ -72,6 +72,42 @@ public sealed class SqliteDbNamesTests
         }
     }
 
+    [Fact]
+    public void GetConfigPath_BothFilesExist_MergesLegacyConfigurationByTimestamp()
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(),
+            $"lucia-sqlite-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        var basePath = Path.Combine(directory, "lucia.db");
+        var splitPath = SqliteDbNames.GetPath(basePath, SqliteDbNames.Config);
+        CreateConfigurationDatabase(
+            basePath,
+            [
+                ("legacy-only", "legacy", "2026-01-01T00:00:00Z"),
+                ("legacy-newer", "legacy", "2026-02-01T00:00:00Z"),
+                ("split-newer", "legacy", "2026-01-01T00:00:00Z"),
+            ]);
+        CreateConfigurationDatabase(
+            splitPath,
+            [
+                ("legacy-newer", "split", "2026-01-01T00:00:00Z"),
+                ("split-newer", "split", "2026-02-01T00:00:00Z"),
+            ]);
+
+        try
+        {
+            Assert.Equal(splitPath, SqliteDbNames.GetConfigPath(basePath));
+            Assert.Equal("legacy", ReadConfiguration(splitPath, "legacy-only"));
+            Assert.Equal("legacy", ReadConfiguration(splitPath, "legacy-newer"));
+            Assert.Equal("split", ReadConfiguration(splitPath, "split-newer"));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     private static void CreateLegacyDatabase(string path)
     {
         using var connection = new SqliteConnection(
@@ -112,5 +148,59 @@ public sealed class SqliteDbNamesTests
             WHERE type = 'table' AND name = 'schema_version';
             """;
         Assert.Equal(0L, command.ExecuteScalar());
+    }
+
+    private static void CreateConfigurationDatabase(
+        string path,
+        IEnumerable<(string Key, string Value, string UpdatedAt)> entries)
+    {
+        using var connection = OpenConnection(path);
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            CREATE TABLE configuration (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                section TEXT,
+                updated_at TEXT NOT NULL,
+                updated_by TEXT NOT NULL,
+                is_sensitive INTEGER NOT NULL
+            );
+            """;
+        command.ExecuteNonQuery();
+        foreach (var entry in entries)
+        {
+            command.CommandText = """
+                INSERT INTO configuration
+                    (key, value, section, updated_at, updated_by, is_sensitive)
+                VALUES (@key, @value, 'test', @updatedAt, 'test', 0);
+                """;
+            command.Parameters.Clear();
+            command.Parameters.AddWithValue("@key", entry.Key);
+            command.Parameters.AddWithValue("@value", entry.Value);
+            command.Parameters.AddWithValue("@updatedAt", entry.UpdatedAt);
+            command.ExecuteNonQuery();
+        }
+    }
+
+    private static string? ReadConfiguration(string path, string key)
+    {
+        using var connection = OpenConnection(path);
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT value FROM configuration WHERE key = @key;";
+        command.Parameters.AddWithValue("@key", key);
+        return command.ExecuteScalar() as string;
+    }
+
+    private static SqliteConnection OpenConnection(string path)
+    {
+        var connection = new SqliteConnection(
+            new SqliteConnectionStringBuilder
+            {
+                DataSource = path,
+                Pooling = false,
+            }.ToString());
+        connection.Open();
+        return connection;
     }
 }

@@ -361,7 +361,7 @@ static async Task<IResult> UpdateTelemetryConfigurationAsync(
 static async Task<(int ExitCode, string StandardOutput, string StandardError)>
     ApplyTelemetrySystemdStateAsync(bool enabled)
 {
-    return await RunSystemctlMutationAsync(
+    var stateResult = await RunSystemctlMutationAsync(
             enabled
                 ?
                 [
@@ -377,6 +377,14 @@ static async Task<(int ExitCode, string StandardOutput, string StandardError)>
                     "lucia-otelcol.service",
                     "lucia-redis-exporter.service",
                 ])
+        .ConfigureAwait(false);
+    if (!enabled || stateResult.ExitCode != 0)
+    {
+        return stateResult;
+    }
+
+    return await RunSystemctlMutationAsync(
+            ["restart", "lucia-otelcol.service"])
         .ConfigureAwait(false);
 }
 
