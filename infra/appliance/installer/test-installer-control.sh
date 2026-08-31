@@ -136,6 +136,28 @@ confirmation_phrase="$(
         'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))[0]["confirmationPhrase"])' \
         "$work_dir/disks.json"
 )"
+if printf \
+    '{"deviceId":"%s","eraseConfirmation":"%s","hostname":"lucia-lab","recoveryPassword":"correct horse battery staple","wifi":{"ssid":"Lab WiFi","passphrase":"\\ud83d\\ude00password"}}' \
+    "$work_dir/devices/nvme-Lab_SSD_LAB123" \
+    "$confirmation_phrase" \
+    | LUCIA_ALLOW_LOOP_DEVICES=1 \
+        LUCIA_CHECKSUM_PATH="$work_dir/payload.img.sha256" \
+        LUCIA_DEVICE_DIRECTORY="$work_dir/devices" \
+        LUCIA_INSTALL_PATH="$script_dir/lucia-install" \
+        LUCIA_INSTALLER_STATE_DIR="$work_dir/state" \
+        LUCIA_NMCLI_PATH="$work_dir/nmcli" \
+        LUCIA_PAYLOAD_PATH="$work_dir/payload.img" \
+        LUCIA_SYSTEMCTL_PATH="$work_dir/systemctl" \
+        LUCIA_TEST_SYSTEMCTL_LOG="$work_dir/systemctl.log" \
+        "$control" configure 2>"$work_dir/invalid-wifi.log"; then
+    echo "Unicode Wi-Fi passphrase was accepted" >&2
+    exit 1
+fi
+grep -q 'printable ASCII' "$work_dir/invalid-wifi.log"
+[[ ! -e "$work_dir/state/erase.authorization" ]]
+
+echo "PASS: control rejects non-ASCII Wi-Fi passphrases"
+
 printf \
     '{"deviceId":"%s","eraseConfirmation":"%s","hostname":"lucia-lab","recoveryPassword":"correct horse battery staple","wifi":{"ssid":"Lab WiFi","passphrase":"lab-wifi-password"}}' \
     "$work_dir/devices/nvme-Lab_SSD_LAB123" \

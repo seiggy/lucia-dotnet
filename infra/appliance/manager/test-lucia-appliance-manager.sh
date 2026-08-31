@@ -226,6 +226,34 @@ echo "PASS: telemetry rejects credentials embedded in endpoint URLs"
 status="$(
     curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
         --unix-socket "$socket_path" \
+        --header 'Content-Type: application/json' \
+        --request PUT \
+        --data '{"enabled":true,"endpoint":"https://telemetry.example:4317?token=secret","username":null,"password":null,"insecureSkipVerify":false}' \
+        http://localhost/v1/telemetry
+)"
+[[ "$status" == "400" ]]
+! grep -q 'token=secret' "$work_dir/response.json"
+[[ ! -e "$telemetry_environment" ]]
+
+echo "PASS: telemetry rejects endpoint query strings"
+
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
+        --header 'Content-Type: application/json' \
+        --request PUT \
+        --data '{"enabled":true,"endpoint":"http://telemetry.example:4317","username":"lucia","password":"telemetry-secret","insecureSkipVerify":false}' \
+        http://localhost/v1/telemetry
+)"
+[[ "$status" == "400" ]]
+grep -q 'credentials require an HTTPS endpoint' "$work_dir/response.json"
+[[ ! -e "$telemetry_environment" ]]
+
+echo "PASS: telemetry rejects credentials over plaintext"
+
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
         http://localhost/v1/telemetry
 )"
 
@@ -260,6 +288,20 @@ grep -qx -- 'enable --now lucia-redis-exporter.service lucia-otelcol.service' \
     "$systemctl_log"
 
 echo "PASS: telemetry configuration is validated, redacted, and enabled"
+
+cp "$telemetry_environment" "$work_dir/telemetry.https"
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
+        --header 'Content-Type: application/json' \
+        --request PUT \
+        --data '{"enabled":true,"endpoint":"http://telemetry.example:4317","username":null,"password":null,"insecureSkipVerify":false}' \
+        http://localhost/v1/telemetry
+)"
+[[ "$status" == "400" ]]
+cmp -s "$work_dir/telemetry.https" "$telemetry_environment"
+
+echo "PASS: telemetry cannot retain credentials on a plaintext endpoint"
 
 for service_and_unit in \
     "collector lucia-otelcol.service" \

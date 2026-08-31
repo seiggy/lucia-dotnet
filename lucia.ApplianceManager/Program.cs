@@ -215,7 +215,9 @@ static async Task<IResult> UpdateTelemetryConfigurationAsync(
     if (!Uri.TryCreate(request.Endpoint, UriKind.Absolute, out var endpoint)
         || endpoint.Scheme is not ("http" or "https")
         || string.IsNullOrWhiteSpace(endpoint.Host)
-        || !string.IsNullOrEmpty(endpoint.UserInfo))
+        || !string.IsNullOrEmpty(endpoint.UserInfo)
+        || !string.IsNullOrEmpty(endpoint.Query)
+        || !string.IsNullOrEmpty(endpoint.Fragment))
     {
         return Results.BadRequest(new
         {
@@ -254,6 +256,15 @@ static async Task<IResult> UpdateTelemetryConfigurationAsync(
             : existing.GetValueOrDefault(
                 "OTEL_EXPORTER_OTLP_AUTHORIZATION",
                 string.Empty);
+    if (request.Enabled
+        && endpoint.Scheme == "http"
+        && !string.IsNullOrEmpty(authorization))
+    {
+        return Results.BadRequest(new
+        {
+            Error = "Telemetry credentials require an HTTPS endpoint.",
+        });
+    }
     var values = new[]
     {
         $"LUCIA_TELEMETRY_ENABLED={request.Enabled.ToString().ToLowerInvariant()}",

@@ -317,9 +317,14 @@ def configure_installation() -> None:
             8,
             64,
         )
-        if len(passphrase) == 64 and re.fullmatch(r"[0-9A-Fa-f]{64}", passphrase) is None:
+        if len(passphrase) == 64:
+            if re.fullmatch(r"[0-9A-Fa-f]{64}", passphrase) is None:
+                raise ValueError(
+                    "A 64-character Wi-Fi passphrase must be hexadecimal"
+                )
+        elif re.fullmatch(r"[\x20-\x7E]{8,63}", passphrase) is None:
             raise ValueError(
-                "A 64-character Wi-Fi passphrase must be hexadecimal"
+                "A Wi-Fi passphrase must contain 8-63 printable ASCII characters"
             )
         if ssid not in {network["ssid"] for network in read_supported_networks()}:
             raise ValueError("Selected Wi-Fi network does not support WPA-PSK")

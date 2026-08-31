@@ -852,7 +852,7 @@ function InstallingStep({
           ? `The installer has handed off to ${hostname}.local. Remove the SD card when the appliance powers down, then turn it back on.`
           : isFailed
             ? 'Lucia stopped before installation completed. Keep the SD card inserted and restart the appliance to retry safely.'
-          : 'The image is being verified, written, and personalized. Keep the appliance powered on. This page may disconnect during the restart.'}
+          : 'The image is being verified, written, and personalized. Keep the appliance powered on. This page may disconnect when the appliance powers down.'}
       </p>
       {hasWriteProgress && (
         <div className="mx-auto mt-7 max-w-md">

@@ -6,6 +6,8 @@ import re
 import shutil
 import urllib.parse
 
+COPY_BUFFER_BYTES = 1024 * 1024
+
 
 def hash_file(path: pathlib.Path) -> str:
     digest = hashlib.sha256()
@@ -33,7 +35,16 @@ def chunk_file(
         with source.open("rb") as input_stream:
             for index in range(part_count):
                 destination = output_directory / f"{source.name}.part{index:02d}"
-                destination.write_bytes(input_stream.read(chunk_bytes))
+                remaining = chunk_bytes
+                with destination.open("wb") as output_stream:
+                    while remaining > 0:
+                        block = input_stream.read(
+                            min(COPY_BUFFER_BYTES, remaining)
+                        )
+                        if not block:
+                            break
+                        output_stream.write(block)
+                        remaining -= len(block)
                 part_paths.append(destination)
 
     for path in part_paths:
