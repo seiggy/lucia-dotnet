@@ -48,7 +48,10 @@ public sealed partial class PostgresApiKeyService : IApiKeyService
         cmd.Parameters.AddWithValue("keyPrefix", prefix);
         cmd.Parameters.AddWithValue("name", name);
         cmd.Parameters.AddWithValue("createdAt", createdAt);
-        cmd.Parameters.Add(new NpgsqlParameter("scopes", NpgsqlDbType.Jsonb) { Value = JsonSerializer.Serialize(new[] { "*" }) });
+        cmd.Parameters.Add(new NpgsqlParameter("scopes", NpgsqlDbType.Jsonb)
+        {
+            Value = JsonSerializer.Serialize(ApiKeyScopes.ForName(name)),
+        });
 
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         LogCreatedKey(_logger, name, prefix);
@@ -92,7 +95,10 @@ public sealed partial class PostgresApiKeyService : IApiKeyService
         cmd.Parameters.AddWithValue("keyPrefix", prefix);
         cmd.Parameters.AddWithValue("name", name);
         cmd.Parameters.AddWithValue("createdAt", createdAt);
-        cmd.Parameters.Add(new NpgsqlParameter("scopes", NpgsqlDbType.Jsonb) { Value = JsonSerializer.Serialize(new[] { "*" }) });
+        cmd.Parameters.Add(new NpgsqlParameter("scopes", NpgsqlDbType.Jsonb)
+        {
+            Value = JsonSerializer.Serialize(ApiKeyScopes.ForName(name)),
+        });
 
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         LogCreatedEnvKey(_logger, name, prefix);
@@ -335,7 +341,10 @@ public sealed partial class PostgresApiKeyService : IApiKeyService
         insertCmd.Parameters.AddWithValue("keyPrefix", prefix);
         insertCmd.Parameters.AddWithValue("name", name);
         insertCmd.Parameters.AddWithValue("createdAt", createdAt);
-        insertCmd.Parameters.Add(new NpgsqlParameter("scopes", NpgsqlDbType.Jsonb) { Value = JsonSerializer.Serialize(new[] { "*" }) });
+        insertCmd.Parameters.Add(new NpgsqlParameter("scopes", NpgsqlDbType.Jsonb)
+        {
+            Value = JsonSerializer.Serialize(ApiKeyScopes.ForName(name)),
+        });
 
         var inserted = await insertCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         if (inserted == 0)

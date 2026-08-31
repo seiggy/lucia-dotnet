@@ -386,7 +386,7 @@ def seed_dashboard_key(
             """
             INSERT OR IGNORE INTO api_keys
                 (id, key_hash, key_prefix, name, created_at, scopes)
-            VALUES (?, ?, ?, 'Dashboard', ?, '["*"]')
+            VALUES (?, ?, ?, 'Dashboard', ?, '["*","admin:appliance"]')
             """,
             (
                 uuid.uuid4().hex,

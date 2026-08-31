@@ -204,6 +204,10 @@ jobs:
       - name: Clean build workspace
         if: ${{ always() }}
         run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Skipping cleanup for invalid release tag."
+            exit 0
+          fi
           version="${RELEASE_TAG#v}"
           work_dir="$RUNNER_TEMP/lucia-appliance-$version"
           mapfile -t mounts < <(

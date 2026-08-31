@@ -40,6 +40,13 @@ public static class ApiKeyManagementApi
         {
             return Results.BadRequest(new { error = "Key name is required." });
         }
+        if (string.Equals(request.Name, "Dashboard", StringComparison.Ordinal))
+        {
+            return Results.BadRequest(new
+            {
+                error = "The Dashboard key purpose is reserved.",
+            });
+        }
 
         var result = await apiKeyService.CreateKeyAsync(request.Name, httpContext.RequestAborted).ConfigureAwait(false);
         return Results.Created($"/api/keys/{result.Id}", result);

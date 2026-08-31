@@ -86,12 +86,13 @@ import sys
 
 with sqlite3.connect(sys.argv[1]) as connection:
     row = connection.execute(
-        "SELECT key_hash, name FROM api_keys"
+        "SELECT key_hash, name, scopes FROM api_keys"
     ).fetchone()
 
 assert row == (
     hashlib.sha256(b"lk_dashboard-bootstrap-key-1234567890").hexdigest(),
     "Dashboard",
+    '["*","admin:appliance"]',
 )
 PY
 cmp -s \

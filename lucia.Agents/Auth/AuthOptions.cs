@@ -44,4 +44,6 @@ public sealed class AuthOptions
     public const string AdministratorRole = "Administrator";
 
     public const string AdministratorPolicy = "Administrator";
+
+    public const string AdministratorScope = "admin:appliance";
 }

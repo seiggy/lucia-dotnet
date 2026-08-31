@@ -68,7 +68,9 @@ public sealed class ApiKeyAuthenticationHandler : AuthenticationHandler<Authenti
             new Claim("auth_method", "api_key"),
             new Claim("key_prefix", entry.KeyPrefix),
         };
-        if (string.Equals(entry.Name, "Dashboard", StringComparison.Ordinal))
+        if (entry.Scopes.Contains(
+                AuthOptions.AdministratorScope,
+                StringComparer.Ordinal))
         {
             claims.Add(new Claim(
                 ClaimTypes.Role,

@@ -588,6 +588,11 @@ public sealed partial class PostgresMigrationRunner : IHostedService
             );
             CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON public.api_keys(key_hash);
             CREATE INDEX IF NOT EXISTS idx_api_keys_revoked ON public.api_keys(is_revoked);
+            UPDATE public.api_keys
+            SET scopes = '["*", "admin:appliance"]'::jsonb
+            WHERE name = 'Dashboard'
+              AND is_revoked = FALSE
+              AND scopes = '["*"]'::jsonb;
 
             CREATE TABLE IF NOT EXISTS public.model_providers (
                 id TEXT PRIMARY KEY,

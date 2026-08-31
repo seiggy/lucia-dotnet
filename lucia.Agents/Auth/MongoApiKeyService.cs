@@ -34,6 +34,7 @@ public sealed class MongoApiKeyService : IApiKeyService
             KeyHash = hash,
             KeyPrefix = prefix,
             Name = name,
+            Scopes = ApiKeyScopes.ForName(name),
             CreatedAt = DateTime.UtcNow,
         };
 
@@ -72,6 +73,7 @@ public sealed class MongoApiKeyService : IApiKeyService
             KeyHash = hash,
             KeyPrefix = prefix,
             Name = name,
+            Scopes = ApiKeyScopes.ForName(name),
             CreatedAt = DateTime.UtcNow,
         };
 
@@ -243,6 +245,7 @@ public sealed class MongoApiKeyService : IApiKeyService
             KeyHash = hash,
             KeyPrefix = prefix,
             Name = name,
+            Scopes = ApiKeyScopes.ForName(name),
             CreatedAt = DateTime.UtcNow,
         };
 
@@ -308,6 +311,14 @@ public sealed class MongoApiKeyService : IApiKeyService
             };
 
             _collection.Indexes.CreateMany(indexModels);
+            _collection.UpdateMany(
+                entry => entry.Name == "Dashboard"
+                    && !entry.IsRevoked
+                    && !entry.Scopes.Contains(
+                        AuthOptions.AdministratorScope),
+                Builders<ApiKeyEntry>.Update.AddToSet(
+                    entry => entry.Scopes,
+                    AuthOptions.AdministratorScope));
         }
         catch (Exception ex)
         {

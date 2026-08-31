@@ -147,6 +147,11 @@ public sealed class SqliteMigrationRunner : IHostedService
             );
             CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
             CREATE INDEX IF NOT EXISTS idx_api_keys_revoked ON api_keys(is_revoked);
+            UPDATE api_keys
+            SET scopes = '["*","admin:appliance"]'
+            WHERE name = 'Dashboard'
+              AND is_revoked = 0
+              AND scopes = '["*"]';
 
             CREATE TABLE IF NOT EXISTS model_providers (
                 id TEXT PRIMARY KEY,

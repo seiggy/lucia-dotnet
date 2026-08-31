@@ -1,4 +1,5 @@
 using lucia.Agents.PluginFramework;
+using lucia.Agents.Auth;
 using Microsoft.AspNetCore.Http.HttpResults;
 
 namespace lucia.AgentHost.Apis;
@@ -12,7 +13,7 @@ public static class SystemApi
     {
         var group = endpoints.MapGroup("/api/system")
             .WithTags("System")
-            .RequireAuthorization();
+            .RequireAuthorization(AuthOptions.AdministratorPolicy);
 
         group.MapGet("/restart-required", GetRestartRequired);
         group.MapPost("/restart", TriggerRestart);

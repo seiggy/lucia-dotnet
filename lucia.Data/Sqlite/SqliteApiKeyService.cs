@@ -46,7 +46,9 @@ public sealed class SqliteApiKeyService : IApiKeyService
         cmd.Parameters.AddWithValue("@keyPrefix", prefix);
         cmd.Parameters.AddWithValue("@name", name);
         cmd.Parameters.AddWithValue("@createdAt", createdAt.ToString("O"));
-        cmd.Parameters.AddWithValue("@scopes", JsonSerializer.Serialize(new[] { "*" }));
+        cmd.Parameters.AddWithValue(
+            "@scopes",
+            JsonSerializer.Serialize(ApiKeyScopes.ForName(name)));
 
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
 
@@ -90,7 +92,9 @@ public sealed class SqliteApiKeyService : IApiKeyService
         cmd.Parameters.AddWithValue("@keyPrefix", prefix);
         cmd.Parameters.AddWithValue("@name", name);
         cmd.Parameters.AddWithValue("@createdAt", createdAt.ToString("O"));
-        cmd.Parameters.AddWithValue("@scopes", JsonSerializer.Serialize(new[] { "*" }));
+        cmd.Parameters.AddWithValue(
+            "@scopes",
+            JsonSerializer.Serialize(ApiKeyScopes.ForName(name)));
 
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
 
@@ -323,7 +327,9 @@ public sealed class SqliteApiKeyService : IApiKeyService
         insertCmd.Parameters.AddWithValue("@keyPrefix", prefix);
         insertCmd.Parameters.AddWithValue("@name", name);
         insertCmd.Parameters.AddWithValue("@createdAt", createdAt.ToString("O"));
-        insertCmd.Parameters.AddWithValue("@scopes", JsonSerializer.Serialize(new[] { "*" }));
+        insertCmd.Parameters.AddWithValue(
+            "@scopes",
+            JsonSerializer.Serialize(ApiKeyScopes.ForName(name)));
 
         var inserted = await insertCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         if (inserted == 0)

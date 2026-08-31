@@ -145,7 +145,10 @@ public sealed partial class HmacSessionService : ISessionService, IAsyncInitiali
         }
     }
 
-    public string CreateSession(string keyId, string keyName)
+    public string CreateSession(
+        string keyId,
+        string keyName,
+        bool isAdministrator = false)
     {
         var signingKey = GetOrCreateSigningKey();
 
@@ -153,6 +156,7 @@ public sealed partial class HmacSessionService : ISessionService, IAsyncInitiali
         {
             KeyId = keyId,
             KeyName = keyName,
+            IsAdministrator = isAdministrator,
             IssuedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
             ExpiresAt = DateTimeOffset.UtcNow.Add(_options.SessionLifetime).ToUnixTimeSeconds(),
         };
@@ -207,10 +211,7 @@ public sealed partial class HmacSessionService : ISessionService, IAsyncInitiali
                 new Claim(ClaimTypes.Name, payload.KeyName),
                 new Claim("auth_method", "session"),
             ];
-            if (string.Equals(
-                    payload.KeyName,
-                    "Dashboard",
-                    StringComparison.Ordinal))
+            if (payload.IsAdministrator)
             {
                 claims.Add(new Claim(
                     ClaimTypes.Role,
@@ -315,6 +316,7 @@ public sealed partial class HmacSessionService : ISessionService, IAsyncInitiali
     {
         public string KeyId { get; set; } = default!;
         public string KeyName { get; set; } = default!;
+        public bool IsAdministrator { get; set; }
         public long IssuedAt { get; set; }
         public long ExpiresAt { get; set; }
     }

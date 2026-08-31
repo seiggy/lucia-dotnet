@@ -40,6 +40,23 @@ public sealed class SqliteApiKeyServiceTests : IDisposable
     }
 
     [Theory]
+    [InlineData("Dashboard", true)]
+    [InlineData("Home Assistant", false)]
+    public async Task CreateKeyAsync_AssignsImmutableAdministratorScope(
+        string name,
+        bool expectedAdministrator)
+    {
+        var created = await _service.CreateKeyAsync(name);
+
+        var entry = await _service.ValidateKeyAsync(created.Key);
+
+        Assert.NotNull(entry);
+        Assert.Equal(
+            expectedAdministrator,
+            entry.Scopes.Contains(AuthOptions.AdministratorScope));
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task ValidateKeyAsync_DoesNotUpdateLastUsedAt(bool hasHistoricalValue)
