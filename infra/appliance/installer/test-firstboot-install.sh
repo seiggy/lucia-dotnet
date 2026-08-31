@@ -104,3 +104,19 @@ grep -q '^status=provisioned$' "$work_dir/state/provision.state"
 grep -q '"stage":"powering-off"' "$work_dir/state/progress.json"
 
 echo "PASS: first boot installs, provisions, and powers off"
+
+: > "$work_dir/systemctl.log"
+LUCIA_CHECKSUM_PATH="$work_dir/payload.img.sha256" \
+LUCIA_INSTALL_PATH="$work_dir/lucia-install" \
+LUCIA_EXPAND_PATH="$work_dir/lucia-expand-data" \
+LUCIA_INSTALLER_STATE_DIR="$work_dir/state" \
+LUCIA_PAYLOAD_PATH="$work_dir/payload.img" \
+LUCIA_PROVISION_PATH="$work_dir/lucia-provision-target" \
+LUCIA_SYSTEMCTL_PATH="$work_dir/systemctl" \
+LUCIA_TEST_SYSTEMCTL_LOG="$work_dir/systemctl.log" \
+    "$firstboot"
+
+grep -qx -- '--no-block poweroff' "$work_dir/systemctl.log"
+grep -q '"stage":"powering-off"' "$work_dir/state/progress.json"
+
+echo "PASS: completed provisioning resumes the safe poweroff handoff"

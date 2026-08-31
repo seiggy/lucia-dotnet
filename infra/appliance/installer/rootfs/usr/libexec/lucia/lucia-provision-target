@@ -275,12 +275,13 @@ def complete_provisioning(
     state_directory: pathlib.Path,
     hostname: str,
 ) -> None:
-    (state_directory / "provisioning.json").unlink()
     write_atomic(
         state_directory / "provision.state",
         f"status=provisioned\nhostname={hostname}\n",
         mode=0o600,
     )
+    os.sync()
+    (state_directory / "provisioning.json").unlink()
     os.sync()
 
 

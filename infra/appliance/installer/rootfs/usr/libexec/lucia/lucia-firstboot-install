@@ -25,6 +25,13 @@ write_progress() {
     chmod 0600 "$temporary_file"
     mv "$temporary_file" "$progress_file"
 }
+power_off_for_handoff() {
+    write_progress syncing
+    sync
+    write_progress powering-off
+    printf 'Lucia installation completed. Powering off for SD card removal.\n'
+    "$systemctl_path" --no-block poweroff
+}
 on_error() {
     write_progress failed
 }
@@ -37,16 +44,12 @@ if [[ -f "$state_file" ]] \
         write_progress provisioning
         "$expand_path" "$device"
         "$provision_path" "$device"
-        write_progress syncing
-        sync
-        write_progress powering-off
-        printf 'Lucia installation completed. Powering off for SD card removal.\n'
-        "$systemctl_path" --no-block poweroff
+        power_off_for_handoff
         exit 0
     fi
     if [[ -f "$provision_state_file" ]] \
         && grep -q '^status=provisioned$' "$provision_state_file"; then
-        printf 'Lucia is already installed. Remove the SD card if NVMe did not boot.\n'
+        power_off_for_handoff
         exit 0
     fi
     printf 'Lucia is already installed. Remove the SD card if NVMe did not boot.\n'
@@ -89,8 +92,4 @@ fi
 write_progress provisioning
 "$expand_path" "$device"
 "$provision_path" "$device"
-write_progress syncing
-sync
-write_progress powering-off
-printf 'Lucia installation completed. Powering off for SD card removal.\n'
-"$systemctl_path" --no-block poweroff
+power_off_for_handoff
