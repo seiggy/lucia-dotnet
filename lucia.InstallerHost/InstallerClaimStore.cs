@@ -39,30 +39,41 @@ internal sealed class InstallerClaimStore(string claimPath)
         var directory = Path.GetDirectoryName(claimPath)
             ?? throw new InvalidOperationException("The installer claim path has no directory.");
         Directory.CreateDirectory(directory);
+        var temporaryPath = Path.Combine(
+            directory,
+            $".{Path.GetFileName(claimPath)}.{Guid.NewGuid():N}.tmp");
 
         try
         {
-            using var stream = new FileStream(
-                claimPath,
-                FileMode.CreateNew,
-                FileAccess.Write,
-                FileShare.None);
-            if (!OperatingSystem.IsWindows())
+            using (var stream = new FileStream(
+                       temporaryPath,
+                       FileMode.CreateNew,
+                       FileAccess.Write,
+                       FileShare.None))
             {
-                File.SetUnixFileMode(
-                    claimPath,
-                    UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                if (!OperatingSystem.IsWindows())
+                {
+                    File.SetUnixFileMode(
+                        temporaryPath,
+                        UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                }
+
+                using var writer = new StreamWriter(stream);
+                writer.WriteLine(hash);
+                writer.Flush();
+                stream.Flush(flushToDisk: true);
             }
 
-            using var writer = new StreamWriter(stream);
-            writer.WriteLine(hash);
-            writer.Flush();
-            stream.Flush(flushToDisk: true);
+            File.Move(temporaryPath, claimPath, overwrite: false);
             return token;
         }
         catch (IOException) when (File.Exists(claimPath))
         {
             return null;
+        }
+        finally
+        {
+            File.Delete(temporaryPath);
         }
     }
 }

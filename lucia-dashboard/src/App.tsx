@@ -112,21 +112,37 @@ function AppRoutes() {
       return
     }
 
-    fetch('/api/appliance/capabilities')
-      .then(async (response) => {
-        if (!response.ok) {
-          setHasAppliance(false)
+    let cancelled = false
+    let retryTimer: number | undefined
+    async function checkCapability() {
+      try {
+        const response = await fetch('/api/appliance/capabilities')
+        if (response.status === 404) {
+          if (!cancelled) setHasAppliance(false)
           return
         }
+        if (!response.ok) throw new Error(`Capability check failed with status ${response.status}.`)
         const capability: unknown = await response.json()
-        setHasAppliance(
-          typeof capability === 'object'
-            && capability !== null
-            && 'enabled' in capability
-            && capability.enabled === true,
-        )
-      })
-      .catch(() => setHasAppliance(false))
+        if (
+          typeof capability !== 'object'
+          || capability === null
+          || !('enabled' in capability)
+          || typeof capability.enabled !== 'boolean'
+        ) {
+          throw new Error('Capability response is invalid.')
+        }
+        if (!cancelled) setHasAppliance(capability.enabled)
+      } catch {
+        if (!cancelled) {
+          retryTimer = window.setTimeout(() => void checkCapability(), 2000)
+        }
+      }
+    }
+    void checkCapability()
+    return () => {
+      cancelled = true
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer)
+    }
   }, [authenticated, setupComplete])
 
   if (loading) {

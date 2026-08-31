@@ -64,8 +64,21 @@ ap_capability="$(
 }
 
 connection_created=false
-if [[ ! -f "$connection_path" ]]; then
-    connection_uuid="$(cat /proc/sys/kernel/random/uuid)"
+connection_matches=false
+if [[ -f "$connection_path" ]] \
+    && grep -Fqx "interface-name=$wifi_interface" "$connection_path" \
+    && grep -Fqx "ssid=$setup_ssid" "$connection_path" \
+    && grep -Fqx "psk=$setup_psk" "$connection_path"; then
+    connection_matches=true
+fi
+if [[ "$connection_matches" == false ]]; then
+    connection_uuid=""
+    if [[ -f "$connection_path" ]]; then
+        connection_uuid="$(sed -n 's/^uuid=//p' "$connection_path" | head -1)"
+    fi
+    if [[ ! "$connection_uuid" =~ ^[0-9a-fA-F-]{36}$ ]]; then
+        connection_uuid="$(cat /proc/sys/kernel/random/uuid)"
+    fi
     temporary_path="${connection_path}.tmp.$$"
     install -d -m 0700 "$(dirname "$connection_path")"
     cat > "$temporary_path" <<EOF

@@ -81,3 +81,18 @@ grep -qx 'ssid=Lucia-ABC123' "$work_dir/derived.nmconnection"
 grep -qx 'psk=JETSONABC123' "$work_dir/derived.nmconnection"
 
 echo "PASS: setup identity derives from the Jetson serial"
+
+printf 'JETSONXYZ789\n' > "$work_dir/serial"
+LUCIA_BOOTSTRAP_ENV="$work_dir/derived.env" \
+LUCIA_CONNECTION_PATH="$work_dir/derived.nmconnection" \
+LUCIA_DEVICE_SERIAL_PATH="$work_dir/serial" \
+LUCIA_NMCLI_PATH="$work_dir/nmcli" \
+LUCIA_IPTABLES_PATH="$work_dir/iptables" \
+LUCIA_TEST_NMCLI_LOG="$work_dir/nmcli.log" \
+LUCIA_TEST_IPTABLES_LOG="$work_dir/iptables.log" \
+    "$bootstrap"
+grep -qx 'ssid=Lucia-XYZ789' "$work_dir/derived.nmconnection"
+grep -qx 'psk=JETSONXYZ789' "$work_dir/derived.nmconnection"
+[[ "$(grep -c 'connection up lucia-setup' "$work_dir/nmcli.log")" == "2" ]]
+
+echo "PASS: reused media refreshes setup identity for each Jetson"
