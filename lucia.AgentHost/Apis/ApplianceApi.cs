@@ -130,6 +130,14 @@ public static class ApplianceApi
                         statusCode: StatusCodes.Status502BadGateway,
                         title: "GitHub update check failed");
                 }
+                catch (OperationCanceledException exception) when (
+                    !cancellationToken.IsCancellationRequested)
+                {
+                    return Results.Problem(
+                        detail: exception.Message,
+                        statusCode: StatusCodes.Status504GatewayTimeout,
+                        title: "GitHub update check timed out");
+                }
                 catch (Exception exception) when (
                     exception is JsonException
                         or KeyNotFoundException

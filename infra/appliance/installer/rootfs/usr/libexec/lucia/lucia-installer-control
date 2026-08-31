@@ -493,24 +493,35 @@ def retry_network_configuration() -> None:
             provisioning_path,
             json.dumps(provisioning, separators=(",", ":")),
         )
-        systemctl_path = os.environ.get(
-            "LUCIA_SYSTEMCTL_PATH", "/usr/bin/systemctl"
-        )
-        subprocess.run(
-            [
-                systemctl_path,
-                "start",
-                "--no-block",
-                "lucia-firstboot-install.service",
-            ],
-            check=True,
-        )
-        pathlib.Path(
+        progress_path = pathlib.Path(
             os.environ.get(
                 "LUCIA_INSTALLER_PROGRESS_PATH",
                 state_directory / "progress.json",
             )
-        ).unlink(missing_ok=True)
+        )
+        previous_progress = (
+            progress_path.read_text(encoding="utf-8")
+            if progress_path.exists()
+            else None
+        )
+        progress_path.unlink(missing_ok=True)
+        systemctl_path = os.environ.get(
+            "LUCIA_SYSTEMCTL_PATH", "/usr/bin/systemctl"
+        )
+        try:
+            subprocess.run(
+                [
+                    systemctl_path,
+                    "start",
+                    "--no-block",
+                    "lucia-firstboot-install.service",
+                ],
+                check=True,
+            )
+        except (subprocess.CalledProcessError, OSError):
+            if previous_progress is not None:
+                write_atomic(progress_path, previous_progress)
+            raise
 
     print(json.dumps({"phase": "authorized"}, separators=(",", ":")))
 

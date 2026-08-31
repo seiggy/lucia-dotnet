@@ -8,7 +8,7 @@ using lucia.ApplianceManager;
 var builder = WebApplication.CreateSlimBuilder(args);
 
 var socketPath = Environment.GetEnvironmentVariable("LUCIA_APPLIANCE_SOCKET")
-    ?? "/run/lucia/appliance-manager.sock";
+    ?? "/run/lucia-appliance/appliance-manager.sock";
 
 builder.WebHost.ConfigureKestrel(options => options.ListenUnixSocket(socketPath));
 

@@ -143,14 +143,14 @@ Source: [Ubuntu Core 22 for Jetson release notes](https://canonical-ubuntu-for-j
 
 The minimum appliance has three enabled services:
 
-1. `redis-server.service`
+1. `lucia-redis.service`
 2. `lucia-agenthost.service`
 3. `lucia-appliance-manager.service`
 
 The image also installs two optional services:
 
-1. `otelcol-contrib.service`
-2. `redis-exporter.service`
+1. `lucia-otelcol.service`
+2. `lucia-redis-exporter.service`
 
 Both telemetry services are disabled by the image's systemd preset. They start
 only after the owner enables telemetry during onboarding or later from the
@@ -168,7 +168,7 @@ DataProvider__Store=SQLite
 DataProvider__SqlitePath=/var/lib/lucia/db/lucia.db
 ConnectionStrings__redis=127.0.0.1:6379
 Deployment__Mode=standalone
-Appliance__Enabled=true
+Appliance__Mode=Installed
 PluginDirectory=/var/lib/lucia/plugins
 ```
 
@@ -200,7 +200,7 @@ partition mounted at `/opt/lucia`, and persistent data partitions.
   plugins/
   voice-clips/
 /var/lib/redis/
-/var/lib/otelcol/
+/var/lib/lucia/otelcol/
 /etc/lucia/
   lucia.env
   telemetry.env
@@ -478,7 +478,7 @@ Sources:
 ## Dashboard in appliance mode
 
 The backend exposes an appliance capability flag. The dashboard adds no
-appliance controls unless `Appliance__Enabled=true` and the authenticated user
+appliance controls unless `Appliance__Mode=Installed` and the authenticated user
 has administrator access.
 
 On first boot, add one optional **Telemetry** step before setup completes. The
