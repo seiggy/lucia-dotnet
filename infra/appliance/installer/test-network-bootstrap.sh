@@ -68,31 +68,40 @@ echo "PASS: network bootstrap creates an encrypted isolated setup network"
 printf '%s\n' '# derive setup identity from device serial' > "$work_dir/derived.env"
 chmod 0600 "$work_dir/derived.env"
 printf 'JETSONABC123\n' > "$work_dir/serial"
+printf '11111111-2222-3333-4444-555555555555\n' > "$work_dir/random"
+: > "$work_dir/console"
 rm "$work_dir/nmcli.log" "$work_dir/iptables.log"
 LUCIA_BOOTSTRAP_ENV="$work_dir/derived.env" \
 LUCIA_CONNECTION_PATH="$work_dir/derived.nmconnection" \
 LUCIA_DEVICE_SERIAL_PATH="$work_dir/serial" \
+LUCIA_RANDOM_UUID_PATH="$work_dir/random" \
+LUCIA_SETUP_CONSOLE_PATH="$work_dir/console" \
 LUCIA_NMCLI_PATH="$work_dir/nmcli" \
 LUCIA_IPTABLES_PATH="$work_dir/iptables" \
 LUCIA_TEST_NMCLI_LOG="$work_dir/nmcli.log" \
 LUCIA_TEST_IPTABLES_LOG="$work_dir/iptables.log" \
     "$bootstrap"
-grep -qx 'ssid=Lucia-ABC123' "$work_dir/derived.nmconnection"
-grep -qx 'psk=JETSONABC123' "$work_dir/derived.nmconnection"
+grep -qx 'ssid=Lucia-111111' "$work_dir/derived.nmconnection"
+grep -qx 'psk=11222233334444555555' "$work_dir/derived.nmconnection"
+grep -q 'Lucia setup Wi-Fi: Lucia-111111' "$work_dir/console"
+! grep -q 'JETSONABC123' "$work_dir/derived.nmconnection"
 
-echo "PASS: setup identity derives from the Jetson serial"
+echo "PASS: setup identity uses a console-delivered random secret"
 
 printf 'JETSONXYZ789\n' > "$work_dir/serial"
+printf 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\n' > "$work_dir/random"
 LUCIA_BOOTSTRAP_ENV="$work_dir/derived.env" \
 LUCIA_CONNECTION_PATH="$work_dir/derived.nmconnection" \
 LUCIA_DEVICE_SERIAL_PATH="$work_dir/serial" \
+LUCIA_RANDOM_UUID_PATH="$work_dir/random" \
+LUCIA_SETUP_CONSOLE_PATH="$work_dir/console" \
 LUCIA_NMCLI_PATH="$work_dir/nmcli" \
 LUCIA_IPTABLES_PATH="$work_dir/iptables" \
 LUCIA_TEST_NMCLI_LOG="$work_dir/nmcli.log" \
 LUCIA_TEST_IPTABLES_LOG="$work_dir/iptables.log" \
     "$bootstrap"
-grep -qx 'ssid=Lucia-XYZ789' "$work_dir/derived.nmconnection"
-grep -qx 'psk=JETSONXYZ789' "$work_dir/derived.nmconnection"
+grep -qx 'ssid=Lucia-aaaaaa' "$work_dir/derived.nmconnection"
+grep -qx 'psk=aabbbbccccddddeeeeee' "$work_dir/derived.nmconnection"
 [[ "$(grep -c 'connection up lucia-setup' "$work_dir/nmcli.log")" == "2" ]]
 
 echo "PASS: reused media refreshes setup identity for each Jetson"

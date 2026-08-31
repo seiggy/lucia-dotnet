@@ -35,7 +35,10 @@ public sealed class SqliteDbNamesTests
             var expectedPath = SqliteDbNames.GetPath(basePath, SqliteDbNames.Config);
 
             Assert.Equal(expectedPath, SqliteDbNames.GetConfigPath(basePath));
-            AssertSelectiveDataCopied(expectedPath, "configuration");
+            AssertSelectiveDataCopied(
+                expectedPath,
+                "configuration",
+                "is_sensitive");
         }
         finally
         {
@@ -44,12 +47,13 @@ public sealed class SqliteDbNamesTests
     }
 
     [Theory]
-    [InlineData(SqliteDbNames.Config, "configuration")]
-    [InlineData(SqliteDbNames.Traces, "command_traces")]
-    [InlineData(SqliteDbNames.Tasks, "scheduled_tasks")]
+    [InlineData(SqliteDbNames.Config, "configuration", "is_sensitive")]
+    [InlineData(SqliteDbNames.Traces, "command_traces", "skill_id")]
+    [InlineData(SqliteDbNames.Tasks, "scheduled_tasks", "fire_at")]
     public void GetCompatiblePath_LegacyDatabaseOnly_ImportsOwnedTables(
         string databaseName,
-        string expectedTable)
+        string expectedTable,
+        string currentColumn)
     {
         var directory = Path.Combine(
             Path.GetTempPath(),
@@ -65,7 +69,10 @@ public sealed class SqliteDbNamesTests
             Assert.Equal(
                 expectedPath,
                 SqliteDbNames.GetCompatiblePath(basePath, databaseName));
-            AssertSelectiveDataCopied(expectedPath, expectedTable);
+            AssertSelectiveDataCopied(
+                expectedPath,
+                expectedTable,
+                currentColumn);
         }
         finally
         {
@@ -195,7 +202,8 @@ public sealed class SqliteDbNamesTests
 
     private static void AssertSelectiveDataCopied(
         string path,
-        string expectedTable)
+        string expectedTable,
+        string currentColumn)
     {
         using var connection = new SqliteConnection(
             new SqliteConnectionStringBuilder
@@ -219,6 +227,10 @@ public sealed class SqliteDbNamesTests
             WHERE type = 'table' AND name = 'unrelated_data';
             """;
         Assert.Equal(0L, command.ExecuteScalar());
+        command.CommandText =
+            $"SELECT COUNT(*) FROM pragma_table_info('{expectedTable}') WHERE name = @column;";
+        command.Parameters.AddWithValue("@column", currentColumn);
+        Assert.Equal(1L, command.ExecuteScalar());
         command.CommandText = """
             SELECT COUNT(*)
             FROM sqlite_master

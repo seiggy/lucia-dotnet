@@ -86,6 +86,7 @@ public static class SqliteDbNames
             ImportLegacyTables(
                 basePath,
                 splitPath,
+                databaseName,
                 databaseName switch
                 {
                     Config => s_configTables,
@@ -104,6 +105,7 @@ public static class SqliteDbNames
     private static void ImportLegacyTables(
         string legacyPath,
         string splitPath,
+        string databaseName,
         IReadOnlyList<string> tables)
     {
         var connectionString = new SqliteConnectionStringBuilder
@@ -117,6 +119,9 @@ public static class SqliteDbNames
         {
             return;
         }
+        SqliteMigrationRunner.EnsureCurrentTables(
+            connection,
+            databaseName);
 
         using var attachCommand = connection.CreateCommand();
         attachCommand.CommandText = "ATTACH DATABASE @legacyPath AS legacy;";
@@ -126,34 +131,17 @@ public static class SqliteDbNames
         using var transaction = connection.BeginTransaction();
         foreach (var table in tables)
         {
-            using var schemaCommand = connection.CreateCommand();
-            schemaCommand.Transaction = transaction;
-            schemaCommand.CommandText = """
-                SELECT sql
-                FROM legacy.sqlite_master
-                WHERE type = 'table' AND name = @table;
-                """;
-            schemaCommand.Parameters.AddWithValue("@table", table);
-            if (schemaCommand.ExecuteScalar() is not string createTableSql)
+            var legacyColumns = GetColumns(connection, "legacy", table)
+                .ToHashSet(StringComparer.Ordinal);
+            if (legacyColumns.Count == 0)
             {
                 continue;
             }
-
-            using var tableExistsCommand = connection.CreateCommand();
-            tableExistsCommand.Transaction = transaction;
-            tableExistsCommand.CommandText = """
-                SELECT COUNT(*)
-                FROM main.sqlite_master
-                WHERE type = 'table' AND name = @table;
-                """;
-            tableExistsCommand.Parameters.AddWithValue("@table", table);
-            if ((long)tableExistsCommand.ExecuteScalar()! == 0)
-            {
-                using var createCommand = connection.CreateCommand();
-                createCommand.Transaction = transaction;
-                createCommand.CommandText = createTableSql;
-                createCommand.ExecuteNonQuery();
-            }
+            var columns = GetColumns(connection, "main", table)
+                .Where(legacyColumns.Contains)
+                .Select(column => $"\"{column}\"")
+                .ToArray();
+            var columnList = string.Join(", ", columns);
 
             using var importCommand = connection.CreateCommand();
             importCommand.Transaction = transaction;
@@ -175,8 +163,8 @@ public static class SqliteDbNames
                       > julianday(configuration.updated_at);
                   """
                 : $"""
-                   INSERT OR IGNORE INTO "{table}"
-                   SELECT * FROM legacy."{table}";
+                   INSERT OR IGNORE INTO "{table}" ({columnList})
+                   SELECT {columnList} FROM legacy."{table}";
                    """;
             importCommand.ExecuteNonQuery();
         }
@@ -187,6 +175,22 @@ public static class SqliteDbNames
             $"PRAGMA user_version = {LegacyImportMarker};";
         markerCommand.ExecuteNonQuery();
         transaction.Commit();
+    }
+
+    private static IReadOnlyList<string> GetColumns(
+        SqliteConnection connection,
+        string database,
+        string table)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = $"PRAGMA {database}.table_info(\"{table}\");";
+        using var reader = command.ExecuteReader();
+        var columns = new List<string>();
+        while (reader.Read())
+        {
+            columns.Add(reader.GetString(1));
+        }
+        return columns;
     }
 
     private static int GetUserVersion(SqliteConnection connection)

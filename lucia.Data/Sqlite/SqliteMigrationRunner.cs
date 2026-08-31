@@ -57,6 +57,30 @@ public sealed class SqliteMigrationRunner : IHostedService
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
+    internal static void EnsureCurrentTables(
+        SqliteConnection connection,
+        string databaseName)
+    {
+        switch (databaseName)
+        {
+            case SqliteDbNames.Config:
+                ApplyConfigV1(connection);
+                ApplyConfigV2(connection);
+                break;
+            case SqliteDbNames.Traces:
+                ApplyTracesV1(connection);
+                break;
+            case SqliteDbNames.Tasks:
+                ApplyTasksV1(connection);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(
+                    nameof(databaseName),
+                    databaseName,
+                    "Unknown SQLite database name.");
+        }
+    }
+
     private void MigrateDatabase(
         SqliteConnectionFactory factory,
         string dbLabel,
