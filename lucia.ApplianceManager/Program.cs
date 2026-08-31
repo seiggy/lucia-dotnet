@@ -695,9 +695,20 @@ static async Task<(int ExitCode, string StandardOutput)> RunNmcliAsync(
 
     using var process = Process.Start(startInfo)
         ?? throw new InvalidOperationException("Failed to start nmcli.");
-    var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-    var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-    await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+    var outputTask = process.StandardOutput.ReadToEndAsync();
+    var errorTask = process.StandardError.ReadToEndAsync();
+    try
+    {
+        await process.WaitForExitAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
+    catch (OperationCanceledException)
+    {
+        process.Kill(entireProcessTree: true);
+        await process.WaitForExitAsync(CancellationToken.None)
+            .ConfigureAwait(false);
+        throw;
+    }
     var output = await outputTask.ConfigureAwait(false);
     _ = await errorTask.ConfigureAwait(false);
     return (process.ExitCode, output);

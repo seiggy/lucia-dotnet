@@ -16,7 +16,7 @@ public sealed class PostgresMigrationRunnerTests(PostgresMigrationFixture fixtur
 
         await CreateRunner(databases).StartAsync(CancellationToken.None);
 
-        Assert.Equal(2, await VersionAsync(databases.Config));
+        Assert.Equal(3, await VersionAsync(databases.Config));
         Assert.Equal(2, await VersionAsync(databases.Traces));
         Assert.Equal(2, await VersionAsync(databases.Tasks));
         Assert.True(await IndexIsValidAsync(databases.Traces, "idx_command_traces_clean_text_trgm"));
@@ -38,6 +38,38 @@ public sealed class PostgresMigrationRunnerTests(PostgresMigrationFixture fixtur
 
         Assert.Equal(2, await VersionAsync(databases.Traces));
         Assert.Equal(2, await VersionAsync(databases.Tasks));
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
+    public async Task VersionTwoConfig_UpgradesDashboardAdministratorScope()
+    {
+        await using var databases = await fixture.CreateDatabasesAsync();
+        await CreateRunner(databases).StartAsync(CancellationToken.None);
+        await ExecuteAsync(
+            databases.Config,
+            """
+            INSERT INTO public.api_keys
+                (id, key_hash, key_prefix, name, scopes)
+            VALUES
+                ('owner', 'owner-hash', 'owner...', 'Dashboard', '["*"]'::jsonb),
+                ('ha', 'ha-hash', 'ha...', 'Home Assistant', '["*"]'::jsonb);
+            UPDATE public.schema_version SET version = 2 WHERE id = 1;
+            """);
+
+        await CreateRunner(databases).StartAsync(CancellationToken.None);
+
+        Assert.Equal(3, await VersionAsync(databases.Config));
+        Assert.Equal(
+            """["*", "admin:appliance"]""",
+            await ScalarAsync<string>(
+                databases.Config,
+                "SELECT scopes::text FROM public.api_keys WHERE id = 'owner';"));
+        Assert.Equal(
+            """["*"]""",
+            await ScalarAsync<string>(
+                databases.Config,
+                "SELECT scopes::text FROM public.api_keys WHERE id = 'ha';"));
     }
 
     [Fact]

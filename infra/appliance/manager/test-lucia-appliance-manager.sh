@@ -8,6 +8,8 @@ socket_path="$work_dir/appliance-manager.sock"
 systemctl_log="$work_dir/systemctl.log"
 nmcli_log="$work_dir/nmcli.log"
 network_mode="$work_dir/network-mode"
+nmcli_block="$work_dir/nmcli-block"
+nmcli_started="$work_dir/nmcli-started"
 mountinfo="$work_dir/mountinfo"
 sys_block="$work_dir/sys-class-block"
 manager_log="$work_dir/manager.log"
@@ -76,6 +78,10 @@ set -euo pipefail
 printf '%s\n' "$*" >> "$LUCIA_TEST_NMCLI_LOG"
 mode="$(cat "$LUCIA_TEST_NETWORK_MODE")"
 if [[ "$*" == *"IN-USE,SSID,SIGNAL device wifi list"* ]]; then
+    if [[ -f "$LUCIA_TEST_NMCLI_BLOCK" ]]; then
+        printf '%s\n' "$$" > "$LUCIA_TEST_NMCLI_STARTED"
+        sleep 30
+    fi
     [[ "$mode" != "wifi" ]] || printf '%s\n' 'yes:Home WiFi:87'
 elif [[ "$*" == *"DEVICE,TYPE,STATE device status"* \
         && "$mode" == "ethernet" ]]; then
@@ -124,6 +130,8 @@ LUCIA_TEST_RESTART_STARTED_FILE="$restart_started" \
 LUCIA_TEST_RESTART_COMPLETED_FILE="$restart_completed" \
 LUCIA_TEST_NMCLI_LOG="$nmcli_log" \
 LUCIA_TEST_NETWORK_MODE="$network_mode" \
+LUCIA_TEST_NMCLI_BLOCK="$nmcli_block" \
+LUCIA_TEST_NMCLI_STARTED="$nmcli_started" \
     dotnet run --no-launch-profile --project "$manager_project" \
     >"$manager_log" 2>&1 &
 manager_pid=$!
@@ -186,6 +194,24 @@ grep -q '"network":{"ssid":"Unavailable","signal":null}' \
 printf 'wifi\n' > "$network_mode"
 
 echo "PASS: status distinguishes wired and unavailable networking"
+
+touch "$nmcli_block"
+curl --silent --max-time 0.1 --output /dev/null \
+    --unix-socket "$socket_path" \
+    http://localhost/v1/status || true
+nmcli_pid="$(cat "$nmcli_started")"
+nmcli_stopped=false
+for _ in {1..40}; do
+    if ! kill -0 "$nmcli_pid" 2>/dev/null; then
+        nmcli_stopped=true
+        break
+    fi
+    sleep 0.05
+done
+[[ "$nmcli_stopped" == true ]]
+rm "$nmcli_block"
+
+echo "PASS: canceled status requests terminate nmcli"
 
 for service_and_unit in \
     "redis lucia-redis.service"; do

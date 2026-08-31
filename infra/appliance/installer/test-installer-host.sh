@@ -13,6 +13,8 @@ canonical_host="lucia.setup"
 canonical_origin="http://lucia.setup"
 claim_path="$work_dir/claim.sha256"
 cookie_jar="$work_dir/cookies.txt"
+block_control="$work_dir/block-control"
+control_started="$work_dir/control-started"
 
 cat > "$work_dir/lucia-installer-control" <<'EOF'
 #!/usr/bin/env bash
@@ -40,6 +42,10 @@ case "$1" in
         printf '%s\n' '[{"ssid":"Lab WiFi","signal":82,"security":"WPA2"}]'
         ;;
     status)
+        if [[ -f "$LUCIA_TEST_BLOCK_CONTROL" ]]; then
+            printf '%s\n' "$$" > "$LUCIA_TEST_CONTROL_STARTED"
+            sleep 30
+        fi
         printf '%s\n' '{"phase":"waiting-for-configuration"}'
         ;;
     *)
@@ -64,6 +70,8 @@ Appliance__ControlCommand="" \
 Appliance__ClaimPath="$claim_path" \
 LUCIA_TEST_CONTROL_LOG="$control_log" \
 LUCIA_TEST_CONTROL_INPUT="$control_input" \
+LUCIA_TEST_BLOCK_CONTROL="$block_control" \
+LUCIA_TEST_CONTROL_STARTED="$control_started" \
 ASPNETCORE_URLS="$base_url" \
     dotnet run --no-launch-profile --project "$installer_project" \
     >"$installer_log" 2>&1 &
@@ -147,6 +155,25 @@ status="$(
 [[ "$status" == "409" ]]
 
 echo "PASS: first browser atomically claims the installer"
+
+touch "$block_control"
+curl --silent --max-time 0.1 --output /dev/null \
+    --cookie "$cookie_jar" \
+    --header "Host: $canonical_host" \
+    "$base_url/api/installer/status" || true
+control_pid="$(cat "$control_started")"
+control_stopped=false
+for _ in {1..40}; do
+    if ! kill -0 "$control_pid" 2>/dev/null; then
+        control_stopped=true
+        break
+    fi
+    sleep 0.05
+done
+[[ "$control_stopped" == true ]]
+rm "$block_control"
+
+echo "PASS: canceled installer requests terminate control helpers"
 
 status="$(
     curl --silent --output "$work_dir/status.json" --write-out '%{http_code}' \

@@ -61,33 +61,47 @@ internal sealed partial class InstallerControlClient(
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException(
                 "Failed to start the installer control command.");
-        var standardOutputTask =
-            process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var standardErrorTask =
-            process.StandardError.ReadToEndAsync(cancellationToken);
-        if (request is not null)
+        var standardOutputTask = process.StandardOutput.ReadToEndAsync();
+        var standardErrorTask = process.StandardError.ReadToEndAsync();
+        try
         {
-            await process.StandardInput
-                .WriteAsync(request.AsMemory(), cancellationToken)
+            if (request is not null)
+            {
+                await process.StandardInput
+                    .WriteAsync(request.AsMemory(), cancellationToken)
+                    .ConfigureAwait(false);
+                process.StandardInput.Close();
+            }
+
+            await process.WaitForExitAsync(cancellationToken)
                 .ConfigureAwait(false);
-            process.StandardInput.Close();
+            var standardOutput = await standardOutputTask
+                .ConfigureAwait(false);
+            var standardError = await standardErrorTask
+                .ConfigureAwait(false);
+
+            if (process.ExitCode != 0)
+            {
+                LogControlFailure(
+                    command,
+                    process.ExitCode,
+                    standardError.Trim());
+                throw new InstallerControlException(
+                    ParseControlError(standardError)
+                    ?? $"Installer control command '{command}' failed.");
+            }
+
+            return JsonNode.Parse(standardOutput)
+                ?? throw new InvalidOperationException(
+                    $"Installer control command '{command}' returned no JSON.");
         }
-
-        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-        var standardOutput = await standardOutputTask.ConfigureAwait(false);
-        var standardError = await standardErrorTask.ConfigureAwait(false);
-
-        if (process.ExitCode != 0)
+        catch (OperationCanceledException)
         {
-            LogControlFailure(command, process.ExitCode, standardError.Trim());
-            throw new InstallerControlException(
-                ParseControlError(standardError)
-                ?? $"Installer control command '{command}' failed.");
+            process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync(CancellationToken.None)
+                .ConfigureAwait(false);
+            throw;
         }
-
-        return JsonNode.Parse(standardOutput)
-            ?? throw new InvalidOperationException(
-                $"Installer control command '{command}' returned no JSON.");
     }
 
     private static string? ParseControlError(string standardError)

@@ -13,7 +13,7 @@ namespace lucia.Data.Sqlite;
 /// </summary>
 public sealed class SqliteMigrationRunner : IHostedService
 {
-    private const int ConfigSchemaVersion = 2;
+    private const int ConfigSchemaVersion = 3;
     private const int TracesSchemaVersion = 2;
     private const int TasksSchemaVersion = 2;
 
@@ -36,7 +36,13 @@ public sealed class SqliteMigrationRunner : IHostedService
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        MigrateDatabase(_configFactory, "config", ConfigSchemaVersion, ApplyConfigV1, ApplyConfigV2);
+        MigrateDatabase(
+            _configFactory,
+            "config",
+            ConfigSchemaVersion,
+            ApplyConfigV1,
+            ApplyConfigV2,
+            ApplyConfigV3);
         MigrateDatabase(_tracesFactory, "traces", TracesSchemaVersion, ApplyTracesV1, ApplyTracesV2);
         MigrateDatabase(_tasksFactory, "tasks", TasksSchemaVersion, ApplyTasksV1, ApplyTasksV2);
         return Task.CompletedTask;
@@ -147,12 +153,6 @@ public sealed class SqliteMigrationRunner : IHostedService
             );
             CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
             CREATE INDEX IF NOT EXISTS idx_api_keys_revoked ON api_keys(is_revoked);
-            UPDATE api_keys
-            SET scopes = '["*","admin:appliance"]'
-            WHERE name = 'Dashboard'
-              AND is_revoked = 0
-              AND scopes = '["*"]';
-
             CREATE TABLE IF NOT EXISTS model_providers (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL UNIQUE,
@@ -245,6 +245,19 @@ public sealed class SqliteMigrationRunner : IHostedService
             );
             CREATE INDEX IF NOT EXISTS idx_user_memories_user_id ON user_memories(user_id);
             CREATE INDEX IF NOT EXISTS idx_user_memories_expires_at ON user_memories(expires_at);
+            """;
+        cmd.ExecuteNonQuery();
+    }
+
+    internal static void ApplyConfigV3(SqliteConnection connection)
+    {
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = """
+            UPDATE api_keys
+            SET scopes = '["*","admin:appliance"]'
+            WHERE name = 'Dashboard'
+              AND is_revoked = 0
+              AND scopes = '["*"]';
             """;
         cmd.ExecuteNonQuery();
     }
