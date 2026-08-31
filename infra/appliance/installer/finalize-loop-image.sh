@@ -135,8 +135,14 @@ data_device="/dev/${loop_name}p18"
     exit 1
 }
 
-mkfs.ext4 -q -F -L LUCIA -U "$lucia_filesystem_uuid" "$lucia_device"
-mkfs.ext4 -q -F -L LUCIA_DATA -U "$data_filesystem_uuid" "$data_device"
+E2FSPROGS_FAKE_TIME="${SOURCE_DATE_EPOCH:-946684800}" \
+    mkfs.ext4 -q -F -L LUCIA -U "$lucia_filesystem_uuid" \
+    -E "hash_seed=$lucia_filesystem_uuid,lazy_itable_init=0,lazy_journal_init=0" \
+    "$lucia_device"
+E2FSPROGS_FAKE_TIME="${SOURCE_DATE_EPOCH:-946684800}" \
+    mkfs.ext4 -q -F -L LUCIA_DATA -U "$data_filesystem_uuid" \
+    -E "hash_seed=$data_filesystem_uuid,lazy_itable_init=0,lazy_journal_init=0" \
+    "$data_device"
 
 for name in app app_b lucia data; do
     mkdir "$work/$name"

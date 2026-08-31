@@ -295,9 +295,10 @@ public sealed class MongoApiKeyService : IApiKeyService
         {
             var entry = await _collection.Find(k => k.Id == keyId).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
 
-            if (entry is null)
+            if (entry is null || entry.IsRevoked)
             {
-                throw new InvalidOperationException($"API key with ID '{keyId}' not found.");
+                throw new InvalidOperationException(
+                    $"Active API key with ID '{keyId}' not found.");
             }
 
             var name = entry.Name;

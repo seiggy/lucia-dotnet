@@ -10,8 +10,8 @@ GitHub releases:
 | OS | Jetson rootfs, kernel, and device tree for inactive-slot updates |
 
 The captive setup network is an open, client-isolated, non-routed first-boot
-network. The first browser to open the setup page claims the session. Keep the
-appliance physically controlled during setup.
+network. The first browser to select **Begin setup** claims the session. Keep
+the appliance physically controlled during setup.
 
 The installed dashboard listens at `https://HOSTNAME.local:8099` with a
 per-device certificate generated during setup. The first browser must accept

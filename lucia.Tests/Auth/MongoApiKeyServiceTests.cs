@@ -313,6 +313,26 @@ public class MongoApiKeyServiceTests
     }
 
     [Fact]
+    public async Task RegenerateKeyAsync_RevokedKey_DoesNotCreateReplacement()
+    {
+        SetupFindAsync(new ApiKeyEntry
+        {
+            Id = "revoked",
+            KeyHash = "revoked-hash",
+            KeyPrefix = "lk_revoked...",
+            Name = "Revoked",
+            IsRevoked = true,
+        });
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _service.RegenerateKeyAsync("revoked"));
+
+        A.CallTo(_collection)
+            .Where(call => call.Method.Name == "InsertOneAsync")
+            .MustNotHaveHappened();
+    }
+
+    [Fact]
     public async Task RegenerateKeyAsync_AmbiguousRevokeFailure_KeepsReplacement()
     {
         var entry = new ApiKeyEntry

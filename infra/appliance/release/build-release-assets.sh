@@ -45,6 +45,9 @@ done
     || die "--version must match MAJOR.MINOR.PATCH"
 [[ -n "$output_dir" && -n "$work_dir" ]] \
     || die "--output-dir and --work-dir are required"
+source_date_epoch="${SOURCE_DATE_EPOCH:-946684800}"
+[[ "$source_date_epoch" =~ ^[0-9]+$ ]] \
+    || die "SOURCE_DATE_EPOCH must be an integer"
 [[ "$(uname -s)" == "Linux" && "$(uname -m)" == "x86_64" ]] \
     || die "a native x86_64 Linux build host is required"
 
@@ -224,7 +227,10 @@ sudo chmod 0755 "$bundle_root/var/lib/lucia"
 sudo chown root:1100 \
     "$bundle_root/var/lib/lucia/config" \
     "$bundle_root/var/lib/lucia/config/lucia.env"
-sudo tar --numeric-owner -I 'zstd -T0 -10' \
+sudo tar --numeric-owner --sort=name \
+    --mtime="@$source_date_epoch" --clamp-mtime \
+    --pax-option=delete=atime,delete=ctime \
+    -I 'zstd -T0 -10' \
     -cf "$raw_dir/lucia-appliance-${version}-lucia.tar.zst" \
     -C "$bundle_root" \
     .
@@ -351,6 +357,7 @@ sudo rm -f "$root/var/lib/dbus/machine-id"
 (
     cd "$bsp_dir/Linux_for_Tegra"
     sudo env \
+        SOURCE_DATE_EPOCH="$source_date_epoch" \
         USER=root \
         BOARDID=3767 \
         BOARDSKU=0005 \
@@ -373,6 +380,7 @@ sudo "$repo_root/infra/appliance/installer/build-loop-image.sh" \
     "$work_dir/lucia-nvme-${version}.img" \
     "$MINIMUM_DISK_BYTES"
 sudo env \
+    SOURCE_DATE_EPOCH="$source_date_epoch" \
     LUCIA_PARTITION_GUID="$LUCIA_PARTITION_GUID" \
     LUCIA_DATA_PARTITION_GUID="$LUCIA_DATA_PARTITION_GUID" \
     LUCIA_FILESYSTEM_UUID="$LUCIA_FILESYSTEM_UUID" \
@@ -386,7 +394,10 @@ sudo zstd -T0 -10 --long=27 --force \
     -o "$work_dir/lucia-nvme-${version}.img.zst"
 
 external_images="$bsp_dir/Linux_for_Tegra/tools/kernel_flash/images/external"
-tar -I 'zstd -T0 -10' \
+tar --sort=name \
+    --mtime="@$source_date_epoch" --clamp-mtime \
+    --pax-option=delete=atime,delete=ctime \
+    -I 'zstd -T0 -10' \
     -cf "$raw_dir/lucia-appliance-${version}-os.tar.zst" \
     -C "$external_images" \
     system.img \
