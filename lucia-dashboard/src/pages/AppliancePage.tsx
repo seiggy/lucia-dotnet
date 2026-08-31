@@ -241,6 +241,7 @@ export default function AppliancePage() {
 
       {telemetry && (
         <TelemetryPanel
+          key={`${telemetry.enabled}:${telemetry.endpoint}:${telemetry.insecureSkipVerify}`}
           telemetry={telemetry}
           onSaved={(nextTelemetry) => {
             setTelemetry(nextTelemetry)

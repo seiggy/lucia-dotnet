@@ -83,9 +83,11 @@ write_index_image() {
     dd \
         if="$external_dir/$filename" \
         of="$loop_device" \
-        bs=1 \
+        bs=4M \
         seek="$offset" \
         count="$file_size" \
+        iflag=count_bytes,fullblock \
+        oflag=seek_bytes \
         conv=notrunc \
         status=none
 }
