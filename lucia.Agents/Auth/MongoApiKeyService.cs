@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using MongoDB.Bson;
 using lucia.Agents.Abstractions;
 using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
@@ -11,13 +12,19 @@ namespace lucia.Agents.Auth;
 /// </summary>
 public sealed class MongoApiKeyService : IApiKeyService
 {
+    private const string MutationLockId = "api-key-mutations";
+    private static readonly TimeSpan s_mutationLockLease =
+        TimeSpan.FromMinutes(2);
     private readonly IMongoCollection<ApiKeyEntry> _collection;
+    private readonly IMongoCollection<BsonDocument> _mutationLocks;
     private readonly ILogger<MongoApiKeyService> _logger;
 
     public MongoApiKeyService(IMongoClient mongoClient, ILogger<MongoApiKeyService> logger)
     {
         var database = mongoClient.GetDatabase(ApiKeyEntry.DatabaseName);
         _collection = database.GetCollection<ApiKeyEntry>(ApiKeyEntry.CollectionName);
+        _mutationLocks = database.GetCollection<BsonDocument>(
+            "api_key_mutation_locks");
         _logger = logger;
 
         EnsureIndexes();
@@ -146,84 +153,126 @@ public sealed class MongoApiKeyService : IApiKeyService
 
     public async Task<bool> RevokeKeyAsync(string keyId, CancellationToken cancellationToken = default)
     {
-        var entry = await _collection.Find(k => k.Id == keyId).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
-
-        if (entry is null || entry.IsRevoked)
-        {
-            return false;
-        }
-
-        var activeCount = await GetActiveKeyCountAsync(cancellationToken).ConfigureAwait(false);
-        if (activeCount <= 1)
-        {
-            throw new InvalidOperationException("Cannot revoke the last active API key. Create a new key first.");
-        }
-        var now = DateTime.UtcNow;
-        if (entry.Scopes.Contains(
-                AuthOptions.AdministratorScope,
-                StringComparer.Ordinal)
-            && (!entry.ExpiresAt.HasValue || entry.ExpiresAt > now))
-        {
-            var administratorCount = await _collection.CountDocumentsAsync(
-                    key => !key.IsRevoked
-                        && (!key.ExpiresAt.HasValue || key.ExpiresAt > now)
-                        && key.Scopes.Contains(
-                            AuthOptions.AdministratorScope),
-                    cancellationToken: cancellationToken)
-                .ConfigureAwait(false);
-            if (administratorCount <= 1)
-            {
-                throw new InvalidOperationException(
-                    "Cannot revoke the last active administrator key. Regenerate it instead.");
-            }
-        }
-
-        var update = Builders<ApiKeyEntry>.Update
-            .Set(k => k.IsRevoked, true)
-            .Set(k => k.RevokedAt, DateTime.UtcNow);
-
-        var result = await _collection
-            .UpdateOneAsync(k => k.Id == keyId && !k.IsRevoked, update, cancellationToken: cancellationToken)
+        var lockOwner = await AcquireMutationLockAsync(cancellationToken)
             .ConfigureAwait(false);
-
-        if (result.ModifiedCount > 0)
+        try
         {
-            _logger.LogInformation("Revoked API key '{Name}' ({Prefix})", entry.Name, entry.KeyPrefix);
-        }
+            var entry = await _collection.Find(k => k.Id == keyId).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
 
-        return result.ModifiedCount > 0;
+            if (entry is null || entry.IsRevoked)
+            {
+                return false;
+            }
+
+            var now = DateTime.UtcNow;
+            var isActive =
+                !entry.ExpiresAt.HasValue || entry.ExpiresAt > now;
+            if (isActive)
+            {
+                var activeCount = await GetActiveKeyCountAsync(
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                if (activeCount <= 1)
+                {
+                    throw new InvalidOperationException("Cannot revoke the last active API key. Create a new key first.");
+                }
+            }
+            if (isActive
+                && entry.Scopes.Contains(
+                    AuthOptions.AdministratorScope,
+                    StringComparer.Ordinal))
+            {
+                var administratorCount = await _collection.CountDocumentsAsync(
+                        key => !key.IsRevoked
+                            && (!key.ExpiresAt.HasValue || key.ExpiresAt > now)
+                            && key.Scopes.Contains(
+                                AuthOptions.AdministratorScope),
+                        cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+                if (administratorCount <= 1)
+                {
+                    throw new InvalidOperationException(
+                        "Cannot revoke the last active administrator key. Regenerate it instead.");
+                }
+            }
+
+            var update = Builders<ApiKeyEntry>.Update
+                .Set(k => k.IsRevoked, true)
+                .Set(k => k.RevokedAt, DateTime.UtcNow);
+
+            var result = await _collection
+                .UpdateOneAsync(k => k.Id == keyId && !k.IsRevoked, update, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+
+            if (result.ModifiedCount > 0)
+            {
+                _logger.LogInformation("Revoked API key '{Name}' ({Prefix})", entry.Name, entry.KeyPrefix);
+            }
+
+            return result.ModifiedCount > 0;
+        }
+        finally
+        {
+            await ReleaseMutationLockAsync(lockOwner).ConfigureAwait(false);
+        }
     }
 
     public async Task<ApiKeyCreateResponse> RegenerateKeyAsync(string keyId, CancellationToken cancellationToken = default)
     {
-        var entry = await _collection.Find(k => k.Id == keyId).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
-
-        if (entry is null)
-        {
-            throw new InvalidOperationException($"API key with ID '{keyId}' not found.");
-        }
-
-        var name = entry.Name;
-
-        // Revoke old key (bypass lockout check since we're creating a replacement)
-        var revokeUpdate = Builders<ApiKeyEntry>.Update
-            .Set(k => k.IsRevoked, true)
-            .Set(k => k.RevokedAt, DateTime.UtcNow);
-
-        await _collection.UpdateOneAsync(k => k.Id == keyId, revokeUpdate, cancellationToken: cancellationToken).ConfigureAwait(false);
-
-        // Create replacement
-        var newKey = await CreateKeyAsync(
-                name,
-                cancellationToken,
-                entry.Scopes.Contains(
-                    AuthOptions.AdministratorScope,
-                    StringComparer.Ordinal))
+        var lockOwner = await AcquireMutationLockAsync(cancellationToken)
             .ConfigureAwait(false);
+        try
+        {
+            var entry = await _collection.Find(k => k.Id == keyId).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
 
-        _logger.LogInformation("Regenerated API key '{Name}' — old key revoked, new key created", name);
+            if (entry is null)
+            {
+                throw new InvalidOperationException($"API key with ID '{keyId}' not found.");
+            }
 
-        return newKey;
+            var name = entry.Name;
+
+            var newKey = await CreateKeyAsync(
+                    name,
+                    cancellationToken,
+                    entry.Scopes.Contains(
+                        AuthOptions.AdministratorScope,
+                        StringComparer.Ordinal))
+                .ConfigureAwait(false);
+            try
+            {
+                var revokeUpdate = Builders<ApiKeyEntry>.Update
+                    .Set(k => k.IsRevoked, true)
+                    .Set(k => k.RevokedAt, DateTime.UtcNow);
+
+                var revokeResult = await _collection.UpdateOneAsync(
+                        k => k.Id == keyId,
+                        revokeUpdate,
+                        cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+                if (revokeResult.ModifiedCount != 1)
+                {
+                    throw new InvalidOperationException(
+                        $"API key with ID '{keyId}' could not be revoked.");
+                }
+            }
+            catch
+            {
+                await _collection.DeleteOneAsync(
+                        key => key.Id == newKey.Id,
+                        CancellationToken.None)
+                    .ConfigureAwait(false);
+                throw;
+            }
+
+            _logger.LogInformation("Regenerated API key '{Name}' — old key revoked, new key created", name);
+
+            return newKey;
+        }
+        finally
+        {
+            await ReleaseMutationLockAsync(lockOwner).ConfigureAwait(false);
+        }
     }
 
     public async Task<int> GetActiveKeyCountAsync(CancellationToken cancellationToken = default)
@@ -247,70 +296,109 @@ public sealed class MongoApiKeyService : IApiKeyService
         if (string.IsNullOrWhiteSpace(plaintextKey) || plaintextKey.Length < 16)
             return (null, 0);
 
-        var hash = HashKey(plaintextKey);
-        if (isAdministrator)
-        {
-            await _collection.UpdateOneAsync(
-                    key => key.Name == name
-                        && key.KeyHash == hash
-                        && !key.IsRevoked,
-                    Builders<ApiKeyEntry>.Update.AddToSet(
-                        key => key.Scopes,
-                        AuthOptions.AdministratorScope),
-                    cancellationToken: cancellationToken)
-                .ConfigureAwait(false);
-        }
-
-        // Check if a non-revoked key with this name already hashes to the env value → no-op
-        var now = DateTime.UtcNow;
-        var existingMatch = await _collection
-            .Find(k => k.Name == name && k.KeyHash == hash && !k.IsRevoked)
-            .FirstOrDefaultAsync(cancellationToken)
+        var lockOwner = await AcquireMutationLockAsync(cancellationToken)
             .ConfigureAwait(false);
-        if (existingMatch is not null && (!existingMatch.ExpiresAt.HasValue || existingMatch.ExpiresAt.Value > now))
-            return (null, 0);
-
-        // Revoke all non-revoked keys with this name — bypass lockout because we are
-        // creating a replacement immediately after.
-        var revokeUpdate = Builders<ApiKeyEntry>.Update
-            .Set(k => k.IsRevoked, true)
-            .Set(k => k.RevokedAt, DateTime.UtcNow);
-        var revokeResult = await _collection
-            .UpdateManyAsync(k => k.Name == name && !k.IsRevoked, revokeUpdate, cancellationToken: cancellationToken)
-            .ConfigureAwait(false);
-        var revokedCount = (int)revokeResult.ModifiedCount;
-
-        // Create the replacement key from the provided plaintext.
-        var prefix = plaintextKey.Length <= 12 ? plaintextKey : plaintextKey[..12] + "...";
-        var entry = new ApiKeyEntry
-        {
-            KeyHash = hash,
-            KeyPrefix = prefix,
-            Name = name,
-            Scopes = ApiKeyScopes.Create(isAdministrator),
-            CreatedAt = DateTime.UtcNow,
-        };
-
         try
         {
-            await _collection.InsertOneAsync(entry, cancellationToken: cancellationToken).ConfigureAwait(false);
-        }
-        catch (MongoWriteException ex) when (ex.WriteError.Category == ServerErrorCategory.DuplicateKey)
-        {
-            // Concurrent seed: another process already inserted the same hash — idempotent.
-            return (null, 0);
-        }
+            var hash = HashKey(plaintextKey);
+            var now = DateTime.UtcNow;
+            var existingMatch = await _collection
+                .Find(key =>
+                    key.Name == name
+                    && key.KeyHash == hash
+                    && !key.IsRevoked
+                    && (!key.ExpiresAt.HasValue || key.ExpiresAt > now))
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+            if (existingMatch is not null)
+            {
+                if (isAdministrator)
+                {
+                    await _collection.UpdateOneAsync(
+                            key => key.Id == existingMatch.Id,
+                            Builders<ApiKeyEntry>.Update.AddToSet(
+                                key => key.Scopes,
+                                AuthOptions.AdministratorScope),
+                            cancellationToken: cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                return (null, 0);
+            }
 
-        _logger.LogInformation("Override API key '{Name}' from env (prefix {Prefix})", name, prefix);
-
-        return (new ApiKeyCreateResponse
+            var existingHash = await _collection
+                .Find(key => key.KeyHash == hash)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+            var prefix = plaintextKey.Length <= 12
+                ? plaintextKey
+                : plaintextKey[..12] + "...";
+            var id = existingHash?.Id
+                ?? ObjectId.GenerateNewId().ToString();
+            var scopes = ApiKeyScopes.Create(isAdministrator);
+            var replacement = await _collection.FindOneAndUpdateAsync(
+                    key => key.KeyHash == hash,
+                    Builders<ApiKeyEntry>.Update
+                        .SetOnInsert(key => key.Id, id)
+                        .Set(key => key.KeyPrefix, prefix)
+                        .Set(key => key.Name, name)
+                        .Set(key => key.Scopes, scopes)
+                        .Set(key => key.CreatedAt, now)
+                        .Set(key => key.LastUsedAt, null)
+                        .Set(key => key.ExpiresAt, null)
+                        .Set(key => key.IsRevoked, false)
+                        .Set(key => key.RevokedAt, null),
+                    new FindOneAndUpdateOptions<ApiKeyEntry>
+                    {
+                        IsUpsert = true,
+                        ReturnDocument = ReturnDocument.After,
+                    },
+                    cancellationToken)
+                .ConfigureAwait(false);
+            try
+            {
+                var revokeResult = await _collection.UpdateManyAsync(
+                        key => key.Name == name
+                            && key.Id != replacement.Id
+                            && !key.IsRevoked,
+                        Builders<ApiKeyEntry>.Update
+                            .Set(key => key.IsRevoked, true)
+                            .Set(key => key.RevokedAt, now),
+                        cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+                _logger.LogInformation("Override API key '{Name}' from env (prefix {Prefix})", name, prefix);
+                return (new ApiKeyCreateResponse
+                {
+                    Key = plaintextKey,
+                    Id = replacement.Id,
+                    Prefix = prefix,
+                    Name = name,
+                    CreatedAt = now,
+                }, (int)revokeResult.ModifiedCount);
+            }
+            catch
+            {
+                if (existingHash is null)
+                {
+                    await _collection.DeleteOneAsync(
+                            key => key.Id == replacement.Id,
+                            CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
+                else
+                {
+                    await _collection.ReplaceOneAsync(
+                            key => key.Id == existingHash.Id,
+                            existingHash,
+                            cancellationToken: CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
+                throw;
+            }
+        }
+        finally
         {
-            Key = plaintextKey,
-            Id = entry.Id,
-            Prefix = prefix,
-            Name = name,
-            CreatedAt = entry.CreatedAt,
-        }, revokedCount);
+            await ReleaseMutationLockAsync(lockOwner).ConfigureAwait(false);
+        }
     }
 
     public async Task<bool> HasAnyKeysAsync(CancellationToken cancellationToken = default)
@@ -336,6 +424,79 @@ public sealed class MongoApiKeyService : IApiKeyService
     {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(plaintextKey));
         return Convert.ToHexStringLower(bytes);
+    }
+
+    private async Task<string> AcquireMutationLockAsync(
+        CancellationToken cancellationToken)
+    {
+        var owner = Guid.NewGuid().ToString("N");
+        while (true)
+        {
+            var now = DateTime.UtcNow;
+            var filter = Builders<BsonDocument>.Filter.And(
+                Builders<BsonDocument>.Filter.Eq("_id", MutationLockId),
+                Builders<BsonDocument>.Filter.Lte("expiresAt", now));
+            var update = Builders<BsonDocument>.Update
+                .Set("owner", owner)
+                .Set("expiresAt", now.Add(s_mutationLockLease));
+            var acquired = await _mutationLocks.FindOneAndUpdateAsync(
+                    filter,
+                    update,
+                    new FindOneAndUpdateOptions<BsonDocument>
+                    {
+                        ReturnDocument = ReturnDocument.After,
+                    },
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (acquired is not null)
+            {
+                return owner;
+            }
+
+            try
+            {
+                await _mutationLocks.InsertOneAsync(
+                        new BsonDocument
+                        {
+                            ["_id"] = MutationLockId,
+                            ["owner"] = owner,
+                            ["expiresAt"] = now.Add(s_mutationLockLease),
+                        },
+                        cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+                return owner;
+            }
+            catch (MongoWriteException exception) when (
+                exception.WriteError.Category
+                    == ServerErrorCategory.DuplicateKey)
+            {
+                await Task.Delay(
+                        TimeSpan.FromMilliseconds(50),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+        }
+    }
+
+    private async Task ReleaseMutationLockAsync(string owner)
+    {
+        try
+        {
+            await _mutationLocks.DeleteOneAsync(
+                    Builders<BsonDocument>.Filter.And(
+                        Builders<BsonDocument>.Filter.Eq(
+                            "_id",
+                            MutationLockId),
+                        Builders<BsonDocument>.Filter.Eq("owner", owner)),
+                    CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (MongoException exception)
+        {
+            _logger.LogWarning(
+                exception,
+                "API key mutation lock release failed; its lease will expire.");
+        }
     }
 
     private void EnsureIndexes()

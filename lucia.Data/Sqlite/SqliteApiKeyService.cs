@@ -177,34 +177,88 @@ public sealed class SqliteApiKeyService : IApiKeyService
 
     public async Task<bool> RevokeKeyAsync(string keyId, CancellationToken cancellationToken = default)
     {
-        var keys = await ListKeysAsync(cancellationToken).ConfigureAwait(false);
-        var entry = keys.FirstOrDefault(key =>
-            string.Equals(key.Id, keyId, StringComparison.Ordinal));
-        if (entry is null || entry.IsRevoked)
+        var now = DateTime.UtcNow;
+        using var connection = _connectionFactory.CreateConnection();
+        using var transaction = connection.BeginTransaction(deferred: false);
+        using var entryCommand = connection.CreateCommand();
+        entryCommand.Transaction = transaction;
+        entryCommand.CommandText = """
+            SELECT name, key_prefix, is_revoked, expires_at, scopes
+            FROM api_keys
+            WHERE id = @id;
+            """;
+        entryCommand.Parameters.AddWithValue("@id", keyId);
+        using var reader = await entryCommand
+            .ExecuteReaderAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return false;
+        }
+        var name = reader.GetString(0);
+        var prefix = reader.GetString(1);
+        var isRevoked = reader.GetInt64(2) != 0;
+        DateTime? expiresAt = reader.IsDBNull(3)
+            ? null
+            : DateTime.Parse(reader.GetString(3));
+        var scopes =
+            JsonSerializer.Deserialize<string[]>(reader.GetString(4)) ?? ["*"];
+        await reader.DisposeAsync().ConfigureAwait(false);
+        if (isRevoked)
         {
             return false;
         }
 
-        var now = DateTime.UtcNow;
-        var activeKeys = keys.Where(key =>
-                !key.IsRevoked
-                && (!key.ExpiresAt.HasValue || key.ExpiresAt > now))
-            .ToList();
-        if (activeKeys.Count <= 1)
+        using var activeCountCommand = connection.CreateCommand();
+        activeCountCommand.Transaction = transaction;
+        activeCountCommand.CommandText = """
+            SELECT COUNT(*)
+            FROM api_keys
+            WHERE is_revoked = 0
+              AND (expires_at IS NULL OR expires_at > @now);
+            """;
+        activeCountCommand.Parameters.AddWithValue("@now", now.ToString("O"));
+        var activeCount = (long)(await activeCountCommand
+            .ExecuteScalarAsync(cancellationToken)
+            .ConfigureAwait(false))!;
+        var isActive = !expiresAt.HasValue || expiresAt > now;
+        if (isActive && activeCount <= 1)
             throw new InvalidOperationException("Cannot revoke the last active API key. Create a new key first.");
-        if (entry.Scopes.Contains(
+        if (isActive && scopes.Contains(
                 AuthOptions.AdministratorScope,
-                StringComparer.Ordinal)
-            && activeKeys.Count(key => key.Scopes.Contains(
-                AuthOptions.AdministratorScope,
-                StringComparer.Ordinal)) <= 1)
+                StringComparer.Ordinal))
         {
-            throw new InvalidOperationException(
-                "Cannot revoke the last active administrator key. Regenerate it instead.");
+            using var administratorCountCommand = connection.CreateCommand();
+            administratorCountCommand.Transaction = transaction;
+            administratorCountCommand.CommandText = """
+                SELECT COUNT(*)
+                FROM api_keys
+                WHERE is_revoked = 0
+                  AND (expires_at IS NULL OR expires_at > @now)
+                  AND EXISTS (
+                      SELECT 1
+                      FROM json_each(api_keys.scopes)
+                      WHERE value = @scope
+                  );
+                """;
+            administratorCountCommand.Parameters.AddWithValue(
+                "@now",
+                now.ToString("O"));
+            administratorCountCommand.Parameters.AddWithValue(
+                "@scope",
+                AuthOptions.AdministratorScope);
+            var administratorCount = (long)(await administratorCountCommand
+                .ExecuteScalarAsync(cancellationToken)
+                .ConfigureAwait(false))!;
+            if (administratorCount <= 1)
+            {
+                throw new InvalidOperationException(
+                    "Cannot revoke the last active administrator key. Regenerate it instead.");
+            }
         }
 
-        using var connection = _connectionFactory.CreateConnection();
         using var cmd = connection.CreateCommand();
+        cmd.Transaction = transaction;
         cmd.CommandText = """
             UPDATE api_keys SET is_revoked = 1, revoked_at = @revokedAt
             WHERE id = @id AND is_revoked = 0;
@@ -213,17 +267,13 @@ public sealed class SqliteApiKeyService : IApiKeyService
         cmd.Parameters.AddWithValue("@revokedAt", DateTime.UtcNow.ToString("O"));
 
         var affected = await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-
+        transaction.Commit();
         if (affected > 0)
         {
-            using var nameCmd = connection.CreateCommand();
-            nameCmd.CommandText = "SELECT name, key_prefix FROM api_keys WHERE id = @id;";
-            nameCmd.Parameters.AddWithValue("@id", keyId);
-            using var reader = await nameCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            {
-                _logger.LogInformation("Revoked API key '{Name}' ({Prefix})", reader.GetString(0), reader.GetString(1));
-            }
+            _logger.LogInformation(
+                "Revoked API key '{Name}' ({Prefix})",
+                name,
+                prefix);
         }
 
         return affected > 0;
@@ -231,43 +281,74 @@ public sealed class SqliteApiKeyService : IApiKeyService
 
     public async Task<ApiKeyCreateResponse> RegenerateKeyAsync(string keyId, CancellationToken cancellationToken = default)
     {
-        string name;
-        bool isAdministrator;
-
-        using (var connection = _connectionFactory.CreateConnection())
-        {
-            using var getCmd = connection.CreateCommand();
-            getCmd.CommandText = "SELECT name, scopes FROM api_keys WHERE id = @id;";
-            getCmd.Parameters.AddWithValue("@id", keyId);
-            using var reader = await getCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-
-            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-                throw new InvalidOperationException($"API key with ID '{keyId}' not found.");
-
-            name = reader.GetString(0);
-            isAdministrator = JsonSerializer
-                .Deserialize<string[]>(reader.GetString(1))?
-                .Contains(
-                    AuthOptions.AdministratorScope,
-                    StringComparer.Ordinal) == true;
-            await reader.DisposeAsync().ConfigureAwait(false);
-
-            // Revoke old key (bypass lockout check since we're creating a replacement)
-            using var revokeCmd = connection.CreateCommand();
-            revokeCmd.CommandText = "UPDATE api_keys SET is_revoked = 1, revoked_at = @revokedAt WHERE id = @id;";
-            revokeCmd.Parameters.AddWithValue("@id", keyId);
-            revokeCmd.Parameters.AddWithValue("@revokedAt", DateTime.UtcNow.ToString("O"));
-            await revokeCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        var newKey = await CreateKeyAsync(
-                name,
-                cancellationToken,
-                isAdministrator)
+        using var connection = _connectionFactory.CreateConnection();
+        using var transaction = connection.BeginTransaction(deferred: false);
+        using var getCmd = connection.CreateCommand();
+        getCmd.Transaction = transaction;
+        getCmd.CommandText = "SELECT name, scopes FROM api_keys WHERE id = @id;";
+        getCmd.Parameters.AddWithValue("@id", keyId);
+        using var reader = await getCmd
+            .ExecuteReaderAsync(cancellationToken)
             .ConfigureAwait(false);
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            throw new InvalidOperationException($"API key with ID '{keyId}' not found.");
+        }
+        var name = reader.GetString(0);
+        var scopes =
+            JsonSerializer.Deserialize<string[]>(reader.GetString(1)) ?? ["*"];
+        await reader.DisposeAsync().ConfigureAwait(false);
+
+        var plaintextKey = GenerateKey();
+        var hash = HashKey(plaintextKey);
+        var prefix =
+            plaintextKey[..Math.Min(12, plaintextKey.Length)] + "...";
+        var id = Guid.NewGuid().ToString("N");
+        var createdAt = DateTime.UtcNow;
+        using var insertCommand = connection.CreateCommand();
+        insertCommand.Transaction = transaction;
+        insertCommand.CommandText = """
+            INSERT INTO api_keys
+                (id, key_hash, key_prefix, name, created_at, scopes)
+            VALUES
+                (@id, @keyHash, @keyPrefix, @name, @createdAt, @scopes);
+            """;
+        insertCommand.Parameters.AddWithValue("@id", id);
+        insertCommand.Parameters.AddWithValue("@keyHash", hash);
+        insertCommand.Parameters.AddWithValue("@keyPrefix", prefix);
+        insertCommand.Parameters.AddWithValue("@name", name);
+        insertCommand.Parameters.AddWithValue(
+            "@createdAt",
+            createdAt.ToString("O"));
+        insertCommand.Parameters.AddWithValue(
+            "@scopes",
+            JsonSerializer.Serialize(scopes));
+        await insertCommand.ExecuteNonQueryAsync(cancellationToken)
+            .ConfigureAwait(false);
+        using var revokeCommand = connection.CreateCommand();
+        revokeCommand.Transaction = transaction;
+        revokeCommand.CommandText = """
+            UPDATE api_keys
+            SET is_revoked = 1, revoked_at = @revokedAt
+            WHERE id = @id;
+            """;
+        revokeCommand.Parameters.AddWithValue("@id", keyId);
+        revokeCommand.Parameters.AddWithValue(
+            "@revokedAt",
+            createdAt.ToString("O"));
+        await revokeCommand.ExecuteNonQueryAsync(cancellationToken)
+            .ConfigureAwait(false);
+        transaction.Commit();
         _logger.LogInformation("Regenerated API key '{Name}' \u2014 old key revoked, new key created", name);
 
-        return newKey;
+        return new ApiKeyCreateResponse
+        {
+            Key = plaintextKey,
+            Id = id,
+            Prefix = prefix,
+            Name = name,
+            CreatedAt = createdAt,
+        };
     }
 
     public async Task<int> GetActiveKeyCountAsync(CancellationToken cancellationToken = default)
@@ -305,28 +386,12 @@ public sealed class SqliteApiKeyService : IApiKeyService
             return (null, 0);
 
         var hash = HashKey(plaintextKey);
-        if (isAdministrator)
-        {
-            using var scopeConnection = _connectionFactory.CreateConnection();
-            using var scopeCommand = scopeConnection.CreateCommand();
-            scopeCommand.CommandText = """
-                UPDATE api_keys
-                SET scopes = @scopes
-                WHERE name = @name
-                  AND key_hash = @hash
-                  AND is_revoked = 0;
-                """;
-            scopeCommand.Parameters.AddWithValue(
-                "@scopes",
-                JsonSerializer.Serialize(ApiKeyScopes.Create(isAdministrator: true)));
-            scopeCommand.Parameters.AddWithValue("@name", name);
-            scopeCommand.Parameters.AddWithValue("@hash", hash);
-            await scopeCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        // Check if a non-revoked key with this name already hashes to the env value → no-op
-        using var checkConn = _connectionFactory.CreateConnection();
-        using var checkCmd = checkConn.CreateCommand();
+        var scopes = JsonSerializer.Serialize(
+            ApiKeyScopes.Create(isAdministrator));
+        using var connection = _connectionFactory.CreateConnection();
+        using var transaction = connection.BeginTransaction(deferred: false);
+        using var checkCmd = connection.CreateCommand();
+        checkCmd.Transaction = transaction;
         checkCmd.CommandText = """
             SELECT COUNT(*) FROM api_keys
             WHERE name = @name AND key_hash = @hash AND is_revoked = 0
@@ -337,53 +402,81 @@ public sealed class SqliteApiKeyService : IApiKeyService
         checkCmd.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("O"));
         var matchCount = (long)(await checkCmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
         if (matchCount > 0)
+        {
+            if (isAdministrator)
+            {
+                using var scopeCommand = connection.CreateCommand();
+                scopeCommand.Transaction = transaction;
+                scopeCommand.CommandText = """
+                    UPDATE api_keys
+                    SET scopes = @scopes
+                    WHERE name = @name AND key_hash = @hash;
+                    """;
+                scopeCommand.Parameters.AddWithValue("@scopes", scopes);
+                scopeCommand.Parameters.AddWithValue("@name", name);
+                scopeCommand.Parameters.AddWithValue("@hash", hash);
+                await scopeCommand.ExecuteNonQueryAsync(cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            transaction.Commit();
             return (null, 0);
+        }
 
-        // Revoke existing non-revoked keys with this name — bypass lockout because we are
-        // creating a replacement immediately after.
-        using var revokeConn = _connectionFactory.CreateConnection();
-        using var revokeCmd = revokeConn.CreateCommand();
-        revokeCmd.CommandText = """
-            UPDATE api_keys SET is_revoked = 1, revoked_at = @revokedAt
-            WHERE name = @name AND is_revoked = 0;
-            """;
-        revokeCmd.Parameters.AddWithValue("@revokedAt", DateTime.UtcNow.ToString("O"));
-        revokeCmd.Parameters.AddWithValue("@name", name);
-        var revokedCount = await revokeCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-
-        // Create the replacement key from the provided plaintext.
         var prefix = plaintextKey.Length <= 12 ? plaintextKey : plaintextKey[..12] + "...";
         var id = Guid.NewGuid().ToString("N");
         var createdAt = DateTime.UtcNow;
-
-        using var insertConn = _connectionFactory.CreateConnection();
-        using var insertCmd = insertConn.CreateCommand();
+        using var insertCmd = connection.CreateCommand();
+        insertCmd.Transaction = transaction;
         insertCmd.CommandText = """
-            INSERT OR IGNORE INTO api_keys (id, key_hash, key_prefix, name, created_at, scopes)
-            VALUES (@id, @keyHash, @keyPrefix, @name, @createdAt, @scopes);
+            INSERT INTO api_keys
+                (id, key_hash, key_prefix, name, created_at, scopes)
+            VALUES
+                (@id, @keyHash, @keyPrefix, @name, @createdAt, @scopes)
+            ON CONFLICT(key_hash) DO UPDATE SET
+                key_prefix = excluded.key_prefix,
+                name = excluded.name,
+                created_at = excluded.created_at,
+                last_used_at = NULL,
+                expires_at = NULL,
+                is_revoked = 0,
+                revoked_at = NULL,
+                scopes = excluded.scopes
+            RETURNING id;
             """;
         insertCmd.Parameters.AddWithValue("@id", id);
         insertCmd.Parameters.AddWithValue("@keyHash", hash);
         insertCmd.Parameters.AddWithValue("@keyPrefix", prefix);
         insertCmd.Parameters.AddWithValue("@name", name);
         insertCmd.Parameters.AddWithValue("@createdAt", createdAt.ToString("O"));
-        insertCmd.Parameters.AddWithValue(
-            "@scopes",
-            JsonSerializer.Serialize(ApiKeyScopes.Create(isAdministrator)));
-
-        var inserted = await insertCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        if (inserted == 0)
-        {
-            // Concurrent seed: another process already inserted the same hash — idempotent.
-            return (null, 0);
-        }
+        insertCmd.Parameters.AddWithValue("@scopes", scopes);
+        var replacementId = (string)(await insertCmd
+            .ExecuteScalarAsync(cancellationToken)
+            .ConfigureAwait(false))!;
+        using var revokeCmd = connection.CreateCommand();
+        revokeCmd.Transaction = transaction;
+        revokeCmd.CommandText = """
+            UPDATE api_keys
+            SET is_revoked = 1, revoked_at = @revokedAt
+            WHERE name = @name
+              AND key_hash <> @hash
+              AND is_revoked = 0;
+            """;
+        revokeCmd.Parameters.AddWithValue(
+            "@revokedAt",
+            createdAt.ToString("O"));
+        revokeCmd.Parameters.AddWithValue("@name", name);
+        revokeCmd.Parameters.AddWithValue("@hash", hash);
+        var revokedCount = await revokeCmd
+            .ExecuteNonQueryAsync(cancellationToken)
+            .ConfigureAwait(false);
+        transaction.Commit();
 
         _logger.LogInformation("Override API key '{Name}' from env (prefix {Prefix})", name, prefix);
 
         return (new ApiKeyCreateResponse
         {
             Key = plaintextKey,
-            Id = id,
+            Id = replacementId,
             Prefix = prefix,
             Name = name,
             CreatedAt = createdAt,

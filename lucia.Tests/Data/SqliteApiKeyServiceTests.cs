@@ -192,6 +192,94 @@ public sealed class SqliteApiKeyServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task RevokeKeyAsync_AllowsExpiredAdministratorKey()
+    {
+        _ = await _service.CreateKeyAsync("Owner", isAdministrator: true);
+        var expired = await _service.CreateKeyAsync(
+            "Expired owner",
+            isAdministrator: true);
+        using (var connection = _helper.ConnectionFactory.CreateConnection())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                UPDATE api_keys
+                SET expires_at = @expiresAt
+                WHERE id = @id;
+                """;
+            command.Parameters.AddWithValue(
+                "@expiresAt",
+                DateTime.UtcNow.AddMinutes(-1).ToString("O"));
+            command.Parameters.AddWithValue("@id", expired.Id);
+            await command.ExecuteNonQueryAsync();
+        }
+
+        Assert.True(await _service.RevokeKeyAsync(expired.Id));
+    }
+
+    [Fact]
+    public async Task RevokeKeyAsync_ConcurrentAdministrators_PreservesOne()
+    {
+        var first = await _service.CreateKeyAsync(
+            "First owner",
+            isAdministrator: true);
+        var second = await _service.CreateKeyAsync(
+            "Second owner",
+            isAdministrator: true);
+        _ = await _service.CreateKeyAsync("Ordinary");
+
+        var outcomes = await Task.WhenAll(
+            RevokeOrRejectAsync(first.Id),
+            RevokeOrRejectAsync(second.Id));
+        var keys = await _service.ListKeysAsync();
+
+        Assert.Single(outcomes, outcome => outcome);
+        Assert.Single(keys, key =>
+            !key.IsRevoked
+            && key.Scopes.Contains(AuthOptions.AdministratorScope));
+
+        async Task<bool> RevokeOrRejectAsync(string id)
+        {
+            try
+            {
+                return await _service.RevokeKeyAsync(id);
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
+        }
+    }
+
+    [Fact]
+    public async Task RegenerateKeyAsync_InsertFailure_KeepsOldKeyActive()
+    {
+        var original = await _service.CreateKeyAsync(
+            "Owner",
+            isAdministrator: true);
+        using (var connection = _helper.ConnectionFactory.CreateConnection())
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                CREATE TRIGGER reject_api_key_revoke
+                BEFORE UPDATE OF is_revoked ON api_keys
+                WHEN NEW.is_revoked = 1
+                BEGIN
+                    SELECT RAISE(ABORT, 'simulated revoke failure');
+                END;
+                """;
+            await command.ExecuteNonQueryAsync();
+        }
+
+        await Assert.ThrowsAsync<Microsoft.Data.Sqlite.SqliteException>(
+            () => _service.RegenerateKeyAsync(original.Id));
+
+        Assert.NotNull(await _service.ValidateKeyAsync(original.Key));
+        Assert.Single(
+            await _service.ListKeysAsync(),
+            key => !key.IsRevoked);
+    }
+
+    [Fact]
     public async Task ListKeysAsync_ListsAllKeys()
     {
         await _service.CreateKeyAsync("list-key-1");

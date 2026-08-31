@@ -3,6 +3,7 @@ using System.Text;
 using FakeItEasy;
 using lucia.Agents.Auth;
 using Microsoft.Extensions.Logging;
+using MongoDB.Bson;
 using MongoDB.Driver;
 
 namespace lucia.Tests.Auth;
@@ -12,6 +13,7 @@ public class MongoApiKeyServiceTests
     private readonly IMongoClient _mongoClient;
     private readonly IMongoDatabase _database;
     private readonly IMongoCollection<ApiKeyEntry> _collection;
+    private readonly IMongoCollection<BsonDocument> _mutationLocks;
     private readonly ILogger<MongoApiKeyService> _logger;
     private readonly MongoApiKeyService _service;
 
@@ -20,12 +22,25 @@ public class MongoApiKeyServiceTests
         _mongoClient = A.Fake<IMongoClient>();
         _database = A.Fake<IMongoDatabase>();
         _collection = A.Fake<IMongoCollection<ApiKeyEntry>>();
+        _mutationLocks = A.Fake<IMongoCollection<BsonDocument>>();
         _logger = A.Fake<ILogger<MongoApiKeyService>>();
 
         A.CallTo(() => _mongoClient.GetDatabase(A<string>._, A<MongoDatabaseSettings?>._))
             .Returns(_database);
         A.CallTo(() => _database.GetCollection<ApiKeyEntry>(A<string>._, A<MongoCollectionSettings?>._))
             .Returns(_collection);
+        A.CallTo(() => _database.GetCollection<BsonDocument>(
+                A<string>._,
+                A<MongoCollectionSettings?>._))
+            .Returns(_mutationLocks);
+        A.CallTo(_mutationLocks)
+            .Where(call => call.Method.Name == "FindOneAndUpdateAsync")
+            .WithReturnType<Task<BsonDocument>>()
+            .Returns(Task.FromResult<BsonDocument>(null!));
+        A.CallTo(_mutationLocks)
+            .Where(call => call.Method.Name == "InsertOneAsync")
+            .WithReturnType<Task>()
+            .Returns(Task.CompletedTask);
 
         _service = new MongoApiKeyService(_mongoClient, _logger);
     }
@@ -176,6 +191,27 @@ public class MongoApiKeyServiceTests
     }
 
     [Fact]
+    public async Task RevokeKeyAsync_AllowsExpiredAdministratorKey()
+    {
+        const string KeyId = "expired-admin";
+        SetupFindAsync(new ApiKeyEntry
+        {
+            Id = KeyId,
+            KeyHash = "expired-hash",
+            KeyPrefix = "lk_expired...",
+            Name = "Expired owner",
+            ExpiresAt = DateTime.UtcNow.AddMinutes(-1),
+            Scopes = ["*", AuthOptions.AdministratorScope],
+        });
+        SetupUpdateOneAsync(1);
+
+        Assert.True(await _service.RevokeKeyAsync(KeyId));
+        A.CallTo(_collection)
+            .Where(call => call.Method.Name == "CountDocumentsAsync")
+            .MustNotHaveHappened();
+    }
+
+    [Fact]
     public async Task RegenerateKeyAsync_RevokesOldAndCreatesNew()
     {
         var oldKeyId = "old-key";
@@ -201,6 +237,58 @@ public class MongoApiKeyServiceTests
         A.CallTo(_collection)
             .Where(call => call.Method.Name == "UpdateOneAsync")
             .MustHaveHappened();
+    }
+
+    [Fact]
+    public async Task RegenerateKeyAsync_InsertFailure_DoesNotRevokeOldKey()
+    {
+        var entry = new ApiKeyEntry
+        {
+            Id = "owner",
+            KeyHash = "owner-hash",
+            KeyPrefix = "lk_owner...",
+            Name = "Owner",
+            Scopes = ["*", AuthOptions.AdministratorScope],
+        };
+        SetupFindAsync(entry);
+        A.CallTo(_collection)
+            .Where(call => call.Method.Name == "InsertOneAsync")
+            .WithReturnType<Task>()
+            .Returns(Task.FromException(
+                new InvalidOperationException("simulated insert failure")));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _service.RegenerateKeyAsync(entry.Id));
+
+        A.CallTo(_collection)
+            .Where(call => call.Method.Name == "UpdateOneAsync")
+            .MustNotHaveHappened();
+    }
+
+    [Fact]
+    public async Task RegenerateKeyAsync_RevokeFailure_DeletesReplacement()
+    {
+        var entry = new ApiKeyEntry
+        {
+            Id = "owner",
+            KeyHash = "owner-hash",
+            KeyPrefix = "lk_owner...",
+            Name = "Owner",
+            Scopes = ["*", AuthOptions.AdministratorScope],
+        };
+        SetupFindAsync(entry);
+        A.CallTo(_collection)
+            .Where(call => call.Method.Name == "UpdateOneAsync")
+            .WithReturnType<Task<UpdateResult>>()
+            .Returns(Task.FromException<UpdateResult>(
+                new InvalidOperationException("simulated revoke failure")));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _service.RegenerateKeyAsync(entry.Id));
+
+        A.CallTo(_collection)
+            .Where(call => call.Method.Name == "DeleteOneAsync")
+            .MustHaveHappenedOnceExactly();
     }
 
     private static string ComputeSha256Hash(string input)
