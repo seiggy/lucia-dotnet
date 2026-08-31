@@ -143,10 +143,10 @@ export default function InstallerPage() {
       try {
         const status = await fetchInstallerStatus()
         if (!cancelled) {
+          setError('')
           captureDashboardKey(status)
           setInstallerStatus(status)
           if (status.hostname) setHostname(status.hostname)
-          setError('')
         }
         if (status.phase === 'installed' || status.phase === 'failed') return
       } catch {
