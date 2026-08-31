@@ -219,6 +219,8 @@ sudo "$repo_root/infra/appliance/build-native-bundle.sh" \
     --output-dir "$bundle_root"
 sudo chown -R root:root "$bundle_root"
 sudo chown -R 1100:1100 "$bundle_root/var/lib/lucia"
+sudo chown root:root "$bundle_root/var/lib/lucia"
+sudo chmod 0755 "$bundle_root/var/lib/lucia"
 sudo chown root:1100 \
     "$bundle_root/var/lib/lucia/config" \
     "$bundle_root/var/lib/lucia/config/lucia.env"

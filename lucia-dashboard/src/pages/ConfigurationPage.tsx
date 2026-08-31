@@ -334,6 +334,7 @@ function FieldEditor({
           <ToggleSwitch
             checked={checked}
             onChange={(val) => onChange(val ? 'true' : 'false')}
+            label={name}
           />
           <span className="text-sm text-dust">
             {checked ? 'Enabled' : 'Disabled'}
@@ -815,7 +816,11 @@ export default function ConfigurationPage() {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
-            <ToggleSwitch checked={showSecrets} onChange={setShowSecrets} />
+            <ToggleSwitch
+              checked={showSecrets}
+              onChange={setShowSecrets}
+              label="Show secrets"
+            />
             <span className="text-sm text-dust">
               {showSecrets ? (
                 <span className="flex items-center gap-1 text-amber">

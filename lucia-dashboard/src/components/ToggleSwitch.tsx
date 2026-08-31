@@ -2,15 +2,14 @@ interface ToggleSwitchProps {
   checked: boolean
   onChange: (val: boolean) => void
   disabled?: boolean
-  label?: string
+  label: string
 }
 
 /**
  * Accessible toggle switch component.
  *
  * Renders as a styled on/off switch with proper `role="switch"` and
- * `aria-checked` semantics. Use the optional `label` prop to provide
- * an accessible name when there is no visible label.
+ * `aria-checked` semantics. The `label` prop provides its accessible name.
  */
 export default function ToggleSwitch({
   checked,

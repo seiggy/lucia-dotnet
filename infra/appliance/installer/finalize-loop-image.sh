@@ -159,6 +159,8 @@ else
 fi
 mkdir -p "$work/data/redis"
 chown -R 1100:1100 "$work/data"
+chown root:root "$work/data"
+chmod 0755 "$work/data"
 chown 1101:1101 "$work/data/redis"
 mkdir -p "$work/data/config"
 cp \

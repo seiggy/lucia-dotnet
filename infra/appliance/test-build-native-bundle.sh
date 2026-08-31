@@ -126,6 +126,7 @@ test_bundle_contains_native_service_contract() {
     local recovery_shell="$output_dir/usr/libexec/lucia/lucia-recovery-shell"
     local environment="$output_dir/var/lib/lucia/config/lucia.env"
     local sysusers="$output_dir/usr/lib/sysusers.d/lucia.conf"
+    local tmpfiles="$output_dir/usr/lib/tmpfiles.d/lucia.conf"
 
     if [[ -f "$agent_unit" && -f "$manager_unit" && -f "$redis_unit" \
             && -f "$redis_config" && -f "$environment" ]] \
@@ -140,7 +141,10 @@ test_bundle_contains_native_service_contract() {
         && grep -q '^Requires=lucia-redis.service$' "$agent_unit" \
         && grep -q '^ExecStart=/opt/lucia/current/app/lucia.AgentHost$' "$agent_unit" \
         && grep -q '^Restart=always$' "$agent_unit" \
+        && ! grep -q '^StateDirectory=' "$agent_unit" \
+        && grep -q '^ReadWritePaths=/var/lib/lucia/db /var/lib/lucia/models /var/lib/lucia/plugins /var/lib/lucia/voice-clips$' "$agent_unit" \
         && ! grep -q '^PrivateDevices=true$' "$agent_unit" \
+        && grep -q '^d /var/lib/lucia 0755 root root -$' "$tmpfiles" \
         && grep -q '^ExecStart=/opt/lucia/current/redis/bin/redis-server /etc/lucia/redis.conf$' "$redis_unit" \
         && grep -q '^appendonly yes$' "$redis_config" \
         && grep -q '^maxmemory-policy noeviction$' "$redis_config" \
