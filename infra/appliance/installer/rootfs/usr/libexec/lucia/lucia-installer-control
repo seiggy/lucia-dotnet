@@ -422,6 +422,7 @@ def configure_installation() -> None:
             json.dumps(provisioning, separators=(",", ":")),
         )
         write_atomic(state_directory / "erase.authorization", authorization)
+        write_atomic(state_directory / "install.requested", "status=started\n")
 
         systemctl_path = os.environ.get(
             "LUCIA_SYSTEMCTL_PATH", "/usr/bin/systemctl"
@@ -438,8 +439,8 @@ def configure_installation() -> None:
             )
         except (subprocess.CalledProcessError, OSError):
             (state_directory / "erase.authorization").unlink(missing_ok=True)
+            (state_directory / "install.requested").unlink(missing_ok=True)
             raise
-        write_atomic(state_directory / "install.requested", "status=started\n")
 
     print(json.dumps({"phase": "authorized"}, separators=(",", ":")))
 

@@ -65,7 +65,8 @@ if [[ -f "$state_file" ]] \
     device="$(sed -n 's/^device=//p' "$state_file")"
 elif [[ -f "$authorization_file" ]] \
     && grep -q '^status=approved$' "$authorization_file" \
-    && [[ -f "$provisioning_file" ]]; then
+    && [[ -f "$provisioning_file" ]] \
+    && [[ -f "$state_dir/install.requested" ]]; then
     device="$(sed -n 's/^device=//p' "$authorization_file")"
     authorization_arguments=(--authorization-file "$authorization_file")
 else

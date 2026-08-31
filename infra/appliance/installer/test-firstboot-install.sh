@@ -65,6 +65,7 @@ chmod +x \
     "$work_dir/lucia-provision-target" \
     "$work_dir/systemctl"
 
+printf '{}\n' > "$work_dir/state/provisioning.json"
 output="$(
     LUCIA_CHECKSUM_PATH="$work_dir/payload.img.sha256" \
     LUCIA_INSTALL_PATH="$work_dir/lucia-install" \
@@ -81,7 +82,7 @@ output="$(
 grep -q 'Waiting for storage selection and erase authorization.' <<< "$output"
 [[ ! -e "$work_dir/install.log" ]]
 
-printf '{}\n' > "$work_dir/state/provisioning.json"
+printf 'status=started\n' > "$work_dir/state/install.requested"
 LUCIA_CHECKSUM_PATH="$work_dir/payload.img.sha256" \
 LUCIA_INSTALL_PATH="$work_dir/lucia-install" \
 LUCIA_EXPAND_PATH="$work_dir/lucia-expand-data" \
