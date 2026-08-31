@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using MongoDB.Bson;
@@ -17,6 +18,9 @@ public sealed class MongoApiKeyService : IApiKeyService
         TimeSpan.FromMinutes(2);
     private readonly IMongoCollection<ApiKeyEntry> _collection;
     private readonly IMongoCollection<BsonDocument> _mutationLocks;
+    private readonly ConcurrentDictionary<
+        string,
+        (CancellationTokenSource Stop, Task Renewal)> _lockRenewals = new();
     private readonly ILogger<MongoApiKeyService> _logger;
 
     public MongoApiKeyService(IMongoClient mongoClient, ILogger<MongoApiKeyService> logger)
@@ -293,6 +297,10 @@ public sealed class MongoApiKeyService : IApiKeyService
             }
             catch
             {
+                await RenewMutationLockAsync(
+                        lockOwner,
+                        CancellationToken.None)
+                    .ConfigureAwait(false);
                 await _collection.DeleteOneAsync(
                         key => key.Id == newKey.Id,
                         CancellationToken.None)
@@ -414,6 +422,10 @@ public sealed class MongoApiKeyService : IApiKeyService
             }
             catch
             {
+                await RenewMutationLockAsync(
+                        lockOwner,
+                        CancellationToken.None)
+                    .ConfigureAwait(false);
                 if (existingHash is null)
                 {
                     await _collection.DeleteOneAsync(
@@ -487,7 +499,7 @@ public sealed class MongoApiKeyService : IApiKeyService
                 .ConfigureAwait(false);
             if (acquired is not null)
             {
-                return owner;
+                return StartMutationLockRenewal(owner);
             }
 
             try
@@ -501,7 +513,7 @@ public sealed class MongoApiKeyService : IApiKeyService
                         },
                         cancellationToken: cancellationToken)
                     .ConfigureAwait(false);
-                return owner;
+                return StartMutationLockRenewal(owner);
             }
             catch (MongoWriteException exception) when (
                 exception.WriteError.Category
@@ -517,6 +529,30 @@ public sealed class MongoApiKeyService : IApiKeyService
 
     private async Task ReleaseMutationLockAsync(string owner)
     {
+        if (_lockRenewals.TryRemove(owner, out var renewal))
+        {
+            renewal.Stop.Cancel();
+            try
+            {
+                await renewal.Renewal.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (
+                renewal.Stop.IsCancellationRequested)
+            {
+                _logger.LogDebug(
+                    "API key mutation lock renewal stopped for release.");
+            }
+            catch (Exception exception) when (
+                exception is MongoException
+                    or InvalidOperationException)
+            {
+                _logger.LogWarning(
+                    exception,
+                    "API key mutation lock renewal stopped unexpectedly.");
+            }
+            renewal.Stop.Dispose();
+        }
+
         try
         {
             await _mutationLocks.DeleteOneAsync(
@@ -533,6 +569,37 @@ public sealed class MongoApiKeyService : IApiKeyService
             _logger.LogWarning(
                 exception,
                 "API key mutation lock release failed; its lease will expire.");
+        }
+    }
+
+    private string StartMutationLockRenewal(string owner)
+    {
+        var stop = new CancellationTokenSource();
+        if (!_lockRenewals.TryAdd(
+                owner,
+                (stop, RenewMutationLockUntilCanceledAsync(
+                    owner,
+                    stop.Token))))
+        {
+            stop.Dispose();
+            throw new InvalidOperationException(
+                "API key mutation lock renewal could not start.");
+        }
+        return owner;
+    }
+
+    private async Task RenewMutationLockUntilCanceledAsync(
+        string owner,
+        CancellationToken cancellationToken)
+    {
+        var renewalInterval = TimeSpan.FromTicks(
+            s_mutationLockLease.Ticks / 3);
+        while (true)
+        {
+            await Task.Delay(renewalInterval, cancellationToken)
+                .ConfigureAwait(false);
+            await RenewMutationLockAsync(owner, cancellationToken)
+                .ConfigureAwait(false);
         }
     }
 

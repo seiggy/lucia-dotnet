@@ -109,6 +109,7 @@ function AppRoutes() {
 
   useEffect(() => {
     if (!authenticated || !setupComplete) {
+      setHasAppliance(null)
       return
     }
 

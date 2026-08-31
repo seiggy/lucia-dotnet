@@ -961,9 +961,9 @@ function InstallingStep({
         {isInstalled
           ? `Remove the SD card when the appliance powers down, then turn it back on and open https://${hostname}.local:8099. Your browser will ask you to accept Lucia's local certificate once.`
           : isFailed
-          ? status.canRetryNetwork
-            ? 'Home Wi-Fi could not connect. Keep the SD card inserted and enter the corrected network credentials below.'
-            : 'Lucia stopped before installation completed. Keep the SD card inserted and restart the appliance to retry safely.'
+          ? status.message ?? (status.canRetryNetwork
+              ? 'Home Wi-Fi could not connect. Keep the SD card inserted and enter the corrected network credentials below.'
+              : 'Lucia stopped before installation completed. Keep the SD card inserted and restart the appliance to retry safely.')
           : 'The image is being verified, written, and personalized. Keep the appliance powered on. This page may disconnect when the appliance powers down.'}
       </p>
       {dashboardKey && (

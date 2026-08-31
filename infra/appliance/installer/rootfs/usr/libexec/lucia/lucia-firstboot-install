@@ -40,7 +40,14 @@ power_off_for_handoff() {
     "$systemctl_path" --no-block poweroff
 }
 on_error() {
-    write_progress failed
+    if [[ -f "$progress_file" ]] \
+        && grep -q '"failureKind":"wifi"' "$progress_file"; then
+        return
+    fi
+    printf '%s\n' \
+        '{"stage":"failed","failureKind":"system","message":"Installation failed outside Wi-Fi validation."}' \
+        > "$progress_file"
+    chmod 0600 "$progress_file"
 }
 trap on_error ERR
 

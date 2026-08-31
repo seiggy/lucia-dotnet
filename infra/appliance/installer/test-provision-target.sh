@@ -131,6 +131,8 @@ if LUCIA_MANAGER_OVERRIDE="$work_dir/lucia.ApplianceManager" \
 fi
 [[ -e "$state_dir/provisioning.json" ]]
 [[ ! -e "$state_dir/provision.state" ]]
+grep -q '"failureKind":"wifi"' "$state_dir/progress.json"
+! grep -q 'wrong-password' "$state_dir/progress.json"
 [[ "$(grep -c '^--wait 30 connection up id lucia-setup ifname wlan0$' \
     "$nmcli_log")" -eq 2 ]]
 

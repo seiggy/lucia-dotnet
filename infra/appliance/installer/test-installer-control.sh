@@ -228,7 +228,8 @@ grep -q '"acknowledged":true' "$work_dir/ack.json"
 echo "PASS: control binds approved setup to the selected disk and image"
 
 printf 'status=installed\n' > "$work_dir/state/install.state"
-printf '{"stage":"failed"}\n' > "$work_dir/state/progress.json"
+printf '{"stage":"failed","failureKind":"wifi","message":"Wi-Fi validation failed"}\n' \
+    > "$work_dir/state/progress.json"
 LUCIA_INSTALLER_STATE_DIR="$work_dir/state" "$control" status \
     > "$work_dir/status.json"
 grep -q '"canRetryNetwork":true' "$work_dir/status.json"

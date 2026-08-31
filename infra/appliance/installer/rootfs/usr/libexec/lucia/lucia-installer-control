@@ -268,7 +268,8 @@ def show_status() -> None:
         elif stage == "failed":
             status["phase"] = "failed"
             status["canRetryNetwork"] = (
-                state_file.exists()
+                progress.get("failureKind") == "wifi"
+                and state_file.exists()
                 and read_key_values(
                     state_file.read_text(encoding="utf-8")
                 ).get("status")

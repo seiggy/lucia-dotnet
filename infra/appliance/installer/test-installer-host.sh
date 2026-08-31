@@ -190,13 +190,15 @@ rm "$block_control"
 echo "PASS: canceled installer requests terminate control helpers"
 
 status="$(
-    curl --silent --output "$work_dir/status.json" --write-out '%{http_code}' \
+    curl --silent --dump-header "$work_dir/status.headers" \
+        --output "$work_dir/status.json" --write-out '%{http_code}' \
         --cookie "$cookie_jar" \
         --header "Host: $canonical_host" \
         "$base_url/api/installer/status"
 )"
 
 [[ "$status" == "200" ]]
+grep -qi '^Cache-Control: no-store' "$work_dir/status.headers"
 grep -q '"phase":"waiting-for-configuration"' "$work_dir/status.json"
 
 echo "PASS: installer status requires the claiming browser"

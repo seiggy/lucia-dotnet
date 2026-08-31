@@ -140,9 +140,13 @@ app.MapGet(
     "/api/installer/status",
     async (
         InstallerControlClient control,
+        HttpContext context,
         CancellationToken cancellationToken) =>
-        Results.Ok(await control.GetStatusAsync(cancellationToken)
-            .ConfigureAwait(false)));
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        return Results.Ok(await control.GetStatusAsync(cancellationToken)
+            .ConfigureAwait(false));
+    });
 app.MapGet(
     "/api/installer/disks",
     async (

@@ -3,12 +3,12 @@ import { expect, test } from '@playwright/test';
 test('manages an installed appliance from mobile', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   let statusRequestCount = 0;
+  await page.route('**/api/appliance/capabilities', async (route) => {
+    await route.fulfill({ json: { enabled: true } });
+  });
   await page.route('**/api/auth/status', async (route) => {
     await route.fulfill({
       json: { authenticated: true, setupComplete: true, hasKeys: true },
-    });
-    await page.route('**/api/appliance/capabilities', async (route) => {
-      await route.fulfill({ json: { enabled: true } });
     });
   });
   await page.route('**/api/appliance/status', async (route) => {
@@ -103,12 +103,12 @@ test('manages an installed appliance from mobile', async ({ page }) => {
 });
 
 test('keeps appliance navigation when the manager is temporarily unavailable', async ({ page }) => {
+  await page.route('**/api/appliance/capabilities', async (route) => {
+    await route.fulfill({ json: { enabled: true } });
+  });
   await page.route('**/api/auth/status', async (route) => {
     await route.fulfill({
       json: { authenticated: true, setupComplete: true, hasKeys: true },
-    });
-    await page.route('**/api/appliance/capabilities', async (route) => {
-      await route.fulfill({ json: { enabled: true } });
     });
   });
   await page.route('**/api/appliance/status', async (route) => {

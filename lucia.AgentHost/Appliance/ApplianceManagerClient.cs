@@ -133,23 +133,36 @@ public sealed class ApplianceManagerClient : IDisposable
                 is "application/json" or "application/problem+json"
             && !string.IsNullOrWhiteSpace(content))
         {
-            using var document = JsonDocument.Parse(content);
-            var root = document.RootElement;
-            if (root.TryGetProperty("detail", out var detail)
-                && detail.ValueKind == JsonValueKind.String)
-            {
-                message = detail.GetString() ?? message;
-            }
-            else if (root.TryGetProperty("error", out var error)
-                && error.ValueKind == JsonValueKind.String)
-            {
-                message = error.GetString() ?? message;
-            }
+            message = ReadProblemMessage(content) ?? message;
         }
 
         throw new HttpRequestException(
             message,
             inner: null,
             response.StatusCode);
+    }
+
+    private static string? ReadProblemMessage(string content)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(content);
+            var root = document.RootElement;
+            if (root.TryGetProperty("detail", out var detail)
+                && detail.ValueKind == JsonValueKind.String)
+            {
+                return detail.GetString();
+            }
+            if (root.TryGetProperty("error", out var error)
+                && error.ValueKind == JsonValueKind.String)
+            {
+                return error.GetString();
+            }
+            return null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 }

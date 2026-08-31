@@ -484,11 +484,30 @@ def main() -> None:
     dashboard_key = str(provisioning.get("dashboardApiKey", ""))
     wifi = provisioning.get("wifi")
     if wifi is not None:
-        validate_wifi_checkpoint(
-            state_directory,
-            str(wifi["ssid"]),
-            str(wifi["passphrase"]),
-        )
+        try:
+            validate_wifi_checkpoint(
+                state_directory,
+                str(wifi["ssid"]),
+                str(wifi["passphrase"]),
+            )
+        except (
+            OSError,
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            ValueError,
+        ) as error:
+            write_atomic(
+                state_directory / "progress.json",
+                json.dumps(
+                    {
+                        "stage": "failed",
+                        "failureKind": "wifi",
+                        "message": str(error),
+                    },
+                    separators=(",", ":"),
+                ),
+            )
+            raise
     certificate_path, key_path = ensure_tls_material(
         state_directory,
         str(provisioning["hostname"]),
