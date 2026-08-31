@@ -124,6 +124,7 @@ test_bundle_contains_native_service_contract() {
     local redis_unit="$output_dir/usr/lib/systemd/system/lucia-redis.service"
     local redis_config="$output_dir/etc/lucia/redis.conf"
     local recovery_shell="$output_dir/usr/libexec/lucia/lucia-recovery-shell"
+    local recovery_sshd="$output_dir/etc/ssh/sshd_config.d/90-lucia-recovery.conf"
     local environment="$output_dir/var/lib/lucia/config/lucia.env"
     local sysusers="$output_dir/usr/lib/sysusers.d/lucia.conf"
     local tmpfiles="$output_dir/usr/lib/tmpfiles.d/lucia.conf"
@@ -131,6 +132,10 @@ test_bundle_contains_native_service_contract() {
     if [[ -f "$agent_unit" && -f "$manager_unit" && -f "$redis_unit" \
             && -f "$redis_config" && -f "$environment" ]] \
         && grep -q '^exec /usr/bin/nmtui' "$recovery_shell" \
+        && grep -q '^Match User lucia-recovery$' "$recovery_sshd" \
+        && grep -q '^    ForceCommand /usr/libexec/lucia/lucia-recovery-shell$' "$recovery_sshd" \
+        && grep -q '^    DisableForwarding yes$' "$recovery_sshd" \
+        && grep -q '^    AllowTcpForwarding no$' "$recovery_sshd" \
         && ! grep -q '^m lucia-telemetry lucia$' "$sysusers" \
         && grep -q '^ExecStart=/opt/lucia/current/manager/lucia.ApplianceManager$' "$manager_unit" \
         && grep -q '^Environment=LUCIA_APPLIANCE_SOCKET=/run/lucia-appliance/appliance-manager.sock$' "$manager_unit" \
