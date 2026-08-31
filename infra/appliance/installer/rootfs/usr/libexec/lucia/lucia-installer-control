@@ -493,12 +493,6 @@ def retry_network_configuration() -> None:
             provisioning_path,
             json.dumps(provisioning, separators=(",", ":")),
         )
-        pathlib.Path(
-            os.environ.get(
-                "LUCIA_INSTALLER_PROGRESS_PATH",
-                state_directory / "progress.json",
-            )
-        ).unlink(missing_ok=True)
         systemctl_path = os.environ.get(
             "LUCIA_SYSTEMCTL_PATH", "/usr/bin/systemctl"
         )
@@ -511,6 +505,12 @@ def retry_network_configuration() -> None:
             ],
             check=True,
         )
+        pathlib.Path(
+            os.environ.get(
+                "LUCIA_INSTALLER_PROGRESS_PATH",
+                state_directory / "progress.json",
+            )
+        ).unlink(missing_ok=True)
 
     print(json.dumps({"phase": "authorized"}, separators=(",", ":")))
 

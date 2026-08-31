@@ -270,6 +270,25 @@ static async Task<IResult> UpdateTelemetryConfigurationAsync(
             : existing.GetValueOrDefault(
                 "OTEL_EXPORTER_OTLP_AUTHORIZATION",
                 string.Empty);
+    var reusesAuthorization =
+        !request.ClearAuthorization
+        && !hasUsername
+        && !string.IsNullOrEmpty(authorization);
+    if (reusesAuthorization
+        && (!Uri.TryCreate(
+                existing.GetValueOrDefault("OTEL_EXPORTER_OTLP_ENDPOINT"),
+                UriKind.Absolute,
+                out var existingEndpoint)
+            || !string.Equals(
+                existingEndpoint.Authority,
+                endpoint.Authority,
+                StringComparison.OrdinalIgnoreCase)))
+    {
+        return Results.BadRequest(new
+        {
+            Error = "Changing telemetry host requires replacing or clearing saved credentials.",
+        });
+    }
     if (request.Enabled
         && endpoint.Scheme == "http"
         && !string.IsNullOrEmpty(authorization))

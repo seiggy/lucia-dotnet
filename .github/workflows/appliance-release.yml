@@ -84,6 +84,7 @@ jobs:
         run: |
           python3 infra/appliance/release/test_package_release.py
           bash infra/appliance/release/test_build_release_assets.sh
+          bash infra/appliance/test-build-native-bundle.sh
           bash infra/appliance/installer/test-installer-rootfs.sh
           bash infra/appliance/installer/test-network-bootstrap.sh
           bash infra/appliance/installer/test-provision-target.sh

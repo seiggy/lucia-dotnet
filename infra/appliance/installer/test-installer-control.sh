@@ -128,6 +128,10 @@ cat > "$work_dir/systemctl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$LUCIA_TEST_SYSTEMCTL_LOG"
+if [[ -n "${LUCIA_TEST_FAIL_SYSTEMCTL:-}" \
+        && -f "$LUCIA_TEST_FAIL_SYSTEMCTL" ]]; then
+    exit 1
+fi
 EOF
 chmod +x "$work_dir/systemctl"
 
@@ -202,6 +206,19 @@ LUCIA_INSTALLER_STATE_DIR="$work_dir/state" "$control" status \
     > "$work_dir/status.json"
 grep -q '"canRetryNetwork":true' "$work_dir/status.json"
 authorization_before="$(sha256sum "$work_dir/state/erase.authorization")"
+touch "$work_dir/fail-systemctl"
+if printf '{"ssid":"Lab WiFi","passphrase":"corrected-password"}' \
+    | LUCIA_INSTALLER_STATE_DIR="$work_dir/state" \
+        LUCIA_NMCLI_PATH="$work_dir/nmcli" \
+        LUCIA_SYSTEMCTL_PATH="$work_dir/systemctl" \
+        LUCIA_TEST_FAIL_SYSTEMCTL="$work_dir/fail-systemctl" \
+        LUCIA_TEST_SYSTEMCTL_LOG="$work_dir/systemctl.log" \
+        "$control" retry-network 2>"$work_dir/retry-failure.log"; then
+    echo "Network retry succeeded after systemd rejected it" >&2
+    exit 1
+fi
+[[ -e "$work_dir/state/progress.json" ]]
+rm "$work_dir/fail-systemctl"
 printf '{"ssid":"Lab WiFi","passphrase":"corrected-password"}' \
     | LUCIA_INSTALLER_STATE_DIR="$work_dir/state" \
         LUCIA_NMCLI_PATH="$work_dir/nmcli" \

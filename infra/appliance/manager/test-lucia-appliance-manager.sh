@@ -326,6 +326,21 @@ cmp -s "$work_dir/telemetry.https" "$telemetry_environment"
 
 echo "PASS: telemetry cannot retain credentials on a plaintext endpoint"
 
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
+        --header 'Content-Type: application/json' \
+        --request PUT \
+        --data '{"enabled":true,"endpoint":"https://other.example:4317","username":null,"password":null,"insecureSkipVerify":false}' \
+        http://localhost/v1/telemetry
+)"
+[[ "$status" == "400" ]]
+grep -q 'requires replacing or clearing saved credentials' \
+    "$work_dir/response.json"
+cmp -s "$work_dir/telemetry.https" "$telemetry_environment"
+
+echo "PASS: saved telemetry credentials remain scoped to their host"
+
 for service_and_unit in \
     "collector lucia-otelcol.service" \
     "redis-exporter lucia-redis-exporter.service"; do
