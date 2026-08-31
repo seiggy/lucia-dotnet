@@ -2,7 +2,8 @@
 Description=Lucia captive installer
 Documentation=https://github.com/seiggy/lucia-dotnet
 After=network-online.target lucia-network-bootstrap.service
-Wants=network-online.target lucia-network-bootstrap.service
+Wants=network-online.target
+Requires=lucia-network-bootstrap.service
 Before=lucia-firstboot-install.service
 RequiresMountsFor=/opt/lucia-installer
 ConditionPathExists=/etc/lucia-installer/installer.env
