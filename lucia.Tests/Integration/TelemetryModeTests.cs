@@ -137,6 +137,7 @@ public sealed class TelemetryModeTests
         var endpoint = (IPEndPoint)collector.LocalEndpoint;
         var builder = Host.CreateApplicationBuilder();
         builder.Configuration["Observability:Mode"] = "Metrics";
+        builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"] = "";
         builder.Configuration["Observability:OtlpEndpoint"] =
             $"http://127.0.0.1:{endpoint.Port}";
         builder.ConfigureOpenTelemetry();

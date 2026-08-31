@@ -227,8 +227,13 @@ public static class Extensions
 
     private static Uri? ResolveOtlpEndpoint(IHostApplicationBuilder builder)
     {
-        var configuredEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]
-            ?? builder.Configuration["Observability:OtlpEndpoint"];
+        var configuredEndpoint =
+            builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
+        if (string.IsNullOrWhiteSpace(configuredEndpoint))
+        {
+            configuredEndpoint =
+                builder.Configuration["Observability:OtlpEndpoint"];
+        }
         if (string.IsNullOrWhiteSpace(configuredEndpoint))
         {
             return null;

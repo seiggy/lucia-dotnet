@@ -17,6 +17,9 @@ The installed dashboard listens at `https://HOSTNAME.local:8099` with a
 per-device certificate generated during setup. The first browser must accept
 that local certificate. Plain HTTP is bound only to loopback on port 8098.
 
+The `lucia-recovery` account has no sudo membership. Its owner-selected
+password opens only the local NetworkManager text interface.
+
 These are full component payloads, not binary deltas. Full payloads are larger,
 but they are deterministic, recoverable, and do not require every user to have
 the same prior version.

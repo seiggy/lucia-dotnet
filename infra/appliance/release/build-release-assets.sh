@@ -314,6 +314,17 @@ install_compute_runtime() (
     sudo rm -rf "$root/tmp/lucia-compute"
 )
 
+configure_recovery_account() {
+    local root="$1"
+    local shell_path="/usr/libexec/lucia/lucia-recovery-shell"
+
+    sudo chroot "$root" gpasswd --delete lucia-recovery sudo
+    sudo chroot "$root" usermod --shell "$shell_path" lucia-recovery
+    grep -Fqx "$shell_path" "$root/etc/shells" \
+        || printf '%s\n' "$shell_path" \
+            | sudo tee -a "$root/etc/shells" >/dev/null
+}
+
 prepare_bsp "$bsp_dir"
 root="$bsp_dir/Linux_for_Tegra/rootfs"
 install_compute_runtime "$root"
@@ -339,6 +350,7 @@ sudo "$bsp_dir/Linux_for_Tegra/tools/l4t_create_default_user.sh" \
     --hostname lucia \
     --accept-license >/dev/null
 unset recovery_password
+configure_recovery_account "$root"
 sudo rm -f "$root/usr/bin/qemu-aarch64-static"
 sudo sed -i -E \
     's#^(lucia-recovery:)[^:]*:#\1!:#' \
@@ -404,6 +416,9 @@ sudo install -m 0755 \
     "$repo_root/infra/appliance/installer/lucia-install" \
     "$sd_root/usr/libexec/lucia/lucia-install"
 sudo cp -a "$installer_publish_dir/." "$sd_root/opt/lucia-installer/app/"
+sudo install -D -m 0755 \
+    "$repo_root/infra/appliance/rootfs/usr/libexec/lucia/lucia-recovery-shell" \
+    "$sd_root/usr/libexec/lucia/lucia-recovery-shell"
 sudo cp \
     "$sd_root/etc/lucia-installer/installer.env.example" \
     "$sd_root/etc/lucia-installer/installer.env"
@@ -432,6 +447,7 @@ sudo "$sd_bsp_dir/Linux_for_Tegra/tools/l4t_create_default_user.sh" \
     --hostname lucia \
     --accept-license >/dev/null
 unset recovery_password
+configure_recovery_account "$sd_root"
 sudo rm -f "$sd_root/usr/bin/qemu-aarch64-static"
 sudo sed -i -E \
     's#^(lucia-recovery:)[^:]*:#\1!:#' \

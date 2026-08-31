@@ -271,6 +271,19 @@ status="$(
         --unix-socket "$socket_path" \
         --header 'Content-Type: application/json' \
         --request PUT \
+        --data '{"enabled":true,"endpoint":"https://telemetry.example:4317/v1/traces","username":null,"password":null,"insecureSkipVerify":false}' \
+        http://localhost/v1/telemetry
+)"
+[[ "$status" == "400" ]]
+[[ ! -e "$telemetry_environment" ]]
+
+echo "PASS: telemetry rejects OTLP paths unsupported by the Collector"
+
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
+        --header 'Content-Type: application/json' \
+        --request PUT \
         --data '{"enabled":true,"endpoint":"http://telemetry.example:4317","username":"lucia","password":"telemetry-secret","insecureSkipVerify":false}' \
         http://localhost/v1/telemetry
 )"

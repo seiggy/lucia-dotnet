@@ -216,6 +216,7 @@ static async Task<IResult> UpdateTelemetryConfigurationAsync(
         || endpoint.Scheme is not ("http" or "https")
         || string.IsNullOrWhiteSpace(endpoint.Host)
         || !string.IsNullOrEmpty(endpoint.UserInfo)
+        || endpoint.AbsolutePath != "/"
         || !string.IsNullOrEmpty(endpoint.Query)
         || !string.IsNullOrEmpty(endpoint.Fragment))
     {

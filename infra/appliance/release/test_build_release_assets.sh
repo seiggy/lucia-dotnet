@@ -15,5 +15,9 @@ grep -q 'sudo chroot "$root" dpkg --install' \
     "$script_dir/build-release-assets.sh"
 ! grep -Eq 'apt-get (update|install)' \
     "$script_dir/build-release-assets.sh"
+grep -q 'gpasswd --delete lucia-recovery sudo' \
+    "$script_dir/build-release-assets.sh"
+grep -q 'usermod --shell.*lucia-recovery' \
+    "$script_dir/build-release-assets.sh"
 
-echo "PASS: release rootfs uses the digest-pinned compute package set"
+echo "PASS: release rootfs uses pinned packages and restricted recovery"
