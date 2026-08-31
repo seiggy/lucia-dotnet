@@ -162,6 +162,95 @@ def write_wifi_profile(
     write_atomic(connection_path, profile, mode=0o600)
 
 
+def validate_wifi_checkpoint(
+    state_directory: pathlib.Path,
+    ssid: str,
+    passphrase: str,
+) -> None:
+    nmcli_path = os.environ.get("LUCIA_NMCLI_PATH", "/usr/bin/nmcli")
+    device_output = subprocess.run(
+        [nmcli_path, "--terse", "--fields", "DEVICE,TYPE", "device", "status"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    ).stdout
+    wifi_interface = next(
+        (
+            line.split(":", 1)[0]
+            for line in device_output.splitlines()
+            if line.endswith(":wifi")
+        ),
+        None,
+    )
+    if wifi_interface is None:
+        raise ValueError("No Wi-Fi interface is available for validation")
+
+    with tempfile.TemporaryDirectory(
+        dir=state_directory,
+        prefix=".wifi-checkpoint.",
+    ) as temporary_directory:
+        temporary_root = pathlib.Path(temporary_directory)
+        write_wifi_profile(temporary_root, ssid, passphrase)
+        profile_path = (
+            temporary_root
+            / "etc"
+            / "NetworkManager"
+            / "system-connections"
+            / "lucia-home.nmconnection"
+        )
+        subprocess.run(
+            [nmcli_path, "connection", "load", str(profile_path)],
+            check=True,
+        )
+        try:
+            subprocess.run(
+                [
+                    nmcli_path,
+                    "device",
+                    "checkpoint",
+                    "--timeout",
+                    "45",
+                    wifi_interface,
+                    "--",
+                    nmcli_path,
+                    "--wait",
+                    "30",
+                    "connection",
+                    "up",
+                    "id",
+                    "lucia-home",
+                    "ifname",
+                    wifi_interface,
+                ],
+                check=True,
+                input="yes\n",
+                text=True,
+                timeout=60,
+            )
+        finally:
+            try:
+                subprocess.run(
+                    [
+                        nmcli_path,
+                        "--wait",
+                        "30",
+                        "connection",
+                        "up",
+                        "id",
+                        "lucia-setup",
+                        "ifname",
+                        wifi_interface,
+                    ],
+                    check=True,
+                )
+            finally:
+                subprocess.run(
+                    [nmcli_path, "connection", "delete", "id", "lucia-home"],
+                    check=False,
+                )
+
+
 def provision(target_root: pathlib.Path, provisioning: dict[str, object]) -> None:
     hostname = provisioning["hostname"]
     password_hash = provisioning["recoveryPasswordHash"]
@@ -242,6 +331,13 @@ def main() -> None:
     )
     if not isinstance(provisioning, dict):
         raise ValueError("Provisioning configuration must be an object")
+    wifi = provisioning.get("wifi")
+    if wifi is not None:
+        validate_wifi_checkpoint(
+            state_directory,
+            str(wifi["ssid"]),
+            str(wifi["passphrase"]),
+        )
 
     if configured_target is not None:
         provision(pathlib.Path(configured_target), provisioning)

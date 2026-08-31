@@ -16,6 +16,7 @@ hostname_file="$work_dir/hostname"
 current_release="$work_dir/current"
 reboot_required="$work_dir/reboot-required"
 telemetry_environment="$work_dir/telemetry.env"
+agenthost_environment="$work_dir/lucia.env"
 fail_enable="$work_dir/fail-enable"
 block_restart="$work_dir/block-restart"
 restart_started="$work_dir/restart-started"
@@ -86,6 +87,8 @@ EOF
 printf 'lucia-lab\n' > "$hostname_file"
 printf '1.1.0\n' > "$os_version"
 printf '# R36 (release), REVISION: 5.2\n' > "$jetson_release"
+printf 'Observability__Mode=Off\nPluginDirectory=/var/lib/lucia/plugins\n' \
+    > "$agenthost_environment"
 mkdir -p "$work_dir/releases/1.2.3"
 ln -s releases/1.2.3 "$current_release"
 
@@ -100,6 +103,7 @@ LUCIA_MOUNTINFO_PATH="$mountinfo" \
 LUCIA_SYS_BLOCK_PATH="$sys_block" \
 LUCIA_REBOOT_REQUIRED_PATH="$reboot_required" \
 LUCIA_TELEMETRY_ENV_PATH="$telemetry_environment" \
+LUCIA_AGENTHOST_ENV_PATH="$agenthost_environment" \
 LUCIA_SYSTEMCTL_PATH="$work_dir/systemctl" \
 LUCIA_TEST_SYSTEMCTL_LOG="$systemctl_log" \
 LUCIA_TEST_FAIL_ENABLE_FILE="$fail_enable" \
@@ -283,9 +287,14 @@ grep -qx 'OTEL_EXPORTER_OTLP_INSECURE_SKIP_VERIFY=false' \
     "$telemetry_environment"
 grep -qx 'OTEL_EXPORTER_OTLP_AUTHORIZATION=Basic bHVjaWE6dGVsZW1ldHJ5LXNlY3JldA==' \
     "$telemetry_environment"
+grep -qx 'Observability__Mode=Trace' "$agenthost_environment"
+grep -qx 'OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4317' \
+    "$agenthost_environment"
+grep -qx 'PluginDirectory=/var/lib/lucia/plugins' "$agenthost_environment"
 [[ "$(stat --format '%a' "$telemetry_environment")" == "600" ]]
 grep -qx -- 'enable --now lucia-redis-exporter.service lucia-otelcol.service' \
     "$systemctl_log"
+grep -qx -- 'restart lucia-agenthost.service' "$systemctl_log"
 
 echo "PASS: telemetry configuration is validated, redacted, and enabled"
 
@@ -328,6 +337,8 @@ status="$(
         http://localhost/v1/telemetry
 )"
 [[ "$status" == "200" ]]
+grep -qx 'Observability__Mode=Off' "$agenthost_environment"
+! grep -q '^OTEL_EXPORTER_OTLP_ENDPOINT=' "$agenthost_environment"
 
 status="$(
     curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
@@ -341,6 +352,7 @@ grep -q 'Telemetry is disabled' "$work_dir/response.json"
 echo "PASS: disabled telemetry services cannot be restarted"
 
 cp "$telemetry_environment" "$work_dir/telemetry.before"
+cp "$agenthost_environment" "$work_dir/agenthost.before"
 touch "$fail_enable"
 status="$(
     curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
@@ -353,6 +365,7 @@ status="$(
 
 [[ "$status" == "503" ]]
 cmp -s "$work_dir/telemetry.before" "$telemetry_environment"
+cmp -s "$work_dir/agenthost.before" "$agenthost_environment"
 grep -qx -- 'disable --now lucia-otelcol.service lucia-redis-exporter.service' \
     "$systemctl_log"
 

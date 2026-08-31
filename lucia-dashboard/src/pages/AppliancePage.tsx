@@ -186,6 +186,7 @@ export default function AppliancePage() {
             latest={updates?.latestLuciaVersion}
             available={updates?.luciaUpdateAvailable ?? false}
             newerDiscovered={updates?.luciaNewerDiscovered ?? false}
+            compatible={updates?.compatible ?? true}
             checked={updates !== null}
           />
           <UpdateRail
@@ -195,6 +196,7 @@ export default function AppliancePage() {
             latest={updates?.latestOsVersion}
             available={updates?.osUpdateAvailable ?? false}
             newerDiscovered={updates?.osNewerDiscovered ?? false}
+            compatible={updates?.compatible ?? true}
             checked={updates !== null}
           />
         </div>
@@ -316,6 +318,7 @@ function UpdateRail({
   latest,
   available,
   newerDiscovered,
+  compatible,
   checked,
 }: {
   icon: typeof Cpu
@@ -324,9 +327,11 @@ function UpdateRail({
   latest?: string | null
   available: boolean
   newerDiscovered: boolean
+  compatible: boolean
   checked: boolean
 }) {
   const verificationRequired = checked && newerDiscovered
+  const incompatible = verificationRequired && !compatible
   return (
     <div className="grid gap-4 border-b border-stone p-5 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
       <div className="flex min-w-0 items-center gap-3">
@@ -351,7 +356,9 @@ function UpdateRail({
         }`}>
           {available
             ? 'Update available'
-            : verificationRequired
+            : incompatible
+              ? 'Incompatible'
+              : verificationRequired
               ? 'Verification required'
               : checked
                 ? 'Current'

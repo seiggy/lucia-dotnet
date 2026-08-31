@@ -237,12 +237,18 @@ static async Task<IResult> UpdateTelemetryConfigurationAsync(
 
     var path = Environment.GetEnvironmentVariable("LUCIA_TELEMETRY_ENV_PATH")
         ?? "/var/lib/lucia/config/telemetry.env";
+    var agentHostPath =
+        Environment.GetEnvironmentVariable("LUCIA_AGENTHOST_ENV_PATH")
+        ?? "/var/lib/lucia/config/lucia.env";
     var normalizedEndpoint = request.Endpoint.TrimEnd('/');
     var existing = File.Exists(path)
         ? ReadKeyValueFile(path)
         : new Dictionary<string, string>(StringComparer.Ordinal);
     var previousLines = File.Exists(path)
         ? File.ReadAllLines(path)
+        : null;
+    var previousAgentHostLines = File.Exists(agentHostPath)
+        ? File.ReadAllLines(agentHostPath)
         : null;
     var previousEnabled = bool.TryParse(
         existing.GetValueOrDefault("LUCIA_TELEMETRY_ENABLED"),
@@ -273,45 +279,33 @@ static async Task<IResult> UpdateTelemetryConfigurationAsync(
         $"OTEL_EXPORTER_OTLP_INSECURE_SKIP_VERIFY={request.InsecureSkipVerify.ToString().ToLowerInvariant()}",
         $"OTEL_EXPORTER_OTLP_AUTHORIZATION={authorization}",
     };
-    WriteEnvironmentFile(path, values);
-
-    var arguments = request.Enabled
-        ? new[]
-        {
-            "enable",
-            "--now",
-            "lucia-redis-exporter.service",
-            "lucia-otelcol.service",
-        }
-        : new[]
-        {
-            "disable",
-            "--now",
-            "lucia-otelcol.service",
-            "lucia-redis-exporter.service",
-        };
     (int ExitCode, string StandardOutput, string StandardError) result;
     try
     {
-        result = await RunSystemctlMutationAsync(arguments)
+        WriteEnvironmentFile(path, values);
+        WriteAgentHostTelemetryConfiguration(agentHostPath, request.Enabled);
+        result = await ApplyTelemetrySystemdStateAsync(request.Enabled)
             .ConfigureAwait(false);
     }
     catch (Exception exception) when (
         exception is OperationCanceledException
             or Win32Exception
-            or InvalidOperationException)
+            or InvalidOperationException
+            or IOException
+            or UnauthorizedAccessException)
     {
         RestoreTelemetryFile(path, previousLines);
-        _ = await RunSystemctlMutationAsync(
-                GetTelemetrySystemdArguments(previousEnabled))
+        RestoreTelemetryFile(agentHostPath, previousAgentHostLines);
+        _ = await ApplyTelemetrySystemdStateAsync(previousEnabled)
             .ConfigureAwait(false);
         throw;
     }
     if (result.ExitCode != 0)
     {
         RestoreTelemetryFile(path, previousLines);
-        var rollbackResult = await RunSystemctlMutationAsync(
-                GetTelemetrySystemdArguments(previousEnabled))
+        RestoreTelemetryFile(agentHostPath, previousAgentHostLines);
+        var rollbackResult = await ApplyTelemetrySystemdStateAsync(
+                previousEnabled)
             .ConfigureAwait(false);
         var detail = rollbackResult.ExitCode == 0
             ? result.StandardError.Trim()
@@ -321,23 +315,6 @@ static async Task<IResult> UpdateTelemetryConfigurationAsync(
             statusCode: StatusCodes.Status503ServiceUnavailable,
             title: "systemd could not apply telemetry state");
     }
-
-    static string[] GetTelemetrySystemdArguments(bool enabled) =>
-        enabled
-            ?
-            [
-                "enable",
-                "--now",
-                "lucia-redis-exporter.service",
-                "lucia-otelcol.service",
-            ]
-            :
-            [
-                "disable",
-                "--now",
-                "lucia-otelcol.service",
-                "lucia-redis-exporter.service",
-            ];
 
     static void RestoreTelemetryFile(string path, string[]? previousLines)
     {
@@ -352,6 +329,54 @@ static async Task<IResult> UpdateTelemetryConfigurationAsync(
     }
 
     return Results.Ok(ReadTelemetryConfiguration(path));
+}
+
+static async Task<(int ExitCode, string StandardOutput, string StandardError)>
+    ApplyTelemetrySystemdStateAsync(bool enabled)
+{
+    var result = await RunSystemctlMutationAsync(
+            enabled
+                ?
+                [
+                    "enable",
+                    "--now",
+                    "lucia-redis-exporter.service",
+                    "lucia-otelcol.service",
+                ]
+                :
+                [
+                    "disable",
+                    "--now",
+                    "lucia-otelcol.service",
+                    "lucia-redis-exporter.service",
+                ])
+        .ConfigureAwait(false);
+    return result.ExitCode == 0
+        ? await RunSystemctlMutationAsync(
+                ["restart", "lucia-agenthost.service"])
+            .ConfigureAwait(false)
+        : result;
+}
+
+static void WriteAgentHostTelemetryConfiguration(string path, bool enabled)
+{
+    var values = File.Exists(path)
+        ? File.ReadAllLines(path)
+            .Where(line =>
+                !line.StartsWith(
+                    "Observability__Mode=",
+                    StringComparison.Ordinal)
+                && !line.StartsWith(
+                    "OTEL_EXPORTER_OTLP_ENDPOINT=",
+                    StringComparison.Ordinal))
+            .ToList()
+        : [];
+    values.Add($"Observability__Mode={(enabled ? "Trace" : "Off")}");
+    if (enabled)
+    {
+        values.Add("OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4317");
+    }
+    WriteEnvironmentFile(path, values);
 }
 
 static async Task<(int ExitCode, string StandardOutput, string StandardError)>
@@ -485,7 +510,7 @@ static void WriteEnvironmentFile(string path, IEnumerable<string> values)
 {
     var directory = Path.GetDirectoryName(path)
         ?? throw new InvalidOperationException(
-            "Telemetry environment path has no directory.");
+            "Environment path has no directory.");
     Directory.CreateDirectory(directory);
     var temporaryPath = Path.Combine(
         directory,

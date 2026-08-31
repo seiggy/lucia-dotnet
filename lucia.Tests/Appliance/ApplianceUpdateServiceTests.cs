@@ -8,8 +8,12 @@ namespace lucia.Tests.Appliance;
 
 public sealed class ApplianceUpdateServiceTests
 {
-    [Fact]
-    public async Task CheckAsync_ReportsCompatibleLuciaAndOsUpdates()
+    [Theory]
+    [InlineData("jetson-orin-nano-super-p3767-0005", true)]
+    [InlineData("unsupported-board", false)]
+    public async Task CheckAsync_ReportsUpdatesIndependentlyOfCompatibility(
+        string board,
+        bool expectedCompatible)
     {
         var socketPath = Path.Combine(
             Path.GetTempPath(),
@@ -53,8 +57,11 @@ public sealed class ApplianceUpdateServiceTests
                           {"html_url":"https://github.com/seiggy/lucia-dotnet/releases/tag/v1.3.0","assets":[{"name":"lucia-appliance-manifest.json","browser_download_url":"https://downloads.example/manifest.json"}]}
                           """
                         : """
-                          {"schemaVersion":1,"version":"1.3.0","compatibility":{"architecture":"arm64","board":"jetson-orin-nano-super-p3767-0005","jetsonLinux":"36.5.2","minimumDiskBytes":61203283968},"channels":{"lucia":{"version":"1.3.0"},"os":{"version":"1.4.0"}}}
-                          """;
+                          {"schemaVersion":1,"version":"1.3.0","compatibility":{"architecture":"arm64","board":"BOARD","jetsonLinux":"36.5.2","minimumDiskBytes":61203283968},"channels":{"lucia":{"version":"1.3.0"},"os":{"version":"1.4.0"}}}
+                          """.Replace(
+                              "BOARD",
+                              board,
+                              StringComparison.Ordinal);
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
                         Content = new StringContent(
@@ -76,14 +83,16 @@ public sealed class ApplianceUpdateServiceTests
 
             var result = await service.CheckAsync(CancellationToken.None);
 
-            Assert.True(result.Compatible);
+            Assert.Equal(expectedCompatible, result.Compatible);
             Assert.True(result.LuciaNewerDiscovered);
             Assert.True(result.OsNewerDiscovered);
             Assert.False(result.LuciaUpdateAvailable);
             Assert.False(result.OsUpdateAvailable);
             Assert.Equal("1.3.0", result.LatestLuciaVersion);
             Assert.Equal("1.4.0", result.LatestOsVersion);
-            Assert.Contains("attestation", result.Message);
+            Assert.Contains(
+                expectedCompatible ? "attestation" : "not compatible",
+                result.Message);
             await serverTask;
         }
         finally

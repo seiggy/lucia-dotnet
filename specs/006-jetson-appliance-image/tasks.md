@@ -43,7 +43,7 @@
   setup.
 - [ ] T023 Claim ownership, create the dashboard key, and set the recovery
   account password atomically.
-- [ ] T024 Join home Wi-Fi through a timed NetworkManager checkpoint.
+- [x] T024 Join home Wi-Fi through a timed NetworkManager checkpoint.
 - [ ] T025 Restore setup mode after failed Wi-Fi activation.
 - [ ] T026 Set the hostname and publish dashboard and Wyoming Avahi records.
 - [ ] T027 Add USB Ethernet setup and restricted `nmtui` recovery.
@@ -193,6 +193,11 @@ Lab validation pulled appliance management and telemetry work forward.
   a manifest uploaded last for updater discovery.
 - Replaced live rootfs package resolution with a complete CUDA and cuDNN
   package set pinned by URL and SHA-256 in `appliance.lock`.
+- Added a 45-second NetworkManager checkpoint before provisioning either OS
+  slot. Failed home Wi-Fi activation restores the setup AP and keeps the
+  provisioning request for retry.
+- Telemetry enable and disable now update AgentHost's local Collector endpoint
+  and restart AgentHost inside the manager's rollback-safe operation.
 - Real-size packaging produced five installer parts, one Lucia part, and four
   OS parts under GitHub's per-asset limit.
 - Added a canonical disk-layout digest with partition starts, filesystem UUIDs,
