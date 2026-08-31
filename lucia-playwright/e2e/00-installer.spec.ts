@@ -179,6 +179,9 @@ test('restores persisted installation progress after reload', async ({ page }) =
   expect(dashboardKeyAcknowledged).toBe(false);
   await page.getByRole('button', { name: 'I saved this key' }).click();
   expect(dashboardKeyAcknowledged).toBe(true);
+  expect(await page.evaluate(() => sessionStorage.getItem(
+    'lucia-dashboard-bootstrap-key',
+  ))).toBeNull();
 });
 
 test('shows the server error when another browser owns setup', async ({ page }) => {

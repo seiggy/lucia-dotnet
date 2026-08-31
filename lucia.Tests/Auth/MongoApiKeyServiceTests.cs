@@ -41,6 +41,12 @@ public class MongoApiKeyServiceTests
             .Where(call => call.Method.Name == "InsertOneAsync")
             .WithReturnType<Task>()
             .Returns(Task.CompletedTask);
+        var renewedLock = A.Fake<UpdateResult>();
+        A.CallTo(() => renewedLock.ModifiedCount).Returns(1);
+        A.CallTo(_mutationLocks)
+            .Where(call => call.Method.Name == "UpdateOneAsync")
+            .WithReturnType<Task<UpdateResult>>()
+            .Returns(Task.FromResult(renewedLock));
 
         _service = new MongoApiKeyService(_mongoClient, _logger);
     }
@@ -208,6 +214,33 @@ public class MongoApiKeyServiceTests
         Assert.True(await _service.RevokeKeyAsync(KeyId));
         A.CallTo(_collection)
             .Where(call => call.Method.Name == "CountDocumentsAsync")
+            .MustNotHaveHappened();
+    }
+
+    [Fact]
+    public async Task RevokeKeyAsync_LostMutationLock_DoesNotRevokeKey()
+    {
+        const string KeyId = "guarded-key";
+        SetupFindAsync(new ApiKeyEntry
+        {
+            Id = KeyId,
+            KeyHash = "guarded-hash",
+            KeyPrefix = "lk_guarded...",
+            Name = "Guarded",
+        });
+        SetupCountDocumentsAsync(2);
+        var lostLock = A.Fake<UpdateResult>();
+        A.CallTo(() => lostLock.ModifiedCount).Returns(0);
+        A.CallTo(_mutationLocks)
+            .Where(call => call.Method.Name == "UpdateOneAsync")
+            .WithReturnType<Task<UpdateResult>>()
+            .Returns(Task.FromResult(lostLock));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _service.RevokeKeyAsync(KeyId));
+
+        A.CallTo(_collection)
+            .Where(call => call.Method.Name == "UpdateOneAsync")
             .MustNotHaveHappened();
     }
 

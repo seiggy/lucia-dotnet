@@ -141,6 +141,7 @@ public static class ApplianceApi
                 }
                 catch (Exception exception) when (
                     exception is JsonException
+                        or InvalidDataException
                         or KeyNotFoundException
                         or InvalidOperationException
                         or FormatException

@@ -200,6 +200,8 @@ public sealed class MongoApiKeyService : IApiKeyService
                 .Set(k => k.IsRevoked, true)
                 .Set(k => k.RevokedAt, DateTime.UtcNow);
 
+            await RenewMutationLockAsync(lockOwner, cancellationToken)
+                .ConfigureAwait(false);
             var result = await _collection
                 .UpdateOneAsync(k => k.Id == keyId && !k.IsRevoked, update, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
@@ -241,6 +243,8 @@ public sealed class MongoApiKeyService : IApiKeyService
                 .ConfigureAwait(false);
             try
             {
+                await RenewMutationLockAsync(lockOwner, cancellationToken)
+                    .ConfigureAwait(false);
                 var revokeUpdate = Builders<ApiKeyEntry>.Update
                     .Set(k => k.IsRevoked, true)
                     .Set(k => k.RevokedAt, DateTime.UtcNow);
@@ -356,6 +360,8 @@ public sealed class MongoApiKeyService : IApiKeyService
                 .ConfigureAwait(false);
             try
             {
+                await RenewMutationLockAsync(lockOwner, cancellationToken)
+                    .ConfigureAwait(false);
                 var revokeResult = await _collection.UpdateManyAsync(
                         key => key.Name == name
                             && key.Id != replacement.Id
@@ -496,6 +502,28 @@ public sealed class MongoApiKeyService : IApiKeyService
             _logger.LogWarning(
                 exception,
                 "API key mutation lock release failed; its lease will expire.");
+        }
+    }
+
+    private async Task RenewMutationLockAsync(
+        string owner,
+        CancellationToken cancellationToken)
+    {
+        var result = await _mutationLocks.UpdateOneAsync(
+                Builders<BsonDocument>.Filter.And(
+                    Builders<BsonDocument>.Filter.Eq(
+                        "_id",
+                        MutationLockId),
+                    Builders<BsonDocument>.Filter.Eq("owner", owner)),
+                Builders<BsonDocument>.Update.Set(
+                    "expiresAt",
+                    DateTime.UtcNow.Add(s_mutationLockLease)),
+                cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        if (result.ModifiedCount != 1)
+        {
+            throw new InvalidOperationException(
+                "API key mutation lock ownership was lost.");
         }
     }
 
