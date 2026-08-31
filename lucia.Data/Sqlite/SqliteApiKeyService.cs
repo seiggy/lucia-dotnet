@@ -177,28 +177,33 @@ public sealed class SqliteApiKeyService : IApiKeyService
 
     public async Task<bool> RevokeKeyAsync(string keyId, CancellationToken cancellationToken = default)
     {
-        // Lockout prevention: don't revoke the last active key
-        var activeCount = await GetActiveKeyCountAsync(cancellationToken).ConfigureAwait(false);
-
-        using var connection = _connectionFactory.CreateConnection();
-
-        // Check if key exists and is not already revoked
-        using (var checkCmd = connection.CreateCommand())
+        var keys = await ListKeysAsync(cancellationToken).ConfigureAwait(false);
+        var entry = keys.FirstOrDefault(key =>
+            string.Equals(key.Id, keyId, StringComparison.Ordinal));
+        if (entry is null || entry.IsRevoked)
         {
-            checkCmd.CommandText = "SELECT is_revoked FROM api_keys WHERE id = @id;";
-            checkCmd.Parameters.AddWithValue("@id", keyId);
-            var result = await checkCmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-
-            if (result is null)
-                return false;
-
-            if ((long)result != 0)
-                return false;
+            return false;
         }
 
-        if (activeCount <= 1)
+        var now = DateTime.UtcNow;
+        var activeKeys = keys.Where(key =>
+                !key.IsRevoked
+                && (!key.ExpiresAt.HasValue || key.ExpiresAt > now))
+            .ToList();
+        if (activeKeys.Count <= 1)
             throw new InvalidOperationException("Cannot revoke the last active API key. Create a new key first.");
+        if (entry.Scopes.Contains(
+                AuthOptions.AdministratorScope,
+                StringComparer.Ordinal)
+            && activeKeys.Count(key => key.Scopes.Contains(
+                AuthOptions.AdministratorScope,
+                StringComparer.Ordinal)) <= 1)
+        {
+            throw new InvalidOperationException(
+                "Cannot revoke the last active administrator key. Regenerate it instead.");
+        }
 
+        using var connection = _connectionFactory.CreateConnection();
         using var cmd = connection.CreateCommand();
         cmd.CommandText = """
             UPDATE api_keys SET is_revoked = 1, revoked_at = @revokedAt

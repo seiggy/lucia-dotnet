@@ -151,6 +151,31 @@ public class MongoApiKeyServiceTests
     }
 
     [Fact]
+    public async Task RevokeKeyAsync_ThrowsWhenRevokingLastAdministratorKey()
+    {
+        const string KeyId = "last-admin";
+        var entry = new ApiKeyEntry
+        {
+            Id = KeyId,
+            KeyHash = "admin-hash",
+            KeyPrefix = "lk_admin...",
+            Name = "Owner",
+            IsRevoked = false,
+            Scopes = ["*", AuthOptions.AdministratorScope],
+        };
+        A.CallTo(_collection)
+            .Where(call => call.Method.Name == "CountDocumentsAsync")
+            .WithReturnType<Task<long>>()
+            .ReturnsNextFromSequence(
+                Task.FromResult(2L),
+                Task.FromResult(1L));
+        SetupFindAsync(entry);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _service.RevokeKeyAsync(KeyId));
+    }
+
+    [Fact]
     public async Task RegenerateKeyAsync_RevokesOldAndCreatesNew()
     {
         var oldKeyId = "old-key";

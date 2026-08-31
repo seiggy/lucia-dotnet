@@ -180,6 +180,18 @@ public sealed class SqliteApiKeyServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task RevokeKeyAsync_ThrowsWhenRevokingLastAdministratorKey()
+    {
+        var administrator = await _service.CreateKeyAsync(
+            "Owner",
+            isAdministrator: true);
+        _ = await _service.CreateKeyAsync("Ordinary");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _service.RevokeKeyAsync(administrator.Id));
+    }
+
+    [Fact]
     public async Task ListKeysAsync_ListsAllKeys()
     {
         await _service.CreateKeyAsync("list-key-1");

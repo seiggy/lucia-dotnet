@@ -176,6 +176,8 @@ test('restores persisted installation progress after reload', async ({ page }) =
   await expect(page.getByRole('heading', { name: 'Lucia is moving in' })).toBeVisible();
   await expect(page.getByText('50.0%')).toBeVisible();
   await expect(page.getByText('lk_recovered-dashboard-owner-key')).toBeVisible();
+  expect(dashboardKeyAcknowledged).toBe(false);
+  await page.getByRole('button', { name: 'I saved this key' }).click();
   expect(dashboardKeyAcknowledged).toBe(true);
 });
 

@@ -94,13 +94,7 @@ export default function InstallerPage() {
     } catch (storageError: unknown) {
       if (!(storageError instanceof DOMException)) throw storageError
       setError('Keep this page open and copy the Dashboard key now. This browser could not save it for reload recovery.')
-      return
     }
-    void acknowledgeInstallerDashboardKey().catch((acknowledgmentError: unknown) => {
-      setError(acknowledgmentError instanceof Error
-        ? acknowledgmentError.message
-        : 'Lucia could not confirm the Dashboard key handoff. It will retry automatically.')
-    })
   }, [])
 
   const selectedDisk = useMemo(
@@ -255,6 +249,7 @@ export default function InstallerPage() {
       setError('Choose your home Wi-Fi and enter its password.')
       return
     }
+
     setBusy(true)
     setError('')
     try {
@@ -268,6 +263,21 @@ export default function InstallerPage() {
       setError(retryError instanceof Error
         ? retryError.message
         : 'Lucia could not retry that network.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleDashboardKeySaved() {
+    setBusy(true)
+    setError('')
+    try {
+      await acknowledgeInstallerDashboardKey()
+      setDashboardKey('')
+    } catch (acknowledgmentError: unknown) {
+      setError(acknowledgmentError instanceof Error
+        ? acknowledgmentError.message
+        : 'Lucia could not confirm the Dashboard key handoff.')
     } finally {
       setBusy(false)
     }
@@ -348,6 +358,7 @@ export default function InstallerPage() {
               wifiPassword={wifiPassword}
               busy={busy}
               dashboardKey={dashboardKey}
+              onDashboardKeySaved={handleDashboardKeySaved}
               onSelectedSsidChange={setSelectedSsid}
               onWifiPasswordChange={setWifiPassword}
               onRetryNetwork={handleNetworkRetry}
@@ -889,6 +900,7 @@ function InstallingStep({
   wifiPassword,
   busy,
   dashboardKey,
+  onDashboardKeySaved,
   onSelectedSsidChange,
   onWifiPasswordChange,
   onRetryNetwork,
@@ -901,6 +913,7 @@ function InstallingStep({
   wifiPassword: string
   busy: boolean
   dashboardKey: string
+  onDashboardKeySaved: () => void
   onSelectedSsidChange: (value: string) => void
   onWifiPasswordChange: (value: string) => void
   onRetryNetwork: () => void
@@ -959,8 +972,17 @@ function InstallingStep({
             {dashboardKey}
           </code>
           <p className="mt-2 text-xs leading-5 text-fog">
-            Save this key now. Lucia cannot show it again after the installer powers down.
+            Copy this key to your password manager. Lucia will keep showing it until you confirm it is saved.
           </p>
+          <button
+            type="button"
+            onClick={onDashboardKeySaved}
+            disabled={busy}
+            className={`mt-3 w-full ${secondaryButton}`}
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+            {busy ? 'Confirming...' : 'I saved this key'}
+          </button>
         </div>
       )}
       {hasWriteProgress && (

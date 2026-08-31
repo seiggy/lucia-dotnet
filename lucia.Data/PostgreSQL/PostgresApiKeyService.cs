@@ -185,6 +185,31 @@ public sealed partial class PostgresApiKeyService : IApiKeyService
     public async Task<bool> RevokeKeyAsync(string keyId, CancellationToken cancellationToken = default)
     {
         var revokedAt = DateTime.UtcNow;
+        var keys = await ListKeysAsync(cancellationToken).ConfigureAwait(false);
+        var entry = keys.FirstOrDefault(key =>
+            string.Equals(key.Id, keyId, StringComparison.Ordinal));
+        if (entry is null || entry.IsRevoked)
+        {
+            return false;
+        }
+        var activeKeys = keys.Where(key =>
+                !key.IsRevoked
+                && (!key.ExpiresAt.HasValue || key.ExpiresAt > revokedAt))
+            .ToList();
+        if (activeKeys.Count <= 1)
+        {
+            throw new InvalidOperationException("Cannot revoke the last active API key. Create a new key first.");
+        }
+        if (entry.Scopes.Contains(
+                AuthOptions.AdministratorScope,
+                StringComparer.Ordinal)
+            && activeKeys.Count(key => key.Scopes.Contains(
+                AuthOptions.AdministratorScope,
+                StringComparer.Ordinal)) <= 1)
+        {
+            throw new InvalidOperationException(
+                "Cannot revoke the last active administrator key. Regenerate it instead.");
+        }
 
         await using var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = connection.CreateCommand();
@@ -210,28 +235,6 @@ public sealed partial class PostgresApiKeyService : IApiKeyService
         {
             LogRevokedKey(_logger, reader.GetString(0), reader.GetString(1));
             return true;
-        }
-
-        await reader.DisposeAsync().ConfigureAwait(false);
-
-        await using var checkCmd = connection.CreateCommand();
-        checkCmd.CommandText = "SELECT is_revoked FROM api_keys WHERE id = @id;";
-        checkCmd.Parameters.AddWithValue("id", keyId);
-        var result = await checkCmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
-        if (result is null)
-        {
-            return false;
-        }
-
-        if (result is bool isRevoked && isRevoked)
-        {
-            return false;
-        }
-
-        var activeCount = await GetActiveKeyCountAsync(cancellationToken).ConfigureAwait(false);
-        if (activeCount <= 1)
-        {
-            throw new InvalidOperationException("Cannot revoke the last active API key. Create a new key first.");
         }
 
         return false;

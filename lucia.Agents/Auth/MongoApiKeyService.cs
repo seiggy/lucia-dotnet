@@ -146,8 +146,6 @@ public sealed class MongoApiKeyService : IApiKeyService
 
     public async Task<bool> RevokeKeyAsync(string keyId, CancellationToken cancellationToken = default)
     {
-        // Lockout prevention: don't revoke the last active key
-        var activeCount = await GetActiveKeyCountAsync(cancellationToken).ConfigureAwait(false);
         var entry = await _collection.Find(k => k.Id == keyId).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
 
         if (entry is null || entry.IsRevoked)
@@ -155,9 +153,29 @@ public sealed class MongoApiKeyService : IApiKeyService
             return false;
         }
 
+        var activeCount = await GetActiveKeyCountAsync(cancellationToken).ConfigureAwait(false);
         if (activeCount <= 1)
         {
             throw new InvalidOperationException("Cannot revoke the last active API key. Create a new key first.");
+        }
+        var now = DateTime.UtcNow;
+        if (entry.Scopes.Contains(
+                AuthOptions.AdministratorScope,
+                StringComparer.Ordinal)
+            && (!entry.ExpiresAt.HasValue || entry.ExpiresAt > now))
+        {
+            var administratorCount = await _collection.CountDocumentsAsync(
+                    key => !key.IsRevoked
+                        && (!key.ExpiresAt.HasValue || key.ExpiresAt > now)
+                        && key.Scopes.Contains(
+                            AuthOptions.AdministratorScope),
+                    cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+            if (administratorCount <= 1)
+            {
+                throw new InvalidOperationException(
+                    "Cannot revoke the last active administrator key. Regenerate it instead.");
+            }
         }
 
         var update = Builders<ApiKeyEntry>.Update
