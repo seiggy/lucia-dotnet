@@ -607,6 +607,7 @@ html[data-theme='light'] .bg-observatory {
   .installer-boot-wordmark,
   .installer-boot-status,
   .installer-signal-line.is-installing,
+  .installer-progress-live,
   .installer-orbit::after {
     animation: none;
   }

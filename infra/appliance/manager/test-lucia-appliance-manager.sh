@@ -24,6 +24,7 @@ restart_started="$work_dir/restart-started"
 restart_completed="$work_dir/restart-completed"
 os_version="$work_dir/os-version"
 jetson_release="$work_dir/nv_tegra_release"
+device_tree_compatible="$work_dir/device-tree-compatible"
 
 cleanup() {
     if [[ -n "$manager_pid" ]]; then
@@ -95,6 +96,8 @@ EOF
 printf 'lucia-lab\n' > "$hostname_file"
 printf '1.1.0\n' > "$os_version"
 printf '# R36 (release), REVISION: 5.2\n' > "$jetson_release"
+printf 'nvidia,p3768-0000+p3767-0005\0nvidia,tegra234\0' \
+    > "$device_tree_compatible"
 printf 'Observability__Mode=Off\nPluginDirectory=/var/lib/lucia/plugins\n' \
     > "$agenthost_environment"
 mkdir -p "$work_dir/releases/1.2.3"
@@ -106,6 +109,7 @@ LUCIA_HOSTNAME_PATH="$hostname_file" \
 LUCIA_OS_RELEASE_PATH="$os_release" \
 LUCIA_OS_VERSION_PATH="$os_version" \
 LUCIA_JETSON_RELEASE_PATH="$jetson_release" \
+LUCIA_DEVICE_TREE_COMPATIBLE_PATH="$device_tree_compatible" \
 LUCIA_NMCLI_PATH="$work_dir/nmcli" \
 LUCIA_MOUNTINFO_PATH="$mountinfo" \
 LUCIA_SYS_BLOCK_PATH="$sys_block" \
@@ -155,6 +159,8 @@ grep -q '"name":"Ubuntu"' "$work_dir/response.json"
 grep -q '"versionId":"22.04"' "$work_dir/response.json"
 grep -q '"imageVersion":"1.1.0"' "$work_dir/response.json"
 grep -q '"jetsonLinuxVersion":"36.5.2"' "$work_dir/response.json"
+grep -q '"board":"jetson-orin-nano-super-p3767-0005"' \
+    "$work_dir/response.json"
 grep -q '"network":{"ssid":"Home WiFi","signal":87}' "$work_dir/response.json"
 grep -q '"storageBytes":2000000000000' "$work_dir/response.json"
 grep -q '"rebootRequired":false' "$work_dir/response.json"

@@ -113,8 +113,7 @@ static async Task<IResult> GetStatusAsync(CancellationToken cancellationToken)
         Architecture = RuntimeInformation.ProcessArchitecture
             .ToString()
             .ToLowerInvariant(),
-        Board = Environment.GetEnvironmentVariable("LUCIA_APPLIANCE_BOARD")
-            ?? "jetson-orin-nano-super-p3767-0005",
+        Board = ReadBoardIdentity(),
         LuciaVersion = luciaVersion,
         StorageBytes = storageBytes,
         RebootRequired = File.Exists(rebootRequiredPath),
@@ -582,6 +581,39 @@ static string ReadJetsonLinuxVersion(string path)
     return match.Success
         ? $"{match.Groups["major"].Value}.{match.Groups["revision"].Value}"
         : value;
+}
+
+static string ReadBoardIdentity()
+{
+    var configured = Environment.GetEnvironmentVariable(
+        "LUCIA_APPLIANCE_BOARD");
+    if (!string.IsNullOrWhiteSpace(configured))
+    {
+        return configured;
+    }
+
+    var path = Environment.GetEnvironmentVariable(
+        "LUCIA_DEVICE_TREE_COMPATIBLE_PATH")
+        ?? "/proc/device-tree/compatible";
+    if (!File.Exists(path))
+    {
+        return "unknown";
+    }
+
+    var compatible = Encoding.ASCII
+        .GetString(File.ReadAllBytes(path))
+        .Split('\0', StringSplitOptions.RemoveEmptyEntries);
+    if (compatible.Any(value => value.Contains(
+            "p3767-0005",
+            StringComparison.OrdinalIgnoreCase)))
+    {
+        return "jetson-orin-nano-super-p3767-0005";
+    }
+
+    return compatible.FirstOrDefault(value => value.StartsWith(
+            "nvidia,p",
+            StringComparison.OrdinalIgnoreCase))
+        ?? "unknown";
 }
 
 static async Task<(string Ssid, int? Signal)> ReadWifiStatusAsync(
