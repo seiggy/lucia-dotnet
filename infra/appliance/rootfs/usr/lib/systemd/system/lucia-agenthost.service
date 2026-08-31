@@ -1,9 +1,8 @@
 [Unit]
 Description=Lucia AgentHost
 Documentation=https://github.com/seiggy/lucia-dotnet
-Wants=network-online.target lucia-appliance-manager.service
+Wants=network-online.target lucia-appliance-manager.service lucia-redis.service
 After=network-online.target lucia-appliance-manager.service lucia-redis.service
-Requires=lucia-redis.service
 RequiresMountsFor=/opt/lucia /var/lib/lucia
 
 [Service]

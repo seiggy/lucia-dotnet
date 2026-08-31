@@ -138,7 +138,8 @@ test_bundle_contains_native_service_contract() {
         && grep -q '^Group=lucia$' "$manager_unit" \
         && grep -q '^ReadWritePaths=/etc/lucia /etc/systemd/system/multi-user.target.wants /opt/lucia /var/lib/lucia$' "$manager_unit" \
         && grep -q '^CapabilityBoundingSet=CAP_SYS_BOOT$' "$manager_unit" \
-        && grep -q '^Requires=lucia-redis.service$' "$agent_unit" \
+        && grep -q '^Wants=.*lucia-redis.service' "$agent_unit" \
+        && ! grep -q '^Requires=lucia-redis.service$' "$agent_unit" \
         && grep -q '^ExecStart=/opt/lucia/current/app/lucia.AgentHost$' "$agent_unit" \
         && grep -q '^Restart=always$' "$agent_unit" \
         && ! grep -q '^StateDirectory=' "$agent_unit" \

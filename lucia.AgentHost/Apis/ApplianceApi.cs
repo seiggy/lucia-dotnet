@@ -35,8 +35,19 @@ public static class ApplianceApi
             async (
                 string service,
                 ApplianceManagerClient manager,
+                HttpContext context,
+                IHostApplicationLifetime lifetime,
                 CancellationToken cancellationToken) =>
             {
+                if (service == "agenthost")
+                {
+                    context.Response.OnCompleted(() =>
+                    {
+                        lifetime.StopApplication();
+                        return Task.CompletedTask;
+                    });
+                    return Results.Accepted();
+                }
                 try
                 {
                     await manager.RestartServiceAsync(service, cancellationToken)

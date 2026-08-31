@@ -79,6 +79,20 @@ public class MongoApiKeyServiceTests
     }
 
     [Fact]
+    public async Task CreateAdministratorKeyIfNoneAsync_ExistingAdministrator_ReturnsNull()
+    {
+        SetupCountDocumentsAsync(1);
+
+        var result = await _service.CreateAdministratorKeyIfNoneAsync(
+            "Dashboard");
+
+        Assert.Null(result);
+        A.CallTo(_collection)
+            .Where(call => call.Method.Name == "InsertOneAsync")
+            .MustNotHaveHappened();
+    }
+
+    [Fact]
     public async Task ValidateKeyAsync_ReturnsEntryForValidKeyWithoutWriting()
     {
         var plaintextKey = "lk_test-valid-key-abc123";

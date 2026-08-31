@@ -62,6 +62,36 @@ public sealed class MongoApiKeyService : IApiKeyService
         };
     }
 
+    public async Task<ApiKeyCreateResponse?> CreateAdministratorKeyIfNoneAsync(
+        string name,
+        CancellationToken cancellationToken = default)
+    {
+        var lockOwner = await AcquireMutationLockAsync(cancellationToken)
+            .ConfigureAwait(false);
+        try
+        {
+            var now = DateTime.UtcNow;
+            var administratorCount = await _collection.CountDocumentsAsync(
+                    key => !key.IsRevoked
+                        && (!key.ExpiresAt.HasValue || key.ExpiresAt > now)
+                        && key.Scopes.Contains(
+                            AuthOptions.AdministratorScope),
+                    cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+            return administratorCount > 0
+                ? null
+                : await CreateKeyAsync(
+                        name,
+                        cancellationToken,
+                        isAdministrator: true)
+                    .ConfigureAwait(false);
+        }
+        finally
+        {
+            await ReleaseMutationLockAsync(lockOwner).ConfigureAwait(false);
+        }
+    }
+
     public async Task<ApiKeyCreateResponse?> CreateKeyFromPlaintextAsync(string name, string plaintextKey, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(plaintextKey) || plaintextKey.Length < 16)

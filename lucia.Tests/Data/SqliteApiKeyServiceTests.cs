@@ -66,6 +66,20 @@ public sealed class SqliteApiKeyServiceTests : IDisposable
         Assert.Contains(AuthOptions.AdministratorScope, entry.Scopes);
     }
 
+    [Fact]
+    public async Task CreateAdministratorKeyIfNoneAsync_ConcurrentCalls_CreateOne()
+    {
+        var results = await Task.WhenAll(
+            _service.CreateAdministratorKeyIfNoneAsync("Dashboard"),
+            _service.CreateAdministratorKeyIfNoneAsync("Dashboard"));
+
+        Assert.Single(results, result => result is not null);
+        Assert.Single(
+            await _service.ListKeysAsync(),
+            key => !key.IsRevoked
+                && key.Scopes.Contains(AuthOptions.AdministratorScope));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

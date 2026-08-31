@@ -93,28 +93,18 @@ public static class SetupApi
         IApiKeyService apiKeyService,
         HttpContext httpContext)
     {
-        // Idempotent: if a Dashboard key already exists and is active, don't create another
-        var existingKeys = await apiKeyService.ListKeysAsync(httpContext.RequestAborted).ConfigureAwait(false);
-        var now = DateTime.UtcNow;
-        var dashboardKey = existingKeys.FirstOrDefault(
-            k => string.Equals(k.Name, "Dashboard", StringComparison.Ordinal)
-                && !k.IsRevoked
-                && (!k.ExpiresAt.HasValue || k.ExpiresAt.Value > now));
-        if (dashboardKey is not null)
+        var result = await apiKeyService
+            .CreateAdministratorKeyIfNoneAsync(
+                "Dashboard",
+                httpContext.RequestAborted)
+            .ConfigureAwait(false);
+        if (result is null)
         {
             return Results.Conflict(new
             {
-                error = "Dashboard key already exists. Use the key management API to regenerate it.",
-                keyPrefix = dashboardKey.KeyPrefix,
+                error = "A Dashboard administrator key already exists.",
             });
         }
-
-        var result = await apiKeyService
-            .CreateKeyAsync(
-                "Dashboard",
-                httpContext.RequestAborted,
-                isAdministrator: true)
-            .ConfigureAwait(false);
 
         return Results.Ok(new
         {

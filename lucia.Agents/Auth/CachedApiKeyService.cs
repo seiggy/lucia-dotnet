@@ -78,6 +78,20 @@ public sealed class CachedApiKeyService : IApiKeyService
         return result;
     }
 
+    public async Task<ApiKeyCreateResponse?> CreateAdministratorKeyIfNoneAsync(
+        string name,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _inner
+            .CreateAdministratorKeyIfNoneAsync(name, cancellationToken)
+            .ConfigureAwait(false);
+        if (result is not null)
+        {
+            InvalidateAll();
+        }
+        return result;
+    }
+
     public async Task<ApiKeyCreateResponse?> CreateKeyFromPlaintextAsync(string name, string plaintextKey, CancellationToken cancellationToken = default)
     {
         var result = await _inner.CreateKeyFromPlaintextAsync(name, plaintextKey, cancellationToken).ConfigureAwait(false);

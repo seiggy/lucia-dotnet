@@ -15,6 +15,10 @@ public interface IApiKeyService
         CancellationToken cancellationToken = default,
         bool isAdministrator = false);
 
+    Task<ApiKeyCreateResponse?> CreateAdministratorKeyIfNoneAsync(
+        string name,
+        CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Creates an API key from a provided plaintext (for headless/env seeding).
     /// Returns the response if created; null if a key with that name already exists.

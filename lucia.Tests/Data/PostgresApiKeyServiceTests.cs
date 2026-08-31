@@ -10,6 +10,24 @@ public sealed class PostgresApiKeyServiceTests(PostgresMigrationFixture fixture)
 {
     [Fact]
     [Trait("Category", "Integration")]
+    public async Task CreateAdministratorKeyIfNoneAsync_ConcurrentCalls_CreateOne()
+    {
+        await using var databases = await fixture.CreateDatabasesAsync();
+        var service = await CreateServiceAsync(databases);
+
+        var results = await Task.WhenAll(
+            service.CreateAdministratorKeyIfNoneAsync("Dashboard"),
+            service.CreateAdministratorKeyIfNoneAsync("Dashboard"));
+
+        Assert.Single(results, result => result is not null);
+        Assert.Single(
+            await service.ListKeysAsync(),
+            key => !key.IsRevoked
+                && key.Scopes.Contains(AuthOptions.AdministratorScope));
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
     public async Task RevokeKeyAsync_ThrowsWhenRevokingLastAdministratorKey()
     {
         await using var databases = await fixture.CreateDatabasesAsync();

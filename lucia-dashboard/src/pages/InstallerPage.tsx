@@ -272,8 +272,8 @@ export default function InstallerPage() {
     setBusy(true)
     setError('')
     try {
-      window.sessionStorage.removeItem('lucia-dashboard-bootstrap-key')
       await acknowledgeInstallerDashboardKey()
+      window.sessionStorage.removeItem('lucia-dashboard-bootstrap-key')
       setDashboardKey('')
     } catch (acknowledgmentError: unknown) {
       setError(acknowledgmentError instanceof Error

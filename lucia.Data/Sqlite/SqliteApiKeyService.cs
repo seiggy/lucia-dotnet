@@ -67,6 +67,77 @@ public sealed class SqliteApiKeyService : IApiKeyService
         };
     }
 
+    public async Task<ApiKeyCreateResponse?> CreateAdministratorKeyIfNoneAsync(
+        string name,
+        CancellationToken cancellationToken = default)
+    {
+        using var connection = _connectionFactory.CreateConnection();
+        using var transaction = connection.BeginTransaction(deferred: false);
+        using var countCommand = connection.CreateCommand();
+        countCommand.Transaction = transaction;
+        countCommand.CommandText = """
+            SELECT COUNT(*)
+            FROM api_keys
+            WHERE is_revoked = 0
+              AND (expires_at IS NULL OR expires_at > @now)
+              AND EXISTS (
+                  SELECT 1
+                  FROM json_each(api_keys.scopes)
+                  WHERE value = @scope
+              );
+            """;
+        countCommand.Parameters.AddWithValue(
+            "@now",
+            DateTime.UtcNow.ToString("O"));
+        countCommand.Parameters.AddWithValue(
+            "@scope",
+            AuthOptions.AdministratorScope);
+        var administratorCount = (long)(await countCommand
+            .ExecuteScalarAsync(cancellationToken)
+            .ConfigureAwait(false))!;
+        if (administratorCount > 0)
+        {
+            return null;
+        }
+
+        var plaintextKey = GenerateKey();
+        var hash = HashKey(plaintextKey);
+        var prefix =
+            plaintextKey[..Math.Min(12, plaintextKey.Length)] + "...";
+        var id = Guid.NewGuid().ToString("N");
+        var createdAt = DateTime.UtcNow;
+        using var insertCommand = connection.CreateCommand();
+        insertCommand.Transaction = transaction;
+        insertCommand.CommandText = """
+            INSERT INTO api_keys
+                (id, key_hash, key_prefix, name, created_at, scopes)
+            VALUES
+                (@id, @keyHash, @keyPrefix, @name, @createdAt, @scopes);
+            """;
+        insertCommand.Parameters.AddWithValue("@id", id);
+        insertCommand.Parameters.AddWithValue("@keyHash", hash);
+        insertCommand.Parameters.AddWithValue("@keyPrefix", prefix);
+        insertCommand.Parameters.AddWithValue("@name", name);
+        insertCommand.Parameters.AddWithValue(
+            "@createdAt",
+            createdAt.ToString("O"));
+        insertCommand.Parameters.AddWithValue(
+            "@scopes",
+            JsonSerializer.Serialize(
+                ApiKeyScopes.Create(isAdministrator: true)));
+        await insertCommand.ExecuteNonQueryAsync(cancellationToken)
+            .ConfigureAwait(false);
+        transaction.Commit();
+        return new ApiKeyCreateResponse
+        {
+            Key = plaintextKey,
+            Id = id,
+            Prefix = prefix,
+            Name = name,
+            CreatedAt = createdAt,
+        };
+    }
+
     public async Task<ApiKeyCreateResponse?> CreateKeyFromPlaintextAsync(
         string name,
         string plaintextKey,
