@@ -2,12 +2,22 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using lucia.AgentHost.Appliance;
-using Microsoft.Extensions.Configuration;
 
 namespace lucia.Tests.Appliance;
 
 public sealed class ApplianceUpdateServiceTests
 {
+    [Theory]
+    [InlineData("http://github.com/seiggy/lucia-dotnet/releases/download/v1/manifest.json")]
+    [InlineData("https://example.com/seiggy/lucia-dotnet/releases/download/v1/lucia-appliance-manifest.json")]
+    [InlineData("https://github.com/other/repo/releases/download/v1/lucia-appliance-manifest.json")]
+    [InlineData("https://github.com/seiggy/lucia-dotnet/releases/download/v1/other.json")]
+    public void ParseManifestUri_RejectsUntrustedUrl(string value)
+    {
+        Assert.Throws<InvalidDataException>(
+            () => ApplianceUpdateService.ParseManifestUri(value));
+    }
+
     [Theory]
     [InlineData("jetson-orin-nano-super-p3767-0005", true)]
     [InlineData("unsupported-board", false)]
@@ -49,12 +59,15 @@ public sealed class ApplianceUpdateServiceTests
                 await stream.WriteAsync(response);
             });
             using var manager = new ApplianceManagerClient(socketPath);
+            var requestedUris = new List<Uri>();
             using var httpClient = new HttpClient(
                 new StaticHttpMessageHandler(request =>
                 {
-                    var body = request.RequestUri?.AbsolutePath == "/latest"
+                    requestedUris.Add(request.RequestUri!);
+                    var body = request.RequestUri == new Uri(
+                        "https://api.github.com/repos/seiggy/lucia-dotnet/releases/latest")
                         ? """
-                          {"html_url":"https://github.com/seiggy/lucia-dotnet/releases/tag/v1.3.0","assets":[{"name":"lucia-appliance-manifest.json","browser_download_url":"https://downloads.example/manifest.json"}]}
+                          {"html_url":"https://github.com/seiggy/lucia-dotnet/releases/tag/v1.3.0","assets":[{"name":"lucia-appliance-manifest.json","browser_download_url":"https://github.com/seiggy/lucia-dotnet/releases/download/v1.3.0/lucia-appliance-manifest.json"}]}
                           """
                         : """
                           {"schemaVersion":1,"version":"1.3.0","compatibility":{"architecture":"arm64","board":"BOARD","jetsonLinux":"36.5.2","minimumDiskBytes":61203283968},"channels":{"lucia":{"version":"1.3.0"},"os":{"version":"1.4.0"}}}
@@ -70,16 +83,9 @@ public sealed class ApplianceUpdateServiceTests
                             "application/json"),
                     };
                 }));
-            var configuration = new ConfigurationBuilder()
-                .AddInMemoryCollection(new Dictionary<string, string?>
-                {
-                    ["Appliance:ReleaseApi"] = "https://api.example/latest",
-                })
-                .Build();
             var service = new ApplianceUpdateService(
                 httpClient,
-                manager,
-                configuration);
+                manager);
 
             var result = await service.CheckAsync(CancellationToken.None);
 
@@ -93,6 +99,12 @@ public sealed class ApplianceUpdateServiceTests
             Assert.Contains(
                 expectedCompatible ? "attestation" : "not compatible",
                 result.Message);
+            Assert.Equal(
+                [
+                    new Uri("https://api.github.com/repos/seiggy/lucia-dotnet/releases/latest"),
+                    new Uri("https://github.com/seiggy/lucia-dotnet/releases/download/v1.3.0/lucia-appliance-manifest.json"),
+                ],
+                requestedUris);
             await serverTask;
         }
         finally

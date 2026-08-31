@@ -73,6 +73,7 @@ test('manages an installed appliance from mobile', async ({ page }) => {
   await expect(page.getByText('Verification required')).toHaveCount(2);
   await expect(page.getByRole('button', { name: 'Install' })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'OpenTelemetry', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Restart', exact: true })).toHaveCount(2);
 
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   const shortControls = await page.locator(

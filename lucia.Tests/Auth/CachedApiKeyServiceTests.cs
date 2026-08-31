@@ -43,7 +43,11 @@ public sealed class CachedApiKeyServiceTests
             Name = "Dashboard",
             CreatedAt = DateTime.UtcNow
         };
-        A.CallTo(() => _inner.OverrideKeyFromPlaintextAsync(A<string>._, A<string>._, A<CancellationToken>._))
+        A.CallTo(() => _inner.OverrideKeyFromPlaintextAsync(
+                A<string>._,
+                A<string>._,
+                A<CancellationToken>._,
+                A<bool>._))
             .Returns(Task.FromResult<(ApiKeyCreateResponse?, int)>((created, 1)));
 
         // Inner now returns null — the old key has been revoked
@@ -76,7 +80,11 @@ public sealed class CachedApiKeyServiceTests
         await svc.ValidateKeyAsync(plaintext);       // seeds the cache
 
         // Override is a no-op at the inner layer (another instance already replaced the key)
-        A.CallTo(() => _inner.OverrideKeyFromPlaintextAsync(A<string>._, A<string>._, A<CancellationToken>._))
+        A.CallTo(() => _inner.OverrideKeyFromPlaintextAsync(
+                A<string>._,
+                A<string>._,
+                A<CancellationToken>._,
+                A<bool>._))
             .Returns(Task.FromResult<(ApiKeyCreateResponse?, int)>((null, 0)));
 
         // Inner now returns null — the previously-valid key is no longer valid
@@ -110,7 +118,11 @@ public sealed class CachedApiKeyServiceTests
         await svc.ValidateKeyAsync(plaintext);       // seeds the cache
 
         // Override revoked existing keys but the insert collided with another concurrent writer
-        A.CallTo(() => _inner.OverrideKeyFromPlaintextAsync(A<string>._, A<string>._, A<CancellationToken>._))
+        A.CallTo(() => _inner.OverrideKeyFromPlaintextAsync(
+                A<string>._,
+                A<string>._,
+                A<CancellationToken>._,
+                A<bool>._))
             .Returns(Task.FromResult<(ApiKeyCreateResponse?, int)>((null, 2)));
 
         // Inner now returns null for the old key

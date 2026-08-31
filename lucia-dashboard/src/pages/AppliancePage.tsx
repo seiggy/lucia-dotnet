@@ -230,7 +230,8 @@ export default function AppliancePage() {
               key={service.id}
               service={service}
               busy={busyService === service.id}
-              canRestart={service.id === 'redis'
+              canRestart={service.id === 'agenthost'
+                || service.id === 'redis'
                 || (telemetry?.enabled === true
                   && (service.id === 'collector' || service.id === 'redis-exporter'))}
               onRestart={() => handleRestart(service.id)}

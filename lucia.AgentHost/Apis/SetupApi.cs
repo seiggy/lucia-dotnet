@@ -109,7 +109,12 @@ public static class SetupApi
             });
         }
 
-        var result = await apiKeyService.CreateKeyAsync("Dashboard", httpContext.RequestAborted).ConfigureAwait(false);
+        var result = await apiKeyService
+            .CreateKeyAsync(
+                "Dashboard",
+                httpContext.RequestAborted,
+                isAdministrator: true)
+            .ConfigureAwait(false);
 
         return Results.Ok(new
         {

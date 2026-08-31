@@ -4,18 +4,18 @@ namespace lucia.AgentHost.Appliance;
 
 public sealed class ApplianceUpdateService(
     HttpClient httpClient,
-    ApplianceManagerClient manager,
-    IConfiguration configuration)
+    ApplianceManagerClient manager)
 {
+    private static readonly Uri s_releaseApi = new(
+        "https://api.github.com/repos/seiggy/lucia-dotnet/releases/latest");
+
     public async Task<ApplianceUpdateStatus> CheckAsync(
         CancellationToken cancellationToken)
     {
         var current = await manager.GetStatusAsync(cancellationToken)
             .ConfigureAwait(false);
-        var releaseApi = configuration["Appliance:ReleaseApi"]
-            ?? "https://api.github.com/repos/seiggy/lucia-dotnet/releases/latest";
         using var releaseResponse = await httpClient
-            .GetAsync(releaseApi, cancellationToken)
+            .GetAsync(s_releaseApi, cancellationToken)
             .ConfigureAwait(false);
         releaseResponse.EnsureSuccessStatusCode();
         await using var releaseStream = await releaseResponse.Content
@@ -55,8 +55,9 @@ public sealed class ApplianceUpdateService(
                 "The latest GitHub release has no appliance manifest.");
         }
 
+        var manifestUri = ParseManifestUri(manifestUrl);
         using var manifestResponse = await httpClient
-            .GetAsync(manifestUrl, cancellationToken)
+            .GetAsync(manifestUri, cancellationToken)
             .ConfigureAwait(false);
         manifestResponse.EnsureSuccessStatusCode();
         await using var manifestStream = await manifestResponse.Content
@@ -128,5 +129,27 @@ public sealed class ApplianceUpdateService(
                 current.Split('-', 2)[0],
                 out var currentVersion)
             && candidateVersion > currentVersion;
+    }
+
+    internal static Uri ParseManifestUri(string value)
+    {
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)
+            || uri.Scheme != Uri.UriSchemeHttps
+            || !string.Equals(uri.Host, "github.com", StringComparison.Ordinal)
+            || !uri.IsDefaultPort
+            || !string.IsNullOrEmpty(uri.Query)
+            || !string.IsNullOrEmpty(uri.Fragment)
+            || !uri.AbsolutePath.StartsWith(
+                "/seiggy/lucia-dotnet/releases/download/",
+                StringComparison.Ordinal)
+            || !uri.AbsolutePath.EndsWith(
+                "/lucia-appliance-manifest.json",
+                StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                "The latest GitHub release returned an untrusted appliance manifest URL.");
+        }
+
+        return uri;
     }
 }

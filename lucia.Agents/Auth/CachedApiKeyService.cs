@@ -66,9 +66,14 @@ public sealed class CachedApiKeyService : IApiKeyService
         return entry;
     }
 
-    public async Task<ApiKeyCreateResponse> CreateKeyAsync(string name, CancellationToken cancellationToken = default)
+    public async Task<ApiKeyCreateResponse> CreateKeyAsync(
+        string name,
+        CancellationToken cancellationToken = default,
+        bool isAdministrator = false)
     {
-        var result = await _inner.CreateKeyAsync(name, cancellationToken).ConfigureAwait(false);
+        var result = await _inner
+            .CreateKeyAsync(name, cancellationToken, isAdministrator)
+            .ConfigureAwait(false);
         InvalidateAll();
         return result;
     }
@@ -111,9 +116,18 @@ public sealed class CachedApiKeyService : IApiKeyService
         => _inner.HasAnyKeysAsync(cancellationToken);
 
     public async Task<(ApiKeyCreateResponse? Created, int RevokedCount)> OverrideKeyFromPlaintextAsync(
-        string name, string plaintextKey, CancellationToken cancellationToken = default)
+        string name,
+        string plaintextKey,
+        CancellationToken cancellationToken = default,
+        bool isAdministrator = false)
     {
-        var result = await _inner.OverrideKeyFromPlaintextAsync(name, plaintextKey, cancellationToken).ConfigureAwait(false);
+        var result = await _inner
+            .OverrideKeyFromPlaintextAsync(
+                name,
+                plaintextKey,
+                cancellationToken,
+                isAdministrator)
+            .ConfigureAwait(false);
         // Invalidate on any valid override attempt: a revoke-only path (Created == null) can still
         // mean a previously-cached valid key must no longer be accepted.
         InvalidateAll();

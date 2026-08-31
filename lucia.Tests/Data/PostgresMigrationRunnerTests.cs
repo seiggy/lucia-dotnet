@@ -42,7 +42,7 @@ public sealed class PostgresMigrationRunnerTests(PostgresMigrationFixture fixtur
 
     [Fact]
     [Trait("Category", "Integration")]
-    public async Task VersionTwoConfig_UpgradesDashboardAdministratorScope()
+    public async Task VersionTwoConfig_DoesNotPromoteDashboardLabel()
     {
         await using var databases = await fixture.CreateDatabasesAsync();
         await CreateRunner(databases).StartAsync(CancellationToken.None);
@@ -61,7 +61,7 @@ public sealed class PostgresMigrationRunnerTests(PostgresMigrationFixture fixtur
 
         Assert.Equal(3, await VersionAsync(databases.Config));
         Assert.Equal(
-            """["*", "admin:appliance"]""",
+            """["*"]""",
             await ScalarAsync<string>(
                 databases.Config,
                 "SELECT scopes::text FROM public.api_keys WHERE id = 'owner';"));

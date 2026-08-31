@@ -12,6 +12,9 @@
     <ServerGarbageCollection>false</ServerGarbageCollection>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="lucia.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="A2A" />
     <PackageReference Include="A2A.AspNetCore" />
     <PackageReference Include="Aspire.StackExchange.Redis" />

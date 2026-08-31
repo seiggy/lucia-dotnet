@@ -685,23 +685,12 @@ public sealed partial class PostgresMigrationRunner : IHostedService
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task ApplyConfigV3Async(
+    private static Task ApplyConfigV3Async(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         CancellationToken cancellationToken)
-    {
-        await using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = """
-            UPDATE public.api_keys
-            SET scopes = '["*", "admin:appliance"]'::jsonb
-            WHERE name = 'Dashboard'
-              AND is_revoked = FALSE
-              AND scopes = '["*"]'::jsonb;
-            """;
-        await command.ExecuteNonQueryAsync(cancellationToken)
-            .ConfigureAwait(false);
-    }
+        // Privileges cannot be inferred safely from legacy user-assigned labels.
+        => Task.CompletedTask;
 
     // ── luciatraces database migrations ──────────────────────────────────────
 

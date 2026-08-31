@@ -251,15 +251,7 @@ public sealed class SqliteMigrationRunner : IHostedService
 
     internal static void ApplyConfigV3(SqliteConnection connection)
     {
-        using var cmd = connection.CreateCommand();
-        cmd.CommandText = """
-            UPDATE api_keys
-            SET scopes = '["*","admin:appliance"]'
-            WHERE name = 'Dashboard'
-              AND is_revoked = 0
-              AND scopes = '["*"]';
-            """;
-        cmd.ExecuteNonQuery();
+        // Privileges cannot be inferred safely from legacy user-assigned labels.
     }
 
     // ── luciatraces database migrations ──────────────────────────────────────

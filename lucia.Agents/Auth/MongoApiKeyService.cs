@@ -23,7 +23,10 @@ public sealed class MongoApiKeyService : IApiKeyService
         EnsureIndexes();
     }
 
-    public async Task<ApiKeyCreateResponse> CreateKeyAsync(string name, CancellationToken cancellationToken = default)
+    public async Task<ApiKeyCreateResponse> CreateKeyAsync(
+        string name,
+        CancellationToken cancellationToken = default,
+        bool isAdministrator = false)
     {
         var plaintextKey = GenerateKey();
         var hash = HashKey(plaintextKey);
@@ -34,7 +37,7 @@ public sealed class MongoApiKeyService : IApiKeyService
             KeyHash = hash,
             KeyPrefix = prefix,
             Name = name,
-            Scopes = ApiKeyScopes.ForName(name),
+            Scopes = ApiKeyScopes.Create(isAdministrator),
             CreatedAt = DateTime.UtcNow,
         };
 
@@ -73,7 +76,7 @@ public sealed class MongoApiKeyService : IApiKeyService
             KeyHash = hash,
             KeyPrefix = prefix,
             Name = name,
-            Scopes = ApiKeyScopes.ForName(name),
+            Scopes = ApiKeyScopes.Create(isAdministrator: false),
             CreatedAt = DateTime.UtcNow,
         };
 
@@ -192,7 +195,13 @@ public sealed class MongoApiKeyService : IApiKeyService
         await _collection.UpdateOneAsync(k => k.Id == keyId, revokeUpdate, cancellationToken: cancellationToken).ConfigureAwait(false);
 
         // Create replacement
-        var newKey = await CreateKeyAsync(name, cancellationToken).ConfigureAwait(false);
+        var newKey = await CreateKeyAsync(
+                name,
+                cancellationToken,
+                entry.Scopes.Contains(
+                    AuthOptions.AdministratorScope,
+                    StringComparer.Ordinal))
+            .ConfigureAwait(false);
 
         _logger.LogInformation("Regenerated API key '{Name}' — old key revoked, new key created", name);
 
@@ -212,12 +221,27 @@ public sealed class MongoApiKeyService : IApiKeyService
     }
 
     public async Task<(ApiKeyCreateResponse? Created, int RevokedCount)> OverrideKeyFromPlaintextAsync(
-        string name, string plaintextKey, CancellationToken cancellationToken = default)
+        string name,
+        string plaintextKey,
+        CancellationToken cancellationToken = default,
+        bool isAdministrator = false)
     {
         if (string.IsNullOrWhiteSpace(plaintextKey) || plaintextKey.Length < 16)
             return (null, 0);
 
         var hash = HashKey(plaintextKey);
+        if (isAdministrator)
+        {
+            await _collection.UpdateOneAsync(
+                    key => key.Name == name
+                        && key.KeyHash == hash
+                        && !key.IsRevoked,
+                    Builders<ApiKeyEntry>.Update.AddToSet(
+                        key => key.Scopes,
+                        AuthOptions.AdministratorScope),
+                    cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         // Check if a non-revoked key with this name already hashes to the env value → no-op
         var now = DateTime.UtcNow;
@@ -245,7 +269,7 @@ public sealed class MongoApiKeyService : IApiKeyService
             KeyHash = hash,
             KeyPrefix = prefix,
             Name = name,
-            Scopes = ApiKeyScopes.ForName(name),
+            Scopes = ApiKeyScopes.Create(isAdministrator),
             CreatedAt = DateTime.UtcNow,
         };
 
@@ -311,14 +335,6 @@ public sealed class MongoApiKeyService : IApiKeyService
             };
 
             _collection.Indexes.CreateMany(indexModels);
-            _collection.UpdateMany(
-                entry => entry.Name == "Dashboard"
-                    && !entry.IsRevoked
-                    && !entry.Scopes.Contains(
-                        AuthOptions.AdministratorScope),
-                Builders<ApiKeyEntry>.Update.AddToSet(
-                    entry => entry.Scopes,
-                    AuthOptions.AdministratorScope));
         }
         catch (Exception ex)
         {

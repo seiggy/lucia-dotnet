@@ -10,7 +10,10 @@ public interface IApiKeyService
     /// <summary>
     /// Creates a new API key with the given name. Returns the plaintext key (shown once).
     /// </summary>
-    Task<ApiKeyCreateResponse> CreateKeyAsync(string name, CancellationToken cancellationToken = default);
+    Task<ApiKeyCreateResponse> CreateKeyAsync(
+        string name,
+        CancellationToken cancellationToken = default,
+        bool isAdministrator = false);
 
     /// <summary>
     /// Creates an API key from a provided plaintext (for headless/env seeding).
@@ -65,5 +68,8 @@ public interface IApiKeyService
     /// one active key and do not throw.
     /// </summary>
     Task<(ApiKeyCreateResponse? Created, int RevokedCount)> OverrideKeyFromPlaintextAsync(
-        string name, string plaintextKey, CancellationToken cancellationToken = default);
+        string name,
+        string plaintextKey,
+        CancellationToken cancellationToken = default,
+        bool isAdministrator = false);
 }

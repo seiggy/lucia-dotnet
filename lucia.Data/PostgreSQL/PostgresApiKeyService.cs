@@ -29,7 +29,10 @@ public sealed partial class PostgresApiKeyService : IApiKeyService
         _logger = logger;
     }
 
-    public async Task<ApiKeyCreateResponse> CreateKeyAsync(string name, CancellationToken cancellationToken = default)
+    public async Task<ApiKeyCreateResponse> CreateKeyAsync(
+        string name,
+        CancellationToken cancellationToken = default,
+        bool isAdministrator = false)
     {
         var plaintextKey = GenerateKey();
         var hash = HashKey(plaintextKey);
@@ -50,7 +53,7 @@ public sealed partial class PostgresApiKeyService : IApiKeyService
         cmd.Parameters.AddWithValue("createdAt", createdAt);
         cmd.Parameters.Add(new NpgsqlParameter("scopes", NpgsqlDbType.Jsonb)
         {
-            Value = JsonSerializer.Serialize(ApiKeyScopes.ForName(name)),
+            Value = JsonSerializer.Serialize(ApiKeyScopes.Create(isAdministrator)),
         });
 
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
@@ -97,7 +100,7 @@ public sealed partial class PostgresApiKeyService : IApiKeyService
         cmd.Parameters.AddWithValue("createdAt", createdAt);
         cmd.Parameters.Add(new NpgsqlParameter("scopes", NpgsqlDbType.Jsonb)
         {
-            Value = JsonSerializer.Serialize(ApiKeyScopes.ForName(name)),
+            Value = JsonSerializer.Serialize(ApiKeyScopes.Create(isAdministrator: false)),
         });
 
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
@@ -237,20 +240,27 @@ public sealed partial class PostgresApiKeyService : IApiKeyService
     public async Task<ApiKeyCreateResponse> RegenerateKeyAsync(string keyId, CancellationToken cancellationToken = default)
     {
         string name;
+        bool isAdministrator;
 
         await using (var connection = await _connectionFactory.CreateConnectionAsync(cancellationToken).ConfigureAwait(false))
         {
             await using var getCmd = connection.CreateCommand();
-            getCmd.CommandText = "SELECT name FROM api_keys WHERE id = @id;";
+            getCmd.CommandText = "SELECT name, scopes::text FROM api_keys WHERE id = @id;";
             getCmd.Parameters.AddWithValue("id", keyId);
-            var result = await getCmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+            await using var reader = await getCmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
-            if (result is not string keyName)
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
                 throw new InvalidOperationException($"API key with ID '{keyId}' not found.");
             }
 
-            name = keyName;
+            name = reader.GetString(0);
+            isAdministrator = JsonSerializer
+                .Deserialize<string[]>(reader.GetString(1))?
+                .Contains(
+                    AuthOptions.AdministratorScope,
+                    StringComparer.Ordinal) == true;
+            await reader.DisposeAsync().ConfigureAwait(false);
 
             await using var revokeCmd = connection.CreateCommand();
             revokeCmd.CommandText = "UPDATE api_keys SET is_revoked = TRUE, revoked_at = @revokedAt WHERE id = @id;";
@@ -259,7 +269,11 @@ public sealed partial class PostgresApiKeyService : IApiKeyService
             await revokeCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        var newKey = await CreateKeyAsync(name, cancellationToken).ConfigureAwait(false);
+        var newKey = await CreateKeyAsync(
+                name,
+                cancellationToken,
+                isAdministrator)
+            .ConfigureAwait(false);
         LogRegeneratedKey(_logger, name);
         return newKey;
     }
@@ -290,12 +304,36 @@ public sealed partial class PostgresApiKeyService : IApiKeyService
     }
 
     public async Task<(ApiKeyCreateResponse? Created, int RevokedCount)> OverrideKeyFromPlaintextAsync(
-        string name, string plaintextKey, CancellationToken cancellationToken = default)
+        string name,
+        string plaintextKey,
+        CancellationToken cancellationToken = default,
+        bool isAdministrator = false)
     {
         if (string.IsNullOrWhiteSpace(plaintextKey) || plaintextKey.Length < 16)
             return (null, 0);
 
         var hash = HashKey(plaintextKey);
+        if (isAdministrator)
+        {
+            await using var scopeConnection = await _connectionFactory
+                .CreateConnectionAsync(cancellationToken)
+                .ConfigureAwait(false);
+            await using var scopeCommand = scopeConnection.CreateCommand();
+            scopeCommand.CommandText = """
+                UPDATE api_keys
+                SET scopes = @scopes
+                WHERE name = @name
+                  AND key_hash = @hash
+                  AND is_revoked = FALSE;
+                """;
+            scopeCommand.Parameters.Add(new NpgsqlParameter("scopes", NpgsqlDbType.Jsonb)
+            {
+                Value = JsonSerializer.Serialize(ApiKeyScopes.Create(isAdministrator: true)),
+            });
+            scopeCommand.Parameters.AddWithValue("name", name);
+            scopeCommand.Parameters.AddWithValue("hash", hash);
+            await scopeCommand.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
 
         // Check if a non-revoked key with this name already hashes to the env value → no-op
         await using var checkConn = await _connectionFactory.CreateConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -343,7 +381,7 @@ public sealed partial class PostgresApiKeyService : IApiKeyService
         insertCmd.Parameters.AddWithValue("createdAt", createdAt);
         insertCmd.Parameters.Add(new NpgsqlParameter("scopes", NpgsqlDbType.Jsonb)
         {
-            Value = JsonSerializer.Serialize(ApiKeyScopes.ForName(name)),
+            Value = JsonSerializer.Serialize(ApiKeyScopes.Create(isAdministrator)),
         });
 
         var inserted = await insertCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);

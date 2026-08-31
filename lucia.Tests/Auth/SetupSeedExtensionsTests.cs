@@ -1,5 +1,6 @@
 using FakeItEasy;
 using lucia.Agents.Abstractions;
+using lucia.Agents.Auth;
 using lucia.Agents.Extensions;
 using lucia.Data.Sqlite;
 using lucia.Tests.Data;
@@ -50,6 +51,7 @@ public sealed class SetupSeedExtensionsTests : IDisposable
         Assert.NotNull(entry);
         Assert.Equal("Dashboard", entry.Name);
         Assert.False(entry.IsRevoked);
+        Assert.Contains(AuthOptions.AdministratorScope, entry.Scopes);
     }
 
     [Fact]
@@ -74,6 +76,7 @@ public sealed class SetupSeedExtensionsTests : IDisposable
         var newEntry = await _apiKeyService.ValidateKeyAsync(EnvKey);
         Assert.NotNull(newEntry);
         Assert.Equal("Dashboard", newEntry.Name);
+        Assert.Contains(AuthOptions.AdministratorScope, newEntry.Scopes);
     }
 
     [Fact]
@@ -99,6 +102,7 @@ public sealed class SetupSeedExtensionsTests : IDisposable
         // The env key still validates
         var entry = await _apiKeyService.ValidateKeyAsync(EnvKey);
         Assert.NotNull(entry);
+        Assert.Contains(AuthOptions.AdministratorScope, entry.Scopes);
     }
 
     [Fact]

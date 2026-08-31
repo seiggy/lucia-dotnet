@@ -1,3 +1,5 @@
+using Microsoft.Data.Sqlite;
+
 namespace lucia.Data.Sqlite;
 
 /// <summary>
@@ -47,8 +49,46 @@ public static class SqliteDbNames
         string databaseName)
     {
         var splitPath = GetPath(basePath, databaseName);
-        return !File.Exists(splitPath) && File.Exists(basePath)
-            ? basePath
-            : splitPath;
+        if (!File.Exists(splitPath) && File.Exists(basePath))
+        {
+            CopyDatabase(basePath, splitPath);
+        }
+
+        return splitPath;
+    }
+
+    private static void CopyDatabase(string sourcePath, string destinationPath)
+    {
+        var temporaryPath = $"{destinationPath}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            var sourceConnectionString = new SqliteConnectionStringBuilder
+            {
+                DataSource = sourcePath,
+                Mode = SqliteOpenMode.ReadOnly,
+                Pooling = false,
+            }.ToString();
+            var destinationConnectionString = new SqliteConnectionStringBuilder
+            {
+                DataSource = temporaryPath,
+                Pooling = false,
+            }.ToString();
+            using (var source = new SqliteConnection(sourceConnectionString))
+            using (var destination = new SqliteConnection(destinationConnectionString))
+            {
+                source.Open();
+                destination.Open();
+                source.BackupDatabase(destination);
+                using var command = destination.CreateCommand();
+                command.CommandText = "DROP TABLE IF EXISTS schema_version;";
+                command.ExecuteNonQuery();
+            }
+
+            File.Move(temporaryPath, destinationPath);
+        }
+        finally
+        {
+            File.Delete(temporaryPath);
+        }
     }
 }

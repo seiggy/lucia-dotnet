@@ -100,7 +100,7 @@ public sealed class SqliteMigrationRunnerV2Tests : IDisposable
     // ── ApplyConfigV3 ─────────────────────────────────────────────────────────
 
     [Fact]
-    public void ApplyConfigV3_VersionTwoDashboardKey_GainsAdministratorScope()
+    public void ApplyConfigV3_DashboardLabelDoesNotGainAdministratorScope()
     {
         using var command = _connection.CreateCommand();
         command.CommandText = """
@@ -121,9 +121,7 @@ public sealed class SqliteMigrationRunnerV2Tests : IDisposable
 
         command.CommandText =
             "SELECT scopes FROM api_keys WHERE id = 'owner';";
-        Assert.Equal(
-            """["*","admin:appliance"]""",
-            command.ExecuteScalar());
+        Assert.Equal("""["*"]""", command.ExecuteScalar());
         command.CommandText =
             "SELECT scopes FROM api_keys WHERE id = 'ha';";
         Assert.Equal("""["*"]""", command.ExecuteScalar());
