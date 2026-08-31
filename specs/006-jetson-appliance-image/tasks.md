@@ -81,7 +81,7 @@
 - [x] T047 Pin and verify JetPack 6 BSP and package inputs.
 - [ ] T048 Build the pruned rootfs and microSD installer.
 - [ ] T049 Produce checksums, package manifests, SBOM, and recovery media.
-- [ ] T050 Add CI validation that does not require target hardware.
+- [x] T050 Add CI validation that does not require target hardware.
 - [ ] T051 Run flash, cold-boot, power-cut, Wi-Fi, CUDA, update, and rollback
   checks on the supported Orin.
 - [x] T052 Add a stable-tag GitHub Release workflow for chunked installer,

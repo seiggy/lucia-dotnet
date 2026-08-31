@@ -746,7 +746,7 @@ function IdentityStep({
       </div>
       <p className="mt-3 flex gap-2 text-sm leading-5 text-dust">
         <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-amber" aria-hidden="true" />
-        This password unlocks local maintenance through SSH and the console. Lucia stores only a salted hash.
+        This password opens NetworkManager recovery from the local console. Lucia stores only a salted hash.
       </p>
       <ErrorMessage message={error} />
       <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">

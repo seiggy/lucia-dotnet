@@ -87,7 +87,7 @@ jobs:
           bash infra/appliance/test-build-native-bundle.sh
           bash infra/appliance/installer/test-installer-rootfs.sh
           bash infra/appliance/installer/test-network-bootstrap.sh
-          bash infra/appliance/installer/test-provision-target.sh
+          sudo bash infra/appliance/installer/test-provision-target.sh
           bash infra/appliance/installer/test-installer-host.sh
           bash infra/appliance/manager/test-lucia-appliance-manager.sh
           sudo bash infra/appliance/installer/test-lucia-install.sh
