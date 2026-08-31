@@ -54,6 +54,20 @@ LUCIA_INSTALLER_STATE_DIR="$work_dir/state" "$control" status \
     > "$work_dir/status.json"
 grep -q '"phase":"waiting-for-configuration"' "$work_dir/status.json"
 
+printf '{}\n' > "$work_dir/state/provisioning.json"
+LUCIA_INSTALLER_STATE_DIR="$work_dir/state" "$control" status \
+    > "$work_dir/status.json"
+grep -q '"phase":"waiting-for-configuration"' "$work_dir/status.json"
+rm "$work_dir/state/provisioning.json"
+printf 'status=approved\n' > "$work_dir/state/erase.authorization"
+printf 'status=started\n' > "$work_dir/state/install.requested"
+LUCIA_INSTALLER_STATE_DIR="$work_dir/state" "$control" status \
+    > "$work_dir/status.json"
+grep -q '"phase":"waiting-for-configuration"' "$work_dir/status.json"
+rm "$work_dir/state/erase.authorization" "$work_dir/state/install.requested"
+
+echo "PASS: control reports authorization only after both state files commit"
+
 printf 'status=writing\n' > "$work_dir/state/install.state"
 printf '%s\n' \
     '{"stage":"writing","bytesWritten":32212254720,"totalBytes":61203283968}' \
@@ -139,6 +153,7 @@ printf \
 
 grep -q '"phase":"authorized"' "$work_dir/configure.json"
 grep -q '^status=approved$' "$work_dir/state/erase.authorization"
+grep -q '^status=started$' "$work_dir/state/install.requested"
 python3 - "$work_dir/state/provisioning.json" <<'PY'
 import json
 import sys

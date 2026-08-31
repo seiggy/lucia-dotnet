@@ -20,6 +20,7 @@ var controlCommand = configuredControlCommand is null
         : configuredControlCommand;
 var claimPath = builder.Configuration["Appliance:ClaimPath"]
     ?? "/run/lucia-installer/claim.sha256";
+var installerOrigin = new Uri("http://lucia.setup");
 builder.Services.AddSingleton(
     serviceProvider => new InstallerControlClient(
         controlPath,
@@ -29,12 +30,34 @@ builder.Services.AddSingleton(new InstallerClaimStore(claimPath));
 
 var app = builder.Build();
 
-app.UseDefaultFiles();
-app.UseStaticFiles();
-
 app.Use(async (context, next) =>
 {
-    if (context.Request.Path.StartsWithSegments("/api/installer")
+    var isInstallerApi =
+        context.Request.Path.StartsWithSegments("/api/installer");
+    if (!string.Equals(
+            context.Request.Host.Host,
+            installerOrigin.Host,
+            StringComparison.OrdinalIgnoreCase))
+    {
+        if (isInstallerApi)
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+        }
+        else
+        {
+            context.Response.Redirect(
+                new Uri(installerOrigin, "/install").AbsoluteUri);
+        }
+        return;
+    }
+    if (isInstallerApi
+        && !HttpMethods.IsGet(context.Request.Method)
+        && !HasCanonicalOrigin(context.Request, installerOrigin))
+    {
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        return;
+    }
+    if (isInstallerApi
         && context.Request.Path != "/api/installer/capabilities"
         && context.Request.Path != "/api/installer/claim")
     {
@@ -52,6 +75,9 @@ app.Use(async (context, next) =>
 
     await next(context).ConfigureAwait(false);
 });
+
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
 app.MapGet(
     "/api/installer/capabilities",
@@ -124,7 +150,9 @@ app.MapPost(
         Results.Accepted(
             value: await control.StartInstallationAsync(request, cancellationToken)
                 .ConfigureAwait(false)));
-app.MapGet("/", () => Results.Redirect("/install"));
+app.MapGet(
+    "/",
+    () => Results.Redirect(new Uri(installerOrigin, "/install").AbsoluteUri));
 foreach (var captivePath in new[]
 {
     "/connecttest.txt",
@@ -135,8 +163,29 @@ foreach (var captivePath in new[]
     "/ncsi.txt",
 })
 {
-    app.MapGet(captivePath, () => Results.Redirect("/install"));
+    app.MapGet(
+        captivePath,
+        () => Results.Redirect(
+            new Uri(installerOrigin, "/install").AbsoluteUri));
 }
 app.MapFallbackToFile("index.html");
 
 await app.RunAsync().ConfigureAwait(false);
+
+static bool HasCanonicalOrigin(HttpRequest request, Uri installerOrigin)
+{
+    return Uri.TryCreate(
+            request.Headers.Origin.ToString(),
+            UriKind.Absolute,
+            out var requestOrigin)
+        && string.Equals(
+            requestOrigin.Scheme,
+            installerOrigin.Scheme,
+            StringComparison.OrdinalIgnoreCase)
+        && string.Equals(
+            requestOrigin.Host,
+            installerOrigin.Host,
+            StringComparison.OrdinalIgnoreCase)
+        && requestOrigin.Port == installerOrigin.Port
+        && requestOrigin.AbsolutePath == "/";
+}

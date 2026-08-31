@@ -9,6 +9,8 @@ control_log="$work_dir/control.log"
 control_input="$work_dir/control-input.json"
 installer_pid=""
 base_url="http://127.0.0.1:18098"
+canonical_host="lucia.setup"
+canonical_origin="http://lucia.setup"
 claim_path="$work_dir/claim.sha256"
 cookie_jar="$work_dir/cookies.txt"
 
@@ -60,6 +62,7 @@ installer_pid=$!
 for _ in {1..120}; do
     status="$(
         curl --silent --output /dev/null --write-out '%{http_code}' \
+            --header "Host: $canonical_host" \
             "$base_url/api/installer/status" 2>/dev/null || true
     )"
     if [[ "$status" == "401" ]]; then
@@ -76,6 +79,7 @@ done
 
 status="$(
     curl --silent --output "$work_dir/capabilities.json" --write-out '%{http_code}' \
+        --header "Host: $canonical_host" \
         "$base_url/api/installer/capabilities"
 )"
 [[ "$status" == "200" ]]
@@ -85,16 +89,36 @@ grep -q '"requiresSetupCode":false' "$work_dir/capabilities.json"
 echo "PASS: installer mode is discoverable without exposing setup data"
 
 status="$(
-    curl --silent --output /dev/null --write-out '%{http_code}' \
+    curl --silent --dump-header "$work_dir/captive.headers" \
+        --output /dev/null --write-out '%{http_code}' \
         "$base_url/generate_204"
 )"
 [[ "$status" == "302" ]]
+grep -qi "^Location: $canonical_origin/install" "$work_dir/captive.headers"
 
-echo "PASS: captive network probes redirect to setup"
+status="$(
+    curl --silent --output /dev/null --write-out '%{http_code}' \
+        "$base_url/api/installer/capabilities"
+)"
+[[ "$status" == "400" ]]
+
+status="$(
+    curl --silent --output /dev/null --write-out '%{http_code}' \
+        --header "Host: $canonical_host" \
+        --header "Origin: http://attacker.example" \
+        --request POST \
+        "$base_url/api/installer/claim"
+)"
+[[ "$status" == "403" ]]
+[[ ! -e "$claim_path" ]]
+
+echo "PASS: captive requests move to one origin before API access"
 
 status="$(
     curl --silent --cookie-jar "$cookie_jar" \
         --output "$work_dir/claim.json" --write-out '%{http_code}' \
+        --header "Host: $canonical_host" \
+        --header "Origin: $canonical_origin" \
         --request POST \
         "$base_url/api/installer/claim"
 )"
@@ -105,6 +129,8 @@ grep -q '"claimed":true' "$work_dir/claim.json"
 
 status="$(
     curl --silent --output /dev/null --write-out '%{http_code}' \
+        --header "Host: $canonical_host" \
+        --header "Origin: $canonical_origin" \
         --request POST \
         "$base_url/api/installer/claim"
 )"
@@ -115,6 +141,7 @@ echo "PASS: first browser atomically claims the installer"
 status="$(
     curl --silent --output "$work_dir/status.json" --write-out '%{http_code}' \
         --cookie "$cookie_jar" \
+        --header "Host: $canonical_host" \
         "$base_url/api/installer/status"
 )"
 
@@ -126,6 +153,7 @@ echo "PASS: installer status requires the claiming browser"
 status="$(
     curl --silent --output "$work_dir/disks.json" --write-out '%{http_code}' \
         --cookie "$cookie_jar" \
+        --header "Host: $canonical_host" \
         "$base_url/api/installer/disks"
 )"
 
@@ -139,6 +167,7 @@ echo "PASS: installer lists storage through the control interface"
 status="$(
     curl --silent --output "$work_dir/networks.json" --write-out '%{http_code}' \
         --cookie "$cookie_jar" \
+        --header "Host: $canonical_host" \
         "$base_url/api/installer/networks"
 )"
 
@@ -151,6 +180,8 @@ echo "PASS: installer lists Wi-Fi networks through the control interface"
 status="$(
     curl --silent --output "$work_dir/configure.json" --write-out '%{http_code}' \
         --header "Content-Type: application/json" \
+        --header "Host: $canonical_host" \
+        --header "Origin: $canonical_origin" \
         --cookie "$cookie_jar" \
         --request POST \
         --data '{"deviceId":"/dev/disk/by-id/nvme-lab","eraseConfirmation":"ERASE LAB123","hostname":"lucia-lab","recoveryPassword":"correct horse battery staple","wifi":{"ssid":"Lab WiFi","passphrase":"lab-wifi-password"}}' \

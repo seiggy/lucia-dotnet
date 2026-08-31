@@ -191,6 +191,8 @@ Lab validation pulled appliance management and telemetry work forward.
 - Added pinned BSP and Redis inputs, release build orchestration, GitHub
   artifact attestations, chunked GitHub Release assets, SHA-256 checksums, and
   a manifest uploaded last for updater discovery.
+- Replaced live rootfs package resolution with a complete CUDA and cuDNN
+  package set pinned by URL and SHA-256 in `appliance.lock`.
 - Real-size packaging produced five installer parts, one Lucia part, and four
   OS parts under GitHub's per-asset limit.
 - Added a canonical disk-layout digest with partition starts, filesystem UUIDs,

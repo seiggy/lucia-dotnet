@@ -215,6 +215,8 @@ def show_status() -> None:
         phase = (
             "authorized"
             if (state_directory / "provisioning.json").exists()
+            and (state_directory / "erase.authorization").exists()
+            and (state_directory / "install.requested").exists()
             else "waiting-for-configuration"
         )
     else:
@@ -391,6 +393,8 @@ def configure_installation() -> None:
             )
             if install_state.get("status") in {"writing", "installed"}:
                 raise ValueError("Installation has already started")
+        if (state_directory / "install.requested").exists():
+            raise ValueError("Installation has already started")
 
         authorization = "\n".join(
             [
@@ -417,15 +421,20 @@ def configure_installation() -> None:
         systemctl_path = os.environ.get(
             "LUCIA_SYSTEMCTL_PATH", "/usr/bin/systemctl"
         )
-        subprocess.run(
-            [
-                systemctl_path,
-                "start",
-                "--no-block",
-                "lucia-firstboot-install.service",
-            ],
-            check=True,
-        )
+        try:
+            subprocess.run(
+                [
+                    systemctl_path,
+                    "start",
+                    "--no-block",
+                    "lucia-firstboot-install.service",
+                ],
+                check=True,
+            )
+        except (subprocess.CalledProcessError, OSError):
+            (state_directory / "erase.authorization").unlink(missing_ok=True)
+            raise
+        write_atomic(state_directory / "install.requested", "status=started\n")
 
     print(json.dumps({"phase": "authorized"}, separators=(",", ":")))
 

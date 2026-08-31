@@ -127,6 +127,12 @@ download_sha256 \
     "$REDIS_SOURCE_URL" \
     "$REDIS_SOURCE_SHA256" \
     "$downloads/redis-${REDIS_COMMIT}.tar.gz"
+compute_downloads="$downloads/compute"
+mkdir -p "$compute_downloads"
+for package in "${COMPUTE_PACKAGES[@]}"; do
+    read -r expected url <<< "$package"
+    download_sha256 "$url" "$expected" "$compute_downloads/${url##*/}"
+done
 
 rm -rf \
     "$publish_dir" \
@@ -289,23 +295,23 @@ install_compute_runtime() (
     trap on_exit EXIT
 
     sudo cp /usr/bin/qemu-aarch64-static "$root/usr/bin/"
-    sudo cp /etc/resolv.conf "$root/etc/resolv.conf"
-    sudo sed -i \
-        's#jetson/<SOC>#jetson/t234#' \
-        "$root/etc/apt/sources.list.d/nvidia-l4t-apt-source.list"
     sudo mount --bind /dev "$root/dev"
     sudo mount --bind /dev/pts "$root/dev/pts"
     sudo mount -t proc proc "$root/proc"
     sudo mount -t sysfs sys "$root/sys"
-    sudo chroot "$root" apt-get update -qq
-    sudo chroot "$root" apt-get install -y -qq --no-install-recommends \
-        cuda-cudart-12-6=12.6.68-1 \
-        cuda-nvrtc-12-6=12.6.68-1 \
-        libcublas-12-6=12.6.1.4-1 \
-        libcufft-12-6=11.2.6.59-1 \
-        libcudnn9-cuda-12=9.3.0.75-1
-    sudo chroot "$root" apt-get clean
-    sudo rm -rf "$root/var/lib/apt/lists"/*
+    sudo mkdir -p "$root/tmp/lucia-compute"
+    local guest_packages=()
+    local package
+    local url
+    local name
+    for package in "${COMPUTE_PACKAGES[@]}"; do
+        read -r _ url <<< "$package"
+        name="${url##*/}"
+        sudo cp "$compute_downloads/$name" "$root/tmp/lucia-compute/$name"
+        guest_packages+=("/tmp/lucia-compute/$name")
+    done
+    sudo chroot "$root" dpkg --install "${guest_packages[@]}"
+    sudo rm -rf "$root/tmp/lucia-compute"
 )
 
 prepare_bsp "$bsp_dir"

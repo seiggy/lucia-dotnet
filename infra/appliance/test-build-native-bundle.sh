@@ -133,7 +133,7 @@ test_bundle_contains_native_service_contract() {
         && grep -q '^Environment=LUCIA_APPLIANCE_SOCKET=/run/lucia-appliance/appliance-manager.sock$' "$manager_unit" \
         && grep -q '^User=root$' "$manager_unit" \
         && grep -q '^Group=lucia$' "$manager_unit" \
-        && grep -q '^ReadWritePaths=/etc/lucia /opt/lucia /var/lib/lucia$' "$manager_unit" \
+        && grep -q '^ReadWritePaths=/etc/lucia /etc/systemd/system/multi-user.target.wants /opt/lucia /var/lib/lucia$' "$manager_unit" \
         && grep -q '^CapabilityBoundingSet=CAP_SYS_BOOT$' "$manager_unit" \
         && grep -q '^Requires=lucia-redis.service$' "$agent_unit" \
         && grep -q '^ExecStart=/opt/lucia/current/app/lucia.AgentHost$' "$agent_unit" \

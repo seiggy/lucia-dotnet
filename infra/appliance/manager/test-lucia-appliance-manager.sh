@@ -17,6 +17,9 @@ current_release="$work_dir/current"
 reboot_required="$work_dir/reboot-required"
 telemetry_environment="$work_dir/telemetry.env"
 fail_enable="$work_dir/fail-enable"
+block_restart="$work_dir/block-restart"
+restart_started="$work_dir/restart-started"
+restart_completed="$work_dir/restart-completed"
 os_version="$work_dir/os-version"
 jetson_release="$work_dir/nv_tegra_release"
 
@@ -36,6 +39,12 @@ printf '%s\n' "$*" >> "$LUCIA_TEST_SYSTEMCTL_LOG"
 if [[ "$1" == "enable" && -f "$LUCIA_TEST_FAIL_ENABLE_FILE" ]]; then
     printf 'simulated enable failure\n' >&2
     exit 1
+fi
+if [[ "$*" == "restart lucia-redis.service" \
+        && -f "$LUCIA_TEST_BLOCK_RESTART_FILE" ]]; then
+    touch "$LUCIA_TEST_RESTART_STARTED_FILE"
+    sleep 2
+    touch "$LUCIA_TEST_RESTART_COMPLETED_FILE"
 fi
 if [[ "$1" == "show" ]]; then
     cat <<'STATUS'
@@ -94,6 +103,9 @@ LUCIA_TELEMETRY_ENV_PATH="$telemetry_environment" \
 LUCIA_SYSTEMCTL_PATH="$work_dir/systemctl" \
 LUCIA_TEST_SYSTEMCTL_LOG="$systemctl_log" \
 LUCIA_TEST_FAIL_ENABLE_FILE="$fail_enable" \
+LUCIA_TEST_BLOCK_RESTART_FILE="$block_restart" \
+LUCIA_TEST_RESTART_STARTED_FILE="$restart_started" \
+LUCIA_TEST_RESTART_COMPLETED_FILE="$restart_completed" \
 LUCIA_TEST_NMCLI_LOG="$nmcli_log" \
     dotnet run --no-launch-profile --project "$manager_project" \
     >"$manager_log" 2>&1 &
@@ -156,6 +168,33 @@ for service_and_unit in \
 done
 
 echo "PASS: appliance dependencies restart through fixed systemd units"
+
+touch "$block_restart"
+curl --silent --max-time 0.1 --output /dev/null \
+    --unix-socket "$socket_path" \
+    --request POST \
+    http://localhost/v1/services/redis/restart || true
+for _ in {1..20}; do
+    [[ -e "$restart_started" ]] && break
+    sleep 0.05
+done
+[[ -e "$restart_started" ]]
+[[ ! -e "$restart_completed" ]]
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
+        --request POST \
+        http://localhost/v1/host/reboot
+)"
+[[ "$status" == "409" ]]
+for _ in {1..50}; do
+    [[ -e "$restart_completed" ]] && break
+    sleep 0.05
+done
+[[ -e "$restart_completed" ]]
+rm "$block_restart"
+
+echo "PASS: disconnected mutations retain the operation lock until completion"
 
 status="$(
     curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \

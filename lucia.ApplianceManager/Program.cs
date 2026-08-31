@@ -146,8 +146,7 @@ static async Task<IResult> GetStatusAsync(CancellationToken cancellationToken)
 }
 
 static async Task<IResult> RestartServiceAsync(
-    string service,
-    CancellationToken cancellationToken)
+    string service)
 {
     var unit = service switch
     {
@@ -170,9 +169,7 @@ static async Task<IResult> RestartServiceAsync(
         });
     }
 
-    var result = await RunSystemctlAsync(
-            ["restart", unit],
-            cancellationToken)
+    var result = await RunSystemctlMutationAsync(["restart", unit])
         .ConfigureAwait(false);
     if (result.ExitCode != 0)
     {
@@ -190,11 +187,9 @@ static async Task<IResult> RestartServiceAsync(
         });
 }
 
-static async Task<IResult> RebootHostAsync(CancellationToken cancellationToken)
+static async Task<IResult> RebootHostAsync()
 {
-    var result = await RunSystemctlAsync(
-            ["--no-block", "reboot"],
-            cancellationToken)
+    var result = await RunSystemctlMutationAsync(["--no-block", "reboot"])
         .ConfigureAwait(false);
     if (result.ExitCode != 0)
     {
@@ -215,8 +210,7 @@ static IResult GetTelemetryConfiguration()
 }
 
 static async Task<IResult> UpdateTelemetryConfigurationAsync(
-    TelemetryConfigurationRequest request,
-    CancellationToken cancellationToken)
+    TelemetryConfigurationRequest request)
 {
     if (!Uri.TryCreate(request.Endpoint, UriKind.Absolute, out var endpoint)
         || endpoint.Scheme is not ("http" or "https")
@@ -288,7 +282,7 @@ static async Task<IResult> UpdateTelemetryConfigurationAsync(
     (int ExitCode, string StandardOutput, string StandardError) result;
     try
     {
-        result = await RunSystemctlAsync(arguments, cancellationToken)
+        result = await RunSystemctlMutationAsync(arguments)
             .ConfigureAwait(false);
     }
     catch (Exception exception) when (
@@ -297,18 +291,16 @@ static async Task<IResult> UpdateTelemetryConfigurationAsync(
             or InvalidOperationException)
     {
         RestoreTelemetryFile(path, previousLines);
-        _ = await RunSystemctlAsync(
-                GetTelemetrySystemdArguments(previousEnabled),
-                CancellationToken.None)
+        _ = await RunSystemctlMutationAsync(
+                GetTelemetrySystemdArguments(previousEnabled))
             .ConfigureAwait(false);
         throw;
     }
     if (result.ExitCode != 0)
     {
         RestoreTelemetryFile(path, previousLines);
-        var rollbackResult = await RunSystemctlAsync(
-                GetTelemetrySystemdArguments(previousEnabled),
-                CancellationToken.None)
+        var rollbackResult = await RunSystemctlMutationAsync(
+                GetTelemetrySystemdArguments(previousEnabled))
             .ConfigureAwait(false);
         var detail = rollbackResult.ExitCode == 0
             ? result.StandardError.Trim()
@@ -352,6 +344,14 @@ static async Task<IResult> UpdateTelemetryConfigurationAsync(
 }
 
 static async Task<(int ExitCode, string StandardOutput, string StandardError)>
+    RunSystemctlMutationAsync(IEnumerable<string> arguments)
+{
+    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+    return await RunSystemctlAsync(arguments, timeout.Token)
+        .ConfigureAwait(false);
+}
+
+static async Task<(int ExitCode, string StandardOutput, string StandardError)>
     RunSystemctlAsync(
         IEnumerable<string> arguments,
         CancellationToken cancellationToken)
@@ -372,10 +372,20 @@ static async Task<(int ExitCode, string StandardOutput, string StandardError)>
 
     using var process = Process.Start(startInfo)
         ?? throw new InvalidOperationException("Failed to start systemctl.");
-    var standardOutputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-    var standardErrorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+    var standardOutputTask = process.StandardOutput.ReadToEndAsync();
+    var standardErrorTask = process.StandardError.ReadToEndAsync();
 
-    await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+    try
+    {
+        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+    }
+    catch (OperationCanceledException)
+    {
+        process.Kill(entireProcessTree: true);
+        await process.WaitForExitAsync(CancellationToken.None)
+            .ConfigureAwait(false);
+        throw;
+    }
     var standardOutput = await standardOutputTask.ConfigureAwait(false);
     var standardError = await standardErrorTask.ConfigureAwait(false);
     return (process.ExitCode, standardOutput, standardError);

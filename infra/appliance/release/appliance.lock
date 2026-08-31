@@ -8,6 +8,16 @@ REDIS_COMMIT=0eb14894da51df6d1e4a748e3308b95deb85617d
 REDIS_SOURCE_URL=https://github.com/redis/redis/archive/0eb14894da51df6d1e4a748e3308b95deb85617d.tar.gz
 REDIS_SOURCE_SHA256=bda93820ddbb7842a3f1110288b1cc8f44fd268a7d4af767cb17b144d17818d6
 REDIS_BUILD_IMAGE=gcc:14.2.0-bookworm@sha256:ab78e7a512cead0e90364bb21f91c299a913e8b19fc481bf700d97218524f46d
+COMPUTE_PACKAGES=(
+    "91b3cfe61d903a401c8ac043712c427042e3829ff2602f3aa594c1a2f25e48e8 https://repo.download.nvidia.com/jetson/common/pool/main/c/cuda-cudart/cuda-toolkit-config-common_12.6.68-1_all.deb"
+    "b24be39e9f8baa8a44e8a3d787f45f577e50f9de6af5e0b6c3b09a7b7e2edbcc https://repo.download.nvidia.com/jetson/common/pool/main/c/cuda-cudart/cuda-toolkit-12-config-common_12.6.68-1_all.deb"
+    "4b3030e33bb2d58010d66ad1380987556906260c1438a47f088be5116b27925b https://repo.download.nvidia.com/jetson/common/pool/main/c/cuda-cudart/cuda-toolkit-12-6-config-common_12.6.68-1_all.deb"
+    "54456ed3372670d6a6d7e19d5971ec234800fe620dfb822aa751bc7d80f2a516 https://repo.download.nvidia.com/jetson/common/pool/main/c/cuda-cudart/cuda-cudart-12-6_12.6.68-1_arm64.deb"
+    "b8189ac22bb781b1dcccc61a902fb623238cd4e65cf456dcd95f8f319eb346be https://repo.download.nvidia.com/jetson/common/pool/main/c/cuda-nvrtc/cuda-nvrtc-12-6_12.6.68-1_arm64.deb"
+    "3ff5d9c20e8cf1b8fd36841271846f2d2de23aaca9bf2e9213d5dac8e6488693 https://repo.download.nvidia.com/jetson/common/pool/main/libc/libcublas/libcublas-12-6_12.6.1.4-1_arm64.deb"
+    "68c95fdae59bde441a6ea9fc7d94eebb064f50e41fc51c4aeb4175cf098705e7 https://repo.download.nvidia.com/jetson/common/pool/main/libc/libcufft/libcufft-12-6_11.2.6.59-1_arm64.deb"
+    "0f3a869f4b9f5c20912acfb043c911f210304a554de27c71346638ac73c96377 https://repo.download.nvidia.com/jetson/common/pool/main/c/cudnn/libcudnn9-cuda-12_9.3.0.75-1_arm64.deb"
+)
 OTELCOL_VERSION=0.139.0
 OTELCOL_URL=https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v0.139.0/otelcol-contrib_0.139.0_linux_arm64.tar.gz
 OTELCOL_SHA256=cd7d485dd17a82b423c1b2f8123beb2f0d171a334b4d649321a09305161f6b1c

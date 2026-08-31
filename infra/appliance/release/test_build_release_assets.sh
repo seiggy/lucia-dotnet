@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$script_dir/appliance.lock"
+
+[[ "${#COMPUTE_PACKAGES[@]}" -eq 8 ]]
+for package in "${COMPUTE_PACKAGES[@]}"; do
+    read -r sha256 url <<< "$package"
+    [[ "$sha256" =~ ^[0-9a-f]{64}$ ]]
+    [[ "$url" == https://repo.download.nvidia.com/jetson/common/pool/*.deb ]]
+done
+
+grep -q 'sudo chroot "$root" dpkg --install' \
+    "$script_dir/build-release-assets.sh"
+! grep -Eq 'apt-get (update|install)' \
+    "$script_dir/build-release-assets.sh"
+
+echo "PASS: release rootfs uses the digest-pinned compute package set"

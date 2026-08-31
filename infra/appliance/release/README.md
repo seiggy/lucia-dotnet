@@ -17,6 +17,10 @@ These are full component payloads, not binary deltas. Full payloads are larger,
 but they are deterministic, recoverable, and do not require every user to have
 the same prior version.
 
+`appliance.lock` pins every CUDA and cuDNN runtime package by direct URL and
+SHA-256. The rootfs build installs that local package set without reading live
+Ubuntu or NVIDIA package indexes.
+
 ## Discovery
 
 The updater requests:
@@ -81,6 +85,7 @@ Manual runs require an existing stable tag and GitHub Release.
 
 ```bash
 python3 infra/appliance/release/test_package_release.py
+bash infra/appliance/release/test_build_release_assets.sh
 bash -n infra/appliance/release/build-release-assets.sh
 act -l -W .github/workflows/appliance-release.yml
 ```
