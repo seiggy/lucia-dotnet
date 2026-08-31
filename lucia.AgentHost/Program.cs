@@ -460,7 +460,10 @@ app.UseAuthorization();
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler();
-    app.UseHsts();
+    if (!isInstalledAppliance)
+    {
+        app.UseHsts();
+    }
 }
 else
 {

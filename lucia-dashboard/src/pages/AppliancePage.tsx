@@ -186,6 +186,7 @@ export default function AppliancePage() {
             latest={updates?.latestLuciaVersion}
             available={updates?.luciaUpdateAvailable ?? false}
             newerDiscovered={updates?.luciaNewerDiscovered ?? false}
+            manifestAvailable={updates?.manifestAvailable ?? false}
             compatible={updates?.compatible ?? true}
             checked={updates !== null}
           />
@@ -196,6 +197,7 @@ export default function AppliancePage() {
             latest={updates?.latestOsVersion}
             available={updates?.osUpdateAvailable ?? false}
             newerDiscovered={updates?.osNewerDiscovered ?? false}
+            manifestAvailable={updates?.manifestAvailable ?? false}
             compatible={updates?.compatible ?? true}
             checked={updates !== null}
           />
@@ -320,6 +322,7 @@ function UpdateRail({
   latest,
   available,
   newerDiscovered,
+  manifestAvailable,
   compatible,
   checked,
 }: {
@@ -329,11 +332,13 @@ function UpdateRail({
   latest?: string | null
   available: boolean
   newerDiscovered: boolean
+  manifestAvailable: boolean
   compatible: boolean
   checked: boolean
 }) {
   const verificationRequired = checked && newerDiscovered
-  const incompatible = checked && !compatible
+  const unavailable = checked && !manifestAvailable
+  const incompatible = checked && manifestAvailable && !compatible
   return (
     <div className="grid gap-4 border-b border-stone p-5 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
       <div className="flex min-w-0 items-center gap-3">
@@ -352,19 +357,23 @@ function UpdateRail({
         <span className={`text-sm font-medium ${
           available || verificationRequired
             ? 'text-amber'
-            : checked
-              ? 'text-sage'
-              : 'text-dust'
+            : unavailable
+              ? 'text-dust'
+              : checked
+                ? 'text-sage'
+                : 'text-dust'
         }`}>
           {available
             ? 'Update available'
-            : incompatible
-              ? 'Incompatible'
-              : verificationRequired
-              ? 'Verification required'
-              : checked
-                ? 'Current'
-                : 'Not checked'}
+            : unavailable
+              ? 'No appliance manifest'
+              : incompatible
+                ? 'Incompatible'
+                : verificationRequired
+                  ? 'Verification required'
+                  : checked
+                    ? 'Current'
+                    : 'Not checked'}
         </span>
         {available && (
           <button

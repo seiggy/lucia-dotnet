@@ -16,6 +16,7 @@ ExecStart=/opt/lucia-installer/app/lucia.InstallerHost
 EnvironmentFile=/etc/lucia-installer/installer.env
 RuntimeDirectory=lucia-installer
 RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=restart
 Restart=on-failure
 RestartSec=3s
 TimeoutStartSec=30s
