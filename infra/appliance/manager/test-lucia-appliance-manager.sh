@@ -258,6 +258,20 @@ echo "PASS: telemetry rejects credentials over plaintext"
 status="$(
     curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
         --unix-socket "$socket_path" \
+        --header 'Content-Type: application/json' \
+        --request PUT \
+        --data '{"enabled":true,"endpoint":"https://telemetry.example:4317","username":"lucia:admin","password":"telemetry-secret","insecureSkipVerify":false}' \
+        http://localhost/v1/telemetry
+)"
+[[ "$status" == "400" ]]
+grep -q 'username cannot contain a colon' "$work_dir/response.json"
+[[ ! -e "$telemetry_environment" ]]
+
+echo "PASS: telemetry rejects ambiguous Basic usernames"
+
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
         http://localhost/v1/telemetry
 )"
 

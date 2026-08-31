@@ -162,6 +162,74 @@ def write_wifi_profile(
     write_atomic(connection_path, profile, mode=0o600)
 
 
+def ensure_tls_material(
+    state_directory: pathlib.Path,
+    hostname: str,
+) -> tuple[pathlib.Path, pathlib.Path]:
+    tls_directory = state_directory / "agenthost-tls"
+    certificate_path = tls_directory / "agenthost.crt"
+    key_path = tls_directory / "agenthost.key"
+    if certificate_path.exists() and key_path.exists():
+        return certificate_path, key_path
+    if tls_directory.exists():
+        shutil.rmtree(tls_directory)
+
+    temporary_directory = pathlib.Path(
+        tempfile.mkdtemp(dir=state_directory, prefix=".agenthost-tls.")
+    )
+    try:
+        temporary_certificate = temporary_directory / "agenthost.crt"
+        temporary_key = temporary_directory / "agenthost.key"
+        openssl_path = os.environ.get("LUCIA_OPENSSL_PATH", "/usr/bin/openssl")
+        subprocess.run(
+            [
+                openssl_path,
+                "req",
+                "-x509",
+                "-newkey",
+                "rsa:3072",
+                "-sha256",
+                "-days",
+                "825",
+                "-nodes",
+                "-keyout",
+                str(temporary_key),
+                "-out",
+                str(temporary_certificate),
+                "-subj",
+                f"/CN={hostname}.local",
+                "-addext",
+                f"subjectAltName=DNS:{hostname}.local,DNS:{hostname}",
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        temporary_key.chmod(0o600)
+        temporary_certificate.chmod(0o644)
+        os.rename(temporary_directory, tls_directory)
+    finally:
+        if temporary_directory.exists():
+            shutil.rmtree(temporary_directory)
+    return certificate_path, key_path
+
+
+def install_tls_material(
+    target_root: pathlib.Path,
+    certificate_path: pathlib.Path,
+    key_path: pathlib.Path,
+) -> None:
+    target_directory = target_root / "etc" / "lucia" / "tls"
+    target_directory.mkdir(parents=True, exist_ok=True, mode=0o755)
+    target_certificate = target_directory / "agenthost.crt"
+    target_key = target_directory / "agenthost.key"
+    shutil.copyfile(certificate_path, target_certificate)
+    shutil.copyfile(key_path, target_key)
+    target_certificate.chmod(0o644)
+    target_key.chmod(0o640)
+    os.chown(target_key, 0, 1100)
+
+
 def validate_wifi_checkpoint(
     state_directory: pathlib.Path,
     ssid: str,
@@ -251,7 +319,12 @@ def validate_wifi_checkpoint(
                 )
 
 
-def provision(target_root: pathlib.Path, provisioning: dict[str, object]) -> None:
+def provision(
+    target_root: pathlib.Path,
+    provisioning: dict[str, object],
+    certificate_path: pathlib.Path,
+    key_path: pathlib.Path,
+) -> None:
     hostname = provisioning["hostname"]
     password_hash = provisioning["recoveryPasswordHash"]
     wifi = provisioning.get("wifi")
@@ -264,6 +337,7 @@ def provision(target_root: pathlib.Path, provisioning: dict[str, object]) -> Non
     write_atomic(target_root / "etc" / "hostname", f"{hostname}\n")
     replace_hostname(target_root / "etc" / "hosts", hostname)
     replace_recovery_password(target_root / "etc" / "shadow", password_hash)
+    install_tls_material(target_root, certificate_path, key_path)
 
     if wifi is not None:
         write_wifi_profile(target_root, wifi["ssid"], wifi["passphrase"])
@@ -282,6 +356,7 @@ def complete_provisioning(
     )
     os.sync()
     (state_directory / "provisioning.json").unlink()
+    shutil.rmtree(state_directory / "agenthost-tls")
     os.sync()
 
 
@@ -339,9 +414,18 @@ def main() -> None:
             str(wifi["ssid"]),
             str(wifi["passphrase"]),
         )
+    certificate_path, key_path = ensure_tls_material(
+        state_directory,
+        str(provisioning["hostname"]),
+    )
 
     if configured_target is not None:
-        provision(pathlib.Path(configured_target), provisioning)
+        provision(
+            pathlib.Path(configured_target),
+            provisioning,
+            certificate_path,
+            key_path,
+        )
         configured_lucia_root = os.environ.get("LUCIA_TARGET_LUCIA_ROOT")
         if configured_lucia_root is not None:
             install_manager_override(pathlib.Path(configured_lucia_root))
@@ -360,7 +444,12 @@ def main() -> None:
             check=True,
         )
         try:
-            provision(target_root, provisioning)
+            provision(
+                target_root,
+                provisioning,
+                certificate_path,
+                key_path,
+            )
         finally:
             subprocess.run(["umount", str(target_root)], check=True)
     lucia_partition = find_partition(sys.argv[1], "LUCIA")

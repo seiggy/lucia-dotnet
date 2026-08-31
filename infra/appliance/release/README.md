@@ -13,6 +13,10 @@ The captive setup network uses the Jetson serial printed on the device as its
 unique WPA2 passphrase. Manufactured appliances should print the same value as
 a setup credential or QR code.
 
+The installed dashboard listens at `https://HOSTNAME.local:8099` with a
+per-device certificate generated during setup. The first browser must accept
+that local certificate. Plain HTTP is bound only to loopback on port 8098.
+
 These are full component payloads, not binary deltas. Full payloads are larger,
 but they are deterministic, recoverable, and do not require every user to have
 the same prior version.

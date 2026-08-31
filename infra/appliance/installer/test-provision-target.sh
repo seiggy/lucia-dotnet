@@ -65,6 +65,17 @@ grep -qx 'psk=lab-wifi-password' \
 [[ ! -e "$state_dir/provisioning.json" ]]
 grep -q '^status=provisioned$' "$state_dir/provision.state"
 grep -q '^hostname=lucia-lab$' "$state_dir/provision.state"
+openssl x509 \
+    -in "$target_root/etc/lucia/tls/agenthost.crt" \
+    -checkhost lucia-lab.local \
+    -noout
+openssl pkey \
+    -in "$target_root/etc/lucia/tls/agenthost.key" \
+    -check \
+    -noout >/dev/null
+[[ "$(stat --format '%a' "$target_root/etc/lucia/tls/agenthost.crt")" == "644" ]]
+[[ "$(stat --format '%a:%g' "$target_root/etc/lucia/tls/agenthost.key")" == "640:1100" ]]
+[[ ! -e "$state_dir/agenthost-tls" ]]
 cmp -s \
     "$work_dir/lucia.ApplianceManager" \
     "$target_lucia_root/current/manager/lucia.ApplianceManager"

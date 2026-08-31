@@ -198,6 +198,8 @@ Lab validation pulled appliance management and telemetry work forward.
   provisioning request for retry.
 - Telemetry enable and disable now update AgentHost's local Collector endpoint
   and restart AgentHost inside the manager's rollback-safe operation.
+- Installed AgentHost traffic now uses a per-device, hostname-bound HTTPS
+  certificate on port 8099. Plain HTTP is loopback-only on port 8098.
 - Real-size packaging produced five installer parts, one Lucia part, and four
   OS parts under GitHub's per-asset limit.
 - Added a canonical disk-layout digest with partition starts, filesystem UUIDs,

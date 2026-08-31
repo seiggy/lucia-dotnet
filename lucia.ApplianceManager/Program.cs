@@ -234,6 +234,14 @@ static async Task<IResult> UpdateTelemetryConfigurationAsync(
             Error = "Basic authentication requires both username and password.",
         });
     }
+    if (hasUsername
+        && request.Username!.Contains(":", StringComparison.Ordinal))
+    {
+        return Results.BadRequest(new
+        {
+            Error = "Basic authentication username cannot contain a colon.",
+        });
+    }
 
     var path = Environment.GetEnvironmentVariable("LUCIA_TELEMETRY_ENV_PATH")
         ?? "/var/lib/lucia/config/telemetry.env";

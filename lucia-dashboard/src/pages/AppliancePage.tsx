@@ -331,7 +331,7 @@ function UpdateRail({
   checked: boolean
 }) {
   const verificationRequired = checked && newerDiscovered
-  const incompatible = verificationRequired && !compatible
+  const incompatible = checked && !compatible
   return (
     <div className="grid gap-4 border-b border-stone p-5 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
       <div className="flex min-w-0 items-center gap-3">
