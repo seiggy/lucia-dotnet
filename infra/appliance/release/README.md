@@ -9,9 +9,9 @@ GitHub releases:
 | Lucia | AgentHost, dashboard, plugins, GPU native libraries, and Redis |
 | OS | Jetson rootfs, kernel, and device tree for inactive-slot updates |
 
-The captive setup network uses the Jetson serial printed on the device as its
-unique WPA2 passphrase. Manufactured appliances should print the same value as
-a setup credential or QR code.
+The captive setup network is an open, client-isolated, non-routed first-boot
+network. The first browser to open the setup page claims the session. Keep the
+appliance physically controlled during setup.
 
 The installed dashboard listens at `https://HOSTNAME.local:8099` with a
 per-device certificate generated during setup. The first browser must accept

@@ -25,42 +25,13 @@ if [[ -r "$serial_path" ]]; then
     device_serial="$(tr -d '\0\r\n ' < "$serial_path")"
 fi
 setup_ssid="${LUCIA_SETUP_SSID:-}"
-setup_psk="${LUCIA_SETUP_PSK:-}"
-stored_serial_hash="${LUCIA_DEVICE_SERIAL_HASH:-}"
-serial_hash="$(printf '%s' "$device_serial" | sha256sum | cut -d' ' -f1)"
-if [[ -z "$setup_ssid" || -z "$setup_psk" ]] \
-    || [[ -n "$stored_serial_hash" && "$stored_serial_hash" != "$serial_hash" ]]; then
-    random_path="${LUCIA_RANDOM_UUID_PATH:-/proc/sys/kernel/random/uuid}"
-    random_value="$(tr -d -- '-\r\n' < "$random_path")"
-    [[ "$random_value" =~ ^[0-9A-Fa-f]{32}$ ]] || {
-        printf 'Secure setup identity generation failed\n' >&2
-        exit 1
-    }
-    setup_ssid="Lucia-${random_value:0:6}"
-    setup_psk="${random_value:6:20}"
-    temporary_bootstrap="${bootstrap_env}.tmp.$$"
-    {
-        printf 'LUCIA_SETUP_SSID=%s\n' "$setup_ssid"
-        printf 'LUCIA_SETUP_PSK=%s\n' "$setup_psk"
-        printf 'LUCIA_DEVICE_SERIAL_HASH=%s\n' "$serial_hash"
-    } > "$temporary_bootstrap"
-    chmod 0600 "$temporary_bootstrap"
-    mv "$temporary_bootstrap" "$bootstrap_env"
+if [[ -z "$setup_ssid" && -n "$device_serial" ]]; then
+    setup_ssid="Lucia-${device_serial: -6}"
 fi
 [[ "$setup_ssid" =~ ^[A-Za-z0-9_-]{1,32}$ ]] || {
     printf 'Setup SSID is invalid\n' >&2
     exit 1
 }
-[[ "$setup_psk" =~ ^[A-Za-z0-9_-]{8,63}$ ]] || {
-    printf 'A device-unique setup passphrase is unavailable\n' >&2
-    exit 1
-}
-console_path="${LUCIA_SETUP_CONSOLE_PATH:-/dev/console}"
-if [[ -w "$console_path" ]]; then
-    printf 'Lucia setup Wi-Fi: %s\nPassphrase: %s\n' \
-        "$setup_ssid" "$setup_psk" > "$console_path"
-fi
-
 wifi_interface="${LUCIA_WIFI_INTERFACE:-}"
 "$nmcli_path" radio wifi on
 if [[ -z "$wifi_interface" ]]; then
@@ -88,7 +59,7 @@ connection_matches=false
 if [[ -f "$connection_path" ]] \
     && grep -Fqx "interface-name=$wifi_interface" "$connection_path" \
     && grep -Fqx "ssid=$setup_ssid" "$connection_path" \
-    && grep -Fqx "psk=$setup_psk" "$connection_path"; then
+    && ! grep -Fqx "[wifi-security]" "$connection_path"; then
     connection_matches=true
 fi
 if [[ "$connection_matches" == false ]]; then
@@ -115,10 +86,6 @@ mode=ap
 band=bg
 ssid=$setup_ssid
 ap-isolation=1
-
-[wifi-security]
-key-mgmt=wpa-psk
-psk=$setup_psk
 
 [ipv4]
 address1=10.42.0.1/24

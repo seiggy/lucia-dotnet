@@ -570,15 +570,12 @@ appliance should program QSPI before shipment.
 
 Do not ship a shared Wi-Fi password, dashboard key, or Linux password.
 
-A generic DIY image derives its WPA2 setup passphrase from the Jetson serial
-printed on the device. Its setup network is client-isolated and blocked from
+The generic pre-built image uses an open first-boot setup network because the
+headless user has no per-device secret delivery channel. Its setup network is
+client-isolated and blocked from
 forwarding traffic. Setup binds only to the AP address, and the first browser
 atomically claims the installer with an HttpOnly session cookie. A reboot
 clears an abandoned claim.
-
-Manufactured appliances should use a unique code or QR label. Their temporary
-access point can use that secret as its WPA2 or WPA3 passphrase and require the
-same secret before creating the permanent dashboard key.
 
 Validate host/AP mode on the exact JetPack 6 wireless module and driver. The
 flow does not require simultaneous AP and station mode. It may stop the AP

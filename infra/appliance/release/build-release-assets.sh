@@ -412,7 +412,7 @@ sudo install -D -m 0755 \
 sudo cp \
     "$sd_root/etc/lucia-installer/installer.env.example" \
     "$sd_root/etc/lucia-installer/installer.env"
-printf '%s\n' '# Random setup credentials are generated on first boot.' \
+printf '%s\n' '# The open setup SSID derives from the Jetson serial at boot.' \
     | sudo tee "$sd_root/etc/lucia-installer/bootstrap.env" >/dev/null
 sudo chmod 0600 \
     "$sd_root/etc/lucia-installer/bootstrap.env" \
