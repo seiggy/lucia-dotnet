@@ -6,6 +6,7 @@ export type InstallerPhase =
   | 'failed'
 
 export type InstallerStage =
+  | 'erasing'
   | 'validating'
   | 'writing'
   | 'image-written'
@@ -64,7 +65,8 @@ function isInstallerPhase(value: unknown): value is InstallerPhase {
 }
 
 function isInstallerStage(value: unknown): value is InstallerStage {
-  return value === 'validating'
+  return value === 'erasing'
+    || value === 'validating'
     || value === 'writing'
     || value === 'image-written'
     || value === 'provisioning'

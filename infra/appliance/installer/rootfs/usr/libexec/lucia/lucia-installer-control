@@ -250,6 +250,7 @@ def show_status() -> None:
         status.update(progress)
         stage = progress.get("stage")
         if stage in {
+            "erasing",
             "validating",
             "writing",
             "image-written",

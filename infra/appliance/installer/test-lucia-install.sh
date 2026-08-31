@@ -360,6 +360,13 @@ test_matching_authorization_can_erase_occupied_disk() {
     truncate --size 70G "$disk_image"
     LOOP_DEVICE="$(losetup --find --show "$disk_image")"
     mkfs.ext4 -q "$LOOP_DEVICE"
+    printf 'PRIOR-DATA' \
+        | dd \
+            of="$LOOP_DEVICE" \
+            bs=1 \
+            seek=$((69 * 1024 * 1024 * 1024)) \
+            conv=notrunc \
+            status=none
     printf 'LUCIA-AUTHORIZED-v1\n' > "$payload"
     truncate --size 1M "$payload"
     expected_hash="$(sha256sum "$payload" | awk '{print $1}')"
@@ -387,6 +394,7 @@ test_matching_authorization_can_erase_occupied_disk() {
     if [[ "$status" -eq 0 \
         && "$output" == *"result=installed"* \
         && ! -e "$authorization_file" \
+        && "$(dd if="$LOOP_DEVICE" bs=10 skip=$((69 * 1024 * 1024 * 1024 / 10)) count=1 status=none | tr -d '\000')" == "" \
         && "$(dd if="$LOOP_DEVICE" bs=19 count=1 status=none)" == "LUCIA-AUTHORIZED-v1" ]]; then
         pass "matching authorization can erase occupied disk"
     else

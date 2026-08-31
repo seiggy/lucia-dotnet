@@ -143,6 +143,7 @@ fi
     || die_usage "--sha256 must be a 64-character hexadecimal digest"
 
 can_resume=false
+prior_status=""
 if [[ "$classification" =~ ^(blank|occupied)$ \
     && -n "$state_file" \
     && -f "$state_file" \
@@ -152,7 +153,7 @@ if [[ "$classification" =~ ^(blank|occupied)$ \
     prior_identity="$(sed -n 's/^device_identity=//p' "$state_file")"
     prior_size="$(sed -n 's/^device_size_bytes=//p' "$state_file")"
     prior_sha256="$(sed -n 's/^image_sha256=//p' "$state_file")"
-    if [[ "$prior_status" == "writing" \
+    if [[ "$prior_status" =~ ^(erasing|writing)$ \
         && "$prior_device" == "$device" \
         && "$prior_identity" == "$device_identity" \
         && "$prior_size" == "$size_bytes" \
@@ -277,11 +278,31 @@ write_state() {
     sync "$state_file"
 }
 
-write_state writing
+wipe_device() {
+    if command -v blkdiscard >/dev/null \
+        && blkdiscard --force "$device" 2>/dev/null; then
+        return
+    fi
+    dd \
+        if=/dev/zero \
+        of="$device" \
+        bs=16M \
+        count="$size_bytes" \
+        iflag=count_bytes,fullblock \
+        conv=fsync \
+        status=none
+}
+
 if [[ "$can_authorize" == true ]]; then
+    write_state erasing
     rm "$authorization_file"
     sync -f "$(dirname "$authorization_file")"
 fi
+if [[ "$can_authorize" == true || "$prior_status" == "erasing" ]]; then
+    write_progress erasing
+    wipe_device
+fi
+write_state writing
 
 if [[ "$image" == *.zst ]]; then
     command -v zstd >/dev/null \

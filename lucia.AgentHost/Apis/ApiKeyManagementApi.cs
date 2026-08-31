@@ -9,11 +9,20 @@ namespace lucia.AgentHost.Apis;
 /// </summary>
 public static class ApiKeyManagementApi
 {
-    public static WebApplication MapApiKeyManagementApi(this WebApplication app)
+    public static WebApplication MapApiKeyManagementApi(
+        this WebApplication app,
+        bool requireAdministrator)
     {
         var group = app.MapGroup("/api/keys")
-            .WithTags("API Key Management")
-            .RequireAuthorization(AuthOptions.AdministratorPolicy);
+            .WithTags("API Key Management");
+        if (requireAdministrator)
+        {
+            group.RequireAuthorization(AuthOptions.AdministratorPolicy);
+        }
+        else
+        {
+            group.RequireAuthorization();
+        }
 
         group.MapGet("/", ListKeysAsync);
         group.MapPost("/", CreateKeyAsync);
@@ -40,14 +49,6 @@ public static class ApiKeyManagementApi
         {
             return Results.BadRequest(new { error = "Key name is required." });
         }
-        if (string.Equals(request.Name, "Dashboard", StringComparison.Ordinal))
-        {
-            return Results.BadRequest(new
-            {
-                error = "The Dashboard key purpose is reserved.",
-            });
-        }
-
         var result = await apiKeyService.CreateKeyAsync(request.Name, httpContext.RequestAborted).ConfigureAwait(false);
         return Results.Created($"/api/keys/{result.Id}", result);
     }

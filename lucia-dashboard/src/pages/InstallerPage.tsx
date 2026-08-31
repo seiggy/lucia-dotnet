@@ -896,6 +896,7 @@ function InstallingStep({
   const isFailed = status.phase === 'failed'
   const stages = [
     { key: 'validating', label: 'Verify installation image' },
+    { key: 'erasing', label: 'Erase selected NVMe' },
     { key: 'writing', label: 'Write Lucia to NVMe' },
     { key: 'provisioning', label: 'Configure both system slots' },
     { key: 'syncing', label: 'Secure and sync storage' },

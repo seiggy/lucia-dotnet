@@ -475,7 +475,7 @@ else
 }
 app.MapAuthApi();
 app.MapSetupApi();
-app.MapApiKeyManagementApi();
+app.MapApiKeyManagementApi(isInstalledAppliance);
 app.MapAgentRegistryApiV1();
 app.MapAgentProxyApi();
 app.MapAgentDiscovery();
@@ -522,7 +522,7 @@ app.MapVoiceConfigEndpoints();
 app.MapOnboardingEndpoints();
 app.MapVoiceClipEndpoints();
 #endif
-app.MapSystemApi();
+app.MapSystemApi(isInstalledAppliance);
 app.MapGet(
         "/api/appliance/capabilities",
         () => Results.Ok(new { Enabled = isInstalledAppliance }))
