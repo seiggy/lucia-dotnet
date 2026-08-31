@@ -34,10 +34,20 @@ public sealed class MongoApiKeyService : IApiKeyService
         EnsureIndexes();
     }
 
-    public async Task<ApiKeyCreateResponse> CreateKeyAsync(
+    public Task<ApiKeyCreateResponse> CreateKeyAsync(
         string name,
-        CancellationToken cancellationToken = default,
-        bool isAdministrator = false)
+        CancellationToken cancellationToken = default) =>
+        CreateKeyCoreAsync(name, isAdministrator: false, cancellationToken);
+
+    public Task<ApiKeyCreateResponse> CreateAdministratorKeyAsync(
+        string name,
+        CancellationToken cancellationToken = default) =>
+        CreateKeyCoreAsync(name, isAdministrator: true, cancellationToken);
+
+    private async Task<ApiKeyCreateResponse> CreateKeyCoreAsync(
+        string name,
+        bool isAdministrator,
+        CancellationToken cancellationToken)
     {
         var plaintextKey = GenerateKey();
         var hash = HashKey(plaintextKey);
@@ -84,10 +94,10 @@ public sealed class MongoApiKeyService : IApiKeyService
                 .ConfigureAwait(false);
             return administratorCount > 0
                 ? null
-                : await CreateKeyAsync(
+                : await CreateKeyCoreAsync(
                         name,
-                        cancellationToken,
-                        isAdministrator: true)
+                        isAdministrator: true,
+                        cancellationToken)
                     .ConfigureAwait(false);
         }
         finally
@@ -268,12 +278,12 @@ public sealed class MongoApiKeyService : IApiKeyService
 
             var name = entry.Name;
 
-            var newKey = await CreateKeyAsync(
+            var newKey = await CreateKeyCoreAsync(
                     name,
-                    cancellationToken,
                     entry.Scopes.Contains(
                         AuthOptions.AdministratorScope,
-                        StringComparer.Ordinal))
+                        StringComparer.Ordinal),
+                    cancellationToken)
                 .ConfigureAwait(false);
             try
             {
@@ -329,11 +339,34 @@ public sealed class MongoApiKeyService : IApiKeyService
         return (int)count;
     }
 
-    public async Task<(ApiKeyCreateResponse? Created, int RevokedCount)> OverrideKeyFromPlaintextAsync(
+    public Task<(ApiKeyCreateResponse? Created, int RevokedCount)>
+        OverrideKeyFromPlaintextAsync(
+            string name,
+            string plaintextKey,
+            CancellationToken cancellationToken = default) =>
+            OverrideKeyFromPlaintextCoreAsync(
+                name,
+                plaintextKey,
+                isAdministrator: false,
+                cancellationToken);
+
+    public Task<(ApiKeyCreateResponse? Created, int RevokedCount)>
+        OverrideAdministratorKeyFromPlaintextAsync(
+            string name,
+            string plaintextKey,
+            CancellationToken cancellationToken = default) =>
+            OverrideKeyFromPlaintextCoreAsync(
+                name,
+                plaintextKey,
+                isAdministrator: true,
+                cancellationToken);
+
+    private async Task<(ApiKeyCreateResponse? Created, int RevokedCount)>
+        OverrideKeyFromPlaintextCoreAsync(
         string name,
         string plaintextKey,
-        CancellationToken cancellationToken = default,
-        bool isAdministrator = false)
+        bool isAdministrator,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(plaintextKey) || plaintextKey.Length < 16)
             return (null, 0);

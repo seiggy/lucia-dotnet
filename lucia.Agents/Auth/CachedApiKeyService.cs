@@ -68,11 +68,21 @@ public sealed class CachedApiKeyService : IApiKeyService
 
     public async Task<ApiKeyCreateResponse> CreateKeyAsync(
         string name,
-        CancellationToken cancellationToken = default,
-        bool isAdministrator = false)
+        CancellationToken cancellationToken = default)
     {
         var result = await _inner
-            .CreateKeyAsync(name, cancellationToken, isAdministrator)
+            .CreateKeyAsync(name, cancellationToken)
+            .ConfigureAwait(false);
+        InvalidateAll();
+        return result;
+    }
+
+    public async Task<ApiKeyCreateResponse> CreateAdministratorKeyAsync(
+        string name,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _inner
+            .CreateAdministratorKeyAsync(name, cancellationToken)
             .ConfigureAwait(false);
         InvalidateAll();
         return result;
@@ -132,18 +142,32 @@ public sealed class CachedApiKeyService : IApiKeyService
     public async Task<(ApiKeyCreateResponse? Created, int RevokedCount)> OverrideKeyFromPlaintextAsync(
         string name,
         string plaintextKey,
-        CancellationToken cancellationToken = default,
-        bool isAdministrator = false)
+        CancellationToken cancellationToken = default)
     {
         var result = await _inner
             .OverrideKeyFromPlaintextAsync(
                 name,
                 plaintextKey,
-                cancellationToken,
-                isAdministrator)
+                cancellationToken)
             .ConfigureAwait(false);
         // Invalidate on any valid override attempt: a revoke-only path (Created == null) can still
         // mean a previously-cached valid key must no longer be accepted.
+        InvalidateAll();
+        return result;
+    }
+
+    public async Task<(ApiKeyCreateResponse? Created, int RevokedCount)>
+        OverrideAdministratorKeyFromPlaintextAsync(
+            string name,
+            string plaintextKey,
+            CancellationToken cancellationToken = default)
+    {
+        var result = await _inner
+            .OverrideAdministratorKeyFromPlaintextAsync(
+                name,
+                plaintextKey,
+                cancellationToken)
+            .ConfigureAwait(false);
         InvalidateAll();
         return result;
     }

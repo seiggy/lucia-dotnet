@@ -30,10 +30,20 @@ public sealed partial class PostgresApiKeyService : IApiKeyService
         _logger = logger;
     }
 
-    public async Task<ApiKeyCreateResponse> CreateKeyAsync(
+    public Task<ApiKeyCreateResponse> CreateKeyAsync(
         string name,
-        CancellationToken cancellationToken = default,
-        bool isAdministrator = false)
+        CancellationToken cancellationToken = default) =>
+        CreateKeyCoreAsync(name, isAdministrator: false, cancellationToken);
+
+    public Task<ApiKeyCreateResponse> CreateAdministratorKeyAsync(
+        string name,
+        CancellationToken cancellationToken = default) =>
+        CreateKeyCoreAsync(name, isAdministrator: true, cancellationToken);
+
+    private async Task<ApiKeyCreateResponse> CreateKeyCoreAsync(
+        string name,
+        bool isAdministrator,
+        CancellationToken cancellationToken)
     {
         var plaintextKey = GenerateKey();
         var hash = HashKey(plaintextKey);
@@ -484,11 +494,34 @@ public sealed partial class PostgresApiKeyService : IApiKeyService
         return result is not null and not DBNull && Convert.ToInt64(result) > 0;
     }
 
-    public async Task<(ApiKeyCreateResponse? Created, int RevokedCount)> OverrideKeyFromPlaintextAsync(
+    public Task<(ApiKeyCreateResponse? Created, int RevokedCount)>
+        OverrideKeyFromPlaintextAsync(
+            string name,
+            string plaintextKey,
+            CancellationToken cancellationToken = default) =>
+            OverrideKeyFromPlaintextCoreAsync(
+                name,
+                plaintextKey,
+                isAdministrator: false,
+                cancellationToken);
+
+    public Task<(ApiKeyCreateResponse? Created, int RevokedCount)>
+        OverrideAdministratorKeyFromPlaintextAsync(
+            string name,
+            string plaintextKey,
+            CancellationToken cancellationToken = default) =>
+            OverrideKeyFromPlaintextCoreAsync(
+                name,
+                plaintextKey,
+                isAdministrator: true,
+                cancellationToken);
+
+    private async Task<(ApiKeyCreateResponse? Created, int RevokedCount)>
+        OverrideKeyFromPlaintextCoreAsync(
         string name,
         string plaintextKey,
-        CancellationToken cancellationToken = default,
-        bool isAdministrator = false)
+        bool isAdministrator,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(plaintextKey) || plaintextKey.Length < 16)
             return (null, 0);

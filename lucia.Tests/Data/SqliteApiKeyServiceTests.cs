@@ -56,9 +56,7 @@ public sealed class SqliteApiKeyServiceTests : IDisposable
     [Fact]
     public async Task CreateKeyAsync_ExplicitAdministrator_GrantsAdministratorScope()
     {
-        var created = await _service.CreateKeyAsync(
-            "Dashboard",
-            isAdministrator: true);
+        var created = await _service.CreateAdministratorKeyAsync("Dashboard");
 
         var entry = await _service.ValidateKeyAsync(created.Key);
 
@@ -207,9 +205,8 @@ public sealed class SqliteApiKeyServiceTests : IDisposable
     [Fact]
     public async Task RevokeKeyAsync_ThrowsWhenRevokingLastAdministratorKey()
     {
-        var administrator = await _service.CreateKeyAsync(
-            "Owner",
-            isAdministrator: true);
+        var administrator =
+            await _service.CreateAdministratorKeyAsync("Owner");
         _ = await _service.CreateKeyAsync("Ordinary");
 
         await Assert.ThrowsAsync<InvalidOperationException>(
@@ -219,10 +216,9 @@ public sealed class SqliteApiKeyServiceTests : IDisposable
     [Fact]
     public async Task RevokeKeyAsync_AllowsExpiredAdministratorKey()
     {
-        _ = await _service.CreateKeyAsync("Owner", isAdministrator: true);
-        var expired = await _service.CreateKeyAsync(
-            "Expired owner",
-            isAdministrator: true);
+        _ = await _service.CreateAdministratorKeyAsync("Owner");
+        var expired =
+            await _service.CreateAdministratorKeyAsync("Expired owner");
         using (var connection = _helper.ConnectionFactory.CreateConnection())
         using (var command = connection.CreateCommand())
         {
@@ -244,12 +240,10 @@ public sealed class SqliteApiKeyServiceTests : IDisposable
     [Fact]
     public async Task RevokeKeyAsync_ConcurrentAdministrators_PreservesOne()
     {
-        var first = await _service.CreateKeyAsync(
-            "First owner",
-            isAdministrator: true);
-        var second = await _service.CreateKeyAsync(
-            "Second owner",
-            isAdministrator: true);
+        var first =
+            await _service.CreateAdministratorKeyAsync("First owner");
+        var second =
+            await _service.CreateAdministratorKeyAsync("Second owner");
         _ = await _service.CreateKeyAsync("Ordinary");
 
         var outcomes = await Task.WhenAll(
@@ -278,9 +272,8 @@ public sealed class SqliteApiKeyServiceTests : IDisposable
     [Fact]
     public async Task RegenerateKeyAsync_InsertFailure_KeepsOldKeyActive()
     {
-        var original = await _service.CreateKeyAsync(
-            "Owner",
-            isAdministrator: true);
+        var original =
+            await _service.CreateAdministratorKeyAsync("Owner");
         using (var connection = _helper.ConnectionFactory.CreateConnection())
         using (var command = connection.CreateCommand())
         {

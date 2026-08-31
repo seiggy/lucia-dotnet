@@ -54,9 +54,8 @@ public sealed class PostgresApiKeyServiceTests(PostgresMigrationFixture fixture)
         var service = new PostgresApiKeyService(
             databases.Config,
             NullLogger<PostgresApiKeyService>.Instance);
-        var administrator = await service.CreateKeyAsync(
-            "Owner",
-            isAdministrator: true);
+        var administrator =
+            await service.CreateAdministratorKeyAsync("Owner");
         _ = await service.CreateKeyAsync("Ordinary");
 
         await Assert.ThrowsAsync<InvalidOperationException>(
@@ -69,10 +68,9 @@ public sealed class PostgresApiKeyServiceTests(PostgresMigrationFixture fixture)
     {
         await using var databases = await fixture.CreateDatabasesAsync();
         var service = await CreateServiceAsync(databases);
-        _ = await service.CreateKeyAsync("Owner", isAdministrator: true);
-        var expired = await service.CreateKeyAsync(
-            "Expired owner",
-            isAdministrator: true);
+        _ = await service.CreateAdministratorKeyAsync("Owner");
+        var expired =
+            await service.CreateAdministratorKeyAsync("Expired owner");
         await using (var connection =
             await databases.Config.CreateConnectionAsync())
         await using (var command = connection.CreateCommand())
@@ -98,12 +96,10 @@ public sealed class PostgresApiKeyServiceTests(PostgresMigrationFixture fixture)
     {
         await using var databases = await fixture.CreateDatabasesAsync();
         var service = await CreateServiceAsync(databases);
-        var first = await service.CreateKeyAsync(
-            "First owner",
-            isAdministrator: true);
-        var second = await service.CreateKeyAsync(
-            "Second owner",
-            isAdministrator: true);
+        var first =
+            await service.CreateAdministratorKeyAsync("First owner");
+        var second =
+            await service.CreateAdministratorKeyAsync("Second owner");
         _ = await service.CreateKeyAsync("Ordinary");
 
         var outcomes = await Task.WhenAll(
@@ -135,9 +131,8 @@ public sealed class PostgresApiKeyServiceTests(PostgresMigrationFixture fixture)
     {
         await using var databases = await fixture.CreateDatabasesAsync();
         var service = await CreateServiceAsync(databases);
-        var original = await service.CreateKeyAsync(
-            "Owner",
-            isAdministrator: true);
+        var original =
+            await service.CreateAdministratorKeyAsync("Owner");
         await using (var connection =
             await databases.Config.CreateConnectionAsync())
         await using (var command = connection.CreateCommand())

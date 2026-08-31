@@ -57,10 +57,19 @@ public static class SetupApi
 
         var keys = await apiKeyService.ListKeysAsync(ct).ConfigureAwait(false);
         var now = DateTime.UtcNow;
+        var activeKeys = keys.Where(
+                key => !key.IsRevoked
+                    && (!key.ExpiresAt.HasValue
+                        || key.ExpiresAt.Value > now))
+            .ToList();
         var hasDashboardKey = keys.Any(
             k => string.Equals(k.Name, "Dashboard", StringComparison.Ordinal)
                 && !k.IsRevoked
                 && (!k.ExpiresAt.HasValue || k.ExpiresAt.Value > now));
+        var hasAdministratorKey = activeKeys.Any(key =>
+            key.Scopes.Contains(
+                AuthOptions.AdministratorScope,
+                StringComparer.Ordinal));
         var hasHaApiKey = keys.Any(
             k => string.Equals(k.Name, "Home Assistant", StringComparison.Ordinal)
                 && !k.IsRevoked
@@ -77,6 +86,8 @@ public static class SetupApi
         return Results.Ok(new
         {
             hasDashboardKey,
+            hasAnyActiveKey = activeKeys.Count > 0,
+            hasAdministratorKey,
             hasHaConnection = !string.IsNullOrWhiteSpace(haUrl) && !string.IsNullOrWhiteSpace(haToken),
             hasHaApiKey,
             haUrl = !string.IsNullOrWhiteSpace(haUrl) ? haUrl : null,

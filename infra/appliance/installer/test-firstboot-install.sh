@@ -31,6 +31,12 @@ EOF
 cat > "$work_dir/lucia-install" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "$1" == "plan" ]]; then
+    printf '%s\n' \
+        'device_identity=test-device-identity' \
+        'size_bytes=75161927680'
+    exit 0
+fi
 printf '%s\n' "$*" > "$LUCIA_TEST_INSTALL_LOG"
 state_file=""
 while [[ $# -gt 0 ]]; do
@@ -40,7 +46,11 @@ while [[ $# -gt 0 ]]; do
     fi
     shift
 done
-printf 'status=installed\n' > "$state_file"
+printf '%s\n' \
+    'status=installed' \
+    'device_identity=test-device-identity' \
+    'device_size_bytes=75161927680' \
+    > "$state_file"
 EOF
 cat > "$work_dir/lucia-provision-target" <<'EOF'
 #!/usr/bin/env bash

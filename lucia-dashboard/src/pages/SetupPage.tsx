@@ -205,7 +205,7 @@ function LuciaHaStep({
   const [connectionTestBusy, setConnectionTestBusy] = useState(false)
   const [showHaForm, setShowHaForm] = useState(false)
 
-  const hasDashKey = status?.hasDashboardKey || dashboardKey !== null
+  const hasExistingKey = status?.hasAnyActiveKey || dashboardKey !== null
   const isAuthenticated = dashboardKey !== null || resumed || authFromContext
 
   // Test HA connection at startup when we already have config (e.g. headless)
@@ -276,6 +276,9 @@ function LuciaHaStep({
     try {
       await login(resumeKey)
       setResumed(true)
+      if (!status?.hasAdministratorKey) {
+        setDashboardKey(await generateDashboardKey())
+      }
     } catch {
       setResumeError('Invalid API key. Please check and try again.')
     } finally {
@@ -292,7 +295,7 @@ function LuciaHaStep({
         <h3 className="mb-3 flex items-center gap-2 font-display text-sm font-semibold text-amber">
           <Key className="h-4 w-4" /> Dashboard API Key
         </h3>
-        {!hasDashKey ? (
+        {!hasExistingKey ? (
           <>
             <p className="mb-3 text-sm text-fog">
               Generate an API key to log into the Lucia dashboard. Save it — you won't see it again.
@@ -325,16 +328,22 @@ function LuciaHaStep({
         ) : (
           <div className="space-y-3">
             {resumed || authFromContext ? (
-              <p className="flex items-center gap-1.5 text-sm text-sage">
-                <CheckCircle2 className="h-4 w-4" /> Authenticated — continue setup below
-              </p>
+              status?.hasAdministratorKey ? (
+                <p className="flex items-center gap-1.5 text-sm text-sage">
+                  <CheckCircle2 className="h-4 w-4" /> Authenticated — continue setup below
+                </p>
+              ) : (
+                <button onClick={handleGenerateKey} disabled={busy} className={btnPrimary}>
+                  {busy ? 'Generating...' : 'Create Administrator Key'}
+                </button>
+              )
             ) : (
               <>
                 <p className="flex items-center gap-1.5 text-sm text-amber">
-                  <Key className="h-4 w-4" /> Dashboard key was already generated
+                  <Key className="h-4 w-4" /> An API key already exists
                 </p>
                 <p className="text-sm text-fog">
-                  Enter your dashboard API key to resume setup where you left off.
+                  Enter an existing API key to resume setup where you left off.
                 </p>
                 <div className="flex gap-2">
                   <input

@@ -12,8 +12,11 @@ public interface IApiKeyService
     /// </summary>
     Task<ApiKeyCreateResponse> CreateKeyAsync(
         string name,
-        CancellationToken cancellationToken = default,
-        bool isAdministrator = false);
+        CancellationToken cancellationToken = default);
+
+    Task<ApiKeyCreateResponse> CreateAdministratorKeyAsync(
+        string name,
+        CancellationToken cancellationToken = default);
 
     Task<ApiKeyCreateResponse?> CreateAdministratorKeyIfNoneAsync(
         string name,
@@ -74,6 +77,11 @@ public interface IApiKeyService
     Task<(ApiKeyCreateResponse? Created, int RevokedCount)> OverrideKeyFromPlaintextAsync(
         string name,
         string plaintextKey,
-        CancellationToken cancellationToken = default,
-        bool isAdministrator = false);
+        CancellationToken cancellationToken = default);
+
+    Task<(ApiKeyCreateResponse? Created, int RevokedCount)>
+        OverrideAdministratorKeyFromPlaintextAsync(
+            string name,
+            string plaintextKey,
+            CancellationToken cancellationToken = default);
 }

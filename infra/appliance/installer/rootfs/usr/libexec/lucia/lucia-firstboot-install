@@ -26,6 +26,21 @@ write_progress() {
     chmod 0600 "$temporary_file"
     mv "$temporary_file" "$progress_file"
 }
+validate_saved_device() {
+    local device="$1"
+    local plan
+    local expected_identity
+    local expected_size
+    plan="$("$install_path" plan --device "$device")"
+    expected_identity="$(sed -n 's/^device_identity=//p' "$state_file")"
+    expected_size="$(sed -n 's/^device_size_bytes=//p' "$state_file")"
+    [[ -n "$expected_identity" && -n "$expected_size" ]] \
+        && grep -Fqx "device_identity=$expected_identity" <<< "$plan" \
+        && grep -Fqx "size_bytes=$expected_size" <<< "$plan" || {
+        printf 'Installed storage identity changed before provisioning\n' >&2
+        return 1
+    }
+}
 power_off_for_handoff() {
     write_progress syncing
     sync
@@ -55,6 +70,7 @@ if [[ -f "$state_file" ]] \
     && grep -q '^status=installed$' "$state_file"; then
     if [[ -f "$provisioning_file" ]]; then
         device="$(sed -n 's/^device=//p' "$state_file")"
+        validate_saved_device "$device"
         write_progress provisioning
         "$expand_path" "$device"
         "$provision_path" "$device"

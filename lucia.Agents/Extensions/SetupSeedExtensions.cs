@@ -36,11 +36,10 @@ public static partial class SetupSeedExtensions
         if (!string.IsNullOrWhiteSpace(dashboardKey))
         {
             var (created, revokedCount) = await apiKeyService
-                .OverrideKeyFromPlaintextAsync(
+                .OverrideAdministratorKeyFromPlaintextAsync(
                     "Dashboard",
                     dashboardKey,
-                    ct,
-                    isAdministrator: true)
+                    ct)
                 .ConfigureAwait(false);
 
             if (created is null && revokedCount == 0)

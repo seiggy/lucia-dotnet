@@ -46,8 +46,7 @@ public sealed class CachedApiKeyServiceTests
         A.CallTo(() => _inner.OverrideKeyFromPlaintextAsync(
                 A<string>._,
                 A<string>._,
-                A<CancellationToken>._,
-                A<bool>._))
+                A<CancellationToken>._))
             .Returns(Task.FromResult<(ApiKeyCreateResponse?, int)>((created, 1)));
 
         // Inner now returns null — the old key has been revoked
@@ -83,8 +82,7 @@ public sealed class CachedApiKeyServiceTests
         A.CallTo(() => _inner.OverrideKeyFromPlaintextAsync(
                 A<string>._,
                 A<string>._,
-                A<CancellationToken>._,
-                A<bool>._))
+                A<CancellationToken>._))
             .Returns(Task.FromResult<(ApiKeyCreateResponse?, int)>((null, 0)));
 
         // Inner now returns null — the previously-valid key is no longer valid
@@ -121,8 +119,7 @@ public sealed class CachedApiKeyServiceTests
         A.CallTo(() => _inner.OverrideKeyFromPlaintextAsync(
                 A<string>._,
                 A<string>._,
-                A<CancellationToken>._,
-                A<bool>._))
+                A<CancellationToken>._))
             .Returns(Task.FromResult<(ApiKeyCreateResponse?, int)>((null, 2)));
 
         // Inner now returns null for the old key
