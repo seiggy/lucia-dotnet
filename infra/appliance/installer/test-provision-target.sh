@@ -78,6 +78,11 @@ openssl pkey \
     -noout >/dev/null
 [[ "$(stat --format '%a' "$target_root/etc/lucia/tls/agenthost.crt")" == "644" ]]
 [[ "$(stat --format '%a:%g' "$target_root/etc/lucia/tls/agenthost.key")" == "640:1100" ]]
+cmp -s "$target_root/etc/lucia/tls/agenthost.crt" \
+    "$target_data_root/config/tls/agenthost.crt"
+cmp -s "$target_root/etc/lucia/tls/agenthost.key" \
+    "$target_data_root/config/tls/agenthost.key"
+[[ "$(stat --format '%a:%g' "$target_data_root/config/tls/agenthost.key")" == "640:1100" ]]
 [[ ! -e "$state_dir/agenthost-tls" ]]
 python3 - "$target_data_root/db/lucia-config.db" <<'PY'
 import hashlib

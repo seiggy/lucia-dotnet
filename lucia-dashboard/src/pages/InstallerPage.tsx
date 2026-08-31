@@ -1015,7 +1015,7 @@ function InstallingStep({
       <ol className="mx-auto mt-7 max-w-md space-y-1" aria-label="Installation progress">
         {stages.map((stage, index) => {
           const isComplete = isInstalled || index < currentIndex
-          const isActive = !isInstalled && index === currentIndex
+          const isActive = !isInstalled && !isFailed && index === currentIndex
           return (
             <li
               key={stage.key}

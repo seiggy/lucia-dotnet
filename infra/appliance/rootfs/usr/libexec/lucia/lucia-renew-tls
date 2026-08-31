@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+tls_dir="${LUCIA_TLS_DIR:-/var/lib/lucia/config/tls}"
+hostname_file="${LUCIA_HOSTNAME_PATH:-/etc/hostname}"
+openssl="${LUCIA_OPENSSL_PATH:-/usr/bin/openssl}"
+tls_group="${LUCIA_TLS_GROUP:-lucia}"
+tls_owner="${LUCIA_TLS_OWNER:-root}"
+renew_before_seconds="${LUCIA_TLS_RENEW_BEFORE_SECONDS:-2592000}"
+certificate="$tls_dir/agenthost.crt"
+key="$tls_dir/agenthost.key"
+
+if [[ -f "$certificate" && -f "$key" ]] \
+    && "$openssl" x509 -in "$certificate" \
+        -checkend "$renew_before_seconds" -noout >/dev/null 2>&1 \
+    && [[ "$("$openssl" x509 -in "$certificate" -pubkey -noout | sha256sum)" \
+        == "$("$openssl" pkey -in "$key" -pubout | sha256sum)" ]]; then
+    exit 0
+fi
+
+install -d -o "$tls_owner" -g "$tls_group" -m 0750 "$tls_dir"
+temporary_directory="$(mktemp -d "$tls_dir/.renew.XXXXXX")"
+trap 'rm -rf "$temporary_directory"' EXIT
+hostname="$(tr -d '\r\n' < "$hostname_file")"
+
+"$openssl" req \
+    -x509 \
+    -newkey rsa:3072 \
+    -sha256 \
+    -days 825 \
+    -nodes \
+    -keyout "$temporary_directory/agenthost.key" \
+    -out "$temporary_directory/agenthost.crt" \
+    -subj "/CN=$hostname.local" \
+    -addext "subjectAltName=DNS:$hostname.local,DNS:$hostname" \
+    >/dev/null 2>&1
+install -o "$tls_owner" -g "$tls_group" -m 0640 \
+    "$temporary_directory/agenthost.key" "$tls_dir/agenthost.key.new"
+install -o "$tls_owner" -g "$tls_group" -m 0644 \
+    "$temporary_directory/agenthost.crt" "$tls_dir/agenthost.crt.new"
+mv "$tls_dir/agenthost.key.new" "$key"
+mv "$tls_dir/agenthost.crt.new" "$certificate"

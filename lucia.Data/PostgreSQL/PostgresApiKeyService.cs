@@ -92,12 +92,13 @@ public sealed partial class PostgresApiKeyService : IApiKeyService
             FROM api_keys
             WHERE is_revoked = FALSE
               AND (expires_at IS NULL OR expires_at > @now)
-              AND scopes ? @scope;
+              AND (name = @name OR scopes ? @scope);
             """;
         countCommand.Parameters.AddWithValue("now", DateTime.UtcNow);
         countCommand.Parameters.AddWithValue(
             "scope",
             AuthOptions.AdministratorScope);
+        countCommand.Parameters.AddWithValue("name", name);
         var administratorCount = Convert.ToInt64(await countCommand
             .ExecuteScalarAsync(cancellationToken)
             .ConfigureAwait(false));

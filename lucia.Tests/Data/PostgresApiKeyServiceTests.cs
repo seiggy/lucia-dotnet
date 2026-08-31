@@ -28,6 +28,20 @@ public sealed class PostgresApiKeyServiceTests(PostgresMigrationFixture fixture)
 
     [Fact]
     [Trait("Category", "Integration")]
+    public async Task CreateAdministratorKeyIfNoneAsync_LegacyDashboardKey_ReturnsNull()
+    {
+        await using var databases = await fixture.CreateDatabasesAsync();
+        var service = await CreateServiceAsync(databases);
+        _ = await service.CreateKeyAsync("Dashboard");
+
+        var result = await service.CreateAdministratorKeyIfNoneAsync(
+            "Dashboard");
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    [Trait("Category", "Integration")]
     public async Task RevokeKeyAsync_ThrowsWhenRevokingLastAdministratorKey()
     {
         await using var databases = await fixture.CreateDatabasesAsync();

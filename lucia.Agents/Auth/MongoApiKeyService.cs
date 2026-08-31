@@ -74,8 +74,9 @@ public sealed class MongoApiKeyService : IApiKeyService
             var administratorCount = await _collection.CountDocumentsAsync(
                     key => !key.IsRevoked
                         && (!key.ExpiresAt.HasValue || key.ExpiresAt > now)
-                        && key.Scopes.Contains(
-                            AuthOptions.AdministratorScope),
+                        && (key.Name == name
+                            || key.Scopes.Contains(
+                                AuthOptions.AdministratorScope)),
                     cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
             return administratorCount > 0

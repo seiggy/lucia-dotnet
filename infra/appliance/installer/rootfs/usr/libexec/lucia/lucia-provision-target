@@ -237,6 +237,24 @@ def install_tls_material(
     os.chown(target_key, 0, 1100)
 
 
+def install_persistent_tls_material(
+    target_data_root: pathlib.Path,
+    certificate_path: pathlib.Path,
+    key_path: pathlib.Path,
+) -> None:
+    target_directory = target_data_root / "config" / "tls"
+    target_directory.mkdir(parents=True, exist_ok=True, mode=0o750)
+    target_certificate = target_directory / "agenthost.crt"
+    target_key = target_directory / "agenthost.key"
+    shutil.copyfile(certificate_path, target_certificate)
+    shutil.copyfile(key_path, target_key)
+    target_certificate.chmod(0o644)
+    target_key.chmod(0o640)
+    os.chown(target_directory, 0, 1100)
+    os.chown(target_certificate, 0, 1100)
+    os.chown(target_key, 0, 1100)
+
+
 def validate_wifi_checkpoint(
     state_directory: pathlib.Path,
     ssid: str,
@@ -488,6 +506,11 @@ def main() -> None:
             install_manager_override(pathlib.Path(configured_lucia_root))
         configured_data_root = os.environ.get("LUCIA_TARGET_DATA_ROOT")
         if configured_data_root is not None:
+            install_persistent_tls_material(
+                pathlib.Path(configured_data_root),
+                certificate_path,
+                key_path,
+            )
             seed_dashboard_key(
                 pathlib.Path(configured_data_root),
                 dashboard_key,
@@ -544,6 +567,11 @@ def main() -> None:
         check=True,
     )
     try:
+        install_persistent_tls_material(
+            target_data_root,
+            certificate_path,
+            key_path,
+        )
         seed_dashboard_key(target_data_root, dashboard_key)
     finally:
         subprocess.run(["umount", str(target_data_root)], check=True)

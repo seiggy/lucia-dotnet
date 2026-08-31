@@ -140,10 +140,11 @@ test_bundle_contains_native_service_contract() {
         && grep -q '^CapabilityBoundingSet=CAP_SYS_BOOT$' "$manager_unit" \
         && grep -q '^Wants=.*lucia-redis.service' "$agent_unit" \
         && ! grep -q '^Requires=lucia-redis.service$' "$agent_unit" \
+        && grep -q '^ExecStartPre=+/usr/libexec/lucia/lucia-renew-tls$' "$agent_unit" \
         && grep -q '^ExecStart=/opt/lucia/current/app/lucia.AgentHost$' "$agent_unit" \
         && grep -q '^Restart=always$' "$agent_unit" \
         && ! grep -q '^StateDirectory=' "$agent_unit" \
-        && grep -q '^ReadWritePaths=/var/lib/lucia/db /var/lib/lucia/models /var/lib/lucia/plugins /var/lib/lucia/voice-clips$' "$agent_unit" \
+        && grep -q '^ReadWritePaths=/var/lib/lucia/config/tls /var/lib/lucia/db /var/lib/lucia/models /var/lib/lucia/plugins /var/lib/lucia/voice-clips$' "$agent_unit" \
         && ! grep -q '^PrivateDevices=true$' "$agent_unit" \
         && grep -q '^d /var/lib/lucia 0755 root root -$' "$tmpfiles" \
         && grep -q '^ExecStart=/opt/lucia/current/redis/bin/redis-server /etc/lucia/redis.conf$' "$redis_unit" \
@@ -156,8 +157,8 @@ test_bundle_contains_native_service_contract() {
         && grep -q '^DataProvider__Store=SQLite$' "$environment" \
         && grep -q '^Appliance__Mode=Installed$' "$environment" \
         && grep -q '^ASPNETCORE_URLS=http://127.0.0.1:8098;https://0.0.0.0:8099$' "$environment" \
-        && grep -q '^Kestrel__Certificates__Default__Path=/etc/lucia/tls/agenthost.crt$' "$environment" \
-        && grep -q '^Kestrel__Certificates__Default__KeyPath=/etc/lucia/tls/agenthost.key$' "$environment" \
+        && grep -q '^Kestrel__Certificates__Default__Path=/var/lib/lucia/config/tls/agenthost.crt$' "$environment" \
+        && grep -q '^Kestrel__Certificates__Default__KeyPath=/var/lib/lucia/config/tls/agenthost.key$' "$environment" \
         && ! grep -q '^Appliance__Enabled=' "$environment" \
         && grep -q '^Observability__Mode=Off$' "$environment"; then
         pass "bundle contains native service contract"
@@ -275,12 +276,59 @@ test_telemetry_assets_are_installed_but_disabled() {
     fi
 }
 
+test_tls_material_is_reused_and_rotated() {
+    if [[ "$(uname -s)" != "Linux" ]]; then
+        pass "TLS renewal runtime check requires Linux"
+        return
+    fi
+
+    local tls_dir="$WORK/tls"
+    local hostname_file="$WORK/hostname"
+    local renew="$SCRIPT_DIR/rootfs/usr/libexec/lucia/lucia-renew-tls"
+    local group
+    local original
+    local reused
+    local rotated
+    group="$(id -gn)"
+    printf 'lucia-test\n' > "$hostname_file"
+
+    sudo env \
+        LUCIA_HOSTNAME_PATH="$hostname_file" \
+        LUCIA_TLS_DIR="$tls_dir" \
+        LUCIA_TLS_GROUP="$group" \
+        "$renew"
+    original="$(sha256sum "$tls_dir/agenthost.crt")"
+    sudo env \
+        LUCIA_HOSTNAME_PATH="$hostname_file" \
+        LUCIA_TLS_DIR="$tls_dir" \
+        LUCIA_TLS_GROUP="$group" \
+        "$renew"
+    reused="$(sha256sum "$tls_dir/agenthost.crt")"
+    sudo env \
+        LUCIA_HOSTNAME_PATH="$hostname_file" \
+        LUCIA_TLS_DIR="$tls_dir" \
+        LUCIA_TLS_GROUP="$group" \
+        LUCIA_TLS_RENEW_BEFORE_SECONDS=999999999 \
+        "$renew"
+    rotated="$(sha256sum "$tls_dir/agenthost.crt")"
+
+    if [[ "$original" == "$reused" && "$rotated" != "$original" ]] \
+        && openssl x509 -in "$tls_dir/agenthost.crt" \
+            -checkhost lucia-test.local -noout >/dev/null; then
+        pass "TLS material is reused and rotated before expiry"
+    else
+        fail "TLS material is reused and rotated before expiry"
+    fi
+    sudo rm -rf "$tls_dir"
+}
+
 test_missing_inputs_show_usage
 test_help_succeeds
 test_valid_inputs_create_release_layout
 test_bundle_contains_native_service_contract
 test_voice_assets_are_baked_into_bundle
 test_telemetry_assets_are_installed_but_disabled
+test_tls_material_is_reused_and_rotated
 
 printf '\n%d passed, %d failed\n' "$pass_count" "$fail_count"
 [[ "$fail_count" -eq 0 ]]

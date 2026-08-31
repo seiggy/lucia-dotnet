@@ -70,15 +70,15 @@ fi
 
 expected_sha256="$(awk 'NR == 1 { print $1 }' "$checksum_file")"
 authorization_arguments=()
-if [[ -f "$state_file" ]] \
-    && grep -q '^status=writing$' "$state_file"; then
-    device="$(sed -n 's/^device=//p' "$state_file")"
-elif [[ -f "$authorization_file" ]] \
+if [[ -f "$authorization_file" ]] \
     && grep -q '^status=approved$' "$authorization_file" \
     && [[ -f "$provisioning_file" ]] \
     && [[ -f "$state_dir/install.requested" ]]; then
     device="$(sed -n 's/^device=//p' "$authorization_file")"
     authorization_arguments=(--authorization-file "$authorization_file")
+elif [[ -f "$state_file" ]] \
+    && grep -Eq '^status=(erasing|writing)$' "$state_file"; then
+    device="$(sed -n 's/^device=//p' "$state_file")"
 else
     printf 'Waiting for storage selection and erase authorization.\n'
     exit 0

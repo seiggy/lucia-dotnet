@@ -80,6 +80,17 @@ public sealed class SqliteApiKeyServiceTests : IDisposable
                 && key.Scopes.Contains(AuthOptions.AdministratorScope));
     }
 
+    [Fact]
+    public async Task CreateAdministratorKeyIfNoneAsync_LegacyDashboardKey_ReturnsNull()
+    {
+        _ = await _service.CreateKeyAsync("Dashboard");
+
+        var result = await _service.CreateAdministratorKeyIfNoneAsync(
+            "Dashboard");
+
+        Assert.Null(result);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
