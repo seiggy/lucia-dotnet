@@ -93,6 +93,15 @@ public static class SetupApi
         IApiKeyService apiKeyService,
         HttpContext httpContext)
     {
+        var activeKeyCount = await apiKeyService
+            .GetActiveKeyCountAsync(httpContext.RequestAborted)
+            .ConfigureAwait(false);
+        if (activeKeyCount > 0
+            && httpContext.User.Identity?.IsAuthenticated != true)
+        {
+            return Results.Unauthorized();
+        }
+
         var result = await apiKeyService
             .CreateAdministratorKeyIfNoneAsync(
                 "Dashboard",

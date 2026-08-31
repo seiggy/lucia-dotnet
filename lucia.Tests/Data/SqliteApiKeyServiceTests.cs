@@ -81,14 +81,14 @@ public sealed class SqliteApiKeyServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task CreateAdministratorKeyIfNoneAsync_LegacyDashboardKey_ReturnsNull()
+    public async Task CreateAdministratorKeyIfNoneAsync_LegacyDashboardKey_CreatesAdministrator()
     {
         _ = await _service.CreateKeyAsync("Dashboard");
 
         var result = await _service.CreateAdministratorKeyIfNoneAsync(
             "Dashboard");
 
-        Assert.Null(result);
+        Assert.NotNull(result);
     }
 
     [Theory]

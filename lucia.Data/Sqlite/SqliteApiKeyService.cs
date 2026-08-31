@@ -80,13 +80,10 @@ public sealed class SqliteApiKeyService : IApiKeyService
             FROM api_keys
             WHERE is_revoked = 0
               AND (expires_at IS NULL OR expires_at > @now)
-              AND (
-                  name = @name
-                  OR EXISTS (
-                      SELECT 1
-                      FROM json_each(api_keys.scopes)
-                      WHERE value = @scope
-                  )
+              AND EXISTS (
+                  SELECT 1
+                  FROM json_each(api_keys.scopes)
+                  WHERE value = @scope
               );
             """;
         countCommand.Parameters.AddWithValue(
@@ -95,7 +92,6 @@ public sealed class SqliteApiKeyService : IApiKeyService
         countCommand.Parameters.AddWithValue(
             "@scope",
             AuthOptions.AdministratorScope);
-        countCommand.Parameters.AddWithValue("@name", name);
         var administratorCount = (long)(await countCommand
             .ExecuteScalarAsync(cancellationToken)
             .ConfigureAwait(false))!;
