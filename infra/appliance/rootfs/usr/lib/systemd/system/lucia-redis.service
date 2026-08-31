@@ -1,0 +1,35 @@
+[Unit]
+Description=Lucia Redis
+Documentation=https://redis.io/docs/latest/
+After=local-fs.target
+Before=lucia-agenthost.service
+RequiresMountsFor=/opt/lucia /var/lib/lucia
+
+[Service]
+Type=simple
+User=lucia-redis
+Group=lucia-redis
+ExecStart=/opt/lucia/current/redis/bin/redis-server /etc/lucia/redis.conf
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=30s
+TimeoutStopSec=90s
+RuntimeDirectory=lucia-redis
+ReadWritePaths=/var/lib/lucia/redis
+UMask=0077
+LimitNOFILE=10032
+MemoryMax=768M
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

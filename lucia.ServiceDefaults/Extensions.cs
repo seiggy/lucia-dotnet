@@ -92,7 +92,10 @@ public static class Extensions
             return builder;
         }
 
-        var useOtlpExporter = !string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]);
+        var otlpEndpoint = ResolveOtlpEndpoint(builder);
+        var otlpHeaders = builder.Configuration["OTEL_EXPORTER_OTLP_HEADERS"]
+            ?? builder.Configuration["Observability:OtlpHeaders"];
+        var useOtlpExporter = otlpEndpoint is not null;
         var telemetry = builder.Services.AddOpenTelemetry()
             .WithMetrics(metrics =>
             {
@@ -111,6 +114,7 @@ public static class Extensions
                 {
                     metrics.AddOtlpExporter((exporter, reader) =>
                     {
+                        ConfigureOtlpExporter(exporter, otlpEndpoint!, otlpHeaders);
                         exporter.TimeoutMilliseconds = ExportTimeoutMilliseconds;
                         reader.PeriodicExportingMetricReaderOptions.ExportIntervalMilliseconds =
                             MetricExportIntervalMilliseconds;
@@ -151,6 +155,7 @@ public static class Extensions
                 {
                     logging.AddOtlpExporter((exporter, processor) =>
                     {
+                        ConfigureOtlpExporter(exporter, otlpEndpoint!, otlpHeaders);
                         exporter.TimeoutMilliseconds = ExportTimeoutMilliseconds;
                         processor.BatchExportProcessorOptions.ExporterTimeoutMilliseconds =
                             ExportTimeoutMilliseconds;
@@ -203,6 +208,7 @@ public static class Extensions
                 {
                     tracing.AddOtlpExporter(exporter =>
                     {
+                        ConfigureOtlpExporter(exporter, otlpEndpoint!, otlpHeaders);
                         exporter.TimeoutMilliseconds = ExportTimeoutMilliseconds;
                         exporter.ExportProcessorType = ExportProcessorType.Batch;
                         exporter.BatchExportProcessorOptions.ExporterTimeoutMilliseconds =
@@ -217,6 +223,42 @@ public static class Extensions
         }
 
         return builder;
+    }
+
+    private static Uri? ResolveOtlpEndpoint(IHostApplicationBuilder builder)
+    {
+        var configuredEndpoint =
+            builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
+        if (string.IsNullOrWhiteSpace(configuredEndpoint))
+        {
+            configuredEndpoint =
+                builder.Configuration["Observability:OtlpEndpoint"];
+        }
+        if (string.IsNullOrWhiteSpace(configuredEndpoint))
+        {
+            return null;
+        }
+
+        if (!Uri.TryCreate(configuredEndpoint, UriKind.Absolute, out var endpoint)
+            || endpoint.Scheme is not ("http" or "https"))
+        {
+            throw new InvalidOperationException(
+                "OTLP endpoint must be an absolute HTTP or HTTPS URI.");
+        }
+
+        return endpoint;
+    }
+
+    private static void ConfigureOtlpExporter(
+        OtlpExporterOptions exporter,
+        Uri endpoint,
+        string? headers)
+    {
+        exporter.Endpoint = endpoint;
+        if (!string.IsNullOrWhiteSpace(headers))
+        {
+            exporter.Headers = headers;
+        }
     }
 
     private static TelemetryMode ResolveTelemetryMode(IHostApplicationBuilder builder)

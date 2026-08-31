@@ -97,6 +97,36 @@ public sealed class SqliteMigrationRunnerV2Tests : IDisposable
         Assert.Equal((long)rowCount, (long)utcCmd.ExecuteScalar()!);
     }
 
+    // ── ApplyConfigV3 ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public void ApplyConfigV3_DashboardLabelDoesNotGainAdministratorScope()
+    {
+        using var command = _connection.CreateCommand();
+        command.CommandText = """
+            CREATE TABLE api_keys (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                is_revoked INTEGER NOT NULL,
+                scopes TEXT NOT NULL
+            );
+            INSERT INTO api_keys (id, name, is_revoked, scopes)
+            VALUES
+                ('owner', 'Dashboard', 0, '["*"]'),
+                ('ha', 'Home Assistant', 0, '["*"]');
+            """;
+        command.ExecuteNonQuery();
+
+        SqliteMigrationRunner.ApplyConfigV3(_connection);
+
+        command.CommandText =
+            "SELECT scopes FROM api_keys WHERE id = 'owner';";
+        Assert.Equal("""["*"]""", command.ExecuteScalar());
+        command.CommandText =
+            "SELECT scopes FROM api_keys WHERE id = 'ha';";
+        Assert.Equal("""["*"]""", command.ExecuteScalar());
+    }
+
     // ── ApplyTasksV2 ──────────────────────────────────────────────────────────
 
     [Fact]

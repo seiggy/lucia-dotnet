@@ -10,7 +10,10 @@ public interface ISessionService
     /// <summary>
     /// Creates a signed session cookie value for the given API key entry.
     /// </summary>
-    string CreateSession(string keyId, string keyName);
+    string CreateSession(
+        string keyId,
+        string keyName,
+        bool isAdministrator = false);
 
     /// <summary>
     /// Validates a session cookie value and returns claims if valid, null if invalid/expired.

@@ -1,0 +1,601 @@
+#!/usr/bin/env python3
+
+import datetime
+import hashlib
+import json
+import os
+import pathlib
+import re
+import shutil
+import sqlite3
+import stat
+import subprocess
+import sys
+import tempfile
+import uuid
+
+
+def write_atomic(path: pathlib.Path, content: str, mode: int | None = None) -> None:
+    existing = path.stat() if path.exists() else None
+    file_descriptor, temporary_path = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f".{path.name}.",
+    )
+    try:
+        target_mode = mode
+        if target_mode is None:
+            target_mode = stat.S_IMODE(existing.st_mode) if existing else 0o600
+        os.fchmod(file_descriptor, target_mode)
+        if existing is not None:
+            os.fchown(file_descriptor, existing.st_uid, existing.st_gid)
+        with os.fdopen(file_descriptor, "w", encoding="utf-8") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, path)
+    finally:
+        if os.path.exists(temporary_path):
+            os.unlink(temporary_path)
+
+
+def read_partitions(device: str) -> list[tuple[str, str]]:
+    output = subprocess.run(
+        [
+            "lsblk",
+            "--raw",
+            "--paths",
+            "--noheadings",
+            "--output",
+            "NAME,TYPE,PARTLABEL",
+            device,
+        ],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    ).stdout
+    return [
+        (line.split()[0], line.split()[2])
+        for line in output.splitlines()
+        if len(line.split()) == 3
+        and line.split()[1] == "part"
+    ]
+
+
+def find_app_partitions(device: str) -> list[str]:
+    candidates = [
+        (path, label)
+        for path, label in read_partitions(device)
+        if label in {"APP", "APP_b"}
+    ]
+    labels = {label for _, label in candidates}
+    if labels != {"APP", "APP_b"}:
+        raise ValueError(
+            "Expected one APP and one APP_b partition on selected storage"
+        )
+    return [path for path, _ in sorted(candidates, key=lambda item: item[1])]
+
+
+def find_partition(device: str, label: str) -> str:
+    candidates = [
+        path
+        for path, partition_label in read_partitions(device)
+        if partition_label == label
+    ]
+    if len(candidates) != 1:
+        raise ValueError(f"Expected exactly one {label} partition")
+    return candidates[0]
+
+
+def replace_recovery_password(shadow_path: pathlib.Path, password_hash: str) -> None:
+    lines = shadow_path.read_text(encoding="utf-8").splitlines()
+    found = False
+    updated_lines: list[str] = []
+    for line in lines:
+        fields = line.split(":")
+        if fields[0] == "lucia-recovery":
+            fields[1] = password_hash
+            line = ":".join(fields)
+            found = True
+        updated_lines.append(line)
+    if not found:
+        raise ValueError("Target does not contain the Lucia recovery account")
+    write_atomic(shadow_path, "\n".join(updated_lines) + "\n")
+
+
+def replace_hostname(hosts_path: pathlib.Path, hostname: str) -> None:
+    lines = hosts_path.read_text(encoding="utf-8").splitlines()
+    updated_lines: list[str] = []
+    replaced = False
+    for line in lines:
+        if line.startswith("127.0.1.1"):
+            updated_lines.append(f"127.0.1.1 {hostname}")
+            replaced = True
+        else:
+            updated_lines.append(line)
+    if not replaced:
+        updated_lines.append(f"127.0.1.1 {hostname}")
+    write_atomic(hosts_path, "\n".join(updated_lines) + "\n")
+
+
+def escape_keyfile_value(value: str) -> str:
+    return (
+        value.replace("\\", "\\\\")
+        .replace(" ", "\\s")
+        .replace("\t", "\\t")
+    )
+
+
+def write_wifi_profile(
+    target_root: pathlib.Path,
+    ssid: str,
+    passphrase: str,
+) -> None:
+    connection_path = (
+        target_root
+        / "etc"
+        / "NetworkManager"
+        / "system-connections"
+        / "lucia-home.nmconnection"
+    )
+    connection_path.parent.mkdir(parents=True, exist_ok=True)
+    profile = "\n".join(
+        [
+            "[connection]",
+            "id=lucia-home",
+            f"uuid={uuid.uuid4()}",
+            "type=wifi",
+            "autoconnect=true",
+            "",
+            "[wifi]",
+            "mode=infrastructure",
+            f"ssid={escape_keyfile_value(ssid)}",
+            "",
+            "[wifi-security]",
+            "key-mgmt=wpa-psk",
+            f"psk={escape_keyfile_value(passphrase)}",
+            "",
+            "[ipv4]",
+            "method=auto",
+            "",
+            "[ipv6]",
+            "addr-gen-mode=default",
+            "method=auto",
+            "",
+            "[proxy]",
+            "",
+        ]
+    )
+    write_atomic(connection_path, profile, mode=0o600)
+
+
+def ensure_tls_material(
+    state_directory: pathlib.Path,
+    hostname: str,
+) -> tuple[pathlib.Path, pathlib.Path]:
+    tls_directory = state_directory / "agenthost-tls"
+    certificate_path = tls_directory / "agenthost.crt"
+    key_path = tls_directory / "agenthost.key"
+    if certificate_path.exists() and key_path.exists():
+        return certificate_path, key_path
+    if tls_directory.exists():
+        shutil.rmtree(tls_directory)
+
+    temporary_directory = pathlib.Path(
+        tempfile.mkdtemp(dir=state_directory, prefix=".agenthost-tls.")
+    )
+    try:
+        temporary_certificate = temporary_directory / "agenthost.crt"
+        temporary_key = temporary_directory / "agenthost.key"
+        openssl_path = os.environ.get("LUCIA_OPENSSL_PATH", "/usr/bin/openssl")
+        subprocess.run(
+            [
+                openssl_path,
+                "req",
+                "-x509",
+                "-newkey",
+                "rsa:3072",
+                "-sha256",
+                "-days",
+                "825",
+                "-nodes",
+                "-keyout",
+                str(temporary_key),
+                "-out",
+                str(temporary_certificate),
+                "-subj",
+                f"/CN={hostname}.local",
+                "-addext",
+                f"subjectAltName=DNS:{hostname}.local,DNS:{hostname}",
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        temporary_key.chmod(0o600)
+        temporary_certificate.chmod(0o644)
+        os.rename(temporary_directory, tls_directory)
+    finally:
+        if temporary_directory.exists():
+            shutil.rmtree(temporary_directory)
+    return certificate_path, key_path
+
+
+def install_tls_material(
+    target_root: pathlib.Path,
+    certificate_path: pathlib.Path,
+    key_path: pathlib.Path,
+) -> None:
+    target_directory = target_root / "etc" / "lucia" / "tls"
+    target_directory.mkdir(parents=True, exist_ok=True, mode=0o755)
+    target_certificate = target_directory / "agenthost.crt"
+    target_key = target_directory / "agenthost.key"
+    shutil.copyfile(certificate_path, target_certificate)
+    shutil.copyfile(key_path, target_key)
+    target_certificate.chmod(0o644)
+    target_key.chmod(0o640)
+    os.chown(target_key, 0, 1100)
+
+
+def install_persistent_tls_material(
+    target_data_root: pathlib.Path,
+    certificate_path: pathlib.Path,
+    key_path: pathlib.Path,
+) -> None:
+    target_directory = target_data_root / "config" / "tls"
+    target_directory.mkdir(parents=True, exist_ok=True, mode=0o750)
+    target_certificate = target_directory / "agenthost.crt"
+    target_key = target_directory / "agenthost.key"
+    shutil.copyfile(certificate_path, target_certificate)
+    shutil.copyfile(key_path, target_key)
+    target_certificate.chmod(0o644)
+    target_key.chmod(0o640)
+    os.chown(target_directory, 0, 1100)
+    os.chown(target_certificate, 0, 1100)
+    os.chown(target_key, 0, 1100)
+
+
+def validate_wifi_checkpoint(
+    state_directory: pathlib.Path,
+    ssid: str,
+    passphrase: str,
+) -> None:
+    nmcli_path = os.environ.get("LUCIA_NMCLI_PATH", "/usr/bin/nmcli")
+    device_output = subprocess.run(
+        [nmcli_path, "--terse", "--fields", "DEVICE,TYPE", "device", "status"],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    ).stdout
+    wifi_interface = next(
+        (
+            line.split(":", 1)[0]
+            for line in device_output.splitlines()
+            if line.endswith(":wifi")
+        ),
+        None,
+    )
+    if wifi_interface is None:
+        raise ValueError("No Wi-Fi interface is available for validation")
+
+    with tempfile.TemporaryDirectory(
+        dir=state_directory,
+        prefix=".wifi-checkpoint.",
+    ) as temporary_directory:
+        temporary_root = pathlib.Path(temporary_directory)
+        write_wifi_profile(temporary_root, ssid, passphrase)
+        profile_path = (
+            temporary_root
+            / "etc"
+            / "NetworkManager"
+            / "system-connections"
+            / "lucia-home.nmconnection"
+        )
+        subprocess.run(
+            [nmcli_path, "connection", "load", str(profile_path)],
+            check=True,
+        )
+        try:
+            subprocess.run(
+                [
+                    nmcli_path,
+                    "device",
+                    "checkpoint",
+                    "--timeout",
+                    "45",
+                    wifi_interface,
+                    "--",
+                    nmcli_path,
+                    "--wait",
+                    "30",
+                    "connection",
+                    "up",
+                    "id",
+                    "lucia-home",
+                    "ifname",
+                    wifi_interface,
+                ],
+                check=True,
+                input="yes\n",
+                text=True,
+                timeout=60,
+            )
+        finally:
+            try:
+                subprocess.run(
+                    [
+                        nmcli_path,
+                        "--wait",
+                        "30",
+                        "connection",
+                        "up",
+                        "id",
+                        "lucia-setup",
+                        "ifname",
+                        wifi_interface,
+                    ],
+                    check=True,
+                )
+            finally:
+                subprocess.run(
+                    [nmcli_path, "connection", "delete", "id", "lucia-home"],
+                    check=False,
+                )
+
+
+def provision(
+    target_root: pathlib.Path,
+    provisioning: dict[str, object],
+    certificate_path: pathlib.Path,
+    key_path: pathlib.Path,
+) -> None:
+    hostname = provisioning["hostname"]
+    password_hash = provisioning["recoveryPasswordHash"]
+    wifi = provisioning.get("wifi")
+
+    if re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", hostname) is None:
+        raise ValueError("Provisioning hostname is invalid")
+    if not isinstance(password_hash, str) or not password_hash.startswith("$6$"):
+        raise ValueError("Provisioning recovery password hash is invalid")
+
+    write_atomic(target_root / "etc" / "hostname", f"{hostname}\n")
+    replace_hostname(target_root / "etc" / "hosts", hostname)
+    replace_recovery_password(target_root / "etc" / "shadow", password_hash)
+    install_tls_material(target_root, certificate_path, key_path)
+
+    if wifi is not None:
+        write_wifi_profile(target_root, wifi["ssid"], wifi["passphrase"])
+
+    os.sync()
+
+
+def seed_dashboard_key(
+    target_data_root: pathlib.Path,
+    dashboard_key: str,
+) -> None:
+    if not dashboard_key.startswith("lk_") or len(dashboard_key) < 32:
+        raise ValueError("Provisioning dashboard key is invalid")
+    database_directory = target_data_root / "db"
+    database_directory.mkdir(parents=True, exist_ok=True, mode=0o750)
+    database_path = database_directory / "lucia-config.db"
+    key_hash = hashlib.sha256(dashboard_key.encode("utf-8")).hexdigest()
+    key_prefix = f"{dashboard_key[:12]}..."
+    with sqlite3.connect(database_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS api_keys (
+                id TEXT PRIMARY KEY,
+                key_hash TEXT NOT NULL UNIQUE,
+                key_prefix TEXT NOT NULL,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                last_used_at TEXT,
+                expires_at TEXT,
+                is_revoked INTEGER NOT NULL DEFAULT 0,
+                revoked_at TEXT,
+                scopes TEXT NOT NULL DEFAULT '["*"]'
+            );
+            CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
+            CREATE INDEX IF NOT EXISTS idx_api_keys_revoked ON api_keys(is_revoked);
+            """
+        )
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO api_keys
+                (id, key_hash, key_prefix, name, created_at, scopes)
+            VALUES (?, ?, ?, 'Dashboard', ?, '["*","admin:appliance"]')
+            """,
+            (
+                uuid.uuid4().hex,
+                key_hash,
+                key_prefix,
+                datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            ),
+        )
+    os.chown(database_directory, 1100, 1100)
+    os.chown(database_path, 1100, 1100)
+    database_directory.chmod(0o750)
+    database_path.chmod(0o640)
+
+
+def complete_provisioning(
+    state_directory: pathlib.Path,
+    hostname: str,
+) -> None:
+    write_atomic(
+        state_directory / "provision.state",
+        f"status=provisioned\nhostname={hostname}\n",
+        mode=0o600,
+    )
+    os.sync()
+    (state_directory / "provisioning.json").unlink()
+    shutil.rmtree(state_directory / "agenthost-tls")
+    os.sync()
+
+
+def install_manager_override(target_lucia_root: pathlib.Path) -> None:
+    override_path = pathlib.Path(
+        os.environ.get(
+            "LUCIA_MANAGER_OVERRIDE",
+            "/opt/lucia-installer/payload-overrides/lucia.ApplianceManager",
+        )
+    )
+    if not override_path.exists():
+        return
+
+    manager_path = (
+        target_lucia_root
+        / "current"
+        / "manager"
+        / "lucia.ApplianceManager"
+    )
+    manager_path.parent.mkdir(parents=True, exist_ok=True)
+    file_descriptor, temporary_path = tempfile.mkstemp(
+        dir=manager_path.parent,
+        prefix=".lucia.ApplianceManager.",
+    )
+    try:
+        with os.fdopen(file_descriptor, "wb") as stream:
+            with override_path.open("rb") as source:
+                shutil.copyfileobj(source, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temporary_path, 0o755)
+        os.replace(temporary_path, manager_path)
+    finally:
+        if os.path.exists(temporary_path):
+            os.unlink(temporary_path)
+
+
+def main() -> None:
+    if len(sys.argv) != 2:
+        raise SystemExit("Usage: lucia-provision-target BLOCK_DEVICE")
+
+    state_directory = pathlib.Path(
+        os.environ.get("LUCIA_INSTALLER_STATE_DIR", "/var/lib/lucia-installer")
+    )
+    configured_target = os.environ.get("LUCIA_TARGET_ROOT")
+    provisioning = json.loads(
+        (state_directory / "provisioning.json").read_text(encoding="utf-8")
+    )
+    if not isinstance(provisioning, dict):
+        raise ValueError("Provisioning configuration must be an object")
+    dashboard_key = str(provisioning.get("dashboardApiKey", ""))
+    wifi = provisioning.get("wifi")
+    if wifi is not None:
+        try:
+            validate_wifi_checkpoint(
+                state_directory,
+                str(wifi["ssid"]),
+                str(wifi["passphrase"]),
+            )
+        except (
+            OSError,
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            ValueError,
+        ) as error:
+            write_atomic(
+                state_directory / "progress.json",
+                json.dumps(
+                    {
+                        "stage": "failed",
+                        "failureKind": "wifi",
+                        "message": str(error),
+                    },
+                    separators=(",", ":"),
+                ),
+            )
+            raise
+    certificate_path, key_path = ensure_tls_material(
+        state_directory,
+        str(provisioning["hostname"]),
+    )
+
+    if configured_target is not None:
+        provision(
+            pathlib.Path(configured_target),
+            provisioning,
+            certificate_path,
+            key_path,
+        )
+        configured_lucia_root = os.environ.get("LUCIA_TARGET_LUCIA_ROOT")
+        if configured_lucia_root is not None:
+            install_manager_override(pathlib.Path(configured_lucia_root))
+        configured_data_root = os.environ.get("LUCIA_TARGET_DATA_ROOT")
+        if configured_data_root is not None:
+            install_persistent_tls_material(
+                pathlib.Path(configured_data_root),
+                certificate_path,
+                key_path,
+            )
+            seed_dashboard_key(
+                pathlib.Path(configured_data_root),
+                dashboard_key,
+            )
+        complete_provisioning(state_directory, str(provisioning["hostname"]))
+        return
+
+    target_root = pathlib.Path("/mnt/lucia-target")
+    target_lucia_root = pathlib.Path("/mnt/lucia-target-app")
+    target_root.mkdir(parents=True, exist_ok=True)
+    target_lucia_root.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["blockdev", "--rereadpt", sys.argv[1]], check=True)
+    subprocess.run(["udevadm", "settle"], check=True)
+    for app_partition in find_app_partitions(sys.argv[1]):
+        subprocess.run(
+            ["mount", "-o", "rw,nodev,nosuid", app_partition, str(target_root)],
+            check=True,
+        )
+        try:
+            provision(
+                target_root,
+                provisioning,
+                certificate_path,
+                key_path,
+            )
+        finally:
+            subprocess.run(["umount", str(target_root)], check=True)
+    lucia_partition = find_partition(sys.argv[1], "LUCIA")
+    subprocess.run(
+        [
+            "mount",
+            "-o",
+            "rw,nodev,nosuid",
+            lucia_partition,
+            str(target_lucia_root),
+        ],
+        check=True,
+    )
+    try:
+        install_manager_override(target_lucia_root)
+    finally:
+        subprocess.run(["umount", str(target_lucia_root)], check=True)
+    target_data_root = pathlib.Path("/mnt/lucia-target-data")
+    target_data_root.mkdir(parents=True, exist_ok=True)
+    data_partition = find_partition(sys.argv[1], "LUCIA_DATA")
+    subprocess.run(
+        [
+            "mount",
+            "-o",
+            "rw,nodev,nosuid,noexec",
+            data_partition,
+            str(target_data_root),
+        ],
+        check=True,
+    )
+    try:
+        install_persistent_tls_material(
+            target_data_root,
+            certificate_path,
+            key_path,
+        )
+        seed_dashboard_key(target_data_root, dashboard_key)
+    finally:
+        subprocess.run(["umount", str(target_data_root)], check=True)
+    complete_provisioning(state_directory, str(provisioning["hostname"]))
+
+
+if __name__ == "__main__":
+    main()

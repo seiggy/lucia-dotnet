@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+payload="${LUCIA_PAYLOAD_PATH:-/opt/lucia-installer/lucia-nvme.img.zst}"
+checksum_file="${LUCIA_CHECKSUM_PATH:-/opt/lucia-installer/lucia-nvme.img.zst.sha256}"
+state_dir="${LUCIA_INSTALLER_STATE_DIR:-/var/lib/lucia-installer}"
+install_path="${LUCIA_INSTALL_PATH:-/usr/libexec/lucia/lucia-install}"
+provision_path="${LUCIA_PROVISION_PATH:-/usr/libexec/lucia/lucia-provision-target}"
+expand_path="${LUCIA_EXPAND_PATH:-/usr/libexec/lucia/lucia-expand-data}"
+systemctl_path="${LUCIA_SYSTEMCTL_PATH:-/usr/bin/systemctl}"
+state_file="$state_dir/install.state"
+authorization_file="$state_dir/erase.authorization"
+provisioning_file="$state_dir/provisioning.json"
+provision_state_file="$state_dir/provision.state"
+progress_file="$state_dir/progress.json"
+dashboard_key_handoff="$state_dir/dashboard-key.handoff"
+
+mkdir -p "$state_dir"
+
+write_progress() {
+    local stage="$1"
+    local temporary_file="${progress_file}.tmp.$$"
+
+    printf '{"stage":"%s"}\n' "$stage" > "$temporary_file"
+    chmod 0600 "$temporary_file"
+    mv "$temporary_file" "$progress_file"
+}
+validate_saved_device() {
+    local device="$1"
+    local plan
+    local expected_identity
+    local expected_size
+    plan="$("$install_path" plan --device "$device")"
+    expected_identity="$(sed -n 's/^device_identity=//p' "$state_file")"
+    expected_size="$(sed -n 's/^device_size_bytes=//p' "$state_file")"
+    [[ -n "$expected_identity" && -n "$expected_size" ]] \
+        && grep -Fqx "device_identity=$expected_identity" <<< "$plan" \
+        && grep -Fqx "size_bytes=$expected_size" <<< "$plan" || {
+        printf 'Installed storage identity changed before provisioning\n' >&2
+        return 1
+    }
+}
+power_off_for_handoff() {
+    write_progress syncing
+    sync
+    if [[ -f "$dashboard_key_handoff" ]]; then
+        printf 'Waiting for Dashboard owner key confirmation.\n'
+        while [[ -f "$dashboard_key_handoff" ]]; do
+            sleep 1
+        done
+    fi
+    write_progress powering-off
+    printf 'Lucia installation completed. Powering off for SD card removal.\n'
+    "$systemctl_path" --no-block poweroff
+}
+on_error() {
+    if [[ -f "$progress_file" ]] \
+        && grep -q '"failureKind":"wifi"' "$progress_file"; then
+        return
+    fi
+    printf '%s\n' \
+        '{"stage":"failed","failureKind":"system","message":"Installation failed outside Wi-Fi validation."}' \
+        > "$progress_file"
+    chmod 0600 "$progress_file"
+}
+trap on_error ERR
+
+if [[ -f "$state_file" ]] \
+    && grep -q '^status=installed$' "$state_file"; then
+    if [[ -f "$provisioning_file" ]]; then
+        device="$(sed -n 's/^device=//p' "$state_file")"
+        validate_saved_device "$device"
+        write_progress provisioning
+        "$expand_path" "$device"
+        "$provision_path" "$device"
+        power_off_for_handoff
+        exit 0
+    fi
+    if [[ -f "$provision_state_file" ]] \
+        && grep -q '^status=provisioned$' "$provision_state_file"; then
+        power_off_for_handoff
+        exit 0
+    fi
+    printf 'Lucia is already installed. Remove the SD card if NVMe did not boot.\n'
+    exit 0
+fi
+
+[[ -f "$payload" && -f "$checksum_file" ]] || {
+    printf 'Installer payload or checksum is missing\n' >&2
+    exit 1
+}
+
+expected_sha256="$(awk 'NR == 1 { print $1 }' "$checksum_file")"
+authorization_arguments=()
+if [[ -f "$authorization_file" ]] \
+    && grep -q '^status=approved$' "$authorization_file" \
+    && [[ -f "$provisioning_file" ]] \
+    && [[ -f "$state_dir/install.requested" ]]; then
+    device="$(sed -n 's/^device=//p' "$authorization_file")"
+    authorization_arguments=(--authorization-file "$authorization_file")
+elif [[ -f "$state_file" ]] \
+    && grep -Eq '^status=(erasing|writing)$' "$state_file"; then
+    device="$(sed -n 's/^device=//p' "$state_file")"
+else
+    printf 'Waiting for storage selection and erase authorization.\n'
+    exit 0
+fi
+
+[[ "$device" == /dev/disk/by-id/* && -b "$device" ]] || {
+    printf 'Authorized storage identity is invalid or unavailable\n' >&2
+    exit 1
+}
+
+"$install_path" install \
+    --device "$device" \
+    --image "$payload" \
+    --sha256 "$expected_sha256" \
+    --state-file "$state_file" \
+    "${authorization_arguments[@]}"
+
+write_progress provisioning
+"$expand_path" "$device"
+"$provision_path" "$device"
+power_off_for_handoff

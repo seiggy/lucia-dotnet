@@ -1,0 +1,31 @@
+[Unit]
+Description=Lucia Redis Exporter
+Documentation=https://github.com/oliver006/redis_exporter
+After=lucia-redis.service
+Requires=lucia-redis.service
+RequiresMountsFor=/opt/lucia
+
+[Service]
+Type=simple
+User=lucia-telemetry
+Group=lucia-telemetry
+ExecStart=/opt/lucia/current/telemetry/bin/redis_exporter --redis.addr=redis://127.0.0.1:6379 --web.listen-address=127.0.0.1:9121
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=30s
+TimeoutStopSec=30s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

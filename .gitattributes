@@ -8,6 +8,12 @@
 .githooks/** text eol=lf
 # Shell scripts (invoked by the hooks and directly) must stay LF too
 *.sh text eol=lf
+*.service text eol=lf
+*.env.example text eol=lf
+infra/appliance/**/usr/libexec/lucia/* text eol=lf
+infra/appliance/installer/dev/* text eol=lf
+infra/appliance/installer/lucia-install text eol=lf
+infra/appliance/installer/rootfs/etc/sudoers.d/* text eol=lf
 # Dockerfile heredocs can create executable shell scripts, so their shebangs must stay LF.
 Dockerfile* text eol=lf
 # This legacy Dockerfile is committed as CRLF and contains no heredoc scripts.

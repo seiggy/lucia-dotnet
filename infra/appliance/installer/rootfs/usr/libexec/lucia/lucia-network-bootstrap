@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+bootstrap_env="${LUCIA_BOOTSTRAP_ENV:-/etc/lucia-installer/bootstrap.env}"
+connection_path="${LUCIA_CONNECTION_PATH:-/etc/NetworkManager/system-connections/lucia-setup.nmconnection}"
+nmcli_path="${LUCIA_NMCLI_PATH:-/usr/bin/nmcli}"
+iptables_path="${LUCIA_IPTABLES_PATH:-/usr/sbin/iptables}"
+
+[[ -f "$bootstrap_env" ]] || {
+    printf 'Bootstrap configuration is missing\n' >&2
+    exit 1
+}
+[[ "$(stat --format '%a' "$bootstrap_env")" == "600" ]] || {
+    printf 'Bootstrap configuration must have mode 0600\n' >&2
+    exit 1
+}
+
+# The image builder writes only generated alphanumeric values to this root-owned file.
+# shellcheck disable=SC1090
+source "$bootstrap_env"
+
+device_serial=""
+serial_path="${LUCIA_DEVICE_SERIAL_PATH:-/proc/device-tree/serial-number}"
+if [[ -r "$serial_path" ]]; then
+    device_serial="$(tr -d '\0\r\n ' < "$serial_path")"
+fi
+setup_ssid="${LUCIA_SETUP_SSID:-}"
+if [[ -z "$setup_ssid" && -n "$device_serial" ]]; then
+    setup_ssid="Lucia-${device_serial: -6}"
+fi
+[[ "$setup_ssid" =~ ^[A-Za-z0-9_-]{1,32}$ ]] || {
+    printf 'Setup SSID is invalid\n' >&2
+    exit 1
+}
+wifi_interface="${LUCIA_WIFI_INTERFACE:-}"
+"$nmcli_path" radio wifi on
+if [[ -z "$wifi_interface" ]]; then
+    wifi_interface="$(
+        "$nmcli_path" --terse --fields DEVICE,TYPE device status \
+            | awk -F: '$2 == "wifi" { print $1; exit }'
+    )"
+fi
+[[ "$wifi_interface" =~ ^[A-Za-z0-9_.-]+$ ]] || {
+    printf 'No valid Wi-Fi interface is available\n' >&2
+    exit 1
+}
+
+ap_capability="$(
+    "$nmcli_path" -g WIFI-PROPERTIES.AP device show "$wifi_interface" \
+        | tr '[:upper:]' '[:lower:]'
+)"
+[[ "$ap_capability" == "yes" ]] || {
+    printf 'Wi-Fi interface %s does not support AP mode\n' "$wifi_interface" >&2
+    exit 1
+}
+
+connection_created=false
+connection_matches=false
+if [[ -f "$connection_path" ]] \
+    && grep -Fqx "interface-name=$wifi_interface" "$connection_path" \
+    && grep -Fqx "ssid=$setup_ssid" "$connection_path" \
+    && ! grep -Fqx "[wifi-security]" "$connection_path"; then
+    connection_matches=true
+fi
+if [[ "$connection_matches" == false ]]; then
+    connection_uuid=""
+    if [[ -f "$connection_path" ]]; then
+        connection_uuid="$(sed -n 's/^uuid=//p' "$connection_path" | head -1)"
+    fi
+    if [[ ! "$connection_uuid" =~ ^[0-9a-fA-F-]{36}$ ]]; then
+        connection_uuid="$(cat /proc/sys/kernel/random/uuid)"
+    fi
+    temporary_path="${connection_path}.tmp.$$"
+    install -d -m 0700 "$(dirname "$connection_path")"
+    cat > "$temporary_path" <<EOF
+[connection]
+id=lucia-setup
+uuid=$connection_uuid
+type=wifi
+interface-name=$wifi_interface
+autoconnect=true
+autoconnect-retries=0
+
+[wifi]
+mode=ap
+band=bg
+ssid=$setup_ssid
+ap-isolation=1
+
+[ipv4]
+address1=10.42.0.1/24
+method=shared
+
+[ipv6]
+method=disabled
+EOF
+    chmod 0600 "$temporary_path"
+    mv "$temporary_path" "$connection_path"
+    connection_created=true
+fi
+
+connection_state="$(
+    "$nmcli_path" -g GENERAL.STATE connection show lucia-setup 2>/dev/null \
+        || true
+)"
+if [[ "$connection_created" == true || "$connection_state" != "activated" ]]; then
+    "$nmcli_path" connection load "$connection_path"
+    "$nmcli_path" connection up lucia-setup
+fi
+
+if ! "$iptables_path" -C FORWARD -i "$wifi_interface" -j DROP 2>/dev/null; then
+    "$iptables_path" -I FORWARD 1 -i "$wifi_interface" -j DROP
+fi

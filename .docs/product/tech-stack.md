@@ -1,7 +1,7 @@
 # Technical Stack
 
-> Last Updated: 2026-03-11
-> Version: 1.2.0
+> Last Updated: 2026-08-30
+> Version: 1.3.0
 
 ## Core Technologies
 
@@ -59,6 +59,13 @@
 ### Container Platform
 - **Runtime:** Docker with Linux containers
 - **Orchestration:** Kubernetes
+
+### Jetson Appliance
+- **Base:** Jetson Linux 36.5.2 on Jetson Orin Nano Super P3767-0005
+- **Runtime:** Native self-contained .NET 10 AgentHost
+- **Persistence:** Redis 8.2.9 with AOF for active work; SQLite for configuration, traces, schedules, and archives
+- **Installer:** Client-isolated microSD captive setup with explicit NVMe erase authorization
+- **Updates:** Separate attested Lucia and Jetson OS assets published through GitHub Releases
 
 ### Cloud-Native Framework
 - **Platform:** .NET Aspire

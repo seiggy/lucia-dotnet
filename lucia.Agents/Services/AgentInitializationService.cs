@@ -73,6 +73,9 @@ public class AgentInitializationService : BackgroundService
         // Seed setup from env (dashboard key, HA config, Lucia HA key) for headless deployments
         await _apiKeyService.SeedSetupFromEnvAsync(_configStore, _configuration, _logger, stoppingToken).ConfigureAwait(false);
 
+        // Persist built-in definitions before external configuration can block runtime initialization.
+        await _definitionRepository.SeedBuiltInAgentDefinitionsAsync(_agents, _logger, stoppingToken).ConfigureAwait(false);
+
         await WaitForHomeAssistantConfigurationAsync(stoppingToken).ConfigureAwait(false);
 
         // Seed default model providers from connection strings if upgrading
@@ -85,9 +88,6 @@ public class AgentInitializationService : BackgroundService
 
         // Configuration is complete — health check transitions from "waiting" to "in progress"
         _initStatus.MarkConfigurationReceived();
-
-        // Seed AgentDefinition documents for any built-in agents missing from MongoDB
-        await _definitionRepository.SeedBuiltInAgentDefinitionsAsync(_agents, _logger, stoppingToken).ConfigureAwait(false);
 
         // Initialize entity location cache before agents (skills depend on it)
         // Retry with backoff — HA may not be reachable immediately during Aspire startup

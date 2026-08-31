@@ -1,0 +1,36 @@
+[Unit]
+Description=Lucia Appliance Manager
+Documentation=https://github.com/seiggy/lucia-dotnet
+After=local-fs.target
+Before=lucia-agenthost.service
+RequiresMountsFor=/opt/lucia
+
+[Service]
+Type=simple
+User=root
+Group=lucia
+ExecStart=/opt/lucia/current/manager/lucia.ApplianceManager
+Environment=LUCIA_APPLIANCE_SOCKET=/run/lucia-appliance/appliance-manager.sock
+RuntimeDirectory=lucia-appliance
+RuntimeDirectoryMode=0750
+UMask=0007
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=30s
+TimeoutStopSec=30s
+ReadWritePaths=/etc/lucia /etc/systemd/system/multi-user.target.wants /opt/lucia /var/lib/lucia
+NoNewPrivileges=true
+CapabilityBoundingSet=CAP_SYS_BOOT
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

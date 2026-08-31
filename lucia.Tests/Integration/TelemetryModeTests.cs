@@ -130,6 +130,32 @@ public sealed class TelemetryModeTests
     }
 
     [Fact]
+    public async Task NestedOtlpEndpoint_ConnectsToCollector()
+    {
+        using var collector = new TcpListener(IPAddress.Loopback, 0);
+        collector.Start();
+        var endpoint = (IPEndPoint)collector.LocalEndpoint;
+        var builder = Host.CreateApplicationBuilder();
+        builder.Configuration["Observability:Mode"] = "Metrics";
+        builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"] = "";
+        builder.Configuration["Observability:OtlpEndpoint"] =
+            $"http://127.0.0.1:{endpoint.Port}";
+        builder.ConfigureOpenTelemetry();
+
+        using var host = builder.Build();
+        await host.StartAsync();
+        var provider = host.Services.GetRequiredService<MeterProvider>();
+        using var meter = new Meter("lucia.Wyoming.SpeechPipeline");
+        meter.CreateCounter<long>("telemetry.connection.test").Add(1);
+        var acceptTask = collector.AcceptTcpClientAsync();
+
+        provider.ForceFlush();
+
+        using var connection = await acceptTask.WaitAsync(TimeSpan.FromSeconds(2));
+        await host.StopAsync();
+    }
+
+    [Fact]
     public void Profile_AddsCaptureCorrelationResourceMetadata()
     {
         var builder = Host.CreateApplicationBuilder();

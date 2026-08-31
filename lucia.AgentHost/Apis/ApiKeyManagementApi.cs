@@ -1,4 +1,5 @@
 using lucia.Agents.Abstractions;
+using lucia.Agents.Auth;
 using Microsoft.AspNetCore.Mvc;
 
 namespace lucia.AgentHost.Apis;
@@ -8,11 +9,20 @@ namespace lucia.AgentHost.Apis;
 /// </summary>
 public static class ApiKeyManagementApi
 {
-    public static WebApplication MapApiKeyManagementApi(this WebApplication app)
+    public static WebApplication MapApiKeyManagementApi(
+        this WebApplication app,
+        bool requireAdministrator)
     {
         var group = app.MapGroup("/api/keys")
-            .WithTags("API Key Management")
-            .RequireAuthorization();
+            .WithTags("API Key Management");
+        if (requireAdministrator)
+        {
+            group.RequireAuthorization(AuthOptions.AdministratorPolicy);
+        }
+        else
+        {
+            group.RequireAuthorization();
+        }
 
         group.MapGet("/", ListKeysAsync);
         group.MapPost("/", CreateKeyAsync);
@@ -39,7 +49,6 @@ public static class ApiKeyManagementApi
         {
             return Results.BadRequest(new { error = "Key name is required." });
         }
-
         var result = await apiKeyService.CreateKeyAsync(request.Name, httpContext.RequestAborted).ConfigureAwait(false);
         return Results.Created($"/api/keys/{result.Id}", result);
     }

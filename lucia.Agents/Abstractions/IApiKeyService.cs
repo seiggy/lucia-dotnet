@@ -10,7 +10,17 @@ public interface IApiKeyService
     /// <summary>
     /// Creates a new API key with the given name. Returns the plaintext key (shown once).
     /// </summary>
-    Task<ApiKeyCreateResponse> CreateKeyAsync(string name, CancellationToken cancellationToken = default);
+    Task<ApiKeyCreateResponse> CreateKeyAsync(
+        string name,
+        CancellationToken cancellationToken = default);
+
+    Task<ApiKeyCreateResponse> CreateAdministratorKeyAsync(
+        string name,
+        CancellationToken cancellationToken = default);
+
+    Task<ApiKeyCreateResponse?> CreateAdministratorKeyIfNoneAsync(
+        string name,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Creates an API key from a provided plaintext (for headless/env seeding).
@@ -28,6 +38,16 @@ public interface IApiKeyService
     /// Lists all API keys (active and revoked) as summaries. Never returns full keys or hashes.
     /// </summary>
     Task<IReadOnlyList<ApiKeySummary>> ListKeysAsync(CancellationToken cancellationToken = default);
+
+    async Task<ApiKeySummary?> GetKeyAsync(
+        string keyId,
+        CancellationToken cancellationToken = default)
+    {
+        var keys = await ListKeysAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return keys.FirstOrDefault(key =>
+            string.Equals(key.Id, keyId, StringComparison.Ordinal));
+    }
 
     /// <summary>
     /// Revokes an API key by ID. Returns false if key not found or already revoked.
@@ -65,5 +85,13 @@ public interface IApiKeyService
     /// one active key and do not throw.
     /// </summary>
     Task<(ApiKeyCreateResponse? Created, int RevokedCount)> OverrideKeyFromPlaintextAsync(
-        string name, string plaintextKey, CancellationToken cancellationToken = default);
+        string name,
+        string plaintextKey,
+        CancellationToken cancellationToken = default);
+
+    Task<(ApiKeyCreateResponse? Created, int RevokedCount)>
+        OverrideAdministratorKeyFromPlaintextAsync(
+            string name,
+            string plaintextKey,
+            CancellationToken cancellationToken = default);
 }

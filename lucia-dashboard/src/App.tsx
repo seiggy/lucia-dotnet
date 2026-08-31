@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import {
@@ -6,9 +6,11 @@ import {
   Layers, Boxes, ListTodo, Menu, X, LogOut, Sparkles, BarChart3, MapPin,
   AlarmClock, Radio, ShoppingCart, SlidersHorizontal, Puzzle, Mic, MessageSquareText,
   MessageCircle, Zap,
+  MonitorCog,
 } from 'lucide-react'
 import LoginPage from './pages/LoginPage'
 import SetupPage from './pages/SetupPage'
+import InstallerPage from './pages/InstallerPage'
 import TraceListPage from './pages/TraceListPage'
 import TraceDetailPage from './pages/TraceDetailPage'
 import ExportPage from './pages/ExportPage'
@@ -32,8 +34,10 @@ import VoicePlatformPage from './pages/VoicePlatformPage'
 import ConversationPage from './pages/ConversationPage'
 import CommandTraceListPage from './pages/CommandTraceListPage'
 import CommandTraceDetailPage from './pages/CommandTraceDetailPage'
+import AppliancePage from './pages/AppliancePage'
 import TaskTracker from './components/TaskTracker'
 import { ThemeSelector } from './theme/ThemeSelector'
+import { isInstallerMode } from './installer-api'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Activity', icon: BarChart3, end: true },
@@ -60,6 +64,10 @@ const NAV_ITEMS = [
 ]
 
 function App() {
+  if (window.location.pathname.startsWith('/install')) {
+    return <InstallerRoute />
+  }
+
   return (
     <AuthProvider>
       <AppRoutes />
@@ -67,9 +75,76 @@ function App() {
   )
 }
 
+function InstallerRoute() {
+  const [isAvailable, setIsAvailable] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    isInstallerMode()
+      .then(setIsAvailable)
+      .catch(() => setIsAvailable(false))
+  }, [])
+
+  useEffect(() => {
+    if (isAvailable === false) window.location.replace('/')
+  }, [isAvailable])
+
+  if (isAvailable !== true) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-observatory">
+        <Sparkles className="h-5 w-5 animate-pulse text-amber" />
+        <span className="ml-2 font-display text-sm text-fog">Finding appliance setup...</span>
+      </div>
+    )
+  }
+
+  return (
+    <InstallerPage />
+  )
+}
+
 function AppRoutes() {
   const { authenticated, setupComplete, loading, logout } = useAuth()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [hasAppliance, setHasAppliance] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    if (!authenticated || !setupComplete) {
+      setHasAppliance(null)
+      return
+    }
+
+    let cancelled = false
+    let retryTimer: number | undefined
+    async function checkCapability() {
+      try {
+        const response = await fetch('/api/appliance/capabilities')
+        if (response.status === 404) {
+          if (!cancelled) setHasAppliance(false)
+          return
+        }
+        if (!response.ok) throw new Error(`Capability check failed with status ${response.status}.`)
+        const capability: unknown = await response.json()
+        if (
+          typeof capability !== 'object'
+          || capability === null
+          || !('enabled' in capability)
+          || typeof capability.enabled !== 'boolean'
+        ) {
+          throw new Error('Capability response is invalid.')
+        }
+        if (!cancelled) setHasAppliance(capability.enabled)
+      } catch {
+        if (!cancelled) {
+          retryTimer = window.setTimeout(() => void checkCapability(), 2000)
+        }
+      }
+    }
+    void checkCapability()
+    return () => {
+      cancelled = true
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer)
+    }
+  }, [authenticated, setupComplete])
 
   if (loading) {
     return (
@@ -139,7 +214,7 @@ function AppRoutes() {
           </div>
           <button
             onClick={() => setSidebarOpen(false)}
-            className="rounded-md p-1 text-dust hover:text-cloud md:hidden"
+            className="flex h-11 w-11 items-center justify-center rounded-md text-dust hover:text-cloud md:hidden"
             aria-label="Close sidebar"
           >
             <X className="h-5 w-5" />
@@ -149,7 +224,10 @@ function AppRoutes() {
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Main navigation">
           <ul className="space-y-0.5">
-            {NAV_ITEMS.map(({ to, label, icon: Icon, end }) => (
+            {(hasAppliance
+              ? [...NAV_ITEMS, { to: '/appliance', label: 'Appliance', icon: MonitorCog }]
+              : NAV_ITEMS
+            ).map(({ to, label, icon: Icon, end }) => (
               <li key={to}>
                 <NavLink
                   to={to}
@@ -173,7 +251,7 @@ function AppRoutes() {
 
         {/* Footer */}
         <div className="border-t border-stone/40 px-3 py-3">
-          <p className="mb-2 px-2 text-[10px] font-medium uppercase tracking-wider text-dust">Appearance</p>
+          <p className="mb-2 px-2 text-xs font-medium uppercase tracking-wider text-dust">Appearance</p>
           <ThemeSelector className="mb-2" />
           <button
             onClick={logout}
@@ -191,7 +269,7 @@ function AppRoutes() {
         <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b border-stone/40 bg-obsidian/80 px-4 backdrop-blur-md md:hidden">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="rounded-md p-1.5 text-fog hover:text-cloud"
+            className="flex h-11 w-11 items-center justify-center rounded-md text-fog hover:text-cloud"
             aria-label="Open sidebar menu"
           >
             <Menu className="h-5 w-5" />
@@ -228,6 +306,21 @@ function AppRoutes() {
             <Route path="/model-providers" element={<ModelProvidersPage />} />
             <Route path="/voice-platform" element={<VoicePlatformPage />} />
             <Route path="/voice-onboarding" element={<Navigate to="/voice-platform" replace />} />
+            <Route
+              path="/appliance"
+              element={
+                hasAppliance === true
+                  ? <AppliancePage />
+                  : hasAppliance === null
+                    ? (
+                        <div className="flex min-h-[60vh] items-center justify-center gap-3 text-fog">
+                          <Sparkles className="h-5 w-5 animate-pulse text-amber" />
+                          Checking appliance capability...
+                        </div>
+                      )
+                    : <Navigate to="/" replace />
+              }
+            />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>

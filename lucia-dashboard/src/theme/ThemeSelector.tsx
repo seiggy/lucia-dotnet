@@ -12,6 +12,7 @@ interface ThemeOption {
 
 interface ThemeSelectorProps {
   className?: string
+  compact?: boolean
 }
 
 const OPTIONS: ThemeOption[] = [
@@ -20,7 +21,7 @@ const OPTIONS: ThemeOption[] = [
   { value: 'dark', label: 'Dark', description: 'Use dark theme', icon: Moon },
 ]
 
-export function ThemeSelector({ className = '' }: ThemeSelectorProps) {
+export function ThemeSelector({ className = '', compact = false }: ThemeSelectorProps) {
   const { preference, setPreference } = useTheme()
 
   return (
@@ -39,14 +40,16 @@ export function ThemeSelector({ className = '' }: ThemeSelectorProps) {
             aria-label={description}
             aria-pressed={isSelected}
             onClick={() => setPreference(value)}
-            className={`flex min-w-0 flex-col items-center gap-1 rounded-md px-2 py-1.5 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber ${
+            className={`flex min-h-11 min-w-0 items-center justify-center rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber ${
+              compact ? 'px-2' : 'flex-col gap-1 px-2 py-1.5 text-xs'
+            } ${
               isSelected
                 ? 'bg-obsidian text-amber shadow-sm'
                 : 'text-dust hover:bg-stone/40 hover:text-light'
             }`}
           >
-            <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-            <span>{label}</span>
+            <Icon className="h-4 w-4" aria-hidden="true" />
+            <span className={compact ? 'sr-only' : ''}>{label}</span>
           </button>
         )
       })}

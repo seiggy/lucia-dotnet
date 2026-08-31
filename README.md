@@ -852,6 +852,17 @@ The [`docker-compose.yml`](infra/docker/docker-compose.yml) in the repo builds t
 
 ## 🐳 Deployment
 
+### Jetson appliance image
+
+Lucia can run natively on a Jetson Orin Nano Super without Docker. The
+experimental microSD installer provisions A/B Jetson Linux 36.5.2 slots, a
+versioned Lucia partition, persistent Redis and SQLite data, captive setup, and
+appliance management.
+
+See [the appliance release guide](infra/appliance/release/README.md) and
+[implementation status](specs/006-jetson-appliance-image/tasks.md). Stable
+release tags publish separate installer, Lucia, and OS assets.
+
 ### Deployment Modes
 
 Lucia supports two deployment topologies controlled by the `Deployment__Mode` environment variable:

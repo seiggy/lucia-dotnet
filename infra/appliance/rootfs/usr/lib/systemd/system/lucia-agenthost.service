@@ -1,0 +1,35 @@
+[Unit]
+Description=Lucia AgentHost
+Documentation=https://github.com/seiggy/lucia-dotnet
+Wants=network-online.target lucia-appliance-manager.service lucia-redis.service
+After=network-online.target lucia-appliance-manager.service lucia-redis.service
+RequiresMountsFor=/opt/lucia /var/lib/lucia
+
+[Service]
+Type=simple
+User=lucia
+Group=lucia
+SupplementaryGroups=audio render video
+WorkingDirectory=/opt/lucia/current/app
+ExecStartPre=+/usr/libexec/lucia/lucia-renew-tls
+ExecStart=/opt/lucia/current/app/lucia.AgentHost
+EnvironmentFile=/var/lib/lucia/config/lucia.env
+Restart=always
+RestartSec=5s
+TimeoutStartSec=180s
+TimeoutStopSec=90s
+ReadWritePaths=/var/lib/lucia/config/tls /var/lib/lucia/db /var/lib/lucia/models /var/lib/lucia/plugins /var/lib/lucia/voice-clips
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

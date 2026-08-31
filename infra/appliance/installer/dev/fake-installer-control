@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+state_dir="${LUCIA_PREVIEW_STATE_DIR:?LUCIA_PREVIEW_STATE_DIR is required}"
+status_file="$state_dir/status.json"
+mkdir -p "$state_dir"
+
+case "${1:-}" in
+    disks)
+        printf '%s\n' \
+            '[{"id":"/dev/disk/by-id/nvme-Lucia_Preview_SSD_DEMO123","model":"Lucia Preview SSD","serial":"DEMO123","confirmationPhrase":"ERASE DEMO123","sizeBytes":2000000000000,"classification":"occupied","action":"confirmation-required"}]'
+        ;;
+    networks)
+        printf '%s\n' \
+            '[{"ssid":"Home WiFi","signal":91,"security":"WPA2 WPA3"},{"ssid":"Workshop","signal":68,"security":"WPA2"}]'
+        ;;
+    status)
+        cat "$status_file" 2>/dev/null \
+            || printf '%s\n' '{"phase":"waiting-for-configuration"}'
+        ;;
+    configure)
+        cat >/dev/null
+        printf '%s\n' '{"phase":"authorized"}' > "$status_file"
+        (
+            total=61203283968
+            sleep 1
+            printf '%s\n' \
+                '{"phase":"installing","stage":"validating"}' \
+                > "$status_file"
+            sleep 1
+            for percent in 0 20 40 60 80 100; do
+                bytes=$((total * percent / 100))
+                printf \
+                    '{"phase":"installing","stage":"writing","bytesWritten":%s,"totalBytes":%s}\n' \
+                    "$bytes" \
+                    "$total" \
+                    > "$status_file"
+                sleep 1
+            done
+            printf '%s\n' \
+                '{"phase":"installing","stage":"provisioning"}' \
+                > "$status_file"
+            sleep 2
+            printf '%s\n' \
+                '{"phase":"installing","stage":"syncing"}' \
+                > "$status_file"
+            sleep 1
+            printf '%s\n' \
+                '{"phase":"installed","stage":"powering-off"}' \
+                > "$status_file"
+        ) >/dev/null 2>&1 &
+        printf '%s\n' '{"phase":"authorized"}'
+        ;;
+    *)
+        printf 'Unknown preview command: %s\n' "${1:-}" >&2
+        exit 64
+        ;;
+esac

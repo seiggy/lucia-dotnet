@@ -1,5 +1,8 @@
+using System.Security.Claims;
+
 using lucia.AgentHost;
 using lucia.AgentHost.Apis;
+using lucia.AgentHost.Appliance;
 using lucia.AgentHost.Auth;
 using lucia.AgentHost.Hosting;
 using lucia.AgentHost.Conversation;
@@ -38,6 +41,10 @@ using OpenTelemetry.Trace;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
+var applianceMode = builder.Configuration["Appliance:Mode"] ?? "Off";
+var isInstalledAppliance = applianceMode.Equals(
+    "Installed",
+    StringComparison.OrdinalIgnoreCase);
 
 builder.AddServiceDefaults();
 builder.Services.AddAntiforgery();
@@ -89,7 +96,8 @@ else if (usePostgres)
 else if (useSqlite)
 {
     // SQLite configuration provider (replaces MongoDB config source)
-    var sqliteFactory = new SqliteConnectionFactory(dataProviderOptions.SqlitePath);
+    var sqliteFactory = new SqliteConnectionFactory(
+        SqliteDbNames.GetConfigPath(dataProviderOptions.SqlitePath));
     builder.Services.AddSingleton(sqliteFactory);
     builder.Configuration.AddSqliteConfiguration(sqliteFactory);
 }
@@ -337,6 +345,10 @@ builder.Services.AddAuthentication(options =>
 
 builder.Services.AddAuthorization(options =>
 {
+    options.AddPolicy(
+        AuthOptions.AdministratorPolicy,
+        policy => policy.RequireRole(AuthOptions.AdministratorRole));
+
     // Internal-only: only platform-injected token (agent → registry)
     options.AddPolicy("InternalOnly", policy =>
         policy.AddAuthenticationSchemes(InternalTokenDefaults.AuthenticationScheme)
@@ -372,6 +384,20 @@ builder.Services.AddSingleton<IAutoAssignEntityService, AutoAssignEntityService>
 builder.Services.AddSingleton<SkillOptimizerJobManager>();
 
 builder.Services.AddProblemDetails();
+if (isInstalledAppliance)
+{
+    var applianceSocketPath =
+        builder.Configuration["Appliance:ManagerSocketPath"]
+            ?? "/run/lucia-appliance/appliance-manager.sock";
+    builder.Services.AddSingleton(
+        new ApplianceManagerClient(applianceSocketPath));
+    builder.Services.AddHttpClient<ApplianceUpdateService>(client =>
+    {
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(
+            "lucia-appliance-updater/1.0");
+        client.Timeout = TimeSpan.FromSeconds(20);
+    });
+}
 
 builder.Services.AddOpenApi();
 
@@ -439,8 +465,11 @@ app.UseAuthorization();
 
 if (!app.Environment.IsDevelopment())
 {
-    app.UseExceptionHandler("/Error");
-    app.UseHsts();
+    app.UseExceptionHandler();
+    if (!isInstalledAppliance)
+    {
+        app.UseHsts();
+    }
 }
 else
 {
@@ -448,7 +477,7 @@ else
 }
 app.MapAuthApi();
 app.MapSetupApi();
-app.MapApiKeyManagementApi();
+app.MapApiKeyManagementApi(isInstalledAppliance);
 app.MapAgentRegistryApiV1();
 app.MapAgentProxyApi();
 app.MapAgentDiscovery();
@@ -495,7 +524,20 @@ app.MapVoiceConfigEndpoints();
 app.MapOnboardingEndpoints();
 app.MapVoiceClipEndpoints();
 #endif
-app.MapSystemApi();
+app.MapSystemApi(isInstalledAppliance);
+app.MapGet(
+        "/api/appliance/capabilities",
+        (ClaimsPrincipal user) => Results.Ok(new
+        {
+            Enabled = isInstalledAppliance
+                && user.IsInRole(AuthOptions.AdministratorRole),
+        }))
+    .RequireAuthorization()
+    .WithTags("Appliance");
+if (isInstalledAppliance)
+{
+    app.MapApplianceApi();
+}
 app.MapDefaultEndpoints();
 
 // Bootstrap plugin repository into MongoDB

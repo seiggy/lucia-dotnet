@@ -20,6 +20,7 @@ import {
 } from '../api'
 import type { SetupStatus, GenerateKeyResponse, TestHaConnectionResponse, AgentStatusResponse } from '../api'
 import type { ProviderType, ModelPurpose, ModelAuthConfig, ModelProvider } from '../types'
+import { copyTextToClipboard } from '../utils/copy-text'
 import { Sparkles, ArrowRight, Key, Plug, CheckCircle2, Copy, Check, Loader2, Radio, Brain, Cpu, Trash2, FlaskConical } from 'lucide-react'
 
 type WizardStep = 'welcome' | 'lucia-ha' | 'ai-providers' | 'agent-status' | 'ha-plugin' | 'done'
@@ -204,7 +205,7 @@ function LuciaHaStep({
   const [connectionTestBusy, setConnectionTestBusy] = useState(false)
   const [showHaForm, setShowHaForm] = useState(false)
 
-  const hasDashKey = status?.hasDashboardKey || dashboardKey !== null
+  const hasExistingKey = status?.hasAnyActiveKey || dashboardKey !== null
   const isAuthenticated = dashboardKey !== null || resumed || authFromContext
 
   // Test HA connection at startup when we already have config (e.g. headless)
@@ -260,8 +261,12 @@ function LuciaHaStep({
 
   async function handleCopyKey() {
     if (dashboardKey) {
-      await navigator.clipboard.writeText(dashboardKey.key)
-      setKeyCopied(true)
+      try {
+        await copyTextToClipboard(dashboardKey.key)
+        setKeyCopied(true)
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : 'Failed to copy dashboard key')
+      }
     }
   }
 
@@ -287,7 +292,7 @@ function LuciaHaStep({
         <h3 className="mb-3 flex items-center gap-2 font-display text-sm font-semibold text-amber">
           <Key className="h-4 w-4" /> Dashboard API Key
         </h3>
-        {!hasDashKey ? (
+        {!hasExistingKey ? (
           <>
             <p className="mb-3 text-sm text-fog">
               Generate an API key to log into the Lucia dashboard. Save it — you won't see it again.
@@ -305,7 +310,11 @@ function LuciaHaStep({
               <code className="flex-1 rounded-lg bg-void px-3 py-2.5 font-mono text-sm text-amber select-all">
                 {dashboardKey.key}
               </code>
-              <button onClick={handleCopyKey} className={btnSecondary + ' !px-3 !py-2.5'}>
+              <button
+                onClick={handleCopyKey}
+                aria-label={keyCopied ? 'Dashboard key copied' : 'Copy dashboard key'}
+                className={btnSecondary + ' !px-3 !py-2.5'}
+              >
                 {keyCopied ? <Check className="h-4 w-4 text-sage" /> : <Copy className="h-4 w-4" />}
               </button>
             </div>
@@ -316,16 +325,22 @@ function LuciaHaStep({
         ) : (
           <div className="space-y-3">
             {resumed || authFromContext ? (
-              <p className="flex items-center gap-1.5 text-sm text-sage">
-                <CheckCircle2 className="h-4 w-4" /> Authenticated — continue setup below
-              </p>
+              status?.hasAdministratorKey ? (
+                <p className="flex items-center gap-1.5 text-sm text-sage">
+                  <CheckCircle2 className="h-4 w-4" /> Authenticated — continue setup below
+                </p>
+              ) : (
+                <p className="text-sm text-rose">
+                  This installation has no appliance owner key. Reset its data or reinstall the appliance to recover ownership.
+                </p>
+              )
             ) : (
               <>
                 <p className="flex items-center gap-1.5 text-sm text-amber">
-                  <Key className="h-4 w-4" /> Dashboard key was already generated
+                  <Key className="h-4 w-4" /> An API key already exists
                 </p>
                 <p className="text-sm text-fog">
-                  Enter your dashboard API key to resume setup where you left off.
+                  Enter an existing API key to resume setup where you left off.
                 </p>
                 <div className="flex gap-2">
                   <input
@@ -1003,8 +1018,12 @@ function HaPluginStep({
 
   async function handleCopyKey() {
     if (haKey) {
-      await navigator.clipboard.writeText(haKey.key)
-      setKeyCopied(true)
+      try {
+        await copyTextToClipboard(haKey.key)
+        setKeyCopied(true)
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : 'Failed to copy Home Assistant key')
+      }
     }
   }
 
@@ -1037,7 +1056,11 @@ function HaPluginStep({
               <code className="flex-1 rounded-lg bg-void px-3 py-2.5 font-mono text-sm text-amber select-all">
                 {haKey.key}
               </code>
-              <button onClick={handleCopyKey} className={btnSecondary + ' !px-3 !py-2.5'}>
+              <button
+                onClick={handleCopyKey}
+                aria-label={keyCopied ? 'Home Assistant key copied' : 'Copy Home Assistant key'}
+                className={btnSecondary + ' !px-3 !py-2.5'}
+              >
                 {keyCopied ? <Check className="h-4 w-4 text-sage" /> : <Copy className="h-4 w-4" />}
               </button>
             </div>

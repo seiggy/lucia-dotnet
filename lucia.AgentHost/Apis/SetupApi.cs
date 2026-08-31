@@ -57,10 +57,19 @@ public static class SetupApi
 
         var keys = await apiKeyService.ListKeysAsync(ct).ConfigureAwait(false);
         var now = DateTime.UtcNow;
+        var activeKeys = keys.Where(
+                key => !key.IsRevoked
+                    && (!key.ExpiresAt.HasValue
+                        || key.ExpiresAt.Value > now))
+            .ToList();
         var hasDashboardKey = keys.Any(
             k => string.Equals(k.Name, "Dashboard", StringComparison.Ordinal)
                 && !k.IsRevoked
                 && (!k.ExpiresAt.HasValue || k.ExpiresAt.Value > now));
+        var hasAdministratorKey = activeKeys.Any(key =>
+            key.Scopes.Contains(
+                AuthOptions.AdministratorScope,
+                StringComparer.Ordinal));
         var hasHaApiKey = keys.Any(
             k => string.Equals(k.Name, "Home Assistant", StringComparison.Ordinal)
                 && !k.IsRevoked
@@ -77,6 +86,8 @@ public static class SetupApi
         return Results.Ok(new
         {
             hasDashboardKey,
+            hasAnyActiveKey = activeKeys.Count > 0,
+            hasAdministratorKey,
             hasHaConnection = !string.IsNullOrWhiteSpace(haUrl) && !string.IsNullOrWhiteSpace(haToken),
             hasHaApiKey,
             haUrl = !string.IsNullOrWhiteSpace(haUrl) ? haUrl : null,
@@ -93,23 +104,29 @@ public static class SetupApi
         IApiKeyService apiKeyService,
         HttpContext httpContext)
     {
-        // Idempotent: if a Dashboard key already exists and is active, don't create another
-        var existingKeys = await apiKeyService.ListKeysAsync(httpContext.RequestAborted).ConfigureAwait(false);
-        var now = DateTime.UtcNow;
-        var dashboardKey = existingKeys.FirstOrDefault(
-            k => string.Equals(k.Name, "Dashboard", StringComparison.Ordinal)
-                && !k.IsRevoked
-                && (!k.ExpiresAt.HasValue || k.ExpiresAt.Value > now));
-        if (dashboardKey is not null)
+        var activeKeyCount = await apiKeyService
+            .GetActiveKeyCountAsync(httpContext.RequestAborted)
+            .ConfigureAwait(false);
+        if (activeKeyCount > 0)
         {
             return Results.Conflict(new
             {
-                error = "Dashboard key already exists. Use the key management API to regenerate it.",
-                keyPrefix = dashboardKey.KeyPrefix,
+                error = "API keys already exist. Reset storage before creating a new setup owner.",
             });
         }
 
-        var result = await apiKeyService.CreateKeyAsync("Dashboard", httpContext.RequestAborted).ConfigureAwait(false);
+        var result = await apiKeyService
+            .CreateAdministratorKeyIfNoneAsync(
+                "Dashboard",
+                httpContext.RequestAborted)
+            .ConfigureAwait(false);
+        if (result is null)
+        {
+            return Results.Conflict(new
+            {
+                error = "A Dashboard administrator key already exists.",
+            });
+        }
 
         return Results.Ok(new
         {
@@ -125,6 +142,7 @@ public static class SetupApi
     private static async Task<IResult> ConfigureHomeAssistantAsync(
         [FromBody] ConfigureHaRequest request,
         IConfigStoreWriter configStore,
+        IConfiguration configuration,
         HttpContext httpContext)
     {
         if (string.IsNullOrWhiteSpace(request.BaseUrl))
@@ -151,6 +169,11 @@ public static class SetupApi
         if (!string.IsNullOrWhiteSpace(request.AccessToken))
         {
             await configStore.SetAsync("HomeAssistant:AccessToken", request.AccessToken, "setup-wizard", isSensitive: true, cancellationToken: ct).ConfigureAwait(false);
+        }
+
+        if (configuration is IConfigurationRoot configurationRoot)
+        {
+            configurationRoot.Reload();
         }
 
         return Results.Ok(new { saved = true });

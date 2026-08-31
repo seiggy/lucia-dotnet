@@ -1,0 +1,180 @@
+using System.Text.Json;
+using lucia.AgentHost.Appliance;
+using lucia.Agents.Auth;
+
+namespace lucia.AgentHost.Apis;
+
+public static class ApplianceApi
+{
+    public static RouteGroupBuilder MapApplianceApi(
+        this IEndpointRouteBuilder endpoints)
+    {
+        var group = endpoints.MapGroup("/api/appliance")
+            .WithTags("Appliance")
+            .RequireAuthorization(AuthOptions.AdministratorPolicy);
+
+        group.MapGet(
+            "/status",
+            async (
+                ApplianceManagerClient manager,
+                CancellationToken cancellationToken) =>
+            {
+                try
+                {
+                    return Results.Ok(await manager
+                        .GetStatusAsync(cancellationToken)
+                        .ConfigureAwait(false));
+                }
+                catch (HttpRequestException exception)
+                {
+                    return ManagerProblem(exception, "Appliance status failed");
+                }
+            });
+        group.MapPost(
+            "/services/{service}/restart",
+            async (
+                string service,
+                ApplianceManagerClient manager,
+                HttpContext context,
+                IHostApplicationLifetime lifetime,
+                CancellationToken cancellationToken) =>
+            {
+                if (service == "agenthost")
+                {
+                    context.Response.OnCompleted(() =>
+                    {
+                        lifetime.StopApplication();
+                        return Task.CompletedTask;
+                    });
+                    return Results.Accepted();
+                }
+                try
+                {
+                    await manager.RestartServiceAsync(service, cancellationToken)
+                        .ConfigureAwait(false);
+                    return Results.Accepted();
+                }
+                catch (HttpRequestException exception)
+                {
+                    return ManagerProblem(exception, "Service restart failed");
+                }
+            });
+        group.MapPost(
+            "/host/reboot",
+            async (
+                ApplianceManagerClient manager,
+                CancellationToken cancellationToken) =>
+            {
+                try
+                {
+                    await manager.RebootHostAsync(cancellationToken)
+                        .ConfigureAwait(false);
+                    return Results.Accepted();
+                }
+                catch (HttpRequestException exception)
+                {
+                    return ManagerProblem(exception, "Jetson reboot failed");
+                }
+            });
+        group.MapGet(
+            "/telemetry",
+            async (
+                ApplianceManagerClient manager,
+                CancellationToken cancellationToken) =>
+            {
+                try
+                {
+                    return Results.Ok(await manager
+                        .GetTelemetryAsync(cancellationToken)
+                        .ConfigureAwait(false));
+                }
+                catch (HttpRequestException exception)
+                {
+                    return ManagerProblem(
+                        exception,
+                        "Telemetry status failed");
+                }
+            });
+        group.MapPut(
+            "/telemetry",
+            async (
+                ApplianceTelemetryConfigurationRequest request,
+                ApplianceManagerClient manager,
+                HttpContext context,
+                IHostApplicationLifetime lifetime,
+                CancellationToken cancellationToken) =>
+            {
+                try
+                {
+                    var status = await manager
+                        .UpdateTelemetryAsync(request, cancellationToken)
+                        .ConfigureAwait(false);
+                    context.Response.OnCompleted(() =>
+                    {
+                        lifetime.StopApplication();
+                        return Task.CompletedTask;
+                    });
+                    return Results.Ok(status);
+                }
+                catch (HttpRequestException exception)
+                {
+                    return ManagerProblem(
+                        exception,
+                        "Telemetry configuration failed");
+                }
+            });
+        group.MapGet(
+            "/updates",
+            async (
+                ApplianceUpdateService updates,
+                CancellationToken cancellationToken) =>
+            {
+                try
+                {
+                    return Results.Ok(await updates
+                        .CheckAsync(cancellationToken)
+                        .ConfigureAwait(false));
+                }
+                catch (HttpRequestException exception)
+                {
+                    return Results.Problem(
+                        detail: exception.Message,
+                        statusCode: StatusCodes.Status502BadGateway,
+                        title: "GitHub update check failed");
+                }
+                catch (OperationCanceledException exception) when (
+                    !cancellationToken.IsCancellationRequested)
+                {
+                    return Results.Problem(
+                        detail: exception.Message,
+                        statusCode: StatusCodes.Status504GatewayTimeout,
+                        title: "GitHub update check timed out");
+                }
+                catch (Exception exception) when (
+                    exception is JsonException
+                        or InvalidDataException
+                        or KeyNotFoundException
+                        or InvalidOperationException
+                        or FormatException
+                        or OverflowException)
+                {
+                    return Results.Problem(
+                        detail: exception.Message,
+                        statusCode: StatusCodes.Status502BadGateway,
+                        title: "GitHub appliance manifest is invalid");
+                }
+            });
+
+        return group;
+    }
+
+    private static IResult ManagerProblem(
+        HttpRequestException exception,
+        string title) =>
+        Results.Problem(
+            detail: exception.Message,
+            statusCode: exception.StatusCode is null
+                ? StatusCodes.Status502BadGateway
+                : (int)exception.StatusCode,
+            title: title);
+}
