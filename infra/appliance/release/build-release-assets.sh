@@ -52,7 +52,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/../../.." && pwd)"
 source "$script_dir/appliance.lock"
 
-for command in curl docker dotnet findmnt mountpoint npm openssl python3 sha1sum sha256sum tar umount zstd; do
+for command in curl docker dotnet findmnt mountpoint npm openssl python3 sha256sum tar umount zstd; do
     command -v "$command" >/dev/null || die "required command is missing: $command"
 done
 sudo -n true 2>/dev/null || die "passwordless sudo is required"
@@ -83,18 +83,6 @@ sd_bsp_dir="$work_dir/sd-bsp"
 raw_dir="$output_dir/raw"
 mkdir -p "$downloads" "$raw_dir"
 
-download_sha1() {
-    local url="$1"
-    local expected="$2"
-    local destination="$3"
-
-    if [[ ! -f "$destination" ]]; then
-        curl --fail --location --retry 3 --output "$destination" "$url"
-    fi
-    printf '%s  %s\n' "$expected" "$destination" | sha1sum --check --status \
-        || die "download checksum failed: $destination"
-}
-
 download_sha256() {
     local url="$1"
     local expected="$2"
@@ -107,13 +95,13 @@ download_sha256() {
         || die "download checksum failed: $destination"
 }
 
-download_sha1 \
+download_sha256 \
     "$JETSON_BSP_URL" \
-    "$JETSON_BSP_SHA1" \
+    "$JETSON_BSP_SHA256" \
     "$downloads/Jetson_Linux_R${JETSON_LINUX_VERSION}_aarch64.tbz2"
-download_sha1 \
+download_sha256 \
     "$JETSON_ROOTFS_URL" \
-    "$JETSON_ROOTFS_SHA1" \
+    "$JETSON_ROOTFS_SHA256" \
     "$downloads/Tegra_Linux_Sample-Root-Filesystem_R${JETSON_LINUX_VERSION}_aarch64.tbz2"
 download_sha256 \
     "$OTELCOL_URL" \

@@ -4,6 +4,8 @@ Documentation=https://github.com/seiggy/lucia-dotnet
 After=local-fs.target systemd-udev-settle.service lucia-installer-host.service
 Wants=systemd-udev-settle.service lucia-installer-host.service
 ConditionPathExists=/opt/lucia-installer/lucia-nvme.img.zst
+ConditionPathExists=|/var/lib/lucia-installer/install.requested
+ConditionPathExists=|/var/lib/lucia-installer/install.state
 
 [Service]
 Type=oneshot
