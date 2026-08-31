@@ -133,7 +133,7 @@ test('does not expose installer setup on a non-appliance host', async ({ page })
   });
 
   await page.goto('/install');
-  await expect(page).toHaveURL('http://127.0.0.1:4174/');
+  await expect(page).toHaveURL(/\/setup$/);
   await expect(page.getByRole('heading', { name: 'Bring Lucia home' })).toHaveCount(0);
 });
 

@@ -114,22 +114,30 @@ export default function InstallerPage() {
       || installerStatus.phase === 'failed'
     ) return
 
-    const interval = window.setInterval(() => {
-      fetchInstallerStatus()
-        .then((status) => {
+    let cancelled = false
+    let timeout: number | undefined
+    async function poll() {
+      try {
+        const status = await fetchInstallerStatus()
+        if (!cancelled) {
           setInstallerStatus(status)
           if (status.hostname) setHostname(status.hostname)
           setError('')
-          if (status.phase === 'installed' || status.phase === 'failed') {
-            window.clearInterval(interval)
-          }
-        })
-        .catch(() => {
+        }
+        if (status.phase === 'installed' || status.phase === 'failed') return
+      } catch {
+        if (!cancelled) {
           setError('Connection to the installer was lost. Lucia may be powering off; check the appliance before disconnecting power.')
-        })
-    }, 1000)
+        }
+      }
+      if (!cancelled) timeout = window.setTimeout(() => void poll(), 1000)
+    }
+    timeout = window.setTimeout(() => void poll(), 1000)
 
-    return () => window.clearInterval(interval)
+    return () => {
+      cancelled = true
+      if (timeout !== undefined) window.clearTimeout(timeout)
+    }
   }, [step, installerStatus.phase])
 
   async function handleClaim() {
@@ -156,7 +164,7 @@ export default function InstallerPage() {
       setNetworks(availableNetworks)
       setStep('storage')
     } catch (claimError: unknown) {
-      setError(claimError instanceof Error ? claimError.message : 'Lucia could not verify that code.')
+      setError(claimError instanceof Error ? claimError.message : 'Lucia could not claim this setup session.')
     } finally {
       setBusy(false)
     }

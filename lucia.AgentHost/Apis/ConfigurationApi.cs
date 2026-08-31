@@ -494,6 +494,7 @@ public static class ConfigurationApi
     {
         var lower = key.ToLowerInvariant();
         return lower.Contains("token") || lower.Contains("password") || lower.Contains("secret") ||
+               lower.Contains("otlpheaders") ||
                lower.Contains("key") || lower.Contains("accesskey") || lower.Contains("connectionstring");
     }
 }

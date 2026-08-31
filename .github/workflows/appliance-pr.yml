@@ -1,0 +1,85 @@
+name: Appliance PR
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - '.github/workflows/appliance-*.yml'
+      - 'infra/appliance/**'
+      - 'lucia.AgentHost/Apis/ApplianceApi.cs'
+      - 'lucia.AgentHost/Apis/ConfigurationApi.cs'
+      - 'lucia.AgentHost/Appliance/**'
+      - 'lucia.ApplianceManager/**'
+      - 'lucia.InstallerHost/**'
+      - 'lucia.ServiceDefaults/**'
+      - 'lucia.Tests/Apis/ConfigurationApiSensitiveKeyTests.cs'
+      - 'lucia.Tests/Appliance/**'
+      - 'lucia-dashboard/**'
+      - 'lucia-playwright/**'
+
+permissions:
+  contents: read
+
+jobs:
+  appliance:
+    name: Appliance tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 10.0.201
+
+      - name: Install image test tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq gdisk zstd
+
+      - name: Run appliance suites
+        run: |
+          python3 infra/appliance/release/test_package_release.py
+          bash infra/appliance/release/test_build_release_assets.sh
+          bash infra/appliance/test-build-native-bundle.sh
+          bash infra/appliance/installer/test-installer-rootfs.sh
+          bash infra/appliance/installer/test-network-bootstrap.sh
+          sudo bash infra/appliance/installer/test-provision-target.sh
+          bash infra/appliance/installer/test-installer-host.sh
+          bash infra/appliance/manager/test-lucia-appliance-manager.sh
+          sudo bash infra/appliance/installer/test-lucia-install.sh
+          sudo bash infra/appliance/installer/test-installer-control.sh
+          sudo bash infra/appliance/installer/test-firstboot-install.sh
+          sudo bash infra/appliance/installer/test-expand-data.sh
+
+  browser:
+    name: Appliance browser tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            lucia-dashboard/package-lock.json
+            lucia-playwright/package-lock.json
+
+      - run: npm ci --prefix lucia-dashboard
+      - run: npm ci --prefix lucia-playwright
+      - run: npm exec --prefix lucia-playwright -- playwright install --with-deps chromium
+      - run: npm --prefix lucia-dashboard run build
+
+      - name: Run appliance browser specs
+        run: |
+          npm exec --prefix lucia-dashboard -- vite preview lucia-dashboard &
+          for attempt in {1..30}; do
+            curl --fail --silent http://127.0.0.1:4173 >/dev/null && break
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:4173 >/dev/null
+          npm exec --prefix lucia-playwright -- playwright test \
+            --config=lucia-playwright/playwright.config.ts \
+            00-installer.spec.ts \
+            00-appliance.spec.ts
+        env:
+          BASE_URL: http://127.0.0.1:4173
+          SKIP_DOCKER: '1'
