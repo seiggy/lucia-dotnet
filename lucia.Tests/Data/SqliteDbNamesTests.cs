@@ -130,6 +130,7 @@ public sealed class SqliteDbNamesTests
             _ = SqliteDbNames.GetCompatiblePath(basePath, SqliteDbNames.Traces);
             _ = SqliteDbNames.GetCompatiblePath(basePath, SqliteDbNames.Tasks);
             SqliteDbNames.ArchiveLegacyDatabase(basePath);
+            SqliteDbNames.ArchiveLegacyDatabase(basePath);
 
             Assert.False(File.Exists(basePath));
             Assert.True(File.Exists($"{basePath}.legacy"));

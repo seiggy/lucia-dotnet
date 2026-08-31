@@ -14,6 +14,7 @@ authorization_file="$state_dir/erase.authorization"
 provisioning_file="$state_dir/provisioning.json"
 provision_state_file="$state_dir/provision.state"
 progress_file="$state_dir/progress.json"
+dashboard_key_handoff="$state_dir/dashboard-key.handoff"
 
 mkdir -p "$state_dir"
 
@@ -28,6 +29,12 @@ write_progress() {
 power_off_for_handoff() {
     write_progress syncing
     sync
+    if [[ -f "$dashboard_key_handoff" ]]; then
+        printf 'Waiting for Dashboard owner key confirmation.\n'
+        while [[ -f "$dashboard_key_handoff" ]]; do
+            sleep 1
+        done
+    fi
     write_progress powering-off
     printf 'Lucia installation completed. Powering off for SD card removal.\n'
     "$systemctl_path" --no-block poweroff

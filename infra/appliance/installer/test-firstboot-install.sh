@@ -83,6 +83,7 @@ grep -q 'Waiting for storage selection and erase authorization.' <<< "$output"
 [[ ! -e "$work_dir/install.log" ]]
 
 printf 'status=started\n' > "$work_dir/state/install.requested"
+printf 'lk_owner-key\n' > "$work_dir/state/dashboard-key.handoff"
 LUCIA_CHECKSUM_PATH="$work_dir/payload.img.sha256" \
 LUCIA_INSTALL_PATH="$work_dir/lucia-install" \
 LUCIA_EXPAND_PATH="$work_dir/lucia-expand-data" \
@@ -94,7 +95,18 @@ LUCIA_TEST_INSTALL_LOG="$work_dir/install.log" \
 LUCIA_TEST_EXPAND_LOG="$work_dir/expand.log" \
 LUCIA_TEST_PROVISION_LOG="$work_dir/provision.log" \
 LUCIA_TEST_SYSTEMCTL_LOG="$work_dir/systemctl.log" \
-    "$firstboot"
+    "$firstboot" &
+firstboot_pid=$!
+for _ in {1..40}; do
+    grep -q '"stage":"syncing"' "$work_dir/state/progress.json" \
+        2>/dev/null && break
+    sleep 0.05
+done
+grep -q '"stage":"syncing"' "$work_dir/state/progress.json"
+[[ ! -e "$work_dir/systemctl.log" ]] \
+    || ! grep -q -- '--no-block poweroff' "$work_dir/systemctl.log"
+rm "$work_dir/state/dashboard-key.handoff"
+wait "$firstboot_pid"
 
 grep -q -- "--device $device_id" "$work_dir/install.log"
 grep -qx -- "$device_id" "$work_dir/expand.log"
@@ -103,7 +115,7 @@ grep -qx -- '--no-block poweroff' "$work_dir/systemctl.log"
 grep -q '^status=provisioned$' "$work_dir/state/provision.state"
 grep -q '"stage":"powering-off"' "$work_dir/state/progress.json"
 
-echo "PASS: first boot installs, provisions, and powers off"
+echo "PASS: first boot waits for owner-key acknowledgment before poweroff"
 
 : > "$work_dir/systemctl.log"
 LUCIA_CHECKSUM_PATH="$work_dir/payload.img.sha256" \

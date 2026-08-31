@@ -198,6 +198,11 @@ public static class SqliteDbNames
 
     internal static void ArchiveLegacyDatabase(string basePath)
     {
+        if (!File.Exists(basePath))
+        {
+            return;
+        }
+
         var allImportsComplete = new[] { Config, Traces, Tasks }
             .Select(databaseName => GetPath(basePath, databaseName))
             .All(path =>
