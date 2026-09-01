@@ -29,6 +29,8 @@ grep -q 'usermod --shell.*lucia-recovery' \
     "$script_dir/build-release-assets.sh"
 grep -q '^FROM scratch AS appliance-voice-assets$' \
     "$voice_dockerfile"
+[[ "$(grep -c 'Acquire::Retries "5"' "$voice_dockerfile")" -eq 2 ]]
+[[ "$(grep -c 'APT::Update::Error-Mode "any"' "$voice_dockerfile")" -eq 2 ]]
 grep -q 'docker pull --platform linux/arm64 "$voice_asset_ref"' \
     "$script_dir/build-release-assets.sh"
 ! grep -q 'docker buildx build' \
@@ -39,6 +41,8 @@ grep -q 'voice-asset-key.sh' \
 grep -q 'cp -a "$repo_root/plugins/." "$voice_dir/plugins/"' \
     "$script_dir/build-release-assets.sh"
 grep -q 'target: appliance-voice-assets' \
+    "$workflow_dir/jetson-voice-assets.yml"
+grep -q 'docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0' \
     "$workflow_dir/jetson-voice-assets.yml"
 grep -q 'keep-state: true' \
     "$workflow_dir/jetson-voice-assets.yml"

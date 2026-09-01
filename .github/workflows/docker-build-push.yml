@@ -111,7 +111,7 @@ jobs:
 
       - name: Build and push missing asset image
         if: steps.asset-image.outputs.exists != 'true' && env.CAN_PUSH_ASSETS == 'true'
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: infra/docker/Dockerfile.assets
@@ -202,6 +202,17 @@ jobs:
           EFFECTIVE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
         run: |
           echo "short_sha=${EFFECTIVE_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          echo "full_sha=${EFFECTIVE_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Validate release tag
+        if: github.ref_type == 'tag'
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [[ ! "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(preview|insider)(\.[0-9]+)?)?$ ]]; then
+            echo "::error::Release tag must be stable, preview, or insider semantic version."
+            exit 1
+          fi
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
@@ -232,10 +243,24 @@ jobs:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
+      - name: Check for existing commit image
+        id: commit-image
+        if: github.event_name != 'pull_request'
+        env:
+          COMMIT_IMAGE: ${{ matrix.image }}:sha-${{ steps.build-ref.outputs.full_sha }}${{ matrix.tag_suffix }}
+        run: |
+          if docker manifest inspect "$COMMIT_IMAGE" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up QEMU
+        if: steps.commit-image.outputs.exists != 'true'
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4
 
       - name: Set up Docker Buildx
+        if: steps.commit-image.outputs.exists != 'true'
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
 
       - name: Detect preview release
@@ -268,6 +293,7 @@ jobs:
             type=ref,event=pr,suffix=${{ matrix.tag_suffix }}
             type=sha,prefix=sha-,suffix=${{ matrix.tag_suffix }},enable=${{ github.event_name != 'workflow_run' }}
             type=raw,value=sha-${{ steps.build-ref.outputs.short_sha }}${{ matrix.tag_suffix }},enable=${{ github.event_name == 'workflow_run' }}
+            type=raw,value=sha-${{ steps.build-ref.outputs.full_sha }}${{ matrix.tag_suffix }},enable=${{ github.event_name != 'pull_request' }}
             type=raw,value=${{ steps.preview.outputs.version_tag }}${{ matrix.tag_suffix }},enable=${{ github.event_name == 'workflow_dispatch' && steps.preview.outputs.is_preview == 'true' && steps.preview.outputs.version_tag != '' }}
           labels: |
             org.opencontainers.image.title=${{ matrix.title }}
@@ -277,7 +303,8 @@ jobs:
 
       - name: Build and push Docker image
         id: build-push
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        if: steps.commit-image.outputs.exists != 'true'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -298,7 +325,14 @@ jobs:
             VERSION=${{ steps.meta.outputs.version }}
 
       - name: Image digest
-        run: echo "${{ matrix.image }}@${{ steps.build-push.outputs.digest }}"
+        env:
+          COMMIT_IMAGE: ${{ matrix.image }}:sha-${{ steps.build-ref.outputs.full_sha }}${{ matrix.tag_suffix }}
+        run: |
+          if [[ "${{ steps.commit-image.outputs.exists }}" == "true" ]]; then
+            echo "Reusing $COMMIT_IMAGE"
+          else
+            echo "${{ matrix.image }}@${{ steps.build-push.outputs.digest }}"
+          fi
 
   promote-channels:
     name: Promote current channels
@@ -306,9 +340,7 @@ jobs:
     needs: build-and-push
     if: |
       github.event_name != 'pull_request' &&
-      needs.build-and-push.result == 'success' &&
-      !(github.event_name == 'workflow_dispatch' && inputs.preview == true) &&
-      !(github.ref_type == 'tag' && contains(github.ref_name, '-preview'))
+      needs.build-and-push.result == 'success'
     concurrency:
       group: docker-channel-promotion
       cancel-in-progress: false
@@ -327,8 +359,9 @@ jobs:
         env:
           EFFECTIVE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
           IS_RELEASE_TAG: ${{ github.ref_type == 'tag' }}
+          IS_DISPATCH_PREVIEW: ${{ github.event_name == 'workflow_dispatch' && inputs.preview == true }}
         run: |
-          if [[ "$IS_RELEASE_TAG" != "true" ]]; then
+          if [[ "$IS_RELEASE_TAG" != "true" && "$IS_DISPATCH_PREVIEW" != "true" ]]; then
             master_sha=$(git ls-remote https://github.com/${{ github.repository }} refs/heads/master | cut -f1)
             if [[ "$EFFECTIVE_SHA" != "$master_sha" ]]; then
               echo "Skipping channel promotion because master advanced to $master_sha."
@@ -336,31 +369,61 @@ jobs:
             fi
           fi
 
-          short_sha=${EFFECTIVE_SHA:0:7}
+          full_sha=$EFFECTIVE_SHA
+          suffixes=("" "-voice" "-voice-cpu" "-ha-mono")
+          if [[ "$IS_DISPATCH_PREVIEW" == "true" ]]; then
+            version="0.0.0-preview.${EFFECTIVE_SHA:0:7}"
+            for suffix in "${suffixes[@]}"; do
+              docker buildx imagetools create \
+                -t "seiggy/lucia-agenthost:$version${suffix}" \
+                "seiggy/lucia-agenthost:sha-$full_sha${suffix}"
+            done
+            exit 0
+          fi
+
+          if [[ "$IS_RELEASE_TAG" == "true" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            minor="${version%.*}"
+            for suffix in "${suffixes[@]}"; do
+              source="seiggy/lucia-agenthost:sha-$full_sha${suffix}"
+              docker buildx imagetools create \
+                -t "seiggy/lucia-agenthost:$version${suffix}" \
+                "$source"
+              if [[ "$version" != *-* ]]; then
+                docker buildx imagetools create \
+                  -t "seiggy/lucia-agenthost:$minor${suffix}" \
+                  "$source"
+              fi
+            done
+            if [[ "$version" == *-* ]]; then
+              exit 0
+            fi
+          fi
+
           if [[ "$IS_RELEASE_TAG" != "true" ]]; then
             docker buildx imagetools create \
               -t seiggy/lucia-agenthost:master \
-              seiggy/lucia-agenthost:sha-$short_sha
+              seiggy/lucia-agenthost:sha-$full_sha
             docker buildx imagetools create \
               -t seiggy/lucia-agenthost:master-voice \
-              seiggy/lucia-agenthost:sha-$short_sha-voice
+              seiggy/lucia-agenthost:sha-$full_sha-voice
             docker buildx imagetools create \
               -t seiggy/lucia-agenthost:master-voice-cpu \
-              seiggy/lucia-agenthost:sha-$short_sha-voice-cpu
+              seiggy/lucia-agenthost:sha-$full_sha-voice-cpu
             docker buildx imagetools create \
               -t seiggy/lucia-agenthost:master-ha-mono \
-              seiggy/lucia-agenthost:sha-$short_sha-ha-mono
+              seiggy/lucia-agenthost:sha-$full_sha-ha-mono
           fi
 
           docker buildx imagetools create \
             -t seiggy/lucia-agenthost:latest \
-            seiggy/lucia-agenthost:sha-$short_sha
+            seiggy/lucia-agenthost:sha-$full_sha
           docker buildx imagetools create \
             -t seiggy/lucia-agenthost:voice \
-            seiggy/lucia-agenthost:sha-$short_sha-voice
+            seiggy/lucia-agenthost:sha-$full_sha-voice
           docker buildx imagetools create \
             -t seiggy/lucia-agenthost:ha-mono \
-            seiggy/lucia-agenthost:sha-$short_sha-ha-mono
+            seiggy/lucia-agenthost:sha-$full_sha-ha-mono
 
   # ==========================================================================
   # Security scan on push to main
@@ -376,7 +439,7 @@ jobs:
         id: scan-ref
         env:
           EFFECTIVE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
-        run: echo "image_ref=seiggy/lucia-agenthost:sha-${EFFECTIVE_SHA:0:7}-voice" >> "$GITHUB_OUTPUT"
+        run: echo "image_ref=seiggy/lucia-agenthost:sha-${EFFECTIVE_SHA}-voice" >> "$GITHUB_OUTPUT"
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
