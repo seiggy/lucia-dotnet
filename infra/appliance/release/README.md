@@ -76,6 +76,15 @@ The runner must have:
 - .NET 10, Node 22, and Python 3.12, installed by the workflow;
 - direct internet access to NVIDIA, Ubuntu, NuGet, npm, GitHub, and GHCR.
 
+The release downloads the pinned Jetson voice asset image from GHCR and
+extracts its native libraries and models into the Lucia payload. Docker is
+used only on the build runner; the installed appliance runs native services.
+`.github/workflows/jetson-voice-assets.yml` rebuilds that image only when its
+pinned Dockerfile inputs change. Appliance releases invoke that workflow first
+and consume the exact returned image digest. Its named Buildx builder retains
+completed build layers across failed or timed-out runs on the dedicated runner.
+An interrupted compile step still restarts from the beginning.
+
 The image build is unsuitable for a standard GitHub-hosted runner because the
 two Jetson rootfs trees, signed flash package, raw images, voice build, and
 compressed outputs exceed its disk allowance.
@@ -94,8 +103,10 @@ Manual runs require an existing stable tag and GitHub Release.
 python3 infra/appliance/release/test_package_release.py
 bash infra/appliance/release/test_build_release_assets.sh
 bash -n infra/appliance/release/build-release-assets.sh
+act -l -W .github/workflows/jetson-voice-assets.yml
 act -l -W .github/workflows/appliance-release.yml
 ```
 
 The complete image build still requires the dedicated Linux runner and roughly
-200 GiB of scratch space.
+200 GiB of scratch space. The first voice asset compilation may take more than
+six hours on older x86-64 hardware; both self-hosted jobs allow up to 12 hours.

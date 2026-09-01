@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: write
+  packages: read
   id-token: write
   attestations: write
 
@@ -22,16 +23,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-and-publish:
-    name: Build and publish appliance assets
-    runs-on: [self-hosted, Linux, X64, jetson-image-builder]
-    timeout-minutes: 360
-    defaults:
-      run:
-        shell: bash
+  validate-release-tag:
+    name: Validate release tag
+    runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-
     steps:
       - name: Validate release tag
         run: |
@@ -40,6 +36,29 @@ jobs:
             exit 1
           fi
 
+  voice-assets:
+    needs: validate-release-tag
+    uses: ./.github/workflows/jetson-voice-assets.yml
+    with:
+      ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+    permissions:
+      contents: read
+      packages: write
+
+  build-and-publish:
+    name: Build and publish appliance assets
+    needs: [validate-release-tag, voice-assets]
+    runs-on: [self-hosted, Linux, X64, jetson-image-builder]
+    timeout-minutes: 720
+    defaults:
+      run:
+        shell: bash
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      VOICE_ASSET_IMAGE: ghcr.io/${{ github.repository }}/jetson-voice-assets
+      VOICE_ASSET_REF: ${{ needs.voice-assets.outputs.image_ref }}
+
+    steps:
       - name: Check out release
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -68,8 +87,12 @@ jobs:
         with:
           platforms: arm64
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify dedicated runner
         run: |
@@ -231,5 +254,5 @@ jobs:
           sudo rm -rf --one-file-system -- \
             "$work_dir" \
             "$GITHUB_WORKSPACE/dist"
-          docker image rm "lucia-appliance-voice-assets:$version" \
+          docker image rm "$VOICE_ASSET_REF" \
             >/dev/null 2>&1 || true

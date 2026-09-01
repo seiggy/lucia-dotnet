@@ -290,6 +290,12 @@ RUN mkdir -p /assets/models/speech-enhancement/gtcrn_simple \
           /assets/models/speech-enhancement/gtcrn_simple/gtcrn_simple.onnx \
           b4718df6228e7bdf1a8a435cf98f838636eb2fd331acabf86ba87c5192ebcb87
 
+# Build-only artifact consumed by native appliance releases. The target contains
+# no executable container runtime; Docker is only the reproducible ARM64 compiler.
+FROM scratch AS appliance-voice-assets
+COPY --from=sherpa-build /native/ /native/
+COPY --from=model-download /assets/models/ /models/
+
 # ============================================================================
 # Stage: node-build — React SPA dashboard (arch-independent)
 # ============================================================================
