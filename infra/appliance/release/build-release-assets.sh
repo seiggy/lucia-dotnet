@@ -192,19 +192,21 @@ tar -xzf \
 [[ -x "$telemetry_dir/redis-exporter/redis_exporter" ]] \
     || die "Redis exporter archive did not contain redis_exporter"
 
-voice_image="lucia-appliance-voice-assets:${version}"
-docker buildx build \
-    --platform linux/arm64 \
-    --load \
-    --tag "$voice_image" \
-    --file "$repo_root/infra/docker/Dockerfile.agenthost-jetson-voice" \
-    "$repo_root"
-voice_container="$(docker create "$voice_image")"
+voice_asset_hash="$(
+    sha256sum "$repo_root/infra/docker/Dockerfile.agenthost-jetson-voice" \
+        | cut -d' ' -f1
+)"
+voice_asset_image="${VOICE_ASSET_IMAGE:-ghcr.io/seiggy/lucia-dotnet/jetson-voice-assets}"
+voice_asset_ref="${VOICE_ASSET_REF:-${voice_asset_image}:sha-${voice_asset_hash}}"
+docker pull --platform linux/arm64 "$voice_asset_ref"
+voice_container="$(
+    docker create --platform linux/arm64 "$voice_asset_ref" /bin/true
+)"
 trap 'docker rm -f "$voice_container" >/dev/null 2>&1 || true' EXIT
-mkdir -p "$voice_dir"
-docker cp "$voice_container:/app/runtimes/linux-arm64/native" "$voice_dir/native"
-docker cp "$voice_container:/app/models" "$voice_dir/models"
-docker cp "$voice_container:/app/plugins" "$voice_dir/plugins"
+mkdir -p "$voice_dir/native" "$voice_dir/models" "$voice_dir/plugins"
+docker cp "$voice_container:/native/." "$voice_dir/native/"
+docker cp "$voice_container:/models/." "$voice_dir/models/"
+cp -a "$repo_root/plugins/." "$voice_dir/plugins/"
 docker rm "$voice_container" >/dev/null
 trap - EXIT
 

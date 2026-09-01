@@ -1,0 +1,115 @@
+name: Build Jetson Voice Assets
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'infra/docker/Dockerfile.agenthost-jetson-voice'
+      - '.github/workflows/jetson-voice-assets.yml'
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref containing the voice asset inputs
+        required: true
+        type: string
+    outputs:
+      image_ref:
+        description: Immutable Jetson voice asset image reference
+        value: ${{ jobs.build.outputs.image_ref }}
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: jetson-voice-assets
+  cancel-in-progress: false
+
+env:
+  VOICE_ASSET_IMAGE: ghcr.io/${{ github.repository }}/jetson-voice-assets
+
+jobs:
+  build:
+    name: Build Jetson voice assets
+    runs-on: [self-hosted, Linux, X64, jetson-image-builder]
+    timeout-minutes: 720
+    outputs:
+      image_ref: ${{ steps.resolve.outputs.ref }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: Compute immutable image tag
+        id: image
+        run: |
+          hash="$(sha256sum infra/docker/Dockerfile.agenthost-jetson-voice | cut -d' ' -f1)"
+          echo "hash=$hash" >> "$GITHUB_OUTPUT"
+          echo "ref=$VOICE_ASSET_IMAGE:sha-$hash" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for existing image
+        id: existing
+        run: |
+          if docker manifest inspect "${{ steps.image.outputs.ref }}" >/dev/null 2>&1; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up ARM64 emulation
+        if: steps.existing.outputs.found != 'true'
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        if: steps.existing.outputs.found != 'true'
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+        with:
+          name: jetson-voice-builder
+          keep-state: true
+          cleanup: false
+
+      - name: Build and publish voice assets
+        id: build
+        if: steps.existing.outputs.found != 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: infra/docker/Dockerfile.agenthost-jetson-voice
+          target: appliance-voice-assets
+          platforms: linux/arm64
+          push: true
+          tags: ${{ steps.image.outputs.ref }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Resolve immutable image reference
+        id: resolve
+        run: |
+          digest="$(
+            docker buildx imagetools inspect \
+              "${{ steps.image.outputs.ref }}" \
+              --format '{{json .Manifest.Digest}}' \
+              | tr -d '"'
+          )"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "ref=$VOICE_ASSET_IMAGE@$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Summarize image
+        run: |
+          {
+            echo "### Jetson voice assets"
+            echo
+            echo "- Image: \`${{ steps.resolve.outputs.ref }}\`"
+            echo "- Existing image reused: \`${{ steps.existing.outputs.found }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
