@@ -63,7 +63,7 @@ grep -q 'cache-from: type=gha,scope=jetson-voice-assets' \
     "$workflow_dir/jetson-voice-assets.yml"
 grep -q 'cache-to: type=gha,scope=jetson-voice-assets,mode=max' \
     "$workflow_dir/jetson-voice-assets.yml"
-grep -q 'timeout-minutes: 720' \
+grep -q 'timeout-minutes: 360' \
     "$workflow_dir/jetson-voice-assets.yml"
 grep -q '^  validate-release-tag:' \
     "$workflow_dir/appliance-release.yml"
@@ -72,6 +72,8 @@ grep -q 'needs: validate-release-tag' \
 grep -q 'needs: \[validate-release-tag, voice-assets\]' \
     "$workflow_dir/appliance-release.yml"
 grep -Fq 'runs-on: [self-hosted, Linux, X64, jetson-image-builder]' \
+    "$workflow_dir/appliance-release.yml"
+grep -q 'timeout-minutes: 720' \
     "$workflow_dir/appliance-release.yml"
 grep -q 'ref:.*inputs.tag.*github.ref' \
     "$workflow_dir/appliance-release.yml"

@@ -111,5 +111,5 @@ act -l -W .github/workflows/appliance-release.yml
 ```
 
 The complete image build still requires the dedicated Linux runner and roughly
-200 GiB of scratch space. The GitHub-hosted voice job and self-hosted packaging
-job each allow up to 12 hours.
+200 GiB of scratch space. The GitHub-hosted voice job allows up to six hours;
+the self-hosted packaging job allows up to 12 hours.

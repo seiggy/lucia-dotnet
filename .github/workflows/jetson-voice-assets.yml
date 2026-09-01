@@ -34,7 +34,7 @@ jobs:
   build:
     name: Build Jetson voice assets
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 720
+    timeout-minutes: 360
     outputs:
       image_ref: ${{ steps.resolve.outputs.ref }}
     steps:
