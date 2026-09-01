@@ -361,7 +361,7 @@ jobs:
           IS_RELEASE_TAG: ${{ github.ref_type == 'tag' }}
           IS_DISPATCH_PREVIEW: ${{ github.event_name == 'workflow_dispatch' && inputs.preview == true }}
         run: |
-          if [[ "$IS_RELEASE_TAG" != "true" ]]; then
+          if [[ "$IS_RELEASE_TAG" != "true" && "$IS_DISPATCH_PREVIEW" != "true" ]]; then
             master_sha=$(git ls-remote https://github.com/${{ github.repository }} refs/heads/master | cut -f1)
             if [[ "$EFFECTIVE_SHA" != "$master_sha" ]]; then
               echo "Skipping channel promotion because master advanced to $master_sha."

@@ -15,6 +15,7 @@ grep -q "if: steps.commit-image.outputs.exists != 'true'" "$workflow"
 grep -q 'version="${GITHUB_REF_NAME#v}"' "$workflow"
 grep -q 'minor="${version%.*}"' "$workflow"
 grep -q 'IS_DISPATCH_PREVIEW:' "$workflow"
+grep -Fq 'if [[ "$IS_RELEASE_TAG" != "true" && "$IS_DISPATCH_PREVIEW" != "true" ]]; then' "$workflow"
 grep -q 'version="0.0.0-preview.${EFFECTIVE_SHA:0:7}"' "$workflow"
 grep -q 'sha-$full_sha${suffix}' "$workflow"
 
