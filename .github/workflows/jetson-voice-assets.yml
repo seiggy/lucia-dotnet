@@ -8,12 +8,6 @@ on:
       - 'infra/appliance/release/voice-asset-key.sh'
       - '.github/workflows/jetson-voice-assets.yml'
   workflow_dispatch:
-    inputs:
-      benchmark:
-        description: Force a native ARM64 benchmark build with a unique image tag
-        required: false
-        type: boolean
-        default: false
   workflow_call:
     inputs:
       ref:
@@ -30,7 +24,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: ${{ inputs.benchmark && format('jetson-voice-benchmark-{0}', github.run_id) || 'jetson-voice-assets' }}
+  group: jetson-voice-assets
   cancel-in-progress: false
 
 env:
@@ -51,16 +45,10 @@ jobs:
 
       - name: Compute immutable image tag
         id: image
-        env:
-          BENCHMARK: ${{ inputs.benchmark }}
         run: |
           hash="$(bash infra/appliance/release/voice-asset-key.sh)"
           echo "hash=$hash" >> "$GITHUB_OUTPUT"
-          if [[ "$BENCHMARK" == "true" ]]; then
-            echo "ref=$VOICE_ASSET_IMAGE:benchmark-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
-          else
-            echo "ref=$VOICE_ASSET_IMAGE:sha-$hash" >> "$GITHUB_OUTPUT"
-          fi
+          echo "ref=$VOICE_ASSET_IMAGE:sha-$hash" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
@@ -71,12 +59,8 @@ jobs:
 
       - name: Check for existing image
         id: existing
-        env:
-          BENCHMARK: ${{ inputs.benchmark }}
         run: |
-          if [[ "$BENCHMARK" == "true" ]]; then
-            echo "found=false" >> "$GITHUB_OUTPUT"
-          elif docker manifest inspect "${{ steps.image.outputs.ref }}" >/dev/null 2>&1; then
+          if docker manifest inspect "${{ steps.image.outputs.ref }}" >/dev/null 2>&1; then
             echo "found=true" >> "$GITHUB_OUTPUT"
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
@@ -121,5 +105,4 @@ jobs:
             echo
             echo "- Image: \`${{ steps.resolve.outputs.ref }}\`"
             echo "- Existing image reused: \`${{ steps.existing.outputs.found }}\`"
-            echo "- Benchmark: \`${{ inputs.benchmark }}\`"
           } >> "$GITHUB_STEP_SUMMARY"

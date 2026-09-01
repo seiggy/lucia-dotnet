@@ -51,7 +51,13 @@ if grep -q 'docker/setup-qemu-action' \
     echo "Native ARM64 workflow still enables QEMU" >&2
     exit 1
 fi
-grep -q 'benchmark-${GITHUB_RUN_ID}' \
+if grep -q 'benchmark' "$workflow_dir/jetson-voice-assets.yml"; then
+    echo "Production voice workflow still contains benchmark-only behavior" >&2
+    exit 1
+fi
+grep -q '^  group: jetson-voice-assets$' \
+    "$workflow_dir/jetson-voice-assets.yml"
+grep -q 'ref=$VOICE_ASSET_IMAGE:sha-$hash' \
     "$workflow_dir/jetson-voice-assets.yml"
 grep -q 'cache-from: type=gha,scope=jetson-voice-assets' \
     "$workflow_dir/jetson-voice-assets.yml"
@@ -64,6 +70,8 @@ grep -q '^  validate-release-tag:' \
 grep -q 'needs: validate-release-tag' \
     "$workflow_dir/appliance-release.yml"
 grep -q 'needs: \[validate-release-tag, voice-assets\]' \
+    "$workflow_dir/appliance-release.yml"
+grep -q 'runs-on: \[self-hosted, Linux, X64, jetson-image-builder\]' \
     "$workflow_dir/appliance-release.yml"
 grep -q 'ref:.*inputs.tag.*github.ref' \
     "$workflow_dir/appliance-release.yml"

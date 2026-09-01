@@ -84,8 +84,9 @@ used only on the build runner; the installed appliance runs native services.
 pinned Dockerfile inputs change. Appliance releases invoke that workflow first
 and consume the exact returned image digest. The isolated voice build runs
 natively on GitHub's `ubuntu-24.04-arm` runner and uses the Actions cache for
-completed BuildKit layers. Manual benchmark runs use a unique image tag and
-never replace the immutable release input.
+completed BuildKit layers. The first uncached native build completed in 46
+minutes; the equivalent x86-64 QEMU build was still compiling after three
+hours.
 
 The complete image build remains unsuitable for a standard GitHub-hosted runner
 because the two Jetson rootfs trees, signed flash package, raw images, and
