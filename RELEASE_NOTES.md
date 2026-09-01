@@ -1,3 +1,100 @@
+# Release notes - 1.4.0
+
+**Release date:** September 1, 2026
+
+---
+
+## Overview
+
+Version 1.4.0 ships Lucia's first official appliance image for the NVIDIA
+Jetson Orin Nano Super 8GB Developer Kit. It installs a native, Docker-free
+Lucia system from microSD to NVMe, including local voice models, CUDA runtime
+support, Redis, SQLite, the dashboard, and appliance management.
+
+This release also restores deterministic command routing for unresolved entity
+names and adds explicit llama.cpp provider support.
+
+## Appliance image
+
+- Install from a flashable microSD image onto an NVMe drive of at least
+  61,203,283,968 bytes. The installer binds erase approval to the selected
+  drive's stable identity and image digest before writing it.
+- Run Jetson Linux 36.5.2 from A/B operating-system slots, with separate
+  partitions for versioned Lucia files and persistent application data.
+- Complete setup through a client-isolated captive network. The first browser
+  claims the setup session, selects Wi-Fi, chooses the hostname and recovery
+  password, and receives the dashboard API key.
+- Recover from a failed Wi-Fi activation without reprovisioning. The installer
+  rolls back the NetworkManager checkpoint and restores setup mode.
+- Use the native Jetson GPU for Lucia's bundled speech models. The image
+  includes the pinned ARM64 ONNX Runtime, CUDA provider, sherpa-onnx libraries,
+  and voice assets needed for offline setup.
+- Open the installed dashboard at `https://HOSTNAME.local:8099`. Each appliance
+  creates its own certificate during setup, so the first browser must accept
+  the local certificate.
+
+See the [appliance release guide](infra/appliance/release/README.md) for the
+asset layout and release details. ([#257](https://github.com/seiggy/lucia-dotnet/pull/257))
+
+## Appliance management and telemetry
+
+- View appliance, storage, service, Wi-Fi, and operating-system status from the
+  dashboard.
+- Restart Lucia services or reboot the appliance through the authenticated
+  AgentHost adapter and root-owned appliance manager.
+- Configure authenticated OTLP export without exposing telemetry credentials
+  in appliance status responses.
+- Run the OpenTelemetry Collector and Redis exporter when remote telemetry is
+  enabled. Both remain disabled by default.
+- Discover compatible Lucia and operating-system releases from GitHub.
+  Installing discovered updates remains locked in this release.
+
+## Release integrity
+
+- Stable releases publish separate installer, Lucia, and operating-system
+  channels.
+- Large images are split into GitHub Release parts below the 2 GB asset limit.
+- `lucia-appliance-manifest.json` records compatibility, sizes, SHA-256 hashes,
+  ordered parts, and download URLs.
+- GitHub build-provenance attestations cover every release asset. The workflow
+  uploads the manifest last so an incomplete release cannot be discovered by
+  an appliance.
+
+## Command routing
+
+- Retry unresolved locations as entity names through the configured embedding
+  provider instead of dropping out of the deterministic command path.
+- Recognize direct climate commands such as "Set the office to 73" with enough
+  confidence to use the fast path.
+- Add an explicit llama.cpp provider while preserving existing OpenAI-compatible
+  endpoint behavior. ([#256](https://github.com/seiggy/lucia-dotnet/pull/256))
+
+## Read before installing
+
+- The image supports the Jetson Orin Nano Super Developer Kit with the 8GB
+  P3767-0005 module. Other Jetson boards and carrier configurations are not
+  supported by this release.
+- Installation erases the selected NVMe drive after explicit confirmation.
+  Keep the appliance physically controlled while its open setup network is
+  active.
+- The dashboard can discover updates but cannot install them yet. Attestation
+  verification, application rollback, and NVIDIA A/B OTA apply are still in
+  progress.
+- Automatic QSPI compatibility reporting, full occupied-drive layout
+  reporting, physical power-cut recovery, secure boot, and disk encryption are
+  not included in v1.4.0.
+
+## Breaking changes
+
+None. Appliance mode defaults to `Off`, so Docker and other existing
+deployments keep their current routes and behavior.
+
+## Full changelog
+
+[v1.3.1...v1.4.0](https://github.com/seiggy/lucia-dotnet/compare/v1.3.1...v1.4.0)
+
+---
+
 # Release notes - 1.3.0
 
 **Release date:** August 21, 2026
