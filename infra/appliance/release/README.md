@@ -82,8 +82,8 @@ used only on the build runner; the installed appliance runs native services.
 `.github/workflows/jetson-voice-assets.yml` rebuilds that image only when its
 pinned Dockerfile inputs change. Appliance releases invoke that workflow first
 and consume the exact returned image digest. Its named Buildx builder retains
-partial compilation state across failed or timed-out runs on the dedicated
-runner.
+completed build layers across failed or timed-out runs on the dedicated runner.
+An interrupted compile step still restarts from the beginning.
 
 The image build is unsuitable for a standard GitHub-hosted runner because the
 two Jetson rootfs trees, signed flash package, raw images, voice build, and

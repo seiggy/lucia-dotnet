@@ -5,6 +5,7 @@ on:
     branches: [master]
     paths:
       - 'infra/docker/Dockerfile.agenthost-jetson-voice'
+      - 'infra/appliance/release/voice-asset-key.sh'
       - '.github/workflows/jetson-voice-assets.yml'
   workflow_dispatch:
   workflow_call:
@@ -45,7 +46,7 @@ jobs:
       - name: Compute immutable image tag
         id: image
         run: |
-          hash="$(sha256sum infra/docker/Dockerfile.agenthost-jetson-voice | cut -d' ' -f1)"
+          hash="$(bash infra/appliance/release/voice-asset-key.sh)"
           echo "hash=$hash" >> "$GITHUB_OUTPUT"
           echo "ref=$VOICE_ASSET_IMAGE:sha-$hash" >> "$GITHUB_OUTPUT"
 

@@ -192,10 +192,7 @@ tar -xzf \
 [[ -x "$telemetry_dir/redis-exporter/redis_exporter" ]] \
     || die "Redis exporter archive did not contain redis_exporter"
 
-voice_asset_hash="$(
-    sha256sum "$repo_root/infra/docker/Dockerfile.agenthost-jetson-voice" \
-        | cut -d' ' -f1
-)"
+voice_asset_hash="$(bash "$script_dir/voice-asset-key.sh")"
 voice_asset_image="${VOICE_ASSET_IMAGE:-ghcr.io/seiggy/lucia-dotnet/jetson-voice-assets}"
 voice_asset_ref="${VOICE_ASSET_REF:-${voice_asset_image}:sha-${voice_asset_hash}}"
 docker pull --platform linux/arm64 "$voice_asset_ref"
