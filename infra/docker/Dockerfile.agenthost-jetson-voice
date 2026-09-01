@@ -3,7 +3,7 @@
 # Target device : NVIDIA Jetson Orin Nano Super 8GB — L4T R36.4.7 / JetPack 6.2
 #                 CUDA 12.6 (host 12.6.11), cuDNN 9, Ampere GA10B (compute 8.7 / sm_87)
 # Target image  : linux/arm64
-# Build host    : x86_64 desktop (BuildX + QEMU for the arm64 native stages)
+# Build host    : native ARM64 Linux; x86_64 Buildx + QEMU remains compatible
 #
 # Why one Dockerfile (was two + a docker-image:// named context):
 #   The prior split used `--build-context native-assets=docker-image://...`, which
