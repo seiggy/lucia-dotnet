@@ -44,7 +44,18 @@ grep -q 'target: appliance-voice-assets' \
     "$workflow_dir/jetson-voice-assets.yml"
 grep -q 'docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0' \
     "$workflow_dir/jetson-voice-assets.yml"
-grep -q 'keep-state: true' \
+grep -q 'runs-on: ubuntu-24.04-arm' \
+    "$workflow_dir/jetson-voice-assets.yml"
+if grep -q 'docker/setup-qemu-action' \
+    "$workflow_dir/jetson-voice-assets.yml"; then
+    echo "Native ARM64 workflow still enables QEMU" >&2
+    exit 1
+fi
+grep -q 'benchmark-${GITHUB_RUN_ID}' \
+    "$workflow_dir/jetson-voice-assets.yml"
+grep -q 'cache-from: type=gha,scope=jetson-voice-assets' \
+    "$workflow_dir/jetson-voice-assets.yml"
+grep -q 'cache-to: type=gha,scope=jetson-voice-assets,mode=max' \
     "$workflow_dir/jetson-voice-assets.yml"
 grep -q 'timeout-minutes: 720' \
     "$workflow_dir/jetson-voice-assets.yml"

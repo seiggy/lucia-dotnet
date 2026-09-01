@@ -8,6 +8,12 @@ on:
       - 'infra/appliance/release/voice-asset-key.sh'
       - '.github/workflows/jetson-voice-assets.yml'
   workflow_dispatch:
+    inputs:
+      benchmark:
+        description: Force a native ARM64 benchmark build with a unique image tag
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       ref:
@@ -24,7 +30,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: jetson-voice-assets
+  group: ${{ inputs.benchmark && format('jetson-voice-benchmark-{0}', github.run_id) || 'jetson-voice-assets' }}
   cancel-in-progress: false
 
 env:
@@ -33,7 +39,7 @@ env:
 jobs:
   build:
     name: Build Jetson voice assets
-    runs-on: [self-hosted, Linux, X64, jetson-image-builder]
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 720
     outputs:
       image_ref: ${{ steps.resolve.outputs.ref }}
@@ -45,10 +51,16 @@ jobs:
 
       - name: Compute immutable image tag
         id: image
+        env:
+          BENCHMARK: ${{ inputs.benchmark }}
         run: |
           hash="$(bash infra/appliance/release/voice-asset-key.sh)"
           echo "hash=$hash" >> "$GITHUB_OUTPUT"
-          echo "ref=$VOICE_ASSET_IMAGE:sha-$hash" >> "$GITHUB_OUTPUT"
+          if [[ "$BENCHMARK" == "true" ]]; then
+            echo "ref=$VOICE_ASSET_IMAGE:benchmark-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=$VOICE_ASSET_IMAGE:sha-$hash" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4
@@ -59,26 +71,20 @@ jobs:
 
       - name: Check for existing image
         id: existing
+        env:
+          BENCHMARK: ${{ inputs.benchmark }}
         run: |
-          if docker manifest inspect "${{ steps.image.outputs.ref }}" >/dev/null 2>&1; then
+          if [[ "$BENCHMARK" == "true" ]]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          elif docker manifest inspect "${{ steps.image.outputs.ref }}" >/dev/null 2>&1; then
             echo "found=true" >> "$GITHUB_OUTPUT"
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Set up ARM64 emulation
-        if: steps.existing.outputs.found != 'true'
-        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4
-        with:
-          platforms: arm64
-
       - name: Set up Docker Buildx
         if: steps.existing.outputs.found != 'true'
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
-        with:
-          name: jetson-voice-builder
-          keep-state: true
-          cleanup: false
 
       - name: Build and publish voice assets
         id: build
@@ -93,6 +99,8 @@ jobs:
           tags: ${{ steps.image.outputs.ref }}
           provenance: mode=max
           sbom: true
+          cache-from: type=gha,scope=jetson-voice-assets
+          cache-to: type=gha,scope=jetson-voice-assets,mode=max
 
       - name: Resolve immutable image reference
         id: resolve
@@ -113,4 +121,5 @@ jobs:
             echo
             echo "- Image: \`${{ steps.resolve.outputs.ref }}\`"
             echo "- Existing image reused: \`${{ steps.existing.outputs.found }}\`"
+            echo "- Benchmark: \`${{ inputs.benchmark }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
