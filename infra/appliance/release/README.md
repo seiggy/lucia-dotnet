@@ -111,5 +111,5 @@ act -l -W .github/workflows/appliance-release.yml
 ```
 
 The complete image build still requires the dedicated Linux runner and roughly
-200 GiB of scratch space. The first voice asset compilation may take more than
-six hours on older x86-64 hardware; both self-hosted jobs allow up to 12 hours.
+200 GiB of scratch space. The GitHub-hosted voice job and self-hosted packaging
+job each allow up to 12 hours.
