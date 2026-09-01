@@ -56,7 +56,8 @@ GitHub Release assets are limited to 2 GiB per file. The packager uses
 
 ## Runner
 
-The workflow requires a dedicated self-hosted runner with these labels:
+The complete appliance build requires a dedicated self-hosted runner with these
+labels:
 
 ```text
 self-hosted
@@ -71,7 +72,7 @@ The runner must have:
 - at least 200 GiB free under `RUNNER_TEMP`;
 - passwordless `sudo`;
 - Docker with Buildx;
-- `qemu-user-static` with `/usr/bin/qemu-aarch64-static`;
+- `qemu-user-static` with `/usr/bin/qemu-aarch64-static` for the Jetson rootfs;
 - GitHub CLI;
 - .NET 10, Node 22, and Python 3.12, installed by the workflow;
 - direct internet access to NVIDIA, Ubuntu, NuGet, npm, GitHub, and GHCR.
@@ -81,12 +82,14 @@ extracts its native libraries and models into the Lucia payload. Docker is
 used only on the build runner; the installed appliance runs native services.
 `.github/workflows/jetson-voice-assets.yml` rebuilds that image only when its
 pinned Dockerfile inputs change. Appliance releases invoke that workflow first
-and consume the exact returned image digest. Its named Buildx builder retains
-completed build layers across failed or timed-out runs on the dedicated runner.
-An interrupted compile step still restarts from the beginning.
+and consume the exact returned image digest. The isolated voice build runs
+natively on GitHub's `ubuntu-24.04-arm` runner and uses the Actions cache for
+completed BuildKit layers. The first uncached native build completed in 46
+minutes; the equivalent x86-64 QEMU build was still compiling after three
+hours.
 
-The image build is unsuitable for a standard GitHub-hosted runner because the
-two Jetson rootfs trees, signed flash package, raw images, voice build, and
+The complete image build remains unsuitable for a standard GitHub-hosted runner
+because the two Jetson rootfs trees, signed flash package, raw images, and
 compressed outputs exceed its disk allowance.
 
 ## Triggers
@@ -108,5 +111,5 @@ act -l -W .github/workflows/appliance-release.yml
 ```
 
 The complete image build still requires the dedicated Linux runner and roughly
-200 GiB of scratch space. The first voice asset compilation may take more than
-six hours on older x86-64 hardware; both self-hosted jobs allow up to 12 hours.
+200 GiB of scratch space. The GitHub-hosted voice job allows up to six hours;
+the self-hosted packaging job allows up to 12 hours.

@@ -33,8 +33,8 @@ env:
 jobs:
   build:
     name: Build Jetson voice assets
-    runs-on: [self-hosted, Linux, X64, jetson-image-builder]
-    timeout-minutes: 720
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 360
     outputs:
       image_ref: ${{ steps.resolve.outputs.ref }}
     steps:
@@ -66,19 +66,9 @@ jobs:
             echo "found=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Set up ARM64 emulation
-        if: steps.existing.outputs.found != 'true'
-        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4
-        with:
-          platforms: arm64
-
       - name: Set up Docker Buildx
         if: steps.existing.outputs.found != 'true'
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
-        with:
-          name: jetson-voice-builder
-          keep-state: true
-          cleanup: false
 
       - name: Build and publish voice assets
         id: build
@@ -93,6 +83,8 @@ jobs:
           tags: ${{ steps.image.outputs.ref }}
           provenance: mode=max
           sbom: true
+          cache-from: type=gha,scope=jetson-voice-assets
+          cache-to: type=gha,scope=jetson-voice-assets,mode=max
 
       - name: Resolve immutable image reference
         id: resolve
