@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 workflows="$repo_root/.github/workflows"
+validation_workflow="$workflows/validate-infrastructure.yml"
 
 approved_actions=(
     actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a
@@ -43,5 +44,8 @@ for used_action in "${used_actions[@]}"; do
         exit 1
     fi
 done
+
+[[ "$(grep -Fc -- "- '.github/workflows/**'" "$validation_workflow")" -eq 2 ]]
+[[ "$(grep -Fc -- "- '.github/scripts/test-action-runtimes.sh'" "$validation_workflow")" -eq 2 ]]
 
 echo "PASS: workflow actions match the Node 24 allowlist"

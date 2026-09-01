@@ -4,12 +4,15 @@ on:
   pull_request:
     paths:
       - 'infra/**'
-      - '.github/workflows/validate-infrastructure.yml'
+      - '.github/workflows/**'
+      - '.github/scripts/test-action-runtimes.sh'
   push:
     branches:
-      - main
+      - master
     paths:
       - 'infra/**'
+      - '.github/workflows/**'
+      - '.github/scripts/test-action-runtimes.sh'
   workflow_dispatch:
 
 permissions:

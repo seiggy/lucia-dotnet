@@ -9,8 +9,8 @@ build_action='docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a 
 grep -q 'full_sha=${EFFECTIVE_SHA}' "$workflow"
 grep -Fq '^v[0-9]+\.[0-9]+\.[0-9]+(-(preview|insider)(\.[0-9]+)?)?$' "$workflow"
 grep -q 'docker manifest inspect "$COMMIT_IMAGE"' "$workflow"
-sed -n '236,246p' "$workflow" \
-    | grep -q "if: github.event_name != 'pull_request'"
+grep -A2 -F 'id: commit-image' "$workflow" \
+    | grep -Fq "if: github.event_name != 'pull_request'"
 grep -q "if: steps.commit-image.outputs.exists != 'true'" "$workflow"
 grep -q 'version="${GITHUB_REF_NAME#v}"' "$workflow"
 grep -q 'minor="${version%.*}"' "$workflow"
