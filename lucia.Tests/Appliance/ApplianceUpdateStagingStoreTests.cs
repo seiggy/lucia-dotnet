@@ -47,6 +47,12 @@ public sealed class ApplianceUpdateStagingStoreTests
             Directory.CreateDirectory(finalized);
             store.Clear();
             Assert.False(Directory.Exists(finalized));
+
+            store.SetFailed("lucia", "v1.7.0", "rejected");
+            var rejectedFinal = Path.Combine(root, "v1.7.0");
+            Directory.CreateDirectory(rejectedFinal);
+            Assert.NotNull(store.TryStart("os", "v1.8.0"));
+            Assert.False(Directory.Exists(rejectedFinal));
         }
         finally
         {

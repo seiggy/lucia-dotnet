@@ -87,6 +87,7 @@ public sealed partial class ApplianceUpdateStagingStore
             {
                 return null;
             }
+            DeleteUnreferencedFinalizedStages();
             _status = new("stage", channel, "queued", tag, null);
             PersistUnsafe();
             return _status;

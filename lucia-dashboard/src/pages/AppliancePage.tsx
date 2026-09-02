@@ -74,6 +74,10 @@ export default function AppliancePage() {
   const isUpdateBusy = stagingUpdate !== null
     || updateOperation?.status === 'queued'
     || updateOperation?.status === 'running'
+  const canInterruptOsValidation = updateOperation?.action === 'apply'
+    && updateOperation.channel === 'os'
+    && updateOperation.status === 'running'
+    && updateOperation.osRollbackAvailable
 
   const load = useCallback(async () => {
     setError('')
@@ -260,6 +264,7 @@ export default function AppliancePage() {
             compatible={updates?.luciaCompatible ?? true}
             checked={updates !== null}
             busy={isUpdateBusy}
+            rollbackBusy={isUpdateBusy}
             rollbackAvailable={updateOperation?.luciaRollbackAvailable ?? false}
             onInstall={() => setPendingUpdate('lucia')}
             onRollback={() => setPendingRollback('lucia')}
@@ -275,6 +280,7 @@ export default function AppliancePage() {
             compatible={updates?.osCompatible ?? true}
             checked={updates !== null}
             busy={isUpdateBusy}
+            rollbackBusy={isUpdateBusy && !canInterruptOsValidation}
             rollbackAvailable={updateOperation?.osRollbackAvailable ?? false}
             onInstall={() => setPendingUpdate('os')}
             onRollback={() => setPendingRollback('os')}
@@ -444,6 +450,7 @@ function UpdateRail({
   compatible,
   checked,
   busy,
+  rollbackBusy,
   rollbackAvailable,
   onInstall,
   onRollback,
@@ -458,6 +465,7 @@ function UpdateRail({
   compatible: boolean
   checked: boolean
   busy: boolean
+  rollbackBusy: boolean
   rollbackAvailable: boolean
   onInstall: () => void
   onRollback: () => void
@@ -508,7 +516,7 @@ function UpdateRail({
               type="button"
               onClick={onRollback}
               aria-label={`Roll back ${title}`}
-              disabled={busy}
+              disabled={rollbackBusy}
               className={secondaryButton}
             >
               Roll back
