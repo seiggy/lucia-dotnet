@@ -20,6 +20,7 @@ public static class ApplianceApi
                     string token,
                     HttpContext context,
                     IConnectionMultiplexer redis,
+                    [FromKeyedServices(SqliteDbNames.Config)]
                     SqliteConnectionFactory sqlite,
                     CancellationToken cancellationToken) =>
                 {
@@ -95,7 +96,12 @@ public static class ApplianceApi
                     string token,
                     HttpContext context,
                     IConnectionMultiplexer redis,
-                    SqliteConnectionFactory sqlite,
+                    [FromKeyedServices(SqliteDbNames.Config)]
+                    SqliteConnectionFactory configSqlite,
+                    [FromKeyedServices(SqliteDbNames.Traces)]
+                    SqliteConnectionFactory tracesSqlite,
+                    [FromKeyedServices(SqliteDbNames.Tasks)]
+                    SqliteConnectionFactory tasksSqlite,
                     OnnxProviderDetector providers,
                     bool consume,
                     CancellationToken cancellationToken) =>
@@ -116,20 +122,32 @@ public static class ApplianceApi
                             statusCode: StatusCodes.Status503ServiceUnavailable);
                     }
 
-                    await using var connection = sqlite.CreateConnection();
-                    await using var integrityCommand = connection.CreateCommand();
-                    integrityCommand.CommandText = "PRAGMA quick_check;";
-                    if (Convert.ToString(
-                            await integrityCommand
-                                .ExecuteScalarAsync(cancellationToken)
-                                .ConfigureAwait(false),
-                            System.Globalization.CultureInfo.InvariantCulture)
-                        != "ok")
+                    foreach (var sqlite in new[]
+                             {
+                                 configSqlite,
+                                 tracesSqlite,
+                                 tasksSqlite,
+                             })
                     {
-                        return Results.Problem(
-                            detail: "SQLite integrity validation failed.",
-                            statusCode: StatusCodes.Status503ServiceUnavailable);
+                        await using var integrityConnection =
+                            sqlite.CreateConnection();
+                        await using var integrityCommand =
+                            integrityConnection.CreateCommand();
+                        integrityCommand.CommandText = "PRAGMA quick_check;";
+                        if (Convert.ToString(
+                                await integrityCommand
+                                    .ExecuteScalarAsync(cancellationToken)
+                                    .ConfigureAwait(false),
+                                System.Globalization.CultureInfo.InvariantCulture)
+                            != "ok")
+                        {
+                            return Results.Problem(
+                                detail: "SQLite integrity validation failed.",
+                                statusCode: StatusCodes.Status503ServiceUnavailable);
+                        }
                     }
+                    await using var connection =
+                        configSqlite.CreateConnection();
                     await using var sentinelCommand = connection.CreateCommand();
                     sentinelCommand.CommandText =
                         "SELECT value FROM configuration WHERE key = $key;";

@@ -259,6 +259,24 @@ grep -qx 'old-db' "$work/data/db/lucia.db"
 grep -qx 'stop lucia-agenthost.service lucia-redis.service' "$work/systemctl.log"
 grep -qx 'start lucia-redis.service lucia-agenthost.service' "$work/systemctl.log"
 
+cp "$work/updates/state/lucia.env" "$work/prior-lucia.env"
+cp -a "$work/lucia-payload" "$work/lucia-payload-failed"
+mv \
+    "$work/lucia-payload-failed/opt/lucia/releases/1.1.0" \
+    "$work/lucia-payload-failed/opt/lucia/releases/1.1.1"
+tar -I zstd -cf "$work/lucia-failed.tar.zst" \
+    -C "$work/lucia-payload-failed" .
+write_manifest lucia v1.1.1 1.1.1 "$work/lucia-failed.tar.zst"
+touch "$work/fail-health"
+if run_update apply lucia v1.1.1; then
+    echo "Unhealthy second Lucia update was accepted" >&2
+    exit 1
+fi
+rm "$work/fail-health"
+cmp "$work/prior-lucia.env" "$work/updates/state/lucia.env"
+[[ "$(readlink "$work/current")" == "releases/1.1.0" ]]
+[[ ! -e "$work/releases/.1.1.1.new" ]]
+
 printf 'migrated-db\n' > "$work/data/db/lucia.db"
 touch "$work/fail-service-start-once"
 if run_update rollback lucia; then

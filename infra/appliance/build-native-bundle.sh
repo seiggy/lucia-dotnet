@@ -10,7 +10,7 @@ Usage: build-native-bundle.sh \
   --manager-dir DIRECTORY \
   --dashboard-dir DIRECTORY \
   --redis-server FILE \
-  [--gh-cli FILE --trusted-root FILE] \
+  --gh-cli FILE --trusted-root FILE \
   [--native-dir DIRECTORY --models-dir DIRECTORY --plugins-dir DIRECTORY] \
   [--otelcol FILE --redis-exporter FILE] \
   --output-dir DIRECTORY

@@ -209,11 +209,11 @@ restore_data_backup() {
         return "$exit_code"
     }
     trap restore_failed_data_swap ERR
+    cp "$redis_config_path" "$old_root/redis.conf"
     for name in config db redis plugins; do
         mv "$data_root/$name" "$old_root/$name"
         mv "$restore_root/$name" "$data_root/$name"
     done
-    cp "$redis_config_path" "$old_root/redis.conf"
     install -m 0644 "$restore_root/redis.conf" "${redis_config_path}.new"
     mv -f "${redis_config_path}.new" "$redis_config_path"
     if [[ -n "$previous_err_trap" ]]; then
@@ -468,6 +468,7 @@ apply_lucia() {
     local release_bytes
     local release_available_bytes
     local bundled_plugin
+    local previous_state="$state_dir/lucia.previous.env"
 
     verified_output="$(verify_and_assemble lucia "$selected_tag")" \
         || die "Lucia update verification failed"
@@ -498,7 +499,7 @@ apply_lucia() {
     available_bytes="${LUCIA_AVAILABLE_BYTES:-$(
         df -B1 --output=avail "$data_root" | tail -1 | tr -d ' '
     )}"
-    required_bytes="$((uncompressed_bytes + backup_source_bytes + 1073741824))"
+    required_bytes="$((uncompressed_bytes + 2 * backup_source_bytes + 1073741824))"
     [[ "$available_bytes" =~ ^[0-9]+$ \
         && "$available_bytes" -ge "$required_bytes" ]] \
         || die "insufficient free space for Lucia extraction and rollback backup"
@@ -536,6 +537,15 @@ apply_lucia() {
         || die "Lucia release already exists: $version"
     validation_token="$(cat /proc/sys/kernel/random/uuid)"
     validation_credential="$(issue_validation_credential)"
+    if [[ -f "$state_dir/lucia.env" \
+        && "$(sed -n 's/^phase=//p' "$state_dir/lucia.env")" == "committed" ]]; then
+        cp "$state_dir/lucia.env" "${previous_state}.tmp"
+        sync -f "${previous_state}.tmp"
+        mv -f "${previous_state}.tmp" "$previous_state"
+        sync -f "$state_dir"
+    else
+        rm -f "$previous_state"
+    fi
     trap 'rm -f "$validation_credential_path"' ERR
     "$curl_path" --fail --silent --show-error \
         --max-time 30 \
@@ -554,9 +564,15 @@ apply_lucia() {
                     lucia-agenthost.service lucia-redis.service
                 atomic_symlink "$previous_target"
                 restore_data_backup "$backup"
-                rm -f "$state_dir/lucia.env"
+                if [[ -f "$previous_state" ]]; then
+                    mv -f "$previous_state" "$state_dir/lucia.env"
+                else
+                    rm -f "$state_dir/lucia.env"
+                fi
                 sync -f "$state_dir"
-                rm -rf "$releases_dir/$version"
+                rm -rf \
+                    "$releases_dir/$version" \
+                    "$releases_dir/.${version}.new"
                 rm -f "$backup"
                 sync -f "$releases_dir"
                 sync -f "$backups_dir"
@@ -618,6 +634,8 @@ apply_lucia() {
     sync -f "$(dirname "$current_link")"
     write_lucia_state \
         committed "$previous_target" "releases/$version" "$backup" "$validation_token"
+    rm -f "$previous_state"
+    sync -f "$state_dir"
     rm -f "$validation_credential_path"
     for release in "$releases_dir"/*; do
         [[ -d "$release" ]] || continue
@@ -698,6 +716,7 @@ recover_lucia() {
     local backups_real
     local current
     local validation_token
+    local previous_state="$state_dir/lucia.previous.env"
     rm -rf "$work_dir"/input-* "$work_dir"/*.parts
     if [[ ! -f "$state" ]]; then
         rm -f "$validation_credential_path"
@@ -722,10 +741,17 @@ recover_lucia() {
         || die "interrupted Lucia update has invalid recovery state"
     atomic_symlink "$previous" || return
     restore_data_backup "$backup_real" || return
-    rm -rf "$releases_dir/${current#releases/}" || return
+    rm -rf \
+        "$releases_dir/${current#releases/}" \
+        "$releases_dir/.${current#releases/}.new" \
+        || return
     sync -f "$releases_dir" || return
     sync -f "$(dirname "$current_link")" || return
-    rm -f "$state" || return
+    if [[ -f "$previous_state" ]]; then
+        mv -f "$previous_state" "$state" || return
+    else
+        rm -f "$state" || return
+    fi
     rm -f "$validation_credential_path" || return
     sync -f "$state_dir" || return
 }
