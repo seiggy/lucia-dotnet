@@ -32,6 +32,13 @@ public sealed class ApplianceUpdateStagingStoreTests
             store.SetHandedOff("lucia", "v1.5.0");
             Assert.Null(store.TryStart("os", "v1.5.0"));
             Assert.Equal("running", CreateStore(root).GetStatus().Status);
+
+            store.SetHandingOff("os", "v1.6.0");
+            Assert.True(store.IsHandoffRequestActive);
+            Assert.Null(store.TryStart("lucia", "v1.6.0"));
+            store.CompleteHandoffAttempt();
+            Assert.False(store.IsHandoffRequestActive);
+            Assert.Equal("handoff", CreateStore(root).GetStatus().Action);
         }
         finally
         {

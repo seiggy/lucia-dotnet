@@ -341,6 +341,18 @@ run_update rollback os
 [[ "$(cat "$work/active-slot")" == "0" ]]
 grep -qx 'stop lucia-os-update-validation.service' "$work/systemctl.log"
 grep -qx 'status=rollback-pending' "$work/updates/state/os.env"
+printf '0\n' > "$work/current-slot"
+LUCIA_UPDATE_ROOT="$work/updates" \
+    LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
+    LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
+    LUCIA_CURL_PATH="$work/bin/curl" \
+    LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
+    LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
+    LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
+    LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
+    LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
+        "$os_validator"
+grep -qx 'status=rolled-back' "$work/updates/state/os.env"
 
 echo "PASS: OS update writes only the inactive slot and reverses boot selection"
 
@@ -365,7 +377,7 @@ LUCIA_UPDATE_ROOT="$work/updates" \
 rm "$work/fail-health"
 [[ "$(cat "$work/active-slot")" == "0" ]]
 grep -qx 'status=rollback-pending' "$work/updates/state/os.env"
-grep -q '"Status":"failed"' "$work/updates/state/operation.json"
+grep -q '"Status":"running"' "$work/updates/state/operation.json"
 printf '0\n' > "$work/current-slot"
 LUCIA_UPDATE_ROOT="$work/updates" \
     LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \

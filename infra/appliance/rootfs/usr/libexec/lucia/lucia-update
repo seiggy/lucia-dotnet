@@ -474,8 +474,8 @@ apply_lucia() {
         exit "$exit_code"
     }
     trap restore_failed_apply ERR
-    "$systemctl_path" stop lucia-agenthost.service lucia-redis.service
     services_stopped=true
+    "$systemctl_path" stop lucia-agenthost.service lucia-redis.service
     rm -f "$backup_temporary"
     tar -I 'zstd -T0 -10' -cf "$backup_temporary" \
         -C "$data_root" config db redis plugins \

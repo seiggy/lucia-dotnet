@@ -126,6 +126,11 @@ printf 'Observability__Mode=Off\nPluginDirectory=/var/lib/lucia/plugins\n' \
     > "$agenthost_environment"
 mkdir -p "$work_dir/releases/1.2.3"
 ln -s releases/1.2.3 "$current_release"
+mkdir -p "$work_dir/updates/state"
+printf 'status=writing\n' > "$work_dir/updates/state/os.env"
+cat > "$work_dir/updates/state/operation.json" <<'EOF'
+{"Action":"apply","Channel":"os","Status":"running","Tag":"v1.4.0","Message":null}
+EOF
 
 manager_command=(dotnet run --no-launch-profile --project "$manager_project")
 if [[ -n "${LUCIA_MANAGER_BINARY:-}" ]]; then
@@ -203,6 +208,13 @@ grep -q '"id":"agenthost","activeState":"active","unitFileState":"enabled"' \
     "$work_dir/response.json"
 grep -q '"id":"collector","activeState":"inactive","unitFileState":"disabled"' \
     "$work_dir/response.json"
+curl --silent --output "$work_dir/response.json" \
+    --unix-socket "$socket_path" \
+    http://localhost/v1/updates/operation
+grep -q '"status":"failed"' "$work_dir/response.json"
+grep -qx 'status=failed' "$work_dir/updates/state/os.env"
+
+echo "PASS: interrupted inactive-slot writes recover to a retryable state"
 
 echo "PASS: status reports the appliance and allowlisted services"
 

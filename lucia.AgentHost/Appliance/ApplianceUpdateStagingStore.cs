@@ -7,6 +7,7 @@ public sealed partial class ApplianceUpdateStagingStore
     private readonly object _gate = new();
     private readonly string _operationPath;
     private readonly ILogger<ApplianceUpdateStagingStore> _logger;
+    private bool _isHandoffRequestActive;
     private ApplianceUpdateOperationStatus _status =
         new("none", "none", "idle", null, null);
 
@@ -33,6 +34,17 @@ public sealed partial class ApplianceUpdateStagingStore
 
     public string Root { get; }
 
+    public bool IsHandoffRequestActive
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _isHandoffRequestActive;
+            }
+        }
+    }
+
     public ApplianceUpdateOperationStatus? TryStart(string channel, string tag)
     {
         lock (_gate)
@@ -57,6 +69,24 @@ public sealed partial class ApplianceUpdateStagingStore
 
     public void SetRunning(string channel, string tag) =>
         Set(new("stage", channel, "running", tag, null));
+
+    public void SetHandingOff(string channel, string tag)
+    {
+        lock (_gate)
+        {
+            _isHandoffRequestActive = true;
+            _status = new("handoff", channel, "running", tag, null);
+            PersistUnsafe();
+        }
+    }
+
+    public void CompleteHandoffAttempt()
+    {
+        lock (_gate)
+        {
+            _isHandoffRequestActive = false;
+        }
+    }
 
     public void SetHandedOff(string channel, string tag) =>
         Set(new("apply", channel, "running", tag, null));
@@ -106,6 +136,7 @@ public sealed partial class ApplianceUpdateStagingStore
     {
         lock (_gate)
         {
+            _isHandoffRequestActive = false;
             _status = status;
             PersistUnsafe();
         }

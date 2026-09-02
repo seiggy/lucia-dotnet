@@ -391,9 +391,20 @@ public sealed partial class ApplianceUpdateService(
                 Directory.Delete(finalStage, recursive: true);
             }
             Directory.Move(stage, finalStage);
-            return await manager
-                .StartUpdateAsync(channel, tag, cancellationToken)
-                .ConfigureAwait(false);
+            staging.SetHandingOff(channel, tag);
+            try
+            {
+                var operation = await manager
+                    .StartUpdateAsync(channel, tag, cancellationToken)
+                    .ConfigureAwait(false);
+                staging.SetHandedOff(channel, tag);
+                return operation;
+            }
+            catch
+            {
+                staging.CompleteHandoffAttempt();
+                throw;
+            }
         }
         finally
         {
@@ -416,6 +427,26 @@ public sealed partial class ApplianceUpdateService(
         var managerStatus = await manager
             .GetUpdateOperationAsync(cancellationToken)
             .ConfigureAwait(false);
+        if (stagingStatus is { Action: "handoff", Status: "running" })
+        {
+            if (staging.IsHandoffRequestActive)
+            {
+                return stagingStatus;
+            }
+            if (managerStatus.Channel == stagingStatus.Channel
+                && managerStatus.Tag == stagingStatus.Tag)
+            {
+                staging.SetHandedOff(
+                    stagingStatus.Channel,
+                    stagingStatus.Tag!);
+                return managerStatus;
+            }
+            staging.SetFailed(
+                stagingStatus.Channel,
+                stagingStatus.Tag!,
+                "The appliance manager did not accept the staged update.");
+            return staging.GetStatus();
+        }
         if (stagingStatus is { Action: "apply", Status: "running" }
             && managerStatus.Status is not ("queued" or "running"))
         {
@@ -455,26 +486,43 @@ public sealed partial class ApplianceUpdateService(
         {
             await StageAsync(channel, tag, CancellationToken.None)
                 .ConfigureAwait(false);
-            staging.SetHandedOff(channel, tag);
         }
         catch (Exception exception)
         {
             LogStagingFailure(exception, channel, tag);
-            staging.SetFailed(channel, tag, exception.Message);
+            if (staging.GetStatus().Action != "handoff")
+            {
+                staging.SetFailed(channel, tag, exception.Message);
+            }
         }
     }
 
     private async Task ReconcileHandedOffOperationAsync(
         CancellationToken cancellationToken)
     {
-        if (staging.GetStatus() is not { Action: "apply", Status: "running" })
+        var stagingStatus = staging.GetStatus();
+        if (stagingStatus is not
+            { Action: "apply" or "handoff", Status: "running" })
+        {
+            return;
+        }
+        if (stagingStatus.Action == "handoff"
+            && staging.IsHandoffRequestActive)
         {
             return;
         }
         var managerStatus = await manager
             .GetUpdateOperationAsync(cancellationToken)
             .ConfigureAwait(false);
-        if (managerStatus.Status is not ("queued" or "running"))
+        if (managerStatus.Channel != stagingStatus.Channel
+            || managerStatus.Tag != stagingStatus.Tag)
+        {
+            staging.SetFailed(
+                stagingStatus.Channel,
+                stagingStatus.Tag!,
+                "The appliance manager did not accept the staged update.");
+        }
+        else if (managerStatus.Status is not ("queued" or "running"))
         {
             staging.Clear();
         }

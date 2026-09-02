@@ -25,6 +25,7 @@ public sealed class ApplianceUpdateCoordinator
     {
         _operationPath = Path.Combine(_statePath, "operation.json");
         Directory.CreateDirectory(_statePath);
+        RecoverInterruptedOsWrite();
         if (!File.Exists(_operationPath))
         {
             return;
@@ -77,6 +78,7 @@ public sealed class ApplianceUpdateCoordinator
         {
             lock (_gate)
             {
+                RefreshStatusUnsafe();
                 return (_status.Status is "queued" or "running")
                     && !IsOsAwaitingValidation();
             }
@@ -152,7 +154,7 @@ public sealed class ApplianceUpdateCoordinator
             var output = (await outputTask.ConfigureAwait(false)).Trim();
             var error = (await errorTask.ConfigureAwait(false)).Trim();
             UpdateOperationStatus result = process.ExitCode == 0
-                ? action == "apply" && channel == "os"
+                ? channel == "os"
                     ? new(
                         action,
                         channel,
@@ -246,8 +248,37 @@ public sealed class ApplianceUpdateCoordinator
     }
 
     private bool IsOsAwaitingValidation() =>
-        _status is { Action: "apply", Channel: "os", Status: "running" }
+        _status is
+            { Action: "apply" or "rollback", Channel: "os", Status: "running" }
         && ReadOsStatus() is "pending" or "rollback-pending";
+
+    private void RecoverInterruptedOsWrite()
+    {
+        var path = Path.Combine(_statePath, "os.env");
+        if (!File.Exists(path)
+            || ReadOsStatus() != "writing")
+        {
+            return;
+        }
+        var temporary = path + ".tmp";
+        using (var stream = new FileStream(
+                   temporary,
+                   FileMode.Create,
+                   FileAccess.Write,
+                   FileShare.None))
+        {
+            using var writer = new StreamWriter(stream, leaveOpen: true);
+            foreach (var line in File.ReadLines(path))
+            {
+                writer.WriteLine(line == "status=writing"
+                    ? "status=failed"
+                    : line);
+            }
+            writer.Flush();
+            stream.Flush(flushToDisk: true);
+        }
+        File.Move(temporary, path, overwrite: true);
+    }
 
     private string? ReadOsStatus()
     {

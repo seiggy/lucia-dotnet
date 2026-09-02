@@ -35,8 +35,6 @@ if [[ "$status" != "pending" && "$status" != "rollback-pending" ]]; then
     rm -f "$validation_credential_path"
     exit 0
 fi
-[[ -r "$validation_credential_path" ]] || exit 1
-validation_credential="$(cat "$validation_credential_path")"
 previous_slot="$(sed -n 's/^previous_slot=//p' "$state")"
 target_slot="$(sed -n 's/^target_slot=//p' "$state")"
 validation_token="$(sed -n 's/^validation_token=//p' "$state")"
@@ -54,6 +52,8 @@ fi
 if [[ "$current_slot" != "$target_slot" ]]; then
     exit 1
 fi
+[[ -r "$validation_credential_path" ]] || exit 1
+validation_credential="$(cat "$validation_credential_path")"
 
 healthy=false
 for ((attempt = 0; attempt < health_attempts; attempt++)); do
@@ -88,7 +88,7 @@ fi
 "$nvbootctrl_path" -t rootfs set-active-boot-slot "$previous_slot"
 sed -i 's/^status=pending$/status=rollback-pending/' "$state"
 sync -f "$state"
-write_operation apply failed \
+write_operation apply running \
     "OS update failed boot validation; rollback is scheduled."
 "$systemctl_path" --no-block reboot
 exit 0
