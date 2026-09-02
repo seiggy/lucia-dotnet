@@ -16,6 +16,7 @@ public sealed partial class ApplianceUpdateService(
     private const string CudnnVersion = "9.3.0.75";
     private const string OnnxRuntimeVersion = "1.23.2";
     private const string SherpaOnnxVersion = "1.12.34";
+    private readonly SemaphoreSlim _transitionGate = new(1, 1);
     public async Task<ApplianceUpdateStatus> CheckAsync(
         CancellationToken cancellationToken)
     {
@@ -213,14 +214,21 @@ public sealed partial class ApplianceUpdateService(
         {
             throw new ArgumentException("Invalid appliance release tag.", nameof(tag));
         }
-        cancellationToken.ThrowIfCancellationRequested();
-        await ReconcileHandedOffOperationAsync(cancellationToken)
-            .ConfigureAwait(false);
-        var accepted = staging.TryStart(channel, tag)
-            ?? throw new InvalidOperationException(
-                "Another appliance update is already being staged.");
-        _ = Task.Run(() => RunStagingAsync(channel, tag));
-        return accepted;
+        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await ReconcileHandedOffOperationAsync(cancellationToken)
+                .ConfigureAwait(false);
+            var accepted = staging.TryStart(channel, tag)
+                ?? throw new InvalidOperationException(
+                    "Another appliance update is already being staged.");
+            _ = Task.Run(() => RunStagingAsync(channel, tag));
+            return accepted;
+        }
+        finally
+        {
+            _transitionGate.Release();
+        }
     }
 
     private async Task<ApplianceUpdateOperationStatus> StageAsync(
@@ -511,22 +519,32 @@ public sealed partial class ApplianceUpdateService(
             : managerStatus;
     }
 
-    public Task<ApplianceUpdateOperationStatus> RollbackAsync(
+    public async Task<ApplianceUpdateOperationStatus> RollbackAsync(
         string channel,
         CancellationToken cancellationToken)
     {
-        var stagingStatus = staging.GetStatus();
-        if (stagingStatus.Status == "queued"
-            || stagingStatus is { Action: "stage", Status: "running" })
+        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            throw new InvalidOperationException(
-                "An appliance update is still being staged.");
+            var stagingStatus = staging.GetStatus();
+            if (stagingStatus.Status == "queued"
+                || stagingStatus is { Action: "stage", Status: "running" })
+            {
+                throw new InvalidOperationException(
+                    "An appliance update is still being staged.");
+            }
+            if (stagingStatus.Status != "running")
+            {
+                staging.Clear();
+            }
+            return await manager
+                .StartRollbackAsync(channel, cancellationToken)
+                .ConfigureAwait(false);
         }
-        if (stagingStatus.Status != "running")
+        finally
         {
-            staging.Clear();
+            _transitionGate.Release();
         }
-        return manager.StartRollbackAsync(channel, cancellationToken);
     }
 
     private async Task RunStagingAsync(string channel, string tag)
@@ -638,7 +656,11 @@ public sealed partial class ApplianceUpdateService(
         }
     }
 
-    public void Dispose() => httpClient.Dispose();
+    public void Dispose()
+    {
+        _transitionGate.Dispose();
+        httpClient.Dispose();
+    }
 
     internal static Uri ParseManifestUri(string value)
     {

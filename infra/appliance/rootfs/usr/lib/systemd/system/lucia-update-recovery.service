@@ -1,9 +1,11 @@
 [Unit]
 Description=Recover interrupted Lucia appliance updates
 Before=lucia-appliance-manager.service lucia-agenthost.service lucia-redis.service
+RequiresMountsFor=/opt/lucia /var/lib/lucia
 
 [Service]
 Type=oneshot
+RemainAfterExit=yes
 User=root
 ExecStart=/usr/libexec/lucia/lucia-update recover lucia
 ReadWritePaths=/etc/lucia /opt/lucia /var/lib/lucia

@@ -419,9 +419,8 @@ if run_update rollback os; then
     echo "OS rollback ignored a reboot failure" >&2
     exit 1
 fi
-grep -qx 'status=pending' "$work/updates/state/os.env"
+grep -qx 'status=validated' "$work/updates/state/os.env"
 [[ "$(cat "$work/active-slot")" == "1" ]]
-grep -qx 'start lucia-os-update-validation.service' "$work/systemctl.log"
 run_update rollback os
 [[ "$(cat "$work/active-slot")" == "0" ]]
 grep -qx 'stop lucia-os-update-validation.service' "$work/systemctl.log"

@@ -143,6 +143,7 @@ test_bundle_contains_native_service_contract() {
     local updater="$output_dir/usr/libexec/lucia/lucia-update"
     local os_validator="$output_dir/usr/libexec/lucia/lucia-validate-os-update"
     local os_validation_unit="$output_dir/usr/lib/systemd/system/lucia-os-update-validation.service"
+    local update_recovery_unit="$output_dir/usr/lib/systemd/system/lucia-update-recovery.service"
     local recovery_sshd="$output_dir/etc/ssh/sshd_config.d/90-lucia-recovery.conf"
     local environment="$output_dir/var/lib/lucia/config/lucia.env"
     local sysusers="$output_dir/usr/lib/sysusers.d/lucia.conf"
@@ -155,6 +156,9 @@ test_bundle_contains_native_service_contract() {
         && [[ -x "$updater" ]] \
         && [[ -x "$os_validator" && -f "$os_validation_unit" ]] \
         && grep -q '^TimeoutStartSec=180s$' "$os_validation_unit" \
+        && grep -q '^RemainAfterExit=yes$' "$update_recovery_unit" \
+        && grep -q '^RequiresMountsFor=/opt/lucia /var/lib/lucia$' \
+            "$update_recovery_unit" \
         && grep -q '^Match User lucia-recovery$' "$recovery_sshd" \
         && grep -q '^    ForceCommand /usr/libexec/lucia/lucia-recovery-shell$' "$recovery_sshd" \
         && grep -q '^    DisableForwarding yes$' "$recovery_sshd" \

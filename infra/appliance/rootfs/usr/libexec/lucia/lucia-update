@@ -923,9 +923,11 @@ rollback_os() {
         trap - ERR
         "$nvbootctrl_path" -t rootfs set-active-boot-slot "$target_slot" \
             || true
-        sed -i 's/^status=rollback-pending$/status=pending/' "$state"
+        sed -i "s/^status=rollback-pending$/status=$status/" "$state"
         sync -f "$state" || true
-        "$systemctl_path" start lucia-os-update-validation.service || true
+        if [[ "$status" == "pending" ]]; then
+            "$systemctl_path" start lucia-os-update-validation.service || true
+        fi
         exit "$exit_code"
     }
     trap rollback_failed ERR
