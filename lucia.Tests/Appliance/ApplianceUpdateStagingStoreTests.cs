@@ -39,6 +39,11 @@ public sealed class ApplianceUpdateStagingStoreTests
             store.CompleteHandoffAttempt();
             Assert.False(store.IsHandoffRequestActive);
             Assert.Equal("handoff", CreateStore(root).GetStatus().Action);
+
+            var finalized = Path.Combine(root, "v1.6.0");
+            Directory.CreateDirectory(finalized);
+            store.Clear();
+            Assert.False(Directory.Exists(finalized));
         }
         finally
         {

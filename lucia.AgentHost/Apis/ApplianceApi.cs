@@ -30,9 +30,9 @@ public static class ApplianceApi
                     }
 
                     var database = redis.GetDatabase();
-                    var key = $"lucia:update-validation:{token}";
+                    const string Key = "lucia:update-validation";
                     if (!await database.StringSetAsync(
-                            key,
+                            Key,
                             token,
                             TimeSpan.FromDays(1))
                         .ConfigureAwait(false))
@@ -82,7 +82,7 @@ public static class ApplianceApi
                         """;
                     command.Parameters.AddWithValue(
                         "$key",
-                        $"appliance-update-validation:{token}");
+                        "appliance-update-validation");
                     command.Parameters.AddWithValue("$value", token);
                     await command.ExecuteNonQueryAsync(cancellationToken)
                         .ConfigureAwait(false);
@@ -107,8 +107,8 @@ public static class ApplianceApi
                     }
 
                     var database = redis.GetDatabase();
-                    var sentinelKey = $"lucia:update-validation:{token}";
-                    if (await database.StringGetAsync(sentinelKey)
+                    const string SentinelKey = "lucia:update-validation";
+                    if (await database.StringGetAsync(SentinelKey)
                             .ConfigureAwait(false) != token)
                     {
                         return Results.Problem(
@@ -135,7 +135,7 @@ public static class ApplianceApi
                         "SELECT value FROM configuration WHERE key = $key;";
                     sentinelCommand.Parameters.AddWithValue(
                         "$key",
-                        $"appliance-update-validation:{token}");
+                        "appliance-update-validation");
                     var sqliteSentinel = Convert.ToString(
                         await sentinelCommand.ExecuteScalarAsync(cancellationToken)
                             .ConfigureAwait(false),
@@ -155,14 +155,14 @@ public static class ApplianceApi
 
                     if (consume)
                     {
-                        _ = await database.KeyDeleteAsync(sentinelKey)
+                        _ = await database.KeyDeleteAsync(SentinelKey)
                             .ConfigureAwait(false);
                         await using var deleteCommand = connection.CreateCommand();
                         deleteCommand.CommandText =
                             "DELETE FROM configuration WHERE key = $key;";
                         deleteCommand.Parameters.AddWithValue(
                             "$key",
-                            $"appliance-update-validation:{token}");
+                            "appliance-update-validation");
                         await deleteCommand.ExecuteNonQueryAsync(cancellationToken)
                             .ConfigureAwait(false);
                     }

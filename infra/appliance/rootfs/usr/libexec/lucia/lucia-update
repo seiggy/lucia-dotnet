@@ -905,6 +905,7 @@ rollback_os() {
     "$nvbootctrl_path" -t rootfs set-active-boot-slot "$previous_slot"
     sed -i -E 's/^status=(pending|validated)$/status=rollback-pending/' "$state"
     sync -f "$state"
+    sync -f "$state_dir"
     "$systemctl_path" --no-block reboot
     trap - ERR
 }

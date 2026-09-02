@@ -28,17 +28,6 @@ app.Use(async (context, next) =>
         .GetRequiredService<ApplianceUpdateCoordinator>();
     var isOsRollback = HttpMethods.IsPost(context.Request.Method)
         && context.Request.Path == "/v1/updates/os/rollback";
-    if (updates.IsBusy
-        && !(isOsRollback && updates.CanStartOsRollback))
-    {
-        context.Response.StatusCode = StatusCodes.Status409Conflict;
-        await context.Response.WriteAsJsonAsync(
-                new { Error = "An appliance update is in progress." },
-                context.RequestAborted)
-            .ConfigureAwait(false);
-        return;
-    }
-
     if (!await operationLock.WaitAsync(
             TimeSpan.Zero,
             context.RequestAborted)
@@ -54,6 +43,16 @@ app.Use(async (context, next) =>
 
     try
     {
+        if (updates.IsBusy
+            && !(isOsRollback && updates.CanStartOsRollback))
+        {
+            context.Response.StatusCode = StatusCodes.Status409Conflict;
+            await context.Response.WriteAsJsonAsync(
+                    new { Error = "An appliance update is in progress." },
+                    context.RequestAborted)
+                .ConfigureAwait(false);
+            return;
+        }
         await next(context).ConfigureAwait(false);
     }
     finally

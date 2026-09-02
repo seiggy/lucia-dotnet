@@ -22,6 +22,34 @@ public sealed partial class ApplianceUpdateStagingStore
     {
     }
 
+    private void DeleteUnreferencedFinalizedStages()
+    {
+        foreach (var directory in Directory.EnumerateDirectories(Root))
+        {
+            var name = Path.GetFileName(directory);
+            if (name != _status.Tag
+                && System.Text.RegularExpressions.Regex.IsMatch(
+                    name,
+                    @"^v[0-9]+\.[0-9]+\.[0-9]+$"))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
+
+    private void DeleteFinalizedStage(string? tag)
+    {
+        if (tag is null)
+        {
+            return;
+        }
+        var directory = Path.Combine(Root, tag);
+        if (Directory.Exists(directory))
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     internal ApplianceUpdateStagingStore(
         string root,
         ILogger<ApplianceUpdateStagingStore> logger)
@@ -32,6 +60,7 @@ public sealed partial class ApplianceUpdateStagingStore
         Directory.CreateDirectory(Root);
         Load();
         DeleteOrphanedAttempts();
+        DeleteUnreferencedFinalizedStages();
     }
 
     public string Root { get; }
@@ -96,8 +125,18 @@ public sealed partial class ApplianceUpdateStagingStore
     public void SetFailed(string channel, string tag, string message) =>
         Set(new("stage", channel, "failed", tag, message));
 
-    public void Clear() =>
-        Set(new("none", "none", "idle", null, null));
+    public void Clear()
+    {
+        ApplianceUpdateOperationStatus previous;
+        lock (_gate)
+        {
+            previous = _status;
+            _isHandoffRequestActive = false;
+            _status = new("none", "none", "idle", null, null);
+            PersistUnsafe();
+        }
+        DeleteFinalizedStage(previous.Tag);
+    }
 
     private void Load()
     {

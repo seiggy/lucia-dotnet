@@ -6,6 +6,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUNDLE_SCRIPT="$SCRIPT_DIR/build-native-bundle.sh"
 WORK="$(mktemp -d "$SCRIPT_DIR/.bundletest.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
+FIXTURE_GH="$WORK/gh"
+FIXTURE_TRUSTED_ROOT="$WORK/trusted-root.jsonl"
+printf 'gh\n' > "$FIXTURE_GH"
+printf 'trusted\n' > "$FIXTURE_TRUSTED_ROOT"
 
 pass_count=0
 fail_count=0
@@ -120,6 +124,8 @@ test_bundle_contains_native_service_contract() {
         --manager-dir "$manager_dir" \
         --dashboard-dir "$dashboard_dir" \
         --redis-server "$redis_server" \
+        --gh-cli "$FIXTURE_GH" \
+        --trusted-root "$FIXTURE_TRUSTED_ROOT" \
         --output-dir "$output_dir" 2>&1)"
     status=$?
 
@@ -233,6 +239,8 @@ test_voice_assets_are_baked_into_bundle() {
         --manager-dir "$manager_dir" \
         --dashboard-dir "$dashboard_dir" \
         --redis-server "$redis_server" \
+        --gh-cli "$FIXTURE_GH" \
+        --trusted-root "$FIXTURE_TRUSTED_ROOT" \
         --native-dir "$native_dir" \
         --models-dir "$models_dir" \
         --plugins-dir "$plugins_dir" \
@@ -284,6 +292,8 @@ test_telemetry_assets_are_installed_but_disabled() {
         --manager-dir "$manager_dir" \
         --dashboard-dir "$dashboard_dir" \
         --redis-server "$redis_server" \
+        --gh-cli "$FIXTURE_GH" \
+        --trusted-root "$FIXTURE_TRUSTED_ROOT" \
         --otelcol "$otelcol" \
         --redis-exporter "$redis_exporter" \
         --output-dir "$output_dir" 2>&1)"

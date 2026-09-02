@@ -94,12 +94,10 @@ done
 verifier_input_count=0
 [[ -n "$gh_cli" ]] && verifier_input_count=$((verifier_input_count + 1))
 [[ -n "$trusted_root" ]] && verifier_input_count=$((verifier_input_count + 1))
-[[ "$verifier_input_count" -eq 0 || "$verifier_input_count" -eq 2 ]] \
-    || die_usage "--gh-cli and --trusted-root must be provided together"
-if [[ "$verifier_input_count" -eq 2 ]]; then
-    [[ -f "$gh_cli" ]] || die "GitHub CLI input must be a file"
-    [[ -f "$trusted_root" ]] || die "trusted root input must be a file"
-fi
+[[ "$verifier_input_count" -eq 2 ]] \
+    || die_usage "--gh-cli and --trusted-root are required"
+[[ -f "$gh_cli" ]] || die "GitHub CLI input must be a file"
+[[ -f "$trusted_root" ]] || die "trusted root input must be a file"
 [[ ! -e "$output_dir" ]] \
     || die "output directory already exists: $output_dir"
 
@@ -148,13 +146,11 @@ cp "$redis_server" "$release_dir/redis/bin/redis-server"
 mkdir -p "$output_dir/var/lib/lucia/redis"
 cp "$output_dir/etc/lucia/redis.conf" \
     "$output_dir/var/lib/lucia/redis/redis.conf"
-if [[ "$verifier_input_count" -eq 2 ]]; then
-    mkdir -p "$release_dir/tools"
-    cp "$gh_cli" "$release_dir/tools/gh"
-    cp "$trusted_root" "$release_dir/tools/trusted-root.jsonl"
-    chmod 0755 "$release_dir/tools/gh"
-    chmod 0644 "$release_dir/tools/trusted-root.jsonl"
-fi
+mkdir -p "$release_dir/tools"
+cp "$gh_cli" "$release_dir/tools/gh"
+cp "$trusted_root" "$release_dir/tools/trusted-root.jsonl"
+chmod 0755 "$release_dir/tools/gh"
+chmod 0644 "$release_dir/tools/trusted-root.jsonl"
 
 if [[ "$voice_input_count" -eq 3 ]]; then
     find "$release_dir/app" -type f \

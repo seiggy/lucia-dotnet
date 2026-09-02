@@ -55,7 +55,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/../../.." && pwd)"
 source "$script_dir/appliance.lock"
 
-for command in curl docker dotnet e2fsck findmnt gh mountpoint npm openssl python3 sha256sum tar umount zstd; do
+for command in curl docker dotnet e2fsck findmnt mountpoint npm openssl python3 sha256sum tar umount zstd; do
     command -v "$command" >/dev/null || die "required command is missing: $command"
 done
 sudo -n true 2>/dev/null || die "passwordless sudo is required"
