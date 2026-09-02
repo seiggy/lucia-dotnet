@@ -506,7 +506,8 @@ public sealed partial class ApplianceUpdateService(
                 return stagingStatus;
             }
             if (managerStatus.Channel == stagingStatus.Channel
-                && managerStatus.Tag == stagingStatus.Tag)
+                && managerStatus.Tag == stagingStatus.Tag
+                && managerStatus.OperationId == stagingStatus.OperationId)
             {
                 staging.SetHandedOff(
                     stagingStatus.Channel,
@@ -605,7 +606,8 @@ public sealed partial class ApplianceUpdateService(
             .GetUpdateOperationAsync(cancellationToken)
             .ConfigureAwait(false);
         if (managerStatus.Channel != stagingStatus.Channel
-            || managerStatus.Tag != stagingStatus.Tag)
+            || managerStatus.Tag != stagingStatus.Tag
+            || managerStatus.OperationId != stagingStatus.OperationId)
         {
             staging.SetFailed(
                 stagingStatus.Channel,
