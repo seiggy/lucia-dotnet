@@ -165,10 +165,9 @@ public sealed class ApplianceUpdateCoordinator
                 : new(action, channel, "failed", tag, NullIfEmpty(error));
             SetStatus(result);
             if (result.Status == "succeeded"
-                && action == "apply"
                 && channel == "lucia")
             {
-                ScheduleManagerRestart();
+                ScheduleLuciaServicesRestart();
             }
         }
         catch (Exception exception) when (
@@ -218,7 +217,7 @@ public sealed class ApplianceUpdateCoordinator
     private static string? NullIfEmpty(string value) =>
         string.IsNullOrWhiteSpace(value) ? null : value;
 
-    private void ScheduleManagerRestart()
+    private void ScheduleLuciaServicesRestart()
     {
         var startInfo = new ProcessStartInfo
         {
@@ -228,9 +227,10 @@ public sealed class ApplianceUpdateCoordinator
         startInfo.ArgumentList.Add("--no-block");
         startInfo.ArgumentList.Add("restart");
         startInfo.ArgumentList.Add("lucia-appliance-manager.service");
+        startInfo.ArgumentList.Add("lucia-agenthost.service");
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException(
-                "Failed to schedule the appliance manager restart.");
+                "Failed to schedule the Lucia service restart.");
     }
 
     private bool IsOsRollbackAvailable()

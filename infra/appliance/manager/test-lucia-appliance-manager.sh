@@ -328,13 +328,35 @@ done
 grep -q '"status":"succeeded"' "$work_dir/response.json"
 grep -qx 'apply lucia v1.4.0' "$update_log"
 for _ in {1..40}; do
-    grep -q '^--no-block restart lucia-appliance-manager.service$' \
+    grep -q '^--no-block restart lucia-appliance-manager.service lucia-agenthost.service$' \
         "$systemctl_log" && break
     sleep 0.05
 done
-grep -q '^--no-block restart lucia-appliance-manager.service$' "$systemctl_log"
+grep -q '^--no-block restart lucia-appliance-manager.service lucia-agenthost.service$' \
+    "$systemctl_log"
 
 echo "PASS: update operations run outside the request lifetime"
+
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
+        --header 'Content-Type: application/json' \
+        --request POST \
+        --data '{"tag":null}' \
+        http://localhost/v1/updates/lucia/rollback
+)"
+[[ "$status" == "202" ]]
+for _ in {1..40}; do
+    [[ "$(grep -c \
+        '^--no-block restart lucia-appliance-manager.service lucia-agenthost.service$' \
+        "$systemctl_log")" -ge 2 ]] && break
+    sleep 0.05
+done
+[[ "$(grep -c \
+    '^--no-block restart lucia-appliance-manager.service lucia-agenthost.service$' \
+    "$systemctl_log")" -ge 2 ]]
+
+echo "PASS: Lucia apply and rollback restart manager and AgentHost together"
 
 status="$(
     curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
