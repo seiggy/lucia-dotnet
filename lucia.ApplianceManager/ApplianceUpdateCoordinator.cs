@@ -353,6 +353,12 @@ public sealed partial class ApplianceUpdateCoordinator
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException(
                 "Failed to schedule the Lucia service restart.");
+        process.WaitForExit();
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                "systemd rejected the Lucia service restart.");
+        }
     }
 
     private void RecoverInterruptedLuciaUpdate()

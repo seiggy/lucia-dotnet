@@ -138,6 +138,8 @@ run_update() {
     LUCIA_PARTLABEL_DIR="$work/by-partlabel" \
     LUCIA_OS_VERSION_PATH="$work/os-version" \
     LUCIA_REDIS_CONFIG_PATH="$work/redis.conf" \
+    LUCIA_REDIS_OWNER=root \
+    LUCIA_REDIS_GROUP=root \
     LUCIA_RUNTIME_INFO_PATH="$work/runtime.json" \
     LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
     LUCIA_VALIDATION_GROUP=root \
@@ -253,6 +255,7 @@ grep -qx 'new-plugin' "$work/data/plugins/official.plugin"
 [[ ! -e "$work/data/plugins/removed.plugin" ]]
 grep -qx 'user-plugin' "$work/data/plugins/user.plugin"
 grep -qx 'new-redis-config' "$work/redis.conf"
+[[ "$(stat --format '%a' "$work/redis.conf")" == "640" ]]
 grep -qx 'old-db' "$work/data/db/lucia.db"
 [[ ! -e "$work/releases/0.9.0" ]]
 [[ ! -e "$work/updates/backups/lucia-v0.9.0.tar.zst" ]]
@@ -288,6 +291,7 @@ grep -qx 'old-db' "$work/data/db/lucia.db"
 [[ ! -e "$work/updates/state/validation.key" ]]
 grep -qx 'old-plugin' "$work/data/plugins/official.plugin"
 grep -qx 'old-redis-config' "$work/redis.conf"
+[[ "$(stat --format '%a' "$work/redis.conf")" == "640" ]]
 [[ ! -e "$work/fail-service-start-once" ]]
 
 echo "PASS: Lucia update verifies, switches atomically, and rolls back data"

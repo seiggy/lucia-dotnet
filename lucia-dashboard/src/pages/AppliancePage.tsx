@@ -103,9 +103,12 @@ export default function AppliancePage() {
 
   useEffect(() => {
     if (updateOperation?.status !== 'queued' && updateOperation?.status !== 'running') return
-    const timer = window.setInterval(() => {
-      void fetchApplianceUpdateOperation(updateOperation.operationId)
-        .then((operation) => {
+    let stopped = false
+    let timer = 0
+    async function poll() {
+      try {
+        const operation = await fetchApplianceUpdateOperation(updateOperation?.operationId)
+        if (!stopped) {
           setUpdateOperation(operation)
           if (operation.status === 'failed') {
             setError(operation.message ?? 'Update failed. Rollback is available when a backup exists.')
@@ -121,10 +124,22 @@ export default function AppliancePage() {
                 : 'Lucia update installed. Services are restarting.')
             void load()
           }
-        })
-        .catch(() => undefined)
-    }, 2000)
-    return () => window.clearInterval(timer)
+        }
+      } catch (pollError: unknown) {
+        if (!stopped) {
+          setError(pollError instanceof Error
+            ? pollError.message
+            : 'Update status is unavailable.')
+        }
+      } finally {
+        if (!stopped) timer = window.setTimeout(() => void poll(), 2000)
+      }
+    }
+    timer = window.setTimeout(() => void poll(), 2000)
+    return () => {
+      stopped = true
+      window.clearTimeout(timer)
+    }
   }, [load, updateOperation?.operationId, updateOperation?.status])
 
   async function handleCheckUpdates() {

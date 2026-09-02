@@ -155,7 +155,7 @@ test_bundle_contains_native_service_contract() {
         && grep -q '^exec /usr/bin/nmtui' "$recovery_shell" \
         && [[ -x "$updater" ]] \
         && [[ -x "$os_validator" && -f "$os_validation_unit" ]] \
-        && grep -q '^TimeoutStartSec=180s$' "$os_validation_unit" \
+        && grep -q '^TimeoutStartSec=1100s$' "$os_validation_unit" \
         && grep -q '^RemainAfterExit=yes$' "$update_recovery_unit" \
         && grep -q '^RequiresMountsFor=/opt/lucia /var/lib/lucia$' \
             "$update_recovery_unit" \

@@ -495,7 +495,9 @@ public sealed partial class ApplianceUpdateService(
             return stagingStatus;
         }
         var managerStatus = await manager
-            .GetUpdateOperationAsync(operationId, cancellationToken)
+            .GetUpdateOperationAsync(
+                stagingStatus.Status == "failed" ? null : operationId,
+                cancellationToken)
             .ConfigureAwait(false);
         if (stagingStatus is { Action: "handoff", Status: "running" })
         {
