@@ -315,6 +315,12 @@ for _ in {1..40}; do
 done
 grep -q '"status":"succeeded"' "$work_dir/response.json"
 grep -qx 'apply lucia v1.4.0' "$update_log"
+for _ in {1..40}; do
+    grep -q '^--no-block restart lucia-appliance-manager.service$' \
+        "$systemctl_log" && break
+    sleep 0.05
+done
+grep -q '^--no-block restart lucia-appliance-manager.service$' "$systemctl_log"
 
 echo "PASS: update operations run outside the request lifetime"
 

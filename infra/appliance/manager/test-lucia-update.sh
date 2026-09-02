@@ -49,6 +49,11 @@ cat > "$work/bin/systemctl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$LUCIA_TEST_SYSTEMCTL_LOG"
+if [[ "$*" == "start lucia-redis.service lucia-agenthost.service" \
+    && -e "$LUCIA_TEST_FAIL_SERVICE_START_ONCE" ]]; then
+    rm -f "$LUCIA_TEST_FAIL_SERVICE_START_ONCE"
+    exit 1
+fi
 EOF
 chmod +x "$work/bin/systemctl"
 cat > "$work/bin/curl" <<'EOF'
@@ -137,6 +142,7 @@ run_update() {
     LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
     LUCIA_TEST_FAIL_HEALTH_FILE="$work/fail-health" \
     LUCIA_TEST_FAIL_DD_FILE="$work/fail-dd" \
+    LUCIA_TEST_FAIL_SERVICE_START_ONCE="$work/fail-service-start-once" \
     LUCIA_UPDATE_HEALTH_ATTEMPTS=1 \
     LUCIA_UPDATE_HEALTH_DELAY_SECONDS=0 \
         "$updater" "$@"
@@ -199,13 +205,17 @@ grep -qx 'stop lucia-agenthost.service lucia-redis.service' "$work/systemctl.log
 grep -qx 'start lucia-redis.service lucia-agenthost.service' "$work/systemctl.log"
 
 printf 'migrated-db\n' > "$work/data/db/lucia.db"
-run_update rollback lucia
+touch "$work/fail-service-start-once"
+if run_update rollback lucia; then
+    echo "Lucia rollback ignored a service restart failure" >&2
+    exit 1
+fi
 [[ "$(readlink "$work/current")" == "releases/1.0.0" ]]
 grep -qx 'old-db' "$work/data/db/lucia.db"
 [[ ! -e "$work/updates/state/validation.key" ]]
 grep -qx 'old-plugin' "$work/data/plugins/official.plugin"
 grep -qx 'old-redis-config' "$work/redis.conf"
-[[ ! -e "$work/updates/backups/lucia-v1.1.0.tar.zst" ]]
+[[ ! -e "$work/fail-service-start-once" ]]
 
 echo "PASS: Lucia update verifies, switches atomically, and rolls back data"
 
@@ -329,6 +339,7 @@ grep -q '"Status":"succeeded"' "$work/updates/state/operation.json"
 
 run_update rollback os
 [[ "$(cat "$work/active-slot")" == "0" ]]
+grep -qx 'stop lucia-os-update-validation.service' "$work/systemctl.log"
 grep -qx 'status=rollback-pending' "$work/updates/state/os.env"
 
 echo "PASS: OS update writes only the inactive slot and reverses boot selection"
@@ -368,5 +379,9 @@ LUCIA_UPDATE_ROOT="$work/updates" \
         "$os_validator"
 grep -qx 'status=rolled-back' "$work/updates/state/os.env"
 grep -q '"Action":"rollback"' "$work/updates/state/operation.json"
+if run_update rollback os; then
+    echo "Completed OS rollback was accepted again" >&2
+    exit 1
+fi
 
 echo "PASS: unhealthy OS slot selects its predecessor before reboot"

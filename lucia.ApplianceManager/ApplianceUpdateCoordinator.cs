@@ -9,6 +9,9 @@ public sealed class ApplianceUpdateCoordinator
     private readonly string _updaterPath =
         Environment.GetEnvironmentVariable("LUCIA_UPDATE_PATH")
         ?? "/usr/libexec/lucia/lucia-update";
+    private readonly string _systemctlPath =
+        Environment.GetEnvironmentVariable("LUCIA_SYSTEMCTL_PATH")
+        ?? "/usr/bin/systemctl";
     private readonly string _statePath =
         Path.Combine(
             Environment.GetEnvironmentVariable("LUCIA_UPDATE_ROOT")
@@ -97,6 +100,12 @@ public sealed class ApplianceUpdateCoordinator
         {
             RefreshStatusUnsafe();
             var awaitingOsValidation = IsOsAwaitingValidation();
+            if (action == "rollback"
+                && channel == "os"
+                && !IsOsRollbackAvailable())
+            {
+                return false;
+            }
             var isAllowedOsRollback = awaitingOsValidation
                 && action == "rollback"
                 && channel == "os"
@@ -142,7 +151,7 @@ public sealed class ApplianceUpdateCoordinator
             await process.WaitForExitAsync().ConfigureAwait(false);
             var output = (await outputTask.ConfigureAwait(false)).Trim();
             var error = (await errorTask.ConfigureAwait(false)).Trim();
-            SetStatus(process.ExitCode == 0
+            UpdateOperationStatus result = process.ExitCode == 0
                 ? action == "apply" && channel == "os"
                     ? new(
                         action,
@@ -151,7 +160,14 @@ public sealed class ApplianceUpdateCoordinator
                         tag,
                         "OS update is awaiting boot validation.")
                     : new(action, channel, "succeeded", tag, NullIfEmpty(output))
-                : new(action, channel, "failed", tag, NullIfEmpty(error)));
+                : new(action, channel, "failed", tag, NullIfEmpty(error));
+            SetStatus(result);
+            if (result.Status == "succeeded"
+                && action == "apply"
+                && channel == "lucia")
+            {
+                ScheduleManagerRestart();
+            }
         }
         catch (Exception exception) when (
             exception is InvalidOperationException
@@ -199,6 +215,21 @@ public sealed class ApplianceUpdateCoordinator
 
     private static string? NullIfEmpty(string value) =>
         string.IsNullOrWhiteSpace(value) ? null : value;
+
+    private void ScheduleManagerRestart()
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = _systemctlPath,
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add("--no-block");
+        startInfo.ArgumentList.Add("restart");
+        startInfo.ArgumentList.Add("lucia-appliance-manager.service");
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException(
+                "Failed to schedule the appliance manager restart.");
+    }
 
     private bool IsOsRollbackAvailable()
     {

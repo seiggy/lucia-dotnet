@@ -558,6 +558,21 @@ rollback_lucia() {
         || die "Lucia rollback state is invalid"
     write_lucia_state \
         rollback "$previous" "$current" "$backup_real" "$validation_token"
+    rollback_failed() {
+        local exit_code=$?
+        trap - ERR
+        if recover_lucia; then
+            rm -f "$backup_real"
+        else
+            printf 'Error: Lucia rollback recovery failed\n' >&2
+        fi
+        if ! "$systemctl_path" start \
+                lucia-redis.service lucia-agenthost.service; then
+            printf 'Error: Lucia services could not restart after rollback failure\n' >&2
+        fi
+        exit "$exit_code"
+    }
+    trap rollback_failed ERR
     "$systemctl_path" stop lucia-agenthost.service lucia-redis.service
     atomic_symlink "$previous"
     restore_data_backup "$backup_real"
@@ -569,6 +584,7 @@ rollback_lucia() {
     sync -f "$state_dir"
     rm -rf "$releases_dir/${current#releases/}"
     rm -f "$backup_real"
+    trap - ERR
 }
 
 recover_lucia() {
@@ -756,7 +772,12 @@ apply_os() {
 rollback_os() {
     local state="$state_dir/os.env"
     local previous_slot
+    local status
     [[ -f "$state" ]] || die "no OS rollback is available"
+    "$systemctl_path" stop lucia-os-update-validation.service
+    status="$(sed -n 's/^status=//p' "$state")"
+    [[ "$status" == "pending" || "$status" == "validated" ]] \
+        || die "OS rollback is not available in state: $status"
     previous_slot="$(sed -n 's/^previous_slot=//p' "$state")"
     [[ "$previous_slot" == "0" || "$previous_slot" == "1" ]] \
         || die "OS rollback state is invalid"
