@@ -136,8 +136,14 @@ EOF
 printf 'phase=switched\n' > "$work_dir/updates/state/lucia.env"
 
 manager_command=(dotnet run --no-launch-profile --project "$manager_project")
+manager_validation_command=("${manager_command[@]}" --)
 if [[ -n "${LUCIA_MANAGER_BINARY:-}" ]]; then
     manager_command=("$LUCIA_MANAGER_BINARY")
+    manager_validation_command=("${manager_command[@]}")
+fi
+if ! timeout 30 "${manager_validation_command[@]}" --validate; then
+    echo "Manager validation mode failed" >&2
+    exit 1
 fi
 
 LUCIA_APPLIANCE_SOCKET="$socket_path" \

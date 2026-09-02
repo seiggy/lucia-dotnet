@@ -103,6 +103,11 @@ app.MapPost(
         }
     });
 
+if (args is ["--validate"])
+{
+    return;
+}
+
 await app.RunAsync().ConfigureAwait(false);
 
 static async Task<IResult> GetStatusAsync(CancellationToken cancellationToken)

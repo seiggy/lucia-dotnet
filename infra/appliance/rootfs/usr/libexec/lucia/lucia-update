@@ -607,6 +607,9 @@ apply_lucia() {
         && -d "$extract_dir/var/lib/lucia/plugins" \
         && -f "$extract_dir/var/lib/lucia/plugins/.bundled-plugins" ]] \
         || die "Lucia payload has no Redis config or shipped plugins"
+    "$extract_dir/opt/lucia/releases/$version/manager/lucia.ApplianceManager" \
+        --validate \
+        || die "Lucia payload manager validation failed"
     [[ ! -e "$releases_dir/$version" ]] \
         || die "Lucia release already exists: $version"
     validation_token="$(cat /proc/sys/kernel/random/uuid)"

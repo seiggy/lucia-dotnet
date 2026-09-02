@@ -183,7 +183,12 @@ add_runtime_files() {
     local release="$payload_root/opt/lucia/releases/$version"
     mkdir -p "$release/app" "$release/manager" "$release/redis/bin" "$release/tools"
     printf 'app\n' > "$release/app/lucia.AgentHost"
-    printf 'manager\n' > "$release/manager/lucia.ApplianceManager"
+    cat > "$release/manager/lucia.ApplianceManager" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$*" == "--validate" ]]
+[[ ! -e "${LUCIA_TEST_FAIL_MANAGER_VALIDATION_FILE:-}" ]]
+EOF
     printf 'redis\n' > "$release/redis/bin/redis-server"
     printf 'gh\n' > "$release/tools/gh"
     printf 'trusted\n' > "$release/tools/trusted-root.jsonl"
@@ -259,6 +264,15 @@ if LUCIA_TEST_RELEASES_AVAILABLE_BYTES=1 run_update apply lucia v1.1.0; then
     echo "Lucia update without application space was accepted" >&2
     exit 1
 fi
+touch "$work/fail-manager-validation"
+if LUCIA_TEST_FAIL_MANAGER_VALIDATION_FILE="$work/fail-manager-validation" \
+        run_update apply lucia v1.1.0; then
+    echo "Lucia update with an invalid manager was accepted" >&2
+    exit 1
+fi
+rm "$work/fail-manager-validation"
+[[ "$(readlink "$work/current")" == "releases/1.0.0" ]]
+write_manifest lucia v1.1.0 1.1.0 "$work/lucia.tar.zst"
 
 run_update apply lucia v1.1.0
 [[ "$(readlink "$work/current")" == "releases/1.1.0" ]]
