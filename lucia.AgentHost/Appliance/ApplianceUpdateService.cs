@@ -355,26 +355,17 @@ public sealed partial class ApplianceUpdateService(
                 throw new InvalidDataException(
                     "The selected appliance channel has no newer release.");
             }
-            EnsureStagingCapacity(
-                staging.Root,
-                selectedChannel.GetProperty("bytes").GetInt64());
-            foreach (var part in selectedChannel.GetProperty("parts").EnumerateArray())
+            var (parts, channelBytes) = ValidateParts(selectedChannel, tag);
+            EnsureStagingCapacity(staging.Root, channelBytes);
+            foreach (var part in parts)
             {
-                var name = part.GetProperty("name").GetString()
-                    ?? throw new InvalidDataException("An update part has no name.");
-                if (Path.GetFileName(name) != name
-                    || !System.Text.RegularExpressions.Regex.IsMatch(
-                        name,
-                        @"^[A-Za-z0-9][A-Za-z0-9._-]*$"))
-                {
-                    throw new InvalidDataException("An update part name is invalid.");
-                }
+                var name = part.GetProperty("name").GetString()!;
                 var bytes = part.GetProperty("bytes").GetInt64();
-                var sha256 = part.GetProperty("sha256").GetString()
-                    ?? throw new InvalidDataException("An update part has no digest.");
-                var url = part.GetProperty("url").GetString()
-                    ?? throw new InvalidDataException("An update part has no URL.");
-                var uri = ParseReleaseAssetUri(url, tag, name);
+                var sha256 = part.GetProperty("sha256").GetString()!;
+                var uri = ParseReleaseAssetUri(
+                    part.GetProperty("url").GetString()!,
+                    tag,
+                    name);
                 await DownloadAsync(
                         uri,
                         Path.Combine(stage, name),
@@ -413,6 +404,59 @@ public sealed partial class ApplianceUpdateService(
                 Directory.Delete(stage, recursive: true);
             }
         }
+    }
+
+    internal static (JsonElement[] Parts, long ChannelBytes) ValidateParts(
+        JsonElement selectedChannel,
+        string tag)
+    {
+        var channelBytes = selectedChannel.GetProperty("bytes").GetInt64();
+        var parts = selectedChannel.GetProperty("parts")
+            .EnumerateArray()
+            .ToArray();
+        if (parts is { Length: < 1 or > 64 })
+        {
+            throw new InvalidDataException(
+                "The appliance update has an invalid number of parts.");
+        }
+        long partBytesTotal = 0;
+        foreach (var part in parts)
+        {
+            var name = part.GetProperty("name").GetString()
+                ?? throw new InvalidDataException("An update part has no name.");
+            if (Path.GetFileName(name) != name
+                || !System.Text.RegularExpressions.Regex.IsMatch(
+                    name,
+                    @"^[A-Za-z0-9][A-Za-z0-9._-]*$"))
+            {
+                throw new InvalidDataException("An update part name is invalid.");
+            }
+            var bytes = part.GetProperty("bytes").GetInt64();
+            if (bytes is < 1 or > 1_900_000_000)
+            {
+                throw new InvalidDataException(
+                    "An update part has an invalid size.");
+            }
+            partBytesTotal = checked(partBytesTotal + bytes);
+            var sha256 = part.GetProperty("sha256").GetString()
+                ?? throw new InvalidDataException("An update part has no digest.");
+            if (!System.Text.RegularExpressions.Regex.IsMatch(
+                    sha256,
+                    @"^[0-9a-f]{64}$"))
+            {
+                throw new InvalidDataException(
+                    "An update part has an invalid digest.");
+            }
+            var url = part.GetProperty("url").GetString()
+                ?? throw new InvalidDataException("An update part has no URL.");
+            _ = ParseReleaseAssetUri(url, tag, name);
+        }
+        if (partBytesTotal != channelBytes)
+        {
+            throw new InvalidDataException(
+                "The appliance update part sizes do not match the channel size.");
+        }
+        return (parts, channelBytes);
     }
 
     public async Task<ApplianceUpdateOperationStatus> GetOperationAsync(

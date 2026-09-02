@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.Json;
 using lucia.AgentHost.Appliance;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -92,6 +93,28 @@ public sealed class ApplianceUpdateServiceTests
             () => ApplianceUpdateService.EnsureStagingCapacity(
                 Path.GetTempPath(),
                 long.MaxValue / 2));
+    }
+
+    [Fact]
+    public void ValidateParts_RejectsChannelSizeMismatch()
+    {
+        using var document = JsonDocument.Parse(
+            """
+            {
+              "bytes": 1,
+              "parts": [{
+                "name": "part.zst",
+                "bytes": 2,
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "url": "https://github.com/seiggy/lucia-dotnet/releases/download/v1.5.0/part.zst"
+              }]
+            }
+            """);
+
+        Assert.Throws<InvalidDataException>(
+            () => ApplianceUpdateService.ValidateParts(
+                document.RootElement,
+                "v1.5.0"));
     }
 
     [Theory]

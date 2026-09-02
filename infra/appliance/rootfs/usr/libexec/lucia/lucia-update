@@ -116,6 +116,9 @@ restore_data_backup() {
     local restore_root="$work_dir/restore-data"
     local old_root="$work_dir/replaced-data"
     local name
+    local previous_err_trap
+
+    previous_err_trap="$(trap -p ERR)"
 
     zstd --test "$backup" >/dev/null
     if [[ -d "$old_root" ]]; then
@@ -152,6 +155,9 @@ restore_data_backup() {
         if [[ -f "$old_root/redis.conf" ]]; then
             cp "$old_root/redis.conf" "$redis_config_path"
         fi
+        if [[ -n "$previous_err_trap" ]]; then
+            eval "$previous_err_trap"
+        fi
         return "$exit_code"
     }
     trap restore_failed_data_swap ERR
@@ -162,7 +168,11 @@ restore_data_backup() {
     cp "$redis_config_path" "$old_root/redis.conf"
     install -m 0644 "$restore_root/redis.conf" "${redis_config_path}.new"
     mv -f "${redis_config_path}.new" "$redis_config_path"
-    trap - ERR
+    if [[ -n "$previous_err_trap" ]]; then
+        eval "$previous_err_trap"
+    else
+        trap - ERR
+    fi
     rm -rf "$old_root" "$restore_root"
 }
 
@@ -195,6 +205,7 @@ verify_and_assemble() {
         || die "staged manifest or attestation bundle is missing"
     rm -rf "$input_dir"
     mkdir -p "$input_dir"
+    trap 'rm -rf "$input_dir" "$parts_list"' ERR
     chmod 0700 "$input_dir"
     cp --reflink=auto \
         "$stage/lucia-appliance-manifest.json" \
@@ -372,6 +383,7 @@ PY
     actual_hash="$(xargs -d '\n' cat < "$parts_list" | sha256sum | cut -d' ' -f1)"
     [[ "$actual_hash" == "$expected_hash" ]] \
         || die "assembled payload digest mismatch"
+    trap - ERR
     printf '%s\n%s\n%s\n' "$version" "$parts_list" "$input_dir"
 }
 
@@ -471,6 +483,7 @@ apply_lucia() {
             "$systemctl_path" start \
                 lucia-redis.service lucia-agenthost.service || true
         fi
+        rm -rf "$input_dir" "$parts_list" "$extract_dir"
         exit "$exit_code"
     }
     trap restore_failed_apply ERR
@@ -596,6 +609,7 @@ recover_lucia() {
     local backups_real
     local current
     local validation_token
+    rm -rf "$work_dir"/input-* "$work_dir"/*.parts
     if [[ ! -f "$state" ]]; then
         rm -f "$validation_credential_path"
         exit 0
@@ -736,6 +750,7 @@ apply_os() {
         sed -i -E 's/^status=(writing|pending)$/status=failed/' \
             "$state_dir/os.env"
         sync -f "$state_dir/os.env"
+        rm -rf "$input_dir" "$parts_list"
         exit "$exit_code"
     }
     trap restore_failed_slot_change ERR
@@ -772,19 +787,35 @@ apply_os() {
 rollback_os() {
     local state="$state_dir/os.env"
     local previous_slot
+    local target_slot
     local status
     [[ -f "$state" ]] || die "no OS rollback is available"
-    "$systemctl_path" stop lucia-os-update-validation.service
     status="$(sed -n 's/^status=//p' "$state")"
     [[ "$status" == "pending" || "$status" == "validated" ]] \
         || die "OS rollback is not available in state: $status"
     previous_slot="$(sed -n 's/^previous_slot=//p' "$state")"
+    target_slot="$(sed -n 's/^target_slot=//p' "$state")"
     [[ "$previous_slot" == "0" || "$previous_slot" == "1" ]] \
         || die "OS rollback state is invalid"
+    [[ "$target_slot" == "0" || "$target_slot" == "1" ]] \
+        || die "OS rollback target state is invalid"
+    rollback_failed() {
+        local exit_code=$?
+        trap - ERR
+        "$nvbootctrl_path" -t rootfs set-active-boot-slot "$target_slot" \
+            || true
+        sed -i 's/^status=rollback-pending$/status=pending/' "$state"
+        sync -f "$state" || true
+        "$systemctl_path" start lucia-os-update-validation.service || true
+        exit "$exit_code"
+    }
+    trap rollback_failed ERR
+    "$systemctl_path" stop lucia-os-update-validation.service
     "$nvbootctrl_path" -t rootfs set-active-boot-slot "$previous_slot"
     sed -i -E 's/^status=(pending|validated)$/status=rollback-pending/' "$state"
     sync -f "$state"
     "$systemctl_path" --no-block reboot
+    trap - ERR
 }
 
 case "$action:$channel" in

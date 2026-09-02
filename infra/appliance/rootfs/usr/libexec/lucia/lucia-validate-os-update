@@ -52,6 +52,13 @@ fi
 if [[ "$current_slot" != "$target_slot" ]]; then
     exit 1
 fi
+if [[ "$status" == "rollback-pending" ]]; then
+    "$nvbootctrl_path" -t rootfs set-active-boot-slot "$previous_slot"
+    write_operation rollback running \
+        "OS rollback is retrying the previous slot."
+    "$systemctl_path" --no-block reboot
+    exit 0
+fi
 [[ -r "$validation_credential_path" ]] || exit 1
 validation_credential="$(cat "$validation_credential_path")"
 

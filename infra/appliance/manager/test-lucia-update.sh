@@ -54,6 +54,12 @@ if [[ "$*" == "start lucia-redis.service lucia-agenthost.service" \
     rm -f "$LUCIA_TEST_FAIL_SERVICE_START_ONCE"
     exit 1
 fi
+if [[ "$*" == "--no-block reboot" \
+    && -n "${LUCIA_TEST_FAIL_REBOOT_ONCE:-}" \
+    && -e "$LUCIA_TEST_FAIL_REBOOT_ONCE" ]]; then
+    rm -f "$LUCIA_TEST_FAIL_REBOOT_ONCE"
+    exit 1
+fi
 EOF
 chmod +x "$work/bin/systemctl"
 cat > "$work/bin/curl" <<'EOF'
@@ -143,6 +149,7 @@ run_update() {
     LUCIA_TEST_FAIL_HEALTH_FILE="$work/fail-health" \
     LUCIA_TEST_FAIL_DD_FILE="$work/fail-dd" \
     LUCIA_TEST_FAIL_SERVICE_START_ONCE="$work/fail-service-start-once" \
+    LUCIA_TEST_FAIL_REBOOT_ONCE="$work/fail-reboot-once" \
     LUCIA_UPDATE_HEALTH_ATTEMPTS=1 \
     LUCIA_UPDATE_HEALTH_DELAY_SECONDS=0 \
         "$updater" "$@"
@@ -166,6 +173,7 @@ if run_update apply lucia v1.1.0; then
     exit 1
 fi
 [[ "$(readlink "$work/current")" == "releases/1.0.0" ]]
+! compgen -G "$work/updates/work/input-*" >/dev/null
 rm "$work/reject-attestation"
 printf 'tampered\n' >> "$work/updates/staging/v1.1.0/lucia.tar.zst"
 if run_update apply lucia v1.1.0; then
@@ -243,10 +251,12 @@ tar -I zstd -cf "$work/lucia-recover.tar.zst" -C "$work/lucia-payload-recover" .
 write_manifest lucia v1.1.1 1.1.1 "$work/lucia-recover.tar.zst"
 run_update apply lucia v1.1.1
 printf 'interrupted-db\n' > "$work/data/db/lucia.db"
+mkdir -p "$work/updates/work/input-orphan-v9.9.9"
 sed -i 's/^phase=committed$/phase=switched/' "$work/updates/state/lucia.env"
 run_update recover lucia
 [[ "$(readlink "$work/current")" == "releases/1.0.0" ]]
 grep -qx 'old-db' "$work/data/db/lucia.db"
+[[ ! -e "$work/updates/work/input-orphan-v9.9.9" ]]
 
 echo "PASS: startup recovery reverses an interrupted Lucia transaction"
 
@@ -337,10 +347,29 @@ grep -qx 'status=validated' "$work/updates/state/os.env"
 grep -q '"Status":"succeeded"' "$work/updates/state/operation.json"
 [[ -e "$work/boot-successful" ]]
 
+touch "$work/fail-reboot-once"
+if run_update rollback os; then
+    echo "OS rollback ignored a reboot failure" >&2
+    exit 1
+fi
+grep -qx 'status=pending' "$work/updates/state/os.env"
+[[ "$(cat "$work/active-slot")" == "1" ]]
+grep -qx 'start lucia-os-update-validation.service' "$work/systemctl.log"
 run_update rollback os
 [[ "$(cat "$work/active-slot")" == "0" ]]
 grep -qx 'stop lucia-os-update-validation.service' "$work/systemctl.log"
 grep -qx 'status=rollback-pending' "$work/updates/state/os.env"
+LUCIA_UPDATE_ROOT="$work/updates" \
+    LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
+    LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
+    LUCIA_CURL_PATH="$work/bin/curl" \
+    LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
+    LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
+    LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
+    LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
+    LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
+        "$os_validator"
+grep -q '"Status":"running"' "$work/updates/state/operation.json"
 printf '0\n' > "$work/current-slot"
 LUCIA_UPDATE_ROOT="$work/updates" \
     LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \

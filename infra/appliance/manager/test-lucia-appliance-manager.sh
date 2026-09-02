@@ -387,6 +387,13 @@ status="$(
         http://localhost/v1/updates/lucia/apply
 )"
 [[ "$status" == "409" ]]
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
+        --request POST \
+        http://localhost/v1/services/redis/restart
+)"
+[[ "$status" == "409" ]]
 
 echo "PASS: pending OS validation blocks overlapping updates"
 

@@ -79,8 +79,20 @@ public sealed class ApplianceUpdateCoordinator
             lock (_gate)
             {
                 RefreshStatusUnsafe();
-                return (_status.Status is "queued" or "running")
-                    && !IsOsAwaitingValidation();
+                return _status.Status is "queued" or "running"
+                    || IsOsTransitionInProgress();
+            }
+        }
+    }
+
+    public bool CanStartOsRollback
+    {
+        get
+        {
+            lock (_gate)
+            {
+                RefreshStatusUnsafe();
+                return IsOsRollbackAvailable();
             }
         }
     }

@@ -26,7 +26,10 @@ app.Use(async (context, next) =>
     }
     var updates = context.RequestServices
         .GetRequiredService<ApplianceUpdateCoordinator>();
-    if (updates.IsBusy)
+    var isOsRollback = HttpMethods.IsPost(context.Request.Method)
+        && context.Request.Path == "/v1/updates/os/rollback";
+    if (updates.IsBusy
+        && !(isOsRollback && updates.CanStartOsRollback))
     {
         context.Response.StatusCode = StatusCodes.Status409Conflict;
         await context.Response.WriteAsJsonAsync(
