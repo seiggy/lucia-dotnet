@@ -30,6 +30,7 @@ redis_group="${LUCIA_REDIS_GROUP:-lucia-redis}"
 runtime_info_path="${LUCIA_RUNTIME_INFO_PATH:-/etc/lucia/appliance-runtime.json}"
 device_tree_path="${LUCIA_DEVICE_TREE_PATH:-/proc/device-tree/compatible}"
 jetson_release_path="${LUCIA_JETSON_RELEASE_PATH:-/etc/nv_tegra_release}"
+host_etc="${LUCIA_HOST_ETC:-/etc}"
 validation_group="${LUCIA_VALIDATION_GROUP:-lucia}"
 health_attempts="${LUCIA_UPDATE_HEALTH_ATTEMPTS:-30}"
 health_delay="${LUCIA_UPDATE_HEALTH_DELAY_SECONDS:-2}"
@@ -115,6 +116,70 @@ read_jetson_linux() {
     sed -n -E \
         's/^# R([0-9]+).+REVISION: ([0-9]+(\.[0-9]+)?).*/\1.\2/p' \
         "$jetson_release_path"
+}
+
+preserve_device_state() {
+    local target_root="$1"
+    local hosts_entry
+    local recovery_entry
+    local temporary
+    local wifi_source="$host_etc/NetworkManager/system-connections/lucia-home.nmconnection"
+    local wifi_target="$target_root/etc/NetworkManager/system-connections/lucia-home.nmconnection"
+
+    [[ -d "$target_root/etc" && ! -L "$target_root/etc" ]] \
+        || die "inactive OS slot has no safe /etc directory"
+    for path in hostname hosts shadow; do
+        [[ -f "$host_etc/$path" && ! -L "$host_etc/$path" ]] \
+            || die "device state source is invalid: /etc/$path"
+        [[ -f "$target_root/etc/$path" && ! -L "$target_root/etc/$path" ]] \
+            || die "inactive OS slot is missing a safe /etc/$path"
+    done
+    install -o root -g root -m 0644 \
+        "$host_etc/hostname" "$target_root/etc/hostname"
+
+    hosts_entry="$(grep -m1 -E '^[[:space:]]*127\.0\.1\.1[[:space:]]+' \
+        "$host_etc/hosts")"
+    [[ -n "$hosts_entry" ]] \
+        || die "device hostname entry is missing from /etc/hosts"
+    temporary="$(mktemp "$target_root/etc/hosts.XXXXXX")"
+    awk '$1 != "127.0.1.1" { print }' "$target_root/etc/hosts" \
+        > "$temporary"
+    printf '%s\n' "$hosts_entry" >> "$temporary"
+    chown --reference="$target_root/etc/hosts" "$temporary"
+    chmod --reference="$target_root/etc/hosts" "$temporary"
+    mv -f "$temporary" "$target_root/etc/hosts"
+
+    recovery_entry="$(grep -m1 '^lucia-recovery:' "$host_etc/shadow")"
+    [[ -n "$recovery_entry" ]] \
+        || die "device recovery credential is missing from /etc/shadow"
+    temporary="$(mktemp "$target_root/etc/shadow.XXXXXX")"
+    awk -F: -v replacement="$recovery_entry" '
+        BEGIN { found = 0 }
+        $1 == "lucia-recovery" {
+            print replacement
+            found = 1
+            next
+        }
+        { print }
+        END { if (!found) exit 1 }
+    ' "$target_root/etc/shadow" > "$temporary" \
+        || die "inactive OS slot has no recovery account"
+    chown --reference="$target_root/etc/shadow" "$temporary"
+    chmod --reference="$target_root/etc/shadow" "$temporary"
+    mv -f "$temporary" "$target_root/etc/shadow"
+
+    if [[ -e "$wifi_source" || -L "$wifi_source" ]]; then
+        [[ -f "$wifi_source" && ! -L "$wifi_source" ]] \
+            || die "device Wi-Fi connection is not a regular file"
+        [[ -d "$target_root/etc/NetworkManager" \
+            && ! -L "$target_root/etc/NetworkManager" \
+            && -d "$(dirname "$wifi_target")" \
+            && ! -L "$(dirname "$wifi_target")" ]] \
+            || die "inactive OS slot has no safe NetworkManager connection directory"
+        [[ ! -L "$wifi_target" ]] \
+            || die "inactive OS slot Wi-Fi destination is a symlink"
+        install -o root -g root -m 0600 "$wifi_source" "$wifi_target"
+    fi
 }
 
 import_staged_file() {
@@ -788,6 +853,8 @@ apply_os() {
     local slot_changed=false
     local validation_token
     local validation_credential
+    local slot_mount="$work_dir/os-slot"
+    local slot_root_mounted=false
 
     verified_output="$(verify_and_assemble os "$selected_tag")" \
         || die "OS update verification failed"
@@ -869,6 +936,10 @@ apply_os() {
         local exit_code=$?
         trap - ERR
         rm -f "$validation_credential_path"
+        if [[ "$slot_root_mounted" == true ]]; then
+            umount "$slot_mount" || true
+            slot_root_mounted=false
+        fi
         if [[ "$slot_changed" == true ]]; then
             "$nvbootctrl_path" -t rootfs set-active-boot-slot "$current_slot" \
                 || true
@@ -895,6 +966,19 @@ apply_os() {
     xargs -d '\n' cat < "$parts_list" \
         | tar -I zstd -xOf - "$dtb_image" \
         | "$dd_path" of="$partlabel_dir/$dtb_label" bs=4M conv=fsync status=none
+    e2fsck -fn "$partlabel_dir/$app_label" >/dev/null
+    findmnt -rn "$slot_mount" >/dev/null \
+        && die "inactive OS slot work directory is already mounted"
+    rm -rf "$slot_mount"
+    mkdir -p "$slot_mount"
+    mount -o rw,nosuid,nodev,noexec \
+        "$partlabel_dir/$app_label" "$slot_mount"
+    slot_root_mounted=true
+    preserve_device_state "$slot_mount"
+    sync -f "$slot_mount"
+    umount "$slot_mount"
+    slot_root_mounted=false
+    rmdir "$slot_mount"
     e2fsck -fn "$partlabel_dir/$app_label" >/dev/null
     printf 'previous_slot=%s\ntarget_slot=%s\nversion=%s\ntag=%s\noperation_id=%s\nstatus=pending\nvalidation_token=%s\n' \
         "$current_slot" "$target_slot" "$version" "$selected_tag" "$operation_id" "$validation_token" \

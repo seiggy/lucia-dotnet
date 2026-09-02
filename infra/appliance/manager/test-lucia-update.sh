@@ -6,8 +6,10 @@ updater="$repo_root/infra/appliance/rootfs/usr/libexec/lucia/lucia-update"
 os_validator="$repo_root/infra/appliance/rootfs/usr/libexec/lucia/lucia-validate-os-update"
 work="$(mktemp -d)"
 loop_device=""
+mounted_path=""
 
 cleanup() {
+    [[ -z "$mounted_path" ]] || umount "$mounted_path" 2>/dev/null || true
     [[ -z "$loop_device" ]] || losetup --detach "$loop_device" 2>/dev/null || true
     rm -rf "$work"
 }
@@ -20,6 +22,7 @@ mkdir -p \
     "$work/data/db" \
     "$work/data/plugins" \
     "$work/data/redis" \
+    "$work/host-etc/NetworkManager/system-connections" \
     "$work/updates/staging" \
     "$work/updates/backups"
 ln -s releases/1.0.0 "$work/current"
@@ -73,6 +76,12 @@ credential="$(cat "$LUCIA_VALIDATION_CREDENTIAL_PATH")"
 [[ ! -e "$LUCIA_TEST_FAIL_HEALTH_FILE" ]]
 EOF
 chmod +x "$work/bin/curl"
+cat > "$work/bin/nm-online" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ ! -e "$LUCIA_TEST_FAIL_NETWORK_FILE" ]]
+EOF
+chmod +x "$work/bin/nm-online"
 
 cat > "$work/bin/nvbootctrl" <<'EOF'
 #!/usr/bin/env bash
@@ -141,6 +150,7 @@ run_update() {
     LUCIA_REDIS_OWNER=root \
     LUCIA_REDIS_GROUP=root \
     LUCIA_RUNTIME_INFO_PATH="$work/runtime.json" \
+    LUCIA_HOST_ETC="$work/host-etc" \
     LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
     LUCIA_VALIDATION_GROUP=root \
     LUCIA_AVAILABLE_BYTES="${LUCIA_TEST_AVAILABLE_BYTES:-}" \
@@ -155,6 +165,7 @@ run_update() {
     LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
     LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
     LUCIA_TEST_FAIL_HEALTH_FILE="$work/fail-health" \
+    LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
     LUCIA_TEST_FAIL_DD_FILE="$work/fail-dd" \
     LUCIA_TEST_FAIL_SERVICE_START_ONCE="$work/fail-service-start-once" \
     LUCIA_TEST_FAIL_REBOOT_ONCE="$work/fail-reboot-once" \
@@ -377,6 +388,28 @@ for entry in \
 done
 truncate --size 64M "$work/os-payload/system.img_b"
 mkfs.ext4 -q -F "$work/os-payload/system.img_b"
+mkdir -p "$work/os-image-root"
+mount -o loop "$work/os-payload/system.img_b" "$work/os-image-root"
+mounted_path="$work/os-image-root"
+mkdir -p \
+    "$work/os-image-root/etc/NetworkManager/system-connections"
+printf 'factory\n' > "$work/os-image-root/etc/hostname"
+printf '127.0.0.1 localhost\n127.0.1.1 factory\n' \
+    > "$work/os-image-root/etc/hosts"
+printf 'root:*:20000:0:99999:7:::\nlucia-recovery:!:20000:0:99999:7:::\n' \
+    > "$work/os-image-root/etc/shadow"
+chmod 0640 "$work/os-image-root/etc/shadow"
+umount "$work/os-image-root"
+mounted_path=""
+printf 'lucia-kitchen\n' > "$work/host-etc/hostname"
+printf '127.0.0.1 localhost\n127.0.1.1 lucia-kitchen\n' \
+    > "$work/host-etc/hosts"
+printf 'root:*:20000:0:99999:7:::\nlucia-recovery:$6$device$hash:20000:0:99999:7:::\n' \
+    > "$work/host-etc/shadow"
+printf '[connection]\nid=lucia-home\n\n[wifi]\nssid=HouseNet\n' \
+    > "$work/host-etc/NetworkManager/system-connections/lucia-home.nmconnection"
+chmod 0600 \
+    "$work/host-etc/NetworkManager/system-connections/lucia-home.nmconnection"
 printf 'boot-b\n' > "$work/os-payload/boot.img_b"
 printf 'dtb-b\n' > "$work/os-payload/kernel_test.dtb"
 tar -I zstd -cf "$work/os.tar.zst" -C "$work/os-payload" \
@@ -398,6 +431,20 @@ write_manifest os v1.1.0 1.1.0 "$work/os.tar.zst"
 run_update apply os v1.1.0
 [[ "$(cat "$work/active-slot")" == "1" ]]
 e2fsck -fn "${loop_device}p2" >/dev/null
+mkdir -p "$work/updated-slot"
+mount "${loop_device}p2" "$work/updated-slot"
+mounted_path="$work/updated-slot"
+grep -qx 'lucia-kitchen' "$work/updated-slot/etc/hostname"
+grep -qx '127.0.1.1 lucia-kitchen' "$work/updated-slot/etc/hosts"
+grep -q '^lucia-recovery:\$6\$device\$hash:' \
+    "$work/updated-slot/etc/shadow"
+grep -qx 'ssid=HouseNet' \
+    "$work/updated-slot/etc/NetworkManager/system-connections/lucia-home.nmconnection"
+[[ "$(stat --format '%a' \
+    "$work/updated-slot/etc/NetworkManager/system-connections/lucia-home.nmconnection")" \
+    == "600" ]]
+umount "$work/updated-slot"
+mounted_path=""
 [[ "$(dd if="${loop_device}p4" bs=7 count=1 status=none)" == "boot-b" ]]
 [[ "$(dd if="${loop_device}p6" bs=6 count=1 status=none)" == "dtb-b" ]]
 grep -qx -- '--no-block reboot' "$work/systemctl.log"
@@ -406,10 +453,12 @@ LUCIA_UPDATE_ROOT="$work/updates" \
 LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
 LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
 LUCIA_CURL_PATH="$work/bin/curl" \
+LUCIA_NM_ONLINE_PATH="$work/bin/nm-online" \
 LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
 LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
 LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
 LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
+LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
 LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
 LUCIA_UPDATE_HEALTH_ATTEMPTS=1 \
 LUCIA_UPDATE_HEALTH_DELAY_SECONDS=0 \
@@ -433,10 +482,12 @@ LUCIA_UPDATE_ROOT="$work/updates" \
     LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
     LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
     LUCIA_CURL_PATH="$work/bin/curl" \
+    LUCIA_NM_ONLINE_PATH="$work/bin/nm-online" \
     LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
     LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
     LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
     LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
+    LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
     LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
         "$os_validator"
 grep -q '"Status":"running"' "$work/updates/state/operation.json"
@@ -445,10 +496,12 @@ LUCIA_UPDATE_ROOT="$work/updates" \
     LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
     LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
     LUCIA_CURL_PATH="$work/bin/curl" \
+    LUCIA_NM_ONLINE_PATH="$work/bin/nm-online" \
     LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
     LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
     LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
     LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
+    LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
     LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
         "$os_validator"
 grep -qx 'status=rolled-back' "$work/updates/state/os.env"
@@ -459,21 +512,22 @@ write_manifest os v1.2.0 1.2.0 "$work/os.tar.zst"
 printf '0\n' > "$work/current-slot"
 run_update apply os v1.2.0
 printf '1\n' > "$work/current-slot"
-touch "$work/fail-health"
+touch "$work/fail-network"
 LUCIA_UPDATE_ROOT="$work/updates" \
     LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
     LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
     LUCIA_CURL_PATH="$work/bin/curl" \
+    LUCIA_NM_ONLINE_PATH="$work/bin/nm-online" \
     LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
     LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
     LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
     LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
     LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
-    LUCIA_TEST_FAIL_HEALTH_FILE="$work/fail-health" \
+    LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
     LUCIA_UPDATE_HEALTH_ATTEMPTS=1 \
     LUCIA_UPDATE_HEALTH_DELAY_SECONDS=0 \
         "$os_validator"
-rm "$work/fail-health"
+rm "$work/fail-network"
 [[ "$(cat "$work/active-slot")" == "0" ]]
 grep -qx 'status=rollback-pending' "$work/updates/state/os.env"
 grep -q '"Status":"running"' "$work/updates/state/operation.json"
@@ -482,10 +536,12 @@ LUCIA_UPDATE_ROOT="$work/updates" \
     LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
     LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
     LUCIA_CURL_PATH="$work/bin/curl" \
+    LUCIA_NM_ONLINE_PATH="$work/bin/nm-online" \
     LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
     LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
     LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
     LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
+    LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
     LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
         "$os_validator"
 grep -qx 'status=rolled-back' "$work/updates/state/os.env"

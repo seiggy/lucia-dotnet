@@ -6,6 +6,7 @@ state="$update_root/state/os.env"
 nvbootctrl_path="${LUCIA_NVBOOTCTRL_PATH:-/usr/sbin/nvbootctrl}"
 systemctl_path="${LUCIA_SYSTEMCTL_PATH:-/usr/bin/systemctl}"
 curl_path="${LUCIA_CURL_PATH:-/usr/bin/curl}"
+nm_online_path="${LUCIA_NM_ONLINE_PATH:-/usr/bin/nm-online}"
 health_attempts="${LUCIA_UPDATE_HEALTH_ATTEMPTS:-30}"
 health_delay="${LUCIA_UPDATE_HEALTH_DELAY_SECONDS:-2}"
 validation_credential_path="${LUCIA_VALIDATION_CREDENTIAL_PATH:-$update_root/state/validation.key}"
@@ -69,6 +70,7 @@ healthy=false
 for ((attempt = 0; attempt < health_attempts; attempt++)); do
     if "$systemctl_path" is-active --quiet \
             lucia-redis.service lucia-agenthost.service \
+        && "$nm_online_path" --quiet --timeout=30 \
         && "$curl_path" --fail --silent --show-error \
             --max-time 30 \
             --header "X-Lucia-Update-Credential: $validation_credential" \

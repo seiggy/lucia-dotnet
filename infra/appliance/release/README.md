@@ -69,9 +69,11 @@ slots use the same versioned application configuration.
 
 OS updates stream the selected raw images directly to the inactive `APP`,
 kernel, and device-tree partitions. NVIDIA rootfs A/B selects the new slot for
-the next boot. `lucia-os-update-validation.service` checks Redis, AgentHost, and
-the local health endpoint after boot; a failed check selects the previous slot
-and reboots.
+the next boot. Before switching slots, the updater restores the device hostname,
+recovery password hash, and provisioned Wi-Fi connection in the new root
+filesystem. `lucia-os-update-validation.service` checks NetworkManager, Redis,
+AgentHost, and the local health endpoint after boot. A failed check selects the
+previous slot and reboots.
 
 Images older than this updater cannot bootstrap it from the dashboard. Upgrade
 those devices once by reinstalling or manually deploying a release that

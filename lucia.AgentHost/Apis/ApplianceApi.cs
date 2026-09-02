@@ -240,8 +240,9 @@ public static class ApplianceApi
         {
             return false;
         }
-        var path = Environment.GetEnvironmentVariable(
-                "LUCIA_VALIDATION_CREDENTIAL_PATH")
+        var path = context.RequestServices
+                .GetRequiredService<IConfiguration>()[
+                    "LUCIA_VALIDATION_CREDENTIAL_PATH"]
             ?? "/var/lib/lucia/updates/state/validation.key";
         if (!File.Exists(path))
         {

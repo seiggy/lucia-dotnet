@@ -172,7 +172,7 @@ test_bundle_contains_native_service_contract() {
         && grep -q '^User=root$' "$manager_unit" \
         && grep -q '^Group=lucia$' "$manager_unit" \
         && grep -q '^ReadWritePaths=/etc/lucia /etc/systemd/system/multi-user.target.wants /opt/lucia /var/lib/lucia$' "$manager_unit" \
-        && grep -q '^CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER CAP_SYS_BOOT$' "$manager_unit" \
+        && grep -q '^CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER CAP_SYS_ADMIN CAP_SYS_BOOT$' "$manager_unit" \
         && ! grep -q '^PrivateDevices=true$' "$manager_unit" \
         && grep -q '^IPAddressDeny=any$' "$manager_unit" \
         && grep -q '^IPAddressAllow=localhost$' "$manager_unit" \
