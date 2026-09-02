@@ -28,6 +28,10 @@ public sealed class ApplianceUpdateStagingStoreTests
             Assert.Equal(
                 "AgentHost restarted while staging the update.",
                 recovered.Message);
+
+            store.SetHandedOff("lucia", "v1.5.0");
+            Assert.Null(store.TryStart("os", "v1.5.0"));
+            Assert.Equal("running", CreateStore(root).GetStatus().Status);
         }
         finally
         {

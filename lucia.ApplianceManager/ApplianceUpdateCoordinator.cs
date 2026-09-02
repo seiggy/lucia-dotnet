@@ -31,7 +31,8 @@ public sealed class ApplianceUpdateCoordinator
             _status = JsonSerializer.Deserialize<UpdateOperationStatus>(
                     File.ReadAllText(_operationPath))
                 ?? _status;
-            if (_status.Status is "queued" or "running")
+            if ((_status.Status is "queued" or "running")
+                && !IsOsAwaitingValidation())
             {
                 _status = _status with
                 {
@@ -73,7 +74,8 @@ public sealed class ApplianceUpdateCoordinator
         {
             lock (_gate)
             {
-                return _status.Status is "queued" or "running";
+                return (_status.Status is "queued" or "running")
+                    && !IsOsAwaitingValidation();
             }
         }
     }
@@ -94,11 +96,14 @@ public sealed class ApplianceUpdateCoordinator
         lock (_gate)
         {
             RefreshStatusUnsafe();
-            if (_status.Status is "queued" or "running"
-                || IsOsTransitionInProgress()
-                    && !(action == "rollback"
-                        && channel == "os"
-                        && IsOsRollbackAvailable()))
+            var awaitingOsValidation = IsOsAwaitingValidation();
+            var isAllowedOsRollback = awaitingOsValidation
+                && action == "rollback"
+                && channel == "os"
+                && IsOsRollbackAvailable();
+            if (((_status.Status is "queued" or "running")
+                    || IsOsTransitionInProgress())
+                && !isAllowedOsRollback)
             {
                 return false;
             }
@@ -138,7 +143,14 @@ public sealed class ApplianceUpdateCoordinator
             var output = (await outputTask.ConfigureAwait(false)).Trim();
             var error = (await errorTask.ConfigureAwait(false)).Trim();
             SetStatus(process.ExitCode == 0
-                ? new(action, channel, "succeeded", tag, NullIfEmpty(output))
+                ? action == "apply" && channel == "os"
+                    ? new(
+                        action,
+                        channel,
+                        "running",
+                        tag,
+                        "OS update is awaiting boot validation.")
+                    : new(action, channel, "succeeded", tag, NullIfEmpty(output))
                 : new(action, channel, "failed", tag, NullIfEmpty(error)));
         }
         catch (Exception exception) when (
@@ -190,29 +202,32 @@ public sealed class ApplianceUpdateCoordinator
 
     private bool IsOsRollbackAvailable()
     {
-        var path = Path.Combine(_statePath, "os.env");
-        if (!File.Exists(path))
-        {
-            return false;
-        }
-        var status = File.ReadLines(path)
-            .FirstOrDefault(line => line.StartsWith("status=", StringComparison.Ordinal));
-        return status is "status=pending" or "status=validated";
+        return ReadOsStatus() is "pending" or "validated";
     }
 
     private bool IsOsTransitionInProgress()
     {
+        var status = ReadOsStatus();
+        return status is
+            "writing" or
+            "pending" or
+            "rollback-pending";
+    }
+
+    private bool IsOsAwaitingValidation() =>
+        _status is { Action: "apply", Channel: "os", Status: "running" }
+        && ReadOsStatus() is "pending" or "rollback-pending";
+
+    private string? ReadOsStatus()
+    {
         var path = Path.Combine(_statePath, "os.env");
         if (!File.Exists(path))
         {
-            return false;
+            return null;
         }
         var status = File.ReadLines(path)
             .FirstOrDefault(line => line.StartsWith("status=", StringComparison.Ordinal));
-        return status is
-            "status=writing" or
-            "status=pending" or
-            "status=rollback-pending";
+        return status is null ? null : status["status=".Length..];
     }
 
     private bool IsLuciaRollbackAvailable()

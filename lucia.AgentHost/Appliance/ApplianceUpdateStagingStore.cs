@@ -58,6 +58,9 @@ public sealed partial class ApplianceUpdateStagingStore
     public void SetRunning(string channel, string tag) =>
         Set(new("stage", channel, "running", tag, null));
 
+    public void SetHandedOff(string channel, string tag) =>
+        Set(new("apply", channel, "running", tag, null));
+
     public void SetFailed(string channel, string tag, string message) =>
         Set(new("stage", channel, "failed", tag, message));
 
@@ -75,7 +78,8 @@ public sealed partial class ApplianceUpdateStagingStore
             _status = JsonSerializer.Deserialize<ApplianceUpdateOperationStatus>(
                     File.ReadAllText(_operationPath))
                 ?? _status;
-            if (_status.Status is "queued" or "running")
+            if (_status.Status == "queued"
+                || _status is { Action: "stage", Status: "running" })
             {
                 _status = _status with
                 {

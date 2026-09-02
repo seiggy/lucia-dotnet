@@ -101,6 +101,10 @@ cat > "$work_dir/lucia-update" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$LUCIA_TEST_UPDATE_LOG"
+if [[ "$1" == "apply" && "$2" == "os" ]]; then
+    mkdir -p "$LUCIA_UPDATE_ROOT/state"
+    printf 'status=pending\n' > "$LUCIA_UPDATE_ROOT/state/os.env"
+fi
 EOF
 chmod +x "$work_dir/lucia-update"
 printf 'wifi\n' > "$network_mode"
@@ -314,7 +318,26 @@ grep -qx 'apply lucia v1.4.0' "$update_log"
 
 echo "PASS: update operations run outside the request lifetime"
 
-printf 'status=pending\n' > "$work_dir/updates/state/os.env"
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
+        --header 'Content-Type: application/json' \
+        --request POST \
+        --data '{"tag":"v1.4.0"}' \
+        http://localhost/v1/updates/os/apply
+)"
+[[ "$status" == "202" ]]
+for _ in {1..40}; do
+    curl --silent --output "$work_dir/response.json" \
+        --unix-socket "$socket_path" \
+        http://localhost/v1/updates/operation
+    grep -q '"status":"running"' "$work_dir/response.json" && break
+    sleep 0.05
+done
+grep -q '"status":"running"' "$work_dir/response.json"
+
+echo "PASS: OS apply remains nonterminal through boot validation"
+
 status="$(
     curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
         --unix-socket "$socket_path" \

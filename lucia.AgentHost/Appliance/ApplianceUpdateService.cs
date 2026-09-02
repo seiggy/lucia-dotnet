@@ -195,7 +195,7 @@ public sealed partial class ApplianceUpdateService(
                     : null);
     }
 
-    public Task<ApplianceUpdateOperationStatus> InstallAsync(
+    public async Task<ApplianceUpdateOperationStatus> InstallAsync(
         string channel,
         string tag,
         CancellationToken cancellationToken)
@@ -211,11 +211,13 @@ public sealed partial class ApplianceUpdateService(
             throw new ArgumentException("Invalid appliance release tag.", nameof(tag));
         }
         cancellationToken.ThrowIfCancellationRequested();
+        await ReconcileHandedOffOperationAsync(cancellationToken)
+            .ConfigureAwait(false);
         var accepted = staging.TryStart(channel, tag)
             ?? throw new InvalidOperationException(
                 "Another appliance update is already being staged.");
         _ = Task.Run(() => RunStagingAsync(channel, tag));
-        return Task.FromResult(accepted);
+        return accepted;
     }
 
     private async Task<ApplianceUpdateOperationStatus> StageAsync(
@@ -403,13 +405,19 @@ public sealed partial class ApplianceUpdateService(
         CancellationToken cancellationToken)
     {
         var stagingStatus = staging.GetStatus();
-        if (stagingStatus.Status is "queued" or "running")
+        if (stagingStatus.Status is "queued"
+            || stagingStatus is { Action: "stage", Status: "running" })
         {
             return stagingStatus;
         }
         var managerStatus = await manager
             .GetUpdateOperationAsync(cancellationToken)
             .ConfigureAwait(false);
+        if (stagingStatus is { Action: "apply", Status: "running" }
+            && managerStatus.Status is not ("queued" or "running"))
+        {
+            staging.Clear();
+        }
         return stagingStatus.Status == "failed"
             ? stagingStatus with
             {
@@ -423,12 +431,17 @@ public sealed partial class ApplianceUpdateService(
         string channel,
         CancellationToken cancellationToken)
     {
-        if (staging.GetStatus().Status is "queued" or "running")
+        var stagingStatus = staging.GetStatus();
+        if (stagingStatus.Status == "queued"
+            || stagingStatus is { Action: "stage", Status: "running" })
         {
             throw new InvalidOperationException(
                 "An appliance update is still being staged.");
         }
-        staging.Clear();
+        if (stagingStatus.Status != "running")
+        {
+            staging.Clear();
+        }
         return manager.StartRollbackAsync(channel, cancellationToken);
     }
 
@@ -439,12 +452,28 @@ public sealed partial class ApplianceUpdateService(
         {
             await StageAsync(channel, tag, CancellationToken.None)
                 .ConfigureAwait(false);
-            staging.Clear();
+            staging.SetHandedOff(channel, tag);
         }
         catch (Exception exception)
         {
             LogStagingFailure(exception, channel, tag);
             staging.SetFailed(channel, tag, exception.Message);
+        }
+    }
+
+    private async Task ReconcileHandedOffOperationAsync(
+        CancellationToken cancellationToken)
+    {
+        if (staging.GetStatus() is not { Action: "apply", Status: "running" })
+        {
+            return;
+        }
+        var managerStatus = await manager
+            .GetUpdateOperationAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (managerStatus.Status is not ("queued" or "running"))
+        {
+            staging.Clear();
         }
     }
 

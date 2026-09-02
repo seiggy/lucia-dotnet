@@ -145,6 +145,8 @@ printf 'new-app\n' > "$work/lucia-payload/opt/lucia/releases/1.1.0/app/version"
 printf 'new-plugin\n' > "$work/lucia-payload/var/lib/lucia/plugins/official.plugin"
 printf 'new-redis-config\n' > "$work/lucia-payload/etc/lucia/redis.conf"
 tar -I zstd -cf "$work/lucia.tar.zst" -C "$work/lucia-payload" .
+mkdir -p "$work/releases/0.9.0"
+printf 'old-backup\n' > "$work/updates/backups/lucia-v0.9.0.tar.zst"
 write_manifest lucia v1.1.0 1.1.0 "$work/lucia.tar.zst"
 
 touch "$work/reject-attestation"
@@ -182,6 +184,8 @@ grep -qx 'new-app' "$work/releases/1.1.0/app/version"
 grep -qx 'new-plugin' "$work/data/plugins/official.plugin"
 grep -qx 'new-redis-config' "$work/redis.conf"
 grep -qx 'old-db' "$work/data/db/lucia.db"
+[[ ! -e "$work/releases/0.9.0" ]]
+[[ ! -e "$work/updates/backups/lucia-v0.9.0.tar.zst" ]]
 grep -qx 'stop lucia-agenthost.service lucia-redis.service' "$work/systemctl.log"
 grep -qx 'start lucia-redis.service lucia-agenthost.service' "$work/systemctl.log"
 
@@ -191,6 +195,7 @@ run_update rollback lucia
 grep -qx 'old-db' "$work/data/db/lucia.db"
 grep -qx 'old-plugin' "$work/data/plugins/official.plugin"
 grep -qx 'old-redis-config' "$work/redis.conf"
+[[ ! -e "$work/updates/backups/lucia-v1.1.0.tar.zst" ]]
 
 echo "PASS: Lucia update verifies, switches atomically, and rolls back data"
 

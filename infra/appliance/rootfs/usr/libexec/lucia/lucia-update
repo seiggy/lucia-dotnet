@@ -472,6 +472,18 @@ apply_lucia() {
     sync -f "$(dirname "$current_link")"
     write_lucia_state \
         committed "$previous_target" "releases/$version" "$backup" "$validation_token"
+    for release in "$releases_dir"/*; do
+        [[ -d "$release" ]] || continue
+        [[ "$(basename "$release")" == "$version" \
+            || "$(basename "$release")" == "${previous_target#releases/}" ]] \
+            || rm -rf "$release"
+    done
+    for old_backup in "$backups_dir"/lucia-v*.tar.zst; do
+        [[ -e "$old_backup" && "$old_backup" != "$backup" ]] \
+            && rm -f "$old_backup"
+    done
+    sync -f "$releases_dir"
+    sync -f "$backups_dir"
     trap - ERR
     rm -rf "$update_root/staging/$selected_tag"
     rm -rf "$extract_dir" "$parts_list" "$input_dir"
@@ -507,6 +519,7 @@ rollback_lucia() {
     sync -f "$(dirname "$current_link")"
     "$systemctl_path" start lucia-redis.service lucia-agenthost.service
     rm -rf "$releases_dir/${current#releases/}"
+    rm -f "$backup_real"
     rm -f "$state"
 }
 
