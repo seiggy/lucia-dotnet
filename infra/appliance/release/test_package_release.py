@@ -51,9 +51,19 @@ class PackageReleaseTests(unittest.TestCase):
             )
             self.assertEqual(manifest["schemaVersion"], 1)
             self.assertEqual(manifest["version"], "1.2.3")
+            self.assertEqual(
+                manifest["attestationBundleUrl"],
+                "https://github.com/seiggy/lucia-dotnet/releases/download/"
+                "v1.2.3/lucia-appliance-attestations.jsonl",
+            )
             self.assertEqual(manifest["channels"]["lucia"]["version"], "1.2.4")
             self.assertEqual(manifest["channels"]["os"]["version"], "2.0.0")
             self.assertEqual(manifest["compatibility"]["jetsonLinux"], "36.5.2")
+            self.assertEqual(manifest["compatibility"]["layoutVersion"], 1)
+            self.assertEqual(
+                manifest["channels"]["os"]["requires"]["minimumLuciaVersion"],
+                "1.2.4",
+            )
             self.assertEqual(len(manifest["channels"]["installer"]["parts"]), 3)
             self.assertEqual(len(manifest["channels"]["lucia"]["parts"]), 1)
             self.assertEqual(len(manifest["channels"]["os"]["parts"]), 2)

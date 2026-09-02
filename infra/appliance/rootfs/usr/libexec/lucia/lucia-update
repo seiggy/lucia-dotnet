@@ -1,0 +1,610 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+die() {
+    printf 'Error: %s\n' "$1" >&2
+    exit 1
+}
+
+[[ $# -ge 2 ]] || die "usage: lucia-update <apply|rollback|validate-os> <lucia|os> [tag]"
+
+action="$1"
+channel="$2"
+tag="${3:-}"
+update_root="${LUCIA_UPDATE_ROOT:-/var/lib/lucia/updates}"
+data_root="${LUCIA_DATA_ROOT:-/var/lib/lucia}"
+current_link="${LUCIA_CURRENT_LINK:-/opt/lucia/current}"
+releases_dir="${LUCIA_RELEASES_DIR:-/opt/lucia/releases}"
+gh_path="${LUCIA_GH_PATH:-$current_link/tools/gh}"
+trusted_root="${LUCIA_TRUSTED_ROOT_PATH:-$current_link/tools/trusted-root.jsonl}"
+systemctl_path="${LUCIA_SYSTEMCTL_PATH:-/usr/bin/systemctl}"
+curl_path="${LUCIA_CURL_PATH:-/usr/bin/curl}"
+nvbootctrl_path="${LUCIA_NVBOOTCTRL_PATH:-/usr/sbin/nvbootctrl}"
+partlabel_dir="${LUCIA_PARTLABEL_DIR:-/dev/disk/by-partlabel}"
+os_version_path="${LUCIA_OS_VERSION_PATH:-/etc/lucia/os-version}"
+redis_config_path="${LUCIA_REDIS_CONFIG_PATH:-/etc/lucia/redis.conf}"
+health_attempts="${LUCIA_UPDATE_HEALTH_ATTEMPTS:-30}"
+health_delay="${LUCIA_UPDATE_HEALTH_DELAY_SECONDS:-2}"
+state_dir="$update_root/state"
+backups_dir="$update_root/backups"
+work_dir="$update_root/work"
+
+[[ "$channel" == "lucia" || "$channel" == "os" ]] \
+    || die "channel must be lucia or os"
+[[ "$health_attempts" =~ ^[1-9][0-9]*$ && "$health_delay" =~ ^[0-9]+$ ]] \
+    || die "health check timing is invalid"
+mkdir -p "$state_dir" "$backups_dir" "$work_dir"
+
+atomic_symlink() {
+    local target="$1"
+    local temporary="${current_link}.next"
+    rm -f "$temporary"
+    ln -s "$target" "$temporary"
+    mv -Tf "$temporary" "$current_link"
+}
+
+write_lucia_state() {
+    local phase="$1"
+    local previous="$2"
+    local current="$3"
+    local backup="$4"
+    local validation_token="$5"
+    local temporary="$state_dir/lucia.env.tmp"
+    printf 'phase=%s\nprevious=%s\ncurrent=%s\nbackup=%s\nvalidation_token=%s\n' \
+        "$phase" "$previous" "$current" "$backup" "$validation_token" \
+        > "$temporary"
+    sync -f "$temporary"
+    mv -f "$temporary" "$state_dir/lucia.env"
+    sync -f "$state_dir"
+}
+
+restore_data_backup() {
+    local backup="$1"
+    local restore_root="$work_dir/restore-data"
+    local old_root="$work_dir/replaced-data"
+    local name
+
+    zstd --test "$backup" >/dev/null
+    if [[ -d "$old_root" ]]; then
+        for name in config db redis plugins; do
+            if [[ -d "$old_root/$name" ]]; then
+                rm -rf "$data_root/$name"
+                mv "$old_root/$name" "$data_root/$name"
+            fi
+        done
+        if [[ -f "$old_root/redis.conf" ]]; then
+            cp "$old_root/redis.conf" "$redis_config_path"
+            rm "$old_root/redis.conf"
+        fi
+        rmdir "$old_root"
+    fi
+    rm -rf "$restore_root"
+    mkdir -p "$restore_root" "$old_root"
+    tar -I zstd -xf "$backup" -C "$restore_root"
+    for name in config db redis plugins; do
+        [[ -d "$restore_root/$name" ]] \
+            || die "rollback backup is missing $name"
+    done
+    [[ -f "$restore_root/redis.conf" ]] \
+        || die "rollback backup is missing redis.conf"
+    restore_failed_data_swap() {
+        local exit_code=$?
+        trap - ERR
+        for name in config db redis plugins; do
+            if [[ -d "$old_root/$name" ]]; then
+                rm -rf "$data_root/$name"
+                mv "$old_root/$name" "$data_root/$name"
+            fi
+        done
+        if [[ -f "$old_root/redis.conf" ]]; then
+            cp "$old_root/redis.conf" "$redis_config_path"
+        fi
+        return "$exit_code"
+    }
+    trap restore_failed_data_swap ERR
+    for name in config db redis plugins; do
+        mv "$data_root/$name" "$old_root/$name"
+        mv "$restore_root/$name" "$data_root/$name"
+    done
+    cp "$redis_config_path" "$old_root/redis.conf"
+    install -m 0644 "$restore_root/redis.conf" "${redis_config_path}.new"
+    mv -f "${redis_config_path}.new" "$redis_config_path"
+    trap - ERR
+    rm -rf "$old_root" "$restore_root"
+}
+
+verify_and_assemble() {
+    local selected_channel="$1"
+    local selected_tag="$2"
+    local stage="$update_root/staging/$selected_tag"
+    local input_dir="$work_dir/input-$selected_channel-$selected_tag"
+    local manifest="$input_dir/lucia-appliance-manifest.json"
+    local bundle="$input_dir/lucia-appliance-attestations.jsonl"
+    local parts_list="$work_dir/$selected_channel.parts"
+    local metadata
+    local metadata_output
+    local version
+    local expected_bytes
+    local expected_hash
+    local part
+    local part_bytes
+    local part_hash
+    local part_url
+    local actual_bytes
+    local actual_hash
+
+    [[ "$selected_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+        || die "tag must match vMAJOR.MINOR.PATCH"
+    [[ -x "$gh_path" ]] || die "GitHub attestation verifier is missing"
+    [[ -f "$trusted_root" ]] || die "attestation trusted root is missing"
+    [[ -f "$stage/lucia-appliance-manifest.json" \
+        && -f "$stage/lucia-appliance-attestations.jsonl" ]] \
+        || die "staged manifest or attestation bundle is missing"
+    rm -rf "$input_dir"
+    mkdir -p "$input_dir"
+    chmod 0700 "$input_dir"
+    cp --reflink=auto \
+        "$stage/lucia-appliance-manifest.json" \
+        "$manifest"
+    cp --reflink=auto \
+        "$stage/lucia-appliance-attestations.jsonl" \
+        "$bundle"
+    chmod 0400 "$manifest" "$bundle"
+
+    if ! "$gh_path" attestation verify "$manifest" \
+            --repo seiggy/lucia-dotnet \
+            --signer-workflow seiggy/lucia-dotnet/.github/workflows/appliance-release.yml \
+            --bundle "$bundle" \
+            --custom-trusted-root "$trusted_root" >/dev/null; then
+        die "manifest attestation verification failed"
+    fi
+
+    metadata_output="$(
+        python3 - \
+            "$manifest" \
+            "$selected_channel" \
+            "$selected_tag" \
+            "$(basename "$(readlink "$current_link")")" \
+            "$(cat "$os_version_path")" <<'PY'
+import json
+import re
+import sys
+from urllib.parse import quote
+
+manifest_path, channel_name, expected_tag, current_lucia, current_os = sys.argv[1:]
+current_lucia = current_lucia.split("-", 1)[0]
+current_os = current_os.split("-", 1)[0]
+with open(manifest_path, encoding="utf-8") as stream:
+    manifest = json.load(stream)
+
+if manifest.get("schemaVersion") != 1:
+    raise SystemExit("unsupported manifest schema")
+if manifest.get("repository") != "seiggy/lucia-dotnet":
+    raise SystemExit("unexpected manifest repository")
+if manifest.get("tag") != expected_tag:
+    raise SystemExit("manifest tag mismatch")
+compatibility = manifest.get("compatibility")
+if not isinstance(compatibility, dict):
+    raise SystemExit("manifest compatibility is missing")
+if compatibility.get("layoutVersion") != 1 or compatibility.get("dataSchemaVersion") != 1:
+    raise SystemExit("unsupported appliance layout or data schema")
+channel = manifest.get("channels", {}).get(channel_name)
+if not isinstance(channel, dict):
+    raise SystemExit("manifest channel is missing")
+version = channel.get("version")
+sha256 = channel.get("sha256")
+size = channel.get("bytes")
+parts = channel.get("parts")
+if not isinstance(version, str) or re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version) is None:
+    raise SystemExit("invalid channel version")
+if not isinstance(sha256, str) or re.fullmatch(r"[0-9a-f]{64}", sha256) is None:
+    raise SystemExit("invalid channel digest")
+if not isinstance(size, int) or size < 1 or not isinstance(parts, list) or not parts:
+    raise SystemExit("invalid channel payload")
+requirements = channel.get("requires")
+if not isinstance(requirements, dict) or requirements.get("layoutVersion") != 1:
+    raise SystemExit("invalid channel requirements")
+if channel_name == "lucia":
+    if requirements.get("jetsonLinux") != "36.5.2" or requirements.get("dataSchemaVersion") != 1:
+        raise SystemExit("incompatible Lucia requirements")
+    if tuple(map(int, version.split("."))) <= tuple(map(int, current_lucia.split("."))):
+        raise SystemExit("Lucia update is not newer than the installed release")
+else:
+    minimum_lucia = requirements.get("minimumLuciaVersion")
+    if not isinstance(minimum_lucia, str) or re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", minimum_lucia) is None:
+        raise SystemExit("invalid minimum Lucia version")
+    if tuple(map(int, current_lucia.split("."))) < tuple(map(int, minimum_lucia.split("."))):
+        raise SystemExit("installed Lucia version is too old for this OS")
+    if tuple(map(int, version.split("."))) <= tuple(map(int, current_os.split("."))):
+        raise SystemExit("OS update is not newer than the installed release")
+print(f"{version}\t{size}\t{sha256}")
+base = f"https://github.com/seiggy/lucia-dotnet/releases/download/{expected_tag}/"
+for part in parts:
+    name = part.get("name")
+    part_size = part.get("bytes")
+    part_hash = part.get("sha256")
+    url = part.get("url")
+    if not isinstance(name, str) or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name) is None:
+        raise SystemExit("invalid part name")
+    if not isinstance(part_size, int) or part_size < 1:
+        raise SystemExit("invalid part size")
+    if not isinstance(part_hash, str) or re.fullmatch(r"[0-9a-f]{64}", part_hash) is None:
+        raise SystemExit("invalid part digest")
+    if url != base + quote(name):
+        raise SystemExit("untrusted part URL")
+    print(f"{name}\t{part_size}\t{part_hash}\t{url}")
+PY
+    )" || die "appliance manifest validation failed"
+    mapfile -t metadata <<< "$metadata_output"
+    IFS=$'\t' read -r version expected_bytes expected_hash <<< "${metadata[0]}"
+    : > "$parts_list"
+    for entry in "${metadata[@]:1}"; do
+        IFS=$'\t' read -r part part_bytes part_hash part_url <<< "$entry"
+        [[ -f "$stage/$part" ]] || die "staged part is missing: $part"
+        cp --reflink=auto "$stage/$part" "$input_dir/$part"
+        chmod 0400 "$input_dir/$part"
+        [[ "$(stat --format '%s' "$input_dir/$part")" == "$part_bytes" ]] \
+            || die "staged part size mismatch: $part"
+        printf '%s  %s\n' "$part_hash" "$input_dir/$part" \
+            | sha256sum --check --status \
+            || die "staged part digest mismatch: $part"
+        if ! "$gh_path" attestation verify "$input_dir/$part" \
+                --repo seiggy/lucia-dotnet \
+                --signer-workflow seiggy/lucia-dotnet/.github/workflows/appliance-release.yml \
+                --bundle "$bundle" \
+                --custom-trusted-root "$trusted_root" >/dev/null; then
+            die "part attestation verification failed: $part"
+        fi
+        printf '%s\n' "$input_dir/$part" >> "$parts_list"
+    done
+    actual_bytes="$(xargs -d '\n' cat < "$parts_list" | wc -c)"
+    [[ "$actual_bytes" == "$expected_bytes" ]] \
+        || die "assembled payload size mismatch"
+    actual_hash="$(xargs -d '\n' cat < "$parts_list" | sha256sum | cut -d' ' -f1)"
+    [[ "$actual_hash" == "$expected_hash" ]] \
+        || die "assembled payload digest mismatch"
+    printf '%s\n%s\n%s\n' "$version" "$parts_list" "$input_dir"
+}
+
+apply_lucia() {
+    local selected_tag="$1"
+    local verified
+    local verified_output
+    local version
+    local parts_list
+    local stage
+    local extract_dir
+    local input_dir
+    local previous_target
+    local backup
+    local backup_temporary
+    local backup_ready=false
+    local services_stopped=false
+    local healthy=false
+    local validation_token
+
+    verified_output="$(verify_and_assemble lucia "$selected_tag")" \
+        || die "Lucia update verification failed"
+    mapfile -t verified <<< "$verified_output"
+    version="${verified[0]}"
+    parts_list="${verified[1]}"
+    input_dir="${verified[2]}"
+    stage="$update_root/staging/$selected_tag"
+    extract_dir="$work_dir/extracted-lucia"
+    previous_target="$(readlink "$current_link")"
+    backup="$backups_dir/lucia-${selected_tag}.tar.zst"
+    backup_temporary="${backup}.tmp"
+    rm -rf "$extract_dir"
+    mkdir -p "$extract_dir"
+    xargs -d '\n' cat < "$parts_list" \
+        | tar -I zstd -xf - -C "$extract_dir" \
+            "./opt/lucia/releases/$version" \
+            "./etc/lucia/redis.conf" \
+            "./var/lib/lucia/plugins"
+    [[ -x "$extract_dir/opt/lucia/releases/$version/app/lucia.AgentHost" \
+        || -f "$extract_dir/opt/lucia/releases/$version/app/version" ]] \
+        || die "Lucia payload has no release application"
+    [[ -f "$extract_dir/etc/lucia/redis.conf" \
+        && -d "$extract_dir/var/lib/lucia/plugins" ]] \
+        || die "Lucia payload has no Redis config or shipped plugins"
+    [[ ! -e "$releases_dir/$version" ]] \
+        || die "Lucia release already exists: $version"
+    validation_token="$(cat /proc/sys/kernel/random/uuid)"
+    "$curl_path" --fail --silent --show-error \
+        --max-time 30 \
+        --request POST \
+        "http://127.0.0.1:8098/internal/appliance/update-validation/prepare/$validation_token" \
+        >/dev/null
+
+    restore_failed_apply() {
+        local exit_code=$?
+        trap - ERR
+        if [[ "$services_stopped" == true ]]; then
+            if [[ "$backup_ready" == true && -f "$backup" ]]; then
+                "$systemctl_path" stop \
+                    lucia-agenthost.service lucia-redis.service
+                atomic_symlink "$previous_target"
+                restore_data_backup "$backup"
+                rm -f "$state_dir/lucia.env"
+                rm -rf "$releases_dir/$version"
+                rm -f "$backup"
+            fi
+            "$systemctl_path" start \
+                lucia-redis.service lucia-agenthost.service || true
+        fi
+        exit "$exit_code"
+    }
+    trap restore_failed_apply ERR
+    "$systemctl_path" stop lucia-agenthost.service lucia-redis.service
+    services_stopped=true
+    rm -f "$backup_temporary"
+    tar -I 'zstd -T0 -10' -cf "$backup_temporary" \
+        -C "$data_root" config db redis plugins \
+        -C "$(dirname "$redis_config_path")" "$(basename "$redis_config_path")"
+    zstd --test "$backup_temporary" >/dev/null
+    mv -f "$backup_temporary" "$backup"
+    sync -f "$backup"
+    backup_ready=true
+    write_lucia_state \
+        prepared "$previous_target" "releases/$version" "$backup" "$validation_token"
+    rm -rf "$releases_dir/.${version}.new"
+    cp -a "$extract_dir/opt/lucia/releases/$version" "$releases_dir/.${version}.new"
+    mv "$releases_dir/.${version}.new" "$releases_dir/$version"
+    atomic_symlink "releases/$version"
+    install -m 0644 \
+        "$extract_dir/etc/lucia/redis.conf" \
+        "${redis_config_path}.new"
+    mv -f "${redis_config_path}.new" "$redis_config_path"
+    cp -a "$extract_dir/var/lib/lucia/plugins/." "$data_root/plugins/"
+    write_lucia_state \
+        switched "$previous_target" "releases/$version" "$backup" "$validation_token"
+    "$systemctl_path" start lucia-redis.service lucia-agenthost.service
+    for ((attempt = 0; attempt < health_attempts; attempt++)); do
+        if "$curl_path" --fail --silent --show-error \
+                --max-time 2 \
+                "http://127.0.0.1:8098/internal/appliance/update-validation/$validation_token?consume=true" \
+                >/dev/null; then
+            healthy=true
+            break
+        fi
+        sleep "$health_delay"
+    done
+    if [[ "$healthy" != true ]]; then
+        printf 'Error: new Lucia release failed its health check\n' >&2
+        false
+    fi
+    sync -f "$releases_dir"
+    sync -f "$(dirname "$current_link")"
+    write_lucia_state \
+        committed "$previous_target" "releases/$version" "$backup" "$validation_token"
+    trap - ERR
+    rm -rf "$update_root/staging/$selected_tag"
+    rm -rf "$extract_dir" "$parts_list" "$input_dir"
+}
+
+rollback_lucia() {
+    local state="$state_dir/lucia.env"
+    local previous
+    local backup
+    local backup_real
+    local backups_real
+    local current
+    local validation_token
+    [[ -f "$state" ]] || die "no Lucia rollback is available"
+    previous="$(sed -n 's/^previous=//p' "$state")"
+    current="$(sed -n 's/^current=//p' "$state")"
+    validation_token="$(sed -n 's/^validation_token=//p' "$state")"
+    backup="$(sed -n 's/^backup=//p' "$state")"
+    backup_real="$(realpath -e "$backup")"
+    backups_real="$(realpath -e "$backups_dir")"
+    [[ "$previous" =~ ^releases/[0-9A-Za-z._-]+$ \
+        && "$current" =~ ^releases/[0-9A-Za-z._-]+$ \
+        && "$validation_token" =~ ^[0-9a-fA-F-]{36}$ \
+        && -d "$releases_dir/${previous#releases/}" \
+        && "$backup_real" == "$backups_real/"* ]] \
+        || die "Lucia rollback state is invalid"
+    write_lucia_state \
+        rollback "$previous" "$current" "$backup_real" "$validation_token"
+    "$systemctl_path" stop lucia-agenthost.service lucia-redis.service
+    atomic_symlink "$previous"
+    restore_data_backup "$backup_real"
+    sync -f "$releases_dir"
+    sync -f "$(dirname "$current_link")"
+    "$systemctl_path" start lucia-redis.service lucia-agenthost.service
+    rm -rf "$releases_dir/${current#releases/}"
+    rm -f "$state"
+}
+
+recover_lucia() {
+    local state="$state_dir/lucia.env"
+    local phase
+    local previous
+    local backup
+    local backup_real
+    local backups_real
+    local current
+    local validation_token
+    [[ -f "$state" ]] || exit 0
+    phase="$(sed -n 's/^phase=//p' "$state")"
+    [[ "$phase" != "committed" ]] || exit 0
+    previous="$(sed -n 's/^previous=//p' "$state")"
+    current="$(sed -n 's/^current=//p' "$state")"
+    validation_token="$(sed -n 's/^validation_token=//p' "$state")"
+    backup="$(sed -n 's/^backup=//p' "$state")"
+    backup_real="$(realpath -e "$backup")"
+    backups_real="$(realpath -e "$backups_dir")"
+    [[ "$previous" =~ ^releases/[0-9A-Za-z._-]+$ \
+        && "$current" =~ ^releases/[0-9A-Za-z._-]+$ \
+        && "$validation_token" =~ ^[0-9a-fA-F-]{36}$ \
+        && -d "$releases_dir/${previous#releases/}" \
+        && "$backup_real" == "$backups_real/"* ]] \
+        || die "interrupted Lucia update has invalid recovery state"
+    atomic_symlink "$previous"
+    restore_data_backup "$backup_real"
+    rm -rf "$releases_dir/${current#releases/}"
+    sync -f "$releases_dir"
+    sync -f "$(dirname "$current_link")"
+    rm -f "$state"
+}
+
+apply_os() {
+    local selected_tag="$1"
+    local verified
+    local verified_output
+    local version
+    local parts_list
+    local current_slot
+    local target_slot
+    local suffix
+    local app_label
+    local kernel_label
+    local dtb_label
+    local system_image
+    local boot_image
+    local dtb_image
+    local system_bytes
+    local input_dir
+    local image_size
+    local image_and_label
+    local slot_changed=false
+    local validation_token
+
+    verified_output="$(verify_and_assemble os "$selected_tag")" \
+        || die "OS update verification failed"
+    mapfile -t verified <<< "$verified_output"
+    version="${verified[0]}"
+    parts_list="${verified[1]}"
+    input_dir="${verified[2]}"
+    current_slot="$("$nvbootctrl_path" -t rootfs get-current-slot)"
+    [[ "$current_slot" == "0" || "$current_slot" == "1" ]] \
+        || die "nvbootctrl returned an invalid current slot"
+    if [[ "$current_slot" == "0" ]]; then
+        target_slot=1
+        suffix="_b"
+        app_label=APP_b
+        kernel_label=B_kernel
+        dtb_label=B_kernel-dtb
+    else
+        target_slot=0
+        suffix=""
+        app_label=APP
+        kernel_label=A_kernel
+        dtb_label=A_kernel-dtb
+    fi
+    system_image="system.img${suffix}"
+    boot_image="boot.img${suffix}"
+    dtb_image="$(
+        xargs -d '\n' cat < "$parts_list" \
+            | tar -I zstd -tf - \
+            | grep -E '^(\./)?kernel_[A-Za-z0-9._+-]+\.dtb$' \
+            | head -1
+    )"
+    dtb_image="${dtb_image#./}"
+    [[ -n "$dtb_image" ]] || die "OS payload is missing the board DTB"
+    validation_token="$(cat /proc/sys/kernel/random/uuid)"
+    "$curl_path" --fail --silent --show-error \
+        --max-time 30 \
+        --request POST \
+        "http://127.0.0.1:8098/internal/appliance/update-validation/prepare/$validation_token" \
+        >/dev/null
+    for image in "$system_image" "$boot_image" "$dtb_image"; do
+        xargs -d '\n' cat < "$parts_list" \
+            | tar -I zstd -tf - "$image" \
+            | grep -Fqx "$image" \
+            || die "OS payload is missing slot image: $image"
+    done
+    for label in "$app_label" "$kernel_label" "$dtb_label"; do
+        [[ -b "$partlabel_dir/$label" ]] \
+            || die "partition is missing: $label"
+        if findmnt -rn "$partlabel_dir/$label" >/dev/null; then
+            die "refusing to write mounted partition: $label"
+        fi
+    done
+    system_bytes="$(
+        xargs -d '\n' cat < "$parts_list" \
+            | tar -I zstd -tvf - "$system_image" \
+            | awk '{ print $3 }'
+    )"
+    [[ "$system_bytes" =~ ^[0-9]+$ \
+        && "$system_bytes" -le "$(blockdev --getsize64 "$partlabel_dir/$app_label")" ]] \
+        || die "OS rootfs image exceeds inactive partition"
+    for image_and_label in \
+        "$boot_image $kernel_label" \
+        "$dtb_image $dtb_label"; do
+        read -r image label <<< "$image_and_label"
+        image_size="$(
+            xargs -d '\n' cat < "$parts_list" \
+                | tar -I zstd -tvf - "$image" \
+                | awk '{ print $3 }'
+        )"
+        [[ "$image_size" =~ ^[0-9]+$ \
+            && "$image_size" -le "$(blockdev --getsize64 "$partlabel_dir/$label")" ]] \
+            || die "OS image exceeds inactive partition: $label"
+    done
+    xargs -d '\n' cat < "$parts_list" \
+        | tar -I zstd -xOf - "$system_image" \
+        | dd of="$partlabel_dir/$app_label" bs=4M conv=fsync status=progress
+    xargs -d '\n' cat < "$parts_list" \
+        | tar -I zstd -xOf - "$boot_image" \
+        | dd of="$partlabel_dir/$kernel_label" bs=4M conv=fsync status=none
+    xargs -d '\n' cat < "$parts_list" \
+        | tar -I zstd -xOf - "$dtb_image" \
+        | dd of="$partlabel_dir/$dtb_label" bs=4M conv=fsync status=none
+    e2fsck -fn "$partlabel_dir/$app_label" >/dev/null
+    printf 'previous_slot=%s\ntarget_slot=%s\nversion=%s\nstatus=pending\nvalidation_token=%s\n' \
+        "$current_slot" "$target_slot" "$version" "$validation_token" \
+        > "$state_dir/os.env.tmp"
+    sync -f "$state_dir/os.env.tmp"
+    mv -f "$state_dir/os.env.tmp" "$state_dir/os.env"
+    sync -f "$state_dir"
+    restore_failed_slot_change() {
+        local exit_code=$?
+        trap - ERR
+        if [[ "$slot_changed" == true ]]; then
+            "$nvbootctrl_path" -t rootfs set-active-boot-slot "$current_slot" \
+                || true
+        fi
+        exit "$exit_code"
+    }
+    trap restore_failed_slot_change ERR
+    "$nvbootctrl_path" -t rootfs set-active-boot-slot "$target_slot"
+    slot_changed=true
+    rm -rf "$update_root/staging/$selected_tag"
+    rm -rf "$parts_list" "$input_dir"
+    "$systemctl_path" --no-block reboot
+    trap - ERR
+}
+
+rollback_os() {
+    local state="$state_dir/os.env"
+    local previous_slot
+    [[ -f "$state" ]] || die "no OS rollback is available"
+    previous_slot="$(sed -n 's/^previous_slot=//p' "$state")"
+    [[ "$previous_slot" == "0" || "$previous_slot" == "1" ]] \
+        || die "OS rollback state is invalid"
+    "$nvbootctrl_path" -t rootfs set-active-boot-slot "$previous_slot"
+    "$systemctl_path" --no-block reboot
+}
+
+case "$action:$channel" in
+    apply:lucia)
+        [[ -n "$tag" ]] || die "apply requires a release tag"
+        apply_lucia "$tag"
+        ;;
+    rollback:lucia)
+        rollback_lucia
+        ;;
+    recover:lucia)
+        recover_lucia
+        ;;
+    apply:os)
+        [[ -n "$tag" ]] || die "apply requires a release tag"
+        apply_os "$tag"
+        ;;
+    rollback:os)
+        rollback_os
+        ;;
+    *)
+        die "unsupported update operation"
+        ;;
+esac

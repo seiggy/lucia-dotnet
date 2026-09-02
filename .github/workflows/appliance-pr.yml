@@ -46,6 +46,7 @@ jobs:
           sudo bash infra/appliance/installer/test-provision-target.sh
           bash infra/appliance/installer/test-installer-host.sh
           bash infra/appliance/manager/test-lucia-appliance-manager.sh
+          sudo bash infra/appliance/manager/test-lucia-update.sh
           sudo bash infra/appliance/installer/test-lucia-install.sh
           sudo bash infra/appliance/installer/test-installer-control.sh
           sudo bash infra/appliance/installer/test-firstboot-install.sh

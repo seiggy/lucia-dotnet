@@ -11,6 +11,7 @@ var socketPath = Environment.GetEnvironmentVariable("LUCIA_APPLIANCE_SOCKET")
     ?? "/run/lucia-appliance/appliance-manager.sock";
 
 builder.WebHost.ConfigureKestrel(options => options.ListenUnixSocket(socketPath));
+builder.Services.AddSingleton<ApplianceUpdateCoordinator>();
 
 var app = builder.Build();
 var operationLock = new SemaphoreSlim(1, 1);
@@ -21,6 +22,17 @@ app.Use(async (context, next) =>
         || !context.Request.Path.StartsWithSegments("/v1"))
     {
         await next(context).ConfigureAwait(false);
+        return;
+    }
+    var updates = context.RequestServices
+        .GetRequiredService<ApplianceUpdateCoordinator>();
+    if (updates.IsBusy)
+    {
+        context.Response.StatusCode = StatusCodes.Status409Conflict;
+        await context.Response.WriteAsJsonAsync(
+                new { Error = "An appliance update is in progress." },
+                context.RequestAborted)
+            .ConfigureAwait(false);
         return;
     }
 
@@ -52,6 +64,32 @@ app.MapPost("/v1/services/{service}/restart", RestartServiceAsync);
 app.MapPost("/v1/host/reboot", RebootHostAsync);
 app.MapGet("/v1/telemetry", GetTelemetryConfiguration);
 app.MapPut("/v1/telemetry", UpdateTelemetryConfigurationAsync);
+app.MapGet(
+    "/v1/updates/operation",
+    (ApplianceUpdateCoordinator updates) => Results.Ok(updates.GetStatus()));
+app.MapPost(
+    "/v1/updates/{channel}/{action}",
+    (
+        string channel,
+        string action,
+        UpdateOperationRequest request,
+        ApplianceUpdateCoordinator updates) =>
+    {
+        try
+        {
+            return updates.TryStart(action, channel, request.Tag)
+                ? Results.Accepted(
+                    value: updates.GetStatus())
+                : Results.Conflict(new
+                {
+                    Error = "Another appliance update is in progress.",
+                });
+        }
+        catch (ArgumentException exception)
+        {
+            return Results.BadRequest(new { Error = exception.Message });
+        }
+    });
 
 await app.RunAsync().ConfigureAwait(false);
 

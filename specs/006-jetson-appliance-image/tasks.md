@@ -68,13 +68,13 @@
 
 ## Phase 6: split update channels
 
-- [ ] T040 Complete and attest the Lucia release manifest compatibility fields.
-- [ ] T041 Stage and atomically apply AgentHost and Redis releases.
-- [ ] T042 Back up and roll back Redis and SQLite with Lucia releases.
-- [ ] T043 Define the OS update feed and compatibility manifest.
-- [ ] T044 Stage Jetson image-based OTA to the inactive slot.
+- [x] T040 Complete and attest the Lucia release manifest compatibility fields.
+- [x] T041 Stage and atomically apply AgentHost and Redis releases.
+- [x] T042 Back up and roll back Redis and SQLite with Lucia releases.
+- [x] T043 Define the OS update feed and compatibility manifest.
+- [x] T044 Stage Jetson image-based OTA to the inactive slot.
 - [ ] T045 Validate the new OS slot and exercise automatic rollback.
-- [ ] T046 Expose independent discovery and update operations in the dashboard.
+- [x] T046 Expose independent discovery and update operations in the dashboard.
 
 ## Phase 7: reproducible image pipeline
 

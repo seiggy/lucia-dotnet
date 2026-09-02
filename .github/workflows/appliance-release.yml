@@ -113,6 +113,7 @@ jobs:
           sudo bash infra/appliance/installer/test-provision-target.sh
           bash infra/appliance/installer/test-installer-host.sh
           bash infra/appliance/manager/test-lucia-appliance-manager.sh
+          sudo bash infra/appliance/manager/test-lucia-update.sh
           sudo bash infra/appliance/installer/test-lucia-install.sh
           sudo bash infra/appliance/installer/test-installer-control.sh
           sudo bash infra/appliance/installer/test-firstboot-install.sh
@@ -138,9 +139,15 @@ jobs:
             --output-dir dist/release
 
       - name: Attest release assets
+        id: attest
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-path: dist/release/*
+
+      - name: Export offline attestation bundle
+        run: |
+          cp "${{ steps.attest.outputs.bundle-path }}" \
+            dist/release/lucia-appliance-attestations.jsonl
 
       - name: Wait for GitHub Release
         run: |

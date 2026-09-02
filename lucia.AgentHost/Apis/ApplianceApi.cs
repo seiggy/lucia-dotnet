@@ -1,11 +1,179 @@
 using System.Text.Json;
 using lucia.AgentHost.Appliance;
 using lucia.Agents.Auth;
+using lucia.Data.Sqlite;
+using lucia.Wyoming.Models;
+using StackExchange.Redis;
 
 namespace lucia.AgentHost.Apis;
 
 public static class ApplianceApi
 {
+    public static void MapApplianceUpdateValidation(
+        this IEndpointRouteBuilder endpoints)
+    {
+        endpoints.MapPost(
+                "/internal/appliance/update-validation/prepare/{token}",
+                async (
+                    string token,
+                    HttpContext context,
+                    IConnectionMultiplexer redis,
+                    SqliteConnectionFactory sqlite,
+                    CancellationToken cancellationToken) =>
+                {
+                    if (!IsLoopback(context) || !Guid.TryParseExact(token, "D", out _))
+                    {
+                        return Results.NotFound();
+                    }
+
+                    var database = redis.GetDatabase();
+                    var key = $"lucia:update-validation:{token}";
+                    if (!await database.StringSetAsync(
+                            key,
+                            token,
+                            TimeSpan.FromDays(1))
+                        .ConfigureAwait(false))
+                    {
+                        return Results.Problem(
+                            detail: "Redis validation sentinel could not be written.",
+                            statusCode: StatusCodes.Status503ServiceUnavailable);
+                    }
+                    var waitResult = (RedisResult[]?)await database.ExecuteAsync(
+                                "WAITAOF",
+                                1,
+                                0,
+                                5000)
+                            .ConfigureAwait(false)
+                        ?? [];
+                    if (waitResult.Length != 2
+                        || (long)waitResult[0] < 1)
+                    {
+                        return Results.Problem(
+                            detail:
+                                "Redis validation sentinel was not persisted to AOF.",
+                            statusCode: StatusCodes.Status503ServiceUnavailable);
+                    }
+
+                    await using var connection = sqlite.CreateConnection();
+                    await using var command = connection.CreateCommand();
+                    command.CommandText =
+                        """
+                        INSERT INTO configuration (
+                            key,
+                            value,
+                            section,
+                            updated_by,
+                            is_sensitive
+                        ) VALUES (
+                            $key,
+                            $value,
+                            'system',
+                            'appliance-update',
+                            0
+                        )
+                        ON CONFLICT(key) DO UPDATE SET
+                            value = excluded.value,
+                            updated_at = datetime('now'),
+                            updated_by = excluded.updated_by;
+                        PRAGMA wal_checkpoint(FULL);
+                        """;
+                    command.Parameters.AddWithValue(
+                        "$key",
+                        $"appliance-update-validation:{token}");
+                    command.Parameters.AddWithValue("$value", token);
+                    await command.ExecuteNonQueryAsync(cancellationToken)
+                        .ConfigureAwait(false);
+                    return Results.Ok(new { Status = "prepared" });
+                })
+            .ExcludeFromDescription();
+        endpoints.MapGet(
+                "/internal/appliance/update-validation/{token}",
+                async (
+                    string token,
+                    HttpContext context,
+                    IConnectionMultiplexer redis,
+                    SqliteConnectionFactory sqlite,
+                    OnnxProviderDetector providers,
+                    bool consume,
+                    CancellationToken cancellationToken) =>
+                {
+                    if (!IsLoopback(context) || !Guid.TryParseExact(token, "D", out _))
+                    {
+                        return Results.NotFound();
+                    }
+
+                    var database = redis.GetDatabase();
+                    var sentinelKey = $"lucia:update-validation:{token}";
+                    if (await database.StringGetAsync(sentinelKey)
+                            .ConfigureAwait(false) != token)
+                    {
+                        return Results.Problem(
+                            detail: "Redis update validation failed.",
+                            statusCode: StatusCodes.Status503ServiceUnavailable);
+                    }
+
+                    await using var connection = sqlite.CreateConnection();
+                    await using var integrityCommand = connection.CreateCommand();
+                    integrityCommand.CommandText = "PRAGMA quick_check;";
+                    if (Convert.ToString(
+                            await integrityCommand
+                                .ExecuteScalarAsync(cancellationToken)
+                                .ConfigureAwait(false),
+                            System.Globalization.CultureInfo.InvariantCulture)
+                        != "ok")
+                    {
+                        return Results.Problem(
+                            detail: "SQLite integrity validation failed.",
+                            statusCode: StatusCodes.Status503ServiceUnavailable);
+                    }
+                    await using var sentinelCommand = connection.CreateCommand();
+                    sentinelCommand.CommandText =
+                        "SELECT value FROM configuration WHERE key = $key;";
+                    sentinelCommand.Parameters.AddWithValue(
+                        "$key",
+                        $"appliance-update-validation:{token}");
+                    var sqliteSentinel = Convert.ToString(
+                        await sentinelCommand.ExecuteScalarAsync(cancellationToken)
+                            .ConfigureAwait(false),
+                        System.Globalization.CultureInfo.InvariantCulture);
+                    if (sqliteSentinel != token)
+                    {
+                        return Results.Problem(
+                            detail: "SQLite update validation failed.",
+                            statusCode: StatusCodes.Status503ServiceUnavailable);
+                    }
+                    if (providers.BestProvider != "CUDAExecutionProvider")
+                    {
+                        return Results.Problem(
+                            detail: "CUDA update validation failed.",
+                            statusCode: StatusCodes.Status503ServiceUnavailable);
+                    }
+
+                    if (consume)
+                    {
+                        _ = await database.KeyDeleteAsync(sentinelKey)
+                            .ConfigureAwait(false);
+                        await using var deleteCommand = connection.CreateCommand();
+                        deleteCommand.CommandText =
+                            "DELETE FROM configuration WHERE key = $key;";
+                        deleteCommand.Parameters.AddWithValue(
+                            "$key",
+                            $"appliance-update-validation:{token}");
+                        await deleteCommand.ExecuteNonQueryAsync(cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+                    return Results.Ok(new { Status = "healthy" });
+                })
+            .ExcludeFromDescription();
+    }
+
+    private static bool IsLoopback(HttpContext context)
+    {
+        var remoteAddress = context.Connection.RemoteIpAddress;
+        return remoteAddress is not null
+            && System.Net.IPAddress.IsLoopback(remoteAddress);
+    }
+
     public static RouteGroupBuilder MapApplianceApi(
         this IEndpointRouteBuilder endpoints)
     {
@@ -162,6 +330,76 @@ public static class ApplianceApi
                         detail: exception.Message,
                         statusCode: StatusCodes.Status502BadGateway,
                         title: "GitHub appliance manifest is invalid");
+                }
+            });
+        group.MapPost(
+            "/updates/{channel}/install",
+            async (
+                string channel,
+                ApplianceUpdateService updates,
+                CancellationToken cancellationToken) =>
+            {
+                try
+                {
+                    return Results.Accepted(
+                        value: await updates
+                            .InstallAsync(channel, cancellationToken)
+                            .ConfigureAwait(false));
+                }
+                catch (HttpRequestException exception)
+                {
+                    return ManagerProblem(exception, "Appliance update failed");
+                }
+                catch (Exception exception) when (
+                    exception is JsonException
+                        or InvalidDataException
+                        or KeyNotFoundException
+                        or ArgumentException)
+                {
+                    return Results.Problem(
+                        detail: exception.Message,
+                        statusCode: StatusCodes.Status400BadRequest,
+                        title: "Appliance update is invalid");
+                }
+            });
+        group.MapGet(
+            "/updates/operation",
+            async (
+                ApplianceUpdateService updates,
+                CancellationToken cancellationToken) =>
+            {
+                try
+                {
+                    return Results.Ok(await updates
+                        .GetOperationAsync(cancellationToken)
+                        .ConfigureAwait(false));
+                }
+                catch (HttpRequestException exception)
+                {
+                    return ManagerProblem(
+                        exception,
+                        "Update operation status failed");
+                }
+            });
+        group.MapPost(
+            "/updates/{channel}/rollback",
+            async (
+                string channel,
+                ApplianceUpdateService updates,
+                CancellationToken cancellationToken) =>
+            {
+                try
+                {
+                    return Results.Accepted(
+                        value: await updates
+                            .RollbackAsync(channel, cancellationToken)
+                            .ConfigureAwait(false));
+                }
+                catch (HttpRequestException exception)
+                {
+                    return ManagerProblem(
+                        exception,
+                        "Appliance rollback failed");
                 }
             });
 

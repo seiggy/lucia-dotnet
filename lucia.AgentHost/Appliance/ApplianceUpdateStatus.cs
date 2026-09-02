@@ -7,6 +7,8 @@ public sealed record ApplianceUpdateStatus(
     string? LatestOsVersion,
     bool ManifestAvailable,
     bool Compatible,
+    bool LuciaCompatible,
+    bool OsCompatible,
     bool LuciaNewerDiscovered,
     bool OsNewerDiscovered,
     bool LuciaUpdateAvailable,

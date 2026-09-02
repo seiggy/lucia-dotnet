@@ -8,6 +8,8 @@ voice_key_script="$script_dir/voice-asset-key.sh"
 workflow_dir="$script_dir/../../../.github/workflows"
 
 [[ "${#COMPUTE_PACKAGES[@]}" -eq 8 ]]
+[[ "$GH_CLI_SHA256" =~ ^[0-9a-f]{64}$ ]]
+[[ "$GH_CLI_HOST_SHA256" =~ ^[0-9a-f]{64}$ ]]
 [[ "$JETSON_BSP_SHA256" =~ ^[0-9a-f]{64}$ ]]
 [[ "$JETSON_ROOTFS_SHA256" =~ ^[0-9a-f]{64}$ ]]
 ! grep -q 'SHA1\|download_sha1\|sha1sum' \
@@ -55,9 +57,9 @@ if grep -q 'benchmark' "$workflow_dir/jetson-voice-assets.yml"; then
     echo "Production voice workflow still contains benchmark-only behavior" >&2
     exit 1
 fi
-grep -q '^  group: jetson-voice-assets$' \
+grep -Fq '  group: jetson-voice-assets' \
     "$workflow_dir/jetson-voice-assets.yml"
-grep -q 'ref=$VOICE_ASSET_IMAGE:sha-$hash' \
+grep -Fq 'ref=$VOICE_ASSET_IMAGE:sha-$hash' \
     "$workflow_dir/jetson-voice-assets.yml"
 grep -q 'cache-from: type=gha,scope=jetson-voice-assets' \
     "$workflow_dir/jetson-voice-assets.yml"
@@ -79,10 +81,21 @@ grep -q 'ref:.*inputs.tag.*github.ref' \
     "$workflow_dir/appliance-release.yml"
 grep -q 'VOICE_ASSET_REF:.*needs.voice-assets.outputs.image_ref' \
     "$workflow_dir/appliance-release.yml"
-sed -n '15,20p' "$workflow_dir/appliance-release.yml" \
-    | grep -q '^  packages: read$'
+grep -Fq '  packages: read' "$workflow_dir/appliance-release.yml"
 grep -q 'docker image rm "$VOICE_ASSET_REF"' \
     "$workflow_dir/appliance-release.yml"
+grep -q 'bundle-path' "$workflow_dir/appliance-release.yml"
+grep -q 'lucia-appliance-attestations.jsonl' \
+    "$workflow_dir/appliance-release.yml" \
+    "$script_dir/package_release.py"
+grep -q 'gh-host.*attestation trusted-root' "$script_dir/build-release-assets.sh"
+grep -q -- '--gh-cli' "$script_dir/build-release-assets.sh"
+grep -q 'lucia-os-update-validation.service' \
+    "$script_dir/build-release-assets.sh"
+grep -q 'e2fsck -fn.*system.img' "$script_dir/build-release-assets.sh"
+grep -q 'test-lucia-update.sh' \
+    "$workflow_dir/appliance-release.yml" \
+    "$workflow_dir/appliance-pr.yml"
 
 voice_fixture="$(mktemp)"
 trap 'rm -f "$voice_fixture"' EXIT

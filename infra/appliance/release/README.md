@@ -40,16 +40,37 @@ It ignores a release until the release contains
 `lucia-appliance-manifest.json`. The workflow uploads that manifest last, after
 all payload parts, checksums, and GitHub artifact attestations exist.
 
+The workflow also publishes `lucia-appliance-attestations.jsonl`. Installed
+appliances verify the manifest and every downloaded part offline with the
+official GitHub CLI, the workflow identity
+`seiggy/lucia-dotnet/.github/workflows/appliance-release.yml`, and a Sigstore
+trusted root embedded in the currently installed release. The manager refuses
+to write a release until those checks and the manifest hashes all pass.
+
 Each manifest channel contains:
 
 - complete compressed payload size and SHA-256;
 - ordered part names, sizes, hashes, and release URLs;
 - board, architecture, Jetson Linux, and minimum disk compatibility.
 
-A future updater must download parts in manifest order, verify every part's
-GitHub attestation and hash, join them, then verify the complete payload against
-the digest in the attested manifest before writing it. The current dashboard
-performs discovery only; apply controls remain locked.
+The updater downloads parts in manifest order, verifies every part's GitHub
+attestation and hash, then verifies the complete compressed stream against the
+digest in the attested manifest before writing it.
+
+Lucia updates stop AgentHost and Redis, back up configuration, SQLite, and Redis
+data, install the new version under `/opt/lucia/releases`, and atomically switch
+`/opt/lucia/current`. Rollback restores both the previous release link and its
+data backup.
+
+OS updates stream the selected raw images directly to the inactive `APP`,
+kernel, and device-tree partitions. NVIDIA rootfs A/B selects the new slot for
+the next boot. `lucia-os-update-validation.service` checks Redis, AgentHost, and
+the local health endpoint after boot; a failed check selects the previous slot
+and reboots.
+
+Images older than this updater cannot bootstrap it from the dashboard. Upgrade
+those devices once by reinstalling or manually deploying a release that
+contains the verifier.
 
 GitHub Release assets are limited to 2 GiB per file. The packager uses
 1.9-billion-byte parts so installer and OS images stay within that limit.

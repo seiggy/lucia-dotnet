@@ -19,8 +19,11 @@ import {
   checkApplianceUpdates,
   fetchApplianceStatus,
   fetchApplianceTelemetry,
+  fetchApplianceUpdateOperation,
+  installApplianceUpdate,
   rebootAppliance,
   restartApplianceService,
+  rollbackApplianceUpdate,
   updateApplianceTelemetry,
 } from '../appliance-api'
 import type {
@@ -28,6 +31,7 @@ import type {
   ApplianceStatus,
   ApplianceTelemetryStatus,
   ApplianceUpdateStatus,
+  ApplianceUpdateOperationStatus,
 } from '../appliance-api'
 
 const primaryButton = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-amber px-4 py-2.5 text-sm font-semibold text-on-accent transition-colors hover:bg-amber-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber/60 disabled:cursor-not-allowed disabled:opacity-40'
@@ -57,22 +61,28 @@ export default function AppliancePage() {
   const [status, setStatus] = useState<ApplianceStatus | null>(null)
   const [telemetry, setTelemetry] = useState<ApplianceTelemetryStatus | null>(null)
   const [updates, setUpdates] = useState<ApplianceUpdateStatus | null>(null)
+  const [updateOperation, setUpdateOperation] = useState<ApplianceUpdateOperationStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [checkingUpdates, setCheckingUpdates] = useState(false)
+  const [stagingUpdate, setStagingUpdate] = useState<'lucia' | 'os' | null>(null)
   const [busyService, setBusyService] = useState<string | null>(null)
   const [showReboot, setShowReboot] = useState(false)
+  const [pendingUpdate, setPendingUpdate] = useState<'lucia' | 'os' | null>(null)
+  const [pendingRollback, setPendingRollback] = useState<'lucia' | 'os' | null>(null)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
 
   const load = useCallback(async () => {
     setError('')
     try {
-      const [nextStatus, nextTelemetry] = await Promise.all([
+      const [nextStatus, nextTelemetry, nextOperation] = await Promise.all([
         fetchApplianceStatus(),
         fetchApplianceTelemetry(),
+        fetchApplianceUpdateOperation(),
       ])
       setStatus(nextStatus)
       setTelemetry(nextTelemetry)
+      setUpdateOperation(nextOperation)
     } catch (loadError: unknown) {
       setError(loadError instanceof Error ? loadError.message : 'Appliance status is unavailable.')
     } finally {
@@ -83,6 +93,27 @@ export default function AppliancePage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (updateOperation?.status !== 'queued' && updateOperation?.status !== 'running') return
+    const timer = window.setInterval(() => {
+      void fetchApplianceUpdateOperation()
+        .then((operation) => {
+          setUpdateOperation(operation)
+          if (operation.status === 'failed') {
+            setError(operation.message ?? 'Update failed. Rollback is available when a backup exists.')
+          }
+          if (operation.status === 'succeeded') {
+            setNotice(operation.channel === 'os'
+              ? 'OS update staged. The Jetson will reboot into the new slot.'
+              : 'Lucia update installed. Services are restarting.')
+            void load()
+          }
+        })
+        .catch(() => undefined)
+    }, 2000)
+    return () => window.clearInterval(timer)
+  }, [load, updateOperation?.status])
 
   async function handleCheckUpdates() {
     setCheckingUpdates(true)
@@ -118,6 +149,34 @@ export default function AppliancePage() {
       setNotice('Jetson reboot requested. The dashboard will disconnect briefly.')
     } catch (rebootError: unknown) {
       setError(rebootError instanceof Error ? rebootError.message : 'Jetson reboot failed.')
+    }
+  }
+
+  async function handleInstall(channel: 'lucia' | 'os') {
+    setPendingUpdate(null)
+    setError('')
+    setStagingUpdate(channel)
+    try {
+      setUpdateOperation(await installApplianceUpdate(channel))
+      setNotice(channel === 'os'
+        ? 'Downloading and verifying the OS update. The Jetson will reboot when it is staged.'
+        : 'Downloading and verifying the Lucia update. The dashboard will reconnect after services restart.')
+    } catch (updateError: unknown) {
+      setError(updateError instanceof Error ? updateError.message : 'Update installation failed.')
+    } finally {
+      setStagingUpdate(null)
+    }
+  }
+
+  async function handleRollback(channel: 'lucia' | 'os') {
+    setError('')
+    try {
+      setUpdateOperation(await rollbackApplianceUpdate(channel))
+      setNotice(channel === 'os'
+        ? 'OS rollback requested. The Jetson will reboot into the previous slot.'
+        : 'Lucia rollback requested. Services are restarting.')
+    } catch (rollbackError: unknown) {
+      setError(rollbackError instanceof Error ? rollbackError.message : 'Rollback failed.')
     }
   }
 
@@ -187,8 +246,12 @@ export default function AppliancePage() {
             available={updates?.luciaUpdateAvailable ?? false}
             newerDiscovered={updates?.luciaNewerDiscovered ?? false}
             manifestAvailable={updates?.manifestAvailable ?? false}
-            compatible={updates?.compatible ?? true}
+            compatible={updates?.luciaCompatible ?? true}
             checked={updates !== null}
+            busy={stagingUpdate !== null || updateOperation?.status === 'queued' || updateOperation?.status === 'running'}
+            rollbackAvailable={updateOperation?.luciaRollbackAvailable ?? false}
+            onInstall={() => setPendingUpdate('lucia')}
+            onRollback={() => setPendingRollback('lucia')}
           />
           <UpdateRail
             icon={HardDrive}
@@ -198,13 +261,29 @@ export default function AppliancePage() {
             available={updates?.osUpdateAvailable ?? false}
             newerDiscovered={updates?.osNewerDiscovered ?? false}
             manifestAvailable={updates?.manifestAvailable ?? false}
-            compatible={updates?.compatible ?? true}
+            compatible={updates?.osCompatible ?? true}
             checked={updates !== null}
+            busy={stagingUpdate !== null || updateOperation?.status === 'queued' || updateOperation?.status === 'running'}
+            rollbackAvailable={updateOperation?.osRollbackAvailable ?? false}
+            onInstall={() => setPendingUpdate('os')}
+            onRollback={() => setPendingRollback('os')}
           />
         </div>
         {updates?.message && (
           <p className="border-t border-stone px-5 py-3 text-sm text-amber">
             {updates.message}
+          </p>
+        )}
+        {(stagingUpdate || (updateOperation && updateOperation.status !== 'idle')) && (
+          <p
+            role={updateOperation?.status === 'failed' ? 'alert' : 'status'}
+            className="border-t border-stone px-5 py-3 text-sm text-fog"
+          >
+            {stagingUpdate
+              ? <><Loader2 className="mr-2 inline h-4 w-4 animate-spin text-amber" />Downloading signed {stagingUpdate} update...</>
+              : updateOperation?.status === 'queued' || updateOperation?.status === 'running'
+                ? <><Loader2 className="mr-2 inline h-4 w-4 animate-spin text-amber" />Verifying and applying {updateOperation.channel} update...</>
+                : `${updateOperation?.channel} ${updateOperation?.action} ${updateOperation?.status}.`}
           </p>
         )}
         {updates?.releaseUrl && (
@@ -275,6 +354,32 @@ export default function AppliancePage() {
         onConfirm={() => void handleReboot()}
         onCancel={() => setShowReboot(false)}
       />
+      <ConfirmDialog
+        open={pendingUpdate !== null}
+        title={pendingUpdate === 'os' ? 'Install Jetson OS update?' : 'Install Lucia update?'}
+        message={pendingUpdate === 'os'
+          ? 'Lucia will verify every release part, write only the inactive OS slot, and reboot. The previous slot remains available for rollback.'
+          : 'Lucia will verify every release part, back up Redis and SQLite, switch releases atomically, and restart services.'}
+        confirmLabel="Verify and install"
+        onConfirm={() => pendingUpdate && void handleInstall(pendingUpdate)}
+        onCancel={() => setPendingUpdate(null)}
+      />
+      <ConfirmDialog
+        open={pendingRollback !== null}
+        title={pendingRollback === 'os' ? 'Roll back Jetson OS?' : 'Roll back Lucia?'}
+        message={pendingRollback === 'os'
+          ? 'The Jetson will select the previous OS slot and reboot.'
+          : 'Lucia will restore the previous release and its Redis and SQLite backup, then restart services.'}
+        confirmLabel="Roll back"
+        onConfirm={() => {
+          if (pendingRollback) {
+            const channel = pendingRollback
+            setPendingRollback(null)
+            void handleRollback(channel)
+          }
+        }}
+        onCancel={() => setPendingRollback(null)}
+      />
     </div>
   )
 }
@@ -327,6 +432,10 @@ function UpdateRail({
   manifestAvailable,
   compatible,
   checked,
+  busy,
+  rollbackAvailable,
+  onInstall,
+  onRollback,
 }: {
   icon: typeof Cpu
   title: string
@@ -337,6 +446,10 @@ function UpdateRail({
   manifestAvailable: boolean
   compatible: boolean
   checked: boolean
+  busy: boolean
+  rollbackAvailable: boolean
+  onInstall: () => void
+  onRollback: () => void
 }) {
   const verificationRequired = checked && newerDiscovered
   const unavailable = checked && !manifestAvailable
@@ -377,15 +490,29 @@ function UpdateRail({
                     ? 'Current'
                     : 'Not checked'}
         </span>
-        {available && (
+        {(available || rollbackAvailable) && (
+          <div className="flex gap-2">
+          {rollbackAvailable && (
+            <button
+              type="button"
+              onClick={onRollback}
+              disabled={busy}
+              className={secondaryButton}
+            >
+              Roll back
+            </button>
+          )}
+          {available && (
           <button
             type="button"
-            disabled
-            title="Update apply unlocks after rollback validation"
+            onClick={onInstall}
+            disabled={busy}
             className={secondaryButton}
           >
             Install
           </button>
+          )}
+          </div>
         )}
       </div>
     </div>

@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+update_root="${LUCIA_UPDATE_ROOT:-/var/lib/lucia/updates}"
+state="$update_root/state/os.env"
+nvbootctrl_path="${LUCIA_NVBOOTCTRL_PATH:-/usr/sbin/nvbootctrl}"
+systemctl_path="${LUCIA_SYSTEMCTL_PATH:-/usr/bin/systemctl}"
+curl_path="${LUCIA_CURL_PATH:-/usr/bin/curl}"
+health_attempts="${LUCIA_UPDATE_HEALTH_ATTEMPTS:-30}"
+health_delay="${LUCIA_UPDATE_HEALTH_DELAY_SECONDS:-2}"
+
+[[ -f "$state" ]] || exit 0
+status="$(sed -n 's/^status=//p' "$state")"
+[[ "$status" == "pending" ]] || exit 0
+previous_slot="$(sed -n 's/^previous_slot=//p' "$state")"
+target_slot="$(sed -n 's/^target_slot=//p' "$state")"
+validation_token="$(sed -n 's/^validation_token=//p' "$state")"
+[[ "$validation_token" =~ ^[0-9a-fA-F-]{36}$ ]] || exit 1
+current_slot="$("$nvbootctrl_path" -t rootfs get-current-slot)"
+
+if [[ "$current_slot" == "$previous_slot" ]]; then
+    sed -i 's/^status=pending$/status=rolled-back/' "$state"
+    exit 0
+fi
+if [[ "$current_slot" != "$target_slot" ]]; then
+    exit 1
+fi
+
+healthy=false
+for ((attempt = 0; attempt < health_attempts; attempt++)); do
+    if "$systemctl_path" is-active --quiet \
+            lucia-redis.service lucia-agenthost.service \
+        && "$curl_path" --fail --silent --show-error \
+            --max-time 2 \
+            "http://127.0.0.1:8098/internal/appliance/update-validation/$validation_token?consume=false" \
+            >/dev/null; then
+        healthy=true
+        break
+    fi
+    sleep "$health_delay"
+done
+if [[ "$healthy" == true ]]; then
+    "$nvbootctrl_path" -t rootfs mark-boot-successful
+    sed 's/^status=pending$/status=validated/' "$state" > "${state}.tmp"
+    sync -f "${state}.tmp"
+    mv -f "${state}.tmp" "$state"
+    sync -f "$(dirname "$state")"
+    "$curl_path" --fail --silent \
+        --max-time 30 \
+        "http://127.0.0.1:8098/internal/appliance/update-validation/$validation_token?consume=true" \
+        >/dev/null || true
+    exit 0
+fi
+
+"$nvbootctrl_path" -t rootfs set-active-boot-slot "$previous_slot"
+"$systemctl_path" --no-block reboot
+exit 0

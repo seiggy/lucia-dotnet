@@ -395,7 +395,7 @@ if (isInstalledAppliance)
     {
         client.DefaultRequestHeaders.UserAgent.ParseAdd(
             "lucia-appliance-updater/1.0");
-        client.Timeout = TimeSpan.FromSeconds(20);
+        client.Timeout = TimeSpan.FromMinutes(30);
     });
 }
 
@@ -537,6 +537,7 @@ app.MapGet(
 if (isInstalledAppliance)
 {
     app.MapApplianceApi();
+    app.MapApplianceUpdateValidation();
 }
 app.MapDefaultEndpoints();
 

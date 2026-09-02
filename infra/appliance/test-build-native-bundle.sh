@@ -53,6 +53,8 @@ test_valid_inputs_create_release_layout() {
     local manager_dir="$WORK/manager"
     local dashboard_dir="$WORK/dashboard"
     local redis_server="$WORK/redis-server"
+    local gh_cli="$WORK/gh"
+    local trusted_root="$WORK/trusted-root.jsonl"
     local output_dir="$WORK/output"
     local output
     local status
@@ -62,7 +64,10 @@ test_valid_inputs_create_release_layout() {
     printf 'manager\n' > "$manager_dir/lucia.ApplianceManager"
     printf 'dashboard\n' > "$dashboard_dir/index.html"
     printf 'redis\n' > "$redis_server"
+    printf 'gh\n' > "$gh_cli"
+    printf 'trusted\n' > "$trusted_root"
     chmod +x "$publish_dir/lucia.AgentHost" "$redis_server"
+    chmod +x "$gh_cli"
 
     output="$("$BUNDLE_SCRIPT" \
         --version 1.2.3 \
@@ -70,6 +75,8 @@ test_valid_inputs_create_release_layout() {
         --manager-dir "$manager_dir" \
         --dashboard-dir "$dashboard_dir" \
         --redis-server "$redis_server" \
+        --gh-cli "$gh_cli" \
+        --trusted-root "$trusted_root" \
         --output-dir "$output_dir" 2>&1)"
     status=$?
 
@@ -83,7 +90,9 @@ test_valid_inputs_create_release_layout() {
         && cmp -s "$manager_dir/lucia.ApplianceManager" \
             "$release_dir/manager/lucia.ApplianceManager" \
         && cmp -s "$dashboard_dir/index.html" "$release_dir/app/wwwroot/index.html" \
-        && cmp -s "$redis_server" "$release_dir/redis/bin/redis-server"; then
+        && cmp -s "$redis_server" "$release_dir/redis/bin/redis-server" \
+        && cmp -s "$gh_cli" "$release_dir/tools/gh" \
+        && cmp -s "$trusted_root" "$release_dir/tools/trusted-root.jsonl"; then
         pass "valid inputs create release layout"
     else
         fail "valid inputs create release layout (expected files missing or changed)"
@@ -124,6 +133,9 @@ test_bundle_contains_native_service_contract() {
     local redis_unit="$output_dir/usr/lib/systemd/system/lucia-redis.service"
     local redis_config="$output_dir/etc/lucia/redis.conf"
     local recovery_shell="$output_dir/usr/libexec/lucia/lucia-recovery-shell"
+    local updater="$output_dir/usr/libexec/lucia/lucia-update"
+    local os_validator="$output_dir/usr/libexec/lucia/lucia-validate-os-update"
+    local os_validation_unit="$output_dir/usr/lib/systemd/system/lucia-os-update-validation.service"
     local recovery_sshd="$output_dir/etc/ssh/sshd_config.d/90-lucia-recovery.conf"
     local environment="$output_dir/var/lib/lucia/config/lucia.env"
     local sysusers="$output_dir/usr/lib/sysusers.d/lucia.conf"
@@ -132,26 +144,35 @@ test_bundle_contains_native_service_contract() {
     if [[ -f "$agent_unit" && -f "$manager_unit" && -f "$redis_unit" \
             && -f "$redis_config" && -f "$environment" ]] \
         && grep -q '^exec /usr/bin/nmtui' "$recovery_shell" \
+        && [[ -x "$updater" ]] \
+        && [[ -x "$os_validator" && -f "$os_validation_unit" ]] \
+        && grep -q '^TimeoutStartSec=180s$' "$os_validation_unit" \
         && grep -q '^Match User lucia-recovery$' "$recovery_sshd" \
         && grep -q '^    ForceCommand /usr/libexec/lucia/lucia-recovery-shell$' "$recovery_sshd" \
         && grep -q '^    DisableForwarding yes$' "$recovery_sshd" \
         && grep -q '^    AllowTcpForwarding no$' "$recovery_sshd" \
         && ! grep -q '^m lucia-telemetry lucia$' "$sysusers" \
         && grep -q '^ExecStart=/opt/lucia/current/manager/lucia.ApplianceManager$' "$manager_unit" \
+        && grep -q '^Requires=lucia-update-recovery.service$' "$manager_unit" \
         && grep -q '^Environment=LUCIA_APPLIANCE_SOCKET=/run/lucia-appliance/appliance-manager.sock$' "$manager_unit" \
         && grep -q '^User=root$' "$manager_unit" \
         && grep -q '^Group=lucia$' "$manager_unit" \
         && grep -q '^ReadWritePaths=/etc/lucia /etc/systemd/system/multi-user.target.wants /opt/lucia /var/lib/lucia$' "$manager_unit" \
-        && grep -q '^CapabilityBoundingSet=CAP_SYS_BOOT$' "$manager_unit" \
+        && grep -q '^CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER CAP_SYS_BOOT$' "$manager_unit" \
+        && ! grep -q '^PrivateDevices=true$' "$manager_unit" \
+        && grep -q '^IPAddressDeny=any$' "$manager_unit" \
+        && grep -q '^IPAddressAllow=localhost$' "$manager_unit" \
         && grep -q '^Wants=.*lucia-redis.service' "$agent_unit" \
         && ! grep -q '^Requires=lucia-redis.service$' "$agent_unit" \
         && grep -q '^ExecStartPre=+/usr/libexec/lucia/lucia-renew-tls$' "$agent_unit" \
         && grep -q '^ExecStart=/opt/lucia/current/app/lucia.AgentHost$' "$agent_unit" \
         && grep -q '^Restart=always$' "$agent_unit" \
         && ! grep -q '^StateDirectory=' "$agent_unit" \
-        && grep -q '^ReadWritePaths=/var/lib/lucia/config/tls /var/lib/lucia/db /var/lib/lucia/models /var/lib/lucia/plugins /var/lib/lucia/voice-clips$' "$agent_unit" \
+        && grep -q '^ReadWritePaths=/var/lib/lucia/config/tls /var/lib/lucia/db /var/lib/lucia/models /var/lib/lucia/plugins /var/lib/lucia/voice-clips /var/lib/lucia/updates/staging$' "$agent_unit" \
         && ! grep -q '^PrivateDevices=true$' "$agent_unit" \
         && grep -q '^d /var/lib/lucia 0755 root root -$' "$tmpfiles" \
+        && grep -q '^d /var/lib/lucia/updates 0750 root lucia -$' "$tmpfiles" \
+        && grep -q '^d /var/lib/lucia/updates/staging 0750 lucia lucia -$' "$tmpfiles" \
         && grep -q '^ExecStart=/opt/lucia/current/redis/bin/redis-server /etc/lucia/redis.conf$' "$redis_unit" \
         && grep -q '^appendonly yes$' "$redis_config" \
         && grep -q '^maxmemory-policy noeviction$' "$redis_config" \

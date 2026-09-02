@@ -25,6 +25,7 @@ fail_collector_restart="$work_dir/fail-collector-restart"
 block_restart="$work_dir/block-restart"
 restart_started="$work_dir/restart-started"
 restart_completed="$work_dir/restart-completed"
+update_log="$work_dir/update.log"
 os_version="$work_dir/os-version"
 jetson_release="$work_dir/nv_tegra_release"
 device_tree_compatible="$work_dir/device-tree-compatible"
@@ -96,6 +97,12 @@ elif [[ "$*" == *"DEVICE,TYPE,STATE device status"* \
 fi
 EOF
 chmod +x "$work_dir/nmcli"
+cat > "$work_dir/lucia-update" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$LUCIA_TEST_UPDATE_LOG"
+EOF
+chmod +x "$work_dir/lucia-update"
 printf 'wifi\n' > "$network_mode"
 mkdir -p "$sys_block/nvme1n1"
 printf '%s\n' '3906250000' > "$sys_block/nvme1n1/size"
@@ -116,6 +123,11 @@ printf 'Observability__Mode=Off\nPluginDirectory=/var/lib/lucia/plugins\n' \
 mkdir -p "$work_dir/releases/1.2.3"
 ln -s releases/1.2.3 "$current_release"
 
+manager_command=(dotnet run --no-launch-profile --project "$manager_project")
+if [[ -n "${LUCIA_MANAGER_BINARY:-}" ]]; then
+    manager_command=("$LUCIA_MANAGER_BINARY")
+fi
+
 LUCIA_APPLIANCE_SOCKET="$socket_path" \
 LUCIA_CURRENT_RELEASE_PATH="$current_release" \
 LUCIA_HOSTNAME_PATH="$hostname_file" \
@@ -130,17 +142,20 @@ LUCIA_REBOOT_REQUIRED_PATH="$reboot_required" \
 LUCIA_TELEMETRY_ENV_PATH="$telemetry_environment" \
 LUCIA_AGENTHOST_ENV_PATH="$agenthost_environment" \
 LUCIA_SYSTEMCTL_PATH="$work_dir/systemctl" \
+LUCIA_UPDATE_PATH="$work_dir/lucia-update" \
+LUCIA_UPDATE_ROOT="$work_dir/updates" \
 LUCIA_TEST_SYSTEMCTL_LOG="$systemctl_log" \
 LUCIA_TEST_FAIL_ENABLE_FILE="$fail_enable" \
 LUCIA_TEST_FAIL_COLLECTOR_RESTART_FILE="$fail_collector_restart" \
 LUCIA_TEST_BLOCK_RESTART_FILE="$block_restart" \
 LUCIA_TEST_RESTART_STARTED_FILE="$restart_started" \
 LUCIA_TEST_RESTART_COMPLETED_FILE="$restart_completed" \
+LUCIA_TEST_UPDATE_LOG="$update_log" \
 LUCIA_TEST_NMCLI_LOG="$nmcli_log" \
 LUCIA_TEST_NETWORK_MODE="$network_mode" \
 LUCIA_TEST_NMCLI_BLOCK="$nmcli_block" \
 LUCIA_TEST_NMCLI_STARTED="$nmcli_started" \
-    dotnet run --no-launch-profile --project "$manager_project" \
+    "${manager_command[@]}" \
     >"$manager_log" 2>&1 &
 manager_pid=$!
 
@@ -277,6 +292,27 @@ grep -q '"status":"reboot-requested"' "$work_dir/response.json"
 grep -qx -- '--no-block reboot' "$systemctl_log"
 
 echo "PASS: host reboot uses the fixed systemd operation"
+
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
+        --header 'Content-Type: application/json' \
+        --request POST \
+        --data '{"tag":"v1.4.0"}' \
+        http://localhost/v1/updates/lucia/apply
+)"
+[[ "$status" == "202" ]]
+for _ in {1..40}; do
+    curl --silent --output "$work_dir/response.json" \
+        --unix-socket "$socket_path" \
+        http://localhost/v1/updates/operation
+    grep -q '"status":"succeeded"' "$work_dir/response.json" && break
+    sleep 0.05
+done
+grep -q '"status":"succeeded"' "$work_dir/response.json"
+grep -qx 'apply lucia v1.4.0' "$update_log"
+
+echo "PASS: update operations run outside the request lifetime"
 
 status="$(
     curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \

@@ -1,0 +1,23 @@
+[Unit]
+Description=Recover interrupted Lucia appliance updates
+Before=lucia-appliance-manager.service lucia-agenthost.service lucia-redis.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/libexec/lucia/lucia-update recover lucia
+ReadWritePaths=/etc/lucia /opt/lucia /var/lib/lucia
+NoNewPrivileges=true
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

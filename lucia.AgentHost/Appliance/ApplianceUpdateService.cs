@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 
 namespace lucia.AgentHost.Appliance;
@@ -12,19 +13,24 @@ public sealed class ApplianceUpdateService(
     public async Task<ApplianceUpdateStatus> CheckAsync(
         CancellationToken cancellationToken)
     {
-        var current = await manager.GetStatusAsync(cancellationToken)
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(20));
+        var checkToken = timeout.Token;
+        var current = await manager.GetStatusAsync(checkToken)
             .ConfigureAwait(false);
         using var releaseResponse = await httpClient
-            .GetAsync(s_releaseApi, cancellationToken)
+            .GetAsync(s_releaseApi, checkToken)
             .ConfigureAwait(false);
         releaseResponse.EnsureSuccessStatusCode();
         await using var releaseStream = await releaseResponse.Content
-            .ReadAsStreamAsync(cancellationToken)
+            .ReadAsStreamAsync(checkToken)
             .ConfigureAwait(false);
         using var releaseDocument = await JsonDocument
             .ParseAsync(releaseStream, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
         var releaseRoot = releaseDocument.RootElement;
+        var releaseTag = releaseRoot.GetProperty("tag_name").GetString();
         var releaseUrl = releaseRoot.TryGetProperty(
             "html_url",
             out var releaseUrlElement)
@@ -38,6 +44,14 @@ public sealed class ApplianceUpdateService(
             .Select(asset =>
                 asset.GetProperty("browser_download_url").GetString())
             .FirstOrDefault();
+        var attestationBundleUrl = releaseRoot.GetProperty("assets")
+            .EnumerateArray()
+            .Where(asset =>
+                asset.GetProperty("name").GetString()
+                == "lucia-appliance-attestations.jsonl")
+            .Select(asset =>
+                asset.GetProperty("browser_download_url").GetString())
+            .FirstOrDefault();
         if (string.IsNullOrWhiteSpace(manifestUrl))
         {
             return new ApplianceUpdateStatus(
@@ -47,6 +61,8 @@ public sealed class ApplianceUpdateService(
                 LatestOsVersion: null,
                 ManifestAvailable: false,
                 Compatible: false,
+                LuciaCompatible: false,
+                OsCompatible: false,
                 LuciaNewerDiscovered: false,
                 OsNewerDiscovered: false,
                 LuciaUpdateAvailable: false,
@@ -57,24 +73,40 @@ public sealed class ApplianceUpdateService(
 
         var manifestUri = ParseManifestUri(manifestUrl);
         using var manifestResponse = await httpClient
-            .GetAsync(manifestUri, cancellationToken)
+            .GetAsync(manifestUri, checkToken)
             .ConfigureAwait(false);
         manifestResponse.EnsureSuccessStatusCode();
         await using var manifestStream = await manifestResponse.Content
-            .ReadAsStreamAsync(cancellationToken)
+            .ReadAsStreamAsync(checkToken)
             .ConfigureAwait(false);
         using var manifestDocument = await JsonDocument
-            .ParseAsync(manifestStream, cancellationToken: cancellationToken)
+            .ParseAsync(manifestStream, cancellationToken: checkToken)
             .ConfigureAwait(false);
         var manifest = manifestDocument.RootElement;
+        var declaredBundleUrl = manifest
+            .GetProperty("attestationBundleUrl")
+            .GetString();
+        if (releaseTag is null
+            || manifest.GetProperty("repository").GetString()
+                != "seiggy/lucia-dotnet"
+            || manifest.GetProperty("tag").GetString() != releaseTag
+            || string.IsNullOrWhiteSpace(attestationBundleUrl)
+            || !string.Equals(
+                declaredBundleUrl,
+                attestationBundleUrl,
+                StringComparison.Ordinal)
+            || !IsTrustedReleaseUri(attestationBundleUrl))
+        {
+            throw new InvalidDataException(
+                "The latest appliance release has no trusted attestation bundle.");
+        }
         var compatibility = manifest.GetProperty("compatibility");
         var architecture = compatibility.GetProperty("architecture").GetString();
         var board = compatibility.GetProperty("board").GetString();
-        var jetsonLinux = compatibility.GetProperty("jetsonLinux").GetString();
         var minimumDiskBytes = compatibility
             .GetProperty("minimumDiskBytes")
             .GetInt64();
-        var compatible =
+        var hardwareCompatible =
             string.Equals(
                 architecture,
                 current.Architecture,
@@ -83,12 +115,28 @@ public sealed class ApplianceUpdateService(
                 board,
                 current.Board,
                 StringComparison.Ordinal)
+            && current.StorageBytes >= minimumDiskBytes
+            && compatibility.GetProperty("layoutVersion").GetInt32() == 1
+            && compatibility.GetProperty("dataSchemaVersion").GetInt32() == 1;
+        var channels = manifest.GetProperty("channels");
+        var luciaRequirements = channels
+            .GetProperty("lucia")
+            .GetProperty("requires");
+        var osRequirements = channels
+            .GetProperty("os")
+            .GetProperty("requires");
+        var luciaCompatible = hardwareCompatible
             && string.Equals(
-                jetsonLinux,
+                luciaRequirements.GetProperty("jetsonLinux").GetString(),
                 current.Os.JetsonLinuxVersion,
                 StringComparison.Ordinal)
-            && current.StorageBytes >= minimumDiskBytes;
-        var channels = manifest.GetProperty("channels");
+            && luciaRequirements.GetProperty("layoutVersion").GetInt32() == 1
+            && luciaRequirements.GetProperty("dataSchemaVersion").GetInt32() == 1;
+        var osCompatible = hardwareCompatible
+            && osRequirements.GetProperty("layoutVersion").GetInt32() == 1
+            && !IsNewer(
+                osRequirements.GetProperty("minimumLuciaVersion").GetString(),
+                current.LuciaVersion);
         var latestLuciaVersion = channels
             .GetProperty("lucia")
             .GetProperty("version")
@@ -109,18 +157,184 @@ public sealed class ApplianceUpdateService(
             latestLuciaVersion,
             latestOsVersion,
             ManifestAvailable: true,
-            Compatible: compatible,
+            Compatible: luciaCompatible || osCompatible,
+            LuciaCompatible: luciaCompatible,
+            OsCompatible: osCompatible,
             LuciaNewerDiscovered: luciaNewerDiscovered,
             OsNewerDiscovered: osNewerDiscovered,
-            LuciaUpdateAvailable: false,
-            OsUpdateAvailable: false,
+            LuciaUpdateAvailable: luciaCompatible && luciaNewerDiscovered,
+            OsUpdateAvailable: osCompatible && osNewerDiscovered,
             releaseUrl,
-            !compatible
+            !luciaCompatible && !osCompatible
                 ? "The latest appliance release is not compatible with this device."
                 : hasNewerRelease
-                    ? "A compatible release was found, but installation remains locked until GitHub attestation verification is implemented."
+                    ? "A signed update is ready to verify and install."
                     : null);
     }
+
+    public async Task<ApplianceUpdateOperationStatus> InstallAsync(
+        string channel,
+        CancellationToken cancellationToken)
+    {
+        if (channel is not ("lucia" or "os"))
+        {
+            throw new ArgumentException("Unknown appliance update channel.", nameof(channel));
+        }
+
+        using var releaseResponse = await httpClient
+            .GetAsync(s_releaseApi, cancellationToken)
+            .ConfigureAwait(false);
+        releaseResponse.EnsureSuccessStatusCode();
+        using var releaseDocument = JsonDocument.Parse(
+            await releaseResponse.Content
+                .ReadAsStreamAsync(cancellationToken)
+                .ConfigureAwait(false));
+        var releaseRoot = releaseDocument.RootElement;
+        var tag = releaseRoot.GetProperty("tag_name").GetString();
+        if (tag is null
+            || !System.Text.RegularExpressions.Regex.IsMatch(
+                tag,
+                @"^v[0-9]+\.[0-9]+\.[0-9]+$"))
+        {
+            throw new InvalidDataException("GitHub returned an invalid release tag.");
+        }
+
+        var manifestUrl = FindAssetUrl(
+            releaseRoot,
+            "lucia-appliance-manifest.json");
+        var bundleUrl = FindAssetUrl(
+            releaseRoot,
+            "lucia-appliance-attestations.jsonl");
+        var manifestUri = ParseManifestUri(manifestUrl);
+        var bundleUri = ParseReleaseAssetUri(
+            bundleUrl,
+            tag,
+            "lucia-appliance-attestations.jsonl");
+        var stagingRoot = Environment.GetEnvironmentVariable(
+                "LUCIA_UPDATE_STAGING_PATH")
+            ?? "/var/lib/lucia/updates/staging";
+        var stage = Path.Combine(stagingRoot, tag);
+        if (Directory.Exists(stage))
+        {
+            Directory.Delete(stage, recursive: true);
+        }
+        Directory.CreateDirectory(stage);
+        var manifestPath = Path.Combine(
+            stage,
+            "lucia-appliance-manifest.json");
+        await DownloadAsync(
+                manifestUri,
+                manifestPath,
+                expectedBytes: null,
+                expectedSha256: null,
+                maximumBytes: 10 * 1024 * 1024,
+                cancellationToken)
+            .ConfigureAwait(false);
+        var bundlePath = Path.Combine(
+            stage,
+            "lucia-appliance-attestations.jsonl");
+        await DownloadAsync(
+                bundleUri,
+                bundlePath,
+                expectedBytes: null,
+                expectedSha256: null,
+                maximumBytes: 10 * 1024 * 1024,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        using var manifestDocument = JsonDocument.Parse(
+            await File.ReadAllBytesAsync(manifestPath, cancellationToken)
+                .ConfigureAwait(false));
+        var manifest = manifestDocument.RootElement;
+        if (manifest.GetProperty("repository").GetString()
+                != "seiggy/lucia-dotnet"
+            || manifest.GetProperty("tag").GetString() != tag
+            || manifest.GetProperty("attestationBundleUrl").GetString()
+                != bundleUrl)
+        {
+            throw new InvalidDataException(
+                "The appliance manifest does not match the GitHub release.");
+        }
+        var current = await manager.GetStatusAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var compatibility = manifest.GetProperty("compatibility");
+        if (!string.Equals(
+                compatibility.GetProperty("architecture").GetString(),
+                current.Architecture,
+                StringComparison.OrdinalIgnoreCase)
+            || compatibility.GetProperty("board").GetString() != current.Board
+            || current.StorageBytes
+                < compatibility.GetProperty("minimumDiskBytes").GetInt64())
+        {
+            throw new InvalidDataException(
+                "The appliance update is not compatible with this device.");
+        }
+        var selectedChannel = manifest
+            .GetProperty("channels")
+            .GetProperty(channel);
+        var requirements = selectedChannel.GetProperty("requires");
+        if (requirements.GetProperty("layoutVersion").GetInt32() != 1
+            || channel == "lucia"
+                && (requirements.GetProperty("dataSchemaVersion").GetInt32() != 1
+                    || requirements.GetProperty("jetsonLinux").GetString()
+                        != current.Os.JetsonLinuxVersion)
+            || channel == "os"
+                && IsNewer(
+                    requirements.GetProperty("minimumLuciaVersion").GetString(),
+                    current.LuciaVersion))
+        {
+            throw new InvalidDataException(
+                "The appliance update channel requirements are not satisfied.");
+        }
+        var candidateVersion = selectedChannel.GetProperty("version").GetString();
+        var currentVersion = channel == "lucia"
+            ? current.LuciaVersion
+            : current.Os.ImageVersion;
+        if (!IsNewer(candidateVersion, currentVersion))
+        {
+            throw new InvalidDataException(
+                "The selected appliance channel has no newer release.");
+        }
+        foreach (var part in selectedChannel.GetProperty("parts").EnumerateArray())
+        {
+            var name = part.GetProperty("name").GetString()
+                ?? throw new InvalidDataException("An update part has no name.");
+            if (Path.GetFileName(name) != name
+                || !System.Text.RegularExpressions.Regex.IsMatch(
+                    name,
+                    @"^[A-Za-z0-9][A-Za-z0-9._-]*$"))
+            {
+                throw new InvalidDataException("An update part name is invalid.");
+            }
+            var bytes = part.GetProperty("bytes").GetInt64();
+            var sha256 = part.GetProperty("sha256").GetString()
+                ?? throw new InvalidDataException("An update part has no digest.");
+            var url = part.GetProperty("url").GetString()
+                ?? throw new InvalidDataException("An update part has no URL.");
+            var uri = ParseReleaseAssetUri(url, tag, name);
+            await DownloadAsync(
+                    uri,
+                    Path.Combine(stage, name),
+                    bytes,
+                    sha256,
+                    maximumBytes: 1_900_000_000,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return await manager
+            .StartUpdateAsync(channel, tag, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public Task<ApplianceUpdateOperationStatus> GetOperationAsync(
+        CancellationToken cancellationToken) =>
+        manager.GetUpdateOperationAsync(cancellationToken);
+
+    public Task<ApplianceUpdateOperationStatus> RollbackAsync(
+        string channel,
+        CancellationToken cancellationToken) =>
+        manager.StartRollbackAsync(channel, cancellationToken);
 
     private static bool IsNewer(string? candidate, string current)
     {
@@ -151,5 +365,115 @@ public sealed class ApplianceUpdateService(
         }
 
         return uri;
+    }
+
+    private static string FindAssetUrl(JsonElement releaseRoot, string name) =>
+        releaseRoot.GetProperty("assets")
+            .EnumerateArray()
+            .Where(asset => asset.GetProperty("name").GetString() == name)
+            .Select(asset => asset.GetProperty("browser_download_url").GetString())
+            .FirstOrDefault()
+        ?? throw new InvalidDataException($"GitHub release asset is missing: {name}");
+
+    private static Uri ParseReleaseAssetUri(
+        string value,
+        string tag,
+        string name)
+    {
+        if (!IsTrustedReleaseUri(value)
+            || !Uri.TryCreate(value, UriKind.Absolute, out var uri)
+            || uri.AbsolutePath
+                != $"/seiggy/lucia-dotnet/releases/download/{tag}/{name}")
+        {
+            throw new InvalidDataException(
+                "The appliance release returned an untrusted asset URL.");
+        }
+        return uri;
+    }
+
+    private static bool IsTrustedReleaseUri(string value) =>
+        Uri.TryCreate(value, UriKind.Absolute, out var uri)
+        && uri.Scheme == Uri.UriSchemeHttps
+        && string.Equals(uri.Host, "github.com", StringComparison.Ordinal)
+        && uri.IsDefaultPort
+        && string.IsNullOrEmpty(uri.Query)
+        && string.IsNullOrEmpty(uri.Fragment)
+        && uri.AbsolutePath.StartsWith(
+            "/seiggy/lucia-dotnet/releases/download/",
+            StringComparison.Ordinal);
+
+    private async Task DownloadAsync(
+        Uri uri,
+        string destination,
+        long? expectedBytes,
+        string? expectedSha256,
+        long maximumBytes,
+        CancellationToken cancellationToken)
+    {
+        using var response = await httpClient
+            .GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+            .ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        if (response.Content.Headers.ContentLength is > 0
+            && response.Content.Headers.ContentLength > maximumBytes)
+        {
+            throw new InvalidDataException("Update asset exceeds its size limit.");
+        }
+
+        var temporary = destination + ".tmp";
+        try
+        {
+            await using var source = await response.Content
+                .ReadAsStreamAsync(cancellationToken)
+                .ConfigureAwait(false);
+            await using var target = new FileStream(
+                temporary,
+                FileMode.Create,
+                FileAccess.Write,
+                FileShare.None,
+                bufferSize: 1024 * 1024,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            var buffer = new byte[1024 * 1024];
+            long total = 0;
+            int read;
+            while ((read = await source
+                       .ReadAsync(buffer, cancellationToken)
+                       .ConfigureAwait(false)) > 0)
+            {
+                total += read;
+                if (total > maximumBytes)
+                {
+                    throw new InvalidDataException(
+                        "Update asset exceeds its size limit.");
+                }
+                hash.AppendData(buffer, 0, read);
+                await target.WriteAsync(
+                        buffer.AsMemory(0, read),
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            await target.FlushAsync(cancellationToken).ConfigureAwait(false);
+            if (expectedBytes is not null && total != expectedBytes)
+            {
+                throw new InvalidDataException("Update asset size mismatch.");
+            }
+            var actualHash = Convert.ToHexString(hash.GetHashAndReset())
+                .ToLowerInvariant();
+            if (expectedSha256 is not null
+                && !string.Equals(
+                    actualHash,
+                    expectedSha256,
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidDataException("Update asset digest mismatch.");
+            }
+            await target.DisposeAsync().ConfigureAwait(false);
+            File.Move(temporary, destination, overwrite: true);
+        }
+        finally
+        {
+            File.Delete(temporary);
+        }
     }
 }

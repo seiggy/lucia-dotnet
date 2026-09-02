@@ -113,6 +113,60 @@ public sealed class ApplianceManagerClient : IDisposable
                 "Appliance manager returned an empty telemetry response.");
     }
 
+    public async Task<ApplianceUpdateOperationStatus> StartUpdateAsync(
+        string channel,
+        string tag,
+        CancellationToken cancellationToken)
+    {
+        using var response = await _httpClient
+            .PostAsJsonAsync(
+                $"/v1/updates/{Uri.EscapeDataString(channel)}/apply",
+                new ApplianceUpdateRequest(tag),
+                cancellationToken)
+            .ConfigureAwait(false);
+        await EnsureSuccessAsync(response, cancellationToken)
+            .ConfigureAwait(false);
+        return await response.Content
+            .ReadFromJsonAsync<ApplianceUpdateOperationStatus>(cancellationToken)
+            .ConfigureAwait(false)
+            ?? throw new InvalidOperationException(
+                "Appliance manager returned an empty update response.");
+    }
+
+    public async Task<ApplianceUpdateOperationStatus> StartRollbackAsync(
+        string channel,
+        CancellationToken cancellationToken)
+    {
+        using var response = await _httpClient
+            .PostAsJsonAsync(
+                $"/v1/updates/{Uri.EscapeDataString(channel)}/rollback",
+                new ApplianceUpdateRequest(string.Empty),
+                cancellationToken)
+            .ConfigureAwait(false);
+        await EnsureSuccessAsync(response, cancellationToken)
+            .ConfigureAwait(false);
+        return await response.Content
+            .ReadFromJsonAsync<ApplianceUpdateOperationStatus>(cancellationToken)
+            .ConfigureAwait(false)
+            ?? throw new InvalidOperationException(
+                "Appliance manager returned an empty rollback response.");
+    }
+
+    public async Task<ApplianceUpdateOperationStatus> GetUpdateOperationAsync(
+        CancellationToken cancellationToken)
+    {
+        using var response = await _httpClient
+            .GetAsync("/v1/updates/operation", cancellationToken)
+            .ConfigureAwait(false);
+        await EnsureSuccessAsync(response, cancellationToken)
+            .ConfigureAwait(false);
+        return await response.Content
+            .ReadFromJsonAsync<ApplianceUpdateOperationStatus>(cancellationToken)
+            .ConfigureAwait(false)
+            ?? throw new InvalidOperationException(
+                "Appliance manager returned an empty update operation.");
+    }
+
     public void Dispose() => _httpClient.Dispose();
 
     private static async Task EnsureSuccessAsync(

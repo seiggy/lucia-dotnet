@@ -10,6 +10,7 @@ Usage: build-native-bundle.sh \
   --manager-dir DIRECTORY \
   --dashboard-dir DIRECTORY \
   --redis-server FILE \
+  [--gh-cli FILE --trusted-root FILE] \
   [--native-dir DIRECTORY --models-dir DIRECTORY --plugins-dir DIRECTORY] \
   [--otelcol FILE --redis-exporter FILE] \
   --output-dir DIRECTORY
@@ -32,6 +33,8 @@ publish_dir=""
 manager_dir=""
 dashboard_dir=""
 redis_server=""
+gh_cli=""
+trusted_root=""
 native_dir=""
 models_dir=""
 plugins_dir=""
@@ -42,7 +45,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --version|--publish-dir|--manager-dir|--dashboard-dir|--redis-server|--native-dir|--models-dir|--plugins-dir|--otelcol|--redis-exporter|--output-dir)
+        --version|--publish-dir|--manager-dir|--dashboard-dir|--redis-server|--gh-cli|--trusted-root|--native-dir|--models-dir|--plugins-dir|--otelcol|--redis-exporter|--output-dir)
             [[ $# -ge 2 ]] || die_usage "$1 requires a value"
             case "$1" in
                 --version) version="$2" ;;
@@ -50,6 +53,8 @@ while [[ $# -gt 0 ]]; do
                 --manager-dir) manager_dir="$2" ;;
                 --dashboard-dir) dashboard_dir="$2" ;;
                 --redis-server) redis_server="$2" ;;
+                --gh-cli) gh_cli="$2" ;;
+                --trusted-root) trusted_root="$2" ;;
                 --native-dir) native_dir="$2" ;;
                 --models-dir) models_dir="$2" ;;
                 --plugins-dir) plugins_dir="$2" ;;
@@ -86,6 +91,15 @@ done
     || die "dashboard directory must contain index.html"
 [[ -f "$redis_server" ]] \
     || die "Redis input must be a file"
+verifier_input_count=0
+[[ -n "$gh_cli" ]] && verifier_input_count=$((verifier_input_count + 1))
+[[ -n "$trusted_root" ]] && verifier_input_count=$((verifier_input_count + 1))
+[[ "$verifier_input_count" -eq 0 || "$verifier_input_count" -eq 2 ]] \
+    || die_usage "--gh-cli and --trusted-root must be provided together"
+if [[ "$verifier_input_count" -eq 2 ]]; then
+    [[ -f "$gh_cli" ]] || die "GitHub CLI input must be a file"
+    [[ -f "$trusted_root" ]] || die "trusted root input must be a file"
+fi
 [[ ! -e "$output_dir" ]] \
     || die "output directory already exists: $output_dir"
 
@@ -131,6 +145,13 @@ cp -a "$publish_dir/." "$release_dir/app/"
 cp -a "$manager_dir/." "$release_dir/manager/"
 cp -a "$dashboard_dir/." "$release_dir/app/wwwroot/"
 cp "$redis_server" "$release_dir/redis/bin/redis-server"
+if [[ "$verifier_input_count" -eq 2 ]]; then
+    mkdir -p "$release_dir/tools"
+    cp "$gh_cli" "$release_dir/tools/gh"
+    cp "$trusted_root" "$release_dir/tools/trusted-root.jsonl"
+    chmod 0755 "$release_dir/tools/gh"
+    chmod 0644 "$release_dir/tools/trusted-root.jsonl"
+fi
 
 if [[ "$voice_input_count" -eq 3 ]]; then
     find "$release_dir/app" -type f \
@@ -160,7 +181,9 @@ fi
 chmod 0755 \
     "$release_dir/app/lucia.AgentHost" \
     "$release_dir/manager/lucia.ApplianceManager" \
-    "$release_dir/redis/bin/redis-server"
+    "$release_dir/redis/bin/redis-server" \
+    "$output_dir/usr/libexec/lucia/lucia-update" \
+    "$output_dir/usr/libexec/lucia/lucia-validate-os-update"
 chmod 0640 "$output_dir/var/lib/lucia/config/lucia.env"
 chmod 0644 \
     "$output_dir/etc/lucia/otelcol.yaml" \
@@ -171,6 +194,8 @@ chmod 0644 \
     "$output_dir/usr/lib/systemd/system/lucia-otelcol.service" \
     "$output_dir/usr/lib/systemd/system/lucia-redis.service" \
     "$output_dir/usr/lib/systemd/system/lucia-redis-exporter.service" \
+    "$output_dir/usr/lib/systemd/system/lucia-os-update-validation.service" \
+    "$output_dir/usr/lib/systemd/system/lucia-update-recovery.service" \
     "$output_dir/usr/lib/sysusers.d/lucia.conf" \
     "$output_dir/usr/lib/tmpfiles.d/lucia.conf"
 ln -s "releases/$version" "$output_dir/opt/lucia/current"

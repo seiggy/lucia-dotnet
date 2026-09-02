@@ -129,10 +129,22 @@ def main() -> None:
                 download_base,
             ),
         }
+    channels["lucia"]["requires"] = {
+        "jetsonLinux": "36.5.2",
+        "layoutVersion": 1,
+        "dataSchemaVersion": 1,
+    }
+    channels["os"]["requires"] = {
+        "minimumLuciaVersion": lucia_version,
+        "layoutVersion": 1,
+    }
 
     manifest = {
         "schemaVersion": 1,
         "repository": arguments.repository,
+        "attestationBundleUrl": (
+            download_base + "lucia-appliance-attestations.jsonl"
+        ),
         "releaseApi": (
             f"https://api.github.com/repos/{arguments.repository}/releases/latest"
         ),
@@ -143,6 +155,8 @@ def main() -> None:
             "board": "jetson-orin-nano-super-p3767-0005",
             "jetsonLinux": "36.5.2",
             "minimumDiskBytes": 61_203_283_968,
+            "layoutVersion": 1,
+            "dataSchemaVersion": 1,
         },
         "channels": channels,
     }
