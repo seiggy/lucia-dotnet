@@ -85,6 +85,15 @@ public sealed class ApplianceUpdateServiceTests
             () => ApplianceUpdateService.ParseManifestUri(value));
     }
 
+    [Fact]
+    public void EnsureStagingCapacity_RejectsInsufficientFreeSpace()
+    {
+        Assert.Throws<IOException>(
+            () => ApplianceUpdateService.EnsureStagingCapacity(
+                Path.GetTempPath(),
+                long.MaxValue / 2));
+    }
+
     [Theory]
     [InlineData(
         "jetson-orin-nano-super-p3767-0005",

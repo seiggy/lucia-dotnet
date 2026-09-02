@@ -28,11 +28,25 @@ redis_config_path="${LUCIA_REDIS_CONFIG_PATH:-/etc/lucia/redis.conf}"
 runtime_info_path="${LUCIA_RUNTIME_INFO_PATH:-/etc/lucia/appliance-runtime.json}"
 device_tree_path="${LUCIA_DEVICE_TREE_PATH:-/proc/device-tree/compatible}"
 jetson_release_path="${LUCIA_JETSON_RELEASE_PATH:-/etc/nv_tegra_release}"
+validation_group="${LUCIA_VALIDATION_GROUP:-lucia}"
 health_attempts="${LUCIA_UPDATE_HEALTH_ATTEMPTS:-30}"
 health_delay="${LUCIA_UPDATE_HEALTH_DELAY_SECONDS:-2}"
 state_dir="$update_root/state"
+validation_credential_path="${LUCIA_VALIDATION_CREDENTIAL_PATH:-$state_dir/validation.key}"
 backups_dir="$update_root/backups"
 work_dir="$update_root/work"
+
+issue_validation_credential() {
+    local credential
+    local temporary="${validation_credential_path}.tmp"
+    credential="$(cat /proc/sys/kernel/random/uuid)"
+    (umask 0077; printf '%s\n' "$credential" > "$temporary")
+    chown "root:$validation_group" "$temporary"
+    chmod 0640 "$temporary"
+    mv -f "$temporary" "$validation_credential_path"
+    sync -f "$validation_credential_path"
+    printf '%s\n' "$credential"
+}
 
 [[ "$channel" == "lucia" || "$channel" == "os" ]] \
     || die "channel must be lucia or os"
@@ -377,6 +391,11 @@ apply_lucia() {
     local services_stopped=false
     local healthy=false
     local validation_token
+    local validation_credential
+    local uncompressed_bytes
+    local backup_source_bytes
+    local available_bytes
+    local required_bytes
 
     verified_output="$(verify_and_assemble lucia "$selected_tag")" \
         || die "Lucia update verification failed"
@@ -389,6 +408,27 @@ apply_lucia() {
     previous_target="$(readlink "$current_link")"
     backup="$backups_dir/lucia-${selected_tag}.tar.zst"
     backup_temporary="${backup}.tmp"
+    uncompressed_bytes="$(
+        xargs -d '\n' cat < "$parts_list" \
+            | tar -I zstd -tvf - \
+            | awk '{ total += $3 } END { printf "%.0f\n", total }'
+    )"
+    backup_source_bytes="$(
+        du -sb \
+            "$data_root/config" \
+            "$data_root/db" \
+            "$data_root/redis" \
+            "$data_root/plugins" \
+            "$redis_config_path" \
+            | awk '{ total += $1 } END { printf "%.0f\n", total }'
+    )"
+    available_bytes="${LUCIA_AVAILABLE_BYTES:-$(
+        df -B1 --output=avail "$data_root" | tail -1 | tr -d ' '
+    )}"
+    required_bytes="$((uncompressed_bytes + backup_source_bytes + 1073741824))"
+    [[ "$available_bytes" =~ ^[0-9]+$ \
+        && "$available_bytes" -ge "$required_bytes" ]] \
+        || die "insufficient free space for Lucia extraction and rollback backup"
     rm -rf "$extract_dir"
     mkdir -p "$extract_dir"
     xargs -d '\n' cat < "$parts_list" \
@@ -405,8 +445,11 @@ apply_lucia() {
     [[ ! -e "$releases_dir/$version" ]] \
         || die "Lucia release already exists: $version"
     validation_token="$(cat /proc/sys/kernel/random/uuid)"
+    validation_credential="$(issue_validation_credential)"
+    trap 'rm -f "$validation_credential_path"' ERR
     "$curl_path" --fail --silent --show-error \
         --max-time 30 \
+        --header "X-Lucia-Update-Credential: $validation_credential" \
         --request POST \
         "http://127.0.0.1:8098/internal/appliance/update-validation/prepare/$validation_token" \
         >/dev/null
@@ -414,6 +457,7 @@ apply_lucia() {
     restore_failed_apply() {
         local exit_code=$?
         trap - ERR
+        rm -f "$validation_credential_path"
         if [[ "$services_stopped" == true ]]; then
             if [[ "$backup_ready" == true && -f "$backup" ]]; then
                 "$systemctl_path" stop \
@@ -457,6 +501,7 @@ apply_lucia() {
     for ((attempt = 0; attempt < health_attempts; attempt++)); do
         if "$curl_path" --fail --silent --show-error \
                 --max-time 2 \
+                --header "X-Lucia-Update-Credential: $validation_credential" \
                 "http://127.0.0.1:8098/internal/appliance/update-validation/$validation_token?consume=true" \
                 >/dev/null; then
             healthy=true
@@ -472,6 +517,7 @@ apply_lucia() {
     sync -f "$(dirname "$current_link")"
     write_lucia_state \
         committed "$previous_target" "releases/$version" "$backup" "$validation_token"
+    rm -f "$validation_credential_path"
     for release in "$releases_dir"/*; do
         [[ -d "$release" ]] || continue
         [[ "$(basename "$release")" == "$version" \
@@ -518,9 +564,11 @@ rollback_lucia() {
     sync -f "$releases_dir"
     sync -f "$(dirname "$current_link")"
     "$systemctl_path" start lucia-redis.service lucia-agenthost.service
+    rm -f "$state"
+    rm -f "$validation_credential_path"
+    sync -f "$state_dir"
     rm -rf "$releases_dir/${current#releases/}"
     rm -f "$backup_real"
-    rm -f "$state"
 }
 
 recover_lucia() {
@@ -532,9 +580,15 @@ recover_lucia() {
     local backups_real
     local current
     local validation_token
-    [[ -f "$state" ]] || exit 0
+    if [[ ! -f "$state" ]]; then
+        rm -f "$validation_credential_path"
+        exit 0
+    fi
     phase="$(sed -n 's/^phase=//p' "$state")"
-    [[ "$phase" != "committed" ]] || exit 0
+    if [[ "$phase" == "committed" ]]; then
+        rm -f "$validation_credential_path"
+        exit 0
+    fi
     previous="$(sed -n 's/^previous=//p' "$state")"
     current="$(sed -n 's/^current=//p' "$state")"
     validation_token="$(sed -n 's/^validation_token=//p' "$state")"
@@ -553,6 +607,8 @@ recover_lucia() {
     sync -f "$releases_dir"
     sync -f "$(dirname "$current_link")"
     rm -f "$state"
+    rm -f "$validation_credential_path"
+    sync -f "$state_dir"
 }
 
 apply_os() {
@@ -576,6 +632,7 @@ apply_os() {
     local image_and_label
     local slot_changed=false
     local validation_token
+    local validation_credential
 
     verified_output="$(verify_and_assemble os "$selected_tag")" \
         || die "OS update verification failed"
@@ -610,8 +667,11 @@ apply_os() {
     dtb_image="${dtb_image#./}"
     [[ -n "$dtb_image" ]] || die "OS payload is missing the board DTB"
     validation_token="$(cat /proc/sys/kernel/random/uuid)"
+    validation_credential="$(issue_validation_credential)"
+    trap 'rm -f "$validation_credential_path"' ERR
     "$curl_path" --fail --silent --show-error \
         --max-time 30 \
+        --header "X-Lucia-Update-Credential: $validation_credential" \
         --request POST \
         "http://127.0.0.1:8098/internal/appliance/update-validation/prepare/$validation_token" \
         >/dev/null
@@ -652,6 +712,7 @@ apply_os() {
     restore_failed_slot_change() {
         local exit_code=$?
         trap - ERR
+        rm -f "$validation_credential_path"
         if [[ "$slot_changed" == true ]]; then
             "$nvbootctrl_path" -t rootfs set-active-boot-slot "$current_slot" \
                 || true

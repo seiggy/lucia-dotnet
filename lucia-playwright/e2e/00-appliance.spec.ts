@@ -118,6 +118,9 @@ test('manages an installed appliance from mobile', async ({ page }) => {
   await page.getByRole('button', { name: 'Verify and install' }).click();
   await expect.poll(() => installRequestBody).toBe('{"tag":"v0.3.0"}');
   await expect(page.getByRole('button', { name: 'Install' })).toHaveCount(0);
+  await expect(page.getByText(
+    'Lucia update installed. Services are restarting.',
+  )).toBeVisible();
   await expect(page.getByRole('heading', { name: 'OpenTelemetry', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Restart', exact: true })).toHaveCount(2);
   const agentHostRow = page

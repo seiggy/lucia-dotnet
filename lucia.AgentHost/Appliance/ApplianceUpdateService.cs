@@ -355,6 +355,9 @@ public sealed partial class ApplianceUpdateService(
                 throw new InvalidDataException(
                     "The selected appliance channel has no newer release.");
             }
+            EnsureStagingCapacity(
+                staging.Root,
+                selectedChannel.GetProperty("bytes").GetInt64());
             foreach (var part in selectedChannel.GetProperty("parts").EnumerateArray())
             {
                 var name = part.GetProperty("name").GetString()
@@ -503,6 +506,39 @@ public sealed partial class ApplianceUpdateService(
             == OnnxRuntimeVersion
         && compatibility.GetProperty("sherpaOnnx").GetString()
             == SherpaOnnxVersion;
+
+    internal static void EnsureStagingCapacity(
+        string stagingRoot,
+        long payloadBytes)
+    {
+        if (payloadBytes < 1)
+        {
+            throw new InvalidDataException(
+                "The appliance update payload size is invalid.");
+        }
+        var fullPath = Path.GetFullPath(stagingRoot);
+        var drive = DriveInfo.GetDrives()
+            .Where(candidate => candidate.IsReady)
+            .OrderByDescending(
+                candidate => candidate.RootDirectory.FullName.Length)
+            .FirstOrDefault(
+                candidate => fullPath.StartsWith(
+                    candidate.RootDirectory.FullName,
+                    StringComparison.Ordinal));
+        if (drive is null)
+        {
+            throw new IOException(
+                "The appliance staging filesystem is unavailable.");
+        }
+        var requiredBytes = checked(
+            payloadBytes + Math.Max(payloadBytes / 4, 1L << 30));
+        if (drive.AvailableFreeSpace < requiredBytes)
+        {
+            throw new IOException(
+                $"The appliance update needs {requiredBytes} free bytes; "
+                + $"{drive.AvailableFreeSpace} are available.");
+        }
+    }
 
     public void Dispose() => httpClient.Dispose();
 

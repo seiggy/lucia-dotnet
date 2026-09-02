@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using lucia.AgentHost.Appliance;
 using lucia.Agents.Auth;
@@ -21,7 +23,8 @@ public static class ApplianceApi
                     SqliteConnectionFactory sqlite,
                     CancellationToken cancellationToken) =>
                 {
-                    if (!IsLoopback(context) || !Guid.TryParseExact(token, "D", out _))
+                    if (!IsAuthorizedValidationRequest(context)
+                        || !Guid.TryParseExact(token, "D", out _))
                     {
                         return Results.NotFound();
                     }
@@ -97,7 +100,8 @@ public static class ApplianceApi
                     bool consume,
                     CancellationToken cancellationToken) =>
                 {
-                    if (!IsLoopback(context) || !Guid.TryParseExact(token, "D", out _))
+                    if (!IsAuthorizedValidationRequest(context)
+                        || !Guid.TryParseExact(token, "D", out _))
                     {
                         return Results.NotFound();
                     }
@@ -172,6 +176,40 @@ public static class ApplianceApi
         var remoteAddress = context.Connection.RemoteIpAddress;
         return remoteAddress is not null
             && System.Net.IPAddress.IsLoopback(remoteAddress);
+    }
+
+    private static bool IsAuthorizedValidationRequest(HttpContext context)
+    {
+        if (!IsLoopback(context))
+        {
+            return false;
+        }
+        var path = Environment.GetEnvironmentVariable(
+                "LUCIA_VALIDATION_CREDENTIAL_PATH")
+            ?? "/var/lib/lucia/updates/state/validation.key";
+        if (!File.Exists(path))
+        {
+            return false;
+        }
+        var supplied = context.Request.Headers[
+            "X-Lucia-Update-Credential"].ToString();
+        return IsValidValidationCredential(supplied, path);
+    }
+
+    internal static bool IsValidValidationCredential(
+        string supplied,
+        string path)
+    {
+        if (!File.Exists(path))
+        {
+            return false;
+        }
+        var expected = File.ReadAllText(path).Trim();
+        return Guid.TryParseExact(expected, "D", out _)
+            && supplied.Length == expected.Length
+            && CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(supplied),
+                Encoding.UTF8.GetBytes(expected));
     }
 
     public static RouteGroupBuilder MapApplianceApi(

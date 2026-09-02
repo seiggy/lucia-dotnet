@@ -1,7 +1,8 @@
 [Unit]
 Description=Lucia Redis
 Documentation=https://redis.io/docs/latest/
-After=local-fs.target
+After=local-fs.target lucia-update-recovery.service
+Requires=lucia-update-recovery.service
 Before=lucia-agenthost.service
 RequiresMountsFor=/opt/lucia /var/lib/lucia
 

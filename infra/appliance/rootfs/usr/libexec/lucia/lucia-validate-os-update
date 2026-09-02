@@ -8,6 +8,7 @@ systemctl_path="${LUCIA_SYSTEMCTL_PATH:-/usr/bin/systemctl}"
 curl_path="${LUCIA_CURL_PATH:-/usr/bin/curl}"
 health_attempts="${LUCIA_UPDATE_HEALTH_ATTEMPTS:-30}"
 health_delay="${LUCIA_UPDATE_HEALTH_DELAY_SECONDS:-2}"
+validation_credential_path="${LUCIA_VALIDATION_CREDENTIAL_PATH:-$update_root/state/validation.key}"
 
 write_operation() {
     local action="$1"
@@ -30,7 +31,12 @@ write_operation() {
 
 [[ -f "$state" ]] || exit 0
 status="$(sed -n 's/^status=//p' "$state")"
-[[ "$status" == "pending" || "$status" == "rollback-pending" ]] || exit 0
+if [[ "$status" != "pending" && "$status" != "rollback-pending" ]]; then
+    rm -f "$validation_credential_path"
+    exit 0
+fi
+[[ -r "$validation_credential_path" ]] || exit 1
+validation_credential="$(cat "$validation_credential_path")"
 previous_slot="$(sed -n 's/^previous_slot=//p' "$state")"
 target_slot="$(sed -n 's/^target_slot=//p' "$state")"
 validation_token="$(sed -n 's/^validation_token=//p' "$state")"
@@ -38,10 +44,11 @@ validation_token="$(sed -n 's/^validation_token=//p' "$state")"
 current_slot="$("$nvbootctrl_path" -t rootfs get-current-slot)"
 
 if [[ "$current_slot" == "$previous_slot" ]]; then
-    sed -i -E 's/^status=(pending|rollback-pending)$/status=rolled-back/' "$state"
-    sync -f "$state"
     write_operation rollback succeeded \
         "OS rollback completed after boot validation failed."
+    sed -i -E 's/^status=(pending|rollback-pending)$/status=rolled-back/' "$state"
+    sync -f "$state"
+    rm -f "$validation_credential_path"
     exit 0
 fi
 if [[ "$current_slot" != "$target_slot" ]]; then
@@ -54,6 +61,7 @@ for ((attempt = 0; attempt < health_attempts; attempt++)); do
             lucia-redis.service lucia-agenthost.service \
         && "$curl_path" --fail --silent --show-error \
             --max-time 2 \
+            --header "X-Lucia-Update-Credential: $validation_credential" \
             "http://127.0.0.1:8098/internal/appliance/update-validation/$validation_token?consume=false" \
             >/dev/null; then
         healthy=true
@@ -63,15 +71,17 @@ for ((attempt = 0; attempt < health_attempts; attempt++)); do
 done
 if [[ "$healthy" == true ]]; then
     "$nvbootctrl_path" -t rootfs mark-boot-successful
+    write_operation apply succeeded "OS update passed boot validation."
     sed 's/^status=pending$/status=validated/' "$state" > "${state}.tmp"
     sync -f "${state}.tmp"
     mv -f "${state}.tmp" "$state"
     sync -f "$(dirname "$state")"
-    write_operation apply succeeded "OS update passed boot validation."
     "$curl_path" --fail --silent \
         --max-time 30 \
+        --header "X-Lucia-Update-Credential: $validation_credential" \
         "http://127.0.0.1:8098/internal/appliance/update-validation/$validation_token?consume=true" \
         >/dev/null || true
+    rm -f "$validation_credential_path"
     exit 0
 fi
 

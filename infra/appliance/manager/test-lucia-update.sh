@@ -53,6 +53,8 @@ EOF
 chmod +x "$work/bin/systemctl"
 cat > "$work/bin/curl" <<'EOF'
 #!/usr/bin/env bash
+credential="$(cat "$LUCIA_VALIDATION_CREDENTIAL_PATH")"
+[[ "$*" == *"X-Lucia-Update-Credential: $credential"* ]]
 [[ ! -e "$LUCIA_TEST_FAIL_HEALTH_FILE" ]]
 EOF
 chmod +x "$work/bin/curl"
@@ -121,6 +123,9 @@ run_update() {
     LUCIA_OS_VERSION_PATH="$work/os-version" \
     LUCIA_REDIS_CONFIG_PATH="$work/redis.conf" \
     LUCIA_RUNTIME_INFO_PATH="$work/runtime.json" \
+    LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
+    LUCIA_VALIDATION_GROUP=root \
+    LUCIA_AVAILABLE_BYTES="${LUCIA_TEST_AVAILABLE_BYTES:-}" \
     LUCIA_ARCHITECTURE=arm64 \
     LUCIA_APPLIANCE_BOARD=jetson-orin-nano-super-p3767-0005 \
     LUCIA_STORAGE_BYTES=61203283968 \
@@ -177,6 +182,10 @@ if run_update apply lucia v1.1.0; then
     exit 1
 fi
 write_manifest lucia v1.1.0 1.1.0 "$work/lucia.tar.zst"
+if LUCIA_TEST_AVAILABLE_BYTES=1 run_update apply lucia v1.1.0; then
+    echo "Lucia update without rollback space was accepted" >&2
+    exit 1
+fi
 
 run_update apply lucia v1.1.0
 [[ "$(readlink "$work/current")" == "releases/1.1.0" ]]
@@ -193,6 +202,7 @@ printf 'migrated-db\n' > "$work/data/db/lucia.db"
 run_update rollback lucia
 [[ "$(readlink "$work/current")" == "releases/1.0.0" ]]
 grep -qx 'old-db' "$work/data/db/lucia.db"
+[[ ! -e "$work/updates/state/validation.key" ]]
 grep -qx 'old-plugin' "$work/data/plugins/official.plugin"
 grep -qx 'old-redis-config' "$work/redis.conf"
 [[ ! -e "$work/updates/backups/lucia-v1.1.0.tar.zst" ]]
@@ -247,8 +257,9 @@ rm "$work/fail-health"
 grep -qx 'old-db' "$work/data/db/lucia.db"
 
 echo "PASS: unhealthy Lucia release restores its predecessor automatically"
+[[ ! -e "$work/updates/state/validation.key" ]]
 [[ "$(grep -c '^stop lucia-agenthost.service lucia-redis.service$' \
-    "$work/systemctl.log")" -ge 4 ]]
+    "$work/systemctl.log")" -ge 3 ]]
 
 truncate --size 384M "$work/disk.img"
 loop_device="$(losetup --find --show --partscan "$work/disk.img")"
@@ -290,6 +301,7 @@ if run_update apply os v1.1.0; then
 fi
 rm "$work/fail-dd"
 grep -qx 'status=failed' "$work/updates/state/os.env"
+[[ ! -e "$work/updates/state/validation.key" ]]
 write_manifest os v1.1.0 1.1.0 "$work/os.tar.zst"
 
 run_update apply os v1.1.0
@@ -307,6 +319,7 @@ LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
 LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
 LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
 LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
+LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
 LUCIA_UPDATE_HEALTH_ATTEMPTS=1 \
 LUCIA_UPDATE_HEALTH_DELAY_SECONDS=0 \
     "$os_validator"
@@ -333,6 +346,7 @@ LUCIA_UPDATE_ROOT="$work/updates" \
     LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
     LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
     LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
+    LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
     LUCIA_TEST_FAIL_HEALTH_FILE="$work/fail-health" \
     LUCIA_UPDATE_HEALTH_ATTEMPTS=1 \
     LUCIA_UPDATE_HEALTH_DELAY_SECONDS=0 \
@@ -350,6 +364,7 @@ LUCIA_UPDATE_ROOT="$work/updates" \
     LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
     LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
     LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
+    LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
         "$os_validator"
 grep -qx 'status=rolled-back' "$work/updates/state/os.env"
 grep -q '"Action":"rollback"' "$work/updates/state/operation.json"

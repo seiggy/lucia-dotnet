@@ -105,9 +105,13 @@ export default function AppliancePage() {
           }
           if (operation.status === 'succeeded') {
             setUpdates(null)
-            setNotice(operation.channel === 'os'
-              ? 'OS update staged. The Jetson will reboot into the new slot.'
-              : 'Lucia update installed. Services are restarting.')
+            setNotice(operation.action === 'rollback'
+              ? operation.channel === 'os'
+                ? 'OS rollback completed.'
+                : 'Lucia rollback completed. Services are restarting.'
+              : operation.channel === 'os'
+                ? 'OS update installed and passed boot validation.'
+                : 'Lucia update installed. Services are restarting.')
             void load()
           }
         })
