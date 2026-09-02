@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test';
 test('manages an installed appliance from mobile', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   let statusRequestCount = 0;
+  let installRequestBody: string | null = null;
   await page.route('**/api/appliance/capabilities', async (route) => {
     await route.fulfill({ json: { enabled: true } });
   });
@@ -48,6 +49,19 @@ test('manages an installed appliance from mobile', async ({ page }) => {
       },
     });
   });
+  await page.route('**/api/appliance/updates/operation', async (route) => {
+    await route.fulfill({
+      json: {
+        action: 'none',
+        channel: 'none',
+        status: 'idle',
+        tag: null,
+        message: null,
+        luciaRollbackAvailable: false,
+        osRollbackAvailable: false,
+      },
+    });
+  });
   await page.route('**/api/appliance/updates', async (route) => {
     await route.fulfill({
       json: {
@@ -57,17 +71,35 @@ test('manages an installed appliance from mobile', async ({ page }) => {
         latestOsVersion: '0.4.0',
         manifestAvailable: true,
         compatible: true,
+        luciaCompatible: true,
+        osCompatible: true,
         luciaNewerDiscovered: true,
         osNewerDiscovered: true,
-        luciaUpdateAvailable: false,
-        osUpdateAvailable: false,
+        luciaUpdateAvailable: true,
+        osUpdateAvailable: true,
+        releaseTag: 'v0.3.0',
         releaseUrl: 'https://github.com/seiggy/lucia-dotnet/releases/tag/v0.3.0',
-        message: 'A compatible release was found, but installation remains locked until GitHub attestation verification is implemented.',
+        message: 'A signed update is ready to verify and install.',
       },
     });
-    await page.route('**/api/system/restart', async (route) => {
-      await route.fulfill({ status: 202 });
+  });
+  await page.route('**/api/appliance/updates/lucia/install', async (route) => {
+    installRequestBody = route.request().postData();
+    await route.fulfill({
+      status: 202,
+      json: {
+        action: 'stage',
+        channel: 'lucia',
+        status: 'queued',
+        tag: 'v0.3.0',
+        message: null,
+        luciaRollbackAvailable: false,
+        osRollbackAvailable: false,
+      },
     });
+  });
+  await page.route('**/api/system/restart', async (route) => {
+    await route.fulfill({ status: 202 });
   });
 
   await page.goto('/appliance');
@@ -75,8 +107,10 @@ test('manages an installed appliance from mobile', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'lucia', exact: true })).toBeVisible();
   await expect(page.getByText('2/4 active')).toBeVisible();
   await page.getByRole('button', { name: 'Check for updates' }).click();
-  await expect(page.getByText('Verification required')).toHaveCount(2);
-  await expect(page.getByRole('button', { name: 'Install' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Install' })).toHaveCount(2);
+  await page.getByRole('button', { name: 'Install' }).first().click();
+  await page.getByRole('button', { name: 'Verify and install' }).click();
+  await expect.poll(() => installRequestBody).toBe('{"tag":"v0.3.0"}');
   await expect(page.getByRole('heading', { name: 'OpenTelemetry', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Restart', exact: true })).toHaveCount(2);
   const agentHostRow = page
@@ -84,9 +118,10 @@ test('manages an installed appliance from mobile', async ({ page }) => {
     .locator('..')
     .locator('..')
     .locator('..');
+  const statusRequestsBeforeRestart = statusRequestCount;
   await agentHostRow.getByRole('button', { name: 'Restart' }).click();
   await expect(page.getByText('Lucia AgentHost restart requested.')).toBeVisible();
-  expect(statusRequestCount).toBe(1);
+  expect(statusRequestCount).toBe(statusRequestsBeforeRestart);
 
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
   const shortControls = await page.locator(
@@ -118,6 +153,12 @@ test('keeps appliance navigation when the manager is temporarily unavailable', a
     });
   });
   await page.route('**/api/appliance/telemetry', async (route) => {
+    await route.fulfill({
+      status: 502,
+      json: { detail: 'The appliance manager is restarting.' },
+    });
+  });
+  await page.route('**/api/appliance/updates/operation', async (route) => {
     await route.fulfill({
       status: 502,
       json: { detail: 'The appliance manager is restarting.' },

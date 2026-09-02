@@ -54,6 +54,7 @@ export interface ApplianceUpdateStatus {
   osNewerDiscovered: boolean
   luciaUpdateAvailable: boolean
   osUpdateAvailable: boolean
+  releaseTag: string | null
   releaseUrl: string | null
   message: string | null
 }
@@ -193,6 +194,7 @@ function parseUpdates(value: unknown): ApplianceUpdateStatus {
     osNewerDiscovered: requireBoolean(updates, 'osNewerDiscovered'),
     luciaUpdateAvailable: requireBoolean(updates, 'luciaUpdateAvailable'),
     osUpdateAvailable: requireBoolean(updates, 'osUpdateAvailable'),
+    releaseTag: optionalString('releaseTag'),
     releaseUrl: optionalString('releaseUrl'),
     message: optionalString('message'),
   }
@@ -262,9 +264,12 @@ export async function checkApplianceUpdates(): Promise<ApplianceUpdateStatus> {
 
 export async function installApplianceUpdate(
   channel: 'lucia' | 'os',
+  tag: string,
 ): Promise<ApplianceUpdateOperationStatus> {
   return parseUpdateOperation(await request(`/updates/${channel}/install`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tag }),
   }))
 }
 

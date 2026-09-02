@@ -1,0 +1,9 @@
+{
+  "layoutVersion": 1,
+  "dataSchemaVersion": 1,
+  "redis": "8.2.9",
+  "cuda": "12.6",
+  "cudnn": "9.3.0.75",
+  "onnxRuntime": "1.23.2",
+  "sherpaOnnx": "1.12.34"
+}

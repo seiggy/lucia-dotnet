@@ -6,7 +6,8 @@ die() {
     exit 1
 }
 
-[[ $# -ge 2 ]] || die "usage: lucia-update <apply|rollback|validate-os> <lucia|os> [tag]"
+[[ $# -ge 2 ]] \
+    || die "usage: lucia-update <apply|rollback> <lucia|os> [tag] | recover lucia"
 
 action="$1"
 channel="$2"
@@ -23,6 +24,9 @@ nvbootctrl_path="${LUCIA_NVBOOTCTRL_PATH:-/usr/sbin/nvbootctrl}"
 partlabel_dir="${LUCIA_PARTLABEL_DIR:-/dev/disk/by-partlabel}"
 os_version_path="${LUCIA_OS_VERSION_PATH:-/etc/lucia/os-version}"
 redis_config_path="${LUCIA_REDIS_CONFIG_PATH:-/etc/lucia/redis.conf}"
+runtime_info_path="${LUCIA_RUNTIME_INFO_PATH:-/etc/lucia/appliance-runtime.json}"
+device_tree_path="${LUCIA_DEVICE_TREE_PATH:-/proc/device-tree/compatible}"
+jetson_release_path="${LUCIA_JETSON_RELEASE_PATH:-/etc/nv_tegra_release}"
 health_attempts="${LUCIA_UPDATE_HEALTH_ATTEMPTS:-30}"
 health_delay="${LUCIA_UPDATE_HEALTH_DELAY_SECONDS:-2}"
 state_dir="$update_root/state"
@@ -56,6 +60,40 @@ write_lucia_state() {
     sync -f "$temporary"
     mv -f "$temporary" "$state_dir/lucia.env"
     sync -f "$state_dir"
+}
+
+read_board() {
+    if [[ -n "${LUCIA_APPLIANCE_BOARD:-}" ]]; then
+        printf '%s\n' "$LUCIA_APPLIANCE_BOARD"
+        return
+    fi
+    tr '\0' '\n' < "$device_tree_path" \
+        | grep -qi 'p3767-0005' \
+        && printf '%s\n' 'jetson-orin-nano-super-p3767-0005' \
+        || die "unsupported appliance board"
+}
+
+read_storage_bytes() {
+    if [[ -n "${LUCIA_STORAGE_BYTES:-}" ]]; then
+        printf '%s\n' "$LUCIA_STORAGE_BYTES"
+        return
+    fi
+    local source
+    local parent
+    source="$(findmnt -no SOURCE "$data_root")"
+    parent="$(lsblk -no PKNAME "$source" | head -1)"
+    [[ -n "$parent" ]] || die "appliance storage device is unavailable"
+    blockdev --getsize64 "/dev/$parent"
+}
+
+read_jetson_linux() {
+    if [[ -n "${LUCIA_JETSON_LINUX_VERSION:-}" ]]; then
+        printf '%s\n' "$LUCIA_JETSON_LINUX_VERSION"
+        return
+    fi
+    sed -n -E \
+        's/^# R([0-9]+).+REVISION: ([0-9]+(\.[0-9]+)?).*/\1.\2/p' \
+        "$jetson_release_path"
 }
 
 restore_data_backup() {
@@ -165,15 +203,34 @@ verify_and_assemble() {
             "$selected_channel" \
             "$selected_tag" \
             "$(basename "$(readlink "$current_link")")" \
-            "$(cat "$os_version_path")" <<'PY'
+            "$(cat "$os_version_path")" \
+            "${LUCIA_ARCHITECTURE:-$(uname -m)}" \
+            "$(read_board)" \
+            "$(read_storage_bytes)" \
+            "$(read_jetson_linux)" \
+            "$runtime_info_path" <<'PY'
 import json
 import re
 import sys
 from urllib.parse import quote
 
-manifest_path, channel_name, expected_tag, current_lucia, current_os = sys.argv[1:]
+(
+    manifest_path,
+    channel_name,
+    expected_tag,
+    current_lucia,
+    current_os,
+    architecture,
+    board,
+    storage_bytes,
+    jetson_linux,
+    runtime_info_path,
+) = sys.argv[1:]
 current_lucia = current_lucia.split("-", 1)[0]
 current_os = current_os.split("-", 1)[0]
+architecture = "arm64" if architecture == "aarch64" else architecture
+with open(runtime_info_path, encoding="utf-8") as stream:
+    installed_runtime = json.load(stream)
 with open(manifest_path, encoding="utf-8") as stream:
     manifest = json.load(stream)
 
@@ -183,11 +240,30 @@ if manifest.get("repository") != "seiggy/lucia-dotnet":
     raise SystemExit("unexpected manifest repository")
 if manifest.get("tag") != expected_tag:
     raise SystemExit("manifest tag mismatch")
+if manifest.get("releaseNotesUrl") != (
+    "https://github.com/seiggy/lucia-dotnet/releases/tag/" + expected_tag
+):
+    raise SystemExit("manifest release notes URL mismatch")
+if manifest.get("releaseApi") != (
+    "https://api.github.com/repos/seiggy/lucia-dotnet/releases/tags/" + expected_tag
+):
+    raise SystemExit("manifest release API mismatch")
 compatibility = manifest.get("compatibility")
 if not isinstance(compatibility, dict):
     raise SystemExit("manifest compatibility is missing")
 if compatibility.get("layoutVersion") != 1 or compatibility.get("dataSchemaVersion") != 1:
     raise SystemExit("unsupported appliance layout or data schema")
+if (
+    compatibility.get("architecture") != architecture
+    or compatibility.get("board") != board
+    or not storage_bytes.isdigit()
+    or int(storage_bytes) < compatibility.get("minimumDiskBytes", 0)
+    or any(
+        compatibility.get(key) != installed_runtime.get(key)
+        for key in ("redis", "cuda", "cudnn", "onnxRuntime", "sherpaOnnx")
+    )
+):
+    raise SystemExit("incompatible appliance hardware")
 channel = manifest.get("channels", {}).get(channel_name)
 if not isinstance(channel, dict):
     raise SystemExit("manifest channel is missing")
@@ -205,7 +281,22 @@ requirements = channel.get("requires")
 if not isinstance(requirements, dict) or requirements.get("layoutVersion") != 1:
     raise SystemExit("invalid channel requirements")
 if channel_name == "lucia":
-    if requirements.get("jetsonLinux") != "36.5.2" or requirements.get("dataSchemaVersion") != 1:
+    runtime_keys = (
+        "redis",
+        "cuda",
+        "cudnn",
+        "onnxRuntime",
+        "sherpaOnnx",
+    )
+    if (
+        requirements.get("jetsonLinux") != jetson_linux
+        or requirements.get("dataSchemaVersion") != 1
+        or requirements.get("reboot") is not False
+        or any(
+            requirements.get(key) != installed_runtime.get(key)
+            for key in runtime_keys
+        )
+    ):
         raise SystemExit("incompatible Lucia requirements")
     if tuple(map(int, version.split("."))) <= tuple(map(int, current_lucia.split("."))):
         raise SystemExit("Lucia update is not newer than the installed release")
@@ -213,6 +304,8 @@ else:
     minimum_lucia = requirements.get("minimumLuciaVersion")
     if not isinstance(minimum_lucia, str) or re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", minimum_lucia) is None:
         raise SystemExit("invalid minimum Lucia version")
+    if requirements.get("reboot") is not True:
+        raise SystemExit("invalid OS reboot requirement")
     if tuple(map(int, current_lucia.split("."))) < tuple(map(int, minimum_lucia.split("."))):
         raise SystemExit("installed Lucia version is too old for this OS")
     if tuple(map(int, version.split("."))) <= tuple(map(int, current_os.split("."))):
@@ -551,8 +644,8 @@ apply_os() {
         | tar -I zstd -xOf - "$dtb_image" \
         | dd of="$partlabel_dir/$dtb_label" bs=4M conv=fsync status=none
     e2fsck -fn "$partlabel_dir/$app_label" >/dev/null
-    printf 'previous_slot=%s\ntarget_slot=%s\nversion=%s\nstatus=pending\nvalidation_token=%s\n' \
-        "$current_slot" "$target_slot" "$version" "$validation_token" \
+    printf 'previous_slot=%s\ntarget_slot=%s\nversion=%s\ntag=%s\nstatus=pending\nvalidation_token=%s\n' \
+        "$current_slot" "$target_slot" "$version" "$selected_tag" "$validation_token" \
         > "$state_dir/os.env.tmp"
     sync -f "$state_dir/os.env.tmp"
     mv -f "$state_dir/os.env.tmp" "$state_dir/os.env"
@@ -564,6 +657,8 @@ apply_os() {
             "$nvbootctrl_path" -t rootfs set-active-boot-slot "$current_slot" \
                 || true
         fi
+        sed -i 's/^status=pending$/status=failed/' "$state_dir/os.env"
+        sync -f "$state_dir/os.env"
         exit "$exit_code"
     }
     trap restore_failed_slot_change ERR
@@ -583,6 +678,8 @@ rollback_os() {
     [[ "$previous_slot" == "0" || "$previous_slot" == "1" ]] \
         || die "OS rollback state is invalid"
     "$nvbootctrl_path" -t rootfs set-active-boot-slot "$previous_slot"
+    sed -i -E 's/^status=(pending|validated)$/status=rollback-pending/' "$state"
+    sync -f "$state"
     "$systemctl_path" --no-block reboot
 }
 

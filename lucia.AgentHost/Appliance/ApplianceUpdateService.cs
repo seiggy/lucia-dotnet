@@ -3,13 +3,19 @@ using System.Text.Json;
 
 namespace lucia.AgentHost.Appliance;
 
-public sealed class ApplianceUpdateService(
+public sealed partial class ApplianceUpdateService(
     HttpClient httpClient,
-    ApplianceManagerClient manager)
+    ApplianceManagerClient manager,
+    ApplianceUpdateStagingStore staging,
+    ILogger<ApplianceUpdateService> logger) : IDisposable
 {
     private static readonly Uri s_releaseApi = new(
         "https://api.github.com/repos/seiggy/lucia-dotnet/releases/latest");
-
+    private const string RedisVersion = "8.2.9";
+    private const string CudaVersion = "12.6";
+    private const string CudnnVersion = "9.3.0.75";
+    private const string OnnxRuntimeVersion = "1.23.2";
+    private const string SherpaOnnxVersion = "1.12.34";
     public async Task<ApplianceUpdateStatus> CheckAsync(
         CancellationToken cancellationToken)
     {
@@ -67,6 +73,7 @@ public sealed class ApplianceUpdateService(
                 OsNewerDiscovered: false,
                 LuciaUpdateAvailable: false,
                 OsUpdateAvailable: false,
+                releaseTag,
                 releaseUrl,
                 "The latest GitHub release has no appliance manifest.");
         }
@@ -101,6 +108,14 @@ public sealed class ApplianceUpdateService(
                 "The latest appliance release has no trusted attestation bundle.");
         }
         var compatibility = manifest.GetProperty("compatibility");
+        if (manifest.GetProperty("releaseNotesUrl").GetString() != releaseUrl
+            || manifest.GetProperty("releaseApi").GetString()
+                != $"https://api.github.com/repos/seiggy/lucia-dotnet/releases/tags/{releaseTag}"
+            || !HasExpectedRuntime(compatibility))
+        {
+            throw new InvalidDataException(
+                "The appliance release metadata is incomplete or unsupported.");
+        }
         var architecture = compatibility.GetProperty("architecture").GetString();
         var board = compatibility.GetProperty("board").GetString();
         var minimumDiskBytes = compatibility
@@ -131,9 +146,12 @@ public sealed class ApplianceUpdateService(
                 current.Os.JetsonLinuxVersion,
                 StringComparison.Ordinal)
             && luciaRequirements.GetProperty("layoutVersion").GetInt32() == 1
-            && luciaRequirements.GetProperty("dataSchemaVersion").GetInt32() == 1;
+            && luciaRequirements.GetProperty("dataSchemaVersion").GetInt32() == 1
+            && !luciaRequirements.GetProperty("reboot").GetBoolean()
+            && HasExpectedRuntime(luciaRequirements);
         var osCompatible = hardwareCompatible
             && osRequirements.GetProperty("layoutVersion").GetInt32() == 1
+            && osRequirements.GetProperty("reboot").GetBoolean()
             && !IsNewer(
                 osRequirements.GetProperty("minimumLuciaVersion").GetString(),
                 current.LuciaVersion);
@@ -164,6 +182,7 @@ public sealed class ApplianceUpdateService(
             OsNewerDiscovered: osNewerDiscovered,
             LuciaUpdateAvailable: luciaCompatible && luciaNewerDiscovered,
             OsUpdateAvailable: osCompatible && osNewerDiscovered,
+            releaseTag,
             releaseUrl,
             !luciaCompatible && !osCompatible
                 ? "The latest appliance release is not compatible with this device."
@@ -172,17 +191,38 @@ public sealed class ApplianceUpdateService(
                     : null);
     }
 
-    public async Task<ApplianceUpdateOperationStatus> InstallAsync(
+    public Task<ApplianceUpdateOperationStatus> InstallAsync(
         string channel,
+        string tag,
         CancellationToken cancellationToken)
     {
         if (channel is not ("lucia" or "os"))
         {
             throw new ArgumentException("Unknown appliance update channel.", nameof(channel));
         }
+        if (!System.Text.RegularExpressions.Regex.IsMatch(
+                tag,
+                @"^v[0-9]+\.[0-9]+\.[0-9]+$"))
+        {
+            throw new ArgumentException("Invalid appliance release tag.", nameof(tag));
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        var accepted = staging.TryStart(channel, tag)
+            ?? throw new InvalidOperationException(
+                "Another appliance update is already being staged.");
+        _ = Task.Run(() => RunStagingAsync(channel, tag));
+        return Task.FromResult(accepted);
+    }
 
+    private async Task<ApplianceUpdateOperationStatus> StageAsync(
+        string channel,
+        string tag,
+        CancellationToken cancellationToken)
+    {
+        var releaseApi = new Uri(
+            $"https://api.github.com/repos/seiggy/lucia-dotnet/releases/tags/{tag}");
         using var releaseResponse = await httpClient
-            .GetAsync(s_releaseApi, cancellationToken)
+            .GetAsync(releaseApi, cancellationToken)
             .ConfigureAwait(false);
         releaseResponse.EnsureSuccessStatusCode();
         using var releaseDocument = JsonDocument.Parse(
@@ -190,13 +230,10 @@ public sealed class ApplianceUpdateService(
                 .ReadAsStreamAsync(cancellationToken)
                 .ConfigureAwait(false));
         var releaseRoot = releaseDocument.RootElement;
-        var tag = releaseRoot.GetProperty("tag_name").GetString();
-        if (tag is null
-            || !System.Text.RegularExpressions.Regex.IsMatch(
-                tag,
-                @"^v[0-9]+\.[0-9]+\.[0-9]+$"))
+        if (releaseRoot.GetProperty("tag_name").GetString() != tag)
         {
-            throw new InvalidDataException("GitHub returned an invalid release tag.");
+            throw new InvalidDataException(
+                "GitHub returned a different appliance release tag.");
         }
 
         var manifestUrl = FindAssetUrl(
@@ -210,14 +247,15 @@ public sealed class ApplianceUpdateService(
             bundleUrl,
             tag,
             "lucia-appliance-attestations.jsonl");
-        var stagingRoot = Environment.GetEnvironmentVariable(
-                "LUCIA_UPDATE_STAGING_PATH")
-            ?? "/var/lib/lucia/updates/staging";
-        var stage = Path.Combine(stagingRoot, tag);
-        if (Directory.Exists(stage))
+        foreach (var partial in Directory.EnumerateDirectories(
+                     staging.Root,
+                     $".{tag}.*.partial"))
         {
-            Directory.Delete(stage, recursive: true);
+            Directory.Delete(partial, recursive: true);
         }
+        var stage = Path.Combine(
+            staging.Root,
+            $".{tag}.{Guid.NewGuid():N}.partial");
         Directory.CreateDirectory(stage);
         var manifestPath = Path.Combine(
             stage,
@@ -269,6 +307,15 @@ public sealed class ApplianceUpdateService(
             throw new InvalidDataException(
                 "The appliance update is not compatible with this device.");
         }
+        if (!HasExpectedRuntime(compatibility)
+            || manifest.GetProperty("releaseNotesUrl").GetString()
+                != releaseRoot.GetProperty("html_url").GetString()
+            || manifest.GetProperty("releaseApi").GetString()
+                != releaseApi.AbsoluteUri)
+        {
+            throw new InvalidDataException(
+                "The appliance release metadata is incomplete or unsupported.");
+        }
         var selectedChannel = manifest
             .GetProperty("channels")
             .GetProperty(channel);
@@ -277,11 +324,14 @@ public sealed class ApplianceUpdateService(
             || channel == "lucia"
                 && (requirements.GetProperty("dataSchemaVersion").GetInt32() != 1
                     || requirements.GetProperty("jetsonLinux").GetString()
-                        != current.Os.JetsonLinuxVersion)
+                        != current.Os.JetsonLinuxVersion
+                    || requirements.GetProperty("reboot").GetBoolean()
+                    || !HasExpectedRuntime(requirements))
             || channel == "os"
-                && IsNewer(
-                    requirements.GetProperty("minimumLuciaVersion").GetString(),
-                    current.LuciaVersion))
+                && (!requirements.GetProperty("reboot").GetBoolean()
+                    || IsNewer(
+                        requirements.GetProperty("minimumLuciaVersion").GetString(),
+                        current.LuciaVersion)))
         {
             throw new InvalidDataException(
                 "The appliance update channel requirements are not satisfied.");
@@ -322,19 +372,74 @@ public sealed class ApplianceUpdateService(
                 .ConfigureAwait(false);
         }
 
+        var finalStage = Path.Combine(staging.Root, tag);
+        if (Directory.Exists(finalStage))
+        {
+            Directory.Delete(finalStage, recursive: true);
+        }
+        Directory.Move(stage, finalStage);
         return await manager
             .StartUpdateAsync(channel, tag, cancellationToken)
             .ConfigureAwait(false);
     }
 
-    public Task<ApplianceUpdateOperationStatus> GetOperationAsync(
-        CancellationToken cancellationToken) =>
-        manager.GetUpdateOperationAsync(cancellationToken);
+    public async Task<ApplianceUpdateOperationStatus> GetOperationAsync(
+        CancellationToken cancellationToken)
+    {
+        var stagingStatus = staging.GetStatus();
+        if (stagingStatus.Status is "queued" or "running")
+        {
+            return stagingStatus;
+        }
+        var managerStatus = await manager
+            .GetUpdateOperationAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return stagingStatus.Status == "failed"
+            ? stagingStatus with
+            {
+                LuciaRollbackAvailable = managerStatus.LuciaRollbackAvailable,
+                OsRollbackAvailable = managerStatus.OsRollbackAvailable,
+            }
+            : managerStatus;
+    }
 
     public Task<ApplianceUpdateOperationStatus> RollbackAsync(
         string channel,
-        CancellationToken cancellationToken) =>
-        manager.StartRollbackAsync(channel, cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        if (staging.GetStatus().Status is "queued" or "running")
+        {
+            throw new InvalidOperationException(
+                "An appliance update is still being staged.");
+        }
+        staging.Clear();
+        return manager.StartRollbackAsync(channel, cancellationToken);
+    }
+
+    private async Task RunStagingAsync(string channel, string tag)
+    {
+        staging.SetRunning(channel, tag);
+        try
+        {
+            await StageAsync(channel, tag, CancellationToken.None)
+                .ConfigureAwait(false);
+            staging.Clear();
+        }
+        catch (Exception exception)
+        {
+            LogStagingFailure(exception, channel, tag);
+            staging.SetFailed(channel, tag, exception.Message);
+        }
+    }
+
+    [LoggerMessage(
+        Level = LogLevel.Error,
+        Message = "Failed to stage {Channel} update from {Tag}.")]
+    private partial void LogStagingFailure(
+        Exception exception,
+        string channel,
+        string tag);
+
 
     private static bool IsNewer(string? candidate, string current)
     {
@@ -344,6 +449,17 @@ public sealed class ApplianceUpdateService(
                 out var currentVersion)
             && candidateVersion > currentVersion;
     }
+
+    private static bool HasExpectedRuntime(JsonElement compatibility) =>
+        compatibility.GetProperty("redis").GetString() == RedisVersion
+        && compatibility.GetProperty("cuda").GetString() == CudaVersion
+        && compatibility.GetProperty("cudnn").GetString() == CudnnVersion
+        && compatibility.GetProperty("onnxRuntime").GetString()
+            == OnnxRuntimeVersion
+        && compatibility.GetProperty("sherpaOnnx").GetString()
+            == SherpaOnnxVersion;
+
+    public void Dispose() => httpClient.Dispose();
 
     internal static Uri ParseManifestUri(string value)
     {

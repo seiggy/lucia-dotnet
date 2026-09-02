@@ -187,6 +187,7 @@ chmod 0755 \
 chmod 0640 "$output_dir/var/lib/lucia/config/lucia.env"
 chmod 0644 \
     "$output_dir/etc/lucia/otelcol.yaml" \
+    "$output_dir/etc/lucia/appliance-runtime.json" \
     "$output_dir/etc/lucia/redis.conf" \
     "$output_dir/etc/lucia/telemetry.env.example" \
     "$output_dir/usr/lib/systemd/system/lucia-agenthost.service" \

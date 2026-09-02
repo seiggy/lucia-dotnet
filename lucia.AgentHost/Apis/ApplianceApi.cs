@@ -336,6 +336,7 @@ public static class ApplianceApi
             "/updates/{channel}/install",
             async (
                 string channel,
+                ApplianceUpdateRequest request,
                 ApplianceUpdateService updates,
                 CancellationToken cancellationToken) =>
             {
@@ -343,12 +344,19 @@ public static class ApplianceApi
                 {
                     return Results.Accepted(
                         value: await updates
-                            .InstallAsync(channel, cancellationToken)
+                            .InstallAsync(channel, request.Tag, cancellationToken)
                             .ConfigureAwait(false));
                 }
                 catch (HttpRequestException exception)
                 {
                     return ManagerProblem(exception, "Appliance update failed");
+                }
+                catch (InvalidOperationException exception)
+                {
+                    return Results.Problem(
+                        detail: exception.Message,
+                        statusCode: StatusCodes.Status409Conflict,
+                        title: "Appliance update is busy");
                 }
                 catch (Exception exception) when (
                     exception is JsonException
@@ -400,6 +408,13 @@ public static class ApplianceApi
                     return ManagerProblem(
                         exception,
                         "Appliance rollback failed");
+                }
+                catch (InvalidOperationException exception)
+                {
+                    return Results.Problem(
+                        detail: exception.Message,
+                        statusCode: StatusCodes.Status409Conflict,
+                        title: "Appliance update is busy");
                 }
             });
 

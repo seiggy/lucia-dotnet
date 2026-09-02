@@ -60,10 +60,22 @@ class PackageReleaseTests(unittest.TestCase):
             self.assertEqual(manifest["channels"]["os"]["version"], "2.0.0")
             self.assertEqual(manifest["compatibility"]["jetsonLinux"], "36.5.2")
             self.assertEqual(manifest["compatibility"]["layoutVersion"], 1)
+            self.assertEqual(manifest["compatibility"]["cuda"], "12.6")
+            self.assertEqual(manifest["compatibility"]["onnxRuntime"], "1.23.2")
+            self.assertEqual(
+                manifest["releaseNotesUrl"],
+                "https://github.com/seiggy/lucia-dotnet/releases/tag/v1.2.3",
+            )
+            self.assertEqual(
+                manifest["releaseApi"],
+                "https://api.github.com/repos/seiggy/lucia-dotnet/releases/tags/v1.2.3",
+            )
             self.assertEqual(
                 manifest["channels"]["os"]["requires"]["minimumLuciaVersion"],
                 "1.2.4",
             )
+            self.assertFalse(manifest["channels"]["lucia"]["requires"]["reboot"])
+            self.assertTrue(manifest["channels"]["os"]["requires"]["reboot"])
             self.assertEqual(len(manifest["channels"]["installer"]["parts"]), 3)
             self.assertEqual(len(manifest["channels"]["lucia"]["parts"]), 1)
             self.assertEqual(len(manifest["channels"]["os"]["parts"]), 2)

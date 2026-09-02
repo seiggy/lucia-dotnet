@@ -391,12 +391,22 @@ if (isInstalledAppliance)
             ?? "/run/lucia-appliance/appliance-manager.sock";
     builder.Services.AddSingleton(
         new ApplianceManagerClient(applianceSocketPath));
-    builder.Services.AddHttpClient<ApplianceUpdateService>(client =>
+    builder.Services.AddSingleton<ApplianceUpdateStagingStore>();
+    builder.Services.AddHttpClient("appliance-updater", client =>
     {
         client.DefaultRequestHeaders.UserAgent.ParseAdd(
             "lucia-appliance-updater/1.0");
         client.Timeout = TimeSpan.FromMinutes(30);
     });
+    builder.Services.AddSingleton(serviceProvider =>
+        new ApplianceUpdateService(
+            serviceProvider
+                .GetRequiredService<IHttpClientFactory>()
+                .CreateClient("appliance-updater"),
+            serviceProvider.GetRequiredService<ApplianceManagerClient>(),
+            serviceProvider.GetRequiredService<ApplianceUpdateStagingStore>(),
+            serviceProvider.GetRequiredService<
+                ILogger<ApplianceUpdateService>>()));
 }
 
 builder.Services.AddOpenApi();

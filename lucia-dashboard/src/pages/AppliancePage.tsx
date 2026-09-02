@@ -157,7 +157,10 @@ export default function AppliancePage() {
     setError('')
     setStagingUpdate(channel)
     try {
-      setUpdateOperation(await installApplianceUpdate(channel))
+      if (!updates?.releaseTag) {
+        throw new Error('Check for updates again before installing.')
+      }
+      setUpdateOperation(await installApplianceUpdate(channel, updates.releaseTag))
       setNotice(channel === 'os'
         ? 'Downloading and verifying the OS update. The Jetson will reboot when it is staged.'
         : 'Downloading and verifying the Lucia update. The dashboard will reconnect after services restart.')

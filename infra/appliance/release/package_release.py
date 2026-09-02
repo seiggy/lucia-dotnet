@@ -133,10 +133,17 @@ def main() -> None:
         "jetsonLinux": "36.5.2",
         "layoutVersion": 1,
         "dataSchemaVersion": 1,
+        "redis": "8.2.9",
+        "cuda": "12.6",
+        "cudnn": "9.3.0.75",
+        "onnxRuntime": "1.23.2",
+        "sherpaOnnx": "1.12.34",
+        "reboot": False,
     }
     channels["os"]["requires"] = {
         "minimumLuciaVersion": lucia_version,
         "layoutVersion": 1,
+        "reboot": True,
     }
 
     manifest = {
@@ -146,7 +153,8 @@ def main() -> None:
             download_base + "lucia-appliance-attestations.jsonl"
         ),
         "releaseApi": (
-            f"https://api.github.com/repos/{arguments.repository}/releases/latest"
+            f"https://api.github.com/repos/{arguments.repository}/releases/tags/"
+            f"{arguments.tag}"
         ),
         "tag": arguments.tag,
         "version": release_version,
@@ -157,7 +165,16 @@ def main() -> None:
             "minimumDiskBytes": 61_203_283_968,
             "layoutVersion": 1,
             "dataSchemaVersion": 1,
+            "redis": "8.2.9",
+            "cuda": "12.6",
+            "cudnn": "9.3.0.75",
+            "onnxRuntime": "1.23.2",
+            "sherpaOnnx": "1.12.34",
         },
+        "releaseNotesUrl": (
+            f"https://github.com/{arguments.repository}/releases/tag/"
+            f"{arguments.tag}"
+        ),
         "channels": channels,
     }
     manifest_path = output_directory / "lucia-appliance-manifest.json"

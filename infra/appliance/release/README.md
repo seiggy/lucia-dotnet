@@ -39,6 +39,8 @@ https://api.github.com/repos/seiggy/lucia-dotnet/releases/latest
 It ignores a release until the release contains
 `lucia-appliance-manifest.json`. The workflow uploads that manifest last, after
 all payload parts, checksums, and GitHub artifact attestations exist.
+After an administrator confirms an update, the dashboard submits the reviewed
+tag and AgentHost fetches that exact release through the GitHub tags API.
 
 The workflow also publishes `lucia-appliance-attestations.jsonl`. Installed
 appliances verify the manifest and every downloaded part offline with the
@@ -51,7 +53,9 @@ Each manifest channel contains:
 
 - complete compressed payload size and SHA-256;
 - ordered part names, sizes, hashes, and release URLs;
-- board, architecture, Jetson Linux, and minimum disk compatibility.
+- board, architecture, Jetson Linux, and minimum disk compatibility;
+- Redis, CUDA, cuDNN, ONNX Runtime, and sherpa-onnx versions;
+- the release notes URL and per-channel reboot requirement.
 
 The updater downloads parts in manifest order, verifies every part's GitHub
 attestation and hash, then verifies the complete compressed stream against the

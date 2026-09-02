@@ -13,5 +13,6 @@ public sealed record ApplianceUpdateStatus(
     bool OsNewerDiscovered,
     bool LuciaUpdateAvailable,
     bool OsUpdateAvailable,
+    string? ReleaseTag,
     string? ReleaseUrl,
     string? Message);

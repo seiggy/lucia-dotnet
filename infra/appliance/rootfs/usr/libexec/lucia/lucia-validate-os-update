@@ -9,9 +9,28 @@ curl_path="${LUCIA_CURL_PATH:-/usr/bin/curl}"
 health_attempts="${LUCIA_UPDATE_HEALTH_ATTEMPTS:-30}"
 health_delay="${LUCIA_UPDATE_HEALTH_DELAY_SECONDS:-2}"
 
+write_operation() {
+    local action="$1"
+    local operation_status="$2"
+    local message="$3"
+    local tag
+    tag="$(sed -n 's/^tag=//p' "$state")"
+    [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || tag=""
+    printf '{"Action":"%s","Channel":"os","Status":"%s","Tag":%s,"Message":"%s","LuciaRollbackAvailable":false,"OsRollbackAvailable":false}\n' \
+        "$action" \
+        "$operation_status" \
+        "$([[ -n "$tag" ]] && printf '"%s"' "$tag" || printf 'null')" \
+        "$message" \
+        > "$update_root/state/operation.json.tmp"
+    sync -f "$update_root/state/operation.json.tmp"
+    mv -f "$update_root/state/operation.json.tmp" \
+        "$update_root/state/operation.json"
+    sync -f "$update_root/state"
+}
+
 [[ -f "$state" ]] || exit 0
 status="$(sed -n 's/^status=//p' "$state")"
-[[ "$status" == "pending" ]] || exit 0
+[[ "$status" == "pending" || "$status" == "rollback-pending" ]] || exit 0
 previous_slot="$(sed -n 's/^previous_slot=//p' "$state")"
 target_slot="$(sed -n 's/^target_slot=//p' "$state")"
 validation_token="$(sed -n 's/^validation_token=//p' "$state")"
@@ -19,7 +38,10 @@ validation_token="$(sed -n 's/^validation_token=//p' "$state")"
 current_slot="$("$nvbootctrl_path" -t rootfs get-current-slot)"
 
 if [[ "$current_slot" == "$previous_slot" ]]; then
-    sed -i 's/^status=pending$/status=rolled-back/' "$state"
+    sed -i -E 's/^status=(pending|rollback-pending)$/status=rolled-back/' "$state"
+    sync -f "$state"
+    write_operation rollback succeeded \
+        "OS rollback completed after boot validation failed."
     exit 0
 fi
 if [[ "$current_slot" != "$target_slot" ]]; then
@@ -45,6 +67,7 @@ if [[ "$healthy" == true ]]; then
     sync -f "${state}.tmp"
     mv -f "${state}.tmp" "$state"
     sync -f "$(dirname "$state")"
+    write_operation apply succeeded "OS update passed boot validation."
     "$curl_path" --fail --silent \
         --max-time 30 \
         "http://127.0.0.1:8098/internal/appliance/update-validation/$validation_token?consume=true" \
@@ -53,5 +76,9 @@ if [[ "$healthy" == true ]]; then
 fi
 
 "$nvbootctrl_path" -t rootfs set-active-boot-slot "$previous_slot"
+sed -i 's/^status=pending$/status=rollback-pending/' "$state"
+sync -f "$state"
+write_operation apply failed \
+    "OS update failed boot validation; rollback is scheduled."
 "$systemctl_path" --no-block reboot
 exit 0

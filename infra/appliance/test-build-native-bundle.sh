@@ -132,6 +132,7 @@ test_bundle_contains_native_service_contract() {
     local manager_unit="$output_dir/usr/lib/systemd/system/lucia-appliance-manager.service"
     local redis_unit="$output_dir/usr/lib/systemd/system/lucia-redis.service"
     local redis_config="$output_dir/etc/lucia/redis.conf"
+    local runtime_info="$output_dir/etc/lucia/appliance-runtime.json"
     local recovery_shell="$output_dir/usr/libexec/lucia/lucia-recovery-shell"
     local updater="$output_dir/usr/libexec/lucia/lucia-update"
     local os_validator="$output_dir/usr/libexec/lucia/lucia-validate-os-update"
@@ -143,6 +144,7 @@ test_bundle_contains_native_service_contract() {
 
     if [[ -f "$agent_unit" && -f "$manager_unit" && -f "$redis_unit" \
             && -f "$redis_config" && -f "$environment" ]] \
+        && grep -q '"onnxRuntime": "1.23.2"' "$runtime_info" \
         && grep -q '^exec /usr/bin/nmtui' "$recovery_shell" \
         && [[ -x "$updater" ]] \
         && [[ -x "$os_validator" && -f "$os_validation_unit" ]] \

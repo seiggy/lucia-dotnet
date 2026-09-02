@@ -58,12 +58,11 @@ public sealed class ApplianceUpdateCoordinator
     {
         lock (_gate)
         {
+            RefreshStatusUnsafe();
             return _status with
             {
-                LuciaRollbackAvailable = File.Exists(
-                    Path.Combine(_statePath, "lucia.env")),
-                OsRollbackAvailable = File.Exists(
-                    Path.Combine(_statePath, "os.env")),
+                LuciaRollbackAvailable = IsLuciaRollbackAvailable(),
+                OsRollbackAvailable = IsOsRollbackAvailable(),
             };
         }
     }
@@ -170,6 +169,45 @@ public sealed class ApplianceUpdateCoordinator
         File.Move(temporary, _operationPath, overwrite: true);
     }
 
+    private void RefreshStatusUnsafe()
+    {
+        if (!File.Exists(_operationPath))
+        {
+            return;
+        }
+        _status = JsonSerializer.Deserialize<UpdateOperationStatus>(
+                File.ReadAllText(_operationPath))
+            ?? _status;
+    }
+
     private static string? NullIfEmpty(string value) =>
         string.IsNullOrWhiteSpace(value) ? null : value;
+
+    private bool IsOsRollbackAvailable()
+    {
+        var path = Path.Combine(_statePath, "os.env");
+        if (!File.Exists(path))
+        {
+            return false;
+        }
+        var status = File.ReadLines(path)
+            .FirstOrDefault(line => line.StartsWith("status=", StringComparison.Ordinal));
+        return status is "status=pending" or "status=validated";
+    }
+
+    private bool IsLuciaRollbackAvailable()
+    {
+        var path = Path.Combine(_statePath, "lucia.env");
+        if (!File.Exists(path))
+        {
+            return false;
+        }
+        var values = File.ReadLines(path)
+            .Select(line => line.Split('=', 2))
+            .Where(parts => parts.Length == 2)
+            .ToDictionary(parts => parts[0], parts => parts[1]);
+        return values.GetValueOrDefault("phase") == "committed"
+            && values.TryGetValue("backup", out var backup)
+            && File.Exists(backup);
+    }
 }

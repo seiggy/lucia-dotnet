@@ -314,6 +314,20 @@ grep -qx 'apply lucia v1.4.0' "$update_log"
 
 echo "PASS: update operations run outside the request lifetime"
 
+cat > "$work_dir/updates/state/operation.json.tmp" <<'EOF'
+{"Action":"apply","Channel":"os","Status":"failed","Tag":"v1.4.0","Message":"OS update failed boot validation; rollback is scheduled."}
+EOF
+mv "$work_dir/updates/state/operation.json.tmp" \
+    "$work_dir/updates/state/operation.json"
+printf 'status=rolled-back\n' > "$work_dir/updates/state/os.env"
+curl --silent --output "$work_dir/response.json" \
+    --unix-socket "$socket_path" \
+    http://localhost/v1/updates/operation
+grep -q '"status":"failed"' "$work_dir/response.json"
+grep -q '"osRollbackAvailable":false' "$work_dir/response.json"
+
+echo "PASS: external OS validation state is reflected without stale rollback"
+
 status="$(
     curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
         --unix-socket "$socket_path" \

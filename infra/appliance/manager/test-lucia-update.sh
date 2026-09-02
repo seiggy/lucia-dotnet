@@ -29,6 +29,9 @@ printf 'old-plugin\n' > "$work/data/plugins/official.plugin"
 printf 'old-redis-config\n' > "$work/redis.conf"
 printf 'trusted\n' > "$work/trusted-root.jsonl"
 printf '1.0.0\n' > "$work/os-version"
+cat > "$work/runtime.json" <<'EOF'
+{"layoutVersion":1,"dataSchemaVersion":1,"redis":"8.2.9","cuda":"12.6","cudnn":"9.3.0.75","onnxRuntime":"1.23.2","sherpaOnnx":"1.12.34"}
+EOF
 
 cat > "$work/bin/gh" <<'EOF'
 #!/usr/bin/env bash
@@ -78,6 +81,7 @@ write_manifest() {
     local payload_name
     local payload_hash
     local payload_bytes
+    local requirements
 
     payload_name="$(basename "$payload")"
     payload_hash="$(sha256sum "$payload" | cut -d' ' -f1)"
@@ -85,8 +89,13 @@ write_manifest() {
     mkdir -p "$stage"
     cp "$payload" "$stage/$payload_name"
     printf 'bundle\n' > "$stage/lucia-appliance-attestations.jsonl"
+    if [[ "$channel" == "lucia" ]]; then
+        requirements='"jetsonLinux":"36.5.2","layoutVersion":1,"dataSchemaVersion":1,"redis":"8.2.9","cuda":"12.6","cudnn":"9.3.0.75","onnxRuntime":"1.23.2","sherpaOnnx":"1.12.34","reboot":false'
+    else
+        requirements='"minimumLuciaVersion":"1.0.0","layoutVersion":1,"reboot":true'
+    fi
     cat > "$stage/lucia-appliance-manifest.json" <<EOF
-{"schemaVersion":1,"repository":"seiggy/lucia-dotnet","tag":"$tag","version":"$version","compatibility":{"layoutVersion":1,"dataSchemaVersion":1},"channels":{"$channel":{"version":"$version","bytes":$payload_bytes,"sha256":"$payload_hash","requires":{"jetsonLinux":"36.5.2","minimumLuciaVersion":"1.0.0","layoutVersion":1,"dataSchemaVersion":1},"parts":[{"name":"$payload_name","bytes":$payload_bytes,"sha256":"$payload_hash","url":"https://github.com/seiggy/lucia-dotnet/releases/download/$tag/$payload_name"}]}}}
+{"schemaVersion":1,"repository":"seiggy/lucia-dotnet","tag":"$tag","version":"$version","releaseApi":"https://api.github.com/repos/seiggy/lucia-dotnet/releases/tags/$tag","releaseNotesUrl":"https://github.com/seiggy/lucia-dotnet/releases/tag/$tag","compatibility":{"architecture":"arm64","board":"jetson-orin-nano-super-p3767-0005","minimumDiskBytes":61203283968,"layoutVersion":1,"dataSchemaVersion":1,"redis":"8.2.9","cuda":"12.6","cudnn":"9.3.0.75","onnxRuntime":"1.23.2","sherpaOnnx":"1.12.34"},"channels":{"$channel":{"version":"$version","bytes":$payload_bytes,"sha256":"$payload_hash","requires":{$requirements},"parts":[{"name":"$payload_name","bytes":$payload_bytes,"sha256":"$payload_hash","url":"https://github.com/seiggy/lucia-dotnet/releases/download/$tag/$payload_name"}]}}}
 EOF
 }
 
@@ -103,6 +112,11 @@ run_update() {
     LUCIA_PARTLABEL_DIR="$work/by-partlabel" \
     LUCIA_OS_VERSION_PATH="$work/os-version" \
     LUCIA_REDIS_CONFIG_PATH="$work/redis.conf" \
+    LUCIA_RUNTIME_INFO_PATH="$work/runtime.json" \
+    LUCIA_ARCHITECTURE=arm64 \
+    LUCIA_APPLIANCE_BOARD=jetson-orin-nano-super-p3767-0005 \
+    LUCIA_STORAGE_BYTES=61203283968 \
+    LUCIA_JETSON_LINUX_VERSION=36.5.2 \
     LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
     LUCIA_TEST_REJECT_ATTESTATION="$work/reject-attestation" \
     LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
@@ -137,6 +151,20 @@ if run_update apply lucia v1.1.0; then
     exit 1
 fi
 [[ "$(readlink "$work/current")" == "releases/1.0.0" ]]
+write_manifest lucia v1.1.0 1.1.0 "$work/lucia.tar.zst"
+sed -i 's/jetson-orin-nano-super-p3767-0005/unsupported-board/' \
+    "$work/updates/staging/v1.1.0/lucia-appliance-manifest.json"
+if run_update apply lucia v1.1.0; then
+    echo "Hardware-incompatible Lucia update was accepted" >&2
+    exit 1
+fi
+write_manifest lucia v1.1.0 1.1.0 "$work/lucia.tar.zst"
+sed -i 's/"cuda":"12.6"/"cuda":"99.0"/' \
+    "$work/updates/staging/v1.1.0/lucia-appliance-manifest.json"
+if run_update apply lucia v1.1.0; then
+    echo "Runtime-incompatible Lucia update was accepted" >&2
+    exit 1
+fi
 write_manifest lucia v1.1.0 1.1.0 "$work/lucia.tar.zst"
 
 run_update apply lucia v1.1.0
@@ -259,10 +287,12 @@ LUCIA_UPDATE_HEALTH_ATTEMPTS=1 \
 LUCIA_UPDATE_HEALTH_DELAY_SECONDS=0 \
     "$os_validator"
 grep -qx 'status=validated' "$work/updates/state/os.env"
+grep -q '"Status":"succeeded"' "$work/updates/state/operation.json"
 [[ -e "$work/boot-successful" ]]
 
 run_update rollback os
 [[ "$(cat "$work/active-slot")" == "0" ]]
+grep -qx 'status=rollback-pending' "$work/updates/state/os.env"
 
 echo "PASS: OS update writes only the inactive slot and reverses boot selection"
 
@@ -285,6 +315,19 @@ LUCIA_UPDATE_ROOT="$work/updates" \
         "$os_validator"
 rm "$work/fail-health"
 [[ "$(cat "$work/active-slot")" == "0" ]]
-grep -qx 'status=pending' "$work/updates/state/os.env"
+grep -qx 'status=rollback-pending' "$work/updates/state/os.env"
+grep -q '"Status":"failed"' "$work/updates/state/operation.json"
+printf '0\n' > "$work/current-slot"
+LUCIA_UPDATE_ROOT="$work/updates" \
+    LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
+    LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
+    LUCIA_CURL_PATH="$work/bin/curl" \
+    LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
+    LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
+    LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
+    LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
+        "$os_validator"
+grep -qx 'status=rolled-back' "$work/updates/state/os.env"
+grep -q '"Action":"rollback"' "$work/updates/state/operation.json"
 
 echo "PASS: unhealthy OS slot selects its predecessor before reboot"
