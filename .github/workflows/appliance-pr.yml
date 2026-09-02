@@ -37,7 +37,7 @@ jobs:
       - name: Run appliance suites
         run: |
           dotnet test lucia.Tests/lucia.Tests.csproj \
-            --filter "FullyQualifiedName~PostgresApiKeyServiceTests"
+            --filter "FullyQualifiedName~PostgresApiKeyServiceTests|FullyQualifiedName~lucia.Tests.Appliance"
           python3 infra/appliance/release/test_package_release.py
           bash infra/appliance/release/test_build_release_assets.sh
           bash infra/appliance/test-build-native-bundle.sh

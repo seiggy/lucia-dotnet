@@ -143,6 +143,12 @@ def main() -> None:
     channels["os"]["requires"] = {
         "minimumLuciaVersion": lucia_version,
         "layoutVersion": 1,
+        "jetsonLinux": "36.5.2",
+        "redis": "8.2.9",
+        "cuda": "12.6",
+        "cudnn": "9.3.0.75",
+        "onnxRuntime": "1.23.2",
+        "sherpaOnnx": "1.12.34",
         "reboot": True,
     }
 

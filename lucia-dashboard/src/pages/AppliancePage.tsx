@@ -504,6 +504,7 @@ function UpdateRail({
             <button
               type="button"
               onClick={onRollback}
+              aria-label={`Roll back ${title}`}
               disabled={busy}
               className={secondaryButton}
             >
@@ -514,6 +515,7 @@ function UpdateRail({
           <button
             type="button"
             onClick={onInstall}
+            aria-label={`Install ${title}`}
             disabled={busy}
             className={secondaryButton}
           >

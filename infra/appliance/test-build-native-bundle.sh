@@ -250,7 +250,9 @@ test_voice_assets_are_baked_into_bundle() {
         && cmp -s "$models_dir/stt/default/model.onnx" \
             "$output_dir/var/lib/lucia/models/stt/default/model.onnx" \
         && cmp -s "$plugins_dir/example/plugin.cs" \
-            "$output_dir/var/lib/lucia/plugins/example/plugin.cs"; then
+            "$output_dir/var/lib/lucia/plugins/example/plugin.cs" \
+        && grep -qx 'example' \
+            "$output_dir/var/lib/lucia/plugins/.bundled-plugins"; then
         pass "voice assets are baked into bundle"
     else
         fail "voice assets are baked into bundle (expected files missing or changed)"

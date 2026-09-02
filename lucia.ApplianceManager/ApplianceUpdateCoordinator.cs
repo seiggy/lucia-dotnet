@@ -261,7 +261,7 @@ public sealed class ApplianceUpdateCoordinator
 
     private bool IsOsAwaitingValidation() =>
         _status is
-            { Action: "apply" or "rollback", Channel: "os", Status: "running" }
+        { Action: "apply" or "rollback", Channel: "os", Status: "running" }
         && ReadOsStatus() is "pending" or "rollback-pending";
 
     private void RecoverInterruptedOsWrite()

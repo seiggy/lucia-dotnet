@@ -113,11 +113,11 @@ test('manages an installed appliance from mobile', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'lucia', exact: true })).toBeVisible();
   await expect(page.getByText('2/4 active')).toBeVisible();
   await page.getByRole('button', { name: 'Check for updates' }).click();
-  await expect(page.getByRole('button', { name: 'Install' })).toHaveCount(2);
-  await page.getByRole('button', { name: 'Install' }).first().click();
+  await expect(page.getByRole('button', { name: /^Install / })).toHaveCount(2);
+  await page.getByRole('button', { name: 'Install Lucia' }).click();
   await page.getByRole('button', { name: 'Verify and install' }).click();
   await expect.poll(() => installRequestBody).toBe('{"tag":"v0.3.0"}');
-  await expect(page.getByRole('button', { name: 'Install' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Install / })).toHaveCount(0);
   await expect(page.getByText(
     'Lucia update installed. Services are restarting.',
   )).toBeVisible();

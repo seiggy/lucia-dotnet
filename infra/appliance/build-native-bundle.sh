@@ -166,6 +166,9 @@ if [[ "$voice_input_count" -eq 3 ]]; then
     cp -a "$native_dir/." "$release_dir/app/runtimes/linux-arm64/native/"
     cp -a "$models_dir/." "$output_dir/var/lib/lucia/models/"
     cp -a "$plugins_dir/." "$output_dir/var/lib/lucia/plugins/"
+    find "$plugins_dir" -mindepth 1 -maxdepth 1 -printf '%f\n' \
+        | LC_ALL=C sort \
+        > "$output_dir/var/lib/lucia/plugins/.bundled-plugins"
     chmod 0755 "$release_dir/app/runtimes/linux-arm64/native/"*.so*
 fi
 

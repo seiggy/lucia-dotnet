@@ -76,6 +76,10 @@ class PackageReleaseTests(unittest.TestCase):
             )
             self.assertFalse(manifest["channels"]["lucia"]["requires"]["reboot"])
             self.assertTrue(manifest["channels"]["os"]["requires"]["reboot"])
+            self.assertEqual(
+                manifest["channels"]["os"]["requires"]["cuda"],
+                "12.6",
+            )
             self.assertEqual(len(manifest["channels"]["installer"]["parts"]), 3)
             self.assertEqual(len(manifest["channels"]["lucia"]["parts"]), 1)
             self.assertEqual(len(manifest["channels"]["os"]["parts"]), 2)

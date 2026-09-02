@@ -26,6 +26,10 @@ ln -s releases/1.0.0 "$work/current"
 printf 'old-app\n' > "$work/releases/1.0.0/app/version"
 printf 'old-db\n' > "$work/data/db/lucia.db"
 printf 'old-plugin\n' > "$work/data/plugins/official.plugin"
+printf 'removed-plugin\n' > "$work/data/plugins/removed.plugin"
+printf 'user-plugin\n' > "$work/data/plugins/user.plugin"
+printf 'official.plugin\nremoved.plugin\n' \
+    > "$work/data/plugins/.bundled-plugins"
 printf 'old-redis-config\n' > "$work/redis.conf"
 printf 'trusted\n' > "$work/trusted-root.jsonl"
 printf '1.0.0\n' > "$work/os-version"
@@ -112,7 +116,7 @@ write_manifest() {
     if [[ "$channel" == "lucia" ]]; then
         requirements='"jetsonLinux":"36.5.2","layoutVersion":1,"dataSchemaVersion":1,"redis":"8.2.9","cuda":"12.6","cudnn":"9.3.0.75","onnxRuntime":"1.23.2","sherpaOnnx":"1.12.34","reboot":false'
     else
-        requirements='"minimumLuciaVersion":"1.0.0","layoutVersion":1,"reboot":true'
+        requirements='"minimumLuciaVersion":"1.0.0","layoutVersion":1,"jetsonLinux":"36.5.2","redis":"8.2.9","cuda":"12.6","cudnn":"9.3.0.75","onnxRuntime":"1.23.2","sherpaOnnx":"1.12.34","reboot":true'
     fi
     cat > "$stage/lucia-appliance-manifest.json" <<EOF
 {"schemaVersion":1,"repository":"seiggy/lucia-dotnet","tag":"$tag","version":"$version","releaseApi":"https://api.github.com/repos/seiggy/lucia-dotnet/releases/tags/$tag","releaseNotesUrl":"https://github.com/seiggy/lucia-dotnet/releases/tag/$tag","compatibility":{"architecture":"arm64","board":"jetson-orin-nano-super-p3767-0005","jetsonLinux":"36.5.2","minimumDiskBytes":61203283968,"layoutVersion":1,"dataSchemaVersion":1,"redis":"8.2.9","cuda":"12.6","cudnn":"9.3.0.75","onnxRuntime":"1.23.2","sherpaOnnx":"1.12.34"},"channels":{"$channel":{"version":"$version","bytes":$payload_bytes,"sha256":"$payload_hash","requires":{$requirements},"parts":[{"name":"$payload_name","bytes":$payload_bytes,"sha256":"$payload_hash","url":"https://github.com/seiggy/lucia-dotnet/releases/download/$tag/$payload_name"}]}}}
@@ -137,6 +141,7 @@ run_update() {
     LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
     LUCIA_VALIDATION_GROUP=root \
     LUCIA_AVAILABLE_BYTES="${LUCIA_TEST_AVAILABLE_BYTES:-}" \
+    LUCIA_RELEASES_AVAILABLE_BYTES="${LUCIA_TEST_RELEASES_AVAILABLE_BYTES:-}" \
     LUCIA_ARCHITECTURE=arm64 \
     LUCIA_APPLIANCE_BOARD=jetson-orin-nano-super-p3767-0005 \
     LUCIA_STORAGE_BYTES=61203283968 \
@@ -157,10 +162,30 @@ run_update() {
 
 grep -q '^set -Eeuo pipefail$' "$updater"
 
+add_runtime_files() {
+    local payload_root="$1"
+    local version="$2"
+    local release="$payload_root/opt/lucia/releases/$version"
+    mkdir -p "$release/app" "$release/manager" "$release/redis/bin" "$release/tools"
+    printf 'app\n' > "$release/app/lucia.AgentHost"
+    printf 'manager\n' > "$release/manager/lucia.ApplianceManager"
+    printf 'redis\n' > "$release/redis/bin/redis-server"
+    printf 'gh\n' > "$release/tools/gh"
+    printf 'trusted\n' > "$release/tools/trusted-root.jsonl"
+    chmod +x \
+        "$release/app/lucia.AgentHost" \
+        "$release/manager/lucia.ApplianceManager" \
+        "$release/redis/bin/redis-server" \
+        "$release/tools/gh"
+    printf 'official.plugin\n' \
+        > "$payload_root/var/lib/lucia/plugins/.bundled-plugins"
+}
+
 mkdir -p "$work/lucia-payload/opt/lucia/releases/1.1.0/app"
 mkdir -p "$work/lucia-payload/etc/lucia" "$work/lucia-payload/var/lib/lucia/plugins"
 printf 'new-app\n' > "$work/lucia-payload/opt/lucia/releases/1.1.0/app/version"
 printf 'new-plugin\n' > "$work/lucia-payload/var/lib/lucia/plugins/official.plugin"
+add_runtime_files "$work/lucia-payload" 1.1.0
 printf 'new-redis-config\n' > "$work/lucia-payload/etc/lucia/redis.conf"
 tar -I zstd -cf "$work/lucia.tar.zst" -C "$work/lucia-payload" .
 mkdir -p "$work/releases/0.9.0"
@@ -200,11 +225,17 @@ if LUCIA_TEST_AVAILABLE_BYTES=1 run_update apply lucia v1.1.0; then
     echo "Lucia update without rollback space was accepted" >&2
     exit 1
 fi
+if LUCIA_TEST_RELEASES_AVAILABLE_BYTES=1 run_update apply lucia v1.1.0; then
+    echo "Lucia update without application space was accepted" >&2
+    exit 1
+fi
 
 run_update apply lucia v1.1.0
 [[ "$(readlink "$work/current")" == "releases/1.1.0" ]]
 grep -qx 'new-app' "$work/releases/1.1.0/app/version"
 grep -qx 'new-plugin' "$work/data/plugins/official.plugin"
+[[ ! -e "$work/data/plugins/removed.plugin" ]]
+grep -qx 'user-plugin' "$work/data/plugins/user.plugin"
 grep -qx 'new-redis-config' "$work/redis.conf"
 grep -qx 'old-db' "$work/data/db/lucia.db"
 [[ ! -e "$work/releases/0.9.0" ]]
@@ -245,6 +276,7 @@ echo "PASS: failed backup never restores stale data from an earlier attempt"
 mkdir -p "$work/lucia-payload-recover/opt/lucia/releases/1.1.1/app"
 mkdir -p "$work/lucia-payload-recover/etc/lucia" "$work/lucia-payload-recover/var/lib/lucia/plugins"
 printf 'recover-app\n' > "$work/lucia-payload-recover/opt/lucia/releases/1.1.1/app/version"
+add_runtime_files "$work/lucia-payload-recover" 1.1.1
 cp "$work/lucia-payload/etc/lucia/redis.conf" "$work/lucia-payload-recover/etc/lucia/redis.conf"
 cp "$work/lucia-payload/var/lib/lucia/plugins/official.plugin" "$work/lucia-payload-recover/var/lib/lucia/plugins/official.plugin"
 tar -I zstd -cf "$work/lucia-recover.tar.zst" -C "$work/lucia-payload-recover" .
@@ -263,6 +295,7 @@ echo "PASS: startup recovery reverses an interrupted Lucia transaction"
 mkdir -p "$work/lucia-payload-2/opt/lucia/releases/1.2.0/app"
 mkdir -p "$work/lucia-payload-2/etc/lucia" "$work/lucia-payload-2/var/lib/lucia/plugins"
 printf 'bad-app\n' > "$work/lucia-payload-2/opt/lucia/releases/1.2.0/app/version"
+add_runtime_files "$work/lucia-payload-2" 1.2.0
 cp "$work/lucia-payload/etc/lucia/redis.conf" "$work/lucia-payload-2/etc/lucia/redis.conf"
 cp "$work/lucia-payload/var/lib/lucia/plugins/official.plugin" "$work/lucia-payload-2/var/lib/lucia/plugins/official.plugin"
 tar -I zstd -cf "$work/lucia-2.tar.zst" -C "$work/lucia-payload-2" .

@@ -205,7 +205,7 @@ verify_and_assemble() {
         || die "staged manifest or attestation bundle is missing"
     rm -rf "$input_dir"
     mkdir -p "$input_dir"
-    trap 'rm -rf "$input_dir" "$parts_list"' ERR
+    trap 'rm -rf "$input_dir" "$parts_list"' EXIT
     chmod 0700 "$input_dir"
     cp --reflink=auto \
         "$stage/lucia-appliance-manifest.json" \
@@ -333,6 +333,14 @@ else:
         raise SystemExit("invalid minimum Lucia version")
     if requirements.get("reboot") is not True:
         raise SystemExit("invalid OS reboot requirement")
+    if (
+        requirements.get("jetsonLinux") != jetson_linux
+        or any(
+            requirements.get(key) != installed_runtime.get(key)
+            for key in ("redis", "cuda", "cudnn", "onnxRuntime", "sherpaOnnx")
+        )
+    ):
+        raise SystemExit("incompatible OS runtime requirements")
     if tuple(map(int, current_lucia.split("."))) < tuple(map(int, minimum_lucia.split("."))):
         raise SystemExit("installed Lucia version is too old for this OS")
     if tuple(map(int, version.split("."))) <= tuple(map(int, current_os.split("."))):
@@ -383,7 +391,7 @@ PY
     actual_hash="$(xargs -d '\n' cat < "$parts_list" | sha256sum | cut -d' ' -f1)"
     [[ "$actual_hash" == "$expected_hash" ]] \
         || die "assembled payload digest mismatch"
-    trap - ERR
+    trap - EXIT
     printf '%s\n%s\n%s\n' "$version" "$parts_list" "$input_dir"
 }
 
@@ -408,6 +416,9 @@ apply_lucia() {
     local backup_source_bytes
     local available_bytes
     local required_bytes
+    local release_bytes
+    local release_available_bytes
+    local bundled_plugin
 
     verified_output="$(verify_and_assemble lucia "$selected_tag")" \
         || die "Lucia update verification failed"
@@ -441,6 +452,19 @@ apply_lucia() {
     [[ "$available_bytes" =~ ^[0-9]+$ \
         && "$available_bytes" -ge "$required_bytes" ]] \
         || die "insufficient free space for Lucia extraction and rollback backup"
+    release_bytes="$(
+        xargs -d '\n' cat < "$parts_list" \
+            | tar -I zstd -tvf - \
+            | awk -v prefix="./opt/lucia/releases/$version/" \
+                '$6 ~ "^" prefix { total += $3 } END { printf "%.0f\n", total }'
+    )"
+    release_available_bytes="${LUCIA_RELEASES_AVAILABLE_BYTES:-$(
+        df -B1 --output=avail "$releases_dir" | tail -1 | tr -d ' '
+    )}"
+    required_bytes="$((release_bytes + 268435456))"
+    [[ "$release_available_bytes" =~ ^[0-9]+$ \
+        && "$release_available_bytes" -ge "$required_bytes" ]] \
+        || die "insufficient free space for the Lucia release"
     rm -rf "$extract_dir"
     mkdir -p "$extract_dir"
     xargs -d '\n' cat < "$parts_list" \
@@ -449,10 +473,14 @@ apply_lucia() {
             "./etc/lucia/redis.conf" \
             "./var/lib/lucia/plugins"
     [[ -x "$extract_dir/opt/lucia/releases/$version/app/lucia.AgentHost" \
-        || -f "$extract_dir/opt/lucia/releases/$version/app/version" ]] \
-        || die "Lucia payload has no release application"
+        && -x "$extract_dir/opt/lucia/releases/$version/manager/lucia.ApplianceManager" \
+        && -x "$extract_dir/opt/lucia/releases/$version/redis/bin/redis-server" \
+        && -x "$extract_dir/opt/lucia/releases/$version/tools/gh" \
+        && -s "$extract_dir/opt/lucia/releases/$version/tools/trusted-root.jsonl" ]] \
+        || die "Lucia payload is missing required runtime files"
     [[ -f "$extract_dir/etc/lucia/redis.conf" \
-        && -d "$extract_dir/var/lib/lucia/plugins" ]] \
+        && -d "$extract_dir/var/lib/lucia/plugins" \
+        && -f "$extract_dir/var/lib/lucia/plugins/.bundled-plugins" ]] \
         || die "Lucia payload has no Redis config or shipped plugins"
     [[ ! -e "$releases_dir/$version" ]] \
         || die "Lucia release already exists: $version"
@@ -477,8 +505,11 @@ apply_lucia() {
                 atomic_symlink "$previous_target"
                 restore_data_backup "$backup"
                 rm -f "$state_dir/lucia.env"
+                sync -f "$state_dir"
                 rm -rf "$releases_dir/$version"
                 rm -f "$backup"
+                sync -f "$releases_dir"
+                sync -f "$backups_dir"
             fi
             "$systemctl_path" start \
                 lucia-redis.service lucia-agenthost.service || true
@@ -507,6 +538,13 @@ apply_lucia() {
         "$extract_dir/etc/lucia/redis.conf" \
         "${redis_config_path}.new"
     mv -f "${redis_config_path}.new" "$redis_config_path"
+    if [[ -f "$data_root/plugins/.bundled-plugins" ]]; then
+        while IFS= read -r bundled_plugin; do
+            [[ "$bundled_plugin" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
+                || die "installed bundled-plugin metadata is invalid"
+            rm -rf "$data_root/plugins/$bundled_plugin"
+        done < "$data_root/plugins/.bundled-plugins"
+    fi
     cp -a "$extract_dir/var/lib/lucia/plugins/." "$data_root/plugins/"
     write_lucia_state \
         switched "$previous_target" "releases/$version" "$backup" "$validation_token"
@@ -631,14 +669,14 @@ recover_lucia() {
         && -d "$releases_dir/${previous#releases/}" \
         && "$backup_real" == "$backups_real/"* ]] \
         || die "interrupted Lucia update has invalid recovery state"
-    atomic_symlink "$previous"
-    restore_data_backup "$backup_real"
-    rm -rf "$releases_dir/${current#releases/}"
-    sync -f "$releases_dir"
-    sync -f "$(dirname "$current_link")"
-    rm -f "$state"
-    rm -f "$validation_credential_path"
-    sync -f "$state_dir"
+    atomic_symlink "$previous" || return
+    restore_data_backup "$backup_real" || return
+    rm -rf "$releases_dir/${current#releases/}" || return
+    sync -f "$releases_dir" || return
+    sync -f "$(dirname "$current_link")" || return
+    rm -f "$state" || return
+    rm -f "$validation_credential_path" || return
+    sync -f "$state_dir" || return
 }
 
 apply_os() {

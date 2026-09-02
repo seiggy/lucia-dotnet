@@ -155,6 +155,9 @@ public sealed partial class ApplianceUpdateService(
             && HasExpectedRuntime(luciaRequirements);
         var osCompatible = hardwareCompatible
             && osRequirements.GetProperty("layoutVersion").GetInt32() == 1
+            && osRequirements.GetProperty("jetsonLinux").GetString()
+                == current.Os.JetsonLinuxVersion
+            && HasExpectedRuntime(osRequirements)
             && osRequirements.GetProperty("reboot").GetBoolean()
             && !IsNewer(
                 osRequirements.GetProperty("minimumLuciaVersion").GetString(),
@@ -338,7 +341,10 @@ public sealed partial class ApplianceUpdateService(
                         || requirements.GetProperty("reboot").GetBoolean()
                         || !HasExpectedRuntime(requirements))
                 || channel == "os"
-                    && (!requirements.GetProperty("reboot").GetBoolean()
+                    && (requirements.GetProperty("jetsonLinux").GetString()
+                            != current.Os.JetsonLinuxVersion
+                        || !HasExpectedRuntime(requirements)
+                        || !requirements.GetProperty("reboot").GetBoolean()
                         || IsNewer(
                             requirements.GetProperty("minimumLuciaVersion").GetString(),
                             current.LuciaVersion)))
