@@ -19,11 +19,14 @@ public sealed class ApplianceUpdateStagingStoreTests
 
             var accepted = store.TryStart("lucia", "v1.5.0");
             var rejected = store.TryStart("os", "v1.5.0");
+            var abandonedFinal = Path.Combine(root, "v1.5.0");
+            Directory.CreateDirectory(abandonedFinal);
             var recovered = CreateStore(root).GetStatus();
 
             Assert.NotNull(accepted);
             Assert.Null(rejected);
             Assert.False(Directory.Exists(orphan));
+            Assert.False(Directory.Exists(abandonedFinal));
             Assert.Equal("failed", recovered.Status);
             Assert.Equal(
                 "AgentHost restarted while staging the update.",

@@ -197,6 +197,11 @@ jobs:
               gh release upload "$RELEASE_TAG" "$file"
               return
             fi
+            if [[ "$manifest_published" == "true" \
+                && "$name" == "lucia-appliance-attestations.jsonl" ]]; then
+              echo "Reusing published attestation bundle: $name"
+              return
+            fi
 
             IFS=$'\t' read -r existing_bytes existing_digest <<< "$existing"
             if [[ "$existing_bytes" != "$bytes" \

@@ -71,6 +71,9 @@ export default function AppliancePage() {
   const [pendingRollback, setPendingRollback] = useState<'lucia' | 'os' | null>(null)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
+  const isUpdateBusy = stagingUpdate !== null
+    || updateOperation?.status === 'queued'
+    || updateOperation?.status === 'running'
 
   const load = useCallback(async () => {
     setError('')
@@ -256,7 +259,7 @@ export default function AppliancePage() {
             manifestAvailable={updates?.manifestAvailable ?? false}
             compatible={updates?.luciaCompatible ?? true}
             checked={updates !== null}
-            busy={stagingUpdate !== null || updateOperation?.status === 'queued' || updateOperation?.status === 'running'}
+            busy={isUpdateBusy}
             rollbackAvailable={updateOperation?.luciaRollbackAvailable ?? false}
             onInstall={() => setPendingUpdate('lucia')}
             onRollback={() => setPendingRollback('lucia')}
@@ -271,7 +274,7 @@ export default function AppliancePage() {
             manifestAvailable={updates?.manifestAvailable ?? false}
             compatible={updates?.osCompatible ?? true}
             checked={updates !== null}
-            busy={stagingUpdate !== null || updateOperation?.status === 'queued' || updateOperation?.status === 'running'}
+            busy={isUpdateBusy}
             rollbackAvailable={updateOperation?.osRollbackAvailable ?? false}
             onInstall={() => setPendingUpdate('os')}
             onRollback={() => setPendingRollback('os')}
@@ -316,7 +319,7 @@ export default function AppliancePage() {
             <ServiceRow
               key={service.id}
               service={service}
-              busy={busyService === service.id}
+              busy={isUpdateBusy || busyService === service.id}
               canRestart={service.id === 'agenthost'
                 || service.id === 'redis'
                 || (telemetry?.enabled === true

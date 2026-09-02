@@ -24,10 +24,13 @@ public sealed partial class ApplianceUpdateStagingStore
 
     private void DeleteUnreferencedFinalizedStages()
     {
+        var referencedTag = _status.Status is "queued" or "running"
+            ? _status.Tag
+            : null;
         foreach (var directory in Directory.EnumerateDirectories(Root))
         {
             var name = Path.GetFileName(directory);
-            if (name != _status.Tag
+            if (name != referencedTag
                 && System.Text.RegularExpressions.Regex.IsMatch(
                     name,
                     @"^v[0-9]+\.[0-9]+\.[0-9]+$"))
@@ -127,15 +130,13 @@ public sealed partial class ApplianceUpdateStagingStore
 
     public void Clear()
     {
-        ApplianceUpdateOperationStatus previous;
         lock (_gate)
         {
-            previous = _status;
+            DeleteFinalizedStage(_status.Tag);
             _isHandoffRequestActive = false;
             _status = new("none", "none", "idle", null, null);
             PersistUnsafe();
         }
-        DeleteFinalizedStage(previous.Tag);
     }
 
     private void Load()

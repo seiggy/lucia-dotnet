@@ -21,7 +21,11 @@ public static class ApplianceApi
                     HttpContext context,
                     IConnectionMultiplexer redis,
                     [FromKeyedServices(SqliteDbNames.Config)]
-                    SqliteConnectionFactory sqlite,
+                    SqliteConnectionFactory configSqlite,
+                    [FromKeyedServices(SqliteDbNames.Traces)]
+                    SqliteConnectionFactory tracesSqlite,
+                    [FromKeyedServices(SqliteDbNames.Tasks)]
+                    SqliteConnectionFactory tasksSqlite,
                     CancellationToken cancellationToken) =>
                 {
                     if (!IsAuthorizedValidationRequest(context)
@@ -58,7 +62,36 @@ public static class ApplianceApi
                             statusCode: StatusCodes.Status503ServiceUnavailable);
                     }
 
-                    await using var connection = sqlite.CreateConnection();
+                    foreach (var sqlite in new[]
+                             {
+                                 configSqlite,
+                                 tracesSqlite,
+                                 tasksSqlite,
+                             })
+                    {
+                        await using var sentinelConnection =
+                            sqlite.CreateConnection();
+                        await using var sentinelCommand =
+                            sentinelConnection.CreateCommand();
+                        sentinelCommand.CommandText =
+                            """
+                            CREATE TABLE IF NOT EXISTS appliance_update_validation (
+                                id INTEGER PRIMARY KEY CHECK (id = 1),
+                                token TEXT NOT NULL
+                            );
+                            INSERT INTO appliance_update_validation (id, token)
+                            VALUES (1, $token)
+                            ON CONFLICT(id) DO UPDATE SET token = excluded.token;
+                            PRAGMA wal_checkpoint(FULL);
+                            """;
+                        sentinelCommand.Parameters.AddWithValue("$token", token);
+                        await sentinelCommand.ExecuteNonQueryAsync(
+                                cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+
+                    await using var connection =
+                        configSqlite.CreateConnection();
                     await using var command = connection.CreateCommand();
                     command.CommandText =
                         """
@@ -145,6 +178,25 @@ public static class ApplianceApi
                                 detail: "SQLite integrity validation failed.",
                                 statusCode: StatusCodes.Status503ServiceUnavailable);
                         }
+                        await using var continuityCommand =
+                            integrityConnection.CreateCommand();
+                        continuityCommand.CommandText =
+                            """
+                            SELECT token
+                            FROM appliance_update_validation
+                            WHERE id = 1;
+                            """;
+                        if (Convert.ToString(
+                                await continuityCommand.ExecuteScalarAsync(
+                                        cancellationToken)
+                                    .ConfigureAwait(false),
+                                System.Globalization.CultureInfo.InvariantCulture)
+                            != token)
+                        {
+                            return Results.Problem(
+                                detail: "SQLite update continuity validation failed.",
+                                statusCode: StatusCodes.Status503ServiceUnavailable);
+                        }
                     }
                     await using var connection =
                         configSqlite.CreateConnection();
@@ -183,6 +235,23 @@ public static class ApplianceApi
                             "appliance-update-validation");
                         await deleteCommand.ExecuteNonQueryAsync(cancellationToken)
                             .ConfigureAwait(false);
+                        foreach (var sqlite in new[]
+                                 {
+                                     configSqlite,
+                                     tracesSqlite,
+                                     tasksSqlite,
+                                 })
+                        {
+                            await using var sentinelConnection =
+                                sqlite.CreateConnection();
+                            await using var deleteSentinel =
+                                sentinelConnection.CreateCommand();
+                            deleteSentinel.CommandText =
+                                "DELETE FROM appliance_update_validation WHERE id = 1;";
+                            await deleteSentinel.ExecuteNonQueryAsync(
+                                    cancellationToken)
+                                .ConfigureAwait(false);
+                        }
                     }
                     return Results.Ok(new { Status = "healthy" });
                 })
@@ -259,10 +328,21 @@ public static class ApplianceApi
             async (
                 string service,
                 ApplianceManagerClient manager,
+                ApplianceUpdateService updates,
                 HttpContext context,
                 IHostApplicationLifetime lifetime,
                 CancellationToken cancellationToken) =>
             {
+                var operation = await updates
+                    .GetOperationAsync(cancellationToken)
+                    .ConfigureAwait(false);
+                if (operation.Status is "queued" or "running")
+                {
+                    return Results.Conflict(new
+                    {
+                        Error = "An appliance update is in progress.",
+                    });
+                }
                 if (service == "agenthost")
                 {
                     context.Response.OnCompleted(() =>
