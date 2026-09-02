@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
 
 namespace lucia.AgentHost.Appliance;
 
@@ -157,14 +159,41 @@ public sealed partial class ApplianceUpdateStagingStore
         File.Move(temporary, _operationPath, overwrite: true);
         if (OperatingSystem.IsLinux())
         {
-            using var directory = File.OpenHandle(
-                Root,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.ReadWrite | FileShare.Delete);
-            RandomAccess.FlushToDisk(directory);
+            SyncDirectory(Root);
         }
     }
+
+    private static void SyncDirectory(string path)
+    {
+        const int OpenDirectory = 0x10000;
+        var descriptor = Open(path, OpenDirectory);
+        if (descriptor < 0)
+        {
+            throw new Win32Exception(Marshal.GetLastPInvokeError());
+        }
+        try
+        {
+            if (Fsync(descriptor) != 0)
+            {
+                throw new Win32Exception(Marshal.GetLastPInvokeError());
+            }
+        }
+        finally
+        {
+            _ = Close(descriptor);
+        }
+    }
+
+    [DllImport("libc", EntryPoint = "open", SetLastError = true)]
+    private static extern int Open(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string path,
+        int flags);
+
+    [DllImport("libc", EntryPoint = "fsync", SetLastError = true)]
+    private static extern int Fsync(int descriptor);
+
+    [DllImport("libc", EntryPoint = "close")]
+    private static extern int Close(int descriptor);
 
     private void DeleteOrphanedAttempts()
     {

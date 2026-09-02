@@ -629,7 +629,7 @@ public sealed partial class ApplianceUpdateService(
                 "The appliance staging filesystem is unavailable.");
         }
         var requiredBytes = checked(
-            payloadBytes + Math.Max(payloadBytes / 4, 1L << 30));
+            payloadBytes * 2 + (1L << 30));
         if (drive.AvailableFreeSpace < requiredBytes)
         {
             throw new IOException(
@@ -705,8 +705,12 @@ public sealed partial class ApplianceUpdateService(
         long maximumBytes,
         CancellationToken cancellationToken)
     {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromMinutes(30));
+        var downloadToken = timeout.Token;
         using var response = await httpClient
-            .GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+            .GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, downloadToken)
             .ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
         if (response.Content.Headers.ContentLength is > 0
@@ -719,7 +723,7 @@ public sealed partial class ApplianceUpdateService(
         try
         {
             await using var source = await response.Content
-                .ReadAsStreamAsync(cancellationToken)
+                .ReadAsStreamAsync(downloadToken)
                 .ConfigureAwait(false);
             await using var target = new FileStream(
                 temporary,
@@ -733,7 +737,7 @@ public sealed partial class ApplianceUpdateService(
             long total = 0;
             int read;
             while ((read = await source
-                       .ReadAsync(buffer, cancellationToken)
+                       .ReadAsync(buffer, downloadToken)
                        .ConfigureAwait(false)) > 0)
             {
                 total += read;
@@ -745,10 +749,10 @@ public sealed partial class ApplianceUpdateService(
                 hash.AppendData(buffer, 0, read);
                 await target.WriteAsync(
                         buffer.AsMemory(0, read),
-                        cancellationToken)
+                        downloadToken)
                     .ConfigureAwait(false);
             }
-            await target.FlushAsync(cancellationToken).ConfigureAwait(false);
+            await target.FlushAsync(downloadToken).ConfigureAwait(false);
             if (expectedBytes is not null && total != expectedBytes)
             {
                 throw new InvalidDataException("Update asset size mismatch.");

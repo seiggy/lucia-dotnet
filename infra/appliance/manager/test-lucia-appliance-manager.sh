@@ -402,6 +402,32 @@ cat > "$work_dir/updates/state/operation.json.tmp" <<'EOF'
 EOF
 mv "$work_dir/updates/state/operation.json.tmp" \
     "$work_dir/updates/state/operation.json"
+printf 'status=pending\n' > "$work_dir/updates/state/os.env"
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
+        --header 'Content-Type: application/json' \
+        --request POST \
+        --data '{"tag":null}' \
+        http://localhost/v1/updates/os/rollback
+)"
+[[ "$status" == "202" ]]
+for _ in {1..40}; do
+    curl --silent --output "$work_dir/response.json" \
+        --unix-socket "$socket_path" \
+        http://localhost/v1/updates/operation
+    grep -q '"status":"running"' "$work_dir/response.json" && break
+    sleep 0.05
+done
+grep -q '"channel":"os"' "$work_dir/response.json"
+
+echo "PASS: failed OS rollback remains retryable"
+
+cat > "$work_dir/updates/state/operation.json.tmp" <<'EOF'
+{"Action":"apply","Channel":"os","Status":"failed","Tag":"v1.4.0","Message":"OS update failed boot validation; rollback is scheduled."}
+EOF
+mv "$work_dir/updates/state/operation.json.tmp" \
+    "$work_dir/updates/state/operation.json"
 printf 'status=rolled-back\n' > "$work_dir/updates/state/os.env"
 curl --silent --output "$work_dir/response.json" \
     --unix-socket "$socket_path" \

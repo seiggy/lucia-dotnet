@@ -24,7 +24,7 @@ nvbootctrl_path="${LUCIA_NVBOOTCTRL_PATH:-/usr/sbin/nvbootctrl}"
 dd_path="${LUCIA_DD_PATH:-/usr/bin/dd}"
 partlabel_dir="${LUCIA_PARTLABEL_DIR:-/dev/disk/by-partlabel}"
 os_version_path="${LUCIA_OS_VERSION_PATH:-/etc/lucia/os-version}"
-redis_config_path="${LUCIA_REDIS_CONFIG_PATH:-/var/lib/lucia/config/redis.conf}"
+redis_config_path="${LUCIA_REDIS_CONFIG_PATH:-/var/lib/lucia/redis/redis.conf}"
 runtime_info_path="${LUCIA_RUNTIME_INFO_PATH:-/etc/lucia/appliance-runtime.json}"
 device_tree_path="${LUCIA_DEVICE_TREE_PATH:-/proc/device-tree/compatible}"
 jetson_release_path="${LUCIA_JETSON_RELEASE_PATH:-/etc/nv_tegra_release}"
@@ -477,6 +477,7 @@ apply_lucia() {
     input_dir="${verified[2]}"
     stage="$update_root/staging/$selected_tag"
     extract_dir="$work_dir/extracted-lucia"
+    trap "rm -rf '$input_dir' '$parts_list' '$extract_dir'" EXIT
     previous_target="$(readlink "$current_link")"
     backup="$backups_dir/lucia-${selected_tag}.tar.zst"
     backup_temporary="${backup}.tmp"
@@ -633,6 +634,7 @@ apply_lucia() {
     trap - ERR
     rm -rf "$update_root/staging/$selected_tag"
     rm -rf "$extract_dir" "$parts_list" "$input_dir"
+    trap - EXIT
 }
 
 rollback_lucia() {
@@ -757,6 +759,7 @@ apply_os() {
     version="${verified[0]}"
     parts_list="${verified[1]}"
     input_dir="${verified[2]}"
+    trap "rm -rf '$input_dir' '$parts_list'" EXIT
     current_slot="$("$nvbootctrl_path" -t rootfs get-current-slot)"
     [[ "$current_slot" == "0" || "$current_slot" == "1" ]] \
         || die "nvbootctrl returned an invalid current slot"
@@ -869,6 +872,7 @@ apply_os() {
     rm -rf "$parts_list" "$input_dir"
     "$systemctl_path" --no-block reboot
     trap - ERR
+    trap - EXIT
 }
 
 rollback_os() {

@@ -131,7 +131,7 @@ test_bundle_contains_native_service_contract() {
     local agent_unit="$output_dir/usr/lib/systemd/system/lucia-agenthost.service"
     local manager_unit="$output_dir/usr/lib/systemd/system/lucia-appliance-manager.service"
     local redis_unit="$output_dir/usr/lib/systemd/system/lucia-redis.service"
-    local redis_config="$output_dir/var/lib/lucia/config/redis.conf"
+    local redis_config="$output_dir/var/lib/lucia/redis/redis.conf"
     local runtime_info="$output_dir/etc/lucia/appliance-runtime.json"
     local recovery_shell="$output_dir/usr/libexec/lucia/lucia-recovery-shell"
     local updater="$output_dir/usr/libexec/lucia/lucia-update"
@@ -176,7 +176,7 @@ test_bundle_contains_native_service_contract() {
         && grep -q '^d /var/lib/lucia 0755 root root -$' "$tmpfiles" \
         && grep -q '^d /var/lib/lucia/updates 0750 root lucia -$' "$tmpfiles" \
         && grep -q '^d /var/lib/lucia/updates/staging 0750 lucia lucia -$' "$tmpfiles" \
-        && grep -q '^ExecStart=/opt/lucia/current/redis/bin/redis-server /var/lib/lucia/config/redis.conf$' "$redis_unit" \
+        && grep -q '^ExecStart=/opt/lucia/current/redis/bin/redis-server /var/lib/lucia/redis/redis.conf$' "$redis_unit" \
         && grep -q '^appendonly yes$' "$redis_config" \
         && grep -q '^maxmemory-policy noeviction$' "$redis_config" \
         && grep -q '^maxmemory 512mb$' "$redis_config" \

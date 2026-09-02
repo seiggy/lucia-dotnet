@@ -1,9 +1,11 @@
+using System.ComponentModel;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 
 namespace lucia.ApplianceManager;
 
-public sealed class ApplianceUpdateCoordinator
+public sealed partial class ApplianceUpdateCoordinator
 {
     private readonly object _gate = new();
     private readonly string _updaterPath =
@@ -115,15 +117,13 @@ public sealed class ApplianceUpdateCoordinator
         lock (_gate)
         {
             RefreshStatusUnsafe();
-            var awaitingOsValidation = IsOsAwaitingValidation();
             if (action == "rollback"
                 && channel == "os"
                 && !IsOsRollbackAvailable())
             {
                 return false;
             }
-            var isAllowedOsRollback = awaitingOsValidation
-                && !_isUpdaterRunning
+            var isAllowedOsRollback = !_isUpdaterRunning
                 && action == "rollback"
                 && channel == "os"
                 && IsOsRollbackAvailable();
@@ -234,6 +234,10 @@ public sealed class ApplianceUpdateCoordinator
             stream.Flush(flushToDisk: true);
         }
         File.Move(temporary, _operationPath, overwrite: true);
+        if (OperatingSystem.IsLinux())
+        {
+            SyncDirectory(_statePath);
+        }
     }
 
     private void RefreshStatusUnsafe()
@@ -249,6 +253,38 @@ public sealed class ApplianceUpdateCoordinator
 
     private static string? NullIfEmpty(string value) =>
         string.IsNullOrWhiteSpace(value) ? null : value;
+
+    private static void SyncDirectory(string path)
+    {
+        const int OpenDirectory = 0x10000;
+        var descriptor = Open(path, OpenDirectory);
+        if (descriptor < 0)
+        {
+            throw new Win32Exception(Marshal.GetLastPInvokeError());
+        }
+        try
+        {
+            if (Fsync(descriptor) != 0)
+            {
+                throw new Win32Exception(Marshal.GetLastPInvokeError());
+            }
+        }
+        finally
+        {
+            _ = Close(descriptor);
+        }
+    }
+
+    [DllImport("libc", EntryPoint = "open", SetLastError = true)]
+    private static extern int Open(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string path,
+        int flags);
+
+    [DllImport("libc", EntryPoint = "fsync", SetLastError = true)]
+    private static extern int Fsync(int descriptor);
+
+    [DllImport("libc", EntryPoint = "close")]
+    private static extern int Close(int descriptor);
 
     private void ScheduleLuciaServicesRestart()
     {

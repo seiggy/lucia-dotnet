@@ -92,7 +92,7 @@ public sealed class ApplianceUpdateServiceTests
         Assert.Throws<IOException>(
             () => ApplianceUpdateService.EnsureStagingCapacity(
                 Path.GetTempPath(),
-                long.MaxValue / 2));
+                long.MaxValue / 3));
     }
 
     [Fact]
