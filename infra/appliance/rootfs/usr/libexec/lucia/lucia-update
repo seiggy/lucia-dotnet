@@ -594,6 +594,7 @@ apply_lucia() {
     zstd --test "$backup_temporary" >/dev/null
     mv -f "$backup_temporary" "$backup"
     sync -f "$backup"
+    sync -f "$backups_dir"
     backup_ready=true
     write_lucia_state \
         prepared "$previous_target" "releases/$version" "$backup" "$validation_token"
@@ -929,10 +930,10 @@ rollback_os() {
     }
     trap rollback_failed ERR
     "$systemctl_path" stop lucia-os-update-validation.service
-    "$nvbootctrl_path" -t rootfs set-active-boot-slot "$previous_slot"
     sed -i -E 's/^status=(pending|validated)$/status=rollback-pending/' "$state"
     sync -f "$state"
     sync -f "$state_dir"
+    "$nvbootctrl_path" -t rootfs set-active-boot-slot "$previous_slot"
     "$systemctl_path" --no-block reboot
     trap - ERR
 }

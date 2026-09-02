@@ -136,7 +136,6 @@ public static class ApplianceApi
                     [FromKeyedServices(SqliteDbNames.Tasks)]
                     SqliteConnectionFactory tasksSqlite,
                     OnnxProviderDetector providers,
-                    bool consume,
                     CancellationToken cancellationToken) =>
                 {
                     if (!IsAuthorizedValidationRequest(context)
@@ -223,36 +222,6 @@ public static class ApplianceApi
                             statusCode: StatusCodes.Status503ServiceUnavailable);
                     }
 
-                    if (consume)
-                    {
-                        _ = await database.KeyDeleteAsync(SentinelKey)
-                            .ConfigureAwait(false);
-                        await using var deleteCommand = connection.CreateCommand();
-                        deleteCommand.CommandText =
-                            "DELETE FROM configuration WHERE key = $key;";
-                        deleteCommand.Parameters.AddWithValue(
-                            "$key",
-                            "appliance-update-validation");
-                        await deleteCommand.ExecuteNonQueryAsync(cancellationToken)
-                            .ConfigureAwait(false);
-                        foreach (var sqlite in new[]
-                                 {
-                                     configSqlite,
-                                     tracesSqlite,
-                                     tasksSqlite,
-                                 })
-                        {
-                            await using var sentinelConnection =
-                                sqlite.CreateConnection();
-                            await using var deleteSentinel =
-                                sentinelConnection.CreateCommand();
-                            deleteSentinel.CommandText =
-                                "DELETE FROM appliance_update_validation WHERE id = 1;";
-                            await deleteSentinel.ExecuteNonQueryAsync(
-                                    cancellationToken)
-                                .ConfigureAwait(false);
-                        }
-                    }
                     return Results.Ok(new { Status = "healthy" });
                 })
             .ExcludeFromDescription();
