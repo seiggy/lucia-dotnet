@@ -155,6 +155,15 @@ public sealed partial class ApplianceUpdateStagingStore
             stream.Flush(flushToDisk: true);
         }
         File.Move(temporary, _operationPath, overwrite: true);
+        if (OperatingSystem.IsLinux())
+        {
+            using var directory = File.OpenHandle(
+                Root,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            RandomAccess.FlushToDisk(directory);
+        }
     }
 
     private void DeleteOrphanedAttempts()

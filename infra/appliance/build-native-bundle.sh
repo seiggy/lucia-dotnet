@@ -145,6 +145,8 @@ cp -a "$publish_dir/." "$release_dir/app/"
 cp -a "$manager_dir/." "$release_dir/manager/"
 cp -a "$dashboard_dir/." "$release_dir/app/wwwroot/"
 cp "$redis_server" "$release_dir/redis/bin/redis-server"
+cp "$output_dir/etc/lucia/redis.conf" \
+    "$output_dir/var/lib/lucia/config/redis.conf"
 if [[ "$verifier_input_count" -eq 2 ]]; then
     mkdir -p "$release_dir/tools"
     cp "$gh_cli" "$release_dir/tools/gh"
@@ -188,6 +190,7 @@ chmod 0755 \
     "$output_dir/usr/libexec/lucia/lucia-update" \
     "$output_dir/usr/libexec/lucia/lucia-validate-os-update"
 chmod 0640 "$output_dir/var/lib/lucia/config/lucia.env"
+chmod 0644 "$output_dir/var/lib/lucia/config/redis.conf"
 chmod 0644 \
     "$output_dir/etc/lucia/otelcol.yaml" \
     "$output_dir/etc/lucia/appliance-runtime.json" \

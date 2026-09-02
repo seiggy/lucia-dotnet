@@ -110,6 +110,7 @@ write_manifest() {
     payload_name="$(basename "$payload")"
     payload_hash="$(sha256sum "$payload" | cut -d' ' -f1)"
     payload_bytes="$(stat --format '%s' "$payload")"
+    rm -rf "$stage"
     mkdir -p "$stage"
     cp "$payload" "$stage/$payload_name"
     printf 'bundle\n' > "$stage/lucia-appliance-attestations.jsonl"
@@ -200,6 +201,21 @@ fi
 [[ "$(readlink "$work/current")" == "releases/1.0.0" ]]
 ! compgen -G "$work/updates/work/input-*" >/dev/null
 rm "$work/reject-attestation"
+rm "$work/updates/staging/v1.1.0/lucia-appliance-manifest.json"
+ln -s /dev/zero \
+    "$work/updates/staging/v1.1.0/lucia-appliance-manifest.json"
+if run_update apply lucia v1.1.0; then
+    echo "Symlinked manifest was accepted" >&2
+    exit 1
+fi
+write_manifest lucia v1.1.0 1.1.0 "$work/lucia.tar.zst"
+rm "$work/updates/staging/v1.1.0/lucia.tar.zst"
+ln -s /dev/zero "$work/updates/staging/v1.1.0/lucia.tar.zst"
+if run_update apply lucia v1.1.0; then
+    echo "Symlinked payload part was accepted" >&2
+    exit 1
+fi
+write_manifest lucia v1.1.0 1.1.0 "$work/lucia.tar.zst"
 printf 'tampered\n' >> "$work/updates/staging/v1.1.0/lucia.tar.zst"
 if run_update apply lucia v1.1.0; then
     echo "Tampered Lucia update was accepted" >&2

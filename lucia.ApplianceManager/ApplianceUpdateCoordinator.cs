@@ -18,6 +18,7 @@ public sealed class ApplianceUpdateCoordinator
                 ?? "/var/lib/lucia/updates",
             "state");
     private readonly string _operationPath;
+    private bool _isUpdaterRunning;
     private UpdateOperationStatus _status =
         new("none", "none", "idle", null, null);
 
@@ -80,7 +81,8 @@ public sealed class ApplianceUpdateCoordinator
             {
                 RefreshStatusUnsafe();
                 return _status.Status is "queued" or "running"
-                    || IsOsTransitionInProgress();
+                    || IsOsTransitionInProgress()
+                    || _isUpdaterRunning;
             }
         }
     }
@@ -92,7 +94,7 @@ public sealed class ApplianceUpdateCoordinator
             lock (_gate)
             {
                 RefreshStatusUnsafe();
-                return IsOsRollbackAvailable();
+                return !_isUpdaterRunning && IsOsRollbackAvailable();
             }
         }
     }
@@ -121,6 +123,7 @@ public sealed class ApplianceUpdateCoordinator
                 return false;
             }
             var isAllowedOsRollback = awaitingOsValidation
+                && !_isUpdaterRunning
                 && action == "rollback"
                 && channel == "os"
                 && IsOsRollbackAvailable();
@@ -132,6 +135,7 @@ public sealed class ApplianceUpdateCoordinator
             }
 
             _status = new(action, channel, "queued", tag, null);
+            _isUpdaterRunning = true;
             PersistStatusUnsafe();
             _ = Task.Run(() => RunAsync(action, channel, tag));
             return true;
@@ -139,6 +143,24 @@ public sealed class ApplianceUpdateCoordinator
     }
 
     private async Task RunAsync(string action, string channel, string? tag)
+    {
+        try
+        {
+            await RunProcessAsync(action, channel, tag).ConfigureAwait(false);
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                _isUpdaterRunning = false;
+            }
+        }
+    }
+
+    private async Task RunProcessAsync(
+        string action,
+        string channel,
+        string? tag)
     {
         SetStatus(new(action, channel, "running", tag, null));
         var startInfo = new ProcessStartInfo
@@ -154,7 +176,6 @@ public sealed class ApplianceUpdateCoordinator
         {
             startInfo.ArgumentList.Add(tag);
         }
-
         try
         {
             using var process = Process.Start(startInfo)
