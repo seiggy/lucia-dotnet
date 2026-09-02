@@ -71,6 +71,13 @@ else
 fi
 EOF
 chmod +x "$work/bin/nvbootctrl"
+cat > "$work/bin/dd" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ ! -e "$LUCIA_TEST_FAIL_DD_FILE" ]]
+exec /usr/bin/dd "$@"
+EOF
+chmod +x "$work/bin/dd"
 
 write_manifest() {
     local channel="$1"
@@ -95,7 +102,7 @@ write_manifest() {
         requirements='"minimumLuciaVersion":"1.0.0","layoutVersion":1,"reboot":true'
     fi
     cat > "$stage/lucia-appliance-manifest.json" <<EOF
-{"schemaVersion":1,"repository":"seiggy/lucia-dotnet","tag":"$tag","version":"$version","releaseApi":"https://api.github.com/repos/seiggy/lucia-dotnet/releases/tags/$tag","releaseNotesUrl":"https://github.com/seiggy/lucia-dotnet/releases/tag/$tag","compatibility":{"architecture":"arm64","board":"jetson-orin-nano-super-p3767-0005","minimumDiskBytes":61203283968,"layoutVersion":1,"dataSchemaVersion":1,"redis":"8.2.9","cuda":"12.6","cudnn":"9.3.0.75","onnxRuntime":"1.23.2","sherpaOnnx":"1.12.34"},"channels":{"$channel":{"version":"$version","bytes":$payload_bytes,"sha256":"$payload_hash","requires":{$requirements},"parts":[{"name":"$payload_name","bytes":$payload_bytes,"sha256":"$payload_hash","url":"https://github.com/seiggy/lucia-dotnet/releases/download/$tag/$payload_name"}]}}}
+{"schemaVersion":1,"repository":"seiggy/lucia-dotnet","tag":"$tag","version":"$version","releaseApi":"https://api.github.com/repos/seiggy/lucia-dotnet/releases/tags/$tag","releaseNotesUrl":"https://github.com/seiggy/lucia-dotnet/releases/tag/$tag","compatibility":{"architecture":"arm64","board":"jetson-orin-nano-super-p3767-0005","jetsonLinux":"36.5.2","minimumDiskBytes":61203283968,"layoutVersion":1,"dataSchemaVersion":1,"redis":"8.2.9","cuda":"12.6","cudnn":"9.3.0.75","onnxRuntime":"1.23.2","sherpaOnnx":"1.12.34"},"channels":{"$channel":{"version":"$version","bytes":$payload_bytes,"sha256":"$payload_hash","requires":{$requirements},"parts":[{"name":"$payload_name","bytes":$payload_bytes,"sha256":"$payload_hash","url":"https://github.com/seiggy/lucia-dotnet/releases/download/$tag/$payload_name"}]}}}
 EOF
 }
 
@@ -109,6 +116,7 @@ run_update() {
     LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
     LUCIA_CURL_PATH="$work/bin/curl" \
     LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
+    LUCIA_DD_PATH="$work/bin/dd" \
     LUCIA_PARTLABEL_DIR="$work/by-partlabel" \
     LUCIA_OS_VERSION_PATH="$work/os-version" \
     LUCIA_REDIS_CONFIG_PATH="$work/redis.conf" \
@@ -123,6 +131,7 @@ run_update() {
     LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
     LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
     LUCIA_TEST_FAIL_HEALTH_FILE="$work/fail-health" \
+    LUCIA_TEST_FAIL_DD_FILE="$work/fail-dd" \
     LUCIA_UPDATE_HEALTH_ATTEMPTS=1 \
     LUCIA_UPDATE_HEALTH_DELAY_SECONDS=0 \
         "$updater" "$@"
@@ -267,6 +276,16 @@ tar -I zstd -cf "$work/os.tar.zst" -C "$work/os-payload" \
     system.img_b boot.img_b kernel_test.dtb
 write_manifest os v1.1.0 1.1.0 "$work/os.tar.zst"
 printf '0\n' > "$work/current-slot"
+printf 'previous_slot=1\ntarget_slot=0\nversion=1.0.0\ntag=v1.0.0\nstatus=validated\nvalidation_token=00000000-0000-0000-0000-000000000000\n' \
+    > "$work/updates/state/os.env"
+touch "$work/fail-dd"
+if run_update apply os v1.1.0; then
+    echo "OS update with a failed partition write was accepted" >&2
+    exit 1
+fi
+rm "$work/fail-dd"
+grep -qx 'status=failed' "$work/updates/state/os.env"
+write_manifest os v1.1.0 1.1.0 "$work/os.tar.zst"
 
 run_update apply os v1.1.0
 [[ "$(cat "$work/active-slot")" == "1" ]]

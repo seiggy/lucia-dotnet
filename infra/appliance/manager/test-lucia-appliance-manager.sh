@@ -314,6 +314,19 @@ grep -qx 'apply lucia v1.4.0' "$update_log"
 
 echo "PASS: update operations run outside the request lifetime"
 
+printf 'status=pending\n' > "$work_dir/updates/state/os.env"
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
+        --header 'Content-Type: application/json' \
+        --request POST \
+        --data '{"tag":"v1.5.0"}' \
+        http://localhost/v1/updates/lucia/apply
+)"
+[[ "$status" == "409" ]]
+
+echo "PASS: pending OS validation blocks overlapping updates"
+
 cat > "$work_dir/updates/state/operation.json.tmp" <<'EOF'
 {"Action":"apply","Channel":"os","Status":"failed","Tag":"v1.4.0","Message":"OS update failed boot validation; rollback is scheduled."}
 EOF

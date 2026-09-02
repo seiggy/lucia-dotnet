@@ -93,7 +93,12 @@ public sealed class ApplianceUpdateCoordinator
 
         lock (_gate)
         {
-            if (_status.Status is "queued" or "running")
+            RefreshStatusUnsafe();
+            if (_status.Status is "queued" or "running"
+                || IsOsTransitionInProgress()
+                    && !(action == "rollback"
+                        && channel == "os"
+                        && IsOsRollbackAvailable()))
             {
                 return false;
             }
@@ -193,6 +198,21 @@ public sealed class ApplianceUpdateCoordinator
         var status = File.ReadLines(path)
             .FirstOrDefault(line => line.StartsWith("status=", StringComparison.Ordinal));
         return status is "status=pending" or "status=validated";
+    }
+
+    private bool IsOsTransitionInProgress()
+    {
+        var path = Path.Combine(_statePath, "os.env");
+        if (!File.Exists(path))
+        {
+            return false;
+        }
+        var status = File.ReadLines(path)
+            .FirstOrDefault(line => line.StartsWith("status=", StringComparison.Ordinal));
+        return status is
+            "status=writing" or
+            "status=pending" or
+            "status=rollback-pending";
     }
 
     private bool IsLuciaRollbackAvailable()

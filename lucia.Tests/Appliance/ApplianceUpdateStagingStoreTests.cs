@@ -13,6 +13,8 @@ public sealed class ApplianceUpdateStagingStoreTests
             $"lucia-staging-{Guid.NewGuid():N}");
         try
         {
+            var orphan = Path.Combine(root, ".v1.4.0.deadbeef.partial");
+            Directory.CreateDirectory(orphan);
             var store = CreateStore(root);
 
             var accepted = store.TryStart("lucia", "v1.5.0");
@@ -21,6 +23,7 @@ public sealed class ApplianceUpdateStagingStoreTests
 
             Assert.NotNull(accepted);
             Assert.Null(rejected);
+            Assert.False(Directory.Exists(orphan));
             Assert.Equal("failed", recovered.Status);
             Assert.Equal(
                 "AgentHost restarted while staging the update.",

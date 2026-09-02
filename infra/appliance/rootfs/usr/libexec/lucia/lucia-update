@@ -21,6 +21,7 @@ trusted_root="${LUCIA_TRUSTED_ROOT_PATH:-$current_link/tools/trusted-root.jsonl}
 systemctl_path="${LUCIA_SYSTEMCTL_PATH:-/usr/bin/systemctl}"
 curl_path="${LUCIA_CURL_PATH:-/usr/bin/curl}"
 nvbootctrl_path="${LUCIA_NVBOOTCTRL_PATH:-/usr/sbin/nvbootctrl}"
+dd_path="${LUCIA_DD_PATH:-/usr/bin/dd}"
 partlabel_dir="${LUCIA_PARTLABEL_DIR:-/dev/disk/by-partlabel}"
 os_version_path="${LUCIA_OS_VERSION_PATH:-/etc/lucia/os-version}"
 redis_config_path="${LUCIA_REDIS_CONFIG_PATH:-/etc/lucia/redis.conf}"
@@ -256,6 +257,7 @@ if compatibility.get("layoutVersion") != 1 or compatibility.get("dataSchemaVersi
 if (
     compatibility.get("architecture") != architecture
     or compatibility.get("board") != board
+    or compatibility.get("jetsonLinux") != jetson_linux
     or not storage_bytes.isdigit()
     or int(storage_bytes) < compatibility.get("minimumDiskBytes", 0)
     or any(
@@ -634,22 +636,6 @@ apply_os() {
             && "$image_size" -le "$(blockdev --getsize64 "$partlabel_dir/$label")" ]] \
             || die "OS image exceeds inactive partition: $label"
     done
-    xargs -d '\n' cat < "$parts_list" \
-        | tar -I zstd -xOf - "$system_image" \
-        | dd of="$partlabel_dir/$app_label" bs=4M conv=fsync status=progress
-    xargs -d '\n' cat < "$parts_list" \
-        | tar -I zstd -xOf - "$boot_image" \
-        | dd of="$partlabel_dir/$kernel_label" bs=4M conv=fsync status=none
-    xargs -d '\n' cat < "$parts_list" \
-        | tar -I zstd -xOf - "$dtb_image" \
-        | dd of="$partlabel_dir/$dtb_label" bs=4M conv=fsync status=none
-    e2fsck -fn "$partlabel_dir/$app_label" >/dev/null
-    printf 'previous_slot=%s\ntarget_slot=%s\nversion=%s\ntag=%s\nstatus=pending\nvalidation_token=%s\n' \
-        "$current_slot" "$target_slot" "$version" "$selected_tag" "$validation_token" \
-        > "$state_dir/os.env.tmp"
-    sync -f "$state_dir/os.env.tmp"
-    mv -f "$state_dir/os.env.tmp" "$state_dir/os.env"
-    sync -f "$state_dir"
     restore_failed_slot_change() {
         local exit_code=$?
         trap - ERR
@@ -657,11 +643,34 @@ apply_os() {
             "$nvbootctrl_path" -t rootfs set-active-boot-slot "$current_slot" \
                 || true
         fi
-        sed -i 's/^status=pending$/status=failed/' "$state_dir/os.env"
+        sed -i -E 's/^status=(writing|pending)$/status=failed/' \
+            "$state_dir/os.env"
         sync -f "$state_dir/os.env"
         exit "$exit_code"
     }
     trap restore_failed_slot_change ERR
+    printf 'previous_slot=%s\ntarget_slot=%s\nversion=%s\ntag=%s\nstatus=writing\nvalidation_token=%s\n' \
+        "$current_slot" "$target_slot" "$version" "$selected_tag" "$validation_token" \
+        > "$state_dir/os.env.tmp"
+    sync -f "$state_dir/os.env.tmp"
+    mv -f "$state_dir/os.env.tmp" "$state_dir/os.env"
+    sync -f "$state_dir"
+    xargs -d '\n' cat < "$parts_list" \
+        | tar -I zstd -xOf - "$system_image" \
+        | "$dd_path" of="$partlabel_dir/$app_label" bs=4M conv=fsync status=progress
+    xargs -d '\n' cat < "$parts_list" \
+        | tar -I zstd -xOf - "$boot_image" \
+        | "$dd_path" of="$partlabel_dir/$kernel_label" bs=4M conv=fsync status=none
+    xargs -d '\n' cat < "$parts_list" \
+        | tar -I zstd -xOf - "$dtb_image" \
+        | "$dd_path" of="$partlabel_dir/$dtb_label" bs=4M conv=fsync status=none
+    e2fsck -fn "$partlabel_dir/$app_label" >/dev/null
+    printf 'previous_slot=%s\ntarget_slot=%s\nversion=%s\ntag=%s\nstatus=pending\nvalidation_token=%s\n' \
+        "$current_slot" "$target_slot" "$version" "$selected_tag" "$validation_token" \
+        > "$state_dir/os.env.tmp"
+    sync -f "$state_dir/os.env.tmp"
+    mv -f "$state_dir/os.env.tmp" "$state_dir/os.env"
+    sync -f "$state_dir"
     "$nvbootctrl_path" -t rootfs set-active-boot-slot "$target_slot"
     slot_changed=true
     rm -rf "$update_root/staging/$selected_tag"

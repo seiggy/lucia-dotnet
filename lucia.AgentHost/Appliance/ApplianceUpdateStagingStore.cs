@@ -28,6 +28,7 @@ public sealed partial class ApplianceUpdateStagingStore
         _operationPath = Path.Combine(Root, "operation.json");
         Directory.CreateDirectory(Root);
         Load();
+        DeleteOrphanedAttempts();
     }
 
     public string Root { get; }
@@ -119,6 +120,16 @@ public sealed partial class ApplianceUpdateStagingStore
             stream.Flush(flushToDisk: true);
         }
         File.Move(temporary, _operationPath, overwrite: true);
+    }
+
+    private void DeleteOrphanedAttempts()
+    {
+        foreach (var directory in Directory.EnumerateDirectories(
+                     Root,
+                     ".*.partial"))
+        {
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     [LoggerMessage(

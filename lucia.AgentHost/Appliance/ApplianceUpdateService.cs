@@ -130,6 +130,10 @@ public sealed partial class ApplianceUpdateService(
                 board,
                 current.Board,
                 StringComparison.Ordinal)
+            && string.Equals(
+               compatibility.GetProperty("jetsonLinux").GetString(),
+               current.Os.JetsonLinuxVersion,
+               StringComparison.Ordinal)
             && current.StorageBytes >= minimumDiskBytes
             && compatibility.GetProperty("layoutVersion").GetInt32() == 1
             && compatibility.GetProperty("dataSchemaVersion").GetInt32() == 1;
@@ -257,130 +261,142 @@ public sealed partial class ApplianceUpdateService(
             staging.Root,
             $".{tag}.{Guid.NewGuid():N}.partial");
         Directory.CreateDirectory(stage);
-        var manifestPath = Path.Combine(
-            stage,
-            "lucia-appliance-manifest.json");
-        await DownloadAsync(
-                manifestUri,
-                manifestPath,
-                expectedBytes: null,
-                expectedSha256: null,
-                maximumBytes: 10 * 1024 * 1024,
-                cancellationToken)
-            .ConfigureAwait(false);
-        var bundlePath = Path.Combine(
-            stage,
-            "lucia-appliance-attestations.jsonl");
-        await DownloadAsync(
-                bundleUri,
-                bundlePath,
-                expectedBytes: null,
-                expectedSha256: null,
-                maximumBytes: 10 * 1024 * 1024,
-                cancellationToken)
-            .ConfigureAwait(false);
-
-        using var manifestDocument = JsonDocument.Parse(
-            await File.ReadAllBytesAsync(manifestPath, cancellationToken)
-                .ConfigureAwait(false));
-        var manifest = manifestDocument.RootElement;
-        if (manifest.GetProperty("repository").GetString()
-                != "seiggy/lucia-dotnet"
-            || manifest.GetProperty("tag").GetString() != tag
-            || manifest.GetProperty("attestationBundleUrl").GetString()
-                != bundleUrl)
+        try
         {
-            throw new InvalidDataException(
-                "The appliance manifest does not match the GitHub release.");
-        }
-        var current = await manager.GetStatusAsync(cancellationToken)
-            .ConfigureAwait(false);
-        var compatibility = manifest.GetProperty("compatibility");
-        if (!string.Equals(
-                compatibility.GetProperty("architecture").GetString(),
-                current.Architecture,
-                StringComparison.OrdinalIgnoreCase)
-            || compatibility.GetProperty("board").GetString() != current.Board
-            || current.StorageBytes
-                < compatibility.GetProperty("minimumDiskBytes").GetInt64())
-        {
-            throw new InvalidDataException(
-                "The appliance update is not compatible with this device.");
-        }
-        if (!HasExpectedRuntime(compatibility)
-            || manifest.GetProperty("releaseNotesUrl").GetString()
-                != releaseRoot.GetProperty("html_url").GetString()
-            || manifest.GetProperty("releaseApi").GetString()
-                != releaseApi.AbsoluteUri)
-        {
-            throw new InvalidDataException(
-                "The appliance release metadata is incomplete or unsupported.");
-        }
-        var selectedChannel = manifest
-            .GetProperty("channels")
-            .GetProperty(channel);
-        var requirements = selectedChannel.GetProperty("requires");
-        if (requirements.GetProperty("layoutVersion").GetInt32() != 1
-            || channel == "lucia"
-                && (requirements.GetProperty("dataSchemaVersion").GetInt32() != 1
-                    || requirements.GetProperty("jetsonLinux").GetString()
-                        != current.Os.JetsonLinuxVersion
-                    || requirements.GetProperty("reboot").GetBoolean()
-                    || !HasExpectedRuntime(requirements))
-            || channel == "os"
-                && (!requirements.GetProperty("reboot").GetBoolean()
-                    || IsNewer(
-                        requirements.GetProperty("minimumLuciaVersion").GetString(),
-                        current.LuciaVersion)))
-        {
-            throw new InvalidDataException(
-                "The appliance update channel requirements are not satisfied.");
-        }
-        var candidateVersion = selectedChannel.GetProperty("version").GetString();
-        var currentVersion = channel == "lucia"
-            ? current.LuciaVersion
-            : current.Os.ImageVersion;
-        if (!IsNewer(candidateVersion, currentVersion))
-        {
-            throw new InvalidDataException(
-                "The selected appliance channel has no newer release.");
-        }
-        foreach (var part in selectedChannel.GetProperty("parts").EnumerateArray())
-        {
-            var name = part.GetProperty("name").GetString()
-                ?? throw new InvalidDataException("An update part has no name.");
-            if (Path.GetFileName(name) != name
-                || !System.Text.RegularExpressions.Regex.IsMatch(
-                    name,
-                    @"^[A-Za-z0-9][A-Za-z0-9._-]*$"))
-            {
-                throw new InvalidDataException("An update part name is invalid.");
-            }
-            var bytes = part.GetProperty("bytes").GetInt64();
-            var sha256 = part.GetProperty("sha256").GetString()
-                ?? throw new InvalidDataException("An update part has no digest.");
-            var url = part.GetProperty("url").GetString()
-                ?? throw new InvalidDataException("An update part has no URL.");
-            var uri = ParseReleaseAssetUri(url, tag, name);
+            var manifestPath = Path.Combine(
+                stage,
+                "lucia-appliance-manifest.json");
             await DownloadAsync(
-                    uri,
-                    Path.Combine(stage, name),
-                    bytes,
-                    sha256,
-                    maximumBytes: 1_900_000_000,
+                    manifestUri,
+                    manifestPath,
+                    expectedBytes: null,
+                    expectedSha256: null,
+                    maximumBytes: 10 * 1024 * 1024,
                     cancellationToken)
                 .ConfigureAwait(false);
-        }
+            var bundlePath = Path.Combine(
+                stage,
+                "lucia-appliance-attestations.jsonl");
+            await DownloadAsync(
+                    bundleUri,
+                    bundlePath,
+                    expectedBytes: null,
+                    expectedSha256: null,
+                    maximumBytes: 10 * 1024 * 1024,
+                    cancellationToken)
+                .ConfigureAwait(false);
 
-        var finalStage = Path.Combine(staging.Root, tag);
-        if (Directory.Exists(finalStage))
-        {
-            Directory.Delete(finalStage, recursive: true);
+            using var manifestDocument = JsonDocument.Parse(
+                await File.ReadAllBytesAsync(manifestPath, cancellationToken)
+                    .ConfigureAwait(false));
+            var manifest = manifestDocument.RootElement;
+            if (manifest.GetProperty("repository").GetString()
+                    != "seiggy/lucia-dotnet"
+                || manifest.GetProperty("tag").GetString() != tag
+                || manifest.GetProperty("attestationBundleUrl").GetString()
+                    != bundleUrl)
+            {
+                throw new InvalidDataException(
+                    "The appliance manifest does not match the GitHub release.");
+            }
+            var current = await manager.GetStatusAsync(cancellationToken)
+                .ConfigureAwait(false);
+            var compatibility = manifest.GetProperty("compatibility");
+            if (!string.Equals(
+                    compatibility.GetProperty("architecture").GetString(),
+                    current.Architecture,
+                    StringComparison.OrdinalIgnoreCase)
+                || compatibility.GetProperty("board").GetString() != current.Board
+                || compatibility.GetProperty("jetsonLinux").GetString()
+                    != current.Os.JetsonLinuxVersion
+                || current.StorageBytes
+                    < compatibility.GetProperty("minimumDiskBytes").GetInt64())
+            {
+                throw new InvalidDataException(
+                    "The appliance update is not compatible with this device.");
+            }
+            if (!HasExpectedRuntime(compatibility)
+                || manifest.GetProperty("releaseNotesUrl").GetString()
+                    != releaseRoot.GetProperty("html_url").GetString()
+                || manifest.GetProperty("releaseApi").GetString()
+                    != releaseApi.AbsoluteUri)
+            {
+                throw new InvalidDataException(
+                    "The appliance release metadata is incomplete or unsupported.");
+            }
+            var selectedChannel = manifest
+                .GetProperty("channels")
+                .GetProperty(channel);
+            var requirements = selectedChannel.GetProperty("requires");
+            if (requirements.GetProperty("layoutVersion").GetInt32() != 1
+                || channel == "lucia"
+                    && (requirements.GetProperty("dataSchemaVersion").GetInt32() != 1
+                        || requirements.GetProperty("jetsonLinux").GetString()
+                            != current.Os.JetsonLinuxVersion
+                        || requirements.GetProperty("reboot").GetBoolean()
+                        || !HasExpectedRuntime(requirements))
+                || channel == "os"
+                    && (!requirements.GetProperty("reboot").GetBoolean()
+                        || IsNewer(
+                            requirements.GetProperty("minimumLuciaVersion").GetString(),
+                            current.LuciaVersion)))
+            {
+                throw new InvalidDataException(
+                    "The appliance update channel requirements are not satisfied.");
+            }
+            var candidateVersion = selectedChannel.GetProperty("version").GetString();
+            var currentVersion = channel == "lucia"
+                ? current.LuciaVersion
+                : current.Os.ImageVersion;
+            if (!IsNewer(candidateVersion, currentVersion))
+            {
+                throw new InvalidDataException(
+                    "The selected appliance channel has no newer release.");
+            }
+            foreach (var part in selectedChannel.GetProperty("parts").EnumerateArray())
+            {
+                var name = part.GetProperty("name").GetString()
+                    ?? throw new InvalidDataException("An update part has no name.");
+                if (Path.GetFileName(name) != name
+                    || !System.Text.RegularExpressions.Regex.IsMatch(
+                        name,
+                        @"^[A-Za-z0-9][A-Za-z0-9._-]*$"))
+                {
+                    throw new InvalidDataException("An update part name is invalid.");
+                }
+                var bytes = part.GetProperty("bytes").GetInt64();
+                var sha256 = part.GetProperty("sha256").GetString()
+                    ?? throw new InvalidDataException("An update part has no digest.");
+                var url = part.GetProperty("url").GetString()
+                    ?? throw new InvalidDataException("An update part has no URL.");
+                var uri = ParseReleaseAssetUri(url, tag, name);
+                await DownloadAsync(
+                        uri,
+                        Path.Combine(stage, name),
+                        bytes,
+                        sha256,
+                        maximumBytes: 1_900_000_000,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
+            var finalStage = Path.Combine(staging.Root, tag);
+            if (Directory.Exists(finalStage))
+            {
+                Directory.Delete(finalStage, recursive: true);
+            }
+            Directory.Move(stage, finalStage);
+            return await manager
+                .StartUpdateAsync(channel, tag, cancellationToken)
+                .ConfigureAwait(false);
         }
-        Directory.Move(stage, finalStage);
-        return await manager
-            .StartUpdateAsync(channel, tag, cancellationToken)
-            .ConfigureAwait(false);
+        finally
+        {
+            if (Directory.Exists(stage))
+            {
+                Directory.Delete(stage, recursive: true);
+            }
+        }
     }
 
     public async Task<ApplianceUpdateOperationStatus> GetOperationAsync(

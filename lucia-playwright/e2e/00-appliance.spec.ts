@@ -50,12 +50,13 @@ test('manages an installed appliance from mobile', async ({ page }) => {
     });
   });
   await page.route('**/api/appliance/updates/operation', async (route) => {
+    const hasInstallStarted = installRequestBody !== null;
     await route.fulfill({
       json: {
-        action: 'none',
-        channel: 'none',
-        status: 'idle',
-        tag: null,
+        action: hasInstallStarted ? 'apply' : 'none',
+        channel: hasInstallStarted ? 'lucia' : 'none',
+        status: hasInstallStarted ? 'succeeded' : 'idle',
+        tag: hasInstallStarted ? 'v0.3.0' : null,
         message: null,
         luciaRollbackAvailable: false,
         osRollbackAvailable: false,
@@ -102,7 +103,12 @@ test('manages an installed appliance from mobile', async ({ page }) => {
     await route.fulfill({ status: 202 });
   });
 
-  await page.goto('/appliance');
+  const capabilitiesLoaded = page.waitForResponse('**/api/appliance/capabilities');
+  const authenticationLoaded = page.waitForResponse('**/api/auth/status');
+  await page.goto('/');
+  await Promise.all([capabilitiesLoaded, authenticationLoaded]);
+  await page.getByRole('button', { name: 'Open sidebar menu' }).click();
+  await page.getByRole('link', { name: 'Appliance' }).click();
 
   await expect(page.getByRole('heading', { name: 'lucia', exact: true })).toBeVisible();
   await expect(page.getByText('2/4 active')).toBeVisible();
@@ -111,6 +117,7 @@ test('manages an installed appliance from mobile', async ({ page }) => {
   await page.getByRole('button', { name: 'Install' }).first().click();
   await page.getByRole('button', { name: 'Verify and install' }).click();
   await expect.poll(() => installRequestBody).toBe('{"tag":"v0.3.0"}');
+  await expect(page.getByRole('button', { name: 'Install' })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'OpenTelemetry', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Restart', exact: true })).toHaveCount(2);
   const agentHostRow = page
@@ -165,7 +172,11 @@ test('keeps appliance navigation when the manager is temporarily unavailable', a
     });
   });
 
-  await page.goto('/appliance');
+  const capabilitiesLoaded = page.waitForResponse('**/api/appliance/capabilities');
+  const authenticationLoaded = page.waitForResponse('**/api/auth/status');
+  await page.goto('/');
+  await Promise.all([capabilitiesLoaded, authenticationLoaded]);
+  await page.getByRole('link', { name: 'Appliance' }).click();
 
   await expect(page).toHaveURL(/\/appliance$/);
   await expect(page.getByRole('alert')).toContainText('appliance manager is restarting');
