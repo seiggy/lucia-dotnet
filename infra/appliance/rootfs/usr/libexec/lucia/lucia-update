@@ -1000,6 +1000,10 @@ rollback_os() {
     local previous_slot
     local target_slot
     local status
+    local previous_operation_id
+    local had_operation_id=false
+    local rollback_operation_id
+    local temporary="$state_dir/os.env.tmp"
     [[ -f "$state" ]] || die "no OS rollback is available"
     status="$(sed -n 's/^status=//p' "$state")"
     [[ "$status" == "pending" || "$status" == "validated" ]] \
@@ -1010,13 +1014,35 @@ rollback_os() {
         || die "OS rollback state is invalid"
     [[ "$target_slot" == "0" || "$target_slot" == "1" ]] \
         || die "OS rollback target state is invalid"
+    if grep -q '^operation_id=' "$state"; then
+        had_operation_id=true
+    fi
+    previous_operation_id="$(sed -n 's/^operation_id=//p' "$state")"
+    rollback_operation_id="${operation_id:-$previous_operation_id}"
     rollback_failed() {
         local exit_code=$?
         trap - ERR
         "$nvbootctrl_path" -t rootfs set-active-boot-slot "$target_slot" \
             || true
-        sed -i "s/^status=rollback-pending$/status=$status/" "$state"
-        sync -f "$state" || true
+        awk \
+            -v restored_status="$status" \
+            -v restored_operation_id="$previous_operation_id" \
+            -v restore_operation_id="$had_operation_id" '
+            /^status=rollback-pending$/ {
+                print "status=" restored_status
+                next
+            }
+            /^operation_id=/ {
+                if (restore_operation_id == "true") {
+                    print "operation_id=" restored_operation_id
+                }
+                next
+            }
+            { print }
+        ' "$state" > "$temporary"
+        sync -f "$temporary"
+        mv -f "$temporary" "$state"
+        sync -f "$state_dir"
         if [[ "$status" == "pending" ]]; then
             "$systemctl_path" start lucia-os-update-validation.service || true
         fi
@@ -1024,8 +1050,26 @@ rollback_os() {
     }
     trap rollback_failed ERR
     "$systemctl_path" stop lucia-os-update-validation.service
-    sed -i -E 's/^status=(pending|validated)$/status=rollback-pending/' "$state"
-    sync -f "$state"
+    awk -v rollback_operation_id="$rollback_operation_id" '
+        BEGIN { operation_id_written = 0 }
+        /^status=(pending|validated)$/ {
+            print "status=rollback-pending"
+            next
+        }
+        /^operation_id=/ {
+            print "operation_id=" rollback_operation_id
+            operation_id_written = 1
+            next
+        }
+        { print }
+        END {
+            if (!operation_id_written && rollback_operation_id != "") {
+                print "operation_id=" rollback_operation_id
+            }
+        }
+    ' "$state" > "$temporary"
+    sync -f "$temporary"
+    mv -f "$temporary" "$state"
     sync -f "$state_dir"
     "$nvbootctrl_path" -t rootfs set-active-boot-slot "$previous_slot"
     "$systemctl_path" --no-block reboot
