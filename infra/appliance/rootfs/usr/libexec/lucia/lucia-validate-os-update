@@ -15,13 +15,16 @@ write_operation() {
     local operation_status="$2"
     local message="$3"
     local tag
+    local operation_id
     tag="$(sed -n 's/^tag=//p' "$state")"
+    operation_id="$(sed -n 's/^operation_id=//p' "$state")"
     [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || tag=""
-    printf '{"Action":"%s","Channel":"os","Status":"%s","Tag":%s,"Message":"%s","LuciaRollbackAvailable":false,"OsRollbackAvailable":false}\n' \
+    printf '{"Action":"%s","Channel":"os","Status":"%s","Tag":%s,"Message":"%s","LuciaRollbackAvailable":false,"OsRollbackAvailable":false,"OperationId":%s}\n' \
         "$action" \
         "$operation_status" \
         "$([[ -n "$tag" ]] && printf '"%s"' "$tag" || printf 'null')" \
         "$message" \
+        "$([[ "$operation_id" =~ ^[0-9a-fA-F-]{36}$ ]] && printf '"%s"' "$operation_id" || printf 'null')" \
         > "$update_root/state/operation.json.tmp"
     sync -f "$update_root/state/operation.json.tmp"
     mv -f "$update_root/state/operation.json.tmp" \
@@ -67,7 +70,7 @@ for ((attempt = 0; attempt < health_attempts; attempt++)); do
     if "$systemctl_path" is-active --quiet \
             lucia-redis.service lucia-agenthost.service \
         && "$curl_path" --fail --silent --show-error \
-            --max-time 2 \
+            --max-time 30 \
             --header "X-Lucia-Update-Credential: $validation_credential" \
             "http://127.0.0.1:8098/internal/appliance/update-validation/$validation_token?consume=false" \
             >/dev/null; then

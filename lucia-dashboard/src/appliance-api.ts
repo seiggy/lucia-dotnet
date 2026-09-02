@@ -60,6 +60,7 @@ export interface ApplianceUpdateStatus {
 }
 
 export interface ApplianceUpdateOperationStatus {
+  operationId: string | null
   action: string
   channel: string
   status: 'idle' | 'queued' | 'running' | 'succeeded' | 'failed'
@@ -207,6 +208,9 @@ function parseUpdateOperation(value: unknown): ApplianceUpdateOperationStatus {
     throw new Error('The appliance returned an invalid update operation state.')
   }
   return {
+    operationId: operation.operationId === null
+      ? null
+      : requireString(operation, 'operationId'),
     action: requireString(operation, 'action'),
     channel: requireString(operation, 'channel'),
     status: status === 'idle'
@@ -273,8 +277,13 @@ export async function installApplianceUpdate(
   }))
 }
 
-export async function fetchApplianceUpdateOperation(): Promise<ApplianceUpdateOperationStatus> {
-  return parseUpdateOperation(await request('/updates/operation'))
+export async function fetchApplianceUpdateOperation(
+  operationId?: string | null,
+): Promise<ApplianceUpdateOperationStatus> {
+  const path = operationId
+    ? `/updates/operations/${encodeURIComponent(operationId)}`
+    : '/updates/operation'
+  return parseUpdateOperation(await request(path))
 }
 
 export async function rollbackApplianceUpdate(

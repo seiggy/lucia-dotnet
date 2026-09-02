@@ -69,6 +69,12 @@ app.MapPut("/v1/telemetry", UpdateTelemetryConfigurationAsync);
 app.MapGet(
     "/v1/updates/operation",
     (ApplianceUpdateCoordinator updates) => Results.Ok(updates.GetStatus()));
+app.MapGet(
+    "/v1/updates/operations/{operationId}",
+    (string operationId, ApplianceUpdateCoordinator updates) =>
+        updates.GetStatus(operationId) is { } status
+            ? Results.Ok(status)
+            : Results.NotFound());
 app.MapPost(
     "/v1/updates/{channel}/{action}",
     (
@@ -79,7 +85,11 @@ app.MapPost(
     {
         try
         {
-            return updates.TryStart(action, channel, request.Tag)
+            return updates.TryStart(
+                    action,
+                    channel,
+                    request.Tag,
+                    request.OperationId)
                 ? Results.Accepted(
                     value: updates.GetStatus())
                 : Results.Conflict(new

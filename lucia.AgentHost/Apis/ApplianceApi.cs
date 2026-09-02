@@ -494,6 +494,30 @@ public static class ApplianceApi
                         "Update operation status failed");
                 }
             });
+        group.MapGet(
+            "/updates/operations/{operationId}",
+            async (
+                string operationId,
+                ApplianceUpdateService updates,
+                CancellationToken cancellationToken) =>
+            {
+                if (!Guid.TryParseExact(operationId, "D", out _))
+                {
+                    return Results.NotFound();
+                }
+                try
+                {
+                    return Results.Ok(await updates
+                        .GetOperationAsync(cancellationToken, operationId)
+                        .ConfigureAwait(false));
+                }
+                catch (HttpRequestException exception)
+                    when (exception.StatusCode
+                        == System.Net.HttpStatusCode.NotFound)
+                {
+                    return Results.NotFound();
+                }
+            });
         group.MapPost(
             "/updates/{channel}/rollback",
             async (

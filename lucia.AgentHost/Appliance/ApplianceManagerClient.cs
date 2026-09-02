@@ -116,12 +116,13 @@ public sealed class ApplianceManagerClient : IDisposable
     public async Task<ApplianceUpdateOperationStatus> StartUpdateAsync(
         string channel,
         string tag,
+        string operationId,
         CancellationToken cancellationToken)
     {
         using var response = await _httpClient
             .PostAsJsonAsync(
                 $"/v1/updates/{Uri.EscapeDataString(channel)}/apply",
-                new ApplianceUpdateRequest(tag),
+                new ApplianceUpdateRequest(tag, operationId),
                 cancellationToken)
             .ConfigureAwait(false);
         await EnsureSuccessAsync(response, cancellationToken)
@@ -153,10 +154,14 @@ public sealed class ApplianceManagerClient : IDisposable
     }
 
     public async Task<ApplianceUpdateOperationStatus> GetUpdateOperationAsync(
+        string? operationId,
         CancellationToken cancellationToken)
     {
+        var path = operationId is null
+            ? "/v1/updates/operation"
+            : $"/v1/updates/operations/{Uri.EscapeDataString(operationId)}";
         using var response = await _httpClient
-            .GetAsync("/v1/updates/operation", cancellationToken)
+            .GetAsync(path, cancellationToken)
             .ConfigureAwait(false);
         await EnsureSuccessAsync(response, cancellationToken)
             .ConfigureAwait(false);
@@ -166,6 +171,10 @@ public sealed class ApplianceManagerClient : IDisposable
             ?? throw new InvalidOperationException(
                 "Appliance manager returned an empty update operation.");
     }
+
+    public Task<ApplianceUpdateOperationStatus> GetUpdateOperationAsync(
+        CancellationToken cancellationToken) =>
+        GetUpdateOperationAsync(null, cancellationToken);
 
     public void Dispose() => _httpClient.Dispose();
 

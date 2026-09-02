@@ -7,4 +7,5 @@ public sealed record ApplianceUpdateOperationStatus(
     string? Tag,
     string? Message,
     bool LuciaRollbackAvailable = false,
-    bool OsRollbackAvailable = false);
+    bool OsRollbackAvailable = false,
+    string? OperationId = null);

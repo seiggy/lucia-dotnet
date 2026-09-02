@@ -150,11 +150,14 @@ public sealed class ApplianceManagerClientTests
             var result = await client.StartUpdateAsync(
                 "lucia",
                 "v1.3.0",
+                "11111111-1111-1111-1111-111111111111",
                 CancellationToken.None);
 
             Assert.Equal("queued", result.Status);
             Assert.Contains("POST /v1/updates/lucia/apply", requestText);
-            Assert.Contains("""{"tag":"v1.3.0"}""", requestText);
+            Assert.Contains(
+                """"tag":"v1.3.0","operationId":"11111111-1111-1111-1111-111111111111"""",
+                requestText);
             await serverTask;
         }
         finally

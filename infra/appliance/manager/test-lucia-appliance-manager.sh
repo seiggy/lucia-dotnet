@@ -103,7 +103,9 @@ set -euo pipefail
 printf '%s\n' "$*" >> "$LUCIA_TEST_UPDATE_LOG"
 if [[ "$1" == "apply" && "$2" == "os" ]]; then
     mkdir -p "$LUCIA_UPDATE_ROOT/state"
-    printf 'status=pending\n' > "$LUCIA_UPDATE_ROOT/state/os.env"
+    printf 'operation_id=%s\nstatus=pending\n' \
+        "$LUCIA_UPDATE_OPERATION_ID" \
+        > "$LUCIA_UPDATE_ROOT/state/os.env"
 fi
 EOF
 chmod +x "$work_dir/lucia-update"
@@ -131,6 +133,7 @@ printf 'status=writing\n' > "$work_dir/updates/state/os.env"
 cat > "$work_dir/updates/state/operation.json" <<'EOF'
 {"Action":"apply","Channel":"os","Status":"running","Tag":"v1.4.0","Message":null}
 EOF
+printf 'phase=switched\n' > "$work_dir/updates/state/lucia.env"
 
 manager_command=(dotnet run --no-launch-profile --project "$manager_project")
 if [[ -n "${LUCIA_MANAGER_BINARY:-}" ]]; then
@@ -213,6 +216,7 @@ curl --silent --output "$work_dir/response.json" \
     http://localhost/v1/updates/operation
 grep -q '"status":"failed"' "$work_dir/response.json"
 grep -qx 'status=failed' "$work_dir/updates/state/os.env"
+grep -qx 'recover lucia' "$update_log"
 
 echo "PASS: interrupted inactive-slot writes recover to a retryable state"
 
@@ -314,7 +318,7 @@ status="$(
         --unix-socket "$socket_path" \
         --header 'Content-Type: application/json' \
         --request POST \
-        --data '{"tag":"v1.4.0"}' \
+        --data '{"tag":"v1.4.0","operationId":"11111111-1111-1111-1111-111111111111"}' \
         http://localhost/v1/updates/lucia/apply
 )"
 [[ "$status" == "202" ]]
@@ -326,6 +330,11 @@ for _ in {1..40}; do
     sleep 0.05
 done
 grep -q '"status":"succeeded"' "$work_dir/response.json"
+curl --silent --output "$work_dir/response.json" \
+    --unix-socket "$socket_path" \
+    http://localhost/v1/updates/operations/11111111-1111-1111-1111-111111111111
+grep -q '"operationId":"11111111-1111-1111-1111-111111111111"' \
+    "$work_dir/response.json"
 grep -qx 'apply lucia v1.4.0' "$update_log"
 for _ in {1..40}; do
     grep -q '^--no-block restart lucia-appliance-manager.service lucia-agenthost.service$' \
@@ -397,10 +406,10 @@ status="$(
 
 echo "PASS: pending OS validation blocks overlapping updates"
 
-cat > "$work_dir/updates/state/operation.json.tmp" <<'EOF'
+cat > "$work_dir/updates/state/operation.json.test.tmp" <<'EOF'
 {"Action":"apply","Channel":"os","Status":"failed","Tag":"v1.4.0","Message":"OS update failed boot validation; rollback is scheduled."}
 EOF
-mv "$work_dir/updates/state/operation.json.tmp" \
+mv "$work_dir/updates/state/operation.json.test.tmp" \
     "$work_dir/updates/state/operation.json"
 printf 'status=pending\n' > "$work_dir/updates/state/os.env"
 status="$(
@@ -423,10 +432,10 @@ grep -q '"channel":"os"' "$work_dir/response.json"
 
 echo "PASS: failed OS rollback remains retryable"
 
-cat > "$work_dir/updates/state/operation.json.tmp" <<'EOF'
+cat > "$work_dir/updates/state/operation.json.test.tmp" <<'EOF'
 {"Action":"apply","Channel":"os","Status":"failed","Tag":"v1.4.0","Message":"OS update failed boot validation; rollback is scheduled."}
 EOF
-mv "$work_dir/updates/state/operation.json.tmp" \
+mv "$work_dir/updates/state/operation.json.test.tmp" \
     "$work_dir/updates/state/operation.json"
 printf 'status=rolled-back\n' > "$work_dir/updates/state/os.env"
 curl --silent --output "$work_dir/response.json" \

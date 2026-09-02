@@ -31,6 +31,7 @@ jetson_release_path="${LUCIA_JETSON_RELEASE_PATH:-/etc/nv_tegra_release}"
 validation_group="${LUCIA_VALIDATION_GROUP:-lucia}"
 health_attempts="${LUCIA_UPDATE_HEALTH_ATTEMPTS:-30}"
 health_delay="${LUCIA_UPDATE_HEALTH_DELAY_SECONDS:-2}"
+operation_id="${LUCIA_UPDATE_OPERATION_ID:-}"
 state_dir="$update_root/state"
 validation_credential_path="${LUCIA_VALIDATION_CREDENTIAL_PATH:-$state_dir/validation.key}"
 backups_dir="$update_root/backups"
@@ -52,6 +53,9 @@ issue_validation_credential() {
     || die "channel must be lucia or os"
 [[ "$health_attempts" =~ ^[1-9][0-9]*$ && "$health_delay" =~ ^[0-9]+$ ]] \
     || die "health check timing is invalid"
+[[ -z "$operation_id" \
+    || "$operation_id" =~ ^[0-9a-fA-F-]{36}$ ]] \
+    || die "update operation ID is invalid"
 mkdir -p "$state_dir" "$backups_dir" "$work_dir"
 
 atomic_symlink() {
@@ -619,7 +623,7 @@ apply_lucia() {
     "$systemctl_path" start lucia-redis.service lucia-agenthost.service
     for ((attempt = 0; attempt < health_attempts; attempt++)); do
         if "$curl_path" --fail --silent --show-error \
-                --max-time 2 \
+                --max-time 30 \
                 --header "X-Lucia-Update-Credential: $validation_credential" \
                 "http://127.0.0.1:8098/internal/appliance/update-validation/$validation_token?consume=true" \
                 >/dev/null; then
@@ -872,8 +876,8 @@ apply_os() {
         exit "$exit_code"
     }
     trap restore_failed_slot_change ERR
-    printf 'previous_slot=%s\ntarget_slot=%s\nversion=%s\ntag=%s\nstatus=writing\nvalidation_token=%s\n' \
-        "$current_slot" "$target_slot" "$version" "$selected_tag" "$validation_token" \
+    printf 'previous_slot=%s\ntarget_slot=%s\nversion=%s\ntag=%s\noperation_id=%s\nstatus=writing\nvalidation_token=%s\n' \
+        "$current_slot" "$target_slot" "$version" "$selected_tag" "$operation_id" "$validation_token" \
         > "$state_dir/os.env.tmp"
     sync -f "$state_dir/os.env.tmp"
     mv -f "$state_dir/os.env.tmp" "$state_dir/os.env"
@@ -888,8 +892,8 @@ apply_os() {
         | tar -I zstd -xOf - "$dtb_image" \
         | "$dd_path" of="$partlabel_dir/$dtb_label" bs=4M conv=fsync status=none
     e2fsck -fn "$partlabel_dir/$app_label" >/dev/null
-    printf 'previous_slot=%s\ntarget_slot=%s\nversion=%s\ntag=%s\nstatus=pending\nvalidation_token=%s\n' \
-        "$current_slot" "$target_slot" "$version" "$selected_tag" "$validation_token" \
+    printf 'previous_slot=%s\ntarget_slot=%s\nversion=%s\ntag=%s\noperation_id=%s\nstatus=pending\nvalidation_token=%s\n' \
+        "$current_slot" "$target_slot" "$version" "$selected_tag" "$operation_id" "$validation_token" \
         > "$state_dir/os.env.tmp"
     sync -f "$state_dir/os.env.tmp"
     mv -f "$state_dir/os.env.tmp" "$state_dir/os.env"

@@ -400,7 +400,11 @@ public sealed partial class ApplianceUpdateService(
             try
             {
                 var operation = await manager
-                    .StartUpdateAsync(channel, tag, cancellationToken)
+                    .StartUpdateAsync(
+                        channel,
+                        tag,
+                        staging.GetStatus().OperationId!,
+                        cancellationToken)
                     .ConfigureAwait(false);
                 staging.SetHandedOff(channel, tag);
                 return operation;
@@ -474,16 +478,24 @@ public sealed partial class ApplianceUpdateService(
     }
 
     public async Task<ApplianceUpdateOperationStatus> GetOperationAsync(
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? operationId = null)
     {
         var stagingStatus = staging.GetStatus();
+        if (operationId is not null
+            && stagingStatus.OperationId != operationId)
+        {
+            return await manager
+                .GetUpdateOperationAsync(operationId, cancellationToken)
+                .ConfigureAwait(false);
+        }
         if (stagingStatus.Status is "queued"
             || stagingStatus is { Action: "stage", Status: "running" })
         {
             return stagingStatus;
         }
         var managerStatus = await manager
-            .GetUpdateOperationAsync(cancellationToken)
+            .GetUpdateOperationAsync(operationId, cancellationToken)
             .ConfigureAwait(false);
         if (stagingStatus is { Action: "handoff", Status: "running" })
         {
@@ -527,8 +539,16 @@ public sealed partial class ApplianceUpdateService(
         try
         {
             var stagingStatus = staging.GetStatus();
-            if (stagingStatus.Status == "queued"
-                || stagingStatus is { Action: "stage", Status: "running" })
+            var isPendingOsValidation =
+                stagingStatus is
+                {
+                    Action: "apply",
+                    Channel: "os",
+                    Status: "running",
+                }
+                && channel == "os";
+            if (stagingStatus.Status is "queued" or "running"
+                && !isPendingOsValidation)
             {
                 throw new InvalidOperationException(
                     "An appliance update is still being staged.");

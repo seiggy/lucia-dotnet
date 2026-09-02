@@ -88,7 +88,13 @@ public sealed partial class ApplianceUpdateStagingStore
                 return null;
             }
             DeleteUnreferencedFinalizedStages();
-            _status = new("stage", channel, "queued", tag, null);
+            _status = new(
+                "stage",
+                channel,
+                "queued",
+                tag,
+                null,
+                OperationId: Guid.NewGuid().ToString("D"));
             PersistUnsafe();
             return _status;
         }
@@ -103,14 +109,26 @@ public sealed partial class ApplianceUpdateStagingStore
     }
 
     public void SetRunning(string channel, string tag) =>
-        Set(new("stage", channel, "running", tag, null));
+        Set(new(
+            "stage",
+            channel,
+            "running",
+            tag,
+            null,
+            OperationId: _status.OperationId));
 
     public void SetHandingOff(string channel, string tag)
     {
         lock (_gate)
         {
             _isHandoffRequestActive = true;
-            _status = new("handoff", channel, "running", tag, null);
+            _status = new(
+                "handoff",
+                channel,
+                "running",
+                tag,
+                null,
+                OperationId: _status.OperationId);
             PersistUnsafe();
         }
     }
@@ -124,10 +142,22 @@ public sealed partial class ApplianceUpdateStagingStore
     }
 
     public void SetHandedOff(string channel, string tag) =>
-        Set(new("apply", channel, "running", tag, null));
+        Set(new(
+            "apply",
+            channel,
+            "running",
+            tag,
+            null,
+            OperationId: _status.OperationId));
 
     public void SetFailed(string channel, string tag, string message) =>
-        Set(new("stage", channel, "failed", tag, message));
+        Set(new(
+            "stage",
+            channel,
+            "failed",
+            tag,
+            message,
+            OperationId: _status.OperationId));
 
     public void Clear()
     {

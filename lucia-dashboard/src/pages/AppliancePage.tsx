@@ -104,7 +104,7 @@ export default function AppliancePage() {
   useEffect(() => {
     if (updateOperation?.status !== 'queued' && updateOperation?.status !== 'running') return
     const timer = window.setInterval(() => {
-      void fetchApplianceUpdateOperation()
+      void fetchApplianceUpdateOperation(updateOperation.operationId)
         .then((operation) => {
           setUpdateOperation(operation)
           if (operation.status === 'failed') {
@@ -125,7 +125,7 @@ export default function AppliancePage() {
         .catch(() => undefined)
     }, 2000)
     return () => window.clearInterval(timer)
-  }, [load, updateOperation?.status])
+  }, [load, updateOperation?.operationId, updateOperation?.status])
 
   async function handleCheckUpdates() {
     setCheckingUpdates(true)

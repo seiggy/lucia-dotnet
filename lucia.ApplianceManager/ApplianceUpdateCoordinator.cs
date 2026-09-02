@@ -28,6 +28,7 @@ public sealed partial class ApplianceUpdateCoordinator
     {
         _operationPath = Path.Combine(_statePath, "operation.json");
         Directory.CreateDirectory(_statePath);
+        RecoverInterruptedLuciaUpdate();
         RecoverInterruptedOsWrite();
         if (!File.Exists(_operationPath))
         {
@@ -75,6 +76,12 @@ public sealed partial class ApplianceUpdateCoordinator
         }
     }
 
+    public UpdateOperationStatus? GetStatus(string operationId)
+    {
+        var status = GetStatus();
+        return status.OperationId == operationId ? status : null;
+    }
+
     public bool IsBusy
     {
         get
@@ -101,7 +108,11 @@ public sealed partial class ApplianceUpdateCoordinator
         }
     }
 
-    public bool TryStart(string action, string channel, string? tag)
+    public bool TryStart(
+        string action,
+        string channel,
+        string? tag,
+        string? operationId = null)
     {
         if (action is not ("apply" or "rollback")
             || channel is not ("lucia" or "os")
@@ -109,7 +120,9 @@ public sealed partial class ApplianceUpdateCoordinator
                 && (tag is null
                     || !System.Text.RegularExpressions.Regex.IsMatch(
                         tag,
-                        @"^v[0-9]+\.[0-9]+\.[0-9]+$")))
+                        @"^v[0-9]+\.[0-9]+\.[0-9]+$"))
+            || operationId is not null
+                && !Guid.TryParseExact(operationId, "D", out _))
         {
             throw new ArgumentException("Invalid update operation.");
         }
@@ -134,19 +147,32 @@ public sealed partial class ApplianceUpdateCoordinator
                 return false;
             }
 
-            _status = new(action, channel, "queued", tag, null);
+            operationId ??= Guid.NewGuid().ToString("D");
+            _status = new(
+                action,
+                channel,
+                "queued",
+                tag,
+                null,
+                OperationId: operationId);
             _isUpdaterRunning = true;
             PersistStatusUnsafe();
-            _ = Task.Run(() => RunAsync(action, channel, tag));
+            _ = Task.Run(
+                () => RunAsync(action, channel, tag, operationId));
             return true;
         }
     }
 
-    private async Task RunAsync(string action, string channel, string? tag)
+    private async Task RunAsync(
+        string action,
+        string channel,
+        string? tag,
+        string operationId)
     {
         try
         {
-            await RunProcessAsync(action, channel, tag).ConfigureAwait(false);
+            await RunProcessAsync(action, channel, tag, operationId)
+                .ConfigureAwait(false);
         }
         finally
         {
@@ -160,9 +186,16 @@ public sealed partial class ApplianceUpdateCoordinator
     private async Task RunProcessAsync(
         string action,
         string channel,
-        string? tag)
+        string? tag,
+        string operationId)
     {
-        SetStatus(new(action, channel, "running", tag, null));
+        SetStatus(new(
+            action,
+            channel,
+            "running",
+            tag,
+            null,
+            OperationId: operationId));
         var startInfo = new ProcessStartInfo
         {
             FileName = _updaterPath,
@@ -176,6 +209,7 @@ public sealed partial class ApplianceUpdateCoordinator
         {
             startInfo.ArgumentList.Add(tag);
         }
+        startInfo.Environment["LUCIA_UPDATE_OPERATION_ID"] = operationId;
         try
         {
             using var process = Process.Start(startInfo)
@@ -193,9 +227,22 @@ public sealed partial class ApplianceUpdateCoordinator
                         channel,
                         "running",
                         tag,
-                        "OS update is awaiting boot validation.")
-                    : new(action, channel, "succeeded", tag, NullIfEmpty(output))
-                : new(action, channel, "failed", tag, NullIfEmpty(error));
+                        "OS update is awaiting boot validation.",
+                        OperationId: operationId)
+                    : new(
+                        action,
+                        channel,
+                        "succeeded",
+                        tag,
+                        NullIfEmpty(output),
+                        OperationId: operationId)
+                : new(
+                    action,
+                    channel,
+                    "failed",
+                    tag,
+                    NullIfEmpty(error),
+                    OperationId: operationId);
             SetStatus(result);
             if (result.Status == "succeeded"
                 && channel == "lucia")
@@ -208,7 +255,13 @@ public sealed partial class ApplianceUpdateCoordinator
                 or System.ComponentModel.Win32Exception
                 or IOException)
         {
-            SetStatus(new(action, channel, "failed", tag, exception.Message));
+            SetStatus(new(
+                action,
+                channel,
+                "failed",
+                tag,
+                exception.Message,
+                OperationId: operationId));
         }
     }
 
@@ -300,6 +353,33 @@ public sealed partial class ApplianceUpdateCoordinator
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException(
                 "Failed to schedule the Lucia service restart.");
+    }
+
+    private void RecoverInterruptedLuciaUpdate()
+    {
+        var state = Path.Combine(_statePath, "lucia.env");
+        if (!File.Exists(state)
+            || File.ReadLines(state).Any(line => line == "phase=committed"))
+        {
+            return;
+        }
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = _updaterPath,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add("recover");
+        startInfo.ArgumentList.Add("lucia");
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException(
+                "Failed to start Lucia update recovery.");
+        process.WaitForExit();
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"Lucia update recovery failed: {process.StandardError.ReadToEnd().Trim()}");
+        }
     }
 
     private bool IsOsRollbackAvailable()

@@ -53,6 +53,9 @@ test('manages an installed appliance from mobile', async ({ page }) => {
     const hasInstallStarted = installRequestBody !== null;
     await route.fulfill({
       json: {
+        operationId: hasInstallStarted
+          ? '11111111-1111-1111-1111-111111111111'
+          : null,
         action: hasInstallStarted ? 'apply' : 'none',
         channel: hasInstallStarted ? 'lucia' : 'none',
         status: hasInstallStarted ? 'succeeded' : 'idle',
@@ -89,9 +92,24 @@ test('manages an installed appliance from mobile', async ({ page }) => {
     await route.fulfill({
       status: 202,
       json: {
+        operationId: '11111111-1111-1111-1111-111111111111',
         action: 'stage',
         channel: 'lucia',
         status: 'queued',
+        tag: 'v0.3.0',
+        message: null,
+        luciaRollbackAvailable: false,
+        osRollbackAvailable: false,
+      },
+    });
+  });
+  await page.route('**/api/appliance/updates/operations/*', async (route) => {
+    await route.fulfill({
+      json: {
+        operationId: '11111111-1111-1111-1111-111111111111',
+        action: 'apply',
+        channel: 'lucia',
+        status: 'succeeded',
         tag: 'v0.3.0',
         message: null,
         luciaRollbackAvailable: false,

@@ -24,6 +24,10 @@ public sealed class ApplianceUpdateStagingStoreTests
             var recovered = CreateStore(root).GetStatus();
 
             Assert.NotNull(accepted);
+            Assert.True(Guid.TryParseExact(
+                accepted.OperationId,
+                "D",
+                out _));
             Assert.Null(rejected);
             Assert.False(Directory.Exists(orphan));
             Assert.False(Directory.Exists(abandonedFinal));
