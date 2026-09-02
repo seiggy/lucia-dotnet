@@ -33,7 +33,7 @@ public sealed partial class ApplianceUpdateService(
             .ReadAsStreamAsync(checkToken)
             .ConfigureAwait(false);
         using var releaseDocument = await JsonDocument
-            .ParseAsync(releaseStream, cancellationToken: cancellationToken)
+            .ParseAsync(releaseStream, cancellationToken: checkToken)
             .ConfigureAwait(false);
         var releaseRoot = releaseDocument.RootElement;
         var releaseTag = releaseRoot.GetProperty("tag_name").GetString();

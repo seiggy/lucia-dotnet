@@ -216,6 +216,7 @@ restore_data_backup() {
     done
     install -m 0644 "$restore_root/redis.conf" "${redis_config_path}.new"
     mv -f "${redis_config_path}.new" "$redis_config_path"
+    sync -f "$data_root"
     if [[ -n "$previous_err_trap" ]]; then
         eval "$previous_err_trap"
     else
