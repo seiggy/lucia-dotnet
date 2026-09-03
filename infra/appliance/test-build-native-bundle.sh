@@ -142,6 +142,7 @@ test_bundle_contains_native_service_contract() {
     local recovery_shell="$output_dir/usr/libexec/lucia/lucia-recovery-shell"
     local updater="$output_dir/usr/libexec/lucia/lucia-update"
     local os_validator="$output_dir/usr/libexec/lucia/lucia-validate-os-update"
+    local manager_health="$output_dir/usr/libexec/lucia/lucia-manager-health-check"
     local os_validation_unit="$output_dir/usr/lib/systemd/system/lucia-os-update-validation.service"
     local update_recovery_unit="$output_dir/usr/lib/systemd/system/lucia-update-recovery.service"
     local recovery_sshd="$output_dir/etc/ssh/sshd_config.d/90-lucia-recovery.conf"
@@ -155,6 +156,7 @@ test_bundle_contains_native_service_contract() {
         && grep -q '^exec /usr/bin/nmtui' "$recovery_shell" \
         && [[ -x "$updater" ]] \
         && [[ -x "$os_validator" && -f "$os_validation_unit" ]] \
+        && [[ -x "$manager_health" ]] \
         && grep -q '^TimeoutStartSec=1100s$' "$os_validation_unit" \
         && grep -q '^RemainAfterExit=yes$' "$update_recovery_unit" \
         && grep -q '^RequiresMountsFor=/opt/lucia /var/lib/lucia$' \
@@ -165,6 +167,7 @@ test_bundle_contains_native_service_contract() {
         && grep -q '^    AllowTcpForwarding no$' "$recovery_sshd" \
         && ! grep -q '^m lucia-telemetry lucia$' "$sysusers" \
         && grep -q '^ExecStart=/opt/lucia/current/manager/lucia.ApplianceManager$' "$manager_unit" \
+        && grep -q '^ExecStartPost=/usr/libexec/lucia/lucia-manager-health-check$' "$manager_unit" \
         && grep -q '^Requires=lucia-update-recovery.service$' "$manager_unit" \
         && grep -q '^Requires=lucia-appliance-manager.service lucia-redis.service$' "$agent_unit" \
         && grep -q '^Requires=lucia-update-recovery.service$' "$redis_unit" \

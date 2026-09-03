@@ -18,9 +18,6 @@ public sealed class ApplianceUpdateServiceTests
         var requestedUri =
             new TaskCompletionSource<Uri>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
-        var stagingFailed =
-            new TaskCompletionSource(
-                TaskCreationOptions.RunContinuationsAsynchronously);
         using var manager = new ApplianceManagerClient(
             Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.sock"));
         var staging = new ApplianceUpdateStagingStore(
@@ -39,21 +36,6 @@ public sealed class ApplianceUpdateServiceTests
             manager,
             staging,
             NullLogger<ApplianceUpdateService>.Instance);
-        using var watcher = new FileSystemWatcher(stagingPath, "operation.json")
-        {
-            EnableRaisingEvents = true,
-            NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite,
-        };
-        void ObserveStagingStatus()
-        {
-            if (staging.GetStatus().Status == "failed")
-            {
-                stagingFailed.TrySetResult();
-            }
-        }
-        watcher.Changed += (_, _) => ObserveStagingStatus();
-        watcher.Created += (_, _) => ObserveStagingStatus();
-        watcher.Renamed += (_, _) => ObserveStagingStatus();
         try
         {
             var operation = await service.InstallAsync(
@@ -66,7 +48,9 @@ public sealed class ApplianceUpdateServiceTests
                 new Uri(
                     "https://api.github.com/repos/seiggy/lucia-dotnet/releases/tags/v1.5.0"),
                 await requestedUri.Task.WaitAsync(TimeSpan.FromSeconds(5)));
-            await stagingFailed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var stagingTask = service.StagingTask;
+            Assert.NotNull(stagingTask);
+            await stagingTask.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.Equal("failed", staging.GetStatus().Status);
         }
         finally

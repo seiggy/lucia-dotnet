@@ -69,7 +69,8 @@ data backup. Redis configuration lives under `/var/lib/lucia/redis`, so both OS
 slots use the same versioned application configuration. A rollback keeps the
 current data until the restored release passes the same persistence and CUDA
 checks. If validation fails, the updater returns to the current release and
-keeps the rollback backup.
+keeps the rollback backup. A Lucia update remains recoverable until the
+restarted appliance manager binds its socket and finalizes the transaction.
 
 OS updates stream the selected raw images directly to the inactive `APP`,
 kernel, and device-tree partitions. NVIDIA rootfs A/B selects the new slot for

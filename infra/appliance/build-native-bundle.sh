@@ -185,7 +185,8 @@ chmod 0755 \
     "$release_dir/manager/lucia.ApplianceManager" \
     "$release_dir/redis/bin/redis-server" \
     "$output_dir/usr/libexec/lucia/lucia-update" \
-    "$output_dir/usr/libexec/lucia/lucia-validate-os-update"
+    "$output_dir/usr/libexec/lucia/lucia-validate-os-update" \
+    "$output_dir/usr/libexec/lucia/lucia-manager-health-check"
 chmod 0640 "$output_dir/var/lib/lucia/config/lucia.env"
 chmod 0640 "$output_dir/var/lib/lucia/redis/redis.conf"
 chmod 0644 \

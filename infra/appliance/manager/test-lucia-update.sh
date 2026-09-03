@@ -282,6 +282,9 @@ rm "$work/fail-manager-validation"
 write_manifest lucia v1.1.0 1.1.0 "$work/lucia.tar.zst"
 
 run_update apply lucia v1.1.0
+grep -qx 'phase=manager-pending' "$work/updates/state/lucia.env"
+run_update finalize lucia
+grep -qx 'phase=committed' "$work/updates/state/lucia.env"
 [[ "$(stat --format '%a' "$work/updates/state/lucia.env")" == "600" ]]
 [[ "$(readlink "$work/current")" == "releases/1.1.0" ]]
 grep -qx 'new-app' "$work/releases/1.1.0/app/version"
@@ -397,13 +400,18 @@ cp "$work/lucia-payload/var/lib/lucia/plugins/official.plugin" "$work/lucia-payl
 tar -I zstd -cf "$work/lucia-recover.tar.zst" -C "$work/lucia-payload-recover" .
 write_manifest lucia v1.1.1 1.1.1 "$work/lucia-recover.tar.zst"
 run_update apply lucia v1.1.1
+grep -qx 'phase=manager-pending' "$work/updates/state/lucia.env"
+printf '{"Action":"apply","Channel":"lucia","Status":"succeeded","Tag":"v1.1.1","Message":null}\n' \
+    > "$work/updates/state/operation.json"
 printf 'interrupted-db\n' > "$work/data/db/lucia.db"
 mkdir -p "$work/updates/work/input-orphan-v9.9.9"
-sed -i 's/^phase=committed$/phase=switched/' "$work/updates/state/lucia.env"
 run_update recover lucia
 [[ "$(readlink "$work/current")" == "releases/1.0.0" ]]
 grep -qx 'old-db' "$work/data/db/lucia.db"
 [[ ! -e "$work/updates/work/input-orphan-v9.9.9" ]]
+grep -q '"Status":"failed"' "$work/updates/state/operation.json"
+grep -q 'manager failed startup validation' \
+    "$work/updates/state/operation.json"
 
 echo "PASS: startup recovery reverses an interrupted Lucia transaction"
 

@@ -11,6 +11,7 @@ Type=simple
 User=root
 Group=lucia
 ExecStart=/opt/lucia/current/manager/lucia.ApplianceManager
+ExecStartPost=/usr/libexec/lucia/lucia-manager-health-check
 Environment=LUCIA_APPLIANCE_SOCKET=/run/lucia-appliance/appliance-manager.sock
 RuntimeDirectory=lucia-appliance
 RuntimeDirectoryMode=0750

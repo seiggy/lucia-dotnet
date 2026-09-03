@@ -448,7 +448,8 @@ public sealed partial class ApplianceUpdateCoordinator
     {
         var state = Path.Combine(_statePath, "lucia.env");
         if (!File.Exists(state)
-            || File.ReadLines(state).Any(line => line == "phase=committed"))
+            || File.ReadLines(state).Any(
+                line => line is "phase=committed" or "phase=manager-pending"))
         {
             return;
         }

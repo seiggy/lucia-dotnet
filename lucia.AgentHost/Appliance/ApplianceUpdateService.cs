@@ -17,6 +17,8 @@ public sealed partial class ApplianceUpdateService(
     private const string OnnxRuntimeVersion = "1.23.2";
     private const string SherpaOnnxVersion = "1.12.34";
     private readonly SemaphoreSlim _transitionGate = new(1, 1);
+    internal Task? StagingTask { get; private set; }
+
     public async Task<ApplianceUpdateStatus> CheckAsync(
         CancellationToken cancellationToken)
     {
@@ -220,7 +222,7 @@ public sealed partial class ApplianceUpdateService(
             var accepted = staging.TryStart(channel, tag)
                 ?? throw new InvalidOperationException(
                     "Another appliance update is already being staged.");
-            _ = Task.Run(() => RunStagingAsync(channel, tag));
+            StagingTask = Task.Run(() => RunStagingAsync(channel, tag));
             return accepted;
         }
         finally
@@ -503,6 +505,14 @@ public sealed partial class ApplianceUpdateService(
                 stagingStatus.Status == "failed" ? null : operationId,
                 cancellationToken)
             .ConfigureAwait(false);
+        var currentStagingStatus = staging.GetStatus();
+        if (currentStagingStatus.Action != stagingStatus.Action
+            || currentStagingStatus.Status != stagingStatus.Status
+            || currentStagingStatus.OperationId != stagingStatus.OperationId)
+        {
+            return await GetOperationAsync(cancellationToken, operationId)
+                .ConfigureAwait(false);
+        }
         if (stagingStatus is { Action: "handoff", Status: "running" })
         {
             if (staging.IsHandoffRequestActive)

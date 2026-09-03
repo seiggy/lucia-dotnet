@@ -8,7 +8,7 @@ die() {
 }
 
 [[ $# -ge 2 ]] \
-    || die "usage: lucia-update <apply|rollback> <lucia|os> [tag] | recover lucia"
+    || die "usage: lucia-update <apply|rollback> <lucia|os> [tag] | <recover|finalize> lucia"
 
 action="$1"
 channel="$2"
@@ -96,6 +96,41 @@ write_lucia_state() {
         > "$temporary"
     sync -f "$temporary"
     mv -f "$temporary" "$state_dir/lucia.env"
+    sync -f "$state_dir"
+}
+
+write_lucia_recovery_failure() {
+    local operation="$state_dir/operation.json"
+    [[ -f "$operation" && ! -L "$operation" ]] || return 0
+    python3 - "$operation" <<'PY'
+import json
+import os
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+status = json.loads(path.read_text(encoding="utf-8"))
+status_key = "Status" if "Status" in status else "status"
+message_key = "Message" if "Message" in status else "message"
+status[status_key] = "failed"
+status[message_key] = (
+    "The new appliance manager failed startup validation; "
+    "the previous Lucia release was restored."
+)
+temporary = path.with_suffix(path.suffix + ".tmp")
+descriptor = os.open(
+    temporary,
+    os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_CLOEXEC,
+    0o600,
+)
+with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+    json.dump(status, stream, separators=(",", ":"))
+    stream.write("\n")
+    stream.flush()
+    os.fsync(stream.fileno())
+os.replace(temporary, path)
+PY
+    sync -f "$operation"
     sync -f "$state_dir"
 }
 
@@ -775,26 +810,61 @@ apply_lucia() {
     sync -f "$releases_dir"
     sync -f "$(dirname "$current_link")"
     write_lucia_state \
-        committed "$previous_target" "releases/$version" "$backup" "$validation_token"
-    rm -f "$previous_state"
-    sync -f "$state_dir"
+        manager-pending "$previous_target" "releases/$version" "$backup" "$validation_token"
     rm -f "$validation_credential_path"
-    for release in "$releases_dir"/*; do
-        [[ -d "$release" ]] || continue
-        [[ "$(basename "$release")" == "$version" \
-            || "$(basename "$release")" == "${previous_target#releases/}" ]] \
-            || rm -rf "$release"
-    done
-    for old_backup in "$backups_dir"/lucia-v*.tar.zst; do
-        [[ -e "$old_backup" && "$old_backup" != "$backup" ]] \
-            && rm -f "$old_backup"
-    done
-    sync -f "$releases_dir"
-    sync -f "$backups_dir"
     trap - ERR
     rm -rf "$update_root/staging/$selected_tag"
     rm -rf "$extract_dir" "$parts_list" "$input_dir"
     trap - EXIT
+}
+
+finalize_lucia() {
+    local state="$state_dir/lucia.env"
+    local phase
+    local previous
+    local current
+    local backup
+    local backup_real
+    local backups_real
+    local validation_token
+    local release
+    local old_backup
+
+    [[ -f "$state" ]] || return 0
+    phase="$(sed -n 's/^phase=//p' "$state")"
+    [[ "$phase" == "committed" ]] && return 0
+    [[ "$phase" == "manager-pending" ]] \
+        || die "Lucia update is not awaiting manager validation"
+    previous="$(sed -n 's/^previous=//p' "$state")"
+    current="$(sed -n 's/^current=//p' "$state")"
+    backup="$(sed -n 's/^backup=//p' "$state")"
+    validation_token="$(sed -n 's/^validation_token=//p' "$state")"
+    backup_real="$(realpath -e "$backup")"
+    backups_real="$(realpath -e "$backups_dir")"
+    [[ "$previous" =~ ^releases/[0-9A-Za-z._-]+$ \
+        && "$current" =~ ^releases/[0-9A-Za-z._-]+$ \
+        && "$validation_token" =~ ^[0-9a-fA-F-]{36}$ \
+        && "$(readlink "$current_link")" == "$current" \
+        && -d "$releases_dir/${previous#releases/}" \
+        && -d "$releases_dir/${current#releases/}" \
+        && "$backup_real" == "$backups_real/"* ]] \
+        || die "manager-pending Lucia state is invalid"
+    write_lucia_state \
+        committed "$previous" "$current" "$backup_real" "$validation_token"
+    rm -f "$state_dir/lucia.previous.env"
+    for release in "$releases_dir"/*; do
+        [[ -d "$release" ]] || continue
+        [[ "$(basename "$release")" == "${current#releases/}" \
+            || "$(basename "$release")" == "${previous#releases/}" ]] \
+            || rm -rf "$release"
+    done
+    for old_backup in "$backups_dir"/lucia-v*.tar.zst; do
+        [[ -e "$old_backup" && "$old_backup" != "$backup_real" ]] \
+            && rm -f "$old_backup"
+    done
+    sync -f "$state_dir"
+    sync -f "$releases_dir"
+    sync -f "$backups_dir"
 }
 
 rollback_lucia() {
@@ -887,6 +957,7 @@ recover_lucia() {
     local validation_token
     local previous_state="$state_dir/lucia.previous.env"
     local old_root="$work_dir/replaced-data"
+    local manager_pending=false
     rm -rf "$work_dir"/input-* "$work_dir"/*.parts
     if [[ ! -f "$state" ]]; then
         rm -f "$validation_credential_path"
@@ -897,6 +968,7 @@ recover_lucia() {
         rm -f "$validation_credential_path"
         exit 0
     fi
+    [[ "$phase" == "manager-pending" ]] && manager_pending=true
     previous="$(sed -n 's/^previous=//p' "$state")"
     current="$(sed -n 's/^current=//p' "$state")"
     validation_token="$(sed -n 's/^validation_token=//p' "$state")"
@@ -944,6 +1016,9 @@ recover_lucia() {
     fi
     rm -f "$validation_credential_path" || return
     sync -f "$state_dir" || return
+    if [[ "$manager_pending" == true ]]; then
+        write_lucia_recovery_failure || return
+    fi
 }
 
 apply_os() {
@@ -1216,6 +1291,9 @@ case "$action:$channel" in
     apply:lucia)
         [[ -n "$tag" ]] || die "apply requires a release tag"
         apply_lucia "$tag"
+        ;;
+    finalize:lucia)
+        finalize_lucia
         ;;
     rollback:lucia)
         rollback_lucia

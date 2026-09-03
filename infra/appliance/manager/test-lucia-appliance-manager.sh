@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 manager_project="$repo_root/lucia.ApplianceManager/lucia.ApplianceManager.csproj"
+manager_health="$repo_root/infra/appliance/rootfs/usr/libexec/lucia/lucia-manager-health-check"
 work_dir="$(mktemp -d)"
 socket_path="$work_dir/appliance-manager.sock"
 systemctl_log="$work_dir/systemctl.log"
@@ -227,6 +228,39 @@ grep -qx 'recover lucia' "$update_log"
 [[ "$(stat --format '%a' "$work_dir/updates/state/operation.json")" == "600" ]]
 
 echo "PASS: interrupted inactive-slot writes recover to a retryable state"
+
+LUCIA_APPLIANCE_SOCKET="$socket_path" \
+LUCIA_CURL_PATH="$(command -v curl)" \
+LUCIA_UPDATE_PATH="$work_dir/lucia-update" \
+LUCIA_SYSTEMCTL_PATH="$work_dir/systemctl" \
+LUCIA_TEST_UPDATE_LOG="$update_log" \
+LUCIA_TEST_SYSTEMCTL_LOG="$systemctl_log" \
+LUCIA_MANAGER_HEALTH_ATTEMPTS=1 \
+LUCIA_MANAGER_HEALTH_DELAY_SECONDS=0 \
+    bash <(sed 's/\r$//' "$manager_health")
+grep -qx 'finalize lucia' "$update_log"
+cat > "$work_dir/curl-failure" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod +x "$work_dir/curl-failure"
+if LUCIA_APPLIANCE_SOCKET="$socket_path" \
+        LUCIA_CURL_PATH="$work_dir/curl-failure" \
+        LUCIA_UPDATE_PATH="$work_dir/lucia-update" \
+        LUCIA_SYSTEMCTL_PATH="$work_dir/systemctl" \
+        LUCIA_TEST_UPDATE_LOG="$update_log" \
+        LUCIA_TEST_SYSTEMCTL_LOG="$systemctl_log" \
+        LUCIA_MANAGER_HEALTH_ATTEMPTS=1 \
+        LUCIA_MANAGER_HEALTH_DELAY_SECONDS=0 \
+        bash <(sed 's/\r$//' "$manager_health"); then
+    echo "Failed manager health was accepted" >&2
+    exit 1
+fi
+grep -qx 'recover lucia' "$update_log"
+grep -qx 'stop lucia-agenthost.service lucia-redis.service' "$systemctl_log"
+: > "$update_log"
+
+echo "PASS: manager startup finalizes or recovers pending Lucia updates"
 
 echo "PASS: status reports the appliance and allowlisted services"
 
