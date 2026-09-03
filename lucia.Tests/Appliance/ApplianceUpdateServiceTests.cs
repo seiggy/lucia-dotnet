@@ -232,7 +232,7 @@ public sealed class ApplianceUpdateServiceTests
                 {
                     requestedUris.Add(request.RequestUri!);
                     var body = request.RequestUri == new Uri(
-                        "https://api.github.com/repos/seiggy/lucia-dotnet/releases?per_page=10")
+                        "https://api.github.com/repos/seiggy/lucia-dotnet/releases?per_page=100&page=1")
                         ? """
                           [{"tag_name":"v1.3.0","html_url":"https://github.com/seiggy/lucia-dotnet/releases/tag/v1.3.0","draft":false,"prerelease":false,"assets":[{"name":"lucia-appliance-manifest.json","browser_download_url":"https://github.com/seiggy/lucia-dotnet/releases/download/v1.3.0/lucia-appliance-manifest.json"},{"name":"lucia-appliance-attestations.jsonl","browser_download_url":"https://github.com/seiggy/lucia-dotnet/releases/download/v1.3.0/lucia-appliance-attestations.jsonl"}]}]
                           """
@@ -299,7 +299,7 @@ public sealed class ApplianceUpdateServiceTests
             }
             Assert.Equal(
                 [
-                    new Uri("https://api.github.com/repos/seiggy/lucia-dotnet/releases?per_page=10"),
+                    new Uri("https://api.github.com/repos/seiggy/lucia-dotnet/releases?per_page=100&page=1"),
                     new Uri("https://github.com/seiggy/lucia-dotnet/releases/download/v1.3.0/lucia-appliance-manifest.json"),
                 ],
                 requestedUris);
@@ -365,13 +365,32 @@ public sealed class ApplianceUpdateServiceTests
                 {
                     requestedUris.Add(request.RequestUri!);
                     if (request.RequestUri == new Uri(
-                        "https://api.github.com/repos/seiggy/lucia-dotnet/releases?per_page=10"))
+                        "https://api.github.com/repos/seiggy/lucia-dotnet/releases?per_page=100&page=1"))
+                    {
+                        const string LatestRelease =
+                            """
+                            {"tag_name":"v1.3.0","html_url":"https://github.com/seiggy/lucia-dotnet/releases/tag/v1.3.0","draft":false,"prerelease":false,"assets":[{"name":"lucia-appliance-manifest.json","browser_download_url":"https://github.com/seiggy/lucia-dotnet/releases/download/v1.3.0/lucia-appliance-manifest.json"},{"name":"lucia-appliance-attestations.jsonl","browser_download_url":"https://github.com/seiggy/lucia-dotnet/releases/download/v1.3.0/lucia-appliance-attestations.jsonl"}]}
+                            """;
+                        var releases = $"[{LatestRelease},{string.Join(
+                            ',',
+                            Enumerable.Range(0, 99).Select(
+                                index => $$"""{"tag_name":"invalid-{{index}}"}"""))}]";
+                        return new HttpResponseMessage(HttpStatusCode.OK)
+                        {
+                            Content = new StringContent(
+                                releases,
+                                Encoding.UTF8,
+                                "application/json"),
+                        };
+                    }
+                    if (request.RequestUri == new Uri(
+                        "https://api.github.com/repos/seiggy/lucia-dotnet/releases?per_page=100&page=2"))
                     {
                         return new HttpResponseMessage(HttpStatusCode.OK)
                         {
                             Content = new StringContent(
                                 """
-                                [{"tag_name":"v1.3.0","html_url":"https://github.com/seiggy/lucia-dotnet/releases/tag/v1.3.0","draft":false,"prerelease":false,"assets":[{"name":"lucia-appliance-manifest.json","browser_download_url":"https://github.com/seiggy/lucia-dotnet/releases/download/v1.3.0/lucia-appliance-manifest.json"},{"name":"lucia-appliance-attestations.jsonl","browser_download_url":"https://github.com/seiggy/lucia-dotnet/releases/download/v1.3.0/lucia-appliance-attestations.jsonl"}]},{"tag_name":"v1.2.6","html_url":"https://github.com/seiggy/lucia-dotnet/releases/tag/v1.2.6","draft":false,"prerelease":false,"assets":[{"name":"lucia-appliance-manifest.json","browser_download_url":"https://github.com/seiggy/lucia-dotnet/releases/download/v1.2.6/lucia-appliance-manifest.json"},{"name":"lucia-appliance-attestations.jsonl","browser_download_url":"https://github.com/seiggy/lucia-dotnet/releases/download/v1.2.6/lucia-appliance-attestations.jsonl"}]}]
+                                [{"tag_name":"v1.2.6","html_url":"https://github.com/seiggy/lucia-dotnet/releases/tag/v1.2.6","draft":false,"prerelease":false,"assets":[{"name":"lucia-appliance-manifest.json","browser_download_url":"https://github.com/seiggy/lucia-dotnet/releases/download/v1.2.6/lucia-appliance-manifest.json"},{"name":"lucia-appliance-attestations.jsonl","browser_download_url":"https://github.com/seiggy/lucia-dotnet/releases/download/v1.2.6/lucia-appliance-attestations.jsonl"}]}]
                                 """,
                                 Encoding.UTF8,
                                 "application/json"),
@@ -412,8 +431,9 @@ public sealed class ApplianceUpdateServiceTests
             Assert.Equal("v1.2.6", result.ReleaseTag);
             Assert.Equal(
                 [
-                    new Uri("https://api.github.com/repos/seiggy/lucia-dotnet/releases?per_page=10"),
+                    new Uri("https://api.github.com/repos/seiggy/lucia-dotnet/releases?per_page=100&page=1"),
                     new Uri("https://github.com/seiggy/lucia-dotnet/releases/download/v1.3.0/lucia-appliance-manifest.json"),
+                    new Uri("https://api.github.com/repos/seiggy/lucia-dotnet/releases?per_page=100&page=2"),
                     new Uri("https://github.com/seiggy/lucia-dotnet/releases/download/v1.2.6/lucia-appliance-manifest.json"),
                 ],
                 requestedUris);

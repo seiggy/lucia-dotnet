@@ -10,9 +10,7 @@ public sealed partial class ApplianceUpdateService(
     ILogger<ApplianceUpdateService> logger,
     string? runtimeInfoPath = null) : IDisposable
 {
-    private const int ReleaseListLimit = 10;
-    private static readonly Uri s_releaseApi = new(
-        $"https://api.github.com/repos/seiggy/lucia-dotnet/releases?per_page={ReleaseListLimit}");
+    private const int ReleasePageSize = 100;
     private readonly string _runtimeInfoPath = runtimeInfoPath
         ?? Environment.GetEnvironmentVariable("LUCIA_RUNTIME_INFO_PATH")
         ?? "/etc/lucia/appliance-runtime.json";
@@ -28,74 +26,83 @@ public sealed partial class ApplianceUpdateService(
         var checkToken = timeout.Token;
         var current = await manager.GetStatusAsync(checkToken)
             .ConfigureAwait(false);
-        using var releaseResponse = await httpClient
-            .GetAsync(s_releaseApi, checkToken)
-            .ConfigureAwait(false);
-        releaseResponse.EnsureSuccessStatusCode();
-        await using var releaseStream = await releaseResponse.Content
-            .ReadAsStreamAsync(checkToken)
-            .ConfigureAwait(false);
-        using var releaseDocument = await JsonDocument
-            .ParseAsync(releaseStream, cancellationToken: checkToken)
-            .ConfigureAwait(false);
-
         ApplianceUpdateStatus? latestStableStatus = null;
-        foreach (var releaseRoot in releaseDocument.RootElement.EnumerateArray())
+        for (var page = 1; ; page++)
         {
-            if (releaseRoot.TryGetProperty("draft", out var draft)
-                && draft.ValueKind == JsonValueKind.True)
+            var releaseApi = new Uri(
+                $"https://api.github.com/repos/seiggy/lucia-dotnet/releases?per_page={ReleasePageSize}&page={page}");
+            using var releaseResponse = await httpClient
+                .GetAsync(releaseApi, checkToken)
+                .ConfigureAwait(false);
+            releaseResponse.EnsureSuccessStatusCode();
+            await using var releaseStream = await releaseResponse.Content
+                .ReadAsStreamAsync(checkToken)
+                .ConfigureAwait(false);
+            using var releaseDocument = await JsonDocument
+                .ParseAsync(releaseStream, cancellationToken: checkToken)
+                .ConfigureAwait(false);
+            var releases = releaseDocument.RootElement;
+            foreach (var releaseRoot in releases.EnumerateArray())
             {
-                continue;
-            }
-            if (releaseRoot.TryGetProperty("prerelease", out var prerelease)
-                && prerelease.ValueKind == JsonValueKind.True)
-            {
-                continue;
-            }
-            var releaseTag = releaseRoot.TryGetProperty(
-                "tag_name",
-                out var tagElement)
-                ? tagElement.GetString()
-                : null;
-            if (!IsStableReleaseTag(releaseTag))
-            {
-                continue;
-            }
+                if (releaseRoot.TryGetProperty("draft", out var draft)
+                    && draft.ValueKind == JsonValueKind.True)
+                {
+                    continue;
+                }
+                if (releaseRoot.TryGetProperty("prerelease", out var prerelease)
+                    && prerelease.ValueKind == JsonValueKind.True)
+                {
+                    continue;
+                }
+                var releaseTag = releaseRoot.TryGetProperty(
+                    "tag_name",
+                    out var tagElement)
+                    ? tagElement.GetString()
+                    : null;
+                if (!IsStableReleaseTag(releaseTag))
+                {
+                    continue;
+                }
 
-            ApplianceUpdateStatus? status;
-            try
-            {
-                status = await TryEvaluateReleaseAsync(
-                    current,
-                    releaseRoot,
-                    releaseTag,
-                    checkToken)
-                    .ConfigureAwait(false);
+                ApplianceUpdateStatus? status;
+                try
+                {
+                    status = await TryEvaluateReleaseAsync(
+                        current,
+                        releaseRoot,
+                        releaseTag,
+                        checkToken)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception exception) when (
+                    exception is InvalidDataException
+                        or InvalidOperationException
+                        or KeyNotFoundException
+                        or JsonException
+                        or FormatException
+                        or OverflowException)
+                {
+                    continue;
+                }
+                if (status is null)
+                {
+                    continue;
+                }
+                latestStableStatus ??= status;
+                if (status.LuciaUpdateAvailable || status.OsUpdateAvailable)
+                {
+                    return status;
+                }
+                if (status.Compatible
+                    && !status.LuciaNewerDiscovered
+                    && !status.OsNewerDiscovered)
+                {
+                    return status;
+                }
             }
-            catch (Exception exception) when (
-                exception is InvalidDataException
-                    or InvalidOperationException
-                    or KeyNotFoundException
-                    or JsonException
-                    or FormatException
-                    or OverflowException)
+            if (releases.GetArrayLength() < ReleasePageSize)
             {
-                continue;
-            }
-            if (status is null)
-            {
-                continue;
-            }
-            latestStableStatus ??= status;
-            if (status.LuciaUpdateAvailable || status.OsUpdateAvailable)
-            {
-                return status;
-            }
-            if (status.Compatible
-                && !status.LuciaNewerDiscovered
-                && !status.OsNewerDiscovered)
-            {
-                return status;
+                break;
             }
         }
 

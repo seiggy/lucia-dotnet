@@ -33,7 +33,7 @@ Ubuntu or NVIDIA package indexes.
 The updater requests:
 
 ```text
-https://api.github.com/repos/seiggy/lucia-dotnet/releases?per_page=10
+https://api.github.com/repos/seiggy/lucia-dotnet/releases?per_page=100&page=1
 ```
 
 It ignores a release until the release contains
@@ -62,9 +62,9 @@ The updater downloads parts in manifest order, verifies every part's GitHub
 attestation and hash, then verifies the complete compressed stream against the
 digest in the attested manifest before writing it.
 
-Update discovery checks the ten newest stable releases and selects the newest
-one compatible with the appliance's active runtime. This keeps bridge releases
-available after a runtime change.
+Update discovery pages through stable releases from newest to oldest and selects
+the first one compatible with the appliance's active runtime. This keeps bridge
+releases available after a long offline period.
 
 Lucia updates stop AgentHost and Redis, back up configuration, SQLite, and Redis
 data, install the new version under `/opt/lucia/releases`, and atomically switch

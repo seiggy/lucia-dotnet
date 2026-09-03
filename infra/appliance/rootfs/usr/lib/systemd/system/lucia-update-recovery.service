@@ -8,6 +8,7 @@ Type=oneshot
 RemainAfterExit=yes
 User=root
 ExecStart=/usr/libexec/lucia/lucia-update recover lucia
+TimeoutStartSec=1800s
 ReadWritePaths=/etc/lucia /opt/lucia /var/lib/lucia
 NoNewPrivileges=true
 CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH CAP_FOWNER

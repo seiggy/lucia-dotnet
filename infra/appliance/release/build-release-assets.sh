@@ -247,12 +247,8 @@ sudo "$repo_root/infra/appliance/build-native-bundle.sh" \
     --otelcol "$telemetry_dir/otelcol/otelcol-contrib" \
     --redis-exporter "$telemetry_dir/redis-exporter/redis_exporter" \
     --output-dir "$bundle_root"
-sudo python3 - "$bundle_root/etc/lucia/appliance-runtime.json" \
-    "$TARGET_REDIS_VERSION" \
-    "$TARGET_CUDA_VERSION" \
-    "$TARGET_CUDNN_VERSION" \
-    "$TARGET_ONNX_RUNTIME_VERSION" \
-    "$TARGET_SHERPA_ONNX_VERSION" <<'PY'
+write_runtime_metadata() {
+    sudo python3 - "$bundle_root/etc/lucia/appliance-runtime.json" "$@" <<'PY'
 import json
 import pathlib
 import sys
@@ -275,6 +271,13 @@ path.write_text(
     encoding="utf-8",
 )
 PY
+}
+write_runtime_metadata \
+    "$LUCIA_TARGET_REDIS_VERSION" \
+    "$LUCIA_TARGET_CUDA_VERSION" \
+    "$LUCIA_TARGET_CUDNN_VERSION" \
+    "$LUCIA_TARGET_ONNX_RUNTIME_VERSION" \
+    "$LUCIA_TARGET_SHERPA_ONNX_VERSION"
 sudo chown -R root:root "$bundle_root"
 sudo chown -R 1100:1100 "$bundle_root/var/lib/lucia"
 sudo chown root:root "$bundle_root/var/lib/lucia"
@@ -291,6 +294,12 @@ sudo tar --numeric-owner --sort=name \
     .
 sudo chown "$(id -u):$(id -g)" \
     "$raw_dir/lucia-appliance-${version}-lucia.tar.zst"
+write_runtime_metadata \
+    "$OS_TARGET_REDIS_VERSION" \
+    "$OS_TARGET_CUDA_VERSION" \
+    "$OS_TARGET_CUDNN_VERSION" \
+    "$OS_TARGET_ONNX_RUNTIME_VERSION" \
+    "$OS_TARGET_SHERPA_ONNX_VERSION"
 
 prepare_bsp() {
     local destination="$1"

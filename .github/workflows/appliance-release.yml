@@ -157,12 +157,18 @@ jobs:
             --os-source-cudnn "$OS_SOURCE_CUDNN_VERSION" \
             --os-source-onnx-runtime "$OS_SOURCE_ONNX_RUNTIME_VERSION" \
             --os-source-sherpa-onnx "$OS_SOURCE_SHERPA_ONNX_VERSION" \
-            --target-jetson-linux "$TARGET_JETSON_LINUX_VERSION" \
-            --target-redis "$TARGET_REDIS_VERSION" \
-            --target-cuda "$TARGET_CUDA_VERSION" \
-            --target-cudnn "$TARGET_CUDNN_VERSION" \
-            --target-onnx-runtime "$TARGET_ONNX_RUNTIME_VERSION" \
-            --target-sherpa-onnx "$TARGET_SHERPA_ONNX_VERSION" \
+            --lucia-target-jetson-linux "$LUCIA_TARGET_JETSON_LINUX_VERSION" \
+            --lucia-target-redis "$LUCIA_TARGET_REDIS_VERSION" \
+            --lucia-target-cuda "$LUCIA_TARGET_CUDA_VERSION" \
+            --lucia-target-cudnn "$LUCIA_TARGET_CUDNN_VERSION" \
+            --lucia-target-onnx-runtime "$LUCIA_TARGET_ONNX_RUNTIME_VERSION" \
+            --lucia-target-sherpa-onnx "$LUCIA_TARGET_SHERPA_ONNX_VERSION" \
+            --os-target-jetson-linux "$OS_TARGET_JETSON_LINUX_VERSION" \
+            --os-target-redis "$OS_TARGET_REDIS_VERSION" \
+            --os-target-cuda "$OS_TARGET_CUDA_VERSION" \
+            --os-target-cudnn "$OS_TARGET_CUDNN_VERSION" \
+            --os-target-onnx-runtime "$OS_TARGET_ONNX_RUNTIME_VERSION" \
+            --os-target-sherpa-onnx "$OS_TARGET_SHERPA_ONNX_VERSION" \
             --output-dir dist/release
 
       - name: Attest release assets

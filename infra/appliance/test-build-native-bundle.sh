@@ -159,6 +159,7 @@ test_bundle_contains_native_service_contract() {
         && [[ -x "$manager_health" ]] \
         && grep -q '^TimeoutStartSec=1100s$' "$os_validation_unit" \
         && grep -q '^RemainAfterExit=yes$' "$update_recovery_unit" \
+        && grep -q '^TimeoutStartSec=1800s$' "$update_recovery_unit" \
         && grep -q '^RequiresMountsFor=/opt/lucia /var/lib/lucia$' \
             "$update_recovery_unit" \
         && grep -q '^Match User lucia-recovery$' "$recovery_sshd" \

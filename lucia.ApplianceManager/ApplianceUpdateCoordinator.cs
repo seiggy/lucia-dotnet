@@ -302,12 +302,29 @@ public sealed partial class ApplianceUpdateCoordinator
                 or UnauthorizedAccessException
                 or AggregateException)
         {
+            Exception failure = exception;
+            if (channel == "lucia" && IsLuciaManagerPending())
+            {
+                try
+                {
+                    RecoverPendingLuciaUpdate();
+                }
+                catch (Exception recoveryException) when (
+                    recoveryException is InvalidOperationException
+                        or Win32Exception)
+                {
+                    failure = new AggregateException(
+                        "The manager restart and Lucia recovery both failed.",
+                        exception,
+                        recoveryException);
+                }
+            }
             var failed = new UpdateOperationStatus(
                 action,
                 channel,
                 "failed",
                 tag,
-                exception.Message,
+                failure.Message,
                 OperationId: operationId);
             try
             {
@@ -587,5 +604,55 @@ public sealed partial class ApplianceUpdateCoordinator
             return false;
         }
         return !File.ReadLines(path).Any(line => line == "phase=committed");
+    }
+
+    private bool IsLuciaManagerPending()
+    {
+        var path = Path.Combine(_statePath, "lucia.env");
+        return File.Exists(path)
+            && File.ReadLines(path).Any(line => line == "phase=manager-pending");
+    }
+
+    private void RecoverPendingLuciaUpdate()
+    {
+        RunCommand(
+            _systemctlPath,
+            "stop",
+            "lucia-agenthost.service",
+            "lucia-redis.service");
+        try
+        {
+            RunCommand(_updaterPath, "recover", "lucia");
+        }
+        finally
+        {
+            RunCommand(
+                _systemctlPath,
+                "start",
+                "lucia-redis.service",
+                "lucia-agenthost.service");
+        }
+    }
+
+    private static void RunCommand(string fileName, params string[] arguments)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = fileName,
+            UseShellExecute = false,
+        };
+        foreach (var argument in arguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException(
+                $"Failed to start {Path.GetFileName(fileName)}.");
+        process.WaitForExit();
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"{Path.GetFileName(fileName)} exited with code {process.ExitCode}.");
+        }
     }
 }
