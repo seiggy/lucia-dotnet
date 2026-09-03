@@ -265,6 +265,7 @@ grep -qx -- '--no-block start lucia-redis.service lucia-agenthost.service' \
 echo "PASS: manager startup finalizes or recovers pending Lucia updates"
 
 printf 'phase=manager-pending\n' > "$work_dir/updates/state/lucia.env"
+printf 'status=validated\n' > "$work_dir/updates/state/os.env"
 status="$(
     curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
         --unix-socket "$socket_path" \
@@ -274,7 +275,17 @@ status="$(
         http://localhost/v1/updates/lucia/apply
 )"
 [[ "$status" == "409" ]]
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
+        --header 'Content-Type: application/json' \
+        --request POST \
+        --data '{"tag":null}' \
+        http://localhost/v1/updates/os/rollback
+)"
+[[ "$status" == "409" ]]
 rm "$work_dir/updates/state/lucia.env"
+printf 'status=failed\n' > "$work_dir/updates/state/os.env"
 
 echo "PASS: unfinished Lucia transactions block overlapping updates"
 

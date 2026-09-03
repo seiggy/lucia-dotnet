@@ -168,6 +168,7 @@ test_bundle_contains_native_service_contract() {
         && ! grep -q '^m lucia-telemetry lucia$' "$sysusers" \
         && grep -q '^ExecStart=/opt/lucia/current/manager/lucia.ApplianceManager$' "$manager_unit" \
         && grep -q '^ExecStartPost=/usr/libexec/lucia/lucia-manager-health-check$' "$manager_unit" \
+        && grep -q '^TimeoutStartSec=1800s$' "$manager_unit" \
         && grep -q '^Requires=lucia-update-recovery.service$' "$manager_unit" \
         && grep -q '^Requires=lucia-appliance-manager.service lucia-redis.service$' "$agent_unit" \
         && grep -q '^Requires=lucia-update-recovery.service$' "$redis_unit" \

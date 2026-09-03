@@ -155,6 +155,15 @@ public sealed class ApplianceUpdateServiceTests
         true,
         false,
         false)]
+    [InlineData(
+        "jetson-orin-nano-super-p3767-0005",
+        "99.0.0",
+        "1.3.0",
+        "1.1.0",
+        true,
+        false,
+        false,
+        false)]
     public async Task CheckAsync_ReportsUpdatesIndependentlyOfCompatibility(
         string board,
         string jetsonLinux,
@@ -277,6 +286,10 @@ public sealed class ApplianceUpdateServiceTests
                 Assert.Contains("ready", result.Message);
             }
             else if (!expectedLuciaCompatible && !expectedOsCompatible)
+            {
+                Assert.Contains("No compatible newer", result.Message);
+            }
+            else if (result.LuciaNewerDiscovered || result.OsNewerDiscovered)
             {
                 Assert.Contains("No compatible newer", result.Message);
             }

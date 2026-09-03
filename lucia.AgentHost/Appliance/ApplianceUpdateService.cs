@@ -103,9 +103,6 @@ public sealed partial class ApplianceUpdateService(
         {
             return latestStableStatus with
             {
-                Compatible = false,
-                LuciaCompatible = false,
-                OsCompatible = false,
                 LuciaUpdateAvailable = false,
                 OsUpdateAvailable = false,
                 Message = "No compatible newer appliance release was found for this device.",

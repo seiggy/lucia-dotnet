@@ -140,7 +140,9 @@ public sealed partial class ApplianceUpdateCoordinator
             lock (_gate)
             {
                 RefreshStatusUnsafe();
-                return !_isUpdaterRunning && IsOsRollbackAvailable();
+                return !_isUpdaterRunning
+                    && !IsLuciaTransitionInProgress()
+                    && IsOsRollbackAvailable();
             }
         }
     }
@@ -174,6 +176,7 @@ public sealed partial class ApplianceUpdateCoordinator
                 return UpdateStartResult.RollbackUnavailable;
             }
             var isAllowedOsRollback = !_isUpdaterRunning
+                && !IsLuciaTransitionInProgress()
                 && action == "rollback"
                 && channel == "os"
                 && IsOsRollbackAvailable();
