@@ -1116,8 +1116,11 @@ rollback_os() {
     local target_slot
     local status
     local previous_operation_id
+    local previous_validation_token
     local had_operation_id=false
     local rollback_operation_id
+    local rollback_validation_token
+    local validation_credential
     local temporary="$state_dir/os.env.tmp"
     [[ -f "$state" ]] || die "no OS rollback is available"
     status="$(sed -n 's/^status=//p' "$state")"
@@ -1133,7 +1136,13 @@ rollback_os() {
         had_operation_id=true
     fi
     previous_operation_id="$(sed -n 's/^operation_id=//p' "$state")"
+    previous_validation_token="$(sed -n 's/^validation_token=//p' "$state")"
     rollback_operation_id="${operation_id:-$previous_operation_id}"
+    rollback_validation_token="$(cat /proc/sys/kernel/random/uuid)"
+    validation_credential="$(issue_validation_credential)"
+    trap 'rm -f "$validation_credential_path"' ERR
+    prepare_lucia_validation \
+        "$rollback_validation_token" "$validation_credential"
     rollback_failed() {
         local exit_code=$?
         trap - ERR
@@ -1142,6 +1151,7 @@ rollback_os() {
         awk \
             -v restored_status="$status" \
             -v restored_operation_id="$previous_operation_id" \
+            -v restored_validation_token="$previous_validation_token" \
             -v restore_operation_id="$had_operation_id" '
             /^status=rollback-pending$/ {
                 print "status=" restored_status
@@ -1153,11 +1163,16 @@ rollback_os() {
                 }
                 next
             }
+            /^validation_token=/ {
+                print "validation_token=" restored_validation_token
+                next
+            }
             { print }
         ' "$state" > "$temporary"
         sync -f "$temporary"
         mv -f "$temporary" "$state"
         sync -f "$state_dir"
+        rm -f "$validation_credential_path"
         if [[ "$status" == "pending" ]]; then
             "$systemctl_path" start lucia-os-update-validation.service || true
         fi
@@ -1165,7 +1180,9 @@ rollback_os() {
     }
     trap rollback_failed ERR
     "$systemctl_path" stop lucia-os-update-validation.service
-    awk -v rollback_operation_id="$rollback_operation_id" '
+    awk \
+        -v rollback_operation_id="$rollback_operation_id" \
+        -v rollback_validation_token="$rollback_validation_token" '
         BEGIN { operation_id_written = 0 }
         /^status=(pending|validated)$/ {
             print "status=rollback-pending"
@@ -1174,6 +1191,10 @@ rollback_os() {
         /^operation_id=/ {
             print "operation_id=" rollback_operation_id
             operation_id_written = 1
+            next
+        }
+        /^validation_token=/ {
+            print "validation_token=" rollback_validation_token
             next
         }
         { print }

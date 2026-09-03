@@ -77,7 +77,8 @@ the next boot. Before switching slots, the updater restores the device hostname,
 recovery password hash, and provisioned Wi-Fi connection in the new root
 filesystem. `lucia-os-update-validation.service` checks NetworkManager, Redis,
 AgentHost, and the local health endpoint after boot. A failed check selects the
-previous slot and reboots.
+previous slot and reboots. Intentional rollback runs the same checks on the
+previous slot and returns to the current slot if that validation fails.
 
 Images older than this updater cannot bootstrap it from the dashboard. Upgrade
 those devices once by reinstalling or manually deploying a release that

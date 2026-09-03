@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 0077
 
 update_root="${LUCIA_UPDATE_ROOT:-/var/lib/lucia/updates}"
 state="$update_root/state/os.env"
@@ -39,9 +40,19 @@ write_operation() {
     sync -f "$update_root/state"
 }
 
+set_status() {
+    local next_status="$1"
+    sed -E "s/^status=.*/status=$next_status/" "$state" > "${state}.tmp"
+    sync -f "${state}.tmp"
+    mv -f "${state}.tmp" "$state"
+    sync -f "$(dirname "$state")"
+}
+
 [[ -f "$state" ]] || exit 0
 status="$(sed -n 's/^status=//p' "$state")"
-if [[ "$status" != "pending" && "$status" != "rollback-pending" ]]; then
+if [[ "$status" != "pending" \
+    && "$status" != "rollback-pending" \
+    && "$status" != "rollback-recovery-pending" ]]; then
     rm -f "$validation_credential_path"
     exit 0
 fi
@@ -53,21 +64,23 @@ validation_token="$(sed -n 's/^validation_token=//p' "$state")"
 [[ "$previous_slot" != "$target_slot" ]] || exit 1
 current_slot="$("$nvbootctrl_path" -t rootfs get-current-slot)"
 
-if [[ "$current_slot" == "$previous_slot" ]]; then
-    write_operation rollback succeeded \
-        "OS rollback completed after boot validation failed."
-    sed -i -E 's/^status=(pending|rollback-pending)$/status=rolled-back/' "$state"
-    sync -f "$state"
-    rm -f "$validation_credential_path"
-    exit 0
-fi
-if [[ "$current_slot" != "$target_slot" ]]; then
+if [[ "$current_slot" != "$previous_slot" \
+    && "$current_slot" != "$target_slot" ]]; then
     exit 1
 fi
-if [[ "$status" == "rollback-pending" ]]; then
+if [[ "$current_slot" == "$target_slot" \
+    && "$status" == "rollback-pending" ]]; then
     "$nvbootctrl_path" -t rootfs set-active-boot-slot "$previous_slot"
     write_operation rollback running \
         "OS rollback is retrying the previous slot."
+    "$systemctl_path" --no-block reboot
+    exit 0
+fi
+if [[ "$current_slot" == "$previous_slot" \
+    && "$status" == "rollback-recovery-pending" ]]; then
+    "$nvbootctrl_path" -t rootfs set-active-boot-slot "$target_slot"
+    write_operation rollback running \
+        "OS rollback recovery is retrying the current slot."
     "$systemctl_path" --no-block reboot
     exit 0
 fi
@@ -96,11 +109,18 @@ if [[ "$validation_token" =~ ^[0-9a-fA-F-]{36}$ \
 fi
 if [[ "$healthy" == true ]]; then
     "$nvbootctrl_path" -t rootfs mark-boot-successful
-    write_operation apply succeeded "OS update passed boot validation."
-    sed 's/^status=pending$/status=validated/' "$state" > "${state}.tmp"
-    sync -f "${state}.tmp"
-    mv -f "${state}.tmp" "$state"
-    sync -f "$(dirname "$state")"
+    if [[ "$current_slot" == "$previous_slot" ]]; then
+        write_operation rollback succeeded \
+            "OS rollback completed and passed boot validation."
+        set_status rolled-back
+    elif [[ "$status" == "rollback-recovery-pending" ]]; then
+        write_operation rollback failed \
+            "OS rollback failed validation; the current slot was restored."
+        set_status validated
+    else
+        write_operation apply succeeded "OS update passed boot validation."
+        set_status validated
+    fi
     "$curl_path" --fail --silent \
         --max-time 30 \
         --header "X-Lucia-Update-Credential: $validation_credential" \
@@ -110,10 +130,22 @@ if [[ "$healthy" == true ]]; then
     exit 0
 fi
 
-"$nvbootctrl_path" -t rootfs set-active-boot-slot "$previous_slot"
-sed -i 's/^status=pending$/status=rollback-pending/' "$state"
-sync -f "$state"
-write_operation apply running \
-    "OS update failed boot validation; rollback is scheduled."
+if [[ "$current_slot" == "$target_slot" && "$status" == "pending" ]]; then
+    "$nvbootctrl_path" -t rootfs set-active-boot-slot "$previous_slot"
+    set_status rollback-pending
+    write_operation apply running \
+        "OS update failed boot validation; rollback is scheduled."
+elif [[ "$current_slot" == "$previous_slot" ]]; then
+    "$nvbootctrl_path" -t rootfs set-active-boot-slot "$target_slot"
+    set_status rollback-recovery-pending
+    write_operation rollback running \
+        "OS rollback failed boot validation; the current slot is being restored."
+else
+    set_status failed
+    write_operation rollback failed \
+        "OS rollback and recovery slot both failed boot validation."
+    rm -f "$validation_credential_path"
+    exit 0
+fi
 "$systemctl_path" --no-block reboot
 exit 0

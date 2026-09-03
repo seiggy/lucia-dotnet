@@ -182,6 +182,7 @@ run_update() {
 
 grep -q '^set -Eeuo pipefail$' "$updater"
 grep -q '^umask 0077$' "$updater"
+grep -q '^umask 0077$' "$os_validator"
 
 add_runtime_files() {
     local payload_root="$1"
@@ -558,6 +559,9 @@ grep -q '"Status":"succeeded"' "$work/updates/state/operation.json"
 
 apply_operation_id="11111111-1111-1111-1111-111111111111"
 rollback_operation_id="22222222-2222-2222-2222-222222222222"
+apply_validation_token="$(
+    sed -n 's/^validation_token=//p' "$work/updates/state/os.env"
+)"
 sed -i "s/^operation_id=.*/operation_id=$apply_operation_id/" \
     "$work/updates/state/os.env"
 touch "$work/fail-reboot-once"
@@ -568,6 +572,9 @@ if LUCIA_TEST_OPERATION_ID="$rollback_operation_id" \
 fi
 grep -qx 'status=validated' "$work/updates/state/os.env"
 grep -qx "operation_id=$apply_operation_id" "$work/updates/state/os.env"
+grep -qx "validation_token=$apply_validation_token" \
+    "$work/updates/state/os.env"
+[[ ! -e "$work/updates/state/validation.key" ]]
 [[ "$(cat "$work/active-slot")" == "1" ]]
 LUCIA_TEST_OPERATION_ID="$rollback_operation_id" run_update rollback os
 [[ "$(cat "$work/active-slot")" == "0" ]]
@@ -575,6 +582,11 @@ grep -qx 'stop lucia-os-update-validation.service' "$work/systemctl.log"
 grep -qx 'status=rollback-pending' "$work/updates/state/os.env"
 grep -qx "operation_id=$rollback_operation_id" \
     "$work/updates/state/os.env"
+rollback_validation_token="$(
+    sed -n 's/^validation_token=//p' "$work/updates/state/os.env"
+)"
+[[ "$rollback_validation_token" != "$apply_validation_token" ]]
+[[ -r "$work/updates/state/validation.key" ]]
 LUCIA_UPDATE_ROOT="$work/updates" \
     LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
     LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
@@ -674,3 +686,49 @@ grep -qx 'status=rollback-pending' "$work/updates/state/os.env"
 [[ "$(cat "$work/active-slot")" == "0" ]]
 
 echo "PASS: missing OS validation credentials schedule rollback"
+
+printf 'previous_slot=0\ntarget_slot=1\nversion=1.2.0\ntag=v1.2.0\noperation_id=55555555-5555-5555-5555-555555555555\nstatus=rollback-pending\nvalidation_token=66666666-6666-6666-6666-666666666666\n' \
+    > "$work/updates/state/os.env"
+printf '77777777-7777-7777-7777-777777777777\n' \
+    > "$work/updates/state/validation.key"
+touch "$work/fail-health"
+printf '0\n' > "$work/current-slot"
+LUCIA_UPDATE_ROOT="$work/updates" \
+    LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
+    LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
+    LUCIA_CURL_PATH="$work/bin/curl" \
+    LUCIA_NM_ONLINE_PATH="$work/bin/nm-online" \
+    LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
+    LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
+    LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
+    LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
+    LUCIA_TEST_FAIL_HEALTH_FILE="$work/fail-health" \
+    LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
+    LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
+    LUCIA_UPDATE_HEALTH_ATTEMPTS=1 \
+    LUCIA_UPDATE_HEALTH_DELAY_SECONDS=0 \
+        "$os_validator"
+rm "$work/fail-health"
+grep -qx 'status=rollback-recovery-pending' \
+    "$work/updates/state/os.env"
+[[ "$(cat "$work/active-slot")" == "1" ]]
+printf '1\n' > "$work/current-slot"
+LUCIA_UPDATE_ROOT="$work/updates" \
+    LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
+    LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
+    LUCIA_CURL_PATH="$work/bin/curl" \
+    LUCIA_NM_ONLINE_PATH="$work/bin/nm-online" \
+    LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
+    LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
+    LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
+    LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
+    LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
+    LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
+    LUCIA_UPDATE_HEALTH_ATTEMPTS=1 \
+    LUCIA_UPDATE_HEALTH_DELAY_SECONDS=0 \
+        "$os_validator"
+grep -qx 'status=validated' "$work/updates/state/os.env"
+grep -q '"Action":"rollback".*"Status":"failed"' \
+    "$work/updates/state/operation.json"
+
+echo "PASS: unhealthy OS rollback restores the validated current slot"
