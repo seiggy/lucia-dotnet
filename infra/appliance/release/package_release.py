@@ -78,18 +78,18 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--os-version")
     parser.add_argument(
         "--source-jetson-linux",
-        default=TARGET_RUNTIME["jetsonLinux"],
+        required=True,
     )
-    parser.add_argument("--source-redis", default=TARGET_RUNTIME["redis"])
-    parser.add_argument("--source-cuda", default=TARGET_RUNTIME["cuda"])
-    parser.add_argument("--source-cudnn", default=TARGET_RUNTIME["cudnn"])
+    parser.add_argument("--source-redis", required=True)
+    parser.add_argument("--source-cuda", required=True)
+    parser.add_argument("--source-cudnn", required=True)
     parser.add_argument(
         "--source-onnx-runtime",
-        default=TARGET_RUNTIME["onnxRuntime"],
+        required=True,
     )
     parser.add_argument(
         "--source-sherpa-onnx",
-        default=TARGET_RUNTIME["sherpaOnnx"],
+        required=True,
     )
     parser.add_argument("--output-dir", type=pathlib.Path, required=True)
     parser.add_argument("--chunk-bytes", type=int, default=1_900_000_000)

@@ -12,6 +12,12 @@ workflow_dir="$script_dir/../../../.github/workflows"
 [[ "$GH_CLI_HOST_SHA256" =~ ^[0-9a-f]{64}$ ]]
 [[ "$JETSON_BSP_SHA256" =~ ^[0-9a-f]{64}$ ]]
 [[ "$JETSON_ROOTFS_SHA256" =~ ^[0-9a-f]{64}$ ]]
+[[ "$OS_SOURCE_JETSON_LINUX_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+[[ -n "$OS_SOURCE_REDIS_VERSION" ]]
+[[ -n "$OS_SOURCE_CUDA_VERSION" ]]
+[[ -n "$OS_SOURCE_CUDNN_VERSION" ]]
+[[ -n "$OS_SOURCE_ONNX_RUNTIME_VERSION" ]]
+[[ -n "$OS_SOURCE_SHERPA_ONNX_VERSION" ]]
 ! grep -q 'SHA1\|download_sha1\|sha1sum' \
     "$script_dir/build-release-assets.sh" \
     "$script_dir/appliance.lock"
@@ -96,6 +102,10 @@ grep -q -- '--custom-trusted-root "$trusted_root"' \
     "$workflow_dir/appliance-release.yml"
 grep -q 'gh-host.*attestation trusted-root' "$script_dir/build-release-assets.sh"
 grep -q -- '--gh-cli' "$script_dir/build-release-assets.sh"
+grep -q -- '--source-jetson-linux "$OS_SOURCE_JETSON_LINUX_VERSION"' \
+    "$workflow_dir/appliance-release.yml"
+grep -q -- '--source-sherpa-onnx "$OS_SOURCE_SHERPA_ONNX_VERSION"' \
+    "$workflow_dir/appliance-release.yml"
 grep -q 'lucia-os-update-validation.service' \
     "$script_dir/build-release-assets.sh"
 grep -q 'e2fsck -fn.*system.img' "$script_dir/build-release-assets.sh"
