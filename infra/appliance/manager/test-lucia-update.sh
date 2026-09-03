@@ -511,6 +511,24 @@ mounted_path=""
 [[ "$(dd if="${loop_device}p6" bs=6 count=1 status=none)" == "dtb-b" ]]
 grep -qx -- '--no-block reboot' "$work/systemctl.log"
 printf '1\n' > "$work/current-slot"
+if LUCIA_UPDATE_ROOT="$work/updates" \
+        LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
+        LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
+        LUCIA_CURL_PATH="$work/bin/curl" \
+        LUCIA_NM_ONLINE_PATH="$work/bin/nm-online" \
+        LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
+        LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
+        LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
+        LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
+        LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
+        LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
+        LUCIA_UPDATE_HEALTH_ATTEMPTS=30 \
+        LUCIA_UPDATE_HEALTH_DELAY_SECONDS=2 \
+        "$os_validator"; then
+    echo "OS validation accepted a retry budget beyond its service timeout" >&2
+    exit 1
+fi
+grep -qx 'status=pending' "$work/updates/state/os.env"
 LUCIA_UPDATE_ROOT="$work/updates" \
 LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
 LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \

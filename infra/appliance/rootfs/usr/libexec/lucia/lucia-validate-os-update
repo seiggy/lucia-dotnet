@@ -7,9 +7,15 @@ nvbootctrl_path="${LUCIA_NVBOOTCTRL_PATH:-/usr/sbin/nvbootctrl}"
 systemctl_path="${LUCIA_SYSTEMCTL_PATH:-/usr/bin/systemctl}"
 curl_path="${LUCIA_CURL_PATH:-/usr/bin/curl}"
 nm_online_path="${LUCIA_NM_ONLINE_PATH:-/usr/bin/nm-online}"
-health_attempts="${LUCIA_UPDATE_HEALTH_ATTEMPTS:-30}"
+health_attempts="${LUCIA_UPDATE_HEALTH_ATTEMPTS:-15}"
 health_delay="${LUCIA_UPDATE_HEALTH_DELAY_SECONDS:-2}"
 validation_credential_path="${LUCIA_VALIDATION_CREDENTIAL_PATH:-$update_root/state/validation.key}"
+
+[[ "$health_attempts" =~ ^[1-9][0-9]{0,2}$ \
+    && "$health_delay" =~ ^(0|[1-9][0-9]{0,2})$ ]] \
+    || exit 1
+retry_budget_seconds="$((10#$health_attempts * (60 + 10#$health_delay)))"
+((retry_budget_seconds <= 1000)) || exit 1
 
 write_operation() {
     local action="$1"
