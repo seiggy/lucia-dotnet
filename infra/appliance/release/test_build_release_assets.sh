@@ -88,6 +88,12 @@ grep -q 'bundle-path' "$workflow_dir/appliance-release.yml"
 grep -q 'lucia-appliance-attestations.jsonl' \
     "$workflow_dir/appliance-release.yml" \
     "$script_dir/package_release.py"
+grep -q 'Verify exported offline attestation bundle' \
+    "$workflow_dir/appliance-release.yml"
+grep -q '"$verifier" attestation verify "$subject"' \
+    "$workflow_dir/appliance-release.yml"
+grep -q -- '--custom-trusted-root "$trusted_root"' \
+    "$workflow_dir/appliance-release.yml"
 grep -q 'gh-host.*attestation trusted-root' "$script_dir/build-release-assets.sh"
 grep -q -- '--gh-cli' "$script_dir/build-release-assets.sh"
 grep -q 'lucia-os-update-validation.service' \

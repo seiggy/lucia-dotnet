@@ -1,3 +1,4 @@
+using lucia.AgentHost.Appliance;
 using lucia.Agents.PluginFramework;
 using lucia.Agents.Auth;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -33,10 +34,38 @@ public static class SystemApi
     private static Ok<object> GetRestartRequired(PluginChangeTracker tracker) =>
         TypedResults.Ok<object>(new { RestartRequired = tracker.IsRestartRequired });
 
-    private static Ok TriggerRestart(
+    private static async Task<IResult> TriggerRestart(
         IHostApplicationLifetime lifetime,
-        PluginChangeTracker tracker)
+        PluginChangeTracker tracker,
+        IServiceProvider services,
+        CancellationToken cancellationToken)
     {
+        var updates = services.GetService<ApplianceUpdateService>();
+        if (updates is not null)
+        {
+            try
+            {
+                var operation = await updates
+                    .GetOperationAsync(cancellationToken)
+                    .ConfigureAwait(false);
+                if (ApplianceApi.IsUpdateInProgress(operation.Status))
+                {
+                    return Results.Conflict(new
+                    {
+                        Error = "An appliance update is in progress.",
+                    });
+                }
+            }
+            catch (HttpRequestException exception)
+            {
+                return Results.Problem(
+                    detail: exception.Message,
+                    statusCode: exception.StatusCode is null
+                        ? StatusCodes.Status502BadGateway
+                        : (int)exception.StatusCode,
+                    title: "Update operation status failed");
+            }
+        }
         tracker.ClearRestartRequired();
         lifetime.StopApplication();
         return TypedResults.Ok();

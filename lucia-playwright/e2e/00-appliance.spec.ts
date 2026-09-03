@@ -141,7 +141,7 @@ test('manages an installed appliance from mobile', async ({ page }) => {
       },
     });
   });
-  await page.route('**/api/system/restart', async (route) => {
+  await page.route('**/api/appliance/services/*/restart', async (route) => {
     await route.fulfill({ status: 202 });
   });
 

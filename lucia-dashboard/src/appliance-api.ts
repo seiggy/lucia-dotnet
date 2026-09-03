@@ -232,13 +232,6 @@ export async function fetchApplianceStatus(): Promise<ApplianceStatus> {
 }
 
 export async function restartApplianceService(service: string): Promise<void> {
-  if (service === 'agenthost') {
-    const response = await fetch('/api/system/restart', { method: 'POST' })
-    if (!response.ok) {
-      throw new Error(`AgentHost restart failed with status ${response.status}.`)
-    }
-    return
-  }
   await request(`/services/${encodeURIComponent(service)}/restart`, {
     method: 'POST',
   })

@@ -151,6 +151,26 @@ jobs:
           cp "${{ steps.attest.outputs.bundle-path }}" \
             dist/release/lucia-appliance-attestations.jsonl
 
+      - name: Verify exported offline attestation bundle
+        run: |
+          version="${RELEASE_TAG#v}"
+          verifier="$RUNNER_TEMP/lucia-appliance-$version/verifier/gh-host"
+          trusted_root="$RUNNER_TEMP/lucia-appliance-$version/verifier/trusted-root.jsonl"
+          bundle="dist/release/lucia-appliance-attestations.jsonl"
+          payload="$(
+            python3 -c \
+              'import json; print(json.load(open("dist/release/lucia-appliance-manifest.json"))["channels"]["lucia"]["parts"][0]["name"])'
+          )"
+          for subject in \
+            dist/release/lucia-appliance-manifest.json \
+            "dist/release/$payload"; do
+            "$verifier" attestation verify "$subject" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/appliance-release.yml" \
+              --bundle "$bundle" \
+              --custom-trusted-root "$trusted_root"
+          done
+
       - name: Wait for GitHub Release
         run: |
           for attempt in {1..180}; do
