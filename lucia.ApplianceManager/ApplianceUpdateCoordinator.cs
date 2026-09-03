@@ -28,6 +28,38 @@ public sealed partial class ApplianceUpdateCoordinator
     {
         _operationPath = Path.Combine(_statePath, "operation.json");
         Directory.CreateDirectory(_statePath);
+        if (OperatingSystem.IsLinux())
+        {
+            File.SetUnixFileMode(
+                _statePath,
+                UnixFileMode.UserRead
+                    | UnixFileMode.UserWrite
+                    | UnixFileMode.UserExecute
+                    | UnixFileMode.GroupRead
+                    | UnixFileMode.GroupExecute);
+            foreach (var fileName in new[]
+                     {
+                         "operation.json",
+                         "lucia.env",
+                         "lucia.previous.env",
+                         "os.env",
+                     })
+            {
+                var path = Path.Combine(_statePath, fileName);
+                var file = new FileInfo(path);
+                if (file.Exists || file.LinkTarget is not null)
+                {
+                    if (file.LinkTarget is not null)
+                    {
+                        throw new InvalidDataException(
+                            "Trusted appliance update state cannot be a symbolic link.");
+                    }
+                    File.SetUnixFileMode(
+                        path,
+                        UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                }
+            }
+        }
         RecoverInterruptedLuciaUpdate();
         RecoverInterruptedOsWrite();
         if (!File.Exists(_operationPath))
@@ -277,11 +309,19 @@ public sealed partial class ApplianceUpdateCoordinator
     private void PersistStatusUnsafe()
     {
         var temporary = _operationPath + ".tmp";
-        using (var stream = new FileStream(
-                   temporary,
-                   FileMode.Create,
-                   FileAccess.Write,
-                   FileShare.None))
+        File.Delete(temporary);
+        var options = new FileStreamOptions
+        {
+            Mode = FileMode.CreateNew,
+            Access = FileAccess.Write,
+            Share = FileShare.None,
+        };
+        if (OperatingSystem.IsLinux())
+        {
+            options.UnixCreateMode =
+                UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        }
+        using (var stream = new FileStream(temporary, options))
         {
             JsonSerializer.Serialize(stream, _status);
             stream.Flush(flushToDisk: true);

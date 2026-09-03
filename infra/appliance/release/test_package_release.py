@@ -38,6 +38,10 @@ class PackageReleaseTests(unittest.TestCase):
                     "1.2.4",
                     "--os-version",
                     "2.0.0",
+                    "--source-jetson-linux",
+                    "36.4.3",
+                    "--source-cuda",
+                    "12.5",
                     "--output-dir",
                     str(output),
                     "--chunk-bytes",
@@ -58,10 +62,9 @@ class PackageReleaseTests(unittest.TestCase):
             )
             self.assertEqual(manifest["channels"]["lucia"]["version"], "1.2.4")
             self.assertEqual(manifest["channels"]["os"]["version"], "2.0.0")
-            self.assertEqual(manifest["compatibility"]["jetsonLinux"], "36.5.2")
             self.assertEqual(manifest["compatibility"]["layoutVersion"], 1)
-            self.assertEqual(manifest["compatibility"]["cuda"], "12.6")
-            self.assertEqual(manifest["compatibility"]["onnxRuntime"], "1.23.2")
+            self.assertNotIn("jetsonLinux", manifest["compatibility"])
+            self.assertNotIn("cuda", manifest["compatibility"])
             self.assertEqual(
                 manifest["releaseNotesUrl"],
                 "https://github.com/seiggy/lucia-dotnet/releases/tag/v1.2.3",
@@ -77,7 +80,19 @@ class PackageReleaseTests(unittest.TestCase):
             self.assertFalse(manifest["channels"]["lucia"]["requires"]["reboot"])
             self.assertTrue(manifest["channels"]["os"]["requires"]["reboot"])
             self.assertEqual(
-                manifest["channels"]["os"]["requires"]["cuda"],
+                manifest["channels"]["os"]["requires"]["source"]["jetsonLinux"],
+                "36.4.3",
+            )
+            self.assertEqual(
+                manifest["channels"]["os"]["requires"]["source"]["cuda"],
+                "12.5",
+            )
+            self.assertEqual(
+                manifest["channels"]["os"]["requires"]["target"]["jetsonLinux"],
+                "36.5.2",
+            )
+            self.assertEqual(
+                manifest["channels"]["os"]["requires"]["target"]["cuda"],
                 "12.6",
             )
             self.assertEqual(len(manifest["channels"]["installer"]["parts"]), 3)

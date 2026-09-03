@@ -111,8 +111,7 @@ public sealed partial class ApplianceUpdateService(
         var compatibility = manifest.GetProperty("compatibility");
         if (manifest.GetProperty("releaseNotesUrl").GetString() != releaseUrl
             || manifest.GetProperty("releaseApi").GetString()
-                != $"https://api.github.com/repos/seiggy/lucia-dotnet/releases/tags/{releaseTag}"
-            || !HasExpectedRuntime(compatibility))
+                != $"https://api.github.com/repos/seiggy/lucia-dotnet/releases/tags/{releaseTag}")
         {
             throw new InvalidDataException(
                 "The appliance release metadata is incomplete or unsupported.");
@@ -131,10 +130,6 @@ public sealed partial class ApplianceUpdateService(
                 board,
                 current.Board,
                 StringComparison.Ordinal)
-            && string.Equals(
-               compatibility.GetProperty("jetsonLinux").GetString(),
-               current.Os.JetsonLinuxVersion,
-               StringComparison.Ordinal)
             && current.StorageBytes >= minimumDiskBytes
             && compatibility.GetProperty("layoutVersion").GetInt32() == 1
             && compatibility.GetProperty("dataSchemaVersion").GetInt32() == 1;
@@ -145,6 +140,8 @@ public sealed partial class ApplianceUpdateService(
         var osRequirements = channels
             .GetProperty("os")
             .GetProperty("requires");
+        var osSource = osRequirements.GetProperty("source");
+        var osTarget = osRequirements.GetProperty("target");
         var luciaCompatible = hardwareCompatible
             && string.Equals(
                 luciaRequirements.GetProperty("jetsonLinux").GetString(),
@@ -156,9 +153,10 @@ public sealed partial class ApplianceUpdateService(
             && HasExpectedRuntime(luciaRequirements);
         var osCompatible = hardwareCompatible
             && osRequirements.GetProperty("layoutVersion").GetInt32() == 1
-            && osRequirements.GetProperty("jetsonLinux").GetString()
+            && osSource.GetProperty("jetsonLinux").GetString()
                 == current.Os.JetsonLinuxVersion
-            && HasExpectedRuntime(osRequirements)
+            && HasExpectedRuntime(osSource)
+            && HasRuntimeMetadata(osTarget)
             && osRequirements.GetProperty("reboot").GetBoolean()
             && MeetsMinimumVersion(
                 current.LuciaVersion,
@@ -320,15 +318,14 @@ public sealed partial class ApplianceUpdateService(
                     current.Architecture,
                     StringComparison.OrdinalIgnoreCase)
                 || compatibility.GetProperty("board").GetString() != current.Board
-                || compatibility.GetProperty("jetsonLinux").GetString()
-                    != current.Os.JetsonLinuxVersion
                 || current.StorageBytes
                     < compatibility.GetProperty("minimumDiskBytes").GetInt64())
             {
                 throw new InvalidDataException(
                     "The appliance update is not compatible with this device.");
             }
-            if (!HasExpectedRuntime(compatibility)
+            if (compatibility.GetProperty("layoutVersion").GetInt32() != 1
+                || compatibility.GetProperty("dataSchemaVersion").GetInt32() != 1
                 || manifest.GetProperty("releaseNotesUrl").GetString()
                     != releaseRoot.GetProperty("html_url").GetString()
                 || manifest.GetProperty("releaseApi").GetString()
@@ -341,6 +338,12 @@ public sealed partial class ApplianceUpdateService(
                 .GetProperty("channels")
                 .GetProperty(channel);
             var requirements = selectedChannel.GetProperty("requires");
+            var osSource = channel == "os"
+                ? requirements.GetProperty("source")
+                : default;
+            var osTarget = channel == "os"
+                ? requirements.GetProperty("target")
+                : default;
             if (requirements.GetProperty("layoutVersion").GetInt32() != 1
                 || channel == "lucia"
                     && (requirements.GetProperty("dataSchemaVersion").GetInt32() != 1
@@ -349,9 +352,10 @@ public sealed partial class ApplianceUpdateService(
                         || requirements.GetProperty("reboot").GetBoolean()
                         || !HasExpectedRuntime(requirements))
                 || channel == "os"
-                    && (requirements.GetProperty("jetsonLinux").GetString()
+                    && (osSource.GetProperty("jetsonLinux").GetString()
                             != current.Os.JetsonLinuxVersion
-                        || !HasExpectedRuntime(requirements)
+                        || !HasExpectedRuntime(osSource)
+                        || !HasRuntimeMetadata(osTarget)
                         || !requirements.GetProperty("reboot").GetBoolean()
                         || !MeetsMinimumVersion(
                             current.LuciaVersion,
@@ -657,6 +661,20 @@ public sealed partial class ApplianceUpdateService(
             == OnnxRuntimeVersion
         && compatibility.GetProperty("sherpaOnnx").GetString()
             == SherpaOnnxVersion;
+
+    private static bool HasRuntimeMetadata(JsonElement runtime) =>
+        new[]
+        {
+            "jetsonLinux",
+            "redis",
+            "cuda",
+            "cudnn",
+            "onnxRuntime",
+            "sherpaOnnx",
+        }.All(
+            name => runtime.TryGetProperty(name, out var value)
+                && value.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(value.GetString()));
 
     internal static void EnsureStagingCapacity(
         string stagingRoot,

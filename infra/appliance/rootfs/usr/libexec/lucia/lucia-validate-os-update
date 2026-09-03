@@ -48,7 +48,9 @@ fi
 previous_slot="$(sed -n 's/^previous_slot=//p' "$state")"
 target_slot="$(sed -n 's/^target_slot=//p' "$state")"
 validation_token="$(sed -n 's/^validation_token=//p' "$state")"
-[[ "$validation_token" =~ ^[0-9a-fA-F-]{36}$ ]] || exit 1
+[[ "$previous_slot" == "0" || "$previous_slot" == "1" ]] || exit 1
+[[ "$target_slot" == "0" || "$target_slot" == "1" ]] || exit 1
+[[ "$previous_slot" != "$target_slot" ]] || exit 1
 current_slot="$("$nvbootctrl_path" -t rootfs get-current-slot)"
 
 if [[ "$current_slot" == "$previous_slot" ]]; then
@@ -69,24 +71,29 @@ if [[ "$status" == "rollback-pending" ]]; then
     "$systemctl_path" --no-block reboot
     exit 0
 fi
-[[ -r "$validation_credential_path" ]] || exit 1
-validation_credential="$(cat "$validation_credential_path")"
+validation_credential=""
+if [[ -r "$validation_credential_path" ]]; then
+    validation_credential="$(cat "$validation_credential_path")"
+fi
 
 healthy=false
-for ((attempt = 0; attempt < health_attempts; attempt++)); do
-    if "$systemctl_path" is-active --quiet \
-            lucia-redis.service lucia-agenthost.service \
-        && "$nm_online_path" --quiet --timeout=30 \
-        && "$curl_path" --fail --silent --show-error \
-            --max-time 30 \
-            --header "X-Lucia-Update-Credential: $validation_credential" \
-            "http://127.0.0.1:8098/internal/appliance/update-validation/$validation_token?consume=false" \
-            >/dev/null; then
-        healthy=true
-        break
-    fi
-    sleep "$health_delay"
-done
+if [[ "$validation_token" =~ ^[0-9a-fA-F-]{36}$ \
+    && "$validation_credential" =~ ^[0-9a-fA-F-]{36}$ ]]; then
+    for ((attempt = 0; attempt < health_attempts; attempt++)); do
+        if "$systemctl_path" is-active --quiet \
+                lucia-redis.service lucia-agenthost.service \
+            && "$nm_online_path" --quiet --timeout=30 \
+            && "$curl_path" --fail --silent --show-error \
+                --max-time 30 \
+                --header "X-Lucia-Update-Credential: $validation_credential" \
+                "http://127.0.0.1:8098/internal/appliance/update-validation/$validation_token?consume=false" \
+                >/dev/null; then
+            healthy=true
+            break
+        fi
+        sleep "$health_delay"
+    done
+fi
 if [[ "$healthy" == true ]]; then
     "$nvbootctrl_path" -t rootfs mark-boot-successful
     write_operation apply succeeded "OS update passed boot validation."

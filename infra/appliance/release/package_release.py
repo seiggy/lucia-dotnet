@@ -7,6 +7,14 @@ import shutil
 import urllib.parse
 
 COPY_BUFFER_BYTES = 1024 * 1024
+TARGET_RUNTIME = {
+    "jetsonLinux": "36.5.2",
+    "redis": "8.2.9",
+    "cuda": "12.6",
+    "cudnn": "9.3.0.75",
+    "onnxRuntime": "1.23.2",
+    "sherpaOnnx": "1.12.34",
+}
 
 
 def hash_file(path: pathlib.Path) -> str:
@@ -68,6 +76,21 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--os", type=pathlib.Path, required=True)
     parser.add_argument("--lucia-version")
     parser.add_argument("--os-version")
+    parser.add_argument(
+        "--source-jetson-linux",
+        default=TARGET_RUNTIME["jetsonLinux"],
+    )
+    parser.add_argument("--source-redis", default=TARGET_RUNTIME["redis"])
+    parser.add_argument("--source-cuda", default=TARGET_RUNTIME["cuda"])
+    parser.add_argument("--source-cudnn", default=TARGET_RUNTIME["cudnn"])
+    parser.add_argument(
+        "--source-onnx-runtime",
+        default=TARGET_RUNTIME["onnxRuntime"],
+    )
+    parser.add_argument(
+        "--source-sherpa-onnx",
+        default=TARGET_RUNTIME["sherpaOnnx"],
+    )
     parser.add_argument("--output-dir", type=pathlib.Path, required=True)
     parser.add_argument("--chunk-bytes", type=int, default=1_900_000_000)
     return parser.parse_args()
@@ -87,6 +110,16 @@ def main() -> None:
         raise SystemExit("--lucia-version must match MAJOR.MINOR.PATCH")
     if re.fullmatch(version_pattern, os_version) is None:
         raise SystemExit("--os-version must match MAJOR.MINOR.PATCH")
+    source_runtime = {
+        "jetsonLinux": arguments.source_jetson_linux,
+        "redis": arguments.source_redis,
+        "cuda": arguments.source_cuda,
+        "cudnn": arguments.source_cudnn,
+        "onnxRuntime": arguments.source_onnx_runtime,
+        "sherpaOnnx": arguments.source_sherpa_onnx,
+    }
+    if any(not value.strip() for value in source_runtime.values()):
+        raise SystemExit("source runtime versions must not be empty")
 
     inputs = {
         "installer": arguments.installer.resolve(),
@@ -130,25 +163,16 @@ def main() -> None:
             ),
         }
     channels["lucia"]["requires"] = {
-        "jetsonLinux": "36.5.2",
+        **TARGET_RUNTIME,
         "layoutVersion": 1,
         "dataSchemaVersion": 1,
-        "redis": "8.2.9",
-        "cuda": "12.6",
-        "cudnn": "9.3.0.75",
-        "onnxRuntime": "1.23.2",
-        "sherpaOnnx": "1.12.34",
         "reboot": False,
     }
     channels["os"]["requires"] = {
         "minimumLuciaVersion": lucia_version,
         "layoutVersion": 1,
-        "jetsonLinux": "36.5.2",
-        "redis": "8.2.9",
-        "cuda": "12.6",
-        "cudnn": "9.3.0.75",
-        "onnxRuntime": "1.23.2",
-        "sherpaOnnx": "1.12.34",
+        "source": source_runtime,
+        "target": TARGET_RUNTIME,
         "reboot": True,
     }
 
@@ -167,15 +191,9 @@ def main() -> None:
         "compatibility": {
             "architecture": "arm64",
             "board": "jetson-orin-nano-super-p3767-0005",
-            "jetsonLinux": "36.5.2",
             "minimumDiskBytes": 61_203_283_968,
             "layoutVersion": 1,
             "dataSchemaVersion": 1,
-            "redis": "8.2.9",
-            "cuda": "12.6",
-            "cudnn": "9.3.0.75",
-            "onnxRuntime": "1.23.2",
-            "sherpaOnnx": "1.12.34",
         },
         "releaseNotesUrl": (
             f"https://github.com/{arguments.repository}/releases/tag/"

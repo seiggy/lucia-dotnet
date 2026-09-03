@@ -138,16 +138,19 @@ public sealed class ApplianceUpdateServiceTests
     [InlineData(
         "jetson-orin-nano-super-p3767-0005",
         "36.5.2",
+        true,
         true)]
-    [InlineData("unsupported-board", "36.5.2", false)]
+    [InlineData("unsupported-board", "36.5.2", false, false)]
     [InlineData(
         "jetson-orin-nano-super-p3767-0005",
         "99.0.0",
+        true,
         false)]
     public async Task CheckAsync_ReportsUpdatesIndependentlyOfCompatibility(
         string board,
         string jetsonLinux,
-        bool expectedCompatible)
+        bool expectedLuciaCompatible,
+        bool expectedOsCompatible)
     {
         var socketPath = Path.Combine(
             Path.GetTempPath(),
@@ -197,7 +200,7 @@ public sealed class ApplianceUpdateServiceTests
                           {"tag_name":"v1.3.0","html_url":"https://github.com/seiggy/lucia-dotnet/releases/tag/v1.3.0","assets":[{"name":"lucia-appliance-manifest.json","browser_download_url":"https://github.com/seiggy/lucia-dotnet/releases/download/v1.3.0/lucia-appliance-manifest.json"},{"name":"lucia-appliance-attestations.jsonl","browser_download_url":"https://github.com/seiggy/lucia-dotnet/releases/download/v1.3.0/lucia-appliance-attestations.jsonl"}]}
                           """
                         : """
-                          {"schemaVersion":1,"repository":"seiggy/lucia-dotnet","tag":"v1.3.0","attestationBundleUrl":"https://github.com/seiggy/lucia-dotnet/releases/download/v1.3.0/lucia-appliance-attestations.jsonl","version":"1.3.0","releaseApi":"https://api.github.com/repos/seiggy/lucia-dotnet/releases/tags/v1.3.0","releaseNotesUrl":"https://github.com/seiggy/lucia-dotnet/releases/tag/v1.3.0","compatibility":{"architecture":"arm64","board":"BOARD","jetsonLinux":"JETSON","minimumDiskBytes":61203283968,"layoutVersion":1,"dataSchemaVersion":1,"redis":"8.2.9","cuda":"12.6","cudnn":"9.3.0.75","onnxRuntime":"1.23.2","sherpaOnnx":"1.12.34"},"channels":{"lucia":{"version":"1.3.0","bytes":5,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","requires":{"jetsonLinux":"36.5.2","layoutVersion":1,"dataSchemaVersion":1,"redis":"8.2.9","cuda":"12.6","cudnn":"9.3.0.75","onnxRuntime":"1.23.2","sherpaOnnx":"1.12.34","reboot":false},"parts":[{"name":"lucia.tar.zst","bytes":5,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","url":"https://github.com/seiggy/lucia-dotnet/releases/download/v1.3.0/lucia.tar.zst"}]},"os":{"version":"1.4.0","bytes":5,"sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","requires":{"minimumLuciaVersion":"1.2.3","layoutVersion":1,"jetsonLinux":"36.5.2","redis":"8.2.9","cuda":"12.6","cudnn":"9.3.0.75","onnxRuntime":"1.23.2","sherpaOnnx":"1.12.34","reboot":true},"parts":[{"name":"os.tar.zst","bytes":5,"sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","url":"https://github.com/seiggy/lucia-dotnet/releases/download/v1.3.0/os.tar.zst"}]}}}
+                          {"schemaVersion":1,"repository":"seiggy/lucia-dotnet","tag":"v1.3.0","attestationBundleUrl":"https://github.com/seiggy/lucia-dotnet/releases/download/v1.3.0/lucia-appliance-attestations.jsonl","version":"1.3.0","releaseApi":"https://api.github.com/repos/seiggy/lucia-dotnet/releases/tags/v1.3.0","releaseNotesUrl":"https://github.com/seiggy/lucia-dotnet/releases/tag/v1.3.0","compatibility":{"architecture":"arm64","board":"BOARD","minimumDiskBytes":61203283968,"layoutVersion":1,"dataSchemaVersion":1},"channels":{"lucia":{"version":"1.3.0","bytes":5,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","requires":{"jetsonLinux":"36.5.2","layoutVersion":1,"dataSchemaVersion":1,"redis":"8.2.9","cuda":"12.6","cudnn":"9.3.0.75","onnxRuntime":"1.23.2","sherpaOnnx":"1.12.34","reboot":false},"parts":[{"name":"lucia.tar.zst","bytes":5,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","url":"https://github.com/seiggy/lucia-dotnet/releases/download/v1.3.0/lucia.tar.zst"}]},"os":{"version":"1.4.0","bytes":5,"sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","requires":{"minimumLuciaVersion":"1.2.3","layoutVersion":1,"source":{"jetsonLinux":"JETSON","redis":"8.2.9","cuda":"12.6","cudnn":"9.3.0.75","onnxRuntime":"1.23.2","sherpaOnnx":"1.12.34"},"target":{"jetsonLinux":"36.6.0","redis":"8.3.0","cuda":"13.0","cudnn":"10.0","onnxRuntime":"2.0.0","sherpaOnnx":"2.0.0"},"reboot":true},"parts":[{"name":"os.tar.zst","bytes":5,"sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","url":"https://github.com/seiggy/lucia-dotnet/releases/download/v1.3.0/os.tar.zst"}]}}}
                           """
                             .Replace("BOARD", board, StringComparison.Ordinal)
                             .Replace(
@@ -222,18 +225,24 @@ public sealed class ApplianceUpdateServiceTests
 
             var result = await service.CheckAsync(CancellationToken.None);
 
-            Assert.Equal(expectedCompatible, result.Compatible);
-            Assert.Equal(expectedCompatible, result.LuciaCompatible);
-            Assert.Equal(expectedCompatible, result.OsCompatible);
+            Assert.Equal(
+                expectedLuciaCompatible || expectedOsCompatible,
+                result.Compatible);
+            Assert.Equal(expectedLuciaCompatible, result.LuciaCompatible);
+            Assert.Equal(expectedOsCompatible, result.OsCompatible);
             Assert.True(result.LuciaNewerDiscovered);
             Assert.True(result.OsNewerDiscovered);
-            Assert.Equal(expectedCompatible, result.LuciaUpdateAvailable);
-            Assert.Equal(expectedCompatible, result.OsUpdateAvailable);
+            Assert.Equal(
+                expectedLuciaCompatible,
+                result.LuciaUpdateAvailable);
+            Assert.Equal(expectedOsCompatible, result.OsUpdateAvailable);
             Assert.Equal("1.3.0", result.LatestLuciaVersion);
             Assert.Equal("1.4.0", result.LatestOsVersion);
             Assert.Equal("v1.3.0", result.ReleaseTag);
             Assert.Contains(
-                expectedCompatible ? "ready" : "not compatible",
+                expectedLuciaCompatible || expectedOsCompatible
+                    ? "ready"
+                    : "not compatible",
                 result.Message);
             Assert.Equal(
                 [

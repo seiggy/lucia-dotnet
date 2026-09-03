@@ -129,10 +129,10 @@ write_manifest() {
     if [[ "$channel" == "lucia" ]]; then
         requirements='"jetsonLinux":"36.5.2","layoutVersion":1,"dataSchemaVersion":1,"redis":"8.2.9","cuda":"12.6","cudnn":"9.3.0.75","onnxRuntime":"1.23.2","sherpaOnnx":"1.12.34","reboot":false'
     else
-        requirements='"minimumLuciaVersion":"1.0.0","layoutVersion":1,"jetsonLinux":"36.5.2","redis":"8.2.9","cuda":"12.6","cudnn":"9.3.0.75","onnxRuntime":"1.23.2","sherpaOnnx":"1.12.34","reboot":true'
+        requirements='"minimumLuciaVersion":"1.0.0","layoutVersion":1,"source":{"jetsonLinux":"36.5.2","redis":"8.2.9","cuda":"12.6","cudnn":"9.3.0.75","onnxRuntime":"1.23.2","sherpaOnnx":"1.12.34"},"target":{"jetsonLinux":"36.6.0","redis":"8.3.0","cuda":"13.0","cudnn":"10.0","onnxRuntime":"2.0.0","sherpaOnnx":"2.0.0"},"reboot":true'
     fi
     cat > "$stage/lucia-appliance-manifest.json" <<EOF
-{"schemaVersion":1,"repository":"seiggy/lucia-dotnet","tag":"$tag","version":"$version","releaseApi":"https://api.github.com/repos/seiggy/lucia-dotnet/releases/tags/$tag","releaseNotesUrl":"https://github.com/seiggy/lucia-dotnet/releases/tag/$tag","compatibility":{"architecture":"arm64","board":"jetson-orin-nano-super-p3767-0005","jetsonLinux":"36.5.2","minimumDiskBytes":61203283968,"layoutVersion":1,"dataSchemaVersion":1,"redis":"8.2.9","cuda":"12.6","cudnn":"9.3.0.75","onnxRuntime":"1.23.2","sherpaOnnx":"1.12.34"},"channels":{"$channel":{"version":"$version","bytes":$payload_bytes,"sha256":"$payload_hash","requires":{$requirements},"parts":[{"name":"$payload_name","bytes":$payload_bytes,"sha256":"$payload_hash","url":"https://github.com/seiggy/lucia-dotnet/releases/download/$tag/$payload_name"}]}}}
+{"schemaVersion":1,"repository":"seiggy/lucia-dotnet","tag":"$tag","version":"$version","releaseApi":"https://api.github.com/repos/seiggy/lucia-dotnet/releases/tags/$tag","releaseNotesUrl":"https://github.com/seiggy/lucia-dotnet/releases/tag/$tag","compatibility":{"architecture":"arm64","board":"jetson-orin-nano-super-p3767-0005","minimumDiskBytes":61203283968,"layoutVersion":1,"dataSchemaVersion":1},"channels":{"$channel":{"version":"$version","bytes":$payload_bytes,"sha256":"$payload_hash","requires":{$requirements},"parts":[{"name":"$payload_name","bytes":$payload_bytes,"sha256":"$payload_hash","url":"https://github.com/seiggy/lucia-dotnet/releases/download/$tag/$payload_name"}]}}}
 EOF
 }
 
@@ -180,6 +180,7 @@ run_update() {
 }
 
 grep -q '^set -Eeuo pipefail$' "$updater"
+grep -q '^umask 0077$' "$updater"
 
 add_runtime_files() {
     local payload_root="$1"
@@ -279,6 +280,7 @@ rm "$work/fail-manager-validation"
 write_manifest lucia v1.1.0 1.1.0 "$work/lucia.tar.zst"
 
 run_update apply lucia v1.1.0
+[[ "$(stat --format '%a' "$work/updates/state/lucia.env")" == "600" ]]
 [[ "$(readlink "$work/current")" == "releases/1.1.0" ]]
 grep -qx 'new-app' "$work/releases/1.1.0/app/version"
 grep -qx 'new-plugin' "$work/data/plugins/official.plugin"
@@ -456,6 +458,7 @@ mounted_path="$work/os-image-root"
 mkdir -p \
     "$work/os-image-root/etc/NetworkManager/system-connections"
 printf 'factory\n' > "$work/os-image-root/etc/hostname"
+printf '\n' > "$work/os-image-root/etc/machine-id"
 printf '127.0.0.1 localhost\n127.0.1.1 factory\n' \
     > "$work/os-image-root/etc/hosts"
 printf 'root:*:20000:0:99999:7:::\nlucia-recovery:!:20000:0:99999:7:::\n' \
@@ -464,6 +467,8 @@ chmod 0640 "$work/os-image-root/etc/shadow"
 umount "$work/os-image-root"
 mounted_path=""
 printf 'lucia-kitchen\n' > "$work/host-etc/hostname"
+printf '0123456789abcdef0123456789abcdef\n' \
+    > "$work/host-etc/machine-id"
 printf '127.0.0.1 localhost\n127.0.1.1 lucia-kitchen\n' \
     > "$work/host-etc/hosts"
 printf 'root:*:20000:0:99999:7:::\nlucia-recovery:$6$device$hash:20000:0:99999:7:::\n' \
@@ -491,12 +496,15 @@ grep -qx 'status=failed' "$work/updates/state/os.env"
 write_manifest os v1.1.0 1.1.0 "$work/os.tar.zst"
 
 run_update apply os v1.1.0
+[[ "$(stat --format '%a' "$work/updates/state/os.env")" == "600" ]]
 [[ "$(cat "$work/active-slot")" == "1" ]]
 e2fsck -fn "${loop_device}p2" >/dev/null
 mkdir -p "$work/updated-slot"
 mount "${loop_device}p2" "$work/updated-slot"
 mounted_path="$work/updated-slot"
 grep -qx 'lucia-kitchen' "$work/updated-slot/etc/hostname"
+grep -qx '0123456789abcdef0123456789abcdef' \
+    "$work/updated-slot/etc/machine-id"
 grep -qx '127.0.1.1 lucia-kitchen' "$work/updated-slot/etc/hosts"
 grep -q '^lucia-recovery:\$6\$device\$hash:' \
     "$work/updated-slot/etc/shadow"
@@ -642,3 +650,26 @@ if run_update rollback os; then
 fi
 
 echo "PASS: unhealthy OS slot selects its predecessor before reboot"
+
+printf 'previous_slot=0\ntarget_slot=1\nversion=1.2.0\ntag=v1.2.0\noperation_id=33333333-3333-3333-3333-333333333333\nstatus=pending\nvalidation_token=44444444-4444-4444-4444-444444444444\n' \
+    > "$work/updates/state/os.env"
+rm -f "$work/updates/state/validation.key"
+printf '1\n' > "$work/current-slot"
+LUCIA_UPDATE_ROOT="$work/updates" \
+    LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
+    LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
+    LUCIA_CURL_PATH="$work/bin/curl" \
+    LUCIA_NM_ONLINE_PATH="$work/bin/nm-online" \
+    LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
+    LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
+    LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
+    LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
+    LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
+    LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
+    LUCIA_UPDATE_HEALTH_ATTEMPTS=1 \
+    LUCIA_UPDATE_HEALTH_DELAY_SECONDS=0 \
+        "$os_validator"
+grep -qx 'status=rollback-pending' "$work/updates/state/os.env"
+[[ "$(cat "$work/active-slot")" == "0" ]]
+
+echo "PASS: missing OS validation credentials schedule rollback"

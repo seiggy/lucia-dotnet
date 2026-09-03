@@ -53,8 +53,9 @@ Each manifest channel contains:
 
 - complete compressed payload size and SHA-256;
 - ordered part names, sizes, hashes, and release URLs;
-- board, architecture, Jetson Linux, and minimum disk compatibility;
-- Redis, CUDA, cuDNN, ONNX Runtime, and sherpa-onnx versions;
+- board, architecture, layout, and minimum disk compatibility;
+- source prerequisites and target Jetson Linux, Redis, CUDA, cuDNN, ONNX
+  Runtime, and sherpa-onnx versions;
 - the release notes URL and per-channel reboot requirement.
 
 The updater downloads parts in manifest order, verifies every part's GitHub

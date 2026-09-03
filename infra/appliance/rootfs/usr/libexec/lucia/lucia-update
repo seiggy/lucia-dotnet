@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+umask 0077
 
 die() {
     printf 'Error: %s\n' "$1" >&2
@@ -60,6 +61,20 @@ issue_validation_credential() {
     || "$operation_id" =~ ^[0-9a-fA-F-]{36}$ ]] \
     || die "update operation ID is invalid"
 mkdir -p "$state_dir" "$backups_dir" "$work_dir"
+chown "root:$validation_group" "$state_dir"
+chmod 0750 "$state_dir"
+chmod 0700 "$backups_dir" "$work_dir"
+for trusted_state in \
+    "$state_dir/lucia.env" \
+    "$state_dir/lucia.previous.env" \
+    "$state_dir/os.env" \
+    "$state_dir/operation.json"; do
+    if [[ -e "$trusted_state" || -L "$trusted_state" ]]; then
+        [[ -f "$trusted_state" && ! -L "$trusted_state" ]] \
+            || die "trusted update state is not a regular file"
+        chmod 0600 "$trusted_state"
+    fi
+done
 
 atomic_symlink() {
     local target="$1"
@@ -122,13 +137,14 @@ preserve_device_state() {
     local target_root="$1"
     local hosts_entry
     local recovery_entry
+    local machine_id
     local temporary
     local wifi_source="$host_etc/NetworkManager/system-connections/lucia-home.nmconnection"
     local wifi_target="$target_root/etc/NetworkManager/system-connections/lucia-home.nmconnection"
 
     [[ -d "$target_root/etc" && ! -L "$target_root/etc" ]] \
         || die "inactive OS slot has no safe /etc directory"
-    for path in hostname hosts shadow; do
+    for path in hostname hosts shadow machine-id; do
         [[ -f "$host_etc/$path" && ! -L "$host_etc/$path" ]] \
             || die "device state source is invalid: /etc/$path"
         [[ -f "$target_root/etc/$path" && ! -L "$target_root/etc/$path" ]] \
@@ -136,6 +152,12 @@ preserve_device_state() {
     done
     install -o root -g root -m 0644 \
         "$host_etc/hostname" "$target_root/etc/hostname"
+    machine_id="$(tr -d '\n' < "$host_etc/machine-id")"
+    [[ "$machine_id" =~ ^[0-9a-f]{32}$ ]] \
+        || die "device machine ID is invalid"
+    printf '%s\n' "$machine_id" > "$target_root/etc/machine-id"
+    chown root:root "$target_root/etc/machine-id"
+    chmod 0444 "$target_root/etc/machine-id"
 
     hosts_entry="$(grep -m1 -E '^[[:space:]]*127\.0\.1\.1[[:space:]]+' \
         "$host_etc/hosts")"
@@ -447,13 +469,8 @@ if compatibility.get("layoutVersion") != 1 or compatibility.get("dataSchemaVersi
 if (
     compatibility.get("architecture") != architecture
     or compatibility.get("board") != board
-    or compatibility.get("jetsonLinux") != jetson_linux
     or not storage_bytes.isdigit()
     or int(storage_bytes) < compatibility.get("minimumDiskBytes", 0)
-    or any(
-        compatibility.get(key) != installed_runtime.get(key)
-        for key in ("redis", "cuda", "cudnn", "onnxRuntime", "sherpaOnnx")
-    )
 ):
     raise SystemExit("incompatible appliance hardware")
 channel = manifest.get("channels", {}).get(channel_name)
@@ -494,18 +511,37 @@ if channel_name == "lucia":
         raise SystemExit("Lucia update is not newer than the installed release")
 else:
     minimum_lucia = requirements.get("minimumLuciaVersion")
+    source_runtime = requirements.get("source")
+    target_runtime = requirements.get("target")
     if not isinstance(minimum_lucia, str) or re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", minimum_lucia) is None:
         raise SystemExit("invalid minimum Lucia version")
     if requirements.get("reboot") is not True:
         raise SystemExit("invalid OS reboot requirement")
     if (
-        requirements.get("jetsonLinux") != jetson_linux
+        not isinstance(source_runtime, dict)
+        or source_runtime.get("jetsonLinux") != jetson_linux
         or any(
-            requirements.get(key) != installed_runtime.get(key)
+            source_runtime.get(key) != installed_runtime.get(key)
             for key in ("redis", "cuda", "cudnn", "onnxRuntime", "sherpaOnnx")
         )
     ):
-        raise SystemExit("incompatible OS runtime requirements")
+        raise SystemExit("incompatible OS source runtime")
+    if (
+        not isinstance(target_runtime, dict)
+        or any(
+            not isinstance(target_runtime.get(key), str)
+            or not target_runtime.get(key)
+            for key in (
+                "jetsonLinux",
+                "redis",
+                "cuda",
+                "cudnn",
+                "onnxRuntime",
+                "sherpaOnnx",
+            )
+        )
+    ):
+        raise SystemExit("invalid OS target runtime")
     if tuple(map(int, current_lucia.split("."))) < tuple(map(int, minimum_lucia.split("."))):
         raise SystemExit("installed Lucia version is too old for this OS")
     if tuple(map(int, version.split("."))) <= tuple(map(int, current_os.split("."))):

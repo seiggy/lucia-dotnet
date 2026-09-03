@@ -223,6 +223,8 @@ curl --silent --output "$work_dir/response.json" \
 grep -q '"status":"failed"' "$work_dir/response.json"
 grep -qx 'status=failed' "$work_dir/updates/state/os.env"
 grep -qx 'recover lucia' "$update_log"
+[[ "$(stat --format '%a' "$work_dir/updates/state")" == "750" ]]
+[[ "$(stat --format '%a' "$work_dir/updates/state/operation.json")" == "600" ]]
 
 echo "PASS: interrupted inactive-slot writes recover to a retryable state"
 
