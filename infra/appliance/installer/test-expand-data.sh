@@ -7,13 +7,16 @@ work_dir="$(mktemp -d)"
 loop_device=""
 
 cleanup() {
-    [[ -z "$loop_device" ]] || losetup --detach "$loop_device" 2>/dev/null || true
+    if [[ -n "$loop_device" ]]; then
+        partx --delete "$loop_device" 2>/dev/null || true
+        udevadm settle 2>/dev/null || true
+        losetup --detach "$loop_device" 2>/dev/null || true
+    fi
     rm -rf "$work_dir"
 }
 trap cleanup EXIT
 
 truncate --size 2G "$work_dir/disk.img"
-loop_device="$(losetup --find --show --partscan "$work_dir/disk.img")"
 sgdisk \
     --new=1:2048:+100M \
     --change-name=1:APP \
@@ -23,9 +26,17 @@ sgdisk \
     --change-name=17:LUCIA \
     --new=18:0:+200M \
     --change-name=18:LUCIA_DATA \
-    "$loop_device" >/dev/null
-partx --update "$loop_device"
+    "$work_dir/disk.img" >/dev/null
+loop_device="$(losetup --find --show --partscan "$work_dir/disk.img")"
 udevadm settle
+loop_name="${loop_device#/dev/}"
+while read -r name major_minor; do
+    [[ "$name" == "$loop_name" ]] && continue
+    major="${major_minor%:*}"
+    minor="${major_minor#*:}"
+    rm -f "/dev/$name"
+    mknod "/dev/$name" b "$major" "$minor"
+done < <(lsblk --raw --noheadings --output NAME,MAJ:MIN "$loop_device")
 mkfs.ext4 -q -F "${loop_device}p18"
 
 before="$(blockdev --getsize64 "${loop_device}p18")"
