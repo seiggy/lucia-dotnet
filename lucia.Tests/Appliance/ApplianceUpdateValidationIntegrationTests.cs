@@ -79,6 +79,20 @@ public sealed class ApplianceUpdateValidationIntegrationTests
                 Dictionary<string, string>>();
             Assert.Equal("healthy", response!["status"]);
 
+            using var consumed = await client.GetAsync(
+                $"/internal/appliance/update-validation/{token}?consume=true");
+            Assert.Equal(HttpStatusCode.OK, consumed.StatusCode);
+            Assert.True((await redis.GetDatabase().StringGetAsync(
+                "lucia:update-validation")).IsNull);
+            AssertSentinelMissing(configSqlite);
+            AssertSentinelMissing(tracesSqlite);
+            AssertSentinelMissing(tasksSqlite);
+            AssertConfigurationSentinelMissing(configSqlite);
+
+            using var preparedAgain = await client.PostAsync(
+                $"/internal/appliance/update-validation/prepare/{token}",
+                content: null);
+            Assert.Equal(HttpStatusCode.OK, preparedAgain.StatusCode);
             DeleteSentinel(tasksSqlite);
             using var missing = await client.GetAsync(
                 $"/internal/appliance/update-validation/{token}");
@@ -219,5 +233,32 @@ public sealed class ApplianceUpdateValidationIntegrationTests
         using var command = connection.CreateCommand();
         command.CommandText = "DELETE FROM appliance_update_validation;";
         command.ExecuteNonQuery();
+    }
+
+    private static void AssertSentinelMissing(
+        SqliteConnectionFactory factory)
+    {
+        using var connection = factory.CreateConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT COUNT(*)
+            FROM appliance_update_validation;
+            """;
+        Assert.Equal(0L, command.ExecuteScalar());
+    }
+
+    private static void AssertConfigurationSentinelMissing(
+        SqliteConnectionFactory factory)
+    {
+        using var connection = factory.CreateConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT COUNT(*)
+            FROM configuration
+            WHERE key = 'appliance-update-validation';
+            """;
+        Assert.Equal(0L, command.ExecuteScalar());
     }
 }

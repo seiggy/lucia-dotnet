@@ -28,11 +28,17 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      SOURCE_REF: ${{ github.ref }}
     steps:
       - name: Validate release tag
         run: |
           if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Release tag must match vMAJOR.MINOR.PATCH"
+            exit 1
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" \
+              && "$SOURCE_REF" != "refs/tags/$RELEASE_TAG" ]]; then
+            echo "::error::Manual appliance releases must run from the selected release tag."
             exit 1
           fi
 
@@ -174,6 +180,7 @@ jobs:
             "$verifier" attestation verify "$subject" \
               --repo "$GITHUB_REPOSITORY" \
               --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/appliance-release.yml" \
+              --source-ref "refs/tags/$RELEASE_TAG" \
               --bundle "$bundle" \
               --custom-trusted-root "$trusted_root"
           done

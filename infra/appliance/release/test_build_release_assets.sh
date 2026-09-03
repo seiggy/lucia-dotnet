@@ -100,6 +100,12 @@ grep -q '"$verifier" attestation verify "$subject"' \
     "$workflow_dir/appliance-release.yml"
 grep -q -- '--custom-trusted-root "$trusted_root"' \
     "$workflow_dir/appliance-release.yml"
+grep -q -- '--source-ref "refs/tags/$RELEASE_TAG"' \
+    "$workflow_dir/appliance-release.yml"
+grep -q 'Manual appliance releases must run from the selected release tag' \
+    "$workflow_dir/appliance-release.yml"
+grep -q -- '--source-ref "refs/tags/$selected_tag"' \
+    "$script_dir/../rootfs/usr/libexec/lucia/lucia-update"
 grep -q 'gh-host.*attestation trusted-root' "$script_dir/build-release-assets.sh"
 grep -q -- '--gh-cli' "$script_dir/build-release-assets.sh"
 grep -q -- '--source-jetson-linux "$OS_SOURCE_JETSON_LINUX_VERSION"' \

@@ -405,6 +405,7 @@ verify_and_assemble() {
     if ! "$gh_path" attestation verify "$manifest" \
             --repo seiggy/lucia-dotnet \
             --signer-workflow seiggy/lucia-dotnet/.github/workflows/appliance-release.yml \
+            --source-ref "refs/tags/$selected_tag" \
             --bundle "$bundle" \
             --custom-trusted-root "$trusted_root" >/dev/null; then
         die "manifest attestation verification failed"
@@ -581,6 +582,7 @@ PY
         if ! "$gh_path" attestation verify "$input_dir/$part" \
                 --repo seiggy/lucia-dotnet \
                 --signer-workflow seiggy/lucia-dotnet/.github/workflows/appliance-release.yml \
+                --source-ref "refs/tags/$selected_tag" \
                 --bundle "$bundle" \
                 --custom-trusted-root "$trusted_root" >/dev/null; then
             die "part attestation verification failed: $part"

@@ -46,6 +46,7 @@ set -euo pipefail
 [[ "$*" == *"attestation verify"* ]]
 [[ "$*" == *"--repo seiggy/lucia-dotnet"* ]]
 [[ "$*" == *"--signer-workflow seiggy/lucia-dotnet/.github/workflows/appliance-release.yml"* ]]
+[[ "$*" == *"--source-ref refs/tags/v"* ]]
 [[ "$*" == *"--bundle "*"lucia-appliance-attestations.jsonl"* ]]
 [[ "$*" == *"--custom-trusted-root"* ]]
 [[ ! -e "$LUCIA_TEST_REJECT_ATTESTATION" ]]

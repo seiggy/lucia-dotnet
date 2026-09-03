@@ -127,6 +127,7 @@ public static class ApplianceApi
                 "/internal/appliance/update-validation/{token}",
                 async (
                     string token,
+                    bool? consume,
                     HttpContext context,
                     IConnectionMultiplexer redis,
                     [FromKeyedServices(SqliteDbNames.Config)]
@@ -220,6 +221,72 @@ public static class ApplianceApi
                         return Results.Problem(
                             detail: "CUDA update validation failed.",
                             statusCode: StatusCodes.Status503ServiceUnavailable);
+                    }
+
+                    if (consume is true)
+                    {
+                        foreach (var sqlite in new[]
+                                 {
+                                     configSqlite,
+                                     tracesSqlite,
+                                     tasksSqlite,
+                                 })
+                        {
+                            await using var cleanupConnection =
+                                sqlite.CreateConnection();
+                            await using var cleanupCommand =
+                                cleanupConnection.CreateCommand();
+                            cleanupCommand.CommandText =
+                                """
+                                DELETE FROM appliance_update_validation
+                                WHERE id = 1 AND token = $token;
+                                PRAGMA wal_checkpoint(FULL);
+                                """;
+                            cleanupCommand.Parameters.AddWithValue(
+                                "$token",
+                                token);
+                            await cleanupCommand.ExecuteNonQueryAsync(
+                                    cancellationToken)
+                                .ConfigureAwait(false);
+                        }
+                        await using var cleanupConfigConnection =
+                            configSqlite.CreateConnection();
+                        await using var cleanupConfigCommand =
+                            cleanupConfigConnection.CreateCommand();
+                        cleanupConfigCommand.CommandText =
+                            """
+                            DELETE FROM configuration
+                            WHERE key = $key AND value = $token;
+                            PRAGMA wal_checkpoint(FULL);
+                            """;
+                        cleanupConfigCommand.Parameters.AddWithValue(
+                            "$key",
+                            "appliance-update-validation");
+                        cleanupConfigCommand.Parameters.AddWithValue(
+                            "$token",
+                            token);
+                        await cleanupConfigCommand.ExecuteNonQueryAsync(
+                                cancellationToken)
+                            .ConfigureAwait(false);
+                        await database.KeyDeleteAsync(SentinelKey)
+                            .ConfigureAwait(false);
+                        var cleanupWait =
+                            (RedisResult[]?)await database.ExecuteAsync(
+                                    "WAITAOF",
+                                    1,
+                                    0,
+                                    5000)
+                                .ConfigureAwait(false)
+                            ?? [];
+                        if (cleanupWait.Length != 2
+                            || (long)cleanupWait[0] < 1)
+                        {
+                            return Results.Problem(
+                                detail:
+                                    "Redis validation sentinel cleanup was not persisted to AOF.",
+                                statusCode:
+                                    StatusCodes.Status503ServiceUnavailable);
+                        }
                     }
 
                     return Results.Ok(new { Status = "healthy" });

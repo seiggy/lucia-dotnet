@@ -225,29 +225,29 @@ public sealed partial class ApplianceUpdateCoordinator
         string? tag,
         string operationId)
     {
-        SetStatus(new(
-            action,
-            channel,
-            "running",
-            tag,
-            null,
-            OperationId: operationId));
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = _updaterPath,
-            RedirectStandardError = true,
-            RedirectStandardOutput = true,
-            UseShellExecute = false,
-        };
-        startInfo.ArgumentList.Add(action);
-        startInfo.ArgumentList.Add(channel);
-        if (tag is not null)
-        {
-            startInfo.ArgumentList.Add(tag);
-        }
-        startInfo.Environment["LUCIA_UPDATE_OPERATION_ID"] = operationId;
         try
         {
+            SetStatus(new(
+                action,
+                channel,
+                "running",
+                tag,
+                null,
+                OperationId: operationId));
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = _updaterPath,
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+            };
+            startInfo.ArgumentList.Add(action);
+            startInfo.ArgumentList.Add(channel);
+            if (tag is not null)
+            {
+                startInfo.ArgumentList.Add(tag);
+            }
+            startInfo.Environment["LUCIA_UPDATE_OPERATION_ID"] = operationId;
             using var process = Process.Start(startInfo)
                 ?? throw new InvalidOperationException(
                     "Failed to start the appliance updater.");

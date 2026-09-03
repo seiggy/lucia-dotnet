@@ -576,16 +576,16 @@ public sealed partial class ApplianceUpdateService(
 
     private async Task RunStagingAsync(string channel, string tag)
     {
-        staging.SetRunning(channel, tag);
         try
         {
+            staging.SetRunning(channel, tag);
             await StageAsync(channel, tag, CancellationToken.None)
                 .ConfigureAwait(false);
         }
         catch (Exception exception)
         {
             LogStagingFailure(exception, channel, tag);
-            if (staging.GetStatus().Action != "handoff")
+            if (staging.GetStatus().Action == "stage")
             {
                 staging.SetFailed(channel, tag, exception.Message);
             }
