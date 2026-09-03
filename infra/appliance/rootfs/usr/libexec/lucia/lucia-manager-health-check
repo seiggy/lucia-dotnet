@@ -26,4 +26,6 @@ done
 
 "$systemctl_path" stop lucia-agenthost.service lucia-redis.service || true
 "$updater_path" recover lucia
+"$systemctl_path" --no-block start \
+    lucia-redis.service lucia-agenthost.service
 exit 1

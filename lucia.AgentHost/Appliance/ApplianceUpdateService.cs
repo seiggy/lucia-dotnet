@@ -10,9 +10,9 @@ public sealed partial class ApplianceUpdateService(
     ILogger<ApplianceUpdateService> logger,
     string? runtimeInfoPath = null) : IDisposable
 {
-    private const int s_releaseListLimit = 10;
+    private const int ReleaseListLimit = 10;
     private static readonly Uri s_releaseApi = new(
-        $"https://api.github.com/repos/seiggy/lucia-dotnet/releases?per_page={s_releaseListLimit}");
+        $"https://api.github.com/repos/seiggy/lucia-dotnet/releases?per_page={ReleaseListLimit}");
     private readonly string _runtimeInfoPath = runtimeInfoPath
         ?? Environment.GetEnvironmentVariable("LUCIA_RUNTIME_INFO_PATH")
         ?? "/etc/lucia/appliance-runtime.json";
@@ -76,7 +76,9 @@ public sealed partial class ApplianceUpdateService(
                 exception is InvalidDataException
                     or InvalidOperationException
                     or KeyNotFoundException
-                    or JsonException)
+                    or JsonException
+                    or FormatException
+                    or OverflowException)
             {
                 continue;
             }

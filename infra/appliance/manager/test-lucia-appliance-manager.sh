@@ -258,6 +258,8 @@ if LUCIA_APPLIANCE_SOCKET="$socket_path" \
 fi
 grep -qx 'recover lucia' "$update_log"
 grep -qx 'stop lucia-agenthost.service lucia-redis.service' "$systemctl_log"
+grep -qx -- '--no-block start lucia-redis.service lucia-agenthost.service' \
+    "$systemctl_log"
 : > "$update_log"
 
 echo "PASS: manager startup finalizes or recovers pending Lucia updates"

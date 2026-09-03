@@ -111,7 +111,8 @@ fi
 if [[ "$healthy" == true ]]; then
     "$nvbootctrl_path" -t rootfs mark-boot-successful
     if [[ "$current_slot" == "$previous_slot" ]]; then
-        if [[ "$rollback_reason" == "apply-failure" ]]; then
+        if [[ "$rollback_reason" == "apply-failure" \
+            || "$status" == "pending" ]]; then
             write_operation apply failed \
                 "OS update failed boot validation; the previous slot was restored successfully."
         else

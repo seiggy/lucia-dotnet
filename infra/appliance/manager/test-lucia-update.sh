@@ -749,3 +749,28 @@ grep -q '"Action":"rollback".*"Status":"failed"' \
     "$work/updates/state/operation.json"
 
 echo "PASS: unhealthy OS rollback restores the validated current slot"
+
+printf 'previous_slot=0\ntarget_slot=1\nversion=1.2.0\ntag=v1.2.0\noperation_id=88888888-8888-8888-8888-888888888888\nstatus=pending\nvalidation_token=99999999-9999-9999-9999-999999999999\n' \
+    > "$work/updates/state/os.env"
+printf 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\n' \
+    > "$work/updates/state/validation.key"
+printf '0\n' > "$work/current-slot"
+LUCIA_UPDATE_ROOT="$work/updates" \
+    LUCIA_NVBOOTCTRL_PATH="$work/bin/nvbootctrl" \
+    LUCIA_SYSTEMCTL_PATH="$work/bin/systemctl" \
+    LUCIA_CURL_PATH="$work/bin/curl" \
+    LUCIA_NM_ONLINE_PATH="$work/bin/nm-online" \
+    LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
+    LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
+    LUCIA_TEST_BOOT_SUCCESSFUL="$work/boot-successful" \
+    LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
+    LUCIA_TEST_FAIL_NETWORK_FILE="$work/fail-network" \
+    LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
+    LUCIA_UPDATE_HEALTH_ATTEMPTS=1 \
+    LUCIA_UPDATE_HEALTH_DELAY_SECONDS=0 \
+        "$os_validator"
+grep -qx 'status=rolled-back' "$work/updates/state/os.env"
+grep -q '"Action":"apply".*"Status":"failed"' \
+    "$work/updates/state/operation.json"
+
+echo "PASS: firmware fallback reports the original OS apply as failed"

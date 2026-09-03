@@ -33,7 +33,7 @@ Ubuntu or NVIDIA package indexes.
 The updater requests:
 
 ```text
-https://api.github.com/repos/seiggy/lucia-dotnet/releases/latest
+https://api.github.com/repos/seiggy/lucia-dotnet/releases?per_page=10
 ```
 
 It ignores a release until the release contains

@@ -26,7 +26,7 @@ public static class SystemApi
         }
 
         group.MapGet("/restart-required", GetRestartRequired);
-        group.MapPost("/restart", TriggerRestart);
+        group.MapPost("/restart", TriggerRestartAsync);
 
         return group;
     }
@@ -34,7 +34,7 @@ public static class SystemApi
     private static Ok<object> GetRestartRequired(PluginChangeTracker tracker) =>
         TypedResults.Ok<object>(new { RestartRequired = tracker.IsRestartRequired });
 
-    private static async Task<IResult> TriggerRestart(
+    private static async Task<IResult> TriggerRestartAsync(
         IHostApplicationLifetime lifetime,
         PluginChangeTracker tracker,
         IServiceProvider services,
