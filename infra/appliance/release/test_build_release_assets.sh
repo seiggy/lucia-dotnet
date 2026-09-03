@@ -144,7 +144,13 @@ grep -q '"$OS_TARGET_REDIS_VERSION"' \
     "$script_dir/build-release-assets.sh"
 grep -q 'lucia-os-update-validation.service' \
     "$script_dir/build-release-assets.sh"
-grep -q 'e2fsck -fn.*system.img' "$script_dir/build-release-assets.sh"
+grep -q 'extract_partition_image APP .*system.img' \
+    "$script_dir/build-release-assets.sh"
+grep -q 'extract_partition_image APP_b .*system.img_b' \
+    "$script_dir/build-release-assets.sh"
+grep -q 'sgdisk --print.*lucia-nvme' \
+    "$script_dir/build-release-assets.sh"
+grep -q -- '-C "$ota_dir"' "$script_dir/build-release-assets.sh"
 grep -q 'test-lucia-update.sh' \
     "$workflow_dir/appliance-release.yml" \
     "$workflow_dir/appliance-pr.yml"

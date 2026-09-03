@@ -55,7 +55,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/../../.." && pwd)"
 source "$script_dir/appliance.lock"
 
-for command in curl docker dotnet e2fsck findmnt mountpoint npm openssl python3 sha256sum tar umount zstd; do
+for command in curl dd docker dotnet e2fsck findmnt mountpoint npm openssl python3 sgdisk sha256sum tar umount zstd; do
     command -v "$command" >/dev/null || die "required command is missing: $command"
 done
 sudo -n true 2>/dev/null || die "passwordless sudo is required"
@@ -460,14 +460,44 @@ sudo zstd -T0 -10 --long=27 --force \
     -o "$work_dir/lucia-nvme-${version}.img.zst"
 
 external_images="$bsp_dir/Linux_for_Tegra/tools/kernel_flash/images/external"
-e2fsck -fn "$external_images/system.img" >/dev/null
-e2fsck -fn "$external_images/system.img_b" >/dev/null
+ota_dir="$work_dir/os-update"
+mkdir -p "$ota_dir"
+extract_partition_image() {
+    local label="$1"
+    local output="$2"
+    local start
+    local end
+    read -r start end < <(
+        sgdisk --print "$work_dir/lucia-nvme-${version}.img" \
+            | awk -v label="$label" '$NF == label { print $2, $3 }'
+    )
+    [[ "$start" =~ ^[0-9]+$ && "$end" =~ ^[0-9]+$ && "$end" -ge "$start" ]] \
+        || die "partition is missing from the appliance image: $label"
+    dd \
+        if="$work_dir/lucia-nvme-${version}.img" \
+        of="$output" \
+        bs=512 \
+        skip="$start" \
+        count="$((end - start + 1))" \
+        iflag=fullblock \
+        conv=sparse \
+        status=progress
+    sync -f "$output"
+    e2fsck -fn "$output" >/dev/null
+}
+extract_partition_image APP "$ota_dir/system.img"
+extract_partition_image APP_b "$ota_dir/system.img_b"
+cp \
+    "$external_images/boot.img" \
+    "$external_images/boot.img_b" \
+    "$external_images/kernel_tegra234-p3768-0000+p3767-0005-nv-super.dtb" \
+    "$ota_dir/"
 tar --sort=name \
     --mtime="@$source_date_epoch" --clamp-mtime \
     --pax-option=delete=atime,delete=ctime \
     -I 'zstd -T0 -10' \
     -cf "$raw_dir/lucia-appliance-${version}-os.tar.zst" \
-    -C "$external_images" \
+    -C "$ota_dir" \
     system.img \
     system.img_b \
     boot.img \
