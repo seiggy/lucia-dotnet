@@ -95,6 +95,23 @@ public sealed class ApplianceUpdateServiceTests
                 long.MaxValue / 3));
     }
 
+    [Theory]
+    [InlineData("1.2.3", "1.2.3", true)]
+    [InlineData("1.2.3-preview", "1.2.3", true)]
+    [InlineData("1.2.4", "1.2.3", true)]
+    [InlineData("1.2.2", "1.2.3", false)]
+    [InlineData("invalid", "1.2.3", false)]
+    [InlineData("1.2.3", "invalid", false)]
+    public void MeetsMinimumVersion_RequiresTwoValidVersions(
+        string current,
+        string minimum,
+        bool expected)
+    {
+        Assert.Equal(
+            expected,
+            ApplianceUpdateService.MeetsMinimumVersion(current, minimum));
+    }
+
     [Fact]
     public void ValidateParts_RejectsChannelSizeMismatch()
     {

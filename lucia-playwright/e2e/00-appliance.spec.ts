@@ -4,6 +4,8 @@ test('manages an installed appliance from mobile', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   let statusRequestCount = 0;
   let installRequestBody: string | null = null;
+  let rollbackRequestCount = 0;
+  let finishRollbackResponse: (() => void) | null = null;
   await page.route('**/api/appliance/capabilities', async (route) => {
     await route.fulfill({ json: { enabled: true } });
   });
@@ -61,7 +63,7 @@ test('manages an installed appliance from mobile', async ({ page }) => {
         status: hasInstallStarted ? 'succeeded' : 'idle',
         tag: hasInstallStarted ? 'v0.3.0' : null,
         message: null,
-        luciaRollbackAvailable: false,
+        luciaRollbackAvailable: hasInstallStarted,
         osRollbackAvailable: false,
       },
     });
@@ -98,21 +100,43 @@ test('manages an installed appliance from mobile', async ({ page }) => {
         status: 'queued',
         tag: 'v0.3.0',
         message: null,
-        luciaRollbackAvailable: false,
+        luciaRollbackAvailable: true,
         osRollbackAvailable: false,
       },
     });
   });
   await page.route('**/api/appliance/updates/operations/*', async (route) => {
+    const isRollback = rollbackRequestCount > 0;
     await route.fulfill({
       json: {
-        operationId: '11111111-1111-1111-1111-111111111111',
-        action: 'apply',
+        operationId: isRollback
+          ? '22222222-2222-2222-2222-222222222222'
+          : '11111111-1111-1111-1111-111111111111',
+        action: isRollback ? 'rollback' : 'apply',
         channel: 'lucia',
         status: 'succeeded',
         tag: 'v0.3.0',
         message: null,
         luciaRollbackAvailable: false,
+        osRollbackAvailable: false,
+      },
+    });
+  });
+  await page.route('**/api/appliance/updates/lucia/rollback', async (route) => {
+    rollbackRequestCount++;
+    await new Promise<void>((resolve) => {
+      finishRollbackResponse = resolve;
+    });
+    await route.fulfill({
+      status: 202,
+      json: {
+        operationId: '22222222-2222-2222-2222-222222222222',
+        action: 'rollback',
+        channel: 'lucia',
+        status: 'queued',
+        tag: 'v0.3.0',
+        message: null,
+        luciaRollbackAvailable: true,
         osRollbackAvailable: false,
       },
     });
@@ -141,6 +165,17 @@ test('manages an installed appliance from mobile', async ({ page }) => {
   await expect(page.getByRole('button', { name: /^Install / })).toHaveCount(0);
   await expect(page.getByText(
     'Lucia update installed. Services are restarting.',
+  )).toBeVisible();
+  await page.getByRole('button', { name: 'Roll back Lucia' }).click();
+  await page.getByRole('button', { name: 'Roll back', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Roll back Lucia' })).toBeDisabled();
+  expect(rollbackRequestCount).toBe(1);
+  expect(finishRollbackResponse).not.toBeNull();
+  const rollbackReloaded = page.waitForResponse('**/api/appliance/status');
+  finishRollbackResponse?.();
+  await rollbackReloaded;
+  await expect(page.getByText(
+    'Lucia rollback completed. Services are restarting.',
   )).toBeVisible();
   await expect(page.getByRole('heading', { name: 'OpenTelemetry', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Restart', exact: true })).toHaveCount(2);

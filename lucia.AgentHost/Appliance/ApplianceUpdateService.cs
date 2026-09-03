@@ -160,9 +160,9 @@ public sealed partial class ApplianceUpdateService(
                 == current.Os.JetsonLinuxVersion
             && HasExpectedRuntime(osRequirements)
             && osRequirements.GetProperty("reboot").GetBoolean()
-            && !IsNewer(
-                osRequirements.GetProperty("minimumLuciaVersion").GetString(),
-                current.LuciaVersion);
+            && MeetsMinimumVersion(
+                current.LuciaVersion,
+                osRequirements.GetProperty("minimumLuciaVersion").GetString());
         var latestLuciaVersion = channels
             .GetProperty("lucia")
             .GetProperty("version")
@@ -353,9 +353,9 @@ public sealed partial class ApplianceUpdateService(
                             != current.Os.JetsonLinuxVersion
                         || !HasExpectedRuntime(requirements)
                         || !requirements.GetProperty("reboot").GetBoolean()
-                        || IsNewer(
-                            requirements.GetProperty("minimumLuciaVersion").GetString(),
-                            current.LuciaVersion)))
+                        || !MeetsMinimumVersion(
+                            current.LuciaVersion,
+                            requirements.GetProperty("minimumLuciaVersion").GetString())))
             {
                 throw new InvalidDataException(
                     "The appliance update channel requirements are not satisfied.");
@@ -636,6 +636,17 @@ public sealed partial class ApplianceUpdateService(
                 current.Split('-', 2)[0],
                 out var currentVersion)
             && candidateVersion > currentVersion;
+    }
+
+    internal static bool MeetsMinimumVersion(
+        string current,
+        string? minimum)
+    {
+        return Version.TryParse(
+                current.Split('-', 2)[0],
+                out var currentVersion)
+            && Version.TryParse(minimum, out var minimumVersion)
+            && currentVersion >= minimumVersion;
     }
 
     private static bool HasExpectedRuntime(JsonElement compatibility) =>

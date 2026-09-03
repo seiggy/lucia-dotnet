@@ -303,27 +303,24 @@ public static class ApplianceApi
                 IHostApplicationLifetime lifetime,
                 CancellationToken cancellationToken) =>
             {
-                var operation = await updates
-                    .GetOperationAsync(cancellationToken)
-                    .ConfigureAwait(false);
-                if (operation.Status is "queued" or "running")
-                {
-                    return Results.Conflict(new
-                    {
-                        Error = "An appliance update is in progress.",
-                    });
-                }
-                if (service == "agenthost")
-                {
-                    context.Response.OnCompleted(() =>
-                    {
-                        lifetime.StopApplication();
-                        return Task.CompletedTask;
-                    });
-                    return Results.Accepted();
-                }
                 try
                 {
+                    if (await GetUpdateConflictAsync(
+                            updates,
+                            cancellationToken)
+                        .ConfigureAwait(false) is { } conflict)
+                    {
+                        return conflict;
+                    }
+                    if (service == "agenthost")
+                    {
+                        context.Response.OnCompleted(() =>
+                        {
+                            lifetime.StopApplication();
+                            return Task.CompletedTask;
+                        });
+                        return Results.Accepted();
+                    }
                     await manager.RestartServiceAsync(service, cancellationToken)
                         .ConfigureAwait(false);
                     return Results.Accepted();
@@ -337,10 +334,18 @@ public static class ApplianceApi
             "/host/reboot",
             async (
                 ApplianceManagerClient manager,
+                ApplianceUpdateService updates,
                 CancellationToken cancellationToken) =>
             {
                 try
                 {
+                    if (await GetUpdateConflictAsync(
+                            updates,
+                            cancellationToken)
+                        .ConfigureAwait(false) is { } conflict)
+                    {
+                        return conflict;
+                    }
                     await manager.RebootHostAsync(cancellationToken)
                         .ConfigureAwait(false);
                     return Results.Accepted();
@@ -374,12 +379,20 @@ public static class ApplianceApi
             async (
                 ApplianceTelemetryConfigurationRequest request,
                 ApplianceManagerClient manager,
+                ApplianceUpdateService updates,
                 HttpContext context,
                 IHostApplicationLifetime lifetime,
                 CancellationToken cancellationToken) =>
             {
                 try
                 {
+                    if (await GetUpdateConflictAsync(
+                            updates,
+                            cancellationToken)
+                        .ConfigureAwait(false) is { } conflict)
+                    {
+                        return conflict;
+                    }
                     var status = await manager
                         .UpdateTelemetryAsync(request, cancellationToken)
                         .ConfigureAwait(false);
@@ -549,6 +562,24 @@ public static class ApplianceApi
             });
 
         return group;
+    }
+
+    internal static bool IsUpdateInProgress(string status) =>
+        status is "queued" or "running";
+
+    private static async Task<IResult?> GetUpdateConflictAsync(
+        ApplianceUpdateService updates,
+        CancellationToken cancellationToken)
+    {
+        var operation = await updates
+            .GetOperationAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return IsUpdateInProgress(operation.Status)
+            ? Results.Conflict(new
+            {
+                Error = "An appliance update is in progress.",
+            })
+            : null;
     }
 
     private static IResult ManagerProblem(

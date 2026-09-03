@@ -27,4 +27,17 @@ public sealed class ApplianceApiTests
             File.Delete(path);
         }
     }
+
+    [Theory]
+    [InlineData("queued", true)]
+    [InlineData("running", true)]
+    [InlineData("succeeded", false)]
+    [InlineData("failed", false)]
+    [InlineData("idle", false)]
+    public void IsUpdateInProgress_RecognizesActiveStates(
+        string status,
+        bool expected)
+    {
+        Assert.Equal(expected, ApplianceApi.IsUpdateInProgress(status));
+    }
 }

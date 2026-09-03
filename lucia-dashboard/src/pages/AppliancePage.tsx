@@ -65,6 +65,7 @@ export default function AppliancePage() {
   const [loading, setLoading] = useState(true)
   const [checkingUpdates, setCheckingUpdates] = useState(false)
   const [stagingUpdate, setStagingUpdate] = useState<'lucia' | 'os' | null>(null)
+  const [submittingRollback, setSubmittingRollback] = useState<'lucia' | 'os' | null>(null)
   const [busyService, setBusyService] = useState<string | null>(null)
   const [showReboot, setShowReboot] = useState(false)
   const [pendingUpdate, setPendingUpdate] = useState<'lucia' | 'os' | null>(null)
@@ -72,6 +73,7 @@ export default function AppliancePage() {
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const isUpdateBusy = stagingUpdate !== null
+    || submittingRollback !== null
     || updateOperation?.status === 'queued'
     || updateOperation?.status === 'running'
   const canInterruptOsValidation = updateOperation?.action === 'apply'
@@ -199,6 +201,7 @@ export default function AppliancePage() {
   }
 
   async function handleRollback(channel: 'lucia' | 'os') {
+    setSubmittingRollback(channel)
     setError('')
     try {
       setUpdateOperation(await rollbackApplianceUpdate(channel))
@@ -207,6 +210,8 @@ export default function AppliancePage() {
         : 'Lucia rollback requested. Services are restarting.')
     } catch (rollbackError: unknown) {
       setError(rollbackError instanceof Error ? rollbackError.message : 'Rollback failed.')
+    } finally {
+      setSubmittingRollback(null)
     }
   }
 
@@ -295,7 +300,8 @@ export default function AppliancePage() {
             compatible={updates?.osCompatible ?? true}
             checked={updates !== null}
             busy={isUpdateBusy}
-            rollbackBusy={isUpdateBusy && !canInterruptOsValidation}
+            rollbackBusy={submittingRollback !== null
+              || (isUpdateBusy && !canInterruptOsValidation)}
             rollbackAvailable={updateOperation?.osRollbackAvailable ?? false}
             onInstall={() => setPendingUpdate('os')}
             onRollback={() => setPendingRollback('os')}
@@ -355,6 +361,7 @@ export default function AppliancePage() {
         <TelemetryPanel
           key={`${telemetry.enabled}:${telemetry.endpoint}:${telemetry.insecureSkipVerify}`}
           telemetry={telemetry}
+          busy={isUpdateBusy}
           onSaved={(nextTelemetry) => {
             setTelemetry(nextTelemetry)
             setNotice(nextTelemetry.enabled
@@ -372,7 +379,12 @@ export default function AppliancePage() {
             Active conversations and voice processing will stop until the appliance returns.
           </p>
         </div>
-        <button type="button" onClick={() => setShowReboot(true)} className={secondaryButton}>
+        <button
+          type="button"
+          onClick={() => setShowReboot(true)}
+          disabled={isUpdateBusy}
+          className={secondaryButton}
+        >
           <Power className="h-4 w-4 text-rose" />
           Reboot Jetson
         </button>
@@ -602,10 +614,12 @@ function ServiceRow({
 
 function TelemetryPanel({
   telemetry,
+  busy,
   onSaved,
   onError,
 }: {
   telemetry: ApplianceTelemetryStatus
+  busy: boolean
   onSaved: (telemetry: ApplianceTelemetryStatus) => void
   onError: (message: string) => void
 }) {
@@ -646,7 +660,12 @@ function TelemetryPanel({
           <h2 className="font-display text-xl font-semibold text-light">OpenTelemetry</h2>
           <p className="mt-1 text-sm text-fog">Export Jetson and Redis infrastructure metrics.</p>
         </div>
-        <ToggleSwitch checked={enabled} onChange={setEnabled} label="Telemetry enabled" />
+        <ToggleSwitch
+          checked={enabled}
+          onChange={setEnabled}
+          disabled={busy}
+          label="Telemetry enabled"
+        />
       </div>
       <div className="grid gap-5 p-5 sm:grid-cols-2">
         <label className="sm:col-span-2">
@@ -655,6 +674,7 @@ function TelemetryPanel({
             type="url"
             value={endpoint}
             onChange={(event) => setEndpoint(event.target.value)}
+            disabled={busy}
             placeholder="https://telemetry.example:4317"
             className={inputStyle}
           />
@@ -664,7 +684,7 @@ function TelemetryPanel({
           <input
             value={username}
             onChange={(event) => setUsername(event.target.value)}
-            disabled={clearAuthorization}
+            disabled={busy || clearAuthorization}
             autoComplete="username"
             className={inputStyle}
           />
@@ -675,7 +695,7 @@ function TelemetryPanel({
             type="password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            disabled={clearAuthorization}
+            disabled={busy || clearAuthorization}
             autoComplete="new-password"
             placeholder={telemetry.hasAuthorization ? 'Saved; enter to replace' : ''}
             className={inputStyle}
@@ -685,6 +705,7 @@ function TelemetryPanel({
           <input
             type="checkbox"
             checked={clearAuthorization}
+            disabled={busy}
             onChange={(event) => {
               setClearAuthorization(event.target.checked)
               if (event.target.checked) {
@@ -700,6 +721,7 @@ function TelemetryPanel({
           <input
             type="checkbox"
             checked={insecureSkipVerify}
+            disabled={busy}
             onChange={(event) => setInsecureSkipVerify(event.target.checked)}
             className="mt-0.5 h-4 w-4 accent-rose"
           />
@@ -713,7 +735,7 @@ function TelemetryPanel({
         <button
           type="button"
           onClick={handleSave}
-          disabled={saving || !endpoint}
+          disabled={busy || saving || !endpoint}
           className={primaryButton}
         >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Activity className="h-4 w-4" />}
