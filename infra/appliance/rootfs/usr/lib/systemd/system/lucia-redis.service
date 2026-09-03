@@ -1,7 +1,8 @@
 [Unit]
 Description=Lucia Redis
 Documentation=https://redis.io/docs/latest/
-After=local-fs.target
+After=local-fs.target lucia-update-recovery.service
+Requires=lucia-update-recovery.service
 Before=lucia-agenthost.service
 RequiresMountsFor=/opt/lucia /var/lib/lucia
 
@@ -9,7 +10,7 @@ RequiresMountsFor=/opt/lucia /var/lib/lucia
 Type=simple
 User=lucia-redis
 Group=lucia-redis
-ExecStart=/opt/lucia/current/redis/bin/redis-server /etc/lucia/redis.conf
+ExecStart=/opt/lucia/current/redis/bin/redis-server /var/lib/lucia/redis/redis.conf
 Restart=on-failure
 RestartSec=5s
 TimeoutStartSec=30s

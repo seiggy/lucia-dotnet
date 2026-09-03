@@ -28,11 +28,17 @@ jobs:
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      SOURCE_REF: ${{ github.ref }}
     steps:
       - name: Validate release tag
         run: |
           if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Release tag must match vMAJOR.MINOR.PATCH"
+            exit 1
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" \
+              && "$SOURCE_REF" != "refs/tags/$RELEASE_TAG" ]]; then
+            echo "::error::Manual appliance releases must run from the selected release tag."
             exit 1
           fi
 
@@ -105,6 +111,8 @@ jobs:
 
       - name: Test appliance release
         run: |
+          dotnet test lucia.Tests/lucia.Tests.csproj \
+            --filter "FullyQualifiedName~lucia.Tests.Appliance"
           python3 infra/appliance/release/test_package_release.py
           bash infra/appliance/release/test_build_release_assets.sh
           bash infra/appliance/test-build-native-bundle.sh
@@ -113,6 +121,7 @@ jobs:
           sudo bash infra/appliance/installer/test-provision-target.sh
           bash infra/appliance/installer/test-installer-host.sh
           bash infra/appliance/manager/test-lucia-appliance-manager.sh
+          sudo bash infra/appliance/manager/test-lucia-update.sh
           sudo bash infra/appliance/installer/test-lucia-install.sh
           sudo bash infra/appliance/installer/test-installer-control.sh
           sudo bash infra/appliance/installer/test-firstboot-install.sh
@@ -128,6 +137,7 @@ jobs:
 
       - name: Package release assets
         run: |
+          source infra/appliance/release/appliance.lock
           version="${RELEASE_TAG#v}"
           python3 infra/appliance/release/package_release.py \
             --repository "$GITHUB_REPOSITORY" \
@@ -135,12 +145,63 @@ jobs:
             --installer "dist/raw/lucia-appliance-$version-installer.img.zst" \
             --lucia "dist/raw/lucia-appliance-$version-lucia.tar.zst" \
             --os "dist/raw/lucia-appliance-$version-os.tar.zst" \
+            --lucia-source-jetson-linux "$LUCIA_SOURCE_JETSON_LINUX_VERSION" \
+            --lucia-source-redis "$LUCIA_SOURCE_REDIS_VERSION" \
+            --lucia-source-cuda "$LUCIA_SOURCE_CUDA_VERSION" \
+            --lucia-source-cudnn "$LUCIA_SOURCE_CUDNN_VERSION" \
+            --lucia-source-onnx-runtime "$LUCIA_SOURCE_ONNX_RUNTIME_VERSION" \
+            --lucia-source-sherpa-onnx "$LUCIA_SOURCE_SHERPA_ONNX_VERSION" \
+            --os-source-jetson-linux "$OS_SOURCE_JETSON_LINUX_VERSION" \
+            --os-source-redis "$OS_SOURCE_REDIS_VERSION" \
+            --os-source-cuda "$OS_SOURCE_CUDA_VERSION" \
+            --os-source-cudnn "$OS_SOURCE_CUDNN_VERSION" \
+            --os-source-onnx-runtime "$OS_SOURCE_ONNX_RUNTIME_VERSION" \
+            --os-source-sherpa-onnx "$OS_SOURCE_SHERPA_ONNX_VERSION" \
+            --lucia-target-jetson-linux "$LUCIA_TARGET_JETSON_LINUX_VERSION" \
+            --lucia-target-redis "$LUCIA_TARGET_REDIS_VERSION" \
+            --lucia-target-cuda "$LUCIA_TARGET_CUDA_VERSION" \
+            --lucia-target-cudnn "$LUCIA_TARGET_CUDNN_VERSION" \
+            --lucia-target-onnx-runtime "$LUCIA_TARGET_ONNX_RUNTIME_VERSION" \
+            --lucia-target-sherpa-onnx "$LUCIA_TARGET_SHERPA_ONNX_VERSION" \
+            --os-target-jetson-linux "$OS_TARGET_JETSON_LINUX_VERSION" \
+            --os-target-redis "$OS_TARGET_REDIS_VERSION" \
+            --os-target-cuda "$OS_TARGET_CUDA_VERSION" \
+            --os-target-cudnn "$OS_TARGET_CUDNN_VERSION" \
+            --os-target-onnx-runtime "$OS_TARGET_ONNX_RUNTIME_VERSION" \
+            --os-target-sherpa-onnx "$OS_TARGET_SHERPA_ONNX_VERSION" \
             --output-dir dist/release
 
       - name: Attest release assets
+        id: attest
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-path: dist/release/*
+
+      - name: Export offline attestation bundle
+        run: |
+          cp "${{ steps.attest.outputs.bundle-path }}" \
+            dist/release/lucia-appliance-attestations.jsonl
+
+      - name: Verify exported offline attestation bundle
+        run: |
+          version="${RELEASE_TAG#v}"
+          verifier="$RUNNER_TEMP/lucia-appliance-$version/verifier/gh-host"
+          trusted_root="$RUNNER_TEMP/lucia-appliance-$version/verifier/trusted-root.jsonl"
+          bundle="dist/release/lucia-appliance-attestations.jsonl"
+          mapfile -t payloads < <(
+            python3 -c \
+              'import json; manifest=json.load(open("dist/release/lucia-appliance-manifest.json")); print("\n".join(part["name"] for channel in manifest["channels"].values() for part in channel["parts"]))'
+          )
+          for subject in \
+            dist/release/lucia-appliance-manifest.json \
+            "${payloads[@]/#/dist\/release\/}"; do
+            "$verifier" attestation verify "$subject" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/appliance-release.yml" \
+              --source-ref "refs/tags/$RELEASE_TAG" \
+              --bundle "$bundle" \
+              --custom-trusted-root "$trusted_root"
+          done
 
       - name: Wait for GitHub Release
         run: |
@@ -186,6 +247,11 @@ jobs:
                 exit 1
               fi
               gh release upload "$RELEASE_TAG" "$file"
+              return
+            fi
+            if [[ "$manifest_published" == "true" \
+                && "$name" == "lucia-appliance-attestations.jsonl" ]]; then
+              echo "Reusing published attestation bundle: $name"
               return
             fi
 

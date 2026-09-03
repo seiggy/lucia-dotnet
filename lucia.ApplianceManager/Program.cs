@@ -11,6 +11,7 @@ var socketPath = Environment.GetEnvironmentVariable("LUCIA_APPLIANCE_SOCKET")
     ?? "/run/lucia-appliance/appliance-manager.sock";
 
 builder.WebHost.ConfigureKestrel(options => options.ListenUnixSocket(socketPath));
+builder.Services.AddSingleton<ApplianceUpdateCoordinator>();
 
 var app = builder.Build();
 var operationLock = new SemaphoreSlim(1, 1);
@@ -23,7 +24,10 @@ app.Use(async (context, next) =>
         await next(context).ConfigureAwait(false);
         return;
     }
-
+    var updates = context.RequestServices
+        .GetRequiredService<ApplianceUpdateCoordinator>();
+    var isOsRollback = HttpMethods.IsPost(context.Request.Method)
+        && context.Request.Path == "/v1/updates/os/rollback";
     if (!await operationLock.WaitAsync(
             TimeSpan.Zero,
             context.RequestAborted)
@@ -39,6 +43,16 @@ app.Use(async (context, next) =>
 
     try
     {
+        if (updates.IsBusy
+            && !(isOsRollback && updates.CanStartOsRollback))
+        {
+            context.Response.StatusCode = StatusCodes.Status409Conflict;
+            await context.Response.WriteAsJsonAsync(
+                    new { Error = "An appliance update is in progress." },
+                    context.RequestAborted)
+                .ConfigureAwait(false);
+            return;
+        }
         await next(context).ConfigureAwait(false);
     }
     finally
@@ -52,6 +66,51 @@ app.MapPost("/v1/services/{service}/restart", RestartServiceAsync);
 app.MapPost("/v1/host/reboot", RebootHostAsync);
 app.MapGet("/v1/telemetry", GetTelemetryConfiguration);
 app.MapPut("/v1/telemetry", UpdateTelemetryConfigurationAsync);
+app.MapGet(
+    "/v1/updates/operation",
+    (ApplianceUpdateCoordinator updates) => Results.Ok(updates.GetStatus()));
+app.MapGet(
+    "/v1/updates/operations/{operationId}",
+    (string operationId, ApplianceUpdateCoordinator updates) =>
+        updates.GetStatus(operationId) is { } status
+            ? Results.Ok(status)
+            : Results.NotFound());
+app.MapPost(
+    "/v1/updates/{channel}/{action}",
+    (
+        string channel,
+        string action,
+        UpdateOperationRequest request,
+        ApplianceUpdateCoordinator updates) =>
+    {
+        try
+        {
+            var result = updates.TryStart(
+                action,
+                channel,
+                request.Tag,
+                request.OperationId);
+            if (result == UpdateStartResult.Accepted)
+            {
+                return Results.Accepted(value: updates.GetStatus());
+            }
+            return Results.Conflict(new
+            {
+                Error = result == UpdateStartResult.RollbackUnavailable
+                    ? "OS rollback is not available."
+                    : "Another appliance update is in progress.",
+            });
+        }
+        catch (ArgumentException exception)
+        {
+            return Results.BadRequest(new { Error = exception.Message });
+        }
+    });
+
+if (args is ["--validate"])
+{
+    return;
+}
 
 await app.RunAsync().ConfigureAwait(false);
 

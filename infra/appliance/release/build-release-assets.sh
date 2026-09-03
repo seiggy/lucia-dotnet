@@ -55,7 +55,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/../../.." && pwd)"
 source "$script_dir/appliance.lock"
 
-for command in curl docker dotnet findmnt mountpoint npm openssl python3 sha256sum tar umount zstd; do
+for command in curl docker dotnet e2fsck findmnt mountpoint npm openssl python3 sha256sum tar umount zstd; do
     command -v "$command" >/dev/null || die "required command is missing: $command"
 done
 sudo -n true 2>/dev/null || die "passwordless sudo is required"
@@ -79,6 +79,7 @@ manager_publish_dir="$work_dir/manager-publish"
 installer_publish_dir="$work_dir/installer-publish"
 redis_dir="$work_dir/redis"
 telemetry_dir="$work_dir/telemetry"
+verifier_dir="$work_dir/verifier"
 voice_dir="$work_dir/voice"
 bundle_root="$work_dir/bundle"
 bsp_dir="$work_dir/bsp"
@@ -118,6 +119,14 @@ download_sha256 \
     "$REDIS_SOURCE_URL" \
     "$REDIS_SOURCE_SHA256" \
     "$downloads/redis-${REDIS_COMMIT}.tar.gz"
+download_sha256 \
+    "$GH_CLI_URL" \
+    "$GH_CLI_SHA256" \
+    "$downloads/gh_${GH_CLI_VERSION}_linux_arm64.tar.gz"
+download_sha256 \
+    "$GH_CLI_HOST_URL" \
+    "$GH_CLI_HOST_SHA256" \
+    "$downloads/gh_${GH_CLI_VERSION}_linux_amd64.tar.gz"
 compute_downloads="$downloads/compute"
 mkdir -p "$compute_downloads"
 for package in "${COMPUTE_PACKAGES[@]}"; do
@@ -131,6 +140,7 @@ rm -rf \
     "$installer_publish_dir" \
     "$redis_dir" \
     "$telemetry_dir" \
+    "$verifier_dir" \
     "$voice_dir" \
     "$bundle_root"
 dotnet publish "$repo_root/lucia.AgentHost/lucia.AgentHost.csproj" \
@@ -191,6 +201,22 @@ tar -xzf \
     || die "Collector archive did not contain otelcol-contrib"
 [[ -x "$telemetry_dir/redis-exporter/redis_exporter" ]] \
     || die "Redis exporter archive did not contain redis_exporter"
+mkdir -p "$verifier_dir"
+tar -xzf "$downloads/gh_${GH_CLI_VERSION}_linux_amd64.tar.gz" \
+    --strip-components=2 \
+    -C "$verifier_dir" \
+    "gh_${GH_CLI_VERSION}_linux_amd64/bin/gh"
+mv "$verifier_dir/gh" "$verifier_dir/gh-host"
+tar -xzf "$downloads/gh_${GH_CLI_VERSION}_linux_arm64.tar.gz" \
+    --strip-components=2 \
+    -C "$verifier_dir" \
+    "gh_${GH_CLI_VERSION}_linux_arm64/bin/gh"
+printf '%s  %s\n' \
+    "$TRUSTED_ROOT_SHA256" \
+    "$script_dir/trusted-root.jsonl" \
+    | sha256sum --check --status \
+    || die "pinned attestation trusted root failed verification"
+cp "$script_dir/trusted-root.jsonl" "$verifier_dir/trusted-root.jsonl"
 
 voice_asset_hash="$(bash "$script_dir/voice-asset-key.sh")"
 voice_asset_image="${VOICE_ASSET_IMAGE:-ghcr.io/seiggy/lucia-dotnet/jetson-voice-assets}"
@@ -213,12 +239,45 @@ sudo "$repo_root/infra/appliance/build-native-bundle.sh" \
     --manager-dir "$manager_publish_dir" \
     --dashboard-dir "$repo_root/lucia-dashboard/dist" \
     --redis-server "$redis_dir/redis-server" \
+    --gh-cli "$verifier_dir/gh" \
+    --trusted-root "$verifier_dir/trusted-root.jsonl" \
     --native-dir "$voice_dir/native" \
     --models-dir "$voice_dir/models" \
     --plugins-dir "$voice_dir/plugins" \
     --otelcol "$telemetry_dir/otelcol/otelcol-contrib" \
     --redis-exporter "$telemetry_dir/redis-exporter/redis_exporter" \
     --output-dir "$bundle_root"
+write_runtime_metadata() {
+    sudo python3 - "$bundle_root/etc/lucia/appliance-runtime.json" "$@" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+path.write_text(
+    json.dumps(
+        {
+            "layoutVersion": 1,
+            "dataSchemaVersion": 1,
+            "redis": sys.argv[2],
+            "cuda": sys.argv[3],
+            "cudnn": sys.argv[4],
+            "onnxRuntime": sys.argv[5],
+            "sherpaOnnx": sys.argv[6],
+        },
+        indent=2,
+    )
+    + "\n",
+    encoding="utf-8",
+)
+PY
+}
+write_runtime_metadata \
+    "$LUCIA_TARGET_REDIS_VERSION" \
+    "$LUCIA_TARGET_CUDA_VERSION" \
+    "$LUCIA_TARGET_CUDNN_VERSION" \
+    "$LUCIA_TARGET_ONNX_RUNTIME_VERSION" \
+    "$LUCIA_TARGET_SHERPA_ONNX_VERSION"
 sudo chown -R root:root "$bundle_root"
 sudo chown -R 1100:1100 "$bundle_root/var/lib/lucia"
 sudo chown root:root "$bundle_root/var/lib/lucia"
@@ -235,6 +294,12 @@ sudo tar --numeric-owner --sort=name \
     .
 sudo chown "$(id -u):$(id -g)" \
     "$raw_dir/lucia-appliance-${version}-lucia.tar.zst"
+write_runtime_metadata \
+    "$OS_TARGET_REDIS_VERSION" \
+    "$OS_TARGET_CUDA_VERSION" \
+    "$OS_TARGET_CUDNN_VERSION" \
+    "$OS_TARGET_ONNX_RUNTIME_VERSION" \
+    "$OS_TARGET_SHERPA_ONNX_VERSION"
 
 prepare_bsp() {
     local destination="$1"
@@ -336,7 +401,9 @@ grep -q '^PARTLABEL=LUCIA_DATA ' "$root/etc/fstab" \
 sudo systemctl --root="$root" enable \
     lucia-appliance-manager.service \
     lucia-redis.service \
-    lucia-agenthost.service
+    lucia-agenthost.service \
+    lucia-os-update-validation.service \
+    lucia-update-recovery.service
 sudo cp /usr/bin/qemu-aarch64-static "$root/usr/bin/"
 recovery_password="$(openssl rand -base64 24)"
 sudo "$bsp_dir/Linux_for_Tegra/tools/l4t_create_default_user.sh" \
@@ -393,6 +460,8 @@ sudo zstd -T0 -10 --long=27 --force \
     -o "$work_dir/lucia-nvme-${version}.img.zst"
 
 external_images="$bsp_dir/Linux_for_Tegra/tools/kernel_flash/images/external"
+e2fsck -fn "$external_images/system.img" >/dev/null
+e2fsck -fn "$external_images/system.img_b" >/dev/null
 tar --sort=name \
     --mtime="@$source_date_epoch" --clamp-mtime \
     --pax-option=delete=atime,delete=ctime \

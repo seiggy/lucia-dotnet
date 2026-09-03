@@ -38,6 +38,54 @@ class PackageReleaseTests(unittest.TestCase):
                     "1.2.4",
                     "--os-version",
                     "2.0.0",
+                    "--lucia-source-jetson-linux",
+                    "36.4.3",
+                    "--lucia-source-cuda",
+                    "12.5",
+                    "--lucia-source-redis",
+                    "8.1.0",
+                    "--lucia-source-cudnn",
+                    "9.2.0",
+                    "--lucia-source-onnx-runtime",
+                    "1.22.0",
+                    "--lucia-source-sherpa-onnx",
+                    "1.11.0",
+                    "--os-source-jetson-linux",
+                    "36.4.3",
+                    "--os-source-redis",
+                    "8.2.9",
+                    "--os-source-cuda",
+                    "13.0",
+                    "--os-source-cudnn",
+                    "10.0",
+                    "--os-source-onnx-runtime",
+                    "2.0.0",
+                    "--os-source-sherpa-onnx",
+                    "2.0.0",
+                    "--lucia-target-jetson-linux",
+                    "36.4.3",
+                    "--lucia-target-redis",
+                    "8.2.9",
+                    "--lucia-target-cuda",
+                    "12.5",
+                    "--lucia-target-cudnn",
+                    "9.2.0",
+                    "--lucia-target-onnx-runtime",
+                    "1.22.0",
+                    "--lucia-target-sherpa-onnx",
+                    "1.11.0",
+                    "--os-target-jetson-linux",
+                    "36.5.2",
+                    "--os-target-redis",
+                    "8.2.9",
+                    "--os-target-cuda",
+                    "12.6",
+                    "--os-target-cudnn",
+                    "9.3.0.75",
+                    "--os-target-onnx-runtime",
+                    "1.23.2",
+                    "--os-target-sherpa-onnx",
+                    "1.12.34",
                     "--output-dir",
                     str(output),
                     "--chunk-bytes",
@@ -51,9 +99,50 @@ class PackageReleaseTests(unittest.TestCase):
             )
             self.assertEqual(manifest["schemaVersion"], 1)
             self.assertEqual(manifest["version"], "1.2.3")
+            self.assertEqual(
+                manifest["attestationBundleUrl"],
+                "https://github.com/seiggy/lucia-dotnet/releases/download/"
+                "v1.2.3/lucia-appliance-attestations.jsonl",
+            )
             self.assertEqual(manifest["channels"]["lucia"]["version"], "1.2.4")
             self.assertEqual(manifest["channels"]["os"]["version"], "2.0.0")
-            self.assertEqual(manifest["compatibility"]["jetsonLinux"], "36.5.2")
+            self.assertEqual(manifest["compatibility"]["layoutVersion"], 1)
+            self.assertNotIn("jetsonLinux", manifest["compatibility"])
+            self.assertNotIn("cuda", manifest["compatibility"])
+            self.assertEqual(
+                manifest["releaseNotesUrl"],
+                "https://github.com/seiggy/lucia-dotnet/releases/tag/v1.2.3",
+            )
+            self.assertEqual(
+                manifest["releaseApi"],
+                "https://api.github.com/repos/seiggy/lucia-dotnet/releases/tags/v1.2.3",
+            )
+            self.assertEqual(
+                manifest["channels"]["os"]["requires"]["minimumLuciaVersion"],
+                "1.2.4",
+            )
+            self.assertFalse(manifest["channels"]["lucia"]["requires"]["reboot"])
+            self.assertTrue(manifest["channels"]["os"]["requires"]["reboot"])
+            self.assertEqual(
+                manifest["channels"]["os"]["requires"]["source"]["jetsonLinux"],
+                "36.4.3",
+            )
+            self.assertEqual(
+                manifest["channels"]["os"]["requires"]["source"]["cuda"],
+                "13.0",
+            )
+            self.assertEqual(
+                manifest["channels"]["lucia"]["requires"]["source"]["cuda"],
+                "12.5",
+            )
+            self.assertEqual(
+                manifest["channels"]["os"]["requires"]["target"]["jetsonLinux"],
+                "36.5.2",
+            )
+            self.assertEqual(
+                manifest["channels"]["os"]["requires"]["target"]["cuda"],
+                "12.6",
+            )
             self.assertEqual(len(manifest["channels"]["installer"]["parts"]), 3)
             self.assertEqual(len(manifest["channels"]["lucia"]["parts"]), 1)
             self.assertEqual(len(manifest["channels"]["os"]["parts"]), 2)

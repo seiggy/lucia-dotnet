@@ -8,8 +8,31 @@ voice_key_script="$script_dir/voice-asset-key.sh"
 workflow_dir="$script_dir/../../../.github/workflows"
 
 [[ "${#COMPUTE_PACKAGES[@]}" -eq 8 ]]
+[[ "$GH_CLI_SHA256" =~ ^[0-9a-f]{64}$ ]]
+[[ "$GH_CLI_HOST_SHA256" =~ ^[0-9a-f]{64}$ ]]
+[[ "$TRUSTED_ROOT_SHA256" =~ ^[0-9a-f]{64}$ ]]
 [[ "$JETSON_BSP_SHA256" =~ ^[0-9a-f]{64}$ ]]
 [[ "$JETSON_ROOTFS_SHA256" =~ ^[0-9a-f]{64}$ ]]
+[[ "$LUCIA_SOURCE_JETSON_LINUX_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+[[ -n "$LUCIA_SOURCE_REDIS_VERSION" ]]
+[[ -n "$LUCIA_SOURCE_CUDA_VERSION" ]]
+[[ -n "$LUCIA_SOURCE_CUDNN_VERSION" ]]
+[[ -n "$LUCIA_SOURCE_ONNX_RUNTIME_VERSION" ]]
+[[ -n "$LUCIA_SOURCE_SHERPA_ONNX_VERSION" ]]
+[[ "$OS_SOURCE_JETSON_LINUX_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+[[ -n "$OS_SOURCE_REDIS_VERSION" ]]
+[[ -n "$OS_SOURCE_CUDA_VERSION" ]]
+[[ -n "$OS_SOURCE_CUDNN_VERSION" ]]
+[[ -n "$OS_SOURCE_ONNX_RUNTIME_VERSION" ]]
+[[ -n "$OS_SOURCE_SHERPA_ONNX_VERSION" ]]
+[[ -n "$LUCIA_TARGET_JETSON_LINUX_VERSION" ]]
+[[ "$LUCIA_TARGET_REDIS_VERSION" == "$REDIS_VERSION" ]]
+[[ -n "$LUCIA_TARGET_CUDA_VERSION" ]]
+[[ -n "$LUCIA_TARGET_CUDNN_VERSION" ]]
+[[ -n "$LUCIA_TARGET_ONNX_RUNTIME_VERSION" ]]
+[[ -n "$LUCIA_TARGET_SHERPA_ONNX_VERSION" ]]
+[[ "$OS_TARGET_JETSON_LINUX_VERSION" == "$JETSON_LINUX_VERSION" ]]
+[[ "$OS_TARGET_REDIS_VERSION" == "$REDIS_VERSION" ]]
 ! grep -q 'SHA1\|download_sha1\|sha1sum' \
     "$script_dir/build-release-assets.sh" \
     "$script_dir/appliance.lock"
@@ -55,9 +78,9 @@ if grep -q 'benchmark' "$workflow_dir/jetson-voice-assets.yml"; then
     echo "Production voice workflow still contains benchmark-only behavior" >&2
     exit 1
 fi
-grep -q '^  group: jetson-voice-assets$' \
+grep -Fq '  group: jetson-voice-assets' \
     "$workflow_dir/jetson-voice-assets.yml"
-grep -q 'ref=$VOICE_ASSET_IMAGE:sha-$hash' \
+grep -Fq 'ref=$VOICE_ASSET_IMAGE:sha-$hash' \
     "$workflow_dir/jetson-voice-assets.yml"
 grep -q 'cache-from: type=gha,scope=jetson-voice-assets' \
     "$workflow_dir/jetson-voice-assets.yml"
@@ -79,10 +102,52 @@ grep -q 'ref:.*inputs.tag.*github.ref' \
     "$workflow_dir/appliance-release.yml"
 grep -q 'VOICE_ASSET_REF:.*needs.voice-assets.outputs.image_ref' \
     "$workflow_dir/appliance-release.yml"
-sed -n '15,20p' "$workflow_dir/appliance-release.yml" \
-    | grep -q '^  packages: read$'
+grep -Fq '  packages: read' "$workflow_dir/appliance-release.yml"
 grep -q 'docker image rm "$VOICE_ASSET_REF"' \
     "$workflow_dir/appliance-release.yml"
+grep -q 'bundle-path' "$workflow_dir/appliance-release.yml"
+grep -q 'lucia-appliance-attestations.jsonl' \
+    "$workflow_dir/appliance-release.yml" \
+    "$script_dir/package_release.py"
+grep -q 'Verify exported offline attestation bundle' \
+    "$workflow_dir/appliance-release.yml"
+grep -q '"$verifier" attestation verify "$subject"' \
+    "$workflow_dir/appliance-release.yml"
+grep -q -- '--custom-trusted-root "$trusted_root"' \
+    "$workflow_dir/appliance-release.yml"
+grep -q -- '--source-ref "refs/tags/$RELEASE_TAG"' \
+    "$workflow_dir/appliance-release.yml"
+grep -q 'Manual appliance releases must run from the selected release tag' \
+    "$workflow_dir/appliance-release.yml"
+grep -q -- '--source-ref "refs/tags/$selected_tag"' \
+    "$script_dir/../rootfs/usr/libexec/lucia/lucia-update"
+grep -q 'pinned attestation trusted root failed verification' \
+    "$script_dir/build-release-assets.sh"
+printf '%s  %s\n' "$TRUSTED_ROOT_SHA256" "$script_dir/trusted-root.jsonl" \
+    | sha256sum --check --status
+grep -q -- '--gh-cli' "$script_dir/build-release-assets.sh"
+grep -q -- '--lucia-source-jetson-linux "$LUCIA_SOURCE_JETSON_LINUX_VERSION"' \
+    "$workflow_dir/appliance-release.yml"
+grep -q 'for channel in manifest\["channels"\].values()' \
+    "$workflow_dir/appliance-release.yml"
+grep -q -- '--os-source-sherpa-onnx "$OS_SOURCE_SHERPA_ONNX_VERSION"' \
+    "$workflow_dir/appliance-release.yml"
+grep -q -- '--lucia-target-jetson-linux "$LUCIA_TARGET_JETSON_LINUX_VERSION"' \
+    "$workflow_dir/appliance-release.yml"
+grep -q -- '--os-target-sherpa-onnx "$OS_TARGET_SHERPA_ONNX_VERSION"' \
+    "$workflow_dir/appliance-release.yml"
+grep -q 'appliance-runtime.json' \
+    "$script_dir/build-release-assets.sh"
+grep -q '"$LUCIA_TARGET_REDIS_VERSION"' \
+    "$script_dir/build-release-assets.sh"
+grep -q '"$OS_TARGET_REDIS_VERSION"' \
+    "$script_dir/build-release-assets.sh"
+grep -q 'lucia-os-update-validation.service' \
+    "$script_dir/build-release-assets.sh"
+grep -q 'e2fsck -fn.*system.img' "$script_dir/build-release-assets.sh"
+grep -q 'test-lucia-update.sh' \
+    "$workflow_dir/appliance-release.yml" \
+    "$workflow_dir/appliance-pr.yml"
 
 voice_fixture="$(mktemp)"
 trap 'rm -f "$voice_fixture"' EXIT

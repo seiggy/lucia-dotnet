@@ -48,12 +48,26 @@ export interface ApplianceUpdateStatus {
   latestOsVersion: string | null
   manifestAvailable: boolean
   compatible: boolean
+  luciaCompatible: boolean
+  osCompatible: boolean
   luciaNewerDiscovered: boolean
   osNewerDiscovered: boolean
   luciaUpdateAvailable: boolean
   osUpdateAvailable: boolean
+  releaseTag: string | null
   releaseUrl: string | null
   message: string | null
+}
+
+export interface ApplianceUpdateOperationStatus {
+  operationId: string | null
+  action: string
+  channel: string
+  status: 'idle' | 'queued' | 'running' | 'succeeded' | 'failed'
+  tag: string | null
+  message: string | null
+  luciaRollbackAvailable: boolean
+  osRollbackAvailable: boolean
 }
 
 async function request(path: string, init?: RequestInit): Promise<unknown> {
@@ -65,8 +79,9 @@ async function request(path: string, init?: RequestInit): Promise<unknown> {
       : `Appliance request failed with status ${response.status}.`
     throw new Error(detail)
   }
-  if (response.status === 202 || response.status === 204) return null
-  return response.json()
+  if (response.status === 204) return null
+  const body = await response.text()
+  return body ? JSON.parse(body) : null
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -174,12 +189,41 @@ function parseUpdates(value: unknown): ApplianceUpdateStatus {
     latestOsVersion: optionalString('latestOsVersion'),
     manifestAvailable: requireBoolean(updates, 'manifestAvailable'),
     compatible: requireBoolean(updates, 'compatible'),
+    luciaCompatible: requireBoolean(updates, 'luciaCompatible'),
+    osCompatible: requireBoolean(updates, 'osCompatible'),
     luciaNewerDiscovered: requireBoolean(updates, 'luciaNewerDiscovered'),
     osNewerDiscovered: requireBoolean(updates, 'osNewerDiscovered'),
     luciaUpdateAvailable: requireBoolean(updates, 'luciaUpdateAvailable'),
     osUpdateAvailable: requireBoolean(updates, 'osUpdateAvailable'),
+    releaseTag: optionalString('releaseTag'),
     releaseUrl: optionalString('releaseUrl'),
     message: optionalString('message'),
+  }
+}
+
+function parseUpdateOperation(value: unknown): ApplianceUpdateOperationStatus {
+  const operation = requireRecord(value, 'update operation')
+  const status = requireString(operation, 'status')
+  if (!['idle', 'queued', 'running', 'succeeded', 'failed'].includes(status)) {
+    throw new Error('The appliance returned an invalid update operation state.')
+  }
+  return {
+    operationId: operation.operationId === null
+      ? null
+      : requireString(operation, 'operationId'),
+    action: requireString(operation, 'action'),
+    channel: requireString(operation, 'channel'),
+    status: status === 'idle'
+      || status === 'queued'
+      || status === 'running'
+      || status === 'succeeded'
+      || status === 'failed'
+      ? status
+      : 'failed',
+    tag: operation.tag === null ? null : requireString(operation, 'tag'),
+    message: operation.message === null ? null : requireString(operation, 'message'),
+    luciaRollbackAvailable: requireBoolean(operation, 'luciaRollbackAvailable'),
+    osRollbackAvailable: requireBoolean(operation, 'osRollbackAvailable'),
   }
 }
 
@@ -188,13 +232,6 @@ export async function fetchApplianceStatus(): Promise<ApplianceStatus> {
 }
 
 export async function restartApplianceService(service: string): Promise<void> {
-  if (service === 'agenthost') {
-    const response = await fetch('/api/system/restart', { method: 'POST' })
-    if (!response.ok) {
-      throw new Error(`AgentHost restart failed with status ${response.status}.`)
-    }
-    return
-  }
   await request(`/services/${encodeURIComponent(service)}/restart`, {
     method: 'POST',
   })
@@ -220,4 +257,32 @@ export async function updateApplianceTelemetry(
 
 export async function checkApplianceUpdates(): Promise<ApplianceUpdateStatus> {
   return parseUpdates(await request('/updates'))
+}
+
+export async function installApplianceUpdate(
+  channel: 'lucia' | 'os',
+  tag: string,
+): Promise<ApplianceUpdateOperationStatus> {
+  return parseUpdateOperation(await request(`/updates/${channel}/install`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tag }),
+  }))
+}
+
+export async function fetchApplianceUpdateOperation(
+  operationId?: string | null,
+): Promise<ApplianceUpdateOperationStatus> {
+  const path = operationId
+    ? `/updates/operations/${encodeURIComponent(operationId)}`
+    : '/updates/operation'
+  return parseUpdateOperation(await request(path))
+}
+
+export async function rollbackApplianceUpdate(
+  channel: 'lucia' | 'os',
+): Promise<ApplianceUpdateOperationStatus> {
+  return parseUpdateOperation(await request(`/updates/${channel}/rollback`, {
+    method: 'POST',
+  }))
 }

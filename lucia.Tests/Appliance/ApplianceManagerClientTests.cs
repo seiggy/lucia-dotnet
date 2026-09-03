@@ -111,4 +111,58 @@ public sealed class ApplianceManagerClientTests
             File.Delete(socketPath);
         }
     }
+
+    [Fact]
+    public async Task StartUpdateAsync_SendsChannelAndTagToManager()
+    {
+        var socketPath = Path.Combine(
+            Path.GetTempPath(),
+            $"lucia-manager-{Guid.NewGuid():N}.sock");
+        using var listener = new Socket(
+            AddressFamily.Unix,
+            SocketType.Stream,
+            ProtocolType.Unspecified);
+        listener.Bind(new UnixDomainSocketEndPoint(socketPath));
+        listener.Listen();
+
+        try
+        {
+            var requestText = string.Empty;
+            var serverTask = Task.Run(async () =>
+            {
+                using var accepted = await listener.AcceptAsync();
+                await using var stream = new NetworkStream(accepted, ownsSocket: false);
+                var requestBuffer = new byte[4096];
+                var count = await stream.ReadAsync(requestBuffer);
+                requestText = Encoding.UTF8.GetString(requestBuffer, 0, count);
+                const string Body =
+                    """{"action":"apply","channel":"lucia","status":"queued","tag":"v1.3.0","message":null}""";
+                var response = Encoding.UTF8.GetBytes(
+                    "HTTP/1.1 202 Accepted\r\n"
+                    + "Content-Type: application/json\r\n"
+                    + $"Content-Length: {Encoding.UTF8.GetByteCount(Body)}\r\n"
+                    + "Connection: close\r\n\r\n"
+                    + Body);
+                await stream.WriteAsync(response);
+            });
+
+            using var client = new ApplianceManagerClient(socketPath);
+            var result = await client.StartUpdateAsync(
+                "lucia",
+                "v1.3.0",
+                "11111111-1111-1111-1111-111111111111",
+                CancellationToken.None);
+
+            Assert.Equal("queued", result.Status);
+            Assert.Contains("POST /v1/updates/lucia/apply", requestText);
+            Assert.Contains(
+                """"tag":"v1.3.0","operationId":"11111111-1111-1111-1111-111111111111"""",
+                requestText);
+            await serverTask;
+        }
+        finally
+        {
+            File.Delete(socketPath);
+        }
+    }
 }

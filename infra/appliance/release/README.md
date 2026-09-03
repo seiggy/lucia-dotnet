@@ -33,23 +33,61 @@ Ubuntu or NVIDIA package indexes.
 The updater requests:
 
 ```text
-https://api.github.com/repos/seiggy/lucia-dotnet/releases/latest
+https://api.github.com/repos/seiggy/lucia-dotnet/releases?per_page=100&page=1
 ```
 
 It ignores a release until the release contains
 `lucia-appliance-manifest.json`. The workflow uploads that manifest last, after
 all payload parts, checksums, and GitHub artifact attestations exist.
+After an administrator confirms an update, the dashboard submits the reviewed
+tag and AgentHost fetches that exact release through the GitHub tags API.
+
+The workflow also publishes `lucia-appliance-attestations.jsonl`. Installed
+appliances verify the manifest and every downloaded part offline with the
+official GitHub CLI, the workflow identity
+`seiggy/lucia-dotnet/.github/workflows/appliance-release.yml`, and a Sigstore
+trusted root embedded in the currently installed release. The manager refuses
+to write a release until those checks and the manifest hashes all pass.
 
 Each manifest channel contains:
 
 - complete compressed payload size and SHA-256;
 - ordered part names, sizes, hashes, and release URLs;
-- board, architecture, Jetson Linux, and minimum disk compatibility.
+- board, architecture, layout, and minimum disk compatibility;
+- source prerequisites and target Jetson Linux, Redis, CUDA, cuDNN, ONNX
+  Runtime, and sherpa-onnx versions;
+- the release notes URL and per-channel reboot requirement.
 
-A future updater must download parts in manifest order, verify every part's
-GitHub attestation and hash, join them, then verify the complete payload against
-the digest in the attested manifest before writing it. The current dashboard
-performs discovery only; apply controls remain locked.
+The updater downloads parts in manifest order, verifies every part's GitHub
+attestation and hash, then verifies the complete compressed stream against the
+digest in the attested manifest before writing it.
+
+Update discovery pages through stable releases from newest to oldest and selects
+the first one compatible with the appliance's active runtime. This keeps bridge
+releases available after a long offline period.
+
+Lucia updates stop AgentHost and Redis, back up configuration, SQLite, and Redis
+data, install the new version under `/opt/lucia/releases`, and atomically switch
+`/opt/lucia/current`. Rollback restores both the previous release link and its
+data backup. Redis configuration lives under `/var/lib/lucia/redis`, so both OS
+slots use the same versioned application configuration. A rollback keeps the
+current data until the restored release passes the same persistence and CUDA
+checks. If validation fails, the updater returns to the current release and
+keeps the rollback backup. A Lucia update remains recoverable until the
+restarted appliance manager binds its socket and finalizes the transaction.
+
+OS updates stream the selected raw images directly to the inactive `APP`,
+kernel, and device-tree partitions. NVIDIA rootfs A/B selects the new slot for
+the next boot. Before switching slots, the updater restores the device hostname,
+recovery password hash, and provisioned Wi-Fi connection in the new root
+filesystem. `lucia-os-update-validation.service` checks NetworkManager, Redis,
+AgentHost, and the local health endpoint after boot. A failed check selects the
+previous slot and reboots. Intentional rollback runs the same checks on the
+previous slot and returns to the current slot if that validation fails.
+
+Images older than this updater cannot bootstrap it from the dashboard. Upgrade
+those devices once by reinstalling or manually deploying a release that
+contains the verifier.
 
 GitHub Release assets are limited to 2 GiB per file. The packager uses
 1.9-billion-byte parts so installer and OS images stay within that limit.

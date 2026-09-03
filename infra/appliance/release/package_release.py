@@ -68,6 +68,39 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--os", type=pathlib.Path, required=True)
     parser.add_argument("--lucia-version")
     parser.add_argument("--os-version")
+    parser.add_argument(
+        "--lucia-source-jetson-linux",
+        required=True,
+    )
+    parser.add_argument("--lucia-source-redis", required=True)
+    parser.add_argument("--lucia-source-cuda", required=True)
+    parser.add_argument("--lucia-source-cudnn", required=True)
+    parser.add_argument(
+        "--lucia-source-onnx-runtime",
+        required=True,
+    )
+    parser.add_argument(
+        "--lucia-source-sherpa-onnx",
+        required=True,
+    )
+    parser.add_argument("--os-source-jetson-linux", required=True)
+    parser.add_argument("--os-source-redis", required=True)
+    parser.add_argument("--os-source-cuda", required=True)
+    parser.add_argument("--os-source-cudnn", required=True)
+    parser.add_argument("--os-source-onnx-runtime", required=True)
+    parser.add_argument("--os-source-sherpa-onnx", required=True)
+    parser.add_argument("--lucia-target-jetson-linux", required=True)
+    parser.add_argument("--lucia-target-redis", required=True)
+    parser.add_argument("--lucia-target-cuda", required=True)
+    parser.add_argument("--lucia-target-cudnn", required=True)
+    parser.add_argument("--lucia-target-onnx-runtime", required=True)
+    parser.add_argument("--lucia-target-sherpa-onnx", required=True)
+    parser.add_argument("--os-target-jetson-linux", required=True)
+    parser.add_argument("--os-target-redis", required=True)
+    parser.add_argument("--os-target-cuda", required=True)
+    parser.add_argument("--os-target-cudnn", required=True)
+    parser.add_argument("--os-target-onnx-runtime", required=True)
+    parser.add_argument("--os-target-sherpa-onnx", required=True)
     parser.add_argument("--output-dir", type=pathlib.Path, required=True)
     parser.add_argument("--chunk-bytes", type=int, default=1_900_000_000)
     return parser.parse_args()
@@ -87,6 +120,46 @@ def main() -> None:
         raise SystemExit("--lucia-version must match MAJOR.MINOR.PATCH")
     if re.fullmatch(version_pattern, os_version) is None:
         raise SystemExit("--os-version must match MAJOR.MINOR.PATCH")
+    lucia_source_runtime = {
+        "jetsonLinux": arguments.lucia_source_jetson_linux,
+        "redis": arguments.lucia_source_redis,
+        "cuda": arguments.lucia_source_cuda,
+        "cudnn": arguments.lucia_source_cudnn,
+        "onnxRuntime": arguments.lucia_source_onnx_runtime,
+        "sherpaOnnx": arguments.lucia_source_sherpa_onnx,
+    }
+    os_source_runtime = {
+        "jetsonLinux": arguments.os_source_jetson_linux,
+        "redis": arguments.os_source_redis,
+        "cuda": arguments.os_source_cuda,
+        "cudnn": arguments.os_source_cudnn,
+        "onnxRuntime": arguments.os_source_onnx_runtime,
+        "sherpaOnnx": arguments.os_source_sherpa_onnx,
+    }
+    if any(not value.strip() for value in lucia_source_runtime.values()):
+        raise SystemExit("Lucia source runtime versions must not be empty")
+    if any(not value.strip() for value in os_source_runtime.values()):
+        raise SystemExit("OS source runtime versions must not be empty")
+    lucia_target_runtime = {
+        "jetsonLinux": arguments.lucia_target_jetson_linux,
+        "redis": arguments.lucia_target_redis,
+        "cuda": arguments.lucia_target_cuda,
+        "cudnn": arguments.lucia_target_cudnn,
+        "onnxRuntime": arguments.lucia_target_onnx_runtime,
+        "sherpaOnnx": arguments.lucia_target_sherpa_onnx,
+    }
+    os_target_runtime = {
+        "jetsonLinux": arguments.os_target_jetson_linux,
+        "redis": arguments.os_target_redis,
+        "cuda": arguments.os_target_cuda,
+        "cudnn": arguments.os_target_cudnn,
+        "onnxRuntime": arguments.os_target_onnx_runtime,
+        "sherpaOnnx": arguments.os_target_sherpa_onnx,
+    }
+    if any(not value.strip() for value in lucia_target_runtime.values()):
+        raise SystemExit("Lucia target runtime versions must not be empty")
+    if any(not value.strip() for value in os_target_runtime.values()):
+        raise SystemExit("OS target runtime versions must not be empty")
 
     inputs = {
         "installer": arguments.installer.resolve(),
@@ -129,21 +202,44 @@ def main() -> None:
                 download_base,
             ),
         }
+    channels["lucia"]["requires"] = {
+        "layoutVersion": 1,
+        "dataSchemaVersion": 1,
+        "source": lucia_source_runtime,
+        "target": lucia_target_runtime,
+        "reboot": False,
+    }
+    channels["os"]["requires"] = {
+        "minimumLuciaVersion": lucia_version,
+        "layoutVersion": 1,
+        "source": os_source_runtime,
+        "target": os_target_runtime,
+        "reboot": True,
+    }
 
     manifest = {
         "schemaVersion": 1,
         "repository": arguments.repository,
+        "attestationBundleUrl": (
+            download_base + "lucia-appliance-attestations.jsonl"
+        ),
         "releaseApi": (
-            f"https://api.github.com/repos/{arguments.repository}/releases/latest"
+            f"https://api.github.com/repos/{arguments.repository}/releases/tags/"
+            f"{arguments.tag}"
         ),
         "tag": arguments.tag,
         "version": release_version,
         "compatibility": {
             "architecture": "arm64",
             "board": "jetson-orin-nano-super-p3767-0005",
-            "jetsonLinux": "36.5.2",
             "minimumDiskBytes": 61_203_283_968,
+            "layoutVersion": 1,
+            "dataSchemaVersion": 1,
         },
+        "releaseNotesUrl": (
+            f"https://github.com/{arguments.repository}/releases/tag/"
+            f"{arguments.tag}"
+        ),
         "channels": channels,
     }
     manifest_path = output_directory / "lucia-appliance-manifest.json"

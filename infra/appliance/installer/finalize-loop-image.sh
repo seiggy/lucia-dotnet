@@ -168,19 +168,26 @@ chown -R 1100:1100 "$work/data"
 chown root:root "$work/data"
 chmod 0755 "$work/data"
 chown 1101:1101 "$work/data/redis"
+chmod 0750 "$work/data/redis"
 mkdir -p "$work/data/config"
 cp \
     "$rootfs_overlay/var/lib/lucia/config/lucia.env" \
     "$work/data/config/lucia.env"
-chown root:1100 "$work/data/config" "$work/data/config/lucia.env"
+cp \
+    "$rootfs_overlay/etc/lucia/redis.conf" \
+    "$work/data/redis/redis.conf"
+chown root:1100 \
+    "$work/data/config" \
+    "$work/data/config/lucia.env"
 chmod 0750 "$work/data/config"
 chmod 0640 "$work/data/config/lucia.env"
+chown 1101:1101 "$work/data/redis/redis.conf"
+chmod 0640 "$work/data/redis/redis.conf"
 
 for slot in "$work/app" "$work/app_b"; do
     find "$slot/opt/lucia" -mindepth 1 -delete
     find "$slot/var/lib/lucia" -mindepth 1 -delete
 
-    cp "$rootfs_overlay/etc/lucia/redis.conf" "$slot/etc/lucia/redis.conf"
     cp \
         "$rootfs_overlay/usr/lib/systemd/system/lucia-agenthost.service" \
         "$slot/usr/lib/systemd/system/lucia-agenthost.service"

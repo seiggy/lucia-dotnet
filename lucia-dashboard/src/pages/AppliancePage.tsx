@@ -19,8 +19,11 @@ import {
   checkApplianceUpdates,
   fetchApplianceStatus,
   fetchApplianceTelemetry,
+  fetchApplianceUpdateOperation,
+  installApplianceUpdate,
   rebootAppliance,
   restartApplianceService,
+  rollbackApplianceUpdate,
   updateApplianceTelemetry,
 } from '../appliance-api'
 import type {
@@ -28,6 +31,7 @@ import type {
   ApplianceStatus,
   ApplianceTelemetryStatus,
   ApplianceUpdateStatus,
+  ApplianceUpdateOperationStatus,
 } from '../appliance-api'
 
 const primaryButton = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-amber px-4 py-2.5 text-sm font-semibold text-on-accent transition-colors hover:bg-amber-glow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber/60 disabled:cursor-not-allowed disabled:opacity-40'
@@ -57,22 +61,37 @@ export default function AppliancePage() {
   const [status, setStatus] = useState<ApplianceStatus | null>(null)
   const [telemetry, setTelemetry] = useState<ApplianceTelemetryStatus | null>(null)
   const [updates, setUpdates] = useState<ApplianceUpdateStatus | null>(null)
+  const [updateOperation, setUpdateOperation] = useState<ApplianceUpdateOperationStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [checkingUpdates, setCheckingUpdates] = useState(false)
+  const [stagingUpdate, setStagingUpdate] = useState<'lucia' | 'os' | null>(null)
+  const [submittingRollback, setSubmittingRollback] = useState<'lucia' | 'os' | null>(null)
   const [busyService, setBusyService] = useState<string | null>(null)
   const [showReboot, setShowReboot] = useState(false)
+  const [pendingUpdate, setPendingUpdate] = useState<'lucia' | 'os' | null>(null)
+  const [pendingRollback, setPendingRollback] = useState<'lucia' | 'os' | null>(null)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
+  const isUpdateBusy = stagingUpdate !== null
+    || submittingRollback !== null
+    || updateOperation?.status === 'queued'
+    || updateOperation?.status === 'running'
+  const canInterruptOsValidation = updateOperation?.action === 'apply'
+    && updateOperation.channel === 'os'
+    && updateOperation.status === 'running'
+    && updateOperation.osRollbackAvailable
 
   const load = useCallback(async () => {
     setError('')
     try {
-      const [nextStatus, nextTelemetry] = await Promise.all([
+      const [nextStatus, nextTelemetry, nextOperation] = await Promise.all([
         fetchApplianceStatus(),
         fetchApplianceTelemetry(),
+        fetchApplianceUpdateOperation(),
       ])
       setStatus(nextStatus)
       setTelemetry(nextTelemetry)
+      setUpdateOperation(nextOperation)
     } catch (loadError: unknown) {
       setError(loadError instanceof Error ? loadError.message : 'Appliance status is unavailable.')
     } finally {
@@ -83,6 +102,47 @@ export default function AppliancePage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (updateOperation?.status !== 'queued' && updateOperation?.status !== 'running') return
+    let stopped = false
+    let timer = 0
+    async function poll() {
+      try {
+        const operation = await fetchApplianceUpdateOperation(updateOperation?.operationId)
+        if (!stopped) {
+          setUpdateOperation(operation)
+          if (operation.status === 'failed') {
+            setError(operation.message ?? 'Update failed. Rollback is available when a backup exists.')
+          }
+          if (operation.status === 'succeeded') {
+            setUpdates(null)
+            setNotice(operation.action === 'rollback'
+              ? operation.channel === 'os'
+                ? 'OS rollback completed.'
+                : 'Lucia rollback completed. Services are restarting.'
+              : operation.channel === 'os'
+                ? 'OS update installed and passed boot validation.'
+                : 'Lucia update installed. Services are restarting.')
+            void load()
+          }
+        }
+      } catch (pollError: unknown) {
+        if (!stopped) {
+          setError(pollError instanceof Error
+            ? pollError.message
+            : 'Update status is unavailable.')
+        }
+      } finally {
+        if (!stopped) timer = window.setTimeout(() => void poll(), 2000)
+      }
+    }
+    timer = window.setTimeout(() => void poll(), 2000)
+    return () => {
+      stopped = true
+      window.clearTimeout(timer)
+    }
+  }, [load, updateOperation?.operationId, updateOperation?.status])
 
   async function handleCheckUpdates() {
     setCheckingUpdates(true)
@@ -118,6 +178,40 @@ export default function AppliancePage() {
       setNotice('Jetson reboot requested. The dashboard will disconnect briefly.')
     } catch (rebootError: unknown) {
       setError(rebootError instanceof Error ? rebootError.message : 'Jetson reboot failed.')
+    }
+  }
+
+  async function handleInstall(channel: 'lucia' | 'os') {
+    setPendingUpdate(null)
+    setError('')
+    setStagingUpdate(channel)
+    try {
+      if (!updates?.releaseTag) {
+        throw new Error('Check for updates again before installing.')
+      }
+      setUpdateOperation(await installApplianceUpdate(channel, updates.releaseTag))
+      setNotice(channel === 'os'
+        ? 'Downloading and verifying the OS update. The Jetson will reboot when it is staged.'
+        : 'Downloading and verifying the Lucia update. The dashboard will reconnect after services restart.')
+    } catch (updateError: unknown) {
+      setError(updateError instanceof Error ? updateError.message : 'Update installation failed.')
+    } finally {
+      setStagingUpdate(null)
+    }
+  }
+
+  async function handleRollback(channel: 'lucia' | 'os') {
+    setSubmittingRollback(channel)
+    setError('')
+    try {
+      setUpdateOperation(await rollbackApplianceUpdate(channel))
+      setNotice(channel === 'os'
+        ? 'OS rollback requested. The Jetson will reboot into the previous slot.'
+        : 'Lucia rollback requested. Services are restarting.')
+    } catch (rollbackError: unknown) {
+      setError(rollbackError instanceof Error ? rollbackError.message : 'Rollback failed.')
+    } finally {
+      setSubmittingRollback(null)
     }
   }
 
@@ -187,8 +281,13 @@ export default function AppliancePage() {
             available={updates?.luciaUpdateAvailable ?? false}
             newerDiscovered={updates?.luciaNewerDiscovered ?? false}
             manifestAvailable={updates?.manifestAvailable ?? false}
-            compatible={updates?.compatible ?? true}
+            compatible={updates?.luciaCompatible ?? true}
             checked={updates !== null}
+            busy={isUpdateBusy}
+            rollbackBusy={isUpdateBusy}
+            rollbackAvailable={updateOperation?.luciaRollbackAvailable ?? false}
+            onInstall={() => setPendingUpdate('lucia')}
+            onRollback={() => setPendingRollback('lucia')}
           />
           <UpdateRail
             icon={HardDrive}
@@ -198,13 +297,33 @@ export default function AppliancePage() {
             available={updates?.osUpdateAvailable ?? false}
             newerDiscovered={updates?.osNewerDiscovered ?? false}
             manifestAvailable={updates?.manifestAvailable ?? false}
-            compatible={updates?.compatible ?? true}
+            compatible={updates?.osCompatible ?? true}
             checked={updates !== null}
+            busy={isUpdateBusy}
+            rollbackBusy={submittingRollback !== null
+              || (isUpdateBusy && !canInterruptOsValidation)}
+            rollbackAvailable={updateOperation?.osRollbackAvailable ?? false}
+            onInstall={() => setPendingUpdate('os')}
+            onRollback={() => setPendingRollback('os')}
           />
         </div>
         {updates?.message && (
           <p className="border-t border-stone px-5 py-3 text-sm text-amber">
             {updates.message}
+          </p>
+        )}
+        {(stagingUpdate || (updateOperation && updateOperation.status !== 'idle')) && (
+          <p
+            role={updateOperation?.status === 'failed' ? 'alert' : 'status'}
+            className="border-t border-stone px-5 py-3 text-sm text-fog"
+          >
+            {stagingUpdate
+              ? <><Loader2 className="mr-2 inline h-4 w-4 animate-spin text-amber" />Downloading signed {stagingUpdate} update...</>
+              : updateOperation?.status === 'queued' || updateOperation?.status === 'running'
+                ? <><Loader2 className="mr-2 inline h-4 w-4 animate-spin text-amber" />{updateOperation.action === 'rollback'
+                    ? `Validating ${updateOperation.channel} rollback...`
+                    : `Verifying and applying ${updateOperation.channel} update...`}</>
+                : updateOperation?.message ?? `${updateOperation?.channel} ${updateOperation?.action} ${updateOperation?.status}.`}
           </p>
         )}
         {updates?.releaseUrl && (
@@ -229,7 +348,7 @@ export default function AppliancePage() {
             <ServiceRow
               key={service.id}
               service={service}
-              busy={busyService === service.id}
+              busy={isUpdateBusy || busyService === service.id}
               canRestart={service.id === 'agenthost'
                 || service.id === 'redis'
                 || (telemetry?.enabled === true
@@ -244,6 +363,7 @@ export default function AppliancePage() {
         <TelemetryPanel
           key={`${telemetry.enabled}:${telemetry.endpoint}:${telemetry.insecureSkipVerify}`}
           telemetry={telemetry}
+          busy={isUpdateBusy}
           onSaved={(nextTelemetry) => {
             setTelemetry(nextTelemetry)
             setNotice(nextTelemetry.enabled
@@ -261,7 +381,12 @@ export default function AppliancePage() {
             Active conversations and voice processing will stop until the appliance returns.
           </p>
         </div>
-        <button type="button" onClick={() => setShowReboot(true)} className={secondaryButton}>
+        <button
+          type="button"
+          onClick={() => setShowReboot(true)}
+          disabled={isUpdateBusy}
+          className={secondaryButton}
+        >
           <Power className="h-4 w-4 text-rose" />
           Reboot Jetson
         </button>
@@ -274,6 +399,32 @@ export default function AppliancePage() {
         confirmLabel="Reboot Jetson"
         onConfirm={() => void handleReboot()}
         onCancel={() => setShowReboot(false)}
+      />
+      <ConfirmDialog
+        open={pendingUpdate !== null}
+        title={pendingUpdate === 'os' ? 'Install Jetson OS update?' : 'Install Lucia update?'}
+        message={pendingUpdate === 'os'
+          ? 'Lucia will verify every release part, write only the inactive OS slot, and reboot. The previous slot remains available for rollback.'
+          : 'Lucia will verify every release part, back up Redis and SQLite, switch releases atomically, and restart services.'}
+        confirmLabel="Verify and install"
+        onConfirm={() => pendingUpdate && void handleInstall(pendingUpdate)}
+        onCancel={() => setPendingUpdate(null)}
+      />
+      <ConfirmDialog
+        open={pendingRollback !== null}
+        title={pendingRollback === 'os' ? 'Roll back Jetson OS?' : 'Roll back Lucia?'}
+        message={pendingRollback === 'os'
+          ? 'The Jetson will select the previous OS slot and reboot.'
+          : 'Lucia will restore the previous release and its Redis and SQLite backup, then restart services.'}
+        confirmLabel="Roll back"
+        onConfirm={() => {
+          if (pendingRollback) {
+            const channel = pendingRollback
+            setPendingRollback(null)
+            void handleRollback(channel)
+          }
+        }}
+        onCancel={() => setPendingRollback(null)}
       />
     </div>
   )
@@ -327,6 +478,11 @@ function UpdateRail({
   manifestAvailable,
   compatible,
   checked,
+  busy,
+  rollbackBusy,
+  rollbackAvailable,
+  onInstall,
+  onRollback,
 }: {
   icon: typeof Cpu
   title: string
@@ -337,6 +493,11 @@ function UpdateRail({
   manifestAvailable: boolean
   compatible: boolean
   checked: boolean
+  busy: boolean
+  rollbackBusy: boolean
+  rollbackAvailable: boolean
+  onInstall: () => void
+  onRollback: () => void
 }) {
   const verificationRequired = checked && newerDiscovered
   const unavailable = checked && !manifestAvailable
@@ -377,15 +538,31 @@ function UpdateRail({
                     ? 'Current'
                     : 'Not checked'}
         </span>
-        {available && (
+        {(available || rollbackAvailable) && (
+          <div className="flex gap-2">
+          {rollbackAvailable && (
+            <button
+              type="button"
+              onClick={onRollback}
+              aria-label={`Roll back ${title}`}
+              disabled={rollbackBusy}
+              className={secondaryButton}
+            >
+              Roll back
+            </button>
+          )}
+          {available && (
           <button
             type="button"
-            disabled
-            title="Update apply unlocks after rollback validation"
+            onClick={onInstall}
+            aria-label={`Install ${title}`}
+            disabled={busy}
             className={secondaryButton}
           >
             Install
           </button>
+          )}
+          </div>
         )}
       </div>
     </div>
@@ -439,10 +616,12 @@ function ServiceRow({
 
 function TelemetryPanel({
   telemetry,
+  busy,
   onSaved,
   onError,
 }: {
   telemetry: ApplianceTelemetryStatus
+  busy: boolean
   onSaved: (telemetry: ApplianceTelemetryStatus) => void
   onError: (message: string) => void
 }) {
@@ -483,7 +662,12 @@ function TelemetryPanel({
           <h2 className="font-display text-xl font-semibold text-light">OpenTelemetry</h2>
           <p className="mt-1 text-sm text-fog">Export Jetson and Redis infrastructure metrics.</p>
         </div>
-        <ToggleSwitch checked={enabled} onChange={setEnabled} label="Telemetry enabled" />
+        <ToggleSwitch
+          checked={enabled}
+          onChange={setEnabled}
+          disabled={busy}
+          label="Telemetry enabled"
+        />
       </div>
       <div className="grid gap-5 p-5 sm:grid-cols-2">
         <label className="sm:col-span-2">
@@ -492,6 +676,7 @@ function TelemetryPanel({
             type="url"
             value={endpoint}
             onChange={(event) => setEndpoint(event.target.value)}
+            disabled={busy}
             placeholder="https://telemetry.example:4317"
             className={inputStyle}
           />
@@ -501,7 +686,7 @@ function TelemetryPanel({
           <input
             value={username}
             onChange={(event) => setUsername(event.target.value)}
-            disabled={clearAuthorization}
+            disabled={busy || clearAuthorization}
             autoComplete="username"
             className={inputStyle}
           />
@@ -512,7 +697,7 @@ function TelemetryPanel({
             type="password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
-            disabled={clearAuthorization}
+            disabled={busy || clearAuthorization}
             autoComplete="new-password"
             placeholder={telemetry.hasAuthorization ? 'Saved; enter to replace' : ''}
             className={inputStyle}
@@ -522,6 +707,7 @@ function TelemetryPanel({
           <input
             type="checkbox"
             checked={clearAuthorization}
+            disabled={busy}
             onChange={(event) => {
               setClearAuthorization(event.target.checked)
               if (event.target.checked) {
@@ -537,6 +723,7 @@ function TelemetryPanel({
           <input
             type="checkbox"
             checked={insecureSkipVerify}
+            disabled={busy}
             onChange={(event) => setInsecureSkipVerify(event.target.checked)}
             className="mt-0.5 h-4 w-4 accent-rose"
           />
@@ -550,7 +737,7 @@ function TelemetryPanel({
         <button
           type="button"
           onClick={handleSave}
-          disabled={saving || !endpoint}
+          disabled={busy || saving || !endpoint}
           className={primaryButton}
         >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Activity className="h-4 w-4" />}
