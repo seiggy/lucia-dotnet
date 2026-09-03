@@ -182,6 +182,7 @@ run_update() {
 
 grep -q '^set -Eeuo pipefail$' "$updater"
 grep -q '^umask 0077$' "$updater"
+grep -q '^flock 9$' "$updater"
 grep -q '^umask 0077$' "$os_validator"
 
 add_runtime_files() {

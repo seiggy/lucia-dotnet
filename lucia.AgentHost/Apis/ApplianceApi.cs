@@ -4,6 +4,7 @@ using System.Text.Json;
 using lucia.AgentHost.Appliance;
 using lucia.Agents.Auth;
 using lucia.Data.Sqlite;
+using lucia.Wyoming.Audio;
 using lucia.Wyoming.Models;
 using StackExchange.Redis;
 
@@ -138,6 +139,7 @@ public static class ApplianceApi
                     [FromKeyedServices(SqliteDbNames.Tasks)]
                     SqliteConnectionFactory tasksSqlite,
                     OnnxProviderDetector providers,
+                    ISpeechEnhancer speechEnhancer,
                     CancellationToken cancellationToken) =>
                 {
                     if (!IsAuthorizedValidationRequest(context)
@@ -244,6 +246,24 @@ public static class ApplianceApi
                         return Results.Problem(
                             detail: "CUDA update validation failed.",
                             statusCode: StatusCodes.Status503ServiceUnavailable);
+                    }
+                    if (!speechEnhancer.IsReady)
+                    {
+                        return Results.Problem(
+                            detail: "CUDA inference validation is unavailable.",
+                            statusCode: StatusCodes.Status503ServiceUnavailable);
+                    }
+                    using (var session = speechEnhancer.CreateSession())
+                    {
+                        var output = session.Process(new float[512]);
+                        if (output.Length == 0
+                            || output.Any(static sample => !float.IsFinite(sample)))
+                        {
+                            return Results.Problem(
+                                detail: "CUDA inference validation failed.",
+                                statusCode:
+                                    StatusCodes.Status503ServiceUnavailable);
+                        }
                     }
 
                     if (consume is true)

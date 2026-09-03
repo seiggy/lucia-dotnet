@@ -1,8 +1,10 @@
 using System.Net;
 using System.Net.Http.Json;
 
+using FakeItEasy;
 using lucia.AgentHost.Apis;
 using lucia.Data.Sqlite;
+using lucia.Wyoming.Audio;
 using lucia.Wyoming.Models;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -158,6 +160,12 @@ public sealed class ApplianceUpdateValidationIntegrationTests
         string credentialPath,
         OnnxProviderDetector providers)
     {
+        var speechEnhancer = A.Fake<ISpeechEnhancer>();
+        var speechSession = A.Fake<ISpeechEnhancerSession>();
+        A.CallTo(() => speechEnhancer.IsReady).Returns(true);
+        A.CallTo(() => speechEnhancer.CreateSession()).Returns(speechSession);
+        A.CallTo(() => speechSession.Process(A<float[]>._))
+            .Returns(new float[256]);
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Configuration["LUCIA_VALIDATION_CREDENTIAL_PATH"] =
@@ -173,6 +181,7 @@ public sealed class ApplianceUpdateValidationIntegrationTests
             SqliteDbNames.Tasks,
             tasksSqlite);
         builder.Services.AddSingleton(providers);
+        builder.Services.AddSingleton(speechEnhancer);
         var app = builder.Build();
         app.MapApplianceUpdateValidation();
         return app;
