@@ -59,6 +59,7 @@ fi
 previous_slot="$(sed -n 's/^previous_slot=//p' "$state")"
 target_slot="$(sed -n 's/^target_slot=//p' "$state")"
 validation_token="$(sed -n 's/^validation_token=//p' "$state")"
+rollback_reason="$(sed -n 's/^rollback_reason=//p' "$state")"
 [[ "$previous_slot" == "0" || "$previous_slot" == "1" ]] || exit 1
 [[ "$target_slot" == "0" || "$target_slot" == "1" ]] || exit 1
 [[ "$previous_slot" != "$target_slot" ]] || exit 1
@@ -110,12 +111,22 @@ fi
 if [[ "$healthy" == true ]]; then
     "$nvbootctrl_path" -t rootfs mark-boot-successful
     if [[ "$current_slot" == "$previous_slot" ]]; then
-        write_operation rollback succeeded \
-            "OS rollback completed and passed boot validation."
+        if [[ "$rollback_reason" == "apply-failure" ]]; then
+            write_operation apply failed \
+                "OS update failed boot validation; the previous slot was restored successfully."
+        else
+            write_operation rollback succeeded \
+                "OS rollback completed and passed boot validation."
+        fi
         set_status rolled-back
     elif [[ "$status" == "rollback-recovery-pending" ]]; then
-        write_operation rollback failed \
-            "OS rollback failed validation; the current slot was restored."
+        if [[ "$rollback_reason" == "apply-failure" ]]; then
+            write_operation apply failed \
+                "OS update and fallback validation failed; the current slot was restored."
+        else
+            write_operation rollback failed \
+                "OS rollback failed validation; the current slot was restored."
+        fi
         set_status validated
     else
         write_operation apply succeeded "OS update passed boot validation."
@@ -132,7 +143,14 @@ fi
 
 if [[ "$current_slot" == "$target_slot" && "$status" == "pending" ]]; then
     "$nvbootctrl_path" -t rootfs set-active-boot-slot "$previous_slot"
-    set_status rollback-pending
+    sed -E \
+        -e 's/^status=.*/status=rollback-pending/' \
+        -e '/^rollback_reason=/d' \
+        "$state" > "${state}.tmp"
+    printf 'rollback_reason=apply-failure\n' >> "${state}.tmp"
+    sync -f "${state}.tmp"
+    mv -f "${state}.tmp" "$state"
+    sync -f "$(dirname "$state")"
     write_operation apply running \
         "OS update failed boot validation; rollback is scheduled."
 elif [[ "$current_slot" == "$previous_slot" ]]; then
@@ -142,8 +160,13 @@ elif [[ "$current_slot" == "$previous_slot" ]]; then
         "OS rollback failed boot validation; the current slot is being restored."
 else
     set_status failed
-    write_operation rollback failed \
-        "OS rollback and recovery slot both failed boot validation."
+    if [[ "$rollback_reason" == "apply-failure" ]]; then
+        write_operation apply failed \
+            "OS update and fallback slot both failed boot validation."
+    else
+        write_operation rollback failed \
+            "OS rollback and recovery slot both failed boot validation."
+    fi
     rm -f "$validation_credential_path"
     exit 0
 fi

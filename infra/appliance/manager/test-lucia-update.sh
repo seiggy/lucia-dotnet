@@ -594,6 +594,7 @@ LUCIA_TEST_OPERATION_ID="$rollback_operation_id" run_update rollback os
 [[ "$(cat "$work/active-slot")" == "0" ]]
 grep -qx 'stop lucia-os-update-validation.service' "$work/systemctl.log"
 grep -qx 'status=rollback-pending' "$work/updates/state/os.env"
+grep -qx 'rollback_reason=requested' "$work/updates/state/os.env"
 grep -qx "operation_id=$rollback_operation_id" \
     "$work/updates/state/os.env"
 rollback_validation_token="$(
@@ -655,6 +656,7 @@ LUCIA_UPDATE_ROOT="$work/updates" \
 rm "$work/fail-network"
 [[ "$(cat "$work/active-slot")" == "0" ]]
 grep -qx 'status=rollback-pending' "$work/updates/state/os.env"
+grep -qx 'rollback_reason=apply-failure' "$work/updates/state/os.env"
 grep -q '"Status":"running"' "$work/updates/state/operation.json"
 printf '0\n' > "$work/current-slot"
 LUCIA_UPDATE_ROOT="$work/updates" \
@@ -670,7 +672,8 @@ LUCIA_UPDATE_ROOT="$work/updates" \
     LUCIA_VALIDATION_CREDENTIAL_PATH="$work/updates/state/validation.key" \
         "$os_validator"
 grep -qx 'status=rolled-back' "$work/updates/state/os.env"
-grep -q '"Action":"rollback"' "$work/updates/state/operation.json"
+grep -q '"Action":"apply".*"Status":"failed"' \
+    "$work/updates/state/operation.json"
 if run_update rollback os; then
     echo "Completed OS rollback was accepted again" >&2
     exit 1

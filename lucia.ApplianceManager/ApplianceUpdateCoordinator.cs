@@ -508,13 +508,17 @@ public sealed partial class ApplianceUpdateCoordinator
         return status is
             "writing" or
             "pending" or
-            "rollback-pending";
+            "rollback-pending" or
+            "rollback-recovery-pending";
     }
 
     private bool IsOsAwaitingValidation(UpdateOperationStatus status) =>
         status is
         { Action: "apply" or "rollback", Channel: "os", Status: "running" }
-        && ReadOsStatus() is "pending" or "rollback-pending";
+        && ReadOsStatus() is
+            "pending" or
+            "rollback-pending" or
+            "rollback-recovery-pending";
 
     private void RecoverInterruptedOsWrite()
     {
