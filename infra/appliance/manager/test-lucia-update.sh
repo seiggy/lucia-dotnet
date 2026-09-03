@@ -449,7 +449,6 @@ echo "PASS: unhealthy Lucia release restores its predecessor automatically"
     "$work/systemctl.log")" -ge 3 ]]
 
 truncate --size 384M "$work/disk.img"
-loop_device="$(losetup --find --show --partscan "$work/disk.img")"
 sgdisk \
     --new=1:2048:+96M --change-name=1:APP \
     --new=2:0:+96M --change-name=2:APP_b \
@@ -457,8 +456,8 @@ sgdisk \
     --new=4:0:+16M --change-name=4:B_kernel \
     --new=5:0:+4M --change-name=5:A_kernel-dtb \
     --new=6:0:+4M --change-name=6:B_kernel-dtb \
-    "$loop_device" >/dev/null
-partx --update "$loop_device"
+    "$work/disk.img" >/dev/null
+loop_device="$(losetup --find --show --partscan "$work/disk.img")"
 udevadm settle
 mkdir -p "$work/by-partlabel" "$work/os-payload"
 for entry in \
@@ -469,7 +468,10 @@ for entry in \
     "A_kernel-dtb ${loop_device}p5" \
     "B_kernel-dtb ${loop_device}p6"; do
     read -r label device <<< "$entry"
-    ln -s "$device" "$work/by-partlabel/$label"
+    read -r major minor < <(
+        tr ':' ' ' < "/sys/class/block/${device#/dev/}/dev"
+    )
+    mknod "$work/by-partlabel/$label" b "$major" "$minor"
 done
 truncate --size 64M "$work/os-payload/system.img_b"
 mkfs.ext4 -q -F "$work/os-payload/system.img_b"
@@ -519,9 +521,9 @@ write_manifest os v1.1.0 1.1.0 "$work/os.tar.zst"
 run_update apply os v1.1.0
 [[ "$(stat --format '%a' "$work/updates/state/os.env")" == "600" ]]
 [[ "$(cat "$work/active-slot")" == "1" ]]
-e2fsck -fn "${loop_device}p2" >/dev/null
+e2fsck -fn "$work/by-partlabel/APP_b" >/dev/null
 mkdir -p "$work/updated-slot"
-mount "${loop_device}p2" "$work/updated-slot"
+mount "$work/by-partlabel/APP_b" "$work/updated-slot"
 mounted_path="$work/updated-slot"
 grep -qx 'lucia-kitchen' "$work/updated-slot/etc/hostname"
 grep -qx '0123456789abcdef0123456789abcdef' \
@@ -536,8 +538,8 @@ grep -qx 'ssid=HouseNet' \
     == "600" ]]
 umount "$work/updated-slot"
 mounted_path=""
-[[ "$(dd if="${loop_device}p4" bs=7 count=1 status=none)" == "boot-b" ]]
-[[ "$(dd if="${loop_device}p6" bs=6 count=1 status=none)" == "dtb-b" ]]
+[[ "$(dd if="$work/by-partlabel/B_kernel" bs=7 count=1 status=none)" == "boot-b" ]]
+[[ "$(dd if="$work/by-partlabel/B_kernel-dtb" bs=6 count=1 status=none)" == "dtb-b" ]]
 grep -qx -- '--no-block reboot' "$work/systemctl.log"
 printf '1\n' > "$work/current-slot"
 if LUCIA_UPDATE_ROOT="$work/updates" \

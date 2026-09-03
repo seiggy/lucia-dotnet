@@ -33,6 +33,8 @@ loop_device=""
 
 cleanup() {
     if [[ -n "$loop_device" ]]; then
+        partx --delete "$loop_device" 2>/dev/null || true
+        udevadm settle 2>/dev/null || true
         losetup --detach "$loop_device" 2>/dev/null || true
     fi
     if [[ "$backup_ready" == true ]]; then
@@ -106,7 +108,8 @@ while read -r name major_minor; do
     [[ "$name" == "$loop_name" ]] && continue
     major="${major_minor%:*}"
     minor="${major_minor#*:}"
-    [[ -e "/dev/$name" ]] || mknod "/dev/$name" b "$major" "$minor"
+    rm -f "/dev/$name"
+    mknod "/dev/$name" b "$major" "$minor"
 done < <(lsblk --raw --noheadings --output NAME,MAJ:MIN "$loop_device")
 
 (
