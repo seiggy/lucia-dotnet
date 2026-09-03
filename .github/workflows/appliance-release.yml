@@ -182,13 +182,13 @@ jobs:
           verifier="$RUNNER_TEMP/lucia-appliance-$version/verifier/gh-host"
           trusted_root="$RUNNER_TEMP/lucia-appliance-$version/verifier/trusted-root.jsonl"
           bundle="dist/release/lucia-appliance-attestations.jsonl"
-          payload="$(
+          mapfile -t payloads < <(
             python3 -c \
-              'import json; print(json.load(open("dist/release/lucia-appliance-manifest.json"))["channels"]["lucia"]["parts"][0]["name"])'
-          )"
+              'import json; manifest=json.load(open("dist/release/lucia-appliance-manifest.json")); print("\n".join(part["name"] for channel in manifest["channels"].values() for part in channel["parts"]))'
+          )
           for subject in \
             dist/release/lucia-appliance-manifest.json \
-            "dist/release/$payload"; do
+            "${payloads[@]/#/dist\/release\/}"; do
             "$verifier" attestation verify "$subject" \
               --repo "$GITHUB_REPOSITORY" \
               --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/appliance-release.yml" \

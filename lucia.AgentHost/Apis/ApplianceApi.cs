@@ -655,6 +655,12 @@ public static class ApplianceApi
                 {
                     return Results.NotFound();
                 }
+                catch (HttpRequestException exception)
+                {
+                    return ManagerProblem(
+                        exception,
+                        "Update operation status failed");
+                }
             });
         group.MapPost(
             "/updates/{channel}/rollback",

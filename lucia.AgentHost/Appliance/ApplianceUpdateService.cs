@@ -722,7 +722,25 @@ public sealed partial class ApplianceUpdateService(
             LogStagingFailure(exception, channel, tag);
             if (staging.GetStatus().Action == "stage")
             {
-                staging.SetFailed(channel, tag, exception.Message);
+                try
+                {
+                    staging.SetFailed(channel, tag, exception.Message);
+                }
+                catch (Exception persistenceException) when (
+                    persistenceException is IOException
+                        or UnauthorizedAccessException
+                        or System.ComponentModel.Win32Exception
+                        or AggregateException)
+                {
+                    staging.SetFailedInMemory(
+                        channel,
+                        tag,
+                        exception.Message);
+                    LogStagingPersistenceFailure(
+                        persistenceException,
+                        channel,
+                        tag);
+                }
             }
         }
     }
@@ -763,6 +781,14 @@ public sealed partial class ApplianceUpdateService(
         Level = LogLevel.Error,
         Message = "Failed to stage {Channel} update from {Tag}.")]
     private partial void LogStagingFailure(
+        Exception exception,
+        string channel,
+        string tag);
+
+    [LoggerMessage(
+        Level = LogLevel.Error,
+        Message = "Failed to persist terminal staging state for {Channel} update {Tag}.")]
+    private partial void LogStagingPersistenceFailure(
         Exception exception,
         string channel,
         string tag);

@@ -10,6 +10,7 @@ workflow_dir="$script_dir/../../../.github/workflows"
 [[ "${#COMPUTE_PACKAGES[@]}" -eq 8 ]]
 [[ "$GH_CLI_SHA256" =~ ^[0-9a-f]{64}$ ]]
 [[ "$GH_CLI_HOST_SHA256" =~ ^[0-9a-f]{64}$ ]]
+[[ "$TRUSTED_ROOT_SHA256" =~ ^[0-9a-f]{64}$ ]]
 [[ "$JETSON_BSP_SHA256" =~ ^[0-9a-f]{64}$ ]]
 [[ "$JETSON_ROOTFS_SHA256" =~ ^[0-9a-f]{64}$ ]]
 [[ "$LUCIA_SOURCE_JETSON_LINUX_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
@@ -118,9 +119,14 @@ grep -q 'Manual appliance releases must run from the selected release tag' \
     "$workflow_dir/appliance-release.yml"
 grep -q -- '--source-ref "refs/tags/$selected_tag"' \
     "$script_dir/../rootfs/usr/libexec/lucia/lucia-update"
-grep -q 'gh-host.*attestation trusted-root' "$script_dir/build-release-assets.sh"
+grep -q 'pinned attestation trusted root failed verification' \
+    "$script_dir/build-release-assets.sh"
+printf '%s  %s\n' "$TRUSTED_ROOT_SHA256" "$script_dir/trusted-root.jsonl" \
+    | sha256sum --check --status
 grep -q -- '--gh-cli' "$script_dir/build-release-assets.sh"
 grep -q -- '--lucia-source-jetson-linux "$LUCIA_SOURCE_JETSON_LINUX_VERSION"' \
+    "$workflow_dir/appliance-release.yml"
+grep -q 'for channel in manifest\["channels"\].values()' \
     "$workflow_dir/appliance-release.yml"
 grep -q -- '--os-source-sherpa-onnx "$OS_SOURCE_SHERPA_ONNX_VERSION"' \
     "$workflow_dir/appliance-release.yml"

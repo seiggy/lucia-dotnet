@@ -95,6 +95,21 @@ Lab validation pulled appliance management and telemetry work forward.
 
 ## Work log
 
+### 2026-09-03
+
+- T040 and T043 passed
+  `python3 infra/appliance/release/test_package_release.py` and the offline
+  attestation checks in `infra/appliance/release/test_build_release_assets.sh`.
+- T041 and T042 passed
+  `sudo bash infra/appliance/manager/test-lucia-update.sh`, including
+  transactional apply, continuity validation, failed-manager recovery, and
+  data rollback.
+- T044 passed the loop-device APP, kernel, DTB, slot-selection, and rollback
+  checks in `sudo bash infra/appliance/manager/test-lucia-update.sh`.
+- T046 passed `npm --prefix lucia-dashboard run build` and
+  `npx playwright test --project=chromium e2e/00-appliance.spec.ts`.
+- T045 and T051 remain open pending the physical Jetson checks listed above.
+
 ### 2026-08-29
 
 - Confirmed the native bundle CLI and systemd output as the first public test

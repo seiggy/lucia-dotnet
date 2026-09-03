@@ -211,8 +211,12 @@ tar -xzf "$downloads/gh_${GH_CLI_VERSION}_linux_arm64.tar.gz" \
     --strip-components=2 \
     -C "$verifier_dir" \
     "gh_${GH_CLI_VERSION}_linux_arm64/bin/gh"
-"$verifier_dir/gh-host" attestation trusted-root \
-    > "$verifier_dir/trusted-root.jsonl"
+printf '%s  %s\n' \
+    "$TRUSTED_ROOT_SHA256" \
+    "$script_dir/trusted-root.jsonl" \
+    | sha256sum --check --status \
+    || die "pinned attestation trusted root failed verification"
+cp "$script_dir/trusted-root.jsonl" "$verifier_dir/trusted-root.jsonl"
 
 voice_asset_hash="$(bash "$script_dir/voice-asset-key.sh")"
 voice_asset_image="${VOICE_ASSET_IMAGE:-ghcr.io/seiggy/lucia-dotnet/jetson-voice-assets}"

@@ -111,9 +111,12 @@ public sealed class ApplianceUpdateStagingStoreTests
                 exception?.ToString());
             Assert.Equal("queued", store.GetStatus().Status);
 
-            Directory.Delete(Path.Combine(root, "operation.json.tmp"));
-            store.SetFailed("lucia", "v1.5.0", "persistence failed");
+            store.SetFailedInMemory(
+                "lucia",
+                "v1.5.0",
+                "persistence failed");
             Assert.Equal("failed", store.GetStatus().Status);
+            Directory.Delete(Path.Combine(root, "operation.json.tmp"));
             Assert.NotNull(store.TryStart("os", "v1.6.0"));
         }
         finally

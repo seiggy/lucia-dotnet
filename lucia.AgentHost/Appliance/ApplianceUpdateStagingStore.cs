@@ -161,6 +161,24 @@ public sealed partial class ApplianceUpdateStagingStore
             message,
             OperationId: _status.OperationId));
 
+    internal void SetFailedInMemory(
+        string channel,
+        string tag,
+        string message)
+    {
+        lock (_gate)
+        {
+            _isHandoffRequestActive = false;
+            _status = new(
+                "stage",
+                channel,
+                "failed",
+                tag,
+                message,
+                OperationId: _status.OperationId);
+        }
+    }
+
     public void Clear()
     {
         lock (_gate)

@@ -11,6 +11,7 @@
 *.service text eol=lf
 *.env.example text eol=lf
 infra/appliance/**/usr/libexec/lucia/* text eol=lf
+infra/appliance/release/trusted-root.jsonl -text
 infra/appliance/installer/dev/* text eol=lf
 infra/appliance/installer/lucia-install text eol=lf
 infra/appliance/installer/rootfs/etc/sudoers.d/* text eol=lf
