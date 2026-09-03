@@ -68,6 +68,8 @@ public sealed class ApplianceUpdateValidationIntegrationTests
                 token,
                 await redis.GetDatabase().StringGetAsync(
                     "lucia:update-validation"));
+            Assert.Null(await redis.GetDatabase().KeyTimeToLiveAsync(
+                "lucia:update-validation"));
             AssertSentinel(configSqlite, token);
             AssertSentinel(tracesSqlite, token);
             AssertSentinel(tasksSqlite, token);

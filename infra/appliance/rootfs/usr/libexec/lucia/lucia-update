@@ -303,6 +303,11 @@ restore_replaced_data() {
             "$old_root/redis.conf" "$redis_config_path"
         rm "$old_root/redis.conf"
     fi
+    if [[ -f "$old_root/runtime-info" ]]; then
+        install -o root -g root -m 0644 \
+            "$old_root/runtime-info" "$runtime_info_path"
+        rm "$old_root/runtime-info"
+    fi
     rmdir "$old_root"
     sync -f "$data_root"
 }
@@ -330,6 +335,8 @@ restore_data_backup() {
     done
     [[ -f "$restore_root/redis.conf" ]] \
         || die "rollback backup is missing redis.conf"
+    [[ -f "$restore_root/$(basename "$runtime_info_path")" ]] \
+        || die "rollback backup is missing runtime metadata"
     restore_failed_data_swap() {
         local exit_code=$?
         trap - ERR
@@ -342,6 +349,9 @@ restore_data_backup() {
         if [[ -f "$old_root/redis.conf" ]]; then
             cp "$old_root/redis.conf" "$redis_config_path"
         fi
+        if [[ -f "$old_root/runtime-info" ]]; then
+            cp "$old_root/runtime-info" "$runtime_info_path"
+        fi
         if [[ -n "$previous_err_trap" ]]; then
             eval "$previous_err_trap"
         fi
@@ -349,6 +359,7 @@ restore_data_backup() {
     }
     trap restore_failed_data_swap ERR
     cp "$redis_config_path" "$old_root/redis.conf"
+    cp "$runtime_info_path" "$old_root/runtime-info"
     for name in config db redis plugins; do
         mv "$data_root/$name" "$old_root/$name"
         mv "$restore_root/$name" "$data_root/$name"
@@ -357,6 +368,10 @@ restore_data_backup() {
         "$restore_root/redis.conf" \
         "${redis_config_path}.new"
     mv -f "${redis_config_path}.new" "$redis_config_path"
+    install -o root -g root -m 0644 \
+        "$restore_root/$(basename "$runtime_info_path")" \
+        "${runtime_info_path}.new"
+    mv -f "${runtime_info_path}.new" "$runtime_info_path"
     sync -f "$data_root"
     if [[ -n "$previous_err_trap" ]]; then
         eval "$previous_err_trap"
@@ -526,6 +541,8 @@ requirements = channel.get("requires")
 if not isinstance(requirements, dict) or requirements.get("layoutVersion") != 1:
     raise SystemExit("invalid channel requirements")
 if channel_name == "lucia":
+    source_runtime = requirements.get("source")
+    target_runtime = requirements.get("target")
     runtime_keys = (
         "redis",
         "cuda",
@@ -534,15 +551,25 @@ if channel_name == "lucia":
         "sherpaOnnx",
     )
     if (
-        requirements.get("jetsonLinux") != jetson_linux
+        not isinstance(source_runtime, dict)
+        or source_runtime.get("jetsonLinux") != jetson_linux
         or requirements.get("dataSchemaVersion") != 1
         or requirements.get("reboot") is not False
         or any(
-            requirements.get(key) != installed_runtime.get(key)
+            source_runtime.get(key) != installed_runtime.get(key)
             for key in runtime_keys
         )
     ):
         raise SystemExit("incompatible Lucia requirements")
+    if (
+        not isinstance(target_runtime, dict)
+        or any(
+            not isinstance(target_runtime.get(key), str)
+            or not target_runtime.get(key)
+            for key in ("jetsonLinux", *runtime_keys)
+        )
+    ):
+        raise SystemExit("invalid Lucia target runtime")
     if tuple(map(int, version.split("."))) <= tuple(map(int, current_lucia.split("."))):
         raise SystemExit("Lucia update is not newer than the installed release")
 else:
@@ -683,6 +710,7 @@ apply_lucia() {
             "$data_root/redis" \
             "$data_root/plugins" \
             "$redis_config_path" \
+            "$runtime_info_path" \
             | awk '{ total += $1 } END { printf "%.0f\n", total }'
     )"
     available_bytes="${LUCIA_AVAILABLE_BYTES:-$(
@@ -711,6 +739,7 @@ apply_lucia() {
         | tar -I zstd -xf - -C "$extract_dir" \
             "./opt/lucia/releases/$version" \
             "./etc/lucia/redis.conf" \
+            "./etc/lucia/appliance-runtime.json" \
             "./var/lib/lucia/plugins"
     [[ -x "$extract_dir/opt/lucia/releases/$version/app/lucia.AgentHost" \
         && -x "$extract_dir/opt/lucia/releases/$version/manager/lucia.ApplianceManager" \
@@ -719,6 +748,7 @@ apply_lucia() {
         && -s "$extract_dir/opt/lucia/releases/$version/tools/trusted-root.jsonl" ]] \
         || die "Lucia payload is missing required runtime files"
     [[ -f "$extract_dir/etc/lucia/redis.conf" \
+        && -f "$extract_dir/etc/lucia/appliance-runtime.json" \
         && -d "$extract_dir/var/lib/lucia/plugins" \
         && -f "$extract_dir/var/lib/lucia/plugins/.bundled-plugins" ]] \
         || die "Lucia payload has no Redis config or shipped plugins"
@@ -776,7 +806,8 @@ apply_lucia() {
     rm -f "$backup_temporary"
     tar -I 'zstd -T0 -10' -cf "$backup_temporary" \
         -C "$data_root" config db redis plugins \
-        -C "$(dirname "$redis_config_path")" "$(basename "$redis_config_path")"
+        -C "$(dirname "$redis_config_path")" "$(basename "$redis_config_path")" \
+        -C "$(dirname "$runtime_info_path")" "$(basename "$runtime_info_path")"
     zstd --test "$backup_temporary" >/dev/null
     mv -f "$backup_temporary" "$backup"
     sync -f "$backup"
@@ -792,6 +823,10 @@ apply_lucia() {
         "$extract_dir/etc/lucia/redis.conf" \
         "${redis_config_path}.new"
     mv -f "${redis_config_path}.new" "$redis_config_path"
+    install -o root -g root -m 0644 \
+        "$extract_dir/etc/lucia/appliance-runtime.json" \
+        "${runtime_info_path}.new"
+    mv -f "${runtime_info_path}.new" "$runtime_info_path"
     if [[ -f "$data_root/plugins/.bundled-plugins" ]]; then
         while IFS= read -r bundled_plugin; do
             [[ "$bundled_plugin" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \

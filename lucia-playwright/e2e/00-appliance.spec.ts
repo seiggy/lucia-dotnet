@@ -171,8 +171,13 @@ test('manages an installed appliance from mobile', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Roll back Lucia' })).toBeDisabled();
   expect(rollbackRequestCount).toBe(1);
   expect(finishRollbackResponse).not.toBeNull();
+  const rollbackAccepted = page.waitForResponse(
+    '**/api/appliance/updates/lucia/rollback',
+  );
   const rollbackReloaded = page.waitForResponse('**/api/appliance/status');
   finishRollbackResponse?.();
+  await rollbackAccepted;
+  await expect(page.getByText('Validating lucia rollback...')).toBeVisible();
   await rollbackReloaded;
   await expect(page.getByText(
     'Lucia rollback completed. Services are restarting.',

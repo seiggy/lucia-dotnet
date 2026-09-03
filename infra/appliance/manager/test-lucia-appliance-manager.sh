@@ -490,6 +490,8 @@ for _ in {1..40}; do
     sleep 0.05
 done
 grep -q '"channel":"os"' "$work_dir/response.json"
+grep -q '"message":"OS rollback is awaiting boot validation."' \
+    "$work_dir/response.json"
 
 echo "PASS: failed OS rollback remains retryable"
 

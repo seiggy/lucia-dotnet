@@ -145,12 +145,18 @@ jobs:
             --installer "dist/raw/lucia-appliance-$version-installer.img.zst" \
             --lucia "dist/raw/lucia-appliance-$version-lucia.tar.zst" \
             --os "dist/raw/lucia-appliance-$version-os.tar.zst" \
-            --source-jetson-linux "$OS_SOURCE_JETSON_LINUX_VERSION" \
-            --source-redis "$OS_SOURCE_REDIS_VERSION" \
-            --source-cuda "$OS_SOURCE_CUDA_VERSION" \
-            --source-cudnn "$OS_SOURCE_CUDNN_VERSION" \
-            --source-onnx-runtime "$OS_SOURCE_ONNX_RUNTIME_VERSION" \
-            --source-sherpa-onnx "$OS_SOURCE_SHERPA_ONNX_VERSION" \
+            --lucia-source-jetson-linux "$LUCIA_SOURCE_JETSON_LINUX_VERSION" \
+            --lucia-source-redis "$LUCIA_SOURCE_REDIS_VERSION" \
+            --lucia-source-cuda "$LUCIA_SOURCE_CUDA_VERSION" \
+            --lucia-source-cudnn "$LUCIA_SOURCE_CUDNN_VERSION" \
+            --lucia-source-onnx-runtime "$LUCIA_SOURCE_ONNX_RUNTIME_VERSION" \
+            --lucia-source-sherpa-onnx "$LUCIA_SOURCE_SHERPA_ONNX_VERSION" \
+            --os-source-jetson-linux "$OS_SOURCE_JETSON_LINUX_VERSION" \
+            --os-source-redis "$OS_SOURCE_REDIS_VERSION" \
+            --os-source-cuda "$OS_SOURCE_CUDA_VERSION" \
+            --os-source-cudnn "$OS_SOURCE_CUDNN_VERSION" \
+            --os-source-onnx-runtime "$OS_SOURCE_ONNX_RUNTIME_VERSION" \
+            --os-source-sherpa-onnx "$OS_SOURCE_SHERPA_ONNX_VERSION" \
             --target-jetson-linux "$TARGET_JETSON_LINUX_VERSION" \
             --target-redis "$TARGET_REDIS_VERSION" \
             --target-cuda "$TARGET_CUDA_VERSION" \

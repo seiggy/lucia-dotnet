@@ -12,6 +12,12 @@ workflow_dir="$script_dir/../../../.github/workflows"
 [[ "$GH_CLI_HOST_SHA256" =~ ^[0-9a-f]{64}$ ]]
 [[ "$JETSON_BSP_SHA256" =~ ^[0-9a-f]{64}$ ]]
 [[ "$JETSON_ROOTFS_SHA256" =~ ^[0-9a-f]{64}$ ]]
+[[ "$LUCIA_SOURCE_JETSON_LINUX_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+[[ -n "$LUCIA_SOURCE_REDIS_VERSION" ]]
+[[ -n "$LUCIA_SOURCE_CUDA_VERSION" ]]
+[[ -n "$LUCIA_SOURCE_CUDNN_VERSION" ]]
+[[ -n "$LUCIA_SOURCE_ONNX_RUNTIME_VERSION" ]]
+[[ -n "$LUCIA_SOURCE_SHERPA_ONNX_VERSION" ]]
 [[ "$OS_SOURCE_JETSON_LINUX_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
 [[ -n "$OS_SOURCE_REDIS_VERSION" ]]
 [[ -n "$OS_SOURCE_CUDA_VERSION" ]]
@@ -114,9 +120,9 @@ grep -q -- '--source-ref "refs/tags/$selected_tag"' \
     "$script_dir/../rootfs/usr/libexec/lucia/lucia-update"
 grep -q 'gh-host.*attestation trusted-root' "$script_dir/build-release-assets.sh"
 grep -q -- '--gh-cli' "$script_dir/build-release-assets.sh"
-grep -q -- '--source-jetson-linux "$OS_SOURCE_JETSON_LINUX_VERSION"' \
+grep -q -- '--lucia-source-jetson-linux "$LUCIA_SOURCE_JETSON_LINUX_VERSION"' \
     "$workflow_dir/appliance-release.yml"
-grep -q -- '--source-sherpa-onnx "$OS_SOURCE_SHERPA_ONNX_VERSION"' \
+grep -q -- '--os-source-sherpa-onnx "$OS_SOURCE_SHERPA_ONNX_VERSION"' \
     "$workflow_dir/appliance-release.yml"
 grep -q -- '--target-jetson-linux "$TARGET_JETSON_LINUX_VERSION"' \
     "$workflow_dir/appliance-release.yml"

@@ -69,20 +69,26 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--lucia-version")
     parser.add_argument("--os-version")
     parser.add_argument(
-        "--source-jetson-linux",
+        "--lucia-source-jetson-linux",
         required=True,
     )
-    parser.add_argument("--source-redis", required=True)
-    parser.add_argument("--source-cuda", required=True)
-    parser.add_argument("--source-cudnn", required=True)
+    parser.add_argument("--lucia-source-redis", required=True)
+    parser.add_argument("--lucia-source-cuda", required=True)
+    parser.add_argument("--lucia-source-cudnn", required=True)
     parser.add_argument(
-        "--source-onnx-runtime",
+        "--lucia-source-onnx-runtime",
         required=True,
     )
     parser.add_argument(
-        "--source-sherpa-onnx",
+        "--lucia-source-sherpa-onnx",
         required=True,
     )
+    parser.add_argument("--os-source-jetson-linux", required=True)
+    parser.add_argument("--os-source-redis", required=True)
+    parser.add_argument("--os-source-cuda", required=True)
+    parser.add_argument("--os-source-cudnn", required=True)
+    parser.add_argument("--os-source-onnx-runtime", required=True)
+    parser.add_argument("--os-source-sherpa-onnx", required=True)
     parser.add_argument("--target-jetson-linux", required=True)
     parser.add_argument("--target-redis", required=True)
     parser.add_argument("--target-cuda", required=True)
@@ -108,16 +114,26 @@ def main() -> None:
         raise SystemExit("--lucia-version must match MAJOR.MINOR.PATCH")
     if re.fullmatch(version_pattern, os_version) is None:
         raise SystemExit("--os-version must match MAJOR.MINOR.PATCH")
-    source_runtime = {
-        "jetsonLinux": arguments.source_jetson_linux,
-        "redis": arguments.source_redis,
-        "cuda": arguments.source_cuda,
-        "cudnn": arguments.source_cudnn,
-        "onnxRuntime": arguments.source_onnx_runtime,
-        "sherpaOnnx": arguments.source_sherpa_onnx,
+    lucia_source_runtime = {
+        "jetsonLinux": arguments.lucia_source_jetson_linux,
+        "redis": arguments.lucia_source_redis,
+        "cuda": arguments.lucia_source_cuda,
+        "cudnn": arguments.lucia_source_cudnn,
+        "onnxRuntime": arguments.lucia_source_onnx_runtime,
+        "sherpaOnnx": arguments.lucia_source_sherpa_onnx,
     }
-    if any(not value.strip() for value in source_runtime.values()):
-        raise SystemExit("source runtime versions must not be empty")
+    os_source_runtime = {
+        "jetsonLinux": arguments.os_source_jetson_linux,
+        "redis": arguments.os_source_redis,
+        "cuda": arguments.os_source_cuda,
+        "cudnn": arguments.os_source_cudnn,
+        "onnxRuntime": arguments.os_source_onnx_runtime,
+        "sherpaOnnx": arguments.os_source_sherpa_onnx,
+    }
+    if any(not value.strip() for value in lucia_source_runtime.values()):
+        raise SystemExit("Lucia source runtime versions must not be empty")
+    if any(not value.strip() for value in os_source_runtime.values()):
+        raise SystemExit("OS source runtime versions must not be empty")
     target_runtime = {
         "jetsonLinux": arguments.target_jetson_linux,
         "redis": arguments.target_redis,
@@ -171,15 +187,16 @@ def main() -> None:
             ),
         }
     channels["lucia"]["requires"] = {
-        **target_runtime,
         "layoutVersion": 1,
         "dataSchemaVersion": 1,
+        "source": lucia_source_runtime,
+        "target": target_runtime,
         "reboot": False,
     }
     channels["os"]["requires"] = {
         "minimumLuciaVersion": lucia_version,
         "layoutVersion": 1,
-        "source": source_runtime,
+        "source": os_source_runtime,
         "target": target_runtime,
         "reboot": True,
     }

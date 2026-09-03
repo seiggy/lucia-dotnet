@@ -38,8 +38,7 @@ public static class ApplianceApi
                     const string Key = "lucia:update-validation";
                     if (!await database.StringSetAsync(
                             Key,
-                            token,
-                            TimeSpan.FromDays(1))
+                            token)
                         .ConfigureAwait(false))
                     {
                         return Results.Problem(

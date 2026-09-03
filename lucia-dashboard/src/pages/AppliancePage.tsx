@@ -320,7 +320,9 @@ export default function AppliancePage() {
             {stagingUpdate
               ? <><Loader2 className="mr-2 inline h-4 w-4 animate-spin text-amber" />Downloading signed {stagingUpdate} update...</>
               : updateOperation?.status === 'queued' || updateOperation?.status === 'running'
-                ? <><Loader2 className="mr-2 inline h-4 w-4 animate-spin text-amber" />Verifying and applying {updateOperation.channel} update...</>
+                ? <><Loader2 className="mr-2 inline h-4 w-4 animate-spin text-amber" />{updateOperation.action === 'rollback'
+                    ? `Validating ${updateOperation.channel} rollback...`
+                    : `Verifying and applying ${updateOperation.channel} update...`}</>
                 : updateOperation?.message ?? `${updateOperation?.channel} ${updateOperation?.action} ${updateOperation?.status}.`}
           </p>
         )}

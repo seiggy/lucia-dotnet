@@ -128,7 +128,7 @@ write_manifest() {
     cp "$payload" "$stage/$payload_name"
     printf 'bundle\n' > "$stage/lucia-appliance-attestations.jsonl"
     if [[ "$channel" == "lucia" ]]; then
-        requirements='"jetsonLinux":"36.5.2","layoutVersion":1,"dataSchemaVersion":1,"redis":"8.2.9","cuda":"12.6","cudnn":"9.3.0.75","onnxRuntime":"1.23.2","sherpaOnnx":"1.12.34","reboot":false'
+        requirements='"layoutVersion":1,"dataSchemaVersion":1,"source":{"jetsonLinux":"36.5.2","redis":"8.2.9","cuda":"12.6","cudnn":"9.3.0.75","onnxRuntime":"1.23.2","sherpaOnnx":"1.12.34"},"target":{"jetsonLinux":"36.6.0","redis":"8.3.0","cuda":"13.0","cudnn":"10.0","onnxRuntime":"2.0.0","sherpaOnnx":"2.0.0"},"reboot":false'
     else
         requirements='"minimumLuciaVersion":"1.0.0","layoutVersion":1,"source":{"jetsonLinux":"36.5.2","redis":"8.2.9","cuda":"12.6","cudnn":"9.3.0.75","onnxRuntime":"1.23.2","sherpaOnnx":"1.12.34"},"target":{"jetsonLinux":"36.6.0","redis":"8.3.0","cuda":"13.0","cudnn":"10.0","onnxRuntime":"2.0.0","sherpaOnnx":"2.0.0"},"reboot":true'
     fi
@@ -199,6 +199,9 @@ EOF
     printf 'redis\n' > "$release/redis/bin/redis-server"
     printf 'gh\n' > "$release/tools/gh"
     printf 'trusted\n' > "$release/tools/trusted-root.jsonl"
+    cat > "$payload_root/etc/lucia/appliance-runtime.json" <<'EOF'
+{"layoutVersion":1,"dataSchemaVersion":1,"redis":"8.3.0","cuda":"13.0","cudnn":"10.0","onnxRuntime":"2.0.0","sherpaOnnx":"2.0.0"}
+EOF
     chmod +x \
         "$release/app/lucia.AgentHost" \
         "$release/manager/lucia.ApplianceManager" \
@@ -285,6 +288,7 @@ run_update apply lucia v1.1.0
 grep -qx 'phase=manager-pending' "$work/updates/state/lucia.env"
 run_update finalize lucia
 grep -qx 'phase=committed' "$work/updates/state/lucia.env"
+grep -q '"redis":"8.3.0"' "$work/runtime.json"
 [[ "$(stat --format '%a' "$work/updates/state/lucia.env")" == "600" ]]
 [[ "$(readlink "$work/current")" == "releases/1.1.0" ]]
 grep -qx 'new-app' "$work/releases/1.1.0/app/version"
@@ -327,6 +331,7 @@ rm "$work/fail-health"
 [[ "$(readlink "$work/current")" == "releases/1.1.0" ]]
 grep -qx 'migrated-db' "$work/data/db/lucia.db"
 grep -qx 'phase=committed' "$work/updates/state/lucia.env"
+grep -q '"redis":"8.3.0"' "$work/runtime.json"
 [[ -f "$work/updates/backups/lucia-v1.1.0.tar.zst" ]]
 [[ ! -e "$work/updates/state/validation.key" ]]
 
@@ -368,6 +373,7 @@ grep -q "update-validation/$rollback_validation_token?consume=true" \
     "$work/curl.log"
 [[ "$(readlink "$work/current")" == "releases/1.0.0" ]]
 grep -qx 'old-db' "$work/data/db/lucia.db"
+grep -q '"redis":"8.2.9"' "$work/runtime.json"
 grep -qx 'old-plugin' "$work/data/plugins/official.plugin"
 grep -qx 'old-redis-config' "$work/redis.conf"
 [[ "$(stat --format '%a' "$work/redis.conf")" == "640" ]]

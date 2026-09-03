@@ -263,7 +263,9 @@ public sealed partial class ApplianceUpdateCoordinator
                         channel,
                         "running",
                         tag,
-                        "OS update is awaiting boot validation.",
+                        action == "rollback"
+                            ? "OS rollback is awaiting boot validation."
+                            : "OS update is awaiting boot validation.",
                         OperationId: operationId)
                     : new(
                         action,
