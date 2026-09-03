@@ -65,7 +65,10 @@ Lucia updates stop AgentHost and Redis, back up configuration, SQLite, and Redis
 data, install the new version under `/opt/lucia/releases`, and atomically switch
 `/opt/lucia/current`. Rollback restores both the previous release link and its
 data backup. Redis configuration lives under `/var/lib/lucia/redis`, so both OS
-slots use the same versioned application configuration.
+slots use the same versioned application configuration. A rollback keeps the
+current data until the restored release passes the same persistence and CUDA
+checks. If validation fails, the updater returns to the current release and
+keeps the rollback backup.
 
 OS updates stream the selected raw images directly to the inactive `APP`,
 kernel, and device-tree partitions. NVIDIA rootfs A/B selects the new slot for

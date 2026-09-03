@@ -72,8 +72,11 @@ chmod +x "$work/bin/systemctl"
 cat > "$work/bin/curl" <<'EOF'
 #!/usr/bin/env bash
 credential="$(cat "$LUCIA_VALIDATION_CREDENTIAL_PATH")"
+if [[ -n "${LUCIA_TEST_CURL_LOG:-}" ]]; then
+    printf '%s\n' "$*" >> "$LUCIA_TEST_CURL_LOG"
+fi
 [[ "$*" == *"X-Lucia-Update-Credential: $credential"* ]]
-[[ ! -e "$LUCIA_TEST_FAIL_HEALTH_FILE" ]]
+[[ ! -e "$LUCIA_TEST_FAIL_HEALTH_FILE" || "$*" == *"--request POST"* ]]
 EOF
 chmod +x "$work/bin/curl"
 cat > "$work/bin/nm-online" <<'EOF'
@@ -160,6 +163,7 @@ run_update() {
     LUCIA_STORAGE_BYTES=61203283968 \
     LUCIA_JETSON_LINUX_VERSION=36.5.2 \
     LUCIA_TEST_SYSTEMCTL_LOG="$work/systemctl.log" \
+    LUCIA_TEST_CURL_LOG="$work/curl.log" \
     LUCIA_TEST_REJECT_ATTESTATION="$work/reject-attestation" \
     LUCIA_TEST_CURRENT_SLOT="$work/current-slot" \
     LUCIA_TEST_ACTIVE_SLOT="$work/active-slot" \
@@ -307,18 +311,61 @@ cmp "$work/prior-lucia.env" "$work/updates/state/lucia.env"
 [[ ! -e "$work/releases/.1.1.1.new" ]]
 
 printf 'migrated-db\n' > "$work/data/db/lucia.db"
-touch "$work/fail-service-start-once"
+touch "$work/fail-health"
 if run_update rollback lucia; then
-    echo "Lucia rollback ignored a service restart failure" >&2
+    echo "Lucia rollback ignored a failed restored-release health check" >&2
     exit 1
 fi
+rm "$work/fail-health"
+[[ "$(readlink "$work/current")" == "releases/1.1.0" ]]
+grep -qx 'migrated-db' "$work/data/db/lucia.db"
+grep -qx 'phase=committed' "$work/updates/state/lucia.env"
+[[ -f "$work/updates/backups/lucia-v1.1.0.tar.zst" ]]
+[[ ! -e "$work/updates/state/validation.key" ]]
+
+mkdir -p \
+    "$work/updates/work/replaced-data" \
+    "$work/updates/work/interrupted-rollback"
+cp "$work/redis.conf" \
+    "$work/updates/work/replaced-data/redis.conf"
+for name in config db redis plugins; do
+    mv "$work/data/$name" "$work/updates/work/replaced-data/$name"
+done
+tar -I zstd -xf "$work/updates/backups/lucia-v1.1.0.tar.zst" \
+    -C "$work/updates/work/interrupted-rollback"
+for name in config db redis plugins; do
+    mv "$work/updates/work/interrupted-rollback/$name" "$work/data/$name"
+done
+cp "$work/updates/work/interrupted-rollback/redis.conf" "$work/redis.conf"
+rm -rf "$work/updates/work/interrupted-rollback"
+ln -sfn releases/1.0.0 "$work/current"
+sed -i 's/^phase=committed$/phase=rollback/' \
+    "$work/updates/state/lucia.env"
+run_update recover lucia
+[[ "$(readlink "$work/current")" == "releases/1.1.0" ]]
+grep -qx 'migrated-db' "$work/data/db/lucia.db"
+grep -qx 'phase=committed' "$work/updates/state/lucia.env"
+
+previous_validation_token="$(
+    sed -n 's/^validation_token=//p' "$work/updates/state/lucia.env"
+)"
+: > "$work/curl.log"
+run_update rollback lucia
+rollback_validation_token="$(
+    sed -n 's|.*update-validation/prepare/||p' "$work/curl.log" \
+        | tail -1
+)"
+[[ "$rollback_validation_token" =~ ^[0-9a-fA-F-]{36}$ ]]
+[[ "$rollback_validation_token" != "$previous_validation_token" ]]
+grep -q "update-validation/$rollback_validation_token?consume=true" \
+    "$work/curl.log"
 [[ "$(readlink "$work/current")" == "releases/1.0.0" ]]
 grep -qx 'old-db' "$work/data/db/lucia.db"
-[[ ! -e "$work/updates/state/validation.key" ]]
 grep -qx 'old-plugin' "$work/data/plugins/official.plugin"
 grep -qx 'old-redis-config' "$work/redis.conf"
 [[ "$(stat --format '%a' "$work/redis.conf")" == "640" ]]
-[[ ! -e "$work/fail-service-start-once" ]]
+[[ ! -e "$work/updates/state/lucia.env" ]]
+[[ ! -e "$work/updates/backups/lucia-v1.1.0.tar.zst" ]]
 
 echo "PASS: Lucia update verifies, switches atomically, and rolls back data"
 

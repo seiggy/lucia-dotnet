@@ -230,29 +230,40 @@ finally:
 PY
 }
 
+restore_replaced_data() {
+    local old_root="$work_dir/replaced-data"
+    local name
+
+    [[ -d "$old_root" ]] || return 0
+    for name in config db redis plugins; do
+        if [[ -d "$old_root/$name" ]]; then
+            rm -rf "$data_root/$name"
+            mv "$old_root/$name" "$data_root/$name"
+        fi
+    done
+    if [[ -f "$old_root/redis.conf" ]]; then
+        install -o "$redis_owner" -g "$redis_group" -m 0640 \
+            "$old_root/redis.conf" "$redis_config_path"
+        rm "$old_root/redis.conf"
+    fi
+    rmdir "$old_root"
+    sync -f "$data_root"
+}
+
 restore_data_backup() {
     local backup="$1"
+    local retain_replaced="${2:-false}"
     local restore_root="$work_dir/restore-data"
     local old_root="$work_dir/replaced-data"
     local name
     local previous_err_trap
 
+    [[ "$retain_replaced" == true || "$retain_replaced" == false ]] \
+        || die "invalid replaced-data retention mode"
     previous_err_trap="$(trap -p ERR)"
 
     zstd --test "$backup" >/dev/null
-    if [[ -d "$old_root" ]]; then
-        for name in config db redis plugins; do
-            if [[ -d "$old_root/$name" ]]; then
-                rm -rf "$data_root/$name"
-                mv "$old_root/$name" "$data_root/$name"
-            fi
-        done
-        if [[ -f "$old_root/redis.conf" ]]; then
-            cp "$old_root/redis.conf" "$redis_config_path"
-            rm "$old_root/redis.conf"
-        fi
-        rmdir "$old_root"
-    fi
+    restore_replaced_data
     rm -rf "$restore_root"
     mkdir -p "$restore_root" "$old_root"
     tar -I zstd -xf "$backup" -C "$restore_root"
@@ -295,7 +306,39 @@ restore_data_backup() {
     else
         trap - ERR
     fi
-    rm -rf "$old_root" "$restore_root"
+    rm -rf "$restore_root"
+    if [[ "$retain_replaced" == false ]]; then
+        rm -rf "$old_root"
+    fi
+}
+
+wait_for_lucia_health() {
+    local validation_token="$1"
+    local validation_credential="$2"
+
+    for ((attempt = 0; attempt < health_attempts; attempt++)); do
+        if "$curl_path" --fail --silent --show-error \
+                --max-time 30 \
+                --header "X-Lucia-Update-Credential: $validation_credential" \
+                "http://127.0.0.1:8098/internal/appliance/update-validation/$validation_token?consume=true" \
+                >/dev/null; then
+            return 0
+        fi
+        sleep "$health_delay"
+    done
+    return 1
+}
+
+prepare_lucia_validation() {
+    local validation_token="$1"
+    local validation_credential="$2"
+
+    "$curl_path" --fail --silent --show-error \
+        --max-time 30 \
+        --header "X-Lucia-Update-Credential: $validation_credential" \
+        --request POST \
+        "http://127.0.0.1:8098/internal/appliance/update-validation/prepare/$validation_token" \
+        >/dev/null
 }
 
 verify_and_assemble() {
@@ -532,7 +575,6 @@ apply_lucia() {
     local backup_temporary
     local backup_ready=false
     local services_stopped=false
-    local healthy=false
     local validation_token
     local validation_credential
     local uncompressed_bytes
@@ -624,12 +666,7 @@ apply_lucia() {
         rm -f "$previous_state"
     fi
     trap 'rm -f "$validation_credential_path"' ERR
-    "$curl_path" --fail --silent --show-error \
-        --max-time 30 \
-        --header "X-Lucia-Update-Credential: $validation_credential" \
-        --request POST \
-        "http://127.0.0.1:8098/internal/appliance/update-validation/prepare/$validation_token" \
-        >/dev/null
+    prepare_lucia_validation "$validation_token" "$validation_credential"
 
     restore_failed_apply() {
         local exit_code=$?
@@ -693,18 +730,7 @@ apply_lucia() {
     write_lucia_state \
         switched "$previous_target" "releases/$version" "$backup" "$validation_token"
     "$systemctl_path" start lucia-redis.service lucia-agenthost.service
-    for ((attempt = 0; attempt < health_attempts; attempt++)); do
-        if "$curl_path" --fail --silent --show-error \
-                --max-time 30 \
-                --header "X-Lucia-Update-Credential: $validation_credential" \
-                "http://127.0.0.1:8098/internal/appliance/update-validation/$validation_token?consume=true" \
-                >/dev/null; then
-            healthy=true
-            break
-        fi
-        sleep "$health_delay"
-    done
-    if [[ "$healthy" != true ]]; then
+    if ! wait_for_lucia_health "$validation_token" "$validation_credential"; then
         printf 'Error: new Lucia release failed its health check\n' >&2
         false
     fi
@@ -741,6 +767,9 @@ rollback_lucia() {
     local backups_real
     local current
     local validation_token
+    local rollback_validation_token
+    local validation_credential
+    local old_root="$work_dir/replaced-data"
     [[ -f "$state" ]] || die "no Lucia rollback is available"
     previous="$(sed -n 's/^previous=//p' "$state")"
     current="$(sed -n 's/^current=//p' "$state")"
@@ -754,35 +783,59 @@ rollback_lucia() {
         && -d "$releases_dir/${previous#releases/}" \
         && "$backup_real" == "$backups_real/"* ]] \
         || die "Lucia rollback state is invalid"
+    rollback_validation_token="$(cat /proc/sys/kernel/random/uuid)"
+    validation_credential="$(issue_validation_credential)"
+    trap 'rm -f "$validation_credential_path"' ERR
     write_lucia_state \
-        rollback "$previous" "$current" "$backup_real" "$validation_token"
+        rollback "$previous" "$current" "$backup_real" "$rollback_validation_token"
     rollback_failed() {
         local exit_code=$?
         trap - ERR
-        if recover_lucia; then
-            rm -f "$backup_real"
+        "$systemctl_path" stop \
+            lucia-agenthost.service lucia-redis.service || true
+        atomic_symlink "$current"
+        restore_replaced_data
+        write_lucia_state \
+            committed "$previous" "$current" "$backup_real" "$rollback_validation_token"
+        if "$systemctl_path" start \
+                lucia-redis.service lucia-agenthost.service \
+            && prepare_lucia_validation \
+                "$rollback_validation_token" "$validation_credential" \
+            && wait_for_lucia_health \
+                "$rollback_validation_token" "$validation_credential"; then
+            printf 'Lucia rollback validation failed; restored the current release.\n' \
+                >&2
         else
-            printf 'Error: Lucia rollback recovery failed\n' >&2
+            printf 'Error: current Lucia release could not restart after rollback failure\n' \
+                >&2
         fi
-        if ! "$systemctl_path" start \
-                lucia-redis.service lucia-agenthost.service; then
-            printf 'Error: Lucia services could not restart after rollback failure\n' >&2
-        fi
+        rm -f "$validation_credential_path"
         exit "$exit_code"
     }
     trap rollback_failed ERR
     "$systemctl_path" stop lucia-agenthost.service lucia-redis.service
     atomic_symlink "$previous"
-    restore_data_backup "$backup_real"
+    restore_data_backup "$backup_real" true
     sync -f "$releases_dir"
     sync -f "$(dirname "$current_link")"
     "$systemctl_path" start lucia-redis.service lucia-agenthost.service
-    rm -f "$state"
-    rm -f "$validation_credential_path"
-    sync -f "$state_dir"
+    prepare_lucia_validation \
+        "$rollback_validation_token" "$validation_credential"
+    if ! wait_for_lucia_health \
+            "$rollback_validation_token" "$validation_credential"; then
+        printf 'Error: restored Lucia release failed its health check\n' >&2
+        false
+    fi
+    write_lucia_state \
+        rollback-committed "$previous" "$current" "$backup_real" "$rollback_validation_token"
+    trap - ERR
+    rm -rf "$old_root"
     rm -rf "$releases_dir/${current#releases/}"
     rm -f "$backup_real"
-    trap - ERR
+    sync -f "$releases_dir"
+    sync -f "$backups_dir"
+    rm -f "$state" "$validation_credential_path"
+    sync -f "$state_dir"
 }
 
 recover_lucia() {
@@ -795,6 +848,7 @@ recover_lucia() {
     local current
     local validation_token
     local previous_state="$state_dir/lucia.previous.env"
+    local old_root="$work_dir/replaced-data"
     rm -rf "$work_dir"/input-* "$work_dir"/*.parts
     if [[ ! -f "$state" ]]; then
         rm -f "$validation_credential_path"
@@ -809,14 +863,34 @@ recover_lucia() {
     current="$(sed -n 's/^current=//p' "$state")"
     validation_token="$(sed -n 's/^validation_token=//p' "$state")"
     backup="$(sed -n 's/^backup=//p' "$state")"
-    backup_real="$(realpath -e "$backup")"
+    backup_real="$(realpath -m "$backup")"
     backups_real="$(realpath -e "$backups_dir")"
     [[ "$previous" =~ ^releases/[0-9A-Za-z._-]+$ \
         && "$current" =~ ^releases/[0-9A-Za-z._-]+$ \
         && "$validation_token" =~ ^[0-9a-fA-F-]{36}$ \
         && -d "$releases_dir/${previous#releases/}" \
+        && ( "$phase" == "rollback-committed" || -f "$backup_real" ) \
         && "$backup_real" == "$backups_real/"* ]] \
         || die "interrupted Lucia update has invalid recovery state"
+    if [[ "$phase" == "rollback" ]]; then
+        atomic_symlink "$current" || return
+        restore_replaced_data || return
+        write_lucia_state \
+            committed "$previous" "$current" "$backup_real" "$validation_token" \
+            || return
+        rm -f "$validation_credential_path"
+        sync -f "$state_dir"
+        return
+    fi
+    if [[ "$phase" == "rollback-committed" ]]; then
+        atomic_symlink "$previous" || return
+        rm -rf "$old_root" "$releases_dir/${current#releases/}" || return
+        rm -f "$backup_real" "$state" "$validation_credential_path" || return
+        sync -f "$releases_dir" || return
+        sync -f "$backups_dir" || return
+        sync -f "$state_dir"
+        return
+    fi
     atomic_symlink "$previous" || return
     restore_data_backup "$backup_real" || return
     rm -rf \
