@@ -10,8 +10,9 @@ public sealed partial class ApplianceUpdateService(
     ILogger<ApplianceUpdateService> logger,
     string? runtimeInfoPath = null) : IDisposable
 {
+    private const int s_releaseListLimit = 10;
     private static readonly Uri s_releaseApi = new(
-        "https://api.github.com/repos/seiggy/lucia-dotnet/releases/latest");
+        $"https://api.github.com/repos/seiggy/lucia-dotnet/releases?per_page={s_releaseListLimit}");
     private readonly string _runtimeInfoPath = runtimeInfoPath
         ?? Environment.GetEnvironmentVariable("LUCIA_RUNTIME_INFO_PATH")
         ?? "/etc/lucia/appliance-runtime.json";
@@ -23,7 +24,7 @@ public sealed partial class ApplianceUpdateService(
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(20));
+        timeout.CancelAfter(TimeSpan.FromSeconds(60));
         var checkToken = timeout.Token;
         var current = await manager.GetStatusAsync(checkToken)
             .ConfigureAwait(false);
@@ -37,8 +38,107 @@ public sealed partial class ApplianceUpdateService(
         using var releaseDocument = await JsonDocument
             .ParseAsync(releaseStream, cancellationToken: checkToken)
             .ConfigureAwait(false);
-        var releaseRoot = releaseDocument.RootElement;
-        var releaseTag = releaseRoot.GetProperty("tag_name").GetString();
+
+        ApplianceUpdateStatus? latestStableStatus = null;
+        foreach (var releaseRoot in releaseDocument.RootElement.EnumerateArray())
+        {
+            if (releaseRoot.TryGetProperty("draft", out var draft)
+                && draft.ValueKind == JsonValueKind.True)
+            {
+                continue;
+            }
+            if (releaseRoot.TryGetProperty("prerelease", out var prerelease)
+                && prerelease.ValueKind == JsonValueKind.True)
+            {
+                continue;
+            }
+            var releaseTag = releaseRoot.TryGetProperty(
+                "tag_name",
+                out var tagElement)
+                ? tagElement.GetString()
+                : null;
+            if (!IsStableReleaseTag(releaseTag))
+            {
+                continue;
+            }
+
+            ApplianceUpdateStatus? status;
+            try
+            {
+                status = await TryEvaluateReleaseAsync(
+                    current,
+                    releaseRoot,
+                    releaseTag,
+                    checkToken)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception) when (
+                exception is InvalidDataException
+                    or InvalidOperationException
+                    or KeyNotFoundException
+                    or JsonException)
+            {
+                continue;
+            }
+            if (status is null)
+            {
+                continue;
+            }
+            latestStableStatus ??= status;
+            if (status.LuciaUpdateAvailable || status.OsUpdateAvailable)
+            {
+                return status;
+            }
+            if (status.Compatible
+                && !status.LuciaNewerDiscovered
+                && !status.OsNewerDiscovered)
+            {
+                return status;
+            }
+        }
+
+        if (latestStableStatus is not null)
+        {
+            return latestStableStatus with
+            {
+                Compatible = false,
+                LuciaCompatible = false,
+                OsCompatible = false,
+                LuciaUpdateAvailable = false,
+                OsUpdateAvailable = false,
+                Message = "No compatible newer appliance release was found for this device.",
+            };
+        }
+
+        return new ApplianceUpdateStatus(
+            current.LuciaVersion,
+            current.Os.ImageVersion,
+            LatestLuciaVersion: null,
+            LatestOsVersion: null,
+            ManifestAvailable: false,
+            Compatible: false,
+            LuciaCompatible: false,
+            OsCompatible: false,
+            LuciaNewerDiscovered: false,
+            OsNewerDiscovered: false,
+            LuciaUpdateAvailable: false,
+            OsUpdateAvailable: false,
+            ReleaseTag: null,
+            ReleaseUrl: null,
+            Message: "No stable appliance releases were discovered for compatibility checks.");
+    }
+
+    private async Task<ApplianceUpdateStatus?> TryEvaluateReleaseAsync(
+        ApplianceStatusResponse current,
+        JsonElement releaseRoot,
+        string? releaseTag,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(releaseTag))
+        {
+            return null;
+        }
+
         var releaseUrl = releaseRoot.TryGetProperty(
             "html_url",
             out var releaseUrlElement)
@@ -47,159 +147,176 @@ public sealed partial class ApplianceUpdateService(
         var manifestUrl = releaseRoot.GetProperty("assets")
             .EnumerateArray()
             .Where(asset =>
-                asset.GetProperty("name").GetString()
-                == "lucia-appliance-manifest.json")
+                asset.TryGetProperty("name", out var nameElement)
+                && "lucia-appliance-manifest.json" == nameElement.GetString())
             .Select(asset =>
-                asset.GetProperty("browser_download_url").GetString())
-            .FirstOrDefault();
+                asset.TryGetProperty(
+                    "browser_download_url",
+                    out var urlElement)
+                    ? urlElement.GetString()
+                    : null)
+            .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
         var attestationBundleUrl = releaseRoot.GetProperty("assets")
             .EnumerateArray()
             .Where(asset =>
-                asset.GetProperty("name").GetString()
-                == "lucia-appliance-attestations.jsonl")
+                asset.TryGetProperty("name", out var nameElement)
+                && "lucia-appliance-attestations.jsonl" == nameElement.GetString())
             .Select(asset =>
-                asset.GetProperty("browser_download_url").GetString())
-            .FirstOrDefault();
-        if (string.IsNullOrWhiteSpace(manifestUrl))
+                asset.TryGetProperty(
+                    "browser_download_url",
+                    out var urlElement)
+                    ? urlElement.GetString()
+                    : null)
+            .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+        if (string.IsNullOrWhiteSpace(manifestUrl)
+            || string.IsNullOrWhiteSpace(attestationBundleUrl))
         {
-            return new ApplianceUpdateStatus(
-                current.LuciaVersion,
-                current.Os.ImageVersion,
-                LatestLuciaVersion: null,
-                LatestOsVersion: null,
-                ManifestAvailable: false,
-                Compatible: false,
-                LuciaCompatible: false,
-                OsCompatible: false,
-                LuciaNewerDiscovered: false,
-                OsNewerDiscovered: false,
-                LuciaUpdateAvailable: false,
-                OsUpdateAvailable: false,
-                releaseTag,
-                releaseUrl,
-                "The latest GitHub release has no appliance manifest.");
+            return null;
         }
 
-        var manifestUri = ParseManifestUri(manifestUrl);
+        Uri manifestUri;
+        try
+        {
+            manifestUri = ParseManifestUri(manifestUrl);
+        }
+        catch (InvalidDataException)
+        {
+            return null;
+        }
+
         using var manifestResponse = await httpClient
-            .GetAsync(manifestUri, checkToken)
+            .GetAsync(manifestUri, cancellationToken)
             .ConfigureAwait(false);
-        manifestResponse.EnsureSuccessStatusCode();
+        if (!manifestResponse.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
         await using var manifestStream = await manifestResponse.Content
-            .ReadAsStreamAsync(checkToken)
+            .ReadAsStreamAsync(cancellationToken)
             .ConfigureAwait(false);
         using var manifestDocument = await JsonDocument
-            .ParseAsync(manifestStream, cancellationToken: checkToken)
+            .ParseAsync(manifestStream, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
         var manifest = manifestDocument.RootElement;
         var declaredBundleUrl = manifest
-            .GetProperty("attestationBundleUrl")
-            .GetString();
-        if (releaseTag is null
-            || manifest.GetProperty("repository").GetString()
-                != "seiggy/lucia-dotnet"
-            || manifest.GetProperty("tag").GetString() != releaseTag
-            || string.IsNullOrWhiteSpace(attestationBundleUrl)
-            || !string.Equals(
+            .TryGetProperty("attestationBundleUrl", out var bundleElement)
+            ? bundleElement.GetString()
+            : null;
+        if (manifest.TryGetProperty("repository", out var repositoryElement)
+            && repositoryElement.GetString() == "seiggy/lucia-dotnet"
+            && manifest.TryGetProperty("tag", out var tagElement)
+            && tagElement.GetString() == releaseTag
+            && !string.IsNullOrWhiteSpace(attestationBundleUrl)
+            && string.Equals(
                 declaredBundleUrl,
                 attestationBundleUrl,
                 StringComparison.Ordinal)
-            || !IsTrustedReleaseUri(attestationBundleUrl))
-        {
-            throw new InvalidDataException(
-                "The latest appliance release has no trusted attestation bundle.");
-        }
-        var compatibility = manifest.GetProperty("compatibility");
-        if (manifest.GetProperty("releaseNotesUrl").GetString() != releaseUrl
-            || manifest.GetProperty("releaseApi").GetString()
-                != $"https://api.github.com/repos/seiggy/lucia-dotnet/releases/tags/{releaseTag}")
-        {
-            throw new InvalidDataException(
-                "The appliance release metadata is incomplete or unsupported.");
-        }
-        var architecture = compatibility.GetProperty("architecture").GetString();
-        var board = compatibility.GetProperty("board").GetString();
-        var minimumDiskBytes = compatibility
-            .GetProperty("minimumDiskBytes")
-            .GetInt64();
-        var hardwareCompatible =
-            string.Equals(
-                architecture,
-                current.Architecture,
-                StringComparison.OrdinalIgnoreCase)
+            && IsTrustedReleaseUri(attestationBundleUrl)
+            && manifest.TryGetProperty("releaseNotesUrl", out var releaseNotesElement)
+            && manifest.TryGetProperty("releaseApi", out var releaseApiElement)
             && string.Equals(
-                board,
-                current.Board,
+                releaseNotesElement.GetString(),
+                releaseUrl,
                 StringComparison.Ordinal)
-            && current.StorageBytes >= minimumDiskBytes
-            && compatibility.GetProperty("layoutVersion").GetInt32() == 1
-            && compatibility.GetProperty("dataSchemaVersion").GetInt32() == 1;
-        var channels = manifest.GetProperty("channels");
-        var luciaRequirements = channels
-            .GetProperty("lucia")
-            .GetProperty("requires");
-        var luciaSource = luciaRequirements.GetProperty("source");
-        var luciaTarget = luciaRequirements.GetProperty("target");
-        var osRequirements = channels
-            .GetProperty("os")
-            .GetProperty("requires");
-        var osSource = osRequirements.GetProperty("source");
-        var osTarget = osRequirements.GetProperty("target");
-        var luciaCompatible = hardwareCompatible
             && string.Equals(
-                luciaSource.GetProperty("jetsonLinux").GetString(),
-                current.Os.JetsonLinuxVersion,
-                StringComparison.Ordinal)
-            && luciaRequirements.GetProperty("layoutVersion").GetInt32() == 1
-            && luciaRequirements.GetProperty("dataSchemaVersion").GetInt32() == 1
-            && !luciaRequirements.GetProperty("reboot").GetBoolean()
-            && HasExpectedRuntime(luciaSource)
-            && HasRuntimeMetadata(luciaTarget);
-        var osCompatible = hardwareCompatible
-            && osRequirements.GetProperty("layoutVersion").GetInt32() == 1
-            && osSource.GetProperty("jetsonLinux").GetString()
-                == current.Os.JetsonLinuxVersion
-            && HasExpectedRuntime(osSource)
-            && HasRuntimeMetadata(osTarget)
-            && osRequirements.GetProperty("reboot").GetBoolean()
-            && MeetsMinimumVersion(
-                current.LuciaVersion,
-                osRequirements.GetProperty("minimumLuciaVersion").GetString());
-        var latestLuciaVersion = channels
-            .GetProperty("lucia")
-            .GetProperty("version")
-            .GetString();
-        var latestOsVersion = channels
-            .GetProperty("os")
-            .GetProperty("version")
-            .GetString();
-        var luciaNewerDiscovered =
-            IsNewer(latestLuciaVersion, current.LuciaVersion);
-        var osNewerDiscovered =
-            IsNewer(latestOsVersion, current.Os.ImageVersion);
-        var hasNewerRelease = luciaNewerDiscovered || osNewerDiscovered;
+                releaseApiElement.GetString(),
+                $"https://api.github.com/repos/seiggy/lucia-dotnet/releases/tags/{releaseTag}",
+                StringComparison.Ordinal))
+        {
+            var compatibility = manifest.GetProperty("compatibility");
+            var architecture = compatibility.GetProperty("architecture").GetString();
+            var board = compatibility.GetProperty("board").GetString();
+            var minimumDiskBytes = compatibility
+                .GetProperty("minimumDiskBytes")
+                .GetInt64();
+            var hardwareCompatible =
+                string.Equals(
+                    architecture,
+                    current.Architecture,
+                    StringComparison.OrdinalIgnoreCase)
+                && string.Equals(
+                    board,
+                    current.Board,
+                    StringComparison.Ordinal)
+                && current.StorageBytes >= minimumDiskBytes
+                && compatibility.GetProperty("layoutVersion").GetInt32() == 1
+                && compatibility.GetProperty("dataSchemaVersion").GetInt32() == 1;
+            var channels = manifest.GetProperty("channels");
+            var luciaRequirements = channels
+                .GetProperty("lucia")
+                .GetProperty("requires");
+            var luciaSource = luciaRequirements.GetProperty("source");
+            var luciaTarget = luciaRequirements.GetProperty("target");
+            var osRequirements = channels
+                .GetProperty("os")
+                .GetProperty("requires");
+            var osSource = osRequirements.GetProperty("source");
+            var osTarget = osRequirements.GetProperty("target");
+            var luciaCompatible = hardwareCompatible
+                && string.Equals(
+                    luciaSource.GetProperty("jetsonLinux").GetString(),
+                    current.Os.JetsonLinuxVersion,
+                    StringComparison.Ordinal)
+                && luciaRequirements.GetProperty("layoutVersion").GetInt32() == 1
+                && luciaRequirements.GetProperty("dataSchemaVersion").GetInt32() == 1
+                && !luciaRequirements.GetProperty("reboot").GetBoolean()
+                && HasExpectedRuntime(luciaSource)
+                && HasRuntimeMetadata(luciaTarget);
+            var osCompatible = hardwareCompatible
+                && osRequirements.GetProperty("layoutVersion").GetInt32() == 1
+                && osSource.GetProperty("jetsonLinux").GetString()
+                    == current.Os.JetsonLinuxVersion
+                && HasExpectedRuntime(osSource)
+                && HasRuntimeMetadata(osTarget)
+                && osRequirements.GetProperty("reboot").GetBoolean()
+                && MeetsMinimumVersion(
+                    current.LuciaVersion,
+                    osRequirements.GetProperty("minimumLuciaVersion").GetString());
+            var latestLuciaVersion = channels
+                .GetProperty("lucia")
+                .GetProperty("version")
+                .GetString();
+            var latestOsVersion = channels
+                .GetProperty("os")
+                .GetProperty("version")
+                .GetString();
+            var luciaNewerDiscovered =
+                IsNewer(latestLuciaVersion, current.LuciaVersion);
+            var osNewerDiscovered =
+                IsNewer(latestOsVersion, current.Os.ImageVersion);
+            var hasNewerRelease = luciaNewerDiscovered || osNewerDiscovered;
 
-        return new ApplianceUpdateStatus(
-            current.LuciaVersion,
-            current.Os.ImageVersion,
-            latestLuciaVersion,
-            latestOsVersion,
-            ManifestAvailable: true,
-            Compatible: luciaCompatible || osCompatible,
-            LuciaCompatible: luciaCompatible,
-            OsCompatible: osCompatible,
-            LuciaNewerDiscovered: luciaNewerDiscovered,
-            OsNewerDiscovered: osNewerDiscovered,
-            LuciaUpdateAvailable: luciaCompatible && luciaNewerDiscovered,
-            OsUpdateAvailable: osCompatible && osNewerDiscovered,
-            releaseTag,
-            releaseUrl,
-            !luciaCompatible && !osCompatible
-                ? "The latest appliance release is not compatible with this device."
-                : hasNewerRelease
-                    ? "A signed update is ready to verify and install."
-                    : null);
+            return new ApplianceUpdateStatus(
+                current.LuciaVersion,
+                current.Os.ImageVersion,
+                latestLuciaVersion,
+                latestOsVersion,
+                ManifestAvailable: true,
+                Compatible: luciaCompatible || osCompatible,
+                LuciaCompatible: luciaCompatible,
+                OsCompatible: osCompatible,
+                LuciaNewerDiscovered: luciaNewerDiscovered,
+                OsNewerDiscovered: osNewerDiscovered,
+                LuciaUpdateAvailable: luciaCompatible && luciaNewerDiscovered,
+                OsUpdateAvailable: osCompatible && osNewerDiscovered,
+                releaseTag,
+                releaseUrl,
+                !luciaCompatible && !osCompatible
+                    ? "The latest appliance release is not compatible with this device."
+                    : hasNewerRelease
+                        ? "A signed update is ready to verify and install."
+                        : null);
+        }
+
+        return null;
     }
+
+    private static bool IsStableReleaseTag(string? value) =>
+        value is not null
+        && System.Text.RegularExpressions.Regex.IsMatch(
+            value,
+            @"^v[0-9]+\.[0-9]+\.[0-9]+$");
 
     public async Task<ApplianceUpdateOperationStatus> InstallAsync(
         string channel,

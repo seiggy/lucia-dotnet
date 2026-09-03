@@ -62,6 +62,10 @@ The updater downloads parts in manifest order, verifies every part's GitHub
 attestation and hash, then verifies the complete compressed stream against the
 digest in the attested manifest before writing it.
 
+Update discovery checks the ten newest stable releases and selects the newest
+one compatible with the appliance's active runtime. This keeps bridge releases
+available after a runtime change.
+
 Lucia updates stop AgentHost and Redis, back up configuration, SQLite, and Redis
 data, install the new version under `/opt/lucia/releases`, and atomically switch
 `/opt/lucia/current`. Rollback restores both the previous release link and its
