@@ -151,6 +151,12 @@ jobs:
             --source-cudnn "$OS_SOURCE_CUDNN_VERSION" \
             --source-onnx-runtime "$OS_SOURCE_ONNX_RUNTIME_VERSION" \
             --source-sherpa-onnx "$OS_SOURCE_SHERPA_ONNX_VERSION" \
+            --target-jetson-linux "$TARGET_JETSON_LINUX_VERSION" \
+            --target-redis "$TARGET_REDIS_VERSION" \
+            --target-cuda "$TARGET_CUDA_VERSION" \
+            --target-cudnn "$TARGET_CUDNN_VERSION" \
+            --target-onnx-runtime "$TARGET_ONNX_RUNTIME_VERSION" \
+            --target-sherpa-onnx "$TARGET_SHERPA_ONNX_VERSION" \
             --output-dir dist/release
 
       - name: Attest release assets

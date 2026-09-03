@@ -470,6 +470,16 @@ curl --silent --output "$work_dir/response.json" \
     http://localhost/v1/updates/operation
 grep -q '"status":"failed"' "$work_dir/response.json"
 grep -q '"osRollbackAvailable":false' "$work_dir/response.json"
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
+        --header 'Content-Type: application/json' \
+        --request POST \
+        --data '{"tag":null}' \
+        http://localhost/v1/updates/os/rollback
+)"
+[[ "$status" == "409" ]]
+grep -q 'OS rollback is not available.' "$work_dir/response.json"
 
 echo "PASS: external OS validation state is reflected without stale rollback"
 

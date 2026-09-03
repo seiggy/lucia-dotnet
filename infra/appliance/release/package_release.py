@@ -7,14 +7,6 @@ import shutil
 import urllib.parse
 
 COPY_BUFFER_BYTES = 1024 * 1024
-TARGET_RUNTIME = {
-    "jetsonLinux": "36.5.2",
-    "redis": "8.2.9",
-    "cuda": "12.6",
-    "cudnn": "9.3.0.75",
-    "onnxRuntime": "1.23.2",
-    "sherpaOnnx": "1.12.34",
-}
 
 
 def hash_file(path: pathlib.Path) -> str:
@@ -91,6 +83,12 @@ def parse_arguments() -> argparse.Namespace:
         "--source-sherpa-onnx",
         required=True,
     )
+    parser.add_argument("--target-jetson-linux", required=True)
+    parser.add_argument("--target-redis", required=True)
+    parser.add_argument("--target-cuda", required=True)
+    parser.add_argument("--target-cudnn", required=True)
+    parser.add_argument("--target-onnx-runtime", required=True)
+    parser.add_argument("--target-sherpa-onnx", required=True)
     parser.add_argument("--output-dir", type=pathlib.Path, required=True)
     parser.add_argument("--chunk-bytes", type=int, default=1_900_000_000)
     return parser.parse_args()
@@ -120,6 +118,16 @@ def main() -> None:
     }
     if any(not value.strip() for value in source_runtime.values()):
         raise SystemExit("source runtime versions must not be empty")
+    target_runtime = {
+        "jetsonLinux": arguments.target_jetson_linux,
+        "redis": arguments.target_redis,
+        "cuda": arguments.target_cuda,
+        "cudnn": arguments.target_cudnn,
+        "onnxRuntime": arguments.target_onnx_runtime,
+        "sherpaOnnx": arguments.target_sherpa_onnx,
+    }
+    if any(not value.strip() for value in target_runtime.values()):
+        raise SystemExit("target runtime versions must not be empty")
 
     inputs = {
         "installer": arguments.installer.resolve(),
@@ -163,7 +171,7 @@ def main() -> None:
             ),
         }
     channels["lucia"]["requires"] = {
-        **TARGET_RUNTIME,
+        **target_runtime,
         "layoutVersion": 1,
         "dataSchemaVersion": 1,
         "reboot": False,
@@ -172,7 +180,7 @@ def main() -> None:
         "minimumLuciaVersion": lucia_version,
         "layoutVersion": 1,
         "source": source_runtime,
-        "target": TARGET_RUNTIME,
+        "target": target_runtime,
         "reboot": True,
     }
 

@@ -18,6 +18,12 @@ workflow_dir="$script_dir/../../../.github/workflows"
 [[ -n "$OS_SOURCE_CUDNN_VERSION" ]]
 [[ -n "$OS_SOURCE_ONNX_RUNTIME_VERSION" ]]
 [[ -n "$OS_SOURCE_SHERPA_ONNX_VERSION" ]]
+[[ "$TARGET_JETSON_LINUX_VERSION" == "$JETSON_LINUX_VERSION" ]]
+[[ "$TARGET_REDIS_VERSION" == "$REDIS_VERSION" ]]
+[[ -n "$TARGET_CUDA_VERSION" ]]
+[[ -n "$TARGET_CUDNN_VERSION" ]]
+[[ -n "$TARGET_ONNX_RUNTIME_VERSION" ]]
+[[ -n "$TARGET_SHERPA_ONNX_VERSION" ]]
 ! grep -q 'SHA1\|download_sha1\|sha1sum' \
     "$script_dir/build-release-assets.sh" \
     "$script_dir/appliance.lock"
@@ -112,6 +118,14 @@ grep -q -- '--source-jetson-linux "$OS_SOURCE_JETSON_LINUX_VERSION"' \
     "$workflow_dir/appliance-release.yml"
 grep -q -- '--source-sherpa-onnx "$OS_SOURCE_SHERPA_ONNX_VERSION"' \
     "$workflow_dir/appliance-release.yml"
+grep -q -- '--target-jetson-linux "$TARGET_JETSON_LINUX_VERSION"' \
+    "$workflow_dir/appliance-release.yml"
+grep -q -- '--target-sherpa-onnx "$TARGET_SHERPA_ONNX_VERSION"' \
+    "$workflow_dir/appliance-release.yml"
+grep -q 'appliance-runtime.json' \
+    "$script_dir/build-release-assets.sh"
+grep -q '"$TARGET_REDIS_VERSION"' \
+    "$script_dir/build-release-assets.sh"
 grep -q 'lucia-os-update-validation.service' \
     "$script_dir/build-release-assets.sh"
 grep -q 'e2fsck -fn.*system.img' "$script_dir/build-release-assets.sh"

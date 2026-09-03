@@ -243,6 +243,34 @@ sudo "$repo_root/infra/appliance/build-native-bundle.sh" \
     --otelcol "$telemetry_dir/otelcol/otelcol-contrib" \
     --redis-exporter "$telemetry_dir/redis-exporter/redis_exporter" \
     --output-dir "$bundle_root"
+sudo python3 - "$bundle_root/etc/lucia/appliance-runtime.json" \
+    "$TARGET_REDIS_VERSION" \
+    "$TARGET_CUDA_VERSION" \
+    "$TARGET_CUDNN_VERSION" \
+    "$TARGET_ONNX_RUNTIME_VERSION" \
+    "$TARGET_SHERPA_ONNX_VERSION" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+path.write_text(
+    json.dumps(
+        {
+            "layoutVersion": 1,
+            "dataSchemaVersion": 1,
+            "redis": sys.argv[2],
+            "cuda": sys.argv[3],
+            "cudnn": sys.argv[4],
+            "onnxRuntime": sys.argv[5],
+            "sherpaOnnx": sys.argv[6],
+        },
+        indent=2,
+    )
+    + "\n",
+    encoding="utf-8",
+)
+PY
 sudo chown -R root:root "$bundle_root"
 sudo chown -R 1100:1100 "$bundle_root/var/lib/lucia"
 sudo chown root:root "$bundle_root/var/lib/lucia"

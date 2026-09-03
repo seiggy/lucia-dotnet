@@ -143,7 +143,7 @@ public sealed partial class ApplianceUpdateCoordinator
         }
     }
 
-    public bool TryStart(
+    public UpdateStartResult TryStart(
         string action,
         string channel,
         string? tag,
@@ -169,7 +169,7 @@ public sealed partial class ApplianceUpdateCoordinator
                 && channel == "os"
                 && !IsOsRollbackAvailable())
             {
-                return false;
+                return UpdateStartResult.RollbackUnavailable;
             }
             var isAllowedOsRollback = !_isUpdaterRunning
                 && action == "rollback"
@@ -179,7 +179,7 @@ public sealed partial class ApplianceUpdateCoordinator
                     || IsOsTransitionInProgress())
                 && !isAllowedOsRollback)
             {
-                return false;
+                return UpdateStartResult.Busy;
             }
 
             operationId ??= Guid.NewGuid().ToString("D");
@@ -195,7 +195,7 @@ public sealed partial class ApplianceUpdateCoordinator
             _isUpdaterRunning = true;
             _ = Task.Run(
                 () => RunAsync(action, channel, tag, operationId));
-            return true;
+            return UpdateStartResult.Accepted;
         }
     }
 

@@ -85,17 +85,21 @@ app.MapPost(
     {
         try
         {
-            return updates.TryStart(
-                    action,
-                    channel,
-                    request.Tag,
-                    request.OperationId)
-                ? Results.Accepted(
-                    value: updates.GetStatus())
-                : Results.Conflict(new
-                {
-                    Error = "Another appliance update is in progress.",
-                });
+            var result = updates.TryStart(
+                action,
+                channel,
+                request.Tag,
+                request.OperationId);
+            if (result == UpdateStartResult.Accepted)
+            {
+                return Results.Accepted(value: updates.GetStatus());
+            }
+            return Results.Conflict(new
+            {
+                Error = result == UpdateStartResult.RollbackUnavailable
+                    ? "OS rollback is not available."
+                    : "Another appliance update is in progress.",
+            });
         }
         catch (ArgumentException exception)
         {
