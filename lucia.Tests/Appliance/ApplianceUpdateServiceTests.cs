@@ -142,6 +142,13 @@ public sealed class ApplianceUpdateServiceTests
         var stagingPath = Path.Combine(
             Path.GetTempPath(),
             $"lucia-staging-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(stagingPath);
+        var runtimeInfoPath = Path.Combine(stagingPath, "runtime.json");
+        await File.WriteAllTextAsync(
+            runtimeInfoPath,
+            """
+            {"redis":"8.2.9","cuda":"12.6","cudnn":"9.3.0.75","onnxRuntime":"1.23.2","sherpaOnnx":"1.12.34"}
+            """);
         using var listener = new Socket(
             AddressFamily.Unix,
             SocketType.Stream,
@@ -205,7 +212,8 @@ public sealed class ApplianceUpdateServiceTests
                 new ApplianceUpdateStagingStore(
                     stagingPath,
                     NullLogger<ApplianceUpdateStagingStore>.Instance),
-                NullLogger<ApplianceUpdateService>.Instance);
+                NullLogger<ApplianceUpdateService>.Instance,
+                runtimeInfoPath);
 
             var result = await service.CheckAsync(CancellationToken.None);
 

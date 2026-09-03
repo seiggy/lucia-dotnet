@@ -7,15 +7,14 @@ public sealed partial class ApplianceUpdateService(
     HttpClient httpClient,
     ApplianceManagerClient manager,
     ApplianceUpdateStagingStore staging,
-    ILogger<ApplianceUpdateService> logger) : IDisposable
+    ILogger<ApplianceUpdateService> logger,
+    string? runtimeInfoPath = null) : IDisposable
 {
     private static readonly Uri s_releaseApi = new(
         "https://api.github.com/repos/seiggy/lucia-dotnet/releases/latest");
-    private const string RedisVersion = "8.2.9";
-    private const string CudaVersion = "12.6";
-    private const string CudnnVersion = "9.3.0.75";
-    private const string OnnxRuntimeVersion = "1.23.2";
-    private const string SherpaOnnxVersion = "1.12.34";
+    private readonly string _runtimeInfoPath = runtimeInfoPath
+        ?? Environment.GetEnvironmentVariable("LUCIA_RUNTIME_INFO_PATH")
+        ?? "/etc/lucia/appliance-runtime.json";
     private readonly SemaphoreSlim _transitionGate = new(1, 1);
     internal Task? StagingTask { get; private set; }
 
@@ -673,14 +672,22 @@ public sealed partial class ApplianceUpdateService(
             && currentVersion >= minimumVersion;
     }
 
-    private static bool HasExpectedRuntime(JsonElement compatibility) =>
-        compatibility.GetProperty("redis").GetString() == RedisVersion
-        && compatibility.GetProperty("cuda").GetString() == CudaVersion
-        && compatibility.GetProperty("cudnn").GetString() == CudnnVersion
-        && compatibility.GetProperty("onnxRuntime").GetString()
-            == OnnxRuntimeVersion
-        && compatibility.GetProperty("sherpaOnnx").GetString()
-            == SherpaOnnxVersion;
+    private bool HasExpectedRuntime(JsonElement compatibility)
+    {
+        using var document = JsonDocument.Parse(
+            File.ReadAllBytes(_runtimeInfoPath));
+        var installed = document.RootElement;
+        return compatibility.GetProperty("redis").GetString()
+                == installed.GetProperty("redis").GetString()
+            && compatibility.GetProperty("cuda").GetString()
+                == installed.GetProperty("cuda").GetString()
+            && compatibility.GetProperty("cudnn").GetString()
+                == installed.GetProperty("cudnn").GetString()
+            && compatibility.GetProperty("onnxRuntime").GetString()
+                == installed.GetProperty("onnxRuntime").GetString()
+            && compatibility.GetProperty("sherpaOnnx").GetString()
+                == installed.GetProperty("sherpaOnnx").GetString();
+    }
 
     private static bool HasRuntimeMetadata(JsonElement runtime) =>
         new[]

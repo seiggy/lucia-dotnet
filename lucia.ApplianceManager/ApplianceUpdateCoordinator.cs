@@ -21,6 +21,7 @@ public sealed partial class ApplianceUpdateCoordinator
             "state");
     private readonly string _operationPath;
     private bool _isUpdaterRunning;
+    private bool _ignorePersistedStatus;
     private UpdateOperationStatus _status =
         new("none", "none", "idle", null, null);
 
@@ -125,6 +126,7 @@ public sealed partial class ApplianceUpdateCoordinator
             {
                 RefreshStatusUnsafe();
                 return _status.Status is "queued" or "running"
+                    || IsLuciaTransitionInProgress()
                     || IsOsTransitionInProgress()
                     || _isUpdaterRunning;
             }
@@ -176,6 +178,7 @@ public sealed partial class ApplianceUpdateCoordinator
                 && channel == "os"
                 && IsOsRollbackAvailable();
             if (((_status.Status is "queued" or "running")
+                    || IsLuciaTransitionInProgress()
                     || IsOsTransitionInProgress())
                 && !isAllowedOsRollback)
             {
@@ -192,6 +195,7 @@ public sealed partial class ApplianceUpdateCoordinator
                 OperationId: operationId);
             PersistStatusUnsafe(status, _status);
             _status = status;
+            _ignorePersistedStatus = false;
             _isUpdaterRunning = true;
             _ = Task.Run(
                 () => RunAsync(action, channel, tag, operationId));
@@ -291,15 +295,33 @@ public sealed partial class ApplianceUpdateCoordinator
         catch (Exception exception) when (
             exception is InvalidOperationException
                 or System.ComponentModel.Win32Exception
-                or IOException)
+                or IOException
+                or UnauthorizedAccessException
+                or AggregateException)
         {
-            SetStatus(new(
+            var failed = new UpdateOperationStatus(
                 action,
                 channel,
                 "failed",
                 tag,
                 exception.Message,
-                OperationId: operationId));
+                OperationId: operationId);
+            try
+            {
+                SetStatus(failed);
+            }
+            catch (Exception persistenceException) when (
+                persistenceException is IOException
+                    or UnauthorizedAccessException
+                    or Win32Exception
+                    or AggregateException)
+            {
+                lock (_gate)
+                {
+                    _status = failed;
+                    _ignorePersistedStatus = true;
+                }
+            }
         }
     }
 
@@ -309,6 +331,7 @@ public sealed partial class ApplianceUpdateCoordinator
         {
             PersistStatusUnsafe(status, _status);
             _status = status;
+            _ignorePersistedStatus = false;
         }
     }
 
@@ -380,7 +403,7 @@ public sealed partial class ApplianceUpdateCoordinator
 
     private void RefreshStatusUnsafe()
     {
-        if (!File.Exists(_operationPath))
+        if (_ignorePersistedStatus || !File.Exists(_operationPath))
         {
             return;
         }
@@ -547,5 +570,15 @@ public sealed partial class ApplianceUpdateCoordinator
         return values.GetValueOrDefault("phase") == "committed"
             && values.TryGetValue("backup", out var backup)
             && File.Exists(backup);
+    }
+
+    private bool IsLuciaTransitionInProgress()
+    {
+        var path = Path.Combine(_statePath, "lucia.env");
+        if (!File.Exists(path))
+        {
+            return false;
+        }
+        return !File.ReadLines(path).Any(line => line == "phase=committed");
     }
 }

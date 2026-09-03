@@ -94,6 +94,8 @@ public static class ApplianceApi
                     await using var command = connection.CreateCommand();
                     command.CommandText =
                         """
+                        DELETE FROM configuration
+                        WHERE key = 'appliance-update-validation-consumed';
                         INSERT INTO configuration (
                             key,
                             value,
@@ -146,8 +148,29 @@ public static class ApplianceApi
 
                     var database = redis.GetDatabase();
                     const string SentinelKey = "lucia:update-validation";
+                    var cleanupPending = false;
+                    if (consume is true)
+                    {
+                        await using var cleanupStateConnection =
+                            configSqlite.CreateConnection();
+                        await using var cleanupStateCommand =
+                            cleanupStateConnection.CreateCommand();
+                        cleanupStateCommand.CommandText =
+                            """
+                            SELECT value
+                            FROM configuration
+                            WHERE key = 'appliance-update-validation-consumed';
+                            """;
+                        cleanupPending = Convert.ToString(
+                                await cleanupStateCommand.ExecuteScalarAsync(
+                                        cancellationToken)
+                                    .ConfigureAwait(false),
+                                System.Globalization.CultureInfo.InvariantCulture)
+                            == token;
+                    }
                     if (await database.StringGetAsync(SentinelKey)
-                            .ConfigureAwait(false) != token)
+                            .ConfigureAwait(false) != token
+                        && !cleanupPending)
                     {
                         return Results.Problem(
                             detail: "Redis update validation failed.",
@@ -190,7 +213,8 @@ public static class ApplianceApi
                                         cancellationToken)
                                     .ConfigureAwait(false),
                                 System.Globalization.CultureInfo.InvariantCulture)
-                            != token)
+                            != token
+                            && !cleanupPending)
                         {
                             return Results.Problem(
                                 detail: "SQLite update continuity validation failed.",
@@ -209,7 +233,7 @@ public static class ApplianceApi
                         await sentinelCommand.ExecuteScalarAsync(cancellationToken)
                             .ConfigureAwait(false),
                         System.Globalization.CultureInfo.InvariantCulture);
-                    if (sqliteSentinel != token)
+                    if (sqliteSentinel != token && !cleanupPending)
                     {
                         return Results.Problem(
                             detail: "SQLite update validation failed.",
@@ -224,6 +248,40 @@ public static class ApplianceApi
 
                     if (consume is true)
                     {
+                        if (!cleanupPending)
+                        {
+                            await using var cleanupStateConnection =
+                                configSqlite.CreateConnection();
+                            await using var cleanupStateCommand =
+                                cleanupStateConnection.CreateCommand();
+                            cleanupStateCommand.CommandText =
+                                """
+                                INSERT INTO configuration (
+                                    key,
+                                    value,
+                                    section,
+                                    updated_by,
+                                    is_sensitive
+                                ) VALUES (
+                                    'appliance-update-validation-consumed',
+                                    $token,
+                                    'system',
+                                    'appliance-update',
+                                    0
+                                )
+                                ON CONFLICT(key) DO UPDATE SET
+                                    value = excluded.value,
+                                    updated_at = datetime('now'),
+                                    updated_by = excluded.updated_by;
+                                PRAGMA wal_checkpoint(FULL);
+                                """;
+                            cleanupStateCommand.Parameters.AddWithValue(
+                                "$token",
+                                token);
+                            await cleanupStateCommand.ExecuteNonQueryAsync(
+                                    cancellationToken)
+                                .ConfigureAwait(false);
+                        }
                         foreach (var sqlite in new[]
                                  {
                                      configSqlite,

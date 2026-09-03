@@ -84,6 +84,9 @@ public sealed class ApplianceUpdateValidationIntegrationTests
             using var consumed = await client.GetAsync(
                 $"/internal/appliance/update-validation/{token}?consume=true");
             Assert.Equal(HttpStatusCode.OK, consumed.StatusCode);
+            using var consumedAgain = await client.GetAsync(
+                $"/internal/appliance/update-validation/{token}?consume=true");
+            Assert.Equal(HttpStatusCode.OK, consumedAgain.StatusCode);
             Assert.True((await redis.GetDatabase().StringGetAsync(
                 "lucia:update-validation")).IsNull);
             AssertSentinelMissing(configSqlite);

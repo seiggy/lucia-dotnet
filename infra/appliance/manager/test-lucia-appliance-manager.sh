@@ -262,6 +262,20 @@ grep -qx 'stop lucia-agenthost.service lucia-redis.service' "$systemctl_log"
 
 echo "PASS: manager startup finalizes or recovers pending Lucia updates"
 
+printf 'phase=manager-pending\n' > "$work_dir/updates/state/lucia.env"
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
+        --header 'Content-Type: application/json' \
+        --request POST \
+        --data '{"tag":"v1.4.0"}' \
+        http://localhost/v1/updates/lucia/apply
+)"
+[[ "$status" == "409" ]]
+rm "$work_dir/updates/state/lucia.env"
+
+echo "PASS: unfinished Lucia transactions block overlapping updates"
+
 echo "PASS: status reports the appliance and allowlisted services"
 
 printf 'ethernet\n' > "$network_mode"
