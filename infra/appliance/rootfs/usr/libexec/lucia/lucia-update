@@ -884,6 +884,35 @@ finalize_lucia() {
         && -d "$releases_dir/${current#releases/}" \
         && "$backup_real" == "$backups_real/"* ]] \
         || die "manager-pending Lucia state is invalid"
+    python3 - "$state_dir/operation.json" <<'PY'
+import json
+import os
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+if not path.is_file() or path.is_symlink():
+    raise SystemExit("trusted operation state is unavailable")
+status = json.loads(path.read_text(encoding="utf-8"))
+status["Status" if "Status" in status else "status"] = "succeeded"
+status["Message" if "Message" in status else "message"] = (
+    "Lucia update passed manager startup validation."
+)
+temporary = path.with_suffix(path.suffix + ".tmp")
+descriptor = os.open(
+    temporary,
+    os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_CLOEXEC,
+    0o600,
+)
+with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+    json.dump(status, stream, separators=(",", ":"))
+    stream.write("\n")
+    stream.flush()
+    os.fsync(stream.fileno())
+os.replace(temporary, path)
+PY
+    sync -f "$state_dir/operation.json"
+    sync -f "$state_dir"
     write_lucia_state \
         committed "$previous" "$current" "$backup_real" "$validation_token"
     rm -f "$state_dir/lucia.previous.env"

@@ -10,6 +10,7 @@ public sealed partial class ApplianceUpdateService(
     ILogger<ApplianceUpdateService> logger,
     string? runtimeInfoPath = null) : IDisposable
 {
+    private const int ManifestMaximumBytes = 10 * 1024 * 1024;
     private const int ReleasePageSize = 100;
     private readonly string _runtimeInfoPath = runtimeInfoPath
         ?? Environment.GetEnvironmentVariable("LUCIA_RUNTIME_INFO_PATH")
@@ -191,18 +192,19 @@ public sealed partial class ApplianceUpdateService(
         }
 
         using var manifestResponse = await httpClient
-            .GetAsync(manifestUri, cancellationToken)
+            .GetAsync(
+                manifestUri,
+                HttpCompletionOption.ResponseHeadersRead,
+                cancellationToken)
             .ConfigureAwait(false);
         if (!manifestResponse.IsSuccessStatusCode)
         {
             return null;
         }
 
-        await using var manifestStream = await manifestResponse.Content
-            .ReadAsStreamAsync(cancellationToken)
-            .ConfigureAwait(false);
-        using var manifestDocument = await JsonDocument
-            .ParseAsync(manifestStream, cancellationToken: cancellationToken)
+        using var manifestDocument = await ReadManifestAsync(
+                manifestResponse.Content,
+                cancellationToken)
             .ConfigureAwait(false);
         var manifest = manifestDocument.RootElement;
         var declaredBundleUrl = manifest
@@ -323,6 +325,53 @@ public sealed partial class ApplianceUpdateService(
         && System.Text.RegularExpressions.Regex.IsMatch(
             value,
             @"^v[0-9]+\.[0-9]+\.[0-9]+$");
+
+    internal static async Task<JsonDocument> ReadManifestAsync(
+        HttpContent content,
+        CancellationToken cancellationToken)
+    {
+        var contentLength = content.Headers.ContentLength;
+        if (contentLength is null
+            || contentLength < 1
+            || contentLength > ManifestMaximumBytes)
+        {
+            throw new InvalidDataException(
+                "The appliance manifest response has an invalid size.");
+        }
+        await using var source = await content
+            .ReadAsStreamAsync(cancellationToken)
+            .ConfigureAwait(false);
+        await using var buffer = new MemoryStream((int)contentLength.Value);
+        var block = new byte[81920];
+        var total = 0;
+        while (true)
+        {
+            var read = await source
+                .ReadAsync(block, cancellationToken)
+                .ConfigureAwait(false);
+            if (read == 0)
+            {
+                break;
+            }
+            total = checked(total + read);
+            if (total > ManifestMaximumBytes)
+            {
+                throw new InvalidDataException(
+                    "The appliance manifest response exceeds its size limit.");
+            }
+            await buffer.WriteAsync(block.AsMemory(0, read), cancellationToken)
+                .ConfigureAwait(false);
+        }
+        if (total != contentLength)
+        {
+            throw new InvalidDataException(
+                "The appliance manifest response size changed while reading.");
+        }
+        buffer.Position = 0;
+        return await JsonDocument
+            .ParseAsync(buffer, cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+    }
 
     public async Task<ApplianceUpdateOperationStatus> InstallAsync(
         string channel,

@@ -80,6 +80,21 @@ public sealed class ApplianceUpdateServiceTests
     }
 
     [Theory]
+    [InlineData(null)]
+    [InlineData(10_485_761L)]
+    public async Task ReadManifestAsync_RejectsUnboundedResponses(
+        long? contentLength)
+    {
+        using var content = new ByteArrayContent([]);
+        content.Headers.ContentLength = contentLength;
+
+        await Assert.ThrowsAsync<InvalidDataException>(
+            () => ApplianceUpdateService.ReadManifestAsync(
+                content,
+                CancellationToken.None));
+    }
+
+    [Theory]
     [InlineData("1.2.3", "1.2.3", true)]
     [InlineData("1.2.3-preview", "1.2.3", true)]
     [InlineData("1.2.4", "1.2.3", true)]

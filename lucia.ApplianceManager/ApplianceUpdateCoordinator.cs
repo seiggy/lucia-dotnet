@@ -76,6 +76,13 @@ public sealed partial class ApplianceUpdateCoordinator
             if ((status.Status is "queued" or "running")
                 && !IsOsAwaitingValidation(status))
             {
+                if (status is
+                    { Action: "apply", Channel: "lucia" }
+                    && IsLuciaManagerPending())
+                {
+                    _status = status;
+                    return;
+                }
                 status = status with
                 {
                     Status = "failed",

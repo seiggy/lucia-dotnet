@@ -286,8 +286,12 @@ write_manifest lucia v1.1.0 1.1.0 "$work/lucia.tar.zst"
 
 run_update apply lucia v1.1.0
 grep -qx 'phase=manager-pending' "$work/updates/state/lucia.env"
+printf '{"Action":"apply","Channel":"lucia","Status":"running","Tag":"v1.1.0","Message":null}\n' \
+    > "$work/updates/state/operation.json"
 run_update finalize lucia
 grep -qx 'phase=committed' "$work/updates/state/lucia.env"
+grep -q '"Status":"succeeded"' "$work/updates/state/operation.json"
+grep -q 'manager startup validation' "$work/updates/state/operation.json"
 grep -q '"redis":"8.3.0"' "$work/runtime.json"
 [[ "$(stat --format '%a' "$work/updates/state/lucia.env")" == "600" ]]
 [[ "$(readlink "$work/current")" == "releases/1.1.0" ]]
