@@ -321,6 +321,24 @@ grep -qx -- '--no-block reboot' "$systemctl_log"
 
 echo "PASS: host reboot uses the fixed systemd operation"
 
+mkdir "$work_dir/updates/state/operation.json.tmp"
+status="$(
+    curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
+        --unix-socket "$socket_path" \
+        --header 'Content-Type: application/json' \
+        --request POST \
+        --data '{"tag":"v1.4.0","operationId":"00000000-0000-0000-0000-000000000000"}' \
+        http://localhost/v1/updates/lucia/apply
+)"
+[[ "$status" == "500" ]]
+rmdir "$work_dir/updates/state/operation.json.tmp"
+curl --silent --output "$work_dir/response.json" \
+    --unix-socket "$socket_path" \
+    http://localhost/v1/updates/operation
+! grep -Eq '"status":"(queued|running)"' "$work_dir/response.json"
+
+echo "PASS: failed operation persistence leaves the manager retryable"
+
 status="$(
     curl --silent --output "$work_dir/response.json" --write-out '%{http_code}' \
         --unix-socket "$socket_path" \
@@ -433,7 +451,8 @@ for _ in {1..40}; do
     curl --silent --output "$work_dir/response.json" \
         --unix-socket "$socket_path" \
         http://localhost/v1/updates/operation
-    grep -q '"status":"running"' "$work_dir/response.json" && break
+    grep -q '"message":"OS update is awaiting boot validation."' \
+        "$work_dir/response.json" && break
     sleep 0.05
 done
 grep -q '"channel":"os"' "$work_dir/response.json"

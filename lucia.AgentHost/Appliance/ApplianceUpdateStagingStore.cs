@@ -88,14 +88,15 @@ public sealed partial class ApplianceUpdateStagingStore
                 return null;
             }
             DeleteUnreferencedFinalizedStages();
-            _status = new(
+            var status = new ApplianceUpdateOperationStatus(
                 "stage",
                 channel,
                 "queued",
                 tag,
                 null,
                 OperationId: Guid.NewGuid().ToString("D"));
-            PersistUnsafe();
+            PersistUnsafe(status, _status);
+            _status = status;
             return _status;
         }
     }
@@ -121,15 +122,16 @@ public sealed partial class ApplianceUpdateStagingStore
     {
         lock (_gate)
         {
-            _isHandoffRequestActive = true;
-            _status = new(
+            var status = new ApplianceUpdateOperationStatus(
                 "handoff",
                 channel,
                 "running",
                 tag,
                 null,
                 OperationId: _status.OperationId);
-            PersistUnsafe();
+            PersistUnsafe(status, _status);
+            _status = status;
+            _isHandoffRequestActive = true;
         }
     }
 
@@ -163,10 +165,17 @@ public sealed partial class ApplianceUpdateStagingStore
     {
         lock (_gate)
         {
-            DeleteFinalizedStage(_status.Tag);
+            var previousTag = _status.Tag;
+            var status = new ApplianceUpdateOperationStatus(
+                "none",
+                "none",
+                "idle",
+                null,
+                null);
+            PersistUnsafe(status, _status);
+            _status = status;
             _isHandoffRequestActive = false;
-            _status = new("none", "none", "idle", null, null);
-            PersistUnsafe();
+            DeleteFinalizedStage(previousTag);
         }
     }
 
@@ -178,30 +187,34 @@ public sealed partial class ApplianceUpdateStagingStore
         }
         try
         {
-            _status = JsonSerializer.Deserialize<ApplianceUpdateOperationStatus>(
+            var durableStatus =
+                JsonSerializer.Deserialize<ApplianceUpdateOperationStatus>(
                     File.ReadAllText(_operationPath))
                 ?? _status;
-            if (_status.Status == "queued"
-                || _status is { Action: "stage", Status: "running" })
+            var status = durableStatus;
+            if (status.Status == "queued"
+                || status is { Action: "stage", Status: "running" })
             {
-                _status = _status with
+                status = status with
                 {
                     Status = "failed",
                     Message = "AgentHost restarted while staging the update.",
                 };
-                PersistUnsafe();
+                PersistUnsafe(status, durableStatus);
             }
+            _status = status;
         }
         catch (JsonException exception)
         {
             LogInvalidState(exception, _operationPath);
-            _status = new(
+            var status = new ApplianceUpdateOperationStatus(
                 "stage",
                 "none",
                 "failed",
                 null,
                 "The persisted staging operation is invalid.");
-            PersistUnsafe();
+            PersistUnsafe(status, _status);
+            _status = status;
         }
     }
 
@@ -209,13 +222,51 @@ public sealed partial class ApplianceUpdateStagingStore
     {
         lock (_gate)
         {
+            PersistUnsafe(status, _status);
             _isHandoffRequestActive = false;
             _status = status;
-            PersistUnsafe();
         }
     }
 
-    private void PersistUnsafe()
+    private void PersistUnsafe(
+        ApplianceUpdateOperationStatus status,
+        ApplianceUpdateOperationStatus previous)
+    {
+        var replaced = false;
+        try
+        {
+            WriteDurableUnsafe(status, ref replaced);
+        }
+        catch (Exception exception) when (
+            exception is IOException
+                or UnauthorizedAccessException
+                or Win32Exception)
+        {
+            if (replaced)
+            {
+                try
+                {
+                    var restored = false;
+                    WriteDurableUnsafe(previous, ref restored);
+                }
+                catch (Exception restoreException) when (
+                    restoreException is IOException
+                        or UnauthorizedAccessException
+                        or Win32Exception)
+                {
+                    throw new AggregateException(
+                        "The staging transition and its durable rollback both failed.",
+                        exception,
+                        restoreException);
+                }
+            }
+            throw;
+        }
+    }
+
+    private void WriteDurableUnsafe(
+        ApplianceUpdateOperationStatus status,
+        ref bool replaced)
     {
         var temporary = _operationPath + ".tmp";
         using (var stream = new FileStream(
@@ -224,10 +275,11 @@ public sealed partial class ApplianceUpdateStagingStore
                    FileAccess.Write,
                    FileShare.None))
         {
-            JsonSerializer.Serialize(stream, _status);
+            JsonSerializer.Serialize(stream, status);
             stream.Flush(flushToDisk: true);
         }
         File.Move(temporary, _operationPath, overwrite: true);
+        replaced = true;
         if (OperatingSystem.IsLinux())
         {
             SyncDirectory(Root);

@@ -64,6 +64,34 @@ public sealed class ApplianceUpdateStagingStoreTests
         }
     }
 
+    [Fact]
+    public void TryStart_PersistenceFailureKeepsIdleState()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            $"lucia-staging-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        Directory.CreateDirectory(Path.Combine(root, "operation.json"));
+        try
+        {
+            var store = CreateStore(root);
+
+            var exception = Record.Exception(
+                () => store.TryStart("lucia", "v1.5.0"));
+            Assert.True(
+                exception is IOException or UnauthorizedAccessException,
+                exception?.ToString());
+            Assert.Equal("idle", store.GetStatus().Status);
+
+            Directory.Delete(Path.Combine(root, "operation.json"));
+            Assert.NotNull(store.TryStart("lucia", "v1.5.0"));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static ApplianceUpdateStagingStore CreateStore(string root) =>
         new(root, NullLogger<ApplianceUpdateStagingStore>.Instance);
 }

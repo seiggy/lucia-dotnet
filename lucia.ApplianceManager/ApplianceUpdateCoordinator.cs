@@ -68,30 +68,33 @@ public sealed partial class ApplianceUpdateCoordinator
         }
         try
         {
-            _status = JsonSerializer.Deserialize<UpdateOperationStatus>(
+            var durableStatus = JsonSerializer.Deserialize<UpdateOperationStatus>(
                     File.ReadAllText(_operationPath))
                 ?? _status;
-            if ((_status.Status is "queued" or "running")
-                && !IsOsAwaitingValidation())
+            var status = durableStatus;
+            if ((status.Status is "queued" or "running")
+                && !IsOsAwaitingValidation(status))
             {
-                _status = _status with
+                status = status with
                 {
                     Status = "failed",
                     Message =
                         "The manager restarted during the update; startup recovery restored a safe state.",
                 };
-                PersistStatusUnsafe();
+                PersistStatusUnsafe(status, durableStatus);
             }
+            _status = status;
         }
         catch (JsonException)
         {
-            _status = new(
+            var status = new UpdateOperationStatus(
                 "none",
                 "none",
                 "failed",
                 null,
                 "The persisted update operation is invalid.");
-            PersistStatusUnsafe();
+            PersistStatusUnsafe(status, _status);
+            _status = status;
         }
     }
 
@@ -180,15 +183,16 @@ public sealed partial class ApplianceUpdateCoordinator
             }
 
             operationId ??= Guid.NewGuid().ToString("D");
-            _status = new(
+            var status = new UpdateOperationStatus(
                 action,
                 channel,
                 "queued",
                 tag,
                 null,
                 OperationId: operationId);
+            PersistStatusUnsafe(status, _status);
+            _status = status;
             _isUpdaterRunning = true;
-            PersistStatusUnsafe();
             _ = Task.Run(
                 () => RunAsync(action, channel, tag, operationId));
             return true;
@@ -301,12 +305,50 @@ public sealed partial class ApplianceUpdateCoordinator
     {
         lock (_gate)
         {
+            PersistStatusUnsafe(status, _status);
             _status = status;
-            PersistStatusUnsafe();
         }
     }
 
-    private void PersistStatusUnsafe()
+    private void PersistStatusUnsafe(
+        UpdateOperationStatus status,
+        UpdateOperationStatus previous)
+    {
+        var replaced = false;
+        try
+        {
+            WriteStatusUnsafe(status, ref replaced);
+        }
+        catch (Exception exception) when (
+            exception is IOException
+                or UnauthorizedAccessException
+                or Win32Exception)
+        {
+            if (replaced)
+            {
+                try
+                {
+                    var restored = false;
+                    WriteStatusUnsafe(previous, ref restored);
+                }
+                catch (Exception restoreException) when (
+                    restoreException is IOException
+                        or UnauthorizedAccessException
+                        or Win32Exception)
+                {
+                    throw new AggregateException(
+                        "The manager transition and its durable rollback both failed.",
+                        exception,
+                        restoreException);
+                }
+            }
+            throw;
+        }
+    }
+
+    private void WriteStatusUnsafe(
+        UpdateOperationStatus status,
+        ref bool replaced)
     {
         var temporary = _operationPath + ".tmp";
         File.Delete(temporary);
@@ -323,10 +365,11 @@ public sealed partial class ApplianceUpdateCoordinator
         }
         using (var stream = new FileStream(temporary, options))
         {
-            JsonSerializer.Serialize(stream, _status);
+            JsonSerializer.Serialize(stream, status);
             stream.Flush(flushToDisk: true);
         }
         File.Move(temporary, _operationPath, overwrite: true);
+        replaced = true;
         if (OperatingSystem.IsLinux())
         {
             SyncDirectory(_statePath);
@@ -442,8 +485,8 @@ public sealed partial class ApplianceUpdateCoordinator
             "rollback-pending";
     }
 
-    private bool IsOsAwaitingValidation() =>
-        _status is
+    private bool IsOsAwaitingValidation(UpdateOperationStatus status) =>
+        status is
         { Action: "apply" or "rollback", Channel: "os", Status: "running" }
         && ReadOsStatus() is "pending" or "rollback-pending";
 
