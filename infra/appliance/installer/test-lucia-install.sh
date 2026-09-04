@@ -370,6 +370,7 @@ test_matching_authorization_can_erase_occupied_disk() {
     printf 'LUCIA-AUTHORIZED-v1\n' > "$payload"
     truncate --size 1M "$payload"
     expected_hash="$(sha256sum "$payload" | awk '{print $1}')"
+    udevadm settle
     plan="$("$INSTALLER" plan --device "$LOOP_DEVICE")"
     device_identity="$(printf '%s\n' "$plan" | sed -n 's/^device_identity=//p')"
     device_size="$(printf '%s\n' "$plan" | sed -n 's/^size_bytes=//p')"

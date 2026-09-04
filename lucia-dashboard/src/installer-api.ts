@@ -207,6 +207,12 @@ export async function fetchInstallerStatus(): Promise<InstallerStatus> {
   return parseStatus(await readJson(response))
 }
 
+export async function fetchInstallerStatusIfClaimed(): Promise<InstallerStatus | null> {
+  const response = await fetch('/api/installer/status')
+  if (response.status === 401) return null
+  return parseStatus(await readJson(response))
+}
+
 export async function fetchInstallerDisks(): Promise<InstallerDisk[]> {
   const response = await fetch('/api/installer/disks')
   const value = await readJson(response)

@@ -21,6 +21,7 @@ import {
   fetchInstallerDisks,
   fetchInstallerNetworks,
   fetchInstallerStatus,
+  fetchInstallerStatusIfClaimed,
   acknowledgeInstallerDashboardKey,
   claimInstaller,
   retryInstallerNetwork,
@@ -118,6 +119,41 @@ export default function InstallerPage() {
     )
     return () => window.clearTimeout(exitTimer)
   }, [bootState])
+
+  useEffect(() => {
+    if (bootState !== 'hidden') return
+
+    let cancelled = false
+    async function restoreInstallerSession() {
+      try {
+        const status = await fetchInstallerStatusIfClaimed()
+        if (cancelled || status === null) return
+
+        captureDashboardKey(status)
+        setInstallerStatus(status)
+        if (status.hostname) setHostname(status.hostname)
+        if (status.phase !== 'waiting-for-configuration') {
+          if (status.canRetryNetwork) {
+            const availableNetworks = await fetchInstallerNetworks()
+            if (cancelled) return
+            setNetworks(availableNetworks)
+          }
+          setStep('installing')
+        }
+      } catch (restoreError: unknown) {
+        if (!cancelled) {
+          setError(restoreError instanceof Error
+            ? restoreError.message
+            : 'Lucia could not restore this setup session.')
+        }
+      }
+    }
+    void restoreInstallerSession()
+
+    return () => {
+      cancelled = true
+    }
+  }, [bootState, captureDashboardKey])
 
   useEffect(() => {
     if (bootState !== 'exiting') return

@@ -133,6 +133,7 @@ app.MapPost(
                 IsEssential = true,
                 SameSite = SameSiteMode.Strict,
                 Secure = false,
+                MaxAge = TimeSpan.FromDays(1),
             });
         return Results.Ok(new { Claimed = true });
     });

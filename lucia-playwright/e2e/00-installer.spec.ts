@@ -141,7 +141,7 @@ test('does not expose installer setup on a non-appliance host', async ({ page })
   await expect(page.getByRole('heading', { name: 'Bring Lucia home' })).toHaveCount(0);
 });
 
-test('restores persisted installation progress after reload', async ({ page }) => {
+test('restores persisted installation progress after reconnect', async ({ page }) => {
   let dashboardKeyAcknowledged = false;
   await page.addInitScript(() => {
     sessionStorage.setItem('lucia-installer-boot-seen', 'true');
@@ -171,7 +171,6 @@ test('restores persisted installation progress after reload', async ({ page }) =
   });
 
   await page.goto('/install');
-  await page.getByRole('button', { name: 'Begin setup' }).click();
 
   await expect(page.getByRole('heading', { name: 'Lucia is moving in' })).toBeVisible();
   await expect(page.getByText('50.0%')).toBeVisible();

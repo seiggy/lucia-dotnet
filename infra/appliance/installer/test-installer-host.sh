@@ -147,7 +147,8 @@ status="$(
 echo "PASS: captive requests move to one origin before API access"
 
 status="$(
-    curl --silent --cookie-jar "$cookie_jar" \
+    curl --silent --dump-header "$work_dir/claim.headers" \
+        --cookie-jar "$cookie_jar" \
         --output "$work_dir/claim.json" --write-out '%{http_code}' \
         --header "Host: $canonical_host" \
         --header "Origin: $canonical_origin" \
@@ -156,6 +157,8 @@ status="$(
 )"
 [[ "$status" == "200" ]]
 grep -q '"claimed":true' "$work_dir/claim.json"
+grep -qi 'Set-Cookie: lucia-installer-session=.*Max-Age=86400' \
+    "$work_dir/claim.headers"
 [[ -s "$claim_path" ]]
 [[ "$(stat --format '%a' "$claim_path")" == "600" ]]
 
