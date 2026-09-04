@@ -92,3 +92,17 @@ grep -qx 'ssid=Lucia-XYZ789' "$work_dir/derived.nmconnection"
 [[ "$(grep -c 'connection up lucia-setup' "$work_dir/nmcli.log")" == "2" ]]
 
 echo "PASS: reused media refreshes setup identity for each Jetson"
+
+printf '%s\n' '# no serial is available' > "$work_dir/fallback.env"
+chmod 0600 "$work_dir/fallback.env"
+LUCIA_BOOTSTRAP_ENV="$work_dir/fallback.env" \
+LUCIA_CONNECTION_PATH="$work_dir/fallback.nmconnection" \
+LUCIA_DEVICE_SERIAL_PATH="$work_dir/missing-serial" \
+LUCIA_NMCLI_PATH="$work_dir/nmcli" \
+LUCIA_IPTABLES_PATH="$work_dir/iptables" \
+LUCIA_TEST_NMCLI_LOG="$work_dir/nmcli.log" \
+LUCIA_TEST_IPTABLES_LOG="$work_dir/iptables.log" \
+    "$bootstrap"
+grep -qx 'ssid=Lucia-Setup' "$work_dir/fallback.nmconnection"
+
+echo "PASS: setup network has a fallback SSID without a device serial"

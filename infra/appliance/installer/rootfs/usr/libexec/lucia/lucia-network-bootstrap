@@ -28,6 +28,7 @@ setup_ssid="${LUCIA_SETUP_SSID:-}"
 if [[ -z "$setup_ssid" && -n "$device_serial" ]]; then
     setup_ssid="Lucia-${device_serial: -6}"
 fi
+setup_ssid="${setup_ssid:-Lucia-Setup}"
 [[ "$setup_ssid" =~ ^[A-Za-z0-9_-]{1,32}$ ]] || {
     printf 'Setup SSID is invalid\n' >&2
     exit 1

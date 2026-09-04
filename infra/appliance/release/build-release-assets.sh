@@ -507,6 +507,13 @@ tar --sort=name \
 prepare_bsp "$sd_bsp_dir"
 sd_root="$sd_bsp_dir/Linux_for_Tegra/rootfs"
 sudo cp -a "$repo_root/infra/appliance/installer/rootfs/." "$sd_root/"
+sudo chown -R root:root \
+    "$sd_root/etc/NetworkManager/dnsmasq-shared.d/lucia-captive.conf" \
+    "$sd_root/etc/lucia-installer" \
+    "$sd_root/usr/lib/systemd/system/lucia-firstboot-install.service" \
+    "$sd_root/usr/lib/systemd/system/lucia-installer-host.service" \
+    "$sd_root/usr/lib/systemd/system/lucia-network-bootstrap.service" \
+    "$sd_root/usr/libexec/lucia"
 sudo install -d \
     "$sd_root/etc/lucia-installer" \
     "$sd_root/opt/lucia-installer/app" \
@@ -556,6 +563,8 @@ sudo rm -f "$sd_root/var/lib/dbus/machine-id"
 
 sudo "$repo_root/infra/appliance/installer/build-sd-image.sh" \
     "$sd_bsp_dir/Linux_for_Tegra" \
+    "$work_dir/lucia-installer-sd-${version}.img"
+sudo bash "$repo_root/infra/appliance/installer/verify-built-image.sh" \
     "$work_dir/lucia-installer-sd-${version}.img"
 sudo zstd -T0 -10 --long=27 --force \
     "$work_dir/lucia-installer-sd-${version}.img" \
