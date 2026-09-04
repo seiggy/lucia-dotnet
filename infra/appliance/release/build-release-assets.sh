@@ -389,6 +389,14 @@ prepare_bsp "$bsp_dir"
 root="$bsp_dir/Linux_for_Tegra/rootfs"
 install_compute_runtime "$root"
 sudo cp -a "$repo_root/infra/appliance/rootfs/." "$root/"
+sudo chown -R root:root \
+    "$root/etc/lucia" \
+    "$root/etc/ssh/sshd_config.d/90-lucia-recovery.conf" \
+    "$root/etc/systemd/system/lucia-agenthost.service.d" \
+    "$root/usr/lib/systemd/system/lucia-"*.service \
+    "$root/usr/libexec/lucia" \
+    "$root/usr/lib/sysusers.d/lucia.conf" \
+    "$root/usr/lib/tmpfiles.d/lucia.conf"
 printf '%s\n' "$version" \
     | sudo tee "$root/etc/lucia/os-version" >/dev/null
 sudo mkdir -p "$root/opt/lucia" "$root/var/lib/lucia"

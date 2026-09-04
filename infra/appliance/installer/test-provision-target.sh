@@ -38,7 +38,7 @@ set -euo pipefail
 printf '%s\n' "$*" >> "$LUCIA_TEST_NMCLI_LOG"
 if [[ "$*" == "--terse --fields DEVICE,TYPE device status" ]]; then
     printf 'wlan0:wifi\n'
-elif [[ "$1 $2" == "device checkpoint" \
+elif [[ "$*" == "--wait 30 connection up id lucia-home ifname wlan0" \
         && -f "$LUCIA_TEST_FAIL_CHECKPOINT" ]]; then
     exit 1
 fi
@@ -105,7 +105,7 @@ cmp -s \
     "$target_lucia_root/current/manager/lucia.ApplianceManager"
 [[ "$(stat --format '%a' \
     "$target_lucia_root/current/manager/lucia.ApplianceManager")" == "755" ]]
-grep -q '^device checkpoint --timeout 45 wlan0 -- .* --wait 30 connection up id lucia-home ifname wlan0$' \
+grep -q '^--wait 30 connection up id lucia-home ifname wlan0$' \
     "$nmcli_log"
 grep -q '^connection delete id lucia-home$' "$nmcli_log"
 grep -q '^--wait 30 connection up id lucia-setup ifname wlan0$' "$nmcli_log"
@@ -136,4 +136,4 @@ grep -q '"failureKind":"wifi"' "$state_dir/progress.json"
 [[ "$(grep -c '^--wait 30 connection up id lucia-setup ifname wlan0$' \
     "$nmcli_log")" -eq 2 ]]
 
-echo "PASS: failed Wi-Fi checkpoint keeps setup ready for retry"
+echo "PASS: failed Wi-Fi validation keeps setup ready for retry"

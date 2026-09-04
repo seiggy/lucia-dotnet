@@ -255,7 +255,7 @@ def install_persistent_tls_material(
     os.chown(target_key, 0, 1100)
 
 
-def validate_wifi_checkpoint(
+def validate_wifi_connection(
     state_directory: pathlib.Path,
     ssid: str,
     passphrase: str,
@@ -300,13 +300,6 @@ def validate_wifi_checkpoint(
             subprocess.run(
                 [
                     nmcli_path,
-                    "device",
-                    "checkpoint",
-                    "--timeout",
-                    "45",
-                    wifi_interface,
-                    "--",
-                    nmcli_path,
                     "--wait",
                     "30",
                     "connection",
@@ -317,8 +310,6 @@ def validate_wifi_checkpoint(
                     wifi_interface,
                 ],
                 check=True,
-                input="yes\n",
-                text=True,
                 timeout=60,
             )
         finally:
@@ -485,7 +476,7 @@ def main() -> None:
     wifi = provisioning.get("wifi")
     if wifi is not None:
         try:
-            validate_wifi_checkpoint(
+            validate_wifi_connection(
                 state_directory,
                 str(wifi["ssid"]),
                 str(wifi["passphrase"]),

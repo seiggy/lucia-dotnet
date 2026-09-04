@@ -144,6 +144,7 @@ grep -q '"$OS_TARGET_REDIS_VERSION"' \
     "$script_dir/build-release-assets.sh"
 grep -q 'lucia-os-update-validation.service' \
     "$script_dir/build-release-assets.sh"
+grep -q 'chown -R root:root' "$script_dir/build-release-assets.sh"
 grep -q 'verify-built-image.sh' "$script_dir/build-release-assets.sh"
 grep -q 'extract_partition_image APP .*system.img' \
     "$script_dir/build-release-assets.sh"
