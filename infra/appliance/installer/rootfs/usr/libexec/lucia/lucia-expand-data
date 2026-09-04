@@ -7,7 +7,7 @@ set -euo pipefail
 }
 device="$1"
 
-for command in e2fsck lsblk partx resize2fs sgdisk udevadm; do
+for command in e2fsck mknod partx resize2fs sgdisk udevadm; do
     command -v "$command" >/dev/null || {
         printf 'Error: required command is missing: %s\n' "$command" >&2
         exit 1
@@ -44,15 +44,15 @@ sgdisk \
 partx --update "$device"
 udevadm settle
 
-data_partition="$(
-    lsblk \
-        --raw \
-        --paths \
-        --noheadings \
-        --output NAME,TYPE,PARTLABEL \
-        "$device" \
-        | awk '$2 == "part" && $3 == "LUCIA_DATA" { print $1 }'
-)"
+data_partition="${device}p18"
+if [[ "$device" == /dev/loop* ]]; then
+    partition_name="${data_partition#/dev/}"
+    read -r major minor < <(
+        tr ':' ' ' < "/sys/class/block/$partition_name/dev"
+    )
+    rm -f "$data_partition"
+    mknod "$data_partition" b "$major" "$minor"
+fi
 [[ -b "$data_partition" ]] || {
     printf 'Error: expanded LUCIA_DATA partition is unavailable\n' >&2
     exit 1
