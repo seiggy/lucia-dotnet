@@ -392,7 +392,6 @@ sudo cp -a "$repo_root/infra/appliance/rootfs/." "$root/"
 sudo chown -R root:root \
     "$root/etc/lucia" \
     "$root/etc/ssh/sshd_config.d/90-lucia-recovery.conf" \
-    "$root/etc/systemd/system/lucia-agenthost.service.d" \
     "$root/usr/lib/systemd/system/lucia-"*.service \
     "$root/usr/libexec/lucia" \
     "$root/usr/lib/sysusers.d/lucia.conf" \
