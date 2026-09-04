@@ -292,8 +292,17 @@ def validate_wifi_connection(
             / "system-connections"
             / "lucia-home.nmconnection"
         )
+        runtime_profile_path = pathlib.Path(
+            os.environ.get(
+                "LUCIA_NM_RUNTIME_PROFILE_PATH",
+                "/run/NetworkManager/system-connections/lucia-home.nmconnection",
+            )
+        )
+        runtime_profile_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(profile_path, runtime_profile_path)
+        runtime_profile_path.chmod(0o600)
         subprocess.run(
-            [nmcli_path, "connection", "load", str(profile_path)],
+            [nmcli_path, "connection", "load", str(runtime_profile_path)],
             check=True,
         )
         try:
@@ -333,6 +342,7 @@ def validate_wifi_connection(
                     [nmcli_path, "connection", "delete", "id", "lucia-home"],
                     check=False,
                 )
+                runtime_profile_path.unlink(missing_ok=True)
 
 
 def provision(
@@ -493,7 +503,10 @@ def main() -> None:
                     {
                         "stage": "failed",
                         "failureKind": "wifi",
-                        "message": str(error),
+                        "message": (
+                            "Home Wi-Fi could not connect. Check the network "
+                            "name and password, then retry."
+                        ),
                     },
                     separators=(",", ":"),
                 ),

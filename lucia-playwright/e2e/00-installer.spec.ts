@@ -185,6 +185,45 @@ test('restores persisted installation progress after reconnect', async ({ page }
   ).toBeNull();
 });
 
+test('offers Wi-Fi retry immediately after provisioning fails', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.addInitScript(() => {
+    sessionStorage.setItem('lucia-installer-boot-seen', 'true');
+  });
+  await page.route('**/api/installer/capabilities', async (route) => {
+    await route.fulfill({
+      json: { mode: 'installer', requiresSetupCode: false, isClaimed: true },
+    });
+  });
+  await page.route('**/api/installer/status', async (route) => {
+    await route.fulfill({
+      json: {
+        phase: 'failed',
+        stage: 'failed',
+        canRetryNetwork: true,
+        message: 'Home Wi-Fi could not connect. Check the network name and password, then retry.',
+      },
+    });
+  });
+  await page.route('**/api/installer/networks', async (route) => {
+    await route.fulfill({
+      json: [{ ssid: 'Lab WiFi', signal: 82, security: 'WPA2' }],
+    });
+  });
+  await page.route('**/api/installer/retry-network', async (route) => {
+    await route.fulfill({ status: 202, json: { phase: 'authorized' } });
+  });
+
+  await page.goto('/install');
+
+  await expect(page.getByRole('heading', { name: 'Installation needs attention' })).toBeVisible();
+  await expect(page.getByLabel('Home Wi-Fi')).toBeVisible();
+  await page.getByLabel('Home Wi-Fi').selectOption('Lab WiFi');
+  await page.getByLabel('Wi-Fi password').fill('corrected-password');
+  await page.getByRole('button', { name: 'Retry Wi-Fi' }).click();
+  await expect(page.getByRole('heading', { name: 'Lucia is moving in' })).toBeVisible();
+});
+
 test('shows the server error when another browser owns setup', async ({ page }) => {
   await page.addInitScript(() => {
     sessionStorage.setItem('lucia-installer-boot-seen', 'true');

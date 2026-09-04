@@ -47,6 +47,7 @@ chmod +x "$work_dir/nmcli"
 
 LUCIA_MANAGER_OVERRIDE="$work_dir/lucia.ApplianceManager" \
 LUCIA_NMCLI_PATH="$work_dir/nmcli" \
+LUCIA_NM_RUNTIME_PROFILE_PATH="$work_dir/runtime-lucia-home.nmconnection" \
 LUCIA_INSTALLER_STATE_DIR="$state_dir" \
 LUCIA_TEST_FAIL_CHECKPOINT="$fail_checkpoint" \
 LUCIA_TEST_NMCLI_LOG="$nmcli_log" \
@@ -107,6 +108,9 @@ cmp -s \
     "$target_lucia_root/current/manager/lucia.ApplianceManager")" == "755" ]]
 grep -q '^--wait 30 connection up id lucia-home ifname wlan0$' \
     "$nmcli_log"
+grep -Fq "connection load $work_dir/runtime-lucia-home.nmconnection" \
+    "$nmcli_log"
+[[ ! -e "$work_dir/runtime-lucia-home.nmconnection" ]]
 grep -q '^connection delete id lucia-home$' "$nmcli_log"
 grep -q '^--wait 30 connection up id lucia-setup ifname wlan0$' "$nmcli_log"
 
@@ -119,6 +123,7 @@ rm -f "$state_dir/provision.state"
 touch "$fail_checkpoint"
 if LUCIA_MANAGER_OVERRIDE="$work_dir/lucia.ApplianceManager" \
     LUCIA_NMCLI_PATH="$work_dir/nmcli" \
+    LUCIA_NM_RUNTIME_PROFILE_PATH="$work_dir/runtime-lucia-home.nmconnection" \
     LUCIA_INSTALLER_STATE_DIR="$state_dir" \
     LUCIA_TEST_FAIL_CHECKPOINT="$fail_checkpoint" \
     LUCIA_TEST_NMCLI_LOG="$nmcli_log" \
@@ -132,7 +137,9 @@ fi
 [[ -e "$state_dir/provisioning.json" ]]
 [[ ! -e "$state_dir/provision.state" ]]
 grep -q '"failureKind":"wifi"' "$state_dir/progress.json"
+grep -q '"message":"Home Wi-Fi could not connect' "$state_dir/progress.json"
 ! grep -q 'wrong-password' "$state_dir/progress.json"
+[[ ! -e "$work_dir/runtime-lucia-home.nmconnection" ]]
 [[ "$(grep -c '^--wait 30 connection up id lucia-setup ifname wlan0$' \
     "$nmcli_log")" -eq 2 ]]
 

@@ -1002,6 +1002,50 @@ function InstallingStep({
               : 'Lucia stopped before installation completed. Keep the SD card inserted and restart the appliance to retry safely.')
           : 'The image is being verified, written, and personalized. Keep the appliance powered on. This page may disconnect when the appliance powers down.'}
       </p>
+      {isFailed && status.canRetryNetwork && (
+        <div className="mx-auto mt-6 max-w-md space-y-4 rounded-xl border border-amber/25 bg-amber/8 p-4">
+          <div>
+           <label htmlFor="retry-wifi" className="mb-1.5 block text-sm font-medium text-light">
+             Home Wi-Fi
+           </label>
+           <select
+             id="retry-wifi"
+             value={selectedSsid}
+             onChange={(event) => onSelectedSsidChange(event.target.value)}
+             className={inputStyle}
+           >
+             <option value="">Choose a network</option>
+             {networks.map((network) => (
+               <option key={network.ssid} value={network.ssid}>
+                 {network.ssid} · {network.signal}%
+               </option>
+             ))}
+           </select>
+          </div>
+          <div>
+           <label htmlFor="retry-wifi-password" className="mb-1.5 block text-sm font-medium text-light">
+             Wi-Fi password
+           </label>
+           <input
+             id="retry-wifi-password"
+             type="password"
+             value={wifiPassword}
+             onChange={(event) => onWifiPasswordChange(event.target.value)}
+             autoComplete="new-password"
+             className={inputStyle}
+           />
+          </div>
+          <button
+           type="button"
+           onClick={onRetryNetwork}
+           disabled={busy || !selectedSsid || wifiPassword.length < 8}
+           className={`w-full ${primaryButton}`}
+          >
+           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+           {busy ? 'Retrying...' : 'Retry Wi-Fi'}
+          </button>
+        </div>
+      )}
       {dashboardKey && (
         <div className="mx-auto mt-6 max-w-md rounded-xl border border-sage/25 bg-sage/8 p-4">
           <p className="text-sm font-semibold text-light">Dashboard owner key</p>
@@ -1079,50 +1123,6 @@ function InstallingStep({
       </ol>
 
       {error && <ErrorMessage message={error} />}
-      {isFailed && status.canRetryNetwork && (
-        <div className="mx-auto mt-6 max-w-md space-y-4 rounded-xl border border-amber/25 bg-amber/8 p-4">
-          <div>
-            <label htmlFor="retry-wifi" className="mb-1.5 block text-sm font-medium text-light">
-              Home Wi-Fi
-            </label>
-            <select
-              id="retry-wifi"
-              value={selectedSsid}
-              onChange={(event) => onSelectedSsidChange(event.target.value)}
-              className={inputStyle}
-            >
-              <option value="">Choose a network</option>
-              {networks.map((network) => (
-                <option key={network.ssid} value={network.ssid}>
-                  {network.ssid} · {network.signal}%
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="retry-wifi-password" className="mb-1.5 block text-sm font-medium text-light">
-              Wi-Fi password
-            </label>
-            <input
-              id="retry-wifi-password"
-              type="password"
-              value={wifiPassword}
-              onChange={(event) => onWifiPasswordChange(event.target.value)}
-              autoComplete="new-password"
-              className={inputStyle}
-            />
-          </div>
-          <button
-            type="button"
-            onClick={onRetryNetwork}
-            disabled={busy || !selectedSsid || wifiPassword.length < 8}
-            className={`w-full ${primaryButton}`}
-          >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            Retry Wi-Fi
-          </button>
-        </div>
-      )}
       {!isInstalled && !isFailed && !error && (
         <p className="mt-5 flex items-center justify-center gap-2 text-xs text-dust">
           <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
