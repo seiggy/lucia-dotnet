@@ -263,6 +263,8 @@ public sealed class TimerAgent : ILuciaAgent
         var traced = _tracingFactory.Wrap(chatClient, "timer-agent");
         var agentOptions = new ChatClientAgentOptions
         {
+            AIContextProviders = _tracingFactory.AIContextProviders,
+            ChatHistoryProvider = _tracingFactory.ChatHistoryProvider,
             Id = "timer-agent",
             Name = "timer-agent",
             Description = "Sets timed announcements on satellite devices",

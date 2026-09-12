@@ -1,5 +1,7 @@
 using lucia.Agents.Orchestration;
+using lucia.Agents.Services;
 using lucia.Agents.Training;
+using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 
@@ -17,21 +19,44 @@ public sealed class TracingChatClientFactory
 
     public TracingChatClientFactory(
         ITraceRepository repository,
-        ILoggerFactory loggerFactory,
-        LiveActivityChannel liveChannel)
+        ILoggerFactory loggerFactory)
+        : this(repository, loggerFactory, null, null)
     {
-        _repository = repository;
-        _loggerFactory = loggerFactory;
-        _liveChannel = liveChannel;
     }
 
     public TracingChatClientFactory(
         ITraceRepository repository,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        LiveActivityChannel liveChannel)
+        : this(repository, loggerFactory, liveChannel, null)
+    {
+    }
+
+    public TracingChatClientFactory(
+        ITraceRepository repository,
+        ILoggerFactory loggerFactory,
+        LiveActivityChannel? liveChannel = null,
+        UserContextProvider? userContextProvider = null)
     {
         _repository = repository;
         _loggerFactory = loggerFactory;
+        _liveChannel = liveChannel;
+        AIContextProviders = userContextProvider is null ? [] : [userContextProvider];
+        if (userContextProvider is not null)
+        {
+            // RC4 stores context-provider messages in session history unless explicitly filtered.
+            ChatHistoryProvider = new InMemoryChatHistoryProvider(new InMemoryChatHistoryProviderOptions
+            {
+                StorageInputRequestMessageFilter = messages => messages.Where(message =>
+                    message.GetAgentRequestMessageSourceType() != AgentRequestMessageSourceType.ChatHistory
+                    && message.GetAgentRequestMessageSourceId() != typeof(UserContextProvider).FullName)
+            });
+        }
     }
+
+    public IReadOnlyList<AIContextProvider> AIContextProviders { get; }
+
+    public Microsoft.Agents.AI.ChatHistoryProvider? ChatHistoryProvider { get; }
 
     /// <summary>
     /// Wraps the given <paramref name="inner"/> client with tracing for the specified agent.

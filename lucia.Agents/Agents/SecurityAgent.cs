@@ -193,6 +193,8 @@ public sealed class SecurityAgent : ILuciaAgent, ISkillConfigProvider
         var traced = _tracingFactory.Wrap(chatClient, AgentId);
         var agentOptions = new ChatClientAgentOptions
         {
+            AIContextProviders = _tracingFactory.AIContextProviders,
+            ChatHistoryProvider = _tracingFactory.ChatHistoryProvider,
             Id = AgentId,
             Name = AgentId,
             Description = "Agent for controlling Home Assistant security devices",
