@@ -234,7 +234,7 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
     [InlineData("provisional")]
     [InlineData("revoked")]
     [InlineData("non-finite")]
-    public async Task VoiceRequests_CarryVerifiedMemoryIdentityWithoutEmbeddingStoredMemories(string mode)
+    public async Task Memories_UseVerifiedProfileId_NotSpeakerNameOrHaServiceAccount(string mode)
     {
         await _profiles.CreateAsync(new SpeakerProfile
         {
@@ -258,7 +258,7 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
             : await ProcessAsync("What do you know about me?", speaker: speaker);
 
         Assert.NotNull(result.LlmPrompt);
-        Assert.DoesNotContain("drink: coffee", result.LlmPrompt);
+        Assert.Equal(mode == "verified", result.LlmPrompt.Contains("drink: coffee", StringComparison.Ordinal));
         Assert.DoesNotContain("drink: tea", result.LlmPrompt);
         Assert.DoesNotContain("drink: lemonade", result.LlmPrompt);
         Assert.DoesNotContain("drink: water", result.LlmPrompt);

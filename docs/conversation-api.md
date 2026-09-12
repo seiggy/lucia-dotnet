@@ -171,9 +171,10 @@ SQLite, or PostgreSQL provider, with the existing in-memory fallback when no
 durable provider is registered.
 
 The agent context provider loads memories for the detected enrolled user on each
-invocation. Voice request reconstruction does not append stored memories or recent
-personal history to the request string logged by the orchestrator; scoped agent
-providers supply that context separately. The `memory_read`, `memory_search`, `memory_remember`, and
+invocation. Reconstructed requests intentionally include stored memories and recent
+history so telemetry captures the context used for orchestration and debugging.
+Treat these logs and traces as sensitive and apply appropriate access and retention
+controls. The `memory_read`, `memory_search`, `memory_remember`, and
 `memory_forget` tools are bound to that user; the model cannot supply a different
 user's ID. The agent interprets the speaker's natural-language intent and supplies
 `explicitlyRequested` when saving or forgetting a memory. The flag is a behavioral
