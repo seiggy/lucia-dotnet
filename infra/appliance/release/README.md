@@ -13,6 +13,9 @@ The captive setup network is an open, client-isolated, non-routed first-boot
 network. The first browser to select **Begin setup** claims the session. Keep
 the appliance physically controlled during setup.
 
+The temporary installer host runs as root and invokes `lucia-installer-control`
+directly. Its image does not include or require an installer sudoers rule.
+
 The installed dashboard listens at `https://HOSTNAME.local:8099` with a
 per-device certificate generated during setup. The first browser must accept
 that local certificate. Plain HTTP is bound only to loopback on port 8098.

@@ -2,7 +2,7 @@
 
 **Plan:** [plan.md](plan.md)
 **Research:** [research.md](research.md)
-**Last updated:** 2026-08-30
+**Last updated:** 2026-09-12
 
 ## Phase 0: decisions and tracking
 
@@ -94,6 +94,15 @@ detection, full occupied-drive reporting, and power-cut recovery remain open.
 Lab validation pulled appliance management and telemetry work forward.
 
 ## Work log
+
+### 2026-09-12
+
+- Removed the release builder's stale `chmod` for the deleted installer sudoers
+  rule. The installer still runs as root and invokes its control helper directly.
+- Reproduced the missing-file error with the installer overlay, then passed
+  `bash infra/appliance/release/test_build_release_assets.sh` and
+  `bash infra/appliance/installer/test-installer-rootfs.sh` after the fix.
+- T048 and T051 remain open. The full image build and Jetson checks were not run.
 
 ### 2026-09-03
 
