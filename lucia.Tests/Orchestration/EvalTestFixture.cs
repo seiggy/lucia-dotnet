@@ -71,7 +71,7 @@ public sealed class EvalTestFixture : IAsyncLifetime
     private EvalEmbeddingProviderResolver _embeddingResolver = null!;
     private ILoggerFactory _loggerFactory = null!;
     private IServer _mockServer = null!;
-    private readonly IDeviceCacheService _deviceCache = CreateNullDeviceCache();
+    private readonly IDeviceCacheService _deviceCache = NullDeviceCache.Create();
     private readonly IEntityLocationService _mockLocationService = A.Fake<IEntityLocationService>();
     private readonly IEmbeddingSimilarityService _similarity = new EmbeddingSimilarityService();
     private readonly IChatClientResolver _mockChatClientResolver = A.Fake<IChatClientResolver>();
@@ -79,20 +79,6 @@ public sealed class EvalTestFixture : IAsyncLifetime
     private AgentsTelemetrySource _telemetrySource = new AgentsTelemetrySource();
     private IHybridEntityMatcher _entityMatcher = null!;
     private TracingChatClientFactory _tracingFactory = null!;
-
-    /// <summary>
-    /// Creates a device cache fake that returns null for cached lights,
-    /// forcing the skill to fall through to the HA client for fresh data.
-    /// FakeItEasy auto-creates empty lists (not null) for collection return
-    /// types, which causes the cache-hit path to short-circuit with 0 lights.
-    /// </summary>
-    private static IDeviceCacheService CreateNullDeviceCache()
-    {
-        var fake = A.Fake<IDeviceCacheService>();
-        A.CallTo(() => fake.GetCachedLightsAsync(A<CancellationToken>._))
-            .Returns(Task.FromResult<List<LightEntity>?>(null));
-        return fake;
-    }
 
     private static IOptionsMonitor<MusicAssistantConfig> CreateMusicAssistantOptionsMonitor()
     {
