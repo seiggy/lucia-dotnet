@@ -55,8 +55,16 @@ public sealed class InMemoryMemoryStore : IMemoryStore
     }
 
     /// <inheritdoc/>
-    public Task<IReadOnlyList<MemoryEntry>> SearchAsync(string userId, string? query = null, int limit = 20, CancellationToken ct = default)
+    public Task<IReadOnlyList<MemoryEntry>> SearchAsync(string userId, string? query = null, int limit = 20, CancellationToken ct = default) =>
+        SearchCoreAsync(userId, query, limit, false, ct);
+
+    /// <inheritdoc/>
+    public Task<IReadOnlyList<MemoryEntry>> SearchPersonalAsync(string userId, string? query = null, int limit = 20, CancellationToken ct = default) =>
+        SearchCoreAsync(userId, query, limit, true, ct);
+
+    private Task<IReadOnlyList<MemoryEntry>> SearchCoreAsync(string userId, string? query, int limit, bool personalOnly, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
         ArgumentException.ThrowIfNullOrWhiteSpace(userId);
 
         if (limit <= 0 || !_userMemories.TryGetValue(userId, out var userStore))
@@ -75,6 +83,7 @@ public sealed class InMemoryMemoryStore : IMemoryStore
         }
 
         IReadOnlyList<MemoryEntry> results = entries
+            .Where(entry => !personalOnly || !MemoryKeys.IsChatHistory(entry.Key))
             .OrderByDescending(entry => entry.CreatedAt)
             .Take(limit)
             .ToList();

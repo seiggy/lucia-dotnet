@@ -78,7 +78,14 @@ public sealed class SqliteMemoryStore : IMemoryStore
     }
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<MemoryEntry>> SearchAsync(string userId, string? query = null, int limit = 20, CancellationToken ct = default)
+    public Task<IReadOnlyList<MemoryEntry>> SearchAsync(string userId, string? query = null, int limit = 20, CancellationToken ct = default) =>
+        SearchCoreAsync(userId, query, limit, false, ct);
+
+    /// <inheritdoc/>
+    public Task<IReadOnlyList<MemoryEntry>> SearchPersonalAsync(string userId, string? query = null, int limit = 20, CancellationToken ct = default) =>
+        SearchCoreAsync(userId, query, limit, true, ct);
+
+    private async Task<IReadOnlyList<MemoryEntry>> SearchCoreAsync(string userId, string? query, int limit, bool personalOnly, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(userId);
 
@@ -97,6 +104,7 @@ public sealed class SqliteMemoryStore : IMemoryStore
                 SELECT key, value, created_at, expires_at
                 FROM user_memories
                 WHERE user_id = @userId AND (expires_at IS NULL OR expires_at > @now)
+                  AND (@personalOnly = 0 OR lower(substr(ltrim(key, @whitespace), 1, length(@historyPrefix))) <> @historyPrefix)
                 ORDER BY created_at DESC
                 LIMIT @limit;
                 """;
@@ -108,6 +116,7 @@ public sealed class SqliteMemoryStore : IMemoryStore
                 FROM user_memories
                 WHERE user_id = @userId
                   AND (expires_at IS NULL OR expires_at > @now)
+                  AND (@personalOnly = 0 OR lower(substr(ltrim(key, @whitespace), 1, length(@historyPrefix))) <> @historyPrefix)
                   AND (key LIKE @query OR value LIKE @query)
                 ORDER BY created_at DESC
                 LIMIT @limit;
@@ -118,6 +127,9 @@ public sealed class SqliteMemoryStore : IMemoryStore
         cmd.Parameters.AddWithValue("@userId", userId);
         cmd.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
         cmd.Parameters.AddWithValue("@limit", limit);
+        cmd.Parameters.AddWithValue("@personalOnly", personalOnly ? 1 : 0);
+        cmd.Parameters.AddWithValue("@whitespace", MemoryKeys.LeadingWhitespace);
+        cmd.Parameters.AddWithValue("@historyPrefix", MemoryKeys.ChatHistoryPrefix);
 
         return await ReadEntriesAsync(cmd, ct).ConfigureAwait(false);
     }

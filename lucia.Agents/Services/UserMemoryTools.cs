@@ -51,8 +51,8 @@ internal sealed class UserMemoryTools(IMemoryStore memoryStore, string userId)
             return "Error: query must be at most 200 characters and limit must be between 1 and 20.";
         }
 
-        var memories = await memoryStore.SearchAsync(
-            userId, string.IsNullOrWhiteSpace(query) ? null : query, limit * 4, cancellationToken).ConfigureAwait(false);
+        var memories = await memoryStore.SearchPersonalAsync(
+            userId, string.IsNullOrWhiteSpace(query) ? null : query, limit, cancellationToken).ConfigureAwait(false);
         var text = UserContextProvider.FormatMemories(memories, limit);
         return text.Length == 0 ? "No matching personal memories." : text;
     }

@@ -68,7 +68,14 @@ public sealed class MongoMemoryStore : IMemoryStore
     }
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<MemoryEntry>> SearchAsync(string userId, string? query = null, int limit = 20, CancellationToken ct = default)
+    public Task<IReadOnlyList<MemoryEntry>> SearchAsync(string userId, string? query = null, int limit = 20, CancellationToken ct = default) =>
+        SearchCoreAsync(userId, query, limit, false, ct);
+
+    /// <inheritdoc/>
+    public Task<IReadOnlyList<MemoryEntry>> SearchPersonalAsync(string userId, string? query = null, int limit = 20, CancellationToken ct = default) =>
+        SearchCoreAsync(userId, query, limit, true, ct);
+
+    private async Task<IReadOnlyList<MemoryEntry>> SearchCoreAsync(string userId, string? query, int limit, bool personalOnly, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(userId);
 
@@ -78,6 +85,12 @@ public sealed class MongoMemoryStore : IMemoryStore
         }
 
         var filter = Builders<BsonDocument>.Filter.Eq("user_id", userId) & ActiveFilter(DateTime.UtcNow);
+        if (personalOnly)
+        {
+            filter &= Builders<BsonDocument>.Filter.Not(
+                Builders<BsonDocument>.Filter.Regex("key", new BsonRegularExpression(
+                    $"^[{Regex.Escape(MemoryKeys.LeadingWhitespace)}]*{Regex.Escape(MemoryKeys.ChatHistoryPrefix)}", "i")));
+        }
         if (!string.IsNullOrWhiteSpace(query))
         {
             var escapedQuery = Regex.Escape(query);

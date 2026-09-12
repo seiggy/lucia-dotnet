@@ -68,8 +68,7 @@ public sealed class UserContextProvider : AIContextProvider
             return string.Empty;
         }
 
-        // Fetch extra rows to compensate for chat_history entries being filtered out
-        var memories = await _memoryStore.SearchAsync(userId, null, MaxMemories * 4, ct).ConfigureAwait(false);
+        var memories = await _memoryStore.SearchPersonalAsync(userId, null, MaxMemories, ct).ConfigureAwait(false);
         return FormatMemories(memories, MaxMemories);
     }
 
@@ -113,7 +112,7 @@ public sealed class UserContextProvider : AIContextProvider
     }
 
     internal static bool IsReservedKey(string key) =>
-        key.TrimStart().StartsWith("chat_history", StringComparison.OrdinalIgnoreCase);
+        MemoryKeys.IsChatHistory(key);
 
     internal static string SanitizeMemoryValue(string value, int maxCharacters)
     {

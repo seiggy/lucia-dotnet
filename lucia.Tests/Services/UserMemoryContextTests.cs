@@ -10,6 +10,7 @@ using lucia.Tests.TestDoubles;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
+using ChatHistoryProvider = lucia.Agents.Services.ChatHistoryProvider;
 
 namespace lucia.Tests.Services;
 
@@ -17,6 +18,35 @@ public sealed class UserMemoryContextTests
 {
     private const string Alice = "11111111-1111-1111-1111-111111111111";
     private const string Bob = "22222222-2222-2222-2222-222222222222";
+
+    [Theory]
+    [InlineData("", 41)]
+    [InlineData("tea", 41)]
+    [InlineData("", 201)]
+    [InlineData("tea", 201)]
+    public async Task Tools_SearchFindsPersonalMemoryBehindRecentHistory(string query, int historyCount)
+    {
+        var store = new InMemoryMemoryStore();
+        await store.StoreAsync(Alice, "drink", "tea");
+        var history = new ChatHistoryProvider(store);
+        for (var index = 0; index < historyCount; index++)
+        {
+            await history.AppendTurnAsync(Alice, "A recent discussion about tea.", "I can discuss tea.");
+        }
+        var oldLimitedSearch = await store.SearchAsync(Alice, query, limit: 40);
+        Assert.Equal(40, oldLimitedSearch.Count);
+        Assert.All(oldLimitedSearch, entry => Assert.StartsWith(ChatHistoryProvider.ChatHistoryKeyPrefix, entry.Key));
+        Assert.Equal("tea", await store.RetrieveAsync(Alice, "drink"));
+
+        using var scope = UserMemoryScope.Begin(Alice);
+        var context = await InvokeProviderAsync(new UserContextProvider(store));
+
+        var result = await CallAsync(context, "memory_search", ("query", query));
+
+        Assert.Contains("- drink: tea", result, StringComparison.Ordinal);
+        Assert.Contains("- drink: tea", GetText(context), StringComparison.Ordinal);
+        Assert.DoesNotContain("recent discussion", result, StringComparison.Ordinal);
+    }
 
     [Fact]
     public async Task InvokingAsync_UnknownSpeaker_HasNoMemoryContextOrTools()
@@ -145,8 +175,8 @@ public sealed class UserMemoryContextTests
         var store = A.Fake<IMemoryStore>();
         var aliceMemories = new TaskCompletionSource<IReadOnlyList<MemoryEntry>>(TaskCreationOptions.RunContinuationsAsynchronously);
         var bobMemories = new TaskCompletionSource<IReadOnlyList<MemoryEntry>>(TaskCreationOptions.RunContinuationsAsynchronously);
-        A.CallTo(() => store.SearchAsync(Alice, null, A<int>._, A<CancellationToken>._)).Returns(aliceMemories.Task);
-        A.CallTo(() => store.SearchAsync(Bob, null, A<int>._, A<CancellationToken>._)).Returns(bobMemories.Task);
+        A.CallTo(() => store.SearchPersonalAsync(Alice, null, A<int>._, A<CancellationToken>._)).Returns(aliceMemories.Task);
+        A.CallTo(() => store.SearchPersonalAsync(Bob, null, A<int>._, A<CancellationToken>._)).Returns(bobMemories.Task);
         var provider = new UserContextProvider(store);
         Task<AIContext> aliceContext;
         Task<AIContext> bobContext;
@@ -300,7 +330,7 @@ public sealed class UserMemoryContextTests
         }
 
         A.CallTo(() => store.RetrieveAsync(Alice, "drink", token)).MustHaveHappenedOnceExactly();
-        A.CallTo(() => store.SearchAsync(Alice, "tea", A<int>._, token)).MustHaveHappenedOnceExactly();
+        A.CallTo(() => store.SearchPersonalAsync(Alice, "tea", A<int>._, token)).MustHaveHappenedOnceExactly();
         A.CallTo(() => store.StoreAsync(Alice, "drink", "tea", null, token)).MustHaveHappenedOnceExactly();
         A.CallTo(() => store.DeleteAsync(Alice, "drink", token)).MustHaveHappenedOnceExactly();
     }

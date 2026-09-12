@@ -197,6 +197,10 @@ configured, memory included in its prompt is sent to that model like other
 conversation context. Existing auto-profiling and transcript-retention settings
 are unchanged by onboarding consent. Forgetting a saved memory removes that
 entry, not existing conversation history or transcript records.
+Personal-memory searches exclude the reserved `chat_history` namespace in the
+datastore before applying the result limit. Recent conversation turns therefore
+cannot crowd saved preferences out of memory tools or injected user context;
+history retrieval continues to use the unfiltered memory search.
 
 ## Response Template API
 
