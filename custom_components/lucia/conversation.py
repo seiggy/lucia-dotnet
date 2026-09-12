@@ -205,6 +205,8 @@ class LuciaConversationEntity(conversation.ConversationEntity):
                 self._tracker.store(
                     ha_conversation_id,
                     context_id=returned_conv_id,
+                    # Match VoiceOnboardingWorkflow's ten-minute idle timeout.
+                    ttl_seconds=600.0 if returned_conv_id.startswith("voice-onboarding:") else None,
                 )
 
             _LOGGER.debug(

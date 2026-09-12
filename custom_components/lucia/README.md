@@ -88,7 +88,10 @@ uses `needsInput` to keep the satellite conversation open between turns. Say
 to stop.
 
 The integration preserves the same conversation ID and satellite device ID
-throughout enrollment. Keep Lucia speech-to-text and `/api/conversation` on the
+throughout enrollment. Active onboarding ID mappings are retained for ten minutes
+and refreshed after each response, matching the server's inactivity timeout.
+Completed or cancelled enrollment returns to ordinary five-minute mapping retention.
+Keep Lucia speech-to-text and `/api/conversation` on the
 same server instance. A text-only conversation or a different STT provider cannot
 supply voice samples.
 

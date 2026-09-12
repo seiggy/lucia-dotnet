@@ -43,12 +43,13 @@ class VoiceConversationTests(unittest.IsolatedAsyncioTestCase):
         helpers.intent = SimpleNamespace(IntentResponse=Mock(side_effect=lambda **kw: Mock(**kw)))
         modules["lucia_voice_test.const"].DOMAIN = "lucia"
         modules["lucia_voice_test.const"].CONF_PROMPT_OVERRIDE = "prompt_override"
-        send = AsyncMock(return_value=SimpleNamespace(
+        onboarding_response = SimpleNamespace(
             text="May I save your voice profile?",
             needs_input=True,
-            conversation_id="backend-1",
+            conversation_id="voice-onboarding:backend-1",
             response_type="onboarding",
-        ))
+        )
+        send = AsyncMock(return_value=onboarding_response)
         modules["lucia_voice_test.fast_conversation"].send_conversation = send
 
         with patch.dict(sys.modules, modules):
@@ -60,8 +61,20 @@ class VoiceConversationTests(unittest.IsolatedAsyncioTestCase):
                 sys.modules[spec.name] = module
                 spec.loader.exec_module(module)
 
-            for chat_id in ("ha-session-1", None):
-                with self.subTest(chat_id=chat_id):
+            clock = Mock(return_value=1000.0)
+            self.enterContext(patch.object(
+                sys.modules["lucia_voice_test.conversation_tracker"],
+                "time",
+                SimpleNamespace(monotonic=clock),
+            ))
+            for chat_id, pause in (
+                (chat_id, pause)
+                for chat_id in ("ha-session-1", None)
+                for pause in (0, 360, 599)
+            ):
+                with self.subTest(chat_id=chat_id, pause=pause):
+                    clock.return_value = 1000.0
+                    send.return_value = onboarding_response
                     entity = module.LuciaConversationEntity(SimpleNamespace(entry_id="entry", options={}))
                     entity.hass = SimpleNamespace(
                         data={"lucia": {"entry": {"httpx_client": object(), "repository": "http://lucia"}}},
@@ -87,8 +100,28 @@ class VoiceConversationTests(unittest.IsolatedAsyncioTestCase):
 
                     user_input.conversation_id = first.conversation_id
                     user_input.text = "yes"
+                    clock.return_value += pause
+                    await entity._async_handle_message(user_input, chat_log)
+                    self.assertEqual("voice-onboarding:backend-1", send.call_args.kwargs["conversation_id"])
+
+                    clock.return_value += 360
+                    user_input.text = "Dianna"
+                    await entity._async_handle_message(user_input, chat_log)
+                    self.assertEqual("voice-onboarding:backend-1", send.call_args.kwargs["conversation_id"])
+
+                    send.return_value = SimpleNamespace(
+                        text="Enrollment complete.",
+                        needs_input=False,
+                        conversation_id="backend-1",
+                        response_type="onboarding",
+                    )
+                    completed = await entity._async_handle_message(user_input, chat_log)
+                    self.assertFalse(completed.continue_conversation)
+                    self.assertEqual("backend-1", entity._tracker.get(first.conversation_id).context_id)
                     await entity._async_handle_message(user_input, chat_log)
                     self.assertEqual("backend-1", send.call_args.kwargs["conversation_id"])
+                    clock.return_value += 301
+                    self.assertIsNone(entity._tracker.get(first.conversation_id))
 
 
 if __name__ == "__main__":

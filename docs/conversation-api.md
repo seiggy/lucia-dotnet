@@ -125,6 +125,8 @@ an unfinished conversation again. Onboarding response IDs have a `voice-onboardi
 treat them as opaque and always use the latest returned ID. The prefix prevents
 an outstanding sample from executing as a home-control command after a restart.
 Completion or cancellation restores the original conversation ID.
+The Home Assistant integration retains active onboarding mappings for ten minutes
+from the latest response; ordinary conversation mappings retain their five-minute TTL.
 
 Enrollment uses the existing quality checks, `OnboardingSampleCount`,
 `MinSampleDurationMs`, and `SpeakerVerificationThreshold`. A mismatched phrase,

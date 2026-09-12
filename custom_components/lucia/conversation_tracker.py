@@ -36,12 +36,14 @@ class ConversationTracker:
         conversation_id: str,
         context_id: str,
         task_id: str | None = None,
+        *,
+        ttl_seconds: float | None = None,
     ) -> None:
-        """Store or update a conversation mapping, resetting the TTL."""
+        """Store a mapping, resetting its default or per-entry TTL."""
         self._entries[conversation_id] = TrackedConversation(
             context_id=context_id,
             task_id=task_id,
-            expires_at=time.monotonic() + self._ttl,
+            expires_at=time.monotonic() + (self._ttl if ttl_seconds is None else ttl_seconds),
         )
 
     def remove(self, conversation_id: str) -> None:
