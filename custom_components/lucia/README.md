@@ -87,10 +87,13 @@ uses `needsInput` to keep the satellite conversation open between turns. Say
 **"skip"** for an optional question, **"repeat"** to repeat a prompt, or **"cancel"**
 to stop.
 
-The integration preserves the same conversation ID and satellite device ID
-throughout enrollment. Active onboarding ID mappings are retained for ten minutes
-and refreshed after each response, matching the server's inactivity timeout.
-Completed or cancelled enrollment returns to ordinary five-minute mapping retention.
+The integration temporarily tags the Home Assistant conversation ID with
+`voice-onboarding:` while preserving the satellite device ID. Always use the latest
+returned conversation ID. The tag survives mapping expiry or an integration restart,
+so a stale enrollment phrase reaches the server's expired-onboarding guard rather
+than normal command routing. Active backend ID mappings are retained for ten minutes
+and refreshed after each response. Completion or cancellation restores the original
+Home Assistant ID and ordinary five-minute mapping retention.
 Keep Lucia speech-to-text and `/api/conversation` on the
 same server instance. A text-only conversation or a different STT provider cannot
 supply voice samples.
@@ -99,6 +102,10 @@ After enrollment, requests such as "Remember that I prefer dim lighting" and
 "What do you remember about me?" use the detected voice profile's memories.
 Voice recognition supports personalization, not secure authentication. Do not
 store passwords or other secrets in personal memories.
+To keep voice interactions brief, the agent interprets whether the speaker requested
+a memory change and supplies `explicitlyRequested`. This is a behavioral intent
+guard, not a security authorization boundary or an extra confirmation turn.
+Speaker-profile isolation remains server-enforced.
 
 ### Conversation Agent
 

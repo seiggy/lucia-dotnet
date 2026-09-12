@@ -127,6 +127,10 @@ an outstanding sample from executing as a home-control command after a restart.
 Completion or cancellation restores the original conversation ID.
 The Home Assistant integration retains active onboarding mappings for ten minutes
 from the latest response; ordinary conversation mappings retain their five-minute TTL.
+Its HA-visible ID also carries the onboarding prefix until completion or cancellation.
+If the mapping expires or the integration restarts, the prefixed ID is still forwarded,
+allowing the server to reject the stale sample instead of treating it as a new command.
+Completion or cancellation restores the original HA-visible ID.
 
 Enrollment uses the existing quality checks, `OnboardingSampleCount`,
 `MinSampleDurationMs`, and `SpeakerVerificationThreshold`. A mismatched phrase,
@@ -166,7 +170,12 @@ durable provider is registered.
 The agent context provider loads memories for the detected enrolled user on each
 invocation. The `memory_read`, `memory_search`, `memory_remember`, and
 `memory_forget` tools are bound to that user; the model cannot supply a different
-user's ID. Writes require an explicit user request. The existing authenticated
+user's ID. The agent interprets the speaker's natural-language intent and supplies
+`explicitlyRequested` when saving or forgetting a memory. The flag is a behavioral
+guard, not a hard authorization boundary; this voice-first flow intentionally does
+not add another authentication or confirmation turn. Correct flag selection is a
+model-behavior requirement to cover with evaluations, while profile isolation
+remains server-enforced. The existing authenticated
 `/api/memory/{userId}` endpoints
 can also inspect or change memories using the stable speaker profile ID.
 There is no new memory-management dashboard in this change.

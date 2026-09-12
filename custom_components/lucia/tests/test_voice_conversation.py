@@ -67,12 +67,13 @@ class VoiceConversationTests(unittest.IsolatedAsyncioTestCase):
                 "time",
                 SimpleNamespace(monotonic=clock),
             ))
-            for chat_id, pause in (
-                (chat_id, pause)
+            for chat_id, pause, restart in (
+                (chat_id, pause, restart)
                 for chat_id in ("ha-session-1", None)
-                for pause in (0, 360, 599)
+                for pause, restart in ((0, False), (360, False), (599, False),
+                                       (600, False), (601, False), (7200, False), (0, True))
             ):
-                with self.subTest(chat_id=chat_id, pause=pause):
+                with self.subTest(chat_id=chat_id, pause=pause, restart=restart):
                     clock.return_value = 1000.0
                     send.return_value = onboarding_response
                     entity = module.LuciaConversationEntity(SimpleNamespace(entry_id="entry", options={}))
@@ -93,15 +94,30 @@ class VoiceConversationTests(unittest.IsolatedAsyncioTestCase):
                     first = await entity._async_handle_message(user_input, chat_log)
                     self.assertTrue(first.continue_conversation)
                     self.assertTrue(first.conversation_id)
+                    self.assertTrue(first.conversation_id.startswith("voice-onboarding:"))
                     if chat_id:
-                        self.assertEqual(chat_id, first.conversation_id)
+                        self.assertEqual("voice-onboarding:" + chat_id, first.conversation_id)
                     self.assertEqual(user_input.text, send.call_args.kwargs["text"])
                     self.assertEqual("satellite-1", send.call_args.kwargs["device_id"])
 
                     user_input.conversation_id = first.conversation_id
-                    user_input.text = "yes"
+                    user_input.text = "Turn the kitchen lights off"
                     clock.return_value += pause
-                    await entity._async_handle_message(user_input, chat_log)
+                    if restart:
+                        entity._tracker = sys.modules["lucia_voice_test.conversation_tracker"].ConversationTracker()
+                    if pause >= 600 or restart:
+                        send.return_value = SimpleNamespace(
+                            text="Onboarding expired. Start again.",
+                            needs_input=False,
+                            conversation_id="backend-1",
+                            response_type="onboarding",
+                        )
+                    followup = await entity._async_handle_message(user_input, chat_log)
+                    if pause >= 600 or restart:
+                        self.assertTrue(send.call_args.kwargs["conversation_id"].startswith("voice-onboarding:"))
+                        self.assertFalse(followup.continue_conversation)
+                        self.assertEqual(first.conversation_id.removeprefix("voice-onboarding:"), followup.conversation_id)
+                        continue
                     self.assertEqual("voice-onboarding:backend-1", send.call_args.kwargs["conversation_id"])
 
                     clock.return_value += 360
@@ -117,11 +133,14 @@ class VoiceConversationTests(unittest.IsolatedAsyncioTestCase):
                     )
                     completed = await entity._async_handle_message(user_input, chat_log)
                     self.assertFalse(completed.continue_conversation)
-                    self.assertEqual("backend-1", entity._tracker.get(first.conversation_id).context_id)
+                    self.assertEqual(first.conversation_id.removeprefix("voice-onboarding:"), completed.conversation_id)
+                    self.assertIsNone(entity._tracker.get(first.conversation_id))
+                    self.assertEqual("backend-1", entity._tracker.get(completed.conversation_id).context_id)
+                    user_input.conversation_id = completed.conversation_id
                     await entity._async_handle_message(user_input, chat_log)
                     self.assertEqual("backend-1", send.call_args.kwargs["conversation_id"])
                     clock.return_value += 301
-                    self.assertIsNone(entity._tracker.get(first.conversation_id))
+                    self.assertIsNone(entity._tracker.get(completed.conversation_id))
 
 
 if __name__ == "__main__":
