@@ -87,8 +87,10 @@ class LuciaConversationEntity(conversation.ConversationEntity):
     ) -> ConversationResult:
         """Process a sentence. Required by HA versions where this is the abstract method."""
         try:
+            from homeassistant.components.conversation.chat_log import (
+                async_get_chat_log,
+            )
             from homeassistant.helpers.chat_session import async_get_chat_session
-            from homeassistant.components.conversation.chat_log import async_get_chat_log
 
             with (
                 async_get_chat_session(self.hass, user_input.conversation_id) as session,
@@ -137,7 +139,11 @@ class LuciaConversationEntity(conversation.ConversationEntity):
             tracked = self._tracker.get(user_input.conversation_id)
 
         conversation_id = tracked.context_id if tracked else None
-        ha_conversation_id = user_input.conversation_id or ""
+        ha_conversation_id = (
+            user_input.conversation_id
+            or getattr(chat_log, "conversation_id", None)
+            or uuid.uuid4().hex
+        )
 
         # Generate a stable conversation ID for the first turn
         if not conversation_id:
@@ -241,7 +247,7 @@ class LuciaConversationEntity(conversation.ConversationEntity):
             )
 
         except Exception as err:
-            _LOGGER.error("Error processing conversation: %s", err, exc_info=True)
+            _LOGGER.exception("Error processing conversation")
 
             error_text = f"I encountered an error while processing your request: {err}"
             if _HAS_CHAT_LOG_API and AssistantContent:

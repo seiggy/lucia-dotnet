@@ -64,9 +64,9 @@ public sealed class ContextReconstructor
     /// </summary>
     public async Task<string> ReconstructAsync(ConversationRequest request, CancellationToken ct = default)
     {
-        // Use voiceprint-identified speaker as effective identity when no auth-based UserId is present.
-        // The Wyoming voice pipeline identifies users by enrolled voice profiles, not traditional auth.
-        var effectiveUserId = request.Context.UserId ?? request.Context.SpeakerId;
+        var effectiveUserId = request.Context.IsVoiceRequest
+            ? request.Context.EnrolledProfileId
+            : request.Context.UserId;
 
         if (string.IsNullOrWhiteSpace(effectiveUserId))
         {

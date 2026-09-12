@@ -274,6 +274,11 @@ else if (useSqlite)
     builder.Services.AddSingleton<ICommandTraceRepository, lucia.Data.Sqlite.SqliteCommandTraceRepository>();
 }
 builder.Services.AddSingleton<ConversationCommandProcessor>();
+if (builder.Services.Any(service => service.ServiceType == typeof(lucia.Wyoming.Diarization.VoiceOnboardingService)))
+{
+    builder.Services.AddSingleton<VoiceOnboardingWorkflow>();
+    builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<VoiceOnboardingWorkflow>());
+}
 builder.Services.AddSingleton<IPersonalityResponseRenderer, PersonalityResponseRenderer>();
 
 // Register span collector as an OTEL processor so captured Lucia.* spans

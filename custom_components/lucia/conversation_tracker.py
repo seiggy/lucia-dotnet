@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 @dataclass
@@ -11,7 +10,7 @@ class TrackedConversation:
     """A tracked A2A conversation mapping."""
 
     context_id: str
-    task_id: Optional[str] = None
+    task_id: str | None = None
     expires_at: float = field(default_factory=lambda: time.monotonic() + 300.0)
 
 
@@ -27,7 +26,7 @@ class ConversationTracker:
         self._ttl = ttl_seconds
         self._entries: dict[str, TrackedConversation] = {}
 
-    def get(self, conversation_id: str) -> Optional[TrackedConversation]:
+    def get(self, conversation_id: str) -> TrackedConversation | None:
         """Get tracked conversation, returning None if expired or missing."""
         self._prune_expired()
         return self._entries.get(conversation_id)
@@ -36,7 +35,7 @@ class ConversationTracker:
         self,
         conversation_id: str,
         context_id: str,
-        task_id: Optional[str] = None,
+        task_id: str | None = None,
     ) -> None:
         """Store or update a conversation mapping, resetting the TTL."""
         self._entries[conversation_id] = TrackedConversation(

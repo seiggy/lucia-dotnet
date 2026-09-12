@@ -148,6 +148,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddHostedService<ProvisionalProfileCleanupService>();
 
         builder.Services.AddSingleton<AudioQualityAnalyzer>();
+        builder.Services.AddSingleton<VoiceTurnStore>();
         builder.Services.AddSingleton<VoiceOnboardingService>();
         builder.Services.AddSingleton<IHostedService>(
             sp => sp.GetRequiredService<VoiceOnboardingService>());

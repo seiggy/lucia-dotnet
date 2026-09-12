@@ -199,6 +199,7 @@ public sealed class WyomingSessionIntegrationTests(ITestOutputHelper output)
 
         var router = new TestCommandRouter(CommandRouteResult.NoMatch(TimeSpan.Zero));
         var voiceOptions = Options.Create(new VoiceProfileOptions());
+        using var voiceTurns = new VoiceTurnStore();
         var adaptiveUpdater = new AdaptiveProfileUpdater(
             profileStore,
             voiceOptions,
@@ -215,6 +216,7 @@ public sealed class WyomingSessionIntegrationTests(ITestOutputHelper output)
                 serviceCollection.AddSingleton<ISpeakerProfileStore>(profileStore);
                 serviceCollection.AddSingleton(adaptiveUpdater);
                 serviceCollection.AddSingleton<ICommandRouter>(router);
+                serviceCollection.AddSingleton(voiceTurns);
             });
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         var runTask = session.RunAsync(cts.Token);
@@ -228,7 +230,14 @@ public sealed class WyomingSessionIntegrationTests(ITestOutputHelper output)
             await writer.WriteEventAsync(new AudioStopEvent(), cts.Token);
 
             var transcript = Assert.IsType<TranscriptEvent>(await parser.ReadEventAsync(cts.Token));
-            Assert.Equal("<Alice />turn on the office lights", transcript.Text);
+            var (token, text) = VoiceTurnStore.Parse(transcript.Text);
+            Assert.NotNull(token);
+            Assert.Equal("turn on the office lights", text);
+            var captured = Assert.IsType<VoiceTurn>(voiceTurns.Consume(token));
+            Assert.Equal("alice", captured.Speaker!.ProfileId);
+            Assert.Equal(16_000, captured.SampleRate);
+            Assert.Equal(new[] { 0.25f, -0.25f, 0.25f, -0.25f }, captured.Audio.ToArray());
+            Assert.Null(voiceTurns.Consume(token));
             Assert.True(transcript.Confidence > 0, "Confidence should be positive");
         }
         finally
