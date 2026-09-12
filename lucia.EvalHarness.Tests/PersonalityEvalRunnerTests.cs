@@ -11,6 +11,26 @@ namespace lucia.EvalHarness.Tests;
 /// </summary>
 public sealed class PersonalityEvalRunnerTests
 {
+    [Theory]
+    [InlineData("provider/model")]
+    [InlineData("ollama:latest")]
+    [InlineData("../../outside")]
+    [InlineData("..\\..\\outside")]
+    [InlineData("C:\\outside\\model")]
+    [InlineData("/outside/model")]
+    public void TraceDirectory_ModelNameCannotEscapeRootOrCreateNestedDirectories(string modelName)
+    {
+        var startedAt = new DateTimeOffset(2026, 9, 11, 12, 0, 0, TimeSpan.Zero);
+        var path = PersonalityEvalRunner.GetTraceDirectory(modelName, startedAt);
+        var root = Path.GetFullPath("personality-eval-traces");
+        var fullPath = Path.GetFullPath(path);
+
+        Assert.Equal(root, Path.GetDirectoryName(fullPath));
+        Assert.DoesNotContain(Path.GetFileName(fullPath), character =>
+            Path.GetInvalidFileNameChars().Contains(character));
+        Assert.EndsWith("_20260911_120000", Path.GetFileName(fullPath), StringComparison.Ordinal);
+    }
+
     private static PersonalityEvalScenario SampleScenario() => new()
     {
         Id = "scenario-1",

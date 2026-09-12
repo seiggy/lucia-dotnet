@@ -24,10 +24,16 @@ internal sealed class CapturingHttpMessageHandler : HttpMessageHandler
     /// <summary>The parsed root element of the last captured request body.</summary>
     public JsonElement CapturedRoot { get; private set; }
 
+    public Uri? CapturedUri { get; private set; }
+
+    public string? CapturedAuthorization { get; private set; }
+
     protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
         CancellationToken cancellationToken)
     {
+        CapturedUri = request.RequestUri;
+        CapturedAuthorization = request.Headers.Authorization?.ToString();
         if (request.Content is not null)
         {
             CapturedBody = await request.Content.ReadAsStringAsync(cancellationToken);

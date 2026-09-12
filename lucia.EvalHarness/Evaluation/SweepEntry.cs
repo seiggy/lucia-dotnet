@@ -12,6 +12,16 @@ public sealed class SweepEntry
     public double? ScoreStdDev => ScoreVariance.HasValue ? Math.Sqrt(ScoreVariance.Value) : null;
     public double? MinRunMean => SweepRunAggregator.ComputeMinRunMean(AllRunResults);
     public double? AverageScore => MeanScore;
+    public InferenceCostSummary Cost => InferenceCostSummary.Aggregate(
+        AllRunResults.SelectMany(run => run).Select(result => result.Cost));
+    public decimal? MeanTestCostUsd
+    {
+        get
+        {
+            var count = AllRunResults.SelectMany(run => run).Sum(result => result.TestCaseResults.Count);
+            return count > 0 ? Cost.EstimatedUsd / count : null;
+        }
+    }
 
     public double? AverageLatencyMs
     {

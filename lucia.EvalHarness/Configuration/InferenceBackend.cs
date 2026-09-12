@@ -21,4 +21,11 @@ public sealed class InferenceBackend
     /// API protocol the server speaks. Defaults to <see cref="InferenceBackendType.Ollama"/>.
     /// </summary>
     public InferenceBackendType Type { get; set; } = InferenceBackendType.Ollama;
+
+    public string? ApiKey { get; set; }
+
+    /// <summary>Azure account resource ID used to discover deployed Foundry models.</summary>
+    public string? AzureResourceId { get; set; }
+
+    public Dictionary<string, ModelPricing> ModelPricing { get; set; } = new(StringComparer.Ordinal);
 }

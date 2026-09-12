@@ -1,9 +1,13 @@
 using System.Text.Json.Serialization;
+using lucia.EvalHarness.Evaluation;
 
 namespace lucia.EvalHarness.Reports;
 
 public sealed class HtmlTestCaseData
 {
+    [JsonPropertyName("cost")]
+    public InferenceCostSummary Cost { get; init; } = InferenceCostSummary.Untracked;
+
     [JsonPropertyName("id")]
     public required string Id { get; init; }
 

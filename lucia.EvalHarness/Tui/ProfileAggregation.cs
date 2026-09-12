@@ -1,4 +1,5 @@
 using lucia.EvalHarness.Configuration;
+using lucia.EvalHarness.Evaluation;
 
 namespace lucia.EvalHarness.Tui;
 
@@ -19,4 +20,7 @@ internal sealed class ProfileAggregation
     public int TotalTests { get; init; }
     public double? AvgLatencyMs { get; init; }
     public double? PassRate => TotalTests > 0 ? (double)TotalPassed / TotalTests : null;
+    public InferenceCostSummary Cost { get; init; } = InferenceCostSummary.Untracked;
+    public int ExecutedTestCount { get; init; }
+    public decimal? MeanTestCostUsd => ExecutedTestCount > 0 ? Cost.EstimatedUsd / ExecutedTestCount : null;
 }

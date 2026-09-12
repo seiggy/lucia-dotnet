@@ -14,5 +14,11 @@ public enum InferenceBackendType
     /// OpenAI-compatible API (<c>/v1/chat/completions</c>).
     /// Works with llama.cpp, vLLM, LM Studio, and similar servers.
     /// </summary>
-    OpenAICompat
+    OpenAICompat,
+
+    /// <summary>Foundry deployments supporting the Azure OpenAI v1 Responses API.</summary>
+    AzureFoundry,
+
+    /// <summary>OpenRouter's OpenAI-compatible chat API and model pricing catalog.</summary>
+    OpenRouter
 }

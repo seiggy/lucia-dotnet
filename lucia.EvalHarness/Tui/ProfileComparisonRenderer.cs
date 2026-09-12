@@ -51,7 +51,8 @@ public static class ProfileComparisonRenderer
                 .AddColumn(new TableColumn("[bold]ToolEff[/]").RightAligned())
                 .AddColumn(new TableColumn("[bold]TaskComp[/]").RightAligned())
                 .AddColumn(new TableColumn("[bold]Pass Rate[/]").RightAligned())
-                .AddColumn(new TableColumn("[bold]Latency[/]").RightAligned());
+                .AddColumn(new TableColumn("[bold]Latency[/]").RightAligned())
+                .AddColumn(new TableColumn("[bold]Est. USD[/]").RightAligned());
 
             var bestScore = profileResults
                 .Select(profile => profile.AvgOverall)
@@ -59,10 +60,9 @@ public static class ProfileComparisonRenderer
                 .DefaultIfEmpty()
                 .Max();
 
-            foreach (var pr in profileResults.OrderByDescending(p => p.AvgOverall))
+            foreach (var pr in profileResults)
             {
-                var isBest = pr.AvgOverall.HasValue &&
-                    Math.Abs(pr.AvgOverall.Value - bestScore) < 0.01;
+                var isBest = pr.AvgOverall.HasValue && pr == profileResults[0];
                 var marker = isBest ? " [green]\u2b50[/]" : "";
                 var color = pr.AvgOverall >= bestScore * 0.95 ? "green"
                     : pr.AvgOverall >= bestScore * 0.8 ? "yellow" : "red";
@@ -75,7 +75,8 @@ public static class ProfileComparisonRenderer
                     FormatScore(pr.AvgToolEfficiency),
                     $"{FormatScore(pr.AvgTaskCompletion)}",
                     FormatPercent(pr.PassRate),
-                    FormatMs(pr.AvgLatencyMs));
+                    FormatMs(pr.AvgLatencyMs),
+                    Reports.CostReportFormatting.Cost(pr.Cost));
             }
 
             // Variance row
@@ -90,7 +91,7 @@ public static class ProfileComparisonRenderer
                 table.AddRow(
                     "[dim]Variance[/]",
                     $"[dim]\u03c3\u00b2={variance:F1} range={range:F1}[/]",
-                    "", "", "", "", "", "");
+                    "", "", "", "", "", "", "");
             }
 
             AnsiConsole.Write(table);
@@ -121,26 +122,25 @@ public static class ProfileComparisonRenderer
             }
 
             var bestScore = availableProfiles.Max(profile => profile.AvgOverall!.Value);
-            var bestProfile = availableProfiles.First(
-                profile => Math.Abs(profile.AvgOverall!.Value - bestScore) < 0.01);
+            var bestProfile = availableProfiles[0];
 
             sb.AppendLine($"### {modelName} (best: {bestProfile.ProfileName} @ {bestScore:F1})");
             sb.AppendLine();
-            sb.AppendLine("| Profile | Overall | ToolSel | ToolSucc | ToolEff | TaskComp | Pass Rate | Latency | \u0394 Best |");
-            sb.AppendLine("|---------|---------|---------|----------|---------|----------|-----------|---------|--------|");
+            sb.AppendLine("| Profile | Overall | ToolSel | ToolSucc | ToolEff | TaskComp | Pass Rate | Latency | \u0394 Best | Est. USD |");
+            sb.AppendLine("|---------|---------|---------|----------|---------|----------|-----------|---------|--------|----------|");
 
-            foreach (var pr in profileResults.OrderByDescending(p => p.AvgOverall))
+            foreach (var pr in profileResults)
             {
                 var delta = pr.AvgOverall.HasValue
                     ? pr.AvgOverall.Value - bestScore
                     : (double?)null;
-                var star = delta.HasValue && Math.Abs(delta.Value) < 0.01 ? " \u2b50" : "";
+                var star = pr == bestProfile ? " \u2b50" : "";
                 sb.AppendLine(
                     $"| {pr.ProfileName}{star} | {FormatScore(pr.AvgOverall)} | " +
                     $"{FormatScore(pr.AvgToolSelection)} | {FormatScore(pr.AvgToolSuccess)} | " +
                     $"{FormatScore(pr.AvgToolEfficiency)} | {FormatScore(pr.AvgTaskCompletion)} | " +
                     $"{FormatPercent(pr.PassRate)} | {FormatMs(pr.AvgLatencyMs)} | " +
-                    $"{FormatDelta(delta)} |");
+                    $"{FormatDelta(delta)} | {Reports.CostReportFormatting.Cost(pr.Cost)} |");
             }
 
             // Statistics
@@ -242,6 +242,8 @@ public static class ProfileComparisonRenderer
                         return new ProfileAggregation
                         {
                             ProfileName = profileGroup.Key,
+                            Cost = InferenceCostSummary.Aggregate(results.Select(result => result.Cost)),
+                            ExecutedTestCount = results.Sum(result => result.TestCaseResults.Count),
                             Profile = profileGroup.First().ParameterProfile!,
                             AvgOverall = Average(results.Select(m => m.OverallScore)),
                             AvgToolSelection = Average(results.Select(m => m.ToolSelectionScore)),
@@ -254,6 +256,9 @@ public static class ProfileComparisonRenderer
                                 .Select(m => (double?)m.Performance.MeanLatency.TotalMilliseconds))
                         };
                     })
+                    .OrderByDescending(profile => profile.AvgOverall)
+                    .ThenBy(profile => profile.MeanTestCostUsd ?? decimal.MaxValue)
+                    .ThenBy(profile => profile.ProfileName, StringComparer.Ordinal)
                     .ToList()))
             .ToList();
     }

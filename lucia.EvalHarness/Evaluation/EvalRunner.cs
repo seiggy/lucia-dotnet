@@ -85,6 +85,7 @@ public sealed class EvalRunner
 
             // Reset conversation tracer for this test case
             agentInstance.Tracer?.Reset();
+            using var costScope = agentInstance.BeginCostScope();
 
             EvaluationContext context;
             PerformanceSnapshot perf;
@@ -139,11 +140,13 @@ public sealed class EvalRunner
                     FailureReason = exception is OperationCanceledException or TimeoutException
                         ? "Agent provider request timed out."
                         : "Agent provider request failed.",
-                    Input = tc.Input
+                    Input = tc.Input,
+                    Cost = costScope?.Complete() ?? InferenceCostSummary.Untracked
                 });
                 continue;
             }
 
+            var cost = costScope?.Complete() ?? InferenceCostSummary.Untracked;
             double selectionScore = 0;
             double successScore = 0;
             double efficiencyScore = 0;
@@ -221,7 +224,8 @@ public sealed class EvalRunner
                 ToolCalls = toolCalls ?? CaptureToolCalls(context.ToolUsage),
                 ConversationHistory = agentInstance.Tracer?.Turns.ToList(),
                 JudgeStatus = judgeStatus,
-                JudgeReason = judgeReason
+                JudgeReason = judgeReason,
+                Cost = cost
             });
         }
 
@@ -396,7 +400,8 @@ public sealed class EvalRunner
         // Scenario evaluation requires conversation tracing for tool call validation.
         // Without a tracer, the conversation list is empty and every scenario reports
         // "Expected N tool call(s) but only got 0" — a silent false-failure.
-        if (agentInstance.Tracer is null && scenarios.Any(s => s.ExpectedToolCalls.Count > 0))
+        if (agentInstance.Tracer is null && scenarios.Any(s =>
+                s.ExpectedToolCalls.Count > 0 || !string.IsNullOrWhiteSpace(s.ResponseCriteria)))
         {
             throw new InvalidOperationException(
                 "Scenario evaluation requires conversation tracing (RealAgentFactory.EnableTracing = true) " +
@@ -424,6 +429,7 @@ public sealed class EvalRunner
 
             // Reset tracer for this scenario
             agentInstance.Tracer?.Reset();
+            using var costScope = agentInstance.BeginCostScope();
 
             try
             {
@@ -452,21 +458,71 @@ public sealed class EvalRunner
                 // Get conversation turns for validation
                 var conversation = agentInstance.Tracer?.Turns.ToList()
                     ?? new List<ConversationTurn>();
+                var cost = costScope?.Complete() ?? InferenceCostSummary.Untracked;
 
                 // Validate against scenario expectations
                 var validation = await ScenarioValidator.ValidateAsync(scenario, conversation, haClient);
+                var passed = validation.Passed;
+                double? score = validation.Score;
+                var failureReason = validation.Passed ? null : validation.Summary;
+                string? judgeStatus = null;
+                string? judgeReason = null;
+
+                if (!string.IsNullOrWhiteSpace(scenario.ResponseCriteria))
+                {
+                    if (_judgeChatClient is null)
+                    {
+                        judgeStatus = JudgeAvailability.NotConfigured;
+                    }
+                    else
+                    {
+                        try
+                        {
+                            var judgment = await LlmDeadline.RunAsync(
+                                token => ScenarioResponseJudge.EvaluateAsync(
+                                    _judgeChatClient, scenario.ResponseCriteria,
+                                    promptText, evalResult.ActualOutput ?? string.Empty, token),
+                                _config.JudgeTimeout, _timeProvider, ct,
+                                $"Response judge exceeded the {_config.JudgeTimeoutSeconds}s deadline for scenario '{scenario.Id}'.");
+                            judgeReason = judgment.Reason;
+                            passed &= judgment.Passed;
+                            score = 100d * (validation.Successes.Count + (judgment.Passed ? 1 : 0)) /
+                                    (validation.Successes.Count + validation.Issues.Count + 1);
+                            if (!judgment.Passed)
+                            {
+                                failureReason = (failureReason is null ? "" : failureReason + "; ") +
+                                                $"Response criteria failed: {judgment.Reason}";
+                            }
+                        }
+                        catch (Exception exception) when (JudgeAvailability.TryClassify(exception, ct, out var status))
+                        {
+                            judgeStatus = status;
+                        }
+                    }
+
+                    if (judgeStatus is not null)
+                    {
+                        passed = false;
+                        score = null;
+                        judgeReason = JudgeAvailability.Reason(judgeStatus);
+                        failureReason = (failureReason is null ? "" : failureReason + "; ") + judgeReason;
+                    }
+                }
 
                 testCaseResults.Add(new TestCaseResult
                 {
                     TestCaseId = scenario.Id,
-                    Passed = validation.Passed,
-                    Score = validation.Score,
+                    Passed = passed,
+                    Score = score,
                     Latency = perf.TotalDuration,
                     Input = promptText,
                     AgentOutput = evalResult.ActualOutput,
                     ToolCalls = CaptureToolCalls(evalResult.ToolUsage),
                     ConversationHistory = conversation,
-                    FailureReason = validation.Passed ? null : validation.Summary
+                    FailureReason = failureReason,
+                    JudgeStatus = judgeStatus,
+                    JudgeReason = judgeReason,
+                    Cost = cost
                 });
             }
             catch (Exception exception)
@@ -484,7 +540,8 @@ public sealed class EvalRunner
                     FailureReason = exception is OperationCanceledException or TimeoutException
                         ? "Provider request timed out."
                         : "Provider request failed.",
-                    Input = scenario.UserPrompt
+                    Input = scenario.UserPrompt,
+                    Cost = costScope?.Complete() ?? InferenceCostSummary.Untracked
                 });
             }
         }
@@ -502,6 +559,10 @@ public sealed class EvalRunner
             _ when scores.Count < testCaseResults.Count => JudgeAvailability.Partial,
             _ => null
         };
+        if (testCaseResults.Any(result => result.JudgeStatus is not null))
+        {
+            aggregateStatus = AggregateJudgeStatus(testCaseResults, scores.Count);
+        }
 
         return new ModelEvalResult
         {

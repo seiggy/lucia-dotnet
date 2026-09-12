@@ -32,12 +32,13 @@ public static class WelcomeScreen
             ? $"[green]\u2713[/] {Markup.Escape(config.Ollama.Endpoint)}"
             : $"[red]\u2717[/] {Markup.Escape(config.Ollama.Endpoint)} (unreachable)";
 
-        var judgeStatus = !string.IsNullOrWhiteSpace(config.AzureOpenAI.Endpoint)
-            ? $"[green]\u2713[/] {Markup.Escape(config.AzureOpenAI.JudgeDeployment)}"
+        var judgeStatus = config.JudgeProvider != JudgeProvider.None && !string.IsNullOrWhiteSpace(config.JudgeModelName)
+            ? $"[green]\u2713[/] {Markup.Escape(config.JudgeModelName)}"
             : "[yellow]Not configured[/] (LLM judge metrics disabled)";
 
         configTable.AddRow("Ollama Endpoint", ollamaStatus);
-        configTable.AddRow("Azure Judge Model", judgeStatus);
+        configTable.AddRow("Judge Provider", Markup.Escape(JudgeSelector.ProviderName(config.JudgeProvider)));
+        configTable.AddRow("Judge Model", judgeStatus);
         configTable.AddRow("GPU", Markup.Escape(gpuInfo.GpuLabel));
         configTable.AddRow("Report Path", config.ReportPath ?? "[dim]%TEMP%/lucia-eval-reports[/]");
 
@@ -46,8 +47,7 @@ public static class WelcomeScreen
 
         if (!ollamaAvailable)
         {
-            AnsiConsole.MarkupLine("[red bold]Ollama is not reachable.[/] Please start Ollama and try again.");
-            AnsiConsole.MarkupLine($"[dim]Expected at: {Markup.Escape(config.Ollama.Endpoint)}[/]");
+            AnsiConsole.MarkupLine("[red bold]No inference backend has available models.[/] Check the endpoints, credentials, and deployed models above.");
         }
 
         await Task.CompletedTask;

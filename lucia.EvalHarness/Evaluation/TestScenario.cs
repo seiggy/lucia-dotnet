@@ -1,5 +1,3 @@
-using System.Text.Json.Serialization;
-
 namespace lucia.EvalHarness.Evaluation;
 
 /// <summary>
@@ -29,7 +27,7 @@ public sealed class TestScenario
 
     /// <summary>
     /// Optional device area context (e.g., "Zack's Office").
-    /// When set, included in the system prompt context block.
+    /// When set, included in the request metadata header.
     /// </summary>
     public string? DeviceArea { get; init; }
 
@@ -64,45 +62,12 @@ public sealed class TestScenario
     /// </summary>
     public List<string> ResponseMustNotContain { get; init; } = [];
 
+    /// <summary>Optional semantic response criteria evaluated by the configured LLM judge.</summary>
+    public string? ResponseCriteria { get; init; }
+
     /// <summary>
     /// Expected entity states after the scenario completes.
     /// Validated against the FakeHA client's in-memory state.
     /// </summary>
     public Dictionary<string, EntityStateAssertion> ExpectedFinalState { get; init; } = [];
-}
-
-/// <summary>
-/// Defines an entity's initial state for scenario setup.
-/// </summary>
-public sealed class EntitySetup
-{
-    public required string State { get; init; }
-    public Dictionary<string, object>? Attributes { get; init; }
-}
-
-/// <summary>
-/// An expected tool call with optional argument assertions.
-/// </summary>
-public sealed class ExpectedToolCall
-{
-    /// <summary>The tool function name (e.g., "ControlLights", "GetLightsState").
-    /// AIFunctionFactory strips the "Async" suffix from method names; the validator
-    /// normalizes both expected and actual names so either form matches.</summary>
-    public required string Tool { get; init; }
-
-    /// <summary>
-    /// Argument matchers. Key = argument name, Value = expected value.
-    /// Use "*" for "any value", use "contains:text" for substring match.
-    /// Omitted arguments are not checked.
-    /// </summary>
-    public Dictionary<string, string> Arguments { get; init; } = [];
-}
-
-/// <summary>
-/// Post-scenario state assertion for an entity.
-/// </summary>
-public sealed class EntityStateAssertion
-{
-    public required string State { get; init; }
-    public Dictionary<string, string>? Attributes { get; init; }
 }

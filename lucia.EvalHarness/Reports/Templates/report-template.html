@@ -223,6 +223,15 @@ function scoreTextClass(s) {
   return 'text-red-400';
 }
 function passIcon(p) { return p ? '✓' : '✗'; }
+function fmtCost(cost) {
+  if (cost?.EstimatedUsd == null) return cost?.CostStatus === 'no_calls' ? 'Not run' : `Unknown (${esc(cost?.CostStatus || 'untracked')})`;
+  if (cost.EstimatedUsd > 0 && cost.EstimatedUsd < 1e-20) return `&lt;$0.00000000000000000001 (${esc(cost.CostStatus)})`;
+  const amount = cost.EstimatedUsd.toLocaleString('en-US', { maximumFractionDigits: 20 });
+  return `$${amount} (${esc(cost.CostStatus)})`;
+}
+function fmtTokens(cost) {
+  return [cost?.InputTokens, cost?.OutputTokens, cost?.CachedInputTokens].map(n => n == null ? '?' : n.toLocaleString('en-US')).join(' / ');
+}
 
 // ─── Derived Data ────────────────────────────────────────────────────────
 function allModelNames() {
@@ -249,6 +258,7 @@ function modelSummaries() {
 
 function bestModel() {
   const m = modelSummaries();
+  if (data.recommendations) return m[data.recommendations[0]?.ModelName];
   return Object.values(m).filter(x => x.avgScore != null).sort((a,b)=>b.avgScore - a.avgScore)[0];
 }
 function fastestModel() {
@@ -390,7 +400,7 @@ function renderSummary() {
         <div class="text-[11px] uppercase tracking-wider" style="color:var(--c-text3)">avg score</div>
       </div>
     </div>
-    ${best ? `<div class="mt-3 text-xs" style="color:var(--c-text2)">${best.passed}/${best.total} tests passed · ${fmtMs(best.avgLatency)} avg latency</div>` : ''}
+    ${best ? `<div class="mt-3 text-xs" style="color:var(--c-text2)">${best.passed}/${best.total} tests passed · ${fmtMs(best.avgLatency)} avg latency · Quality first; cost breaks ties</div>` : ''}
   </div>`;
 
   // Fastest model
@@ -562,7 +572,10 @@ function renderAgentModels(agent, ai) {
         <span>P95: <b class="font-mono">${fmtMs(hasPerformance ? pr.p95LatencyMs : null)}</b></span>
         <span>Min: <b class="font-mono">${fmtMs(hasPerformance ? pr.minLatencyMs : null)}</b></span>
         <span>Max: <b class="font-mono">${fmtMs(hasPerformance ? pr.maxLatencyMs : null)}</b></span>
+        <span>Tokens in / out / cached: <b class="font-mono">${fmtTokens(model.cost)}</b></span>
+        <span>Est. USD: <b class="font-mono">${fmtCost(model.cost)}</b></span>
       </div>
+      <p class="text-xs mb-4" style="color:var(--c-text2)">${esc(data.costNote)}</p>
 
       <!-- Test cases table -->
       ${tc.length ? `
@@ -574,6 +587,8 @@ function renderAgentModels(agent, ai) {
               <th class="sort-hdr text-center px-3 py-2 font-semibold" data-sort="${ai}-${mi}-passed">Result</th>
               <th class="sort-hdr text-right px-3 py-2 font-semibold" data-sort="${ai}-${mi}-score">Score</th>
               <th class="sort-hdr text-right px-3 py-2 font-semibold" data-sort="${ai}-${mi}-latencyMs">Latency</th>
+              <th class="text-right px-3 py-2 font-semibold">Tokens in / out / cached</th>
+              <th class="text-right px-3 py-2 font-semibold">Est. USD</th>
               <th class="text-left px-3 py-2 font-semibold" style="color:var(--c-text3)">Failure Reason</th>
             </tr>
           </thead>
@@ -599,6 +614,8 @@ function renderTestRows(cases) {
       </td>
       <td class="px-3 py-2 text-right font-mono font-medium" style="color:${scoreHsl(tc.score,1)}">${fmtScore(tc.score, tc.judgeStatus)}</td>
       <td class="px-3 py-2 text-right font-mono" style="color:var(--c-text2)">${fmtMs(available ? tc.latencyMs : null)}</td>
+      <td class="px-3 py-2 text-right font-mono">${fmtTokens(tc.cost)}</td>
+      <td class="px-3 py-2 text-right font-mono">${fmtCost(tc.cost)}</td>
       <td class="px-3 py-2 max-w-xs truncate" title="${esc(tc.failureReason)}" style="color:var(--c-fail)">${tc.failureReason ? esc(tc.failureReason) : '<span style="color:var(--c-text3)">—</span>'}</td>
     </tr>`;
   }).join('');
