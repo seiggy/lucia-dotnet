@@ -120,13 +120,12 @@ if (listModelsOnly)
     return availableBackends.Count > 0 ? 0 : 1;
 }
 
-// Legacy Ollama check for WelcomeScreen compat
-var ollamaAvailable = availableBackends.Count > 0;
+var anyBackendAvailable = availableBackends.Count > 0;
 
 // ─── Welcome Screen ──────────────────────────────────────────────────
-await WelcomeScreen.RenderAsync(config, gpuInfo, ollamaAvailable);
+await WelcomeScreen.RenderAsync(config, gpuInfo, anyBackendAvailable);
 
-if (!ollamaAvailable)
+if (!anyBackendAvailable)
 {
     return 1;
 }

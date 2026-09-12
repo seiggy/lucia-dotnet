@@ -12,7 +12,7 @@ public static class WelcomeScreen
     public static async Task RenderAsync(
         HarnessConfiguration config,
         GpuInfo gpuInfo,
-        bool ollamaAvailable)
+        bool anyBackendAvailable)
     {
         AnsiConsole.Write(new FigletText("lucia eval")
             .LeftJustified()
@@ -28,15 +28,15 @@ public static class WelcomeScreen
             .AddColumn("Setting")
             .AddColumn("Value");
 
-        var ollamaStatus = ollamaAvailable
-            ? $"[green]\u2713[/] {Markup.Escape(config.Ollama.Endpoint)}"
-            : $"[red]\u2717[/] {Markup.Escape(config.Ollama.Endpoint)} (unreachable)";
+        var backendStatus = anyBackendAvailable
+            ? "[green]\u2713[/] Models available"
+            : "[red]\u2717[/] None available";
 
         var judgeStatus = config.JudgeProvider != JudgeProvider.None && !string.IsNullOrWhiteSpace(config.JudgeModelName)
             ? $"[green]\u2713[/] {Markup.Escape(config.JudgeModelName)}"
             : "[yellow]Not configured[/] (LLM judge metrics disabled)";
 
-        configTable.AddRow("Ollama Endpoint", ollamaStatus);
+        configTable.AddRow("Inference Backends", backendStatus);
         configTable.AddRow("Judge Provider", Markup.Escape(JudgeSelector.ProviderName(config.JudgeProvider)));
         configTable.AddRow("Judge Model", judgeStatus);
         configTable.AddRow("GPU", Markup.Escape(gpuInfo.GpuLabel));
@@ -45,7 +45,7 @@ public static class WelcomeScreen
         AnsiConsole.Write(configTable);
         AnsiConsole.WriteLine();
 
-        if (!ollamaAvailable)
+        if (!anyBackendAvailable)
         {
             AnsiConsole.MarkupLine("[red bold]No inference backend has available models.[/] Check the endpoints, credentials, and deployed models above.");
         }
