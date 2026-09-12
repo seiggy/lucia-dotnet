@@ -169,7 +169,8 @@ public sealed partial class VoiceOnboardingWorkflow(
                     {
                         return Reply(Prompt(state));
                     }
-                    state.Enrollment = await enrollment.StartOnboardingAsync(state.Name!, null, ct).ConfigureAwait(false);
+                    state.Enrollment = await enrollment.StartVoiceOnboardingAsync(
+                        state.Name!, turn.Audio, turn.SampleRate, ct).ConfigureAwait(false);
                     state.Stage = VoiceOnboardingStage.Samples;
                     break;
                 case VoiceOnboardingStage.Samples:

@@ -60,15 +60,14 @@ public sealed class ContextReconstructor
     }
 
     /// <summary>
-    /// Reconstructs a full prompt string enriched with stored user context and recent chat history.
+    /// Reconstructs request context, enriching non-voice requests with legacy stored context.
     /// </summary>
     public async Task<string> ReconstructAsync(ConversationRequest request, CancellationToken ct = default)
     {
-        var effectiveUserId = request.Context.IsVoiceRequest
-            ? request.Context.EnrolledProfileId
-            : request.Context.UserId;
+        var effectiveUserId = request.Context.UserId;
 
-        if (string.IsNullOrWhiteSpace(effectiveUserId))
+        // Voice memories/history are supplied by scoped agent providers, not request text that is logged.
+        if (request.Context.IsVoiceRequest || string.IsNullOrWhiteSpace(effectiveUserId))
         {
             return Reconstruct(request);
         }

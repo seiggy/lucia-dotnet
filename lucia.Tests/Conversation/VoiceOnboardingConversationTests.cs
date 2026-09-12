@@ -29,6 +29,7 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
     private readonly ICommandRouter _router = A.Fake<ICommandRouter>();
     private readonly AgentHostTelemetrySource _telemetry = new();
     private readonly VoiceOnboardingService _enrollment;
+    private readonly TestDiarizationEngine _diarization;
     private readonly VoiceOnboardingWorkflow _workflow;
     private readonly ConversationCommandProcessor _processor;
     private string _conversationId = "conversation-1";
@@ -39,8 +40,9 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
         A.CallTo(() => _router.RouteAsync(A<string>._, A<CancellationToken>._))
             .Returns(CommandRouteResult.NoMatch(TimeSpan.Zero));
         var options = new VoiceProfileOptions { AudioClipBasePath = _clipPath, OnboardingSampleCount = 3 };
+        _diarization = new TestDiarizationEngine(embeddingVector: _embedding);
         _enrollment = new VoiceOnboardingService(
-            new TestDiarizationEngine(embeddingVector: _embedding), _profiles, new AudioQualityAnalyzer(Options.Create(options)),
+            _diarization, _profiles, new AudioQualityAnalyzer(Options.Create(options)),
             Options.Create(options), NullLogger<VoiceOnboardingService>.Instance);
         _workflow = new VoiceOnboardingWorkflow(
             _enrollment, new TestDiarizationEngine(), _memories,
@@ -60,6 +62,52 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
             voiceTurns: _turns,
             speakerProfiles: _profiles,
             onboarding: _workflow);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task SatelliteTurns_PromoteOnlyTheMatchingProvisionalProfile(bool matches)
+    {
+        const string ProvisionalId = "unknown-existing";
+        await _profiles.CreateAsync(new SpeakerProfile
+        {
+            Id = ProvisionalId,
+            Name = "Unknown Speaker 1",
+            IsProvisional = true,
+            IsAuthorized = false,
+            AverageEmbedding = matches ? [.. _embedding] : _embedding.Select(value => -value).ToArray()
+        }, CancellationToken.None);
+        _diarization.Identification = matches
+            ? new SpeakerIdentification { ProfileId = ProvisionalId, Name = "Unknown Speaker 1", Similarity = 1, IsAuthorized = false }
+            : null;
+
+        await SayAsync("onboard me");
+        await SayAsync("yes");
+        await SayAsync("Alice");
+        await SayAsync("skip");
+        await SayAsync("skip");
+        var response = await SayAsync("yes");
+        for (var index = 0; index < 3; index++)
+        {
+            response = await SayAsync(GetPhrase(response));
+        }
+
+        Assert.False(response.NeedsInput);
+        var profile = Assert.Single(await _profiles.GetEnrolledProfilesAsync(CancellationToken.None));
+        Assert.Equal("Alice", profile.Name);
+        Assert.Equal("Alice", await _memories.RetrieveAsync(profile.Id, "preferred_name"));
+        if (matches)
+        {
+            Assert.Equal(ProvisionalId, profile.Id);
+            Assert.Empty(await _profiles.GetProvisionalProfilesAsync(CancellationToken.None));
+        }
+        else
+        {
+            Assert.NotEqual(ProvisionalId, profile.Id);
+            Assert.Equal(ProvisionalId, Assert.Single(await _profiles.GetProvisionalProfilesAsync(CancellationToken.None)).Id);
+        }
+        A.CallTo(() => _router.RouteAsync(A<string>._, A<CancellationToken>._)).MustNotHaveHappened();
     }
 
     [Fact]
@@ -186,7 +234,7 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
     [InlineData("provisional")]
     [InlineData("revoked")]
     [InlineData("non-finite")]
-    public async Task Memories_UseVerifiedProfileId_NotSpeakerNameOrHaServiceAccount(string mode)
+    public async Task VoiceRequests_CarryVerifiedMemoryIdentityWithoutEmbeddingStoredMemories(string mode)
     {
         await _profiles.CreateAsync(new SpeakerProfile
         {
@@ -210,7 +258,7 @@ public sealed class VoiceOnboardingConversationTests : IDisposable
             : await ProcessAsync("What do you know about me?", speaker: speaker);
 
         Assert.NotNull(result.LlmPrompt);
-        Assert.Equal(mode == "verified", result.LlmPrompt.Contains("drink: coffee", StringComparison.Ordinal));
+        Assert.DoesNotContain("drink: coffee", result.LlmPrompt);
         Assert.DoesNotContain("drink: tea", result.LlmPrompt);
         Assert.DoesNotContain("drink: lemonade", result.LlmPrompt);
         Assert.DoesNotContain("drink: water", result.LlmPrompt);

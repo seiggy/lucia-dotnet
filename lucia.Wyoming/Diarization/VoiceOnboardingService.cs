@@ -99,6 +99,47 @@ public sealed class VoiceOnboardingService : BackgroundService
         return session;
     }
 
+    public async Task<OnboardingSession> StartVoiceOnboardingAsync(
+        string speakerName,
+        ReadOnlyMemory<float> audioSamples,
+        int sampleRate,
+        CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(speakerName);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(sampleRate);
+        ct.ThrowIfCancellationRequested();
+        if (audioSamples.IsEmpty)
+        {
+            throw new ArgumentException("Voice enrollment requires captured audio.", nameof(audioSamples));
+        }
+
+        string? provisionalId = null;
+        var provisionals = await _profileStore.GetProvisionalProfilesAsync(ct).ConfigureAwait(false);
+        if (provisionals.Count > 0)
+        {
+            var embedding = _diarization.ExtractEmbedding(audioSamples.Span, sampleRate);
+            if (embedding.Vector.Length == 0 || embedding.Vector.Any(value => !float.IsFinite(value)) ||
+                !(embedding.CosineSimilarity(embedding) > 0))
+            {
+                throw new InvalidOperationException("Could not match a voice profile from this recording. Please repeat.");
+            }
+
+            var candidates = provisionals.Where(profile =>
+                profile.IsProvisional &&
+                profile.AverageEmbedding.Length == embedding.Vector.Length &&
+                profile.AverageEmbedding.All(float.IsFinite)).ToList();
+            var match = _diarization.IdentifySpeaker(embedding, candidates, _options.ProvisionalMatchThreshold);
+            if (match is not null && float.IsFinite(match.Similarity) &&
+                match.Similarity >= _options.ProvisionalMatchThreshold &&
+                candidates.Any(profile => profile.Id == match.ProfileId))
+            {
+                provisionalId = match.ProfileId;
+            }
+        }
+
+        return await StartOnboardingAsync(speakerName, provisionalId, ct).ConfigureAwait(false);
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         await TryRecoverOnboardingClipsAsync(stoppingToken).ConfigureAwait(false);
