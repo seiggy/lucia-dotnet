@@ -1,6 +1,7 @@
 # Music Agent Evaluation Scenarios
 # Each scenario defines: known HA state -> user prompt -> expected tool calls -> expected outcome
-# Entity IDs are real values from the HA snapshot
+# Office, bedroom, and Yamaha entity IDs come from the HA snapshot.
+# Speaker names and areas are explicit fixture data; the kitchen STT player is injected.
 
 scenarios:
 
@@ -8,11 +9,13 @@ scenarios:
   - id: play_artist_kitchen
     description: "Play an artist on a specific speaker"
     category: control
+    device_area: "Zack's Office"
     initial_state:
       media_player.zack_s_office_satellite1_media_player:
+        area: "Zack's Office"
         state: "idle"
         attributes:
-          friendly_name: "Zack's Office Satellite1 Media Player"
+          friendly_name: "Office Speaker"
           volume_level: 0.5
     user_prompt: "Play The Cure on the office speaker"
     expected_tool_calls:
@@ -29,11 +32,13 @@ scenarios:
   - id: play_album_with_artist
     description: "Play a specific album with artist disambiguation"
     category: control
+    device_area: "Bedroom"
     initial_state:
       media_player.bedroom_satellite1_media_player:
+        area: "Bedroom"
         state: "idle"
         attributes:
-          friendly_name: "Bedroom Satellite1 Media Player"
+          friendly_name: "Bedroom Speaker"
           volume_level: 0.4
     user_prompt: "Play the album Random Access Memories by Daft Punk in the bedroom"
     expected_tool_calls:
@@ -51,11 +56,13 @@ scenarios:
   - id: play_specific_song
     description: "Play a specific song by artist"
     category: control
+    device_area: "Zack's Office"
     initial_state:
       media_player.zack_s_office_satellite1_media_player:
+        area: "Zack's Office"
         state: "idle"
         attributes:
-          friendly_name: "Zack's Office Satellite1 Media Player"
+          friendly_name: "Office Speaker"
           volume_level: 0.6
     user_prompt: "Play the song Shivers by Ed Sheeran in the office"
     expected_tool_calls:
@@ -73,11 +80,13 @@ scenarios:
   - id: play_genre_jazz
     description: "Play a genre mix on a speaker"
     category: control
+    device_area: "Bedroom"
     initial_state:
       media_player.bedroom_satellite1_media_player:
+        area: "Bedroom"
         state: "idle"
         attributes:
-          friendly_name: "Bedroom Satellite1 Media Player"
+          friendly_name: "Bedroom Speaker"
           volume_level: 0.3
     user_prompt: "Play some jazz in the bedroom"
     expected_tool_calls:
@@ -92,11 +101,13 @@ scenarios:
   - id: shuffle_random_tracks
     description: "Shuffle random tracks on a speaker"
     category: control
+    device_area: "Zack's Office"
     initial_state:
       media_player.zack_s_office_satellite1_media_player:
+        area: "Zack's Office"
         state: "idle"
         attributes:
-          friendly_name: "Zack's Office Satellite1 Media Player"
+          friendly_name: "Office Speaker"
           volume_level: 0.5
     user_prompt: "Just shuffle something on the office speaker"
     expected_tool_calls:
@@ -111,11 +122,13 @@ scenarios:
   - id: stop_music
     description: "Stop music playback (tests stop on an idle player)"
     category: control
+    device_area: "Bedroom"
     initial_state:
       media_player.bedroom_satellite1_media_player:
+        area: "Bedroom"
         state: "idle"
         attributes:
-          friendly_name: "Bedroom Satellite1 Media Player"
+          friendly_name: "Bedroom Speaker"
           volume_level: 0.5
     user_prompt: "Stop the music in the bedroom"
     expected_tool_calls:
@@ -127,11 +140,13 @@ scenarios:
   - id: set_volume_50
     description: "Set volume to a specific level"
     category: control
+    device_area: "Zack's Office"
     initial_state:
       media_player.zack_s_office_satellite1_media_player:
+        area: "Zack's Office"
         state: "idle"
         attributes:
-          friendly_name: "Zack's Office Satellite1 Media Player"
+          friendly_name: "Office Speaker"
           volume_level: 0.3
     user_prompt: "Set volume to 50% on the office speaker"
     expected_tool_calls:
@@ -147,11 +162,13 @@ scenarios:
   - id: volume_up
     description: "Turn the volume up"
     category: control
+    device_area: "Bedroom"
     initial_state:
       media_player.bedroom_satellite1_media_player:
+        area: "Bedroom"
         state: "idle"
         attributes:
-          friendly_name: "Bedroom Satellite1 Media Player"
+          friendly_name: "Bedroom Speaker"
           volume_level: 0.4
     user_prompt: "Turn up the volume on the bedroom speaker"
     expected_tool_calls:
@@ -166,11 +183,13 @@ scenarios:
   - id: volume_down
     description: "Turn the volume down"
     category: control
+    device_area: "Zack's Office"
     initial_state:
       media_player.zack_s_office_satellite1_media_player:
+        area: "Zack's Office"
         state: "idle"
         attributes:
-          friendly_name: "Zack's Office Satellite1 Media Player"
+          friendly_name: "Office Speaker"
           volume_level: 0.8
     user_prompt: "Turn down the volume on the office speaker"
     expected_tool_calls:
@@ -185,8 +204,10 @@ scenarios:
   - id: find_player_by_name
     description: "Find a player by name"
     category: control
+    device_area: "Living Room"
     initial_state:
       media_player.yamaha_speakers:
+        area: "Living Room"
         state: "off"
         attributes:
           friendly_name: "Yamaha Speakers"
@@ -200,17 +221,19 @@ scenarios:
   - id: stt_fuzzy_play_cure_kitchen
     description: "Handle STT transcription errors (misspelled kitchen and speaker)"
     category: stt-robustness
+    device_area: "Kitchen"
     initial_state:
-      media_player.zack_s_office_satellite1_media_player:
+      media_player.kitchen_speaker:
+        area: "Kitchen"
         state: "idle"
         attributes:
-          friendly_name: "Zack's Office Satellite1 Media Player"
+          friendly_name: "Kitchen Speaker"
           volume_level: 0.5
     user_prompt: "play the cure on the kichen speeker"
     expected_tool_calls:
       - tool: FindPlayer
         arguments:
-          playerName: "*"
+          playerName: "contains:kitchen"
       - tool: PlayArtist
         arguments:
           artist: "contains:Cure"
