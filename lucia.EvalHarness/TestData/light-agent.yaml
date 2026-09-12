@@ -80,18 +80,30 @@ scenarios:
     device_area: "Zack's Office"
     initial_state:
       light.guest_room_fan_white_light:
+        area: "Dianna's Office"
         state: "off"
         attributes:
-          friendly_name: "Guest Room Fan White Light"
+          friendly_name: "Dianna's Office Fan White Light"
       light.guest_room_fan_yellow_light:
+        area: "Dianna's Office"
         state: "off"
         attributes:
-          friendly_name: "Guest Room Fan Yellow Light"
+          friendly_name: "Dianna's Office Fan Yellow Light"
+      light.office_fan_white_light:
+        area: "Zack's Office"
+        state: "off"
+        attributes:
+          friendly_name: "Office White Light"
+      light.office_fan_yellow_light:
+        area: "Zack's Office"
+        state: "off"
+        attributes:
+          friendly_name: "Office Yellow Light"
     user_prompt: "Turn on my office lights"
     expected_tool_calls:
       - tool: ControlLights
         arguments:
-          searchTerms: "contains:office"
+          searchTerms: "contains:Dianna's Office"
           state: "on"
     response_must_contain:
       - "on"
@@ -100,6 +112,10 @@ scenarios:
         state: "on"
       light.guest_room_fan_yellow_light:
         state: "on"
+      light.office_fan_white_light:
+        state: "off"
+      light.office_fan_yellow_light:
+        state: "off"
 
   # --- Query: Get State (on) ---
   - id: query_kitchen_state_on
@@ -175,9 +191,12 @@ scenarios:
     category: out-of-domain
     user_prompt: "What's the weather like today?"
     expected_tool_calls: []
-    response_must_not_contain:
-      - "turn"
-      - "brightness"
+    response_criteria: >
+      The response declines to answer or appropriately redirects the weather
+      request. General refusal language is sufficient; it does not have to mention
+      lighting or explain why it cannot help. No specific phrase or apology is
+      required. Describing its lighting capabilities is allowed. It must not
+      provide a weather forecast or claim to have changed any lights.
 
   - id: out_of_domain_thermostat
     description: "Redirect climate request to correct agent"
